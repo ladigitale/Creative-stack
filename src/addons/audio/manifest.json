@@ -2,13 +2,14 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "audio",
   "label": "Audio (synthèse modulaire)",
-  "description": "Moteur audio partagé (un seul AudioContext, master limité) et synthèse modulaire déclarative : sonic-patch + modules, bibliothèque de patches, pilotage par DataProvider.",
+  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, bibliothèque), séquenceur à mini-notation, sampler et analyseur (DP + texture shader), tout piloté par DataProvider.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
   "docs": "audio.md",
   "examples": [
-    "examples/premier-son.sdui.json"
+    "examples/premier-son.sdui.json",
+    "examples/vie-sonore.sdui.json"
   ],
   "components": [
     {
@@ -400,6 +401,111 @@
         },
         "max": {
           "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-sequencer",
+      "description": "Horloge musicale : pattern {idInstrument: 'mini-notation' | {notes, scale, pad: 'x..x'}} joué sur des instruments par id ; store=id reçoit {type:step, payload:{step,beat,bar,phase,when,bpm}} ; control DP {playing,bpm,swing,seed,pattern}",
+      "props": {
+        "pattern": {
+          "type": "object"
+        },
+        "bpm": {
+          "type": "number"
+        },
+        "swing": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "number"
+        },
+        "beats": {
+          "type": "number"
+        },
+        "steps-per-beat": {
+          "type": "number"
+        },
+        "playing": {
+          "type": "boolean"
+        },
+        "control": {
+          "type": "string"
+        },
+        "store": {
+          "type": "string"
+        },
+        "lookahead-ms": {
+          "type": "number"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-sampler",
+      "description": "Sampler : samples {nom: url https/blob | {url|ref(DP SonicMediaRef), gain, pan, pitch, root, start, end, loop, reverse, gate}} ; événements {sample} ou {note} chromatique ; choke [[a,b]]",
+      "props": {
+        "samples": {
+          "type": "object"
+        },
+        "samples-provider": {
+          "type": "string"
+        },
+        "choke": {
+          "type": "array"
+        },
+        "notes-map": {
+          "type": "object"
+        },
+        "chromatic": {
+          "type": "string"
+        },
+        "gain": {
+          "type": "number"
+        },
+        "output": {
+          "type": "string"
+        },
+        "events": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-audio-analyser",
+      "description": "Analyse master ou #id : DP {rms, peak, db, bands[], centroidHz, onset, onsetCount, pitchHz} + texture lisible par sonic-shader channel0='#id' (ligne 0 spectre, ligne 1 onde)",
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "rate": {
+          "type": "number"
+        },
+        "bands": {
+          "type": "number"
+        },
+        "fft": {
+          "type": "number"
+        },
+        "smoothing": {
+          "type": "number"
+        },
+        "pitch": {
+          "type": "boolean"
+        },
+        "onset-threshold": {
+          "type": "number"
+        },
+        "out-data-provider": {
+          "type": "string"
         }
       }
     },

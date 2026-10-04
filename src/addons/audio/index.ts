@@ -5,6 +5,11 @@
 export { SonicAudioUnlock } from "./unlock";
 export { SonicAudioMaster } from "./master";
 export { SonicPatch, type PatchState } from "./patch";
+export { SonicSequencer, type SequencerState } from "./sequencer";
+export { SonicSampler, safeSampleUrl, type SamplerState, type SampleSpec } from "./sampler";
+export { SonicAudioAnalyser, estimatePitch, type AnalyserState } from "./analyser";
+export { compilePattern, SequencerCore } from "./seq/core";
+export { parseLine, eventsForCycle, euclid, SCALES } from "./seq/mini";
 export { MODULE_TAGS } from "./modules-elements";
 export { compilePatch, domToPatchNodes, type CompiledPatch, type PatchNode } from "./patch/compile";
 export { PatchRuntime } from "./patch/runtime";

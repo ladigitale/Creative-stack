@@ -47,31 +47,31 @@ type SonicNoteEvent = {
 |---|---|---|---|---|
 | — | `sound` | `sonic-sound` | Bruitages, sons d'interface, musiques et jingles depuis une banque JSON | **fait** |
 | — | `sound` | `sonic-sfx` | Son au clic / survol des enfants | **fait** |
-| 1 | socle | `AudioEngine` | Contexte unique, déverrouillage, master + limiteur, DP `audio` || **fait** |
-| 1 | `audio` | `sonic-audio-unlock` | Bouton « Activer le son », caché une fois déverrouillé || **fait** |
-| 1 | `audio` | `sonic-audio-master` | Volume, muet du master, depuis un DP || **fait** |
-| 1 | `audio` | `sonic-patch` | Instrument modulaire : compile ses modules, une voix WebAudio par note, `SonicInstrument` || **fait** |
-| 1 | `audio` | `sonic-voice` | Portée « par note » à l'intérieur d'un patch || **fait** |
-| 1 | `audio` | `sonic-osc` | Oscillateur (formes, `harmonics`, `octave`, `semi`, `detune`, `fm`) || **fait** |
-| 1 | `audio` | `sonic-noise` | Bruit blanc / rose / brun || **fait** |
-| 1 | `audio` | `sonic-mixer` | Somme pondérée || **fait** |
-| 1 | `audio` | `sonic-filter` | Filtre biquad || **fait** |
-| 1 | `audio` | `sonic-vca` | Ampli (gain souvent piloté par une enveloppe) || **fait** |
-| 1 | `audio` | `sonic-env` | ADSR déclenchée par la note || **fait** |
-| 1 | `audio` | `sonic-lfo` | LFO, libre ou calé sur le tempo || **fait** |
-| 1 | `audio` | `sonic-shaper` | Saturation / wavefold simple || **fait** |
-| 1 | `audio` | `sonic-pan` | Panoramique || **fait** |
-| 1 | `audio` | `sonic-delay` | Délai, seul moyen d'autoriser une rétroaction || **fait** |
-| 1 | `audio` | `sonic-reverb` | Réverbération à réponse générée (sans fichier) || **fait** |
-| 1 | `audio` | `sonic-chorus` | Chorus / flanger || **fait** |
-| 1 | `audio` | `sonic-comp` | Compresseur || **fait** |
-| 1 | `audio` | `sonic-mod` | Câble de modulation `from` → `to`, `amount` || **fait** |
-| 1 | `audio` | `sonic-param` | Paramètre lu dans un DP, avec rampe ; `expose` pour les patches de bibliothèque || **fait** |
-| 1 | `audio` | bibliothèque | `synth/lead bass pad pluck fm-bell chip`, `drums/kick snare hat kit` (`sonic-patch preset="…"`) || **fait** |
-| 2 | `audio` | `sonic-sequencer` | Horloge musicale (lookahead), mini-notation, euclide, probabilité, graine ; mode direct et mode store | |
-| 2 | `audio` | `sonic-sampler` | Samples (URL, `SonicMediaRef`), choke, transposition | |
+| 1 | socle | `AudioEngine` | Contexte unique, déverrouillage, master + limiteur, DP `audio` | **fait** |
+| 1 | `audio` | `sonic-audio-unlock` | Bouton « Activer le son », caché une fois déverrouillé | **fait** |
+| 1 | `audio` | `sonic-audio-master` | Volume, muet du master, depuis un DP | **fait** |
+| 1 | `audio` | `sonic-patch` | Instrument modulaire : compile ses modules, une voix WebAudio par note, `SonicInstrument` | **fait** |
+| 1 | `audio` | `sonic-voice` | Portée « par note » à l'intérieur d'un patch | **fait** |
+| 1 | `audio` | `sonic-osc` | Oscillateur (formes, `harmonics`, `octave`, `semi`, `detune`, `fm`) | **fait** |
+| 1 | `audio` | `sonic-noise` | Bruit blanc / rose / brun | **fait** |
+| 1 | `audio` | `sonic-mixer` | Somme pondérée | **fait** |
+| 1 | `audio` | `sonic-filter` | Filtre biquad | **fait** |
+| 1 | `audio` | `sonic-vca` | Ampli (gain souvent piloté par une enveloppe) | **fait** |
+| 1 | `audio` | `sonic-env` | ADSR déclenchée par la note | **fait** |
+| 1 | `audio` | `sonic-lfo` | LFO, libre ou calé sur le tempo | **fait** |
+| 1 | `audio` | `sonic-shaper` | Saturation / wavefold simple | **fait** |
+| 1 | `audio` | `sonic-pan` | Panoramique | **fait** |
+| 1 | `audio` | `sonic-delay` | Délai, seul moyen d'autoriser une rétroaction | **fait** |
+| 1 | `audio` | `sonic-reverb` | Réverbération à réponse générée (sans fichier) | **fait** |
+| 1 | `audio` | `sonic-chorus` | Chorus / flanger | **fait** |
+| 1 | `audio` | `sonic-comp` | Compresseur | **fait** |
+| 1 | `audio` | `sonic-mod` | Câble de modulation `from` → `to`, `amount` | **fait** |
+| 1 | `audio` | `sonic-param` | Paramètre lu dans un DP, avec rampe ; `expose` pour les patches de bibliothèque | **fait** |
+| 1 | `audio` | bibliothèque | `synth/lead bass pad pluck fm-bell chip`, `drums/kick snare hat kit` (`sonic-patch preset="…"`) | **fait** |
+| 2 | `audio` | `sonic-sequencer` | Horloge musicale (lookahead), mini-notation, euclide, probabilité, graine ; mode direct et mode store | **fait** |
+| 2 | `audio` | `sonic-sampler` | Samples (URL, `SonicMediaRef`), choke, transposition | **fait** |
 | 2 | `audio` | `sonic-sample-osc` | Sample joué comme oscillateur dans un patch | |
-| 2 | `audio` | `sonic-audio-analyser` | `rms`, `peak`, `bands`, `onset`, `pitchHz` en DP + texture `#spectre` pour shader | |
+| 2 | `audio` | `sonic-audio-analyser` | `rms`, `peak`, `bands`, `onset`, `pitchHz` en DP + texture `#spectre` pour shader | **fait** |
 | 3 | `audio` | `sonic-mic` | Micro (jamais vers le master par défaut) | |
 | 3 | `media` | `sonic-camera` | Caméra, aperçu, `snapshot` → `SonicMediaRef`, source de frames pour shader | |
 | 3 | `media` | `sonic-video` | Lecteur propriétaire de sa `<video>`, pilotage DP, son routable vers l'`AudioEngine` | |
@@ -106,6 +106,16 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 3. **Chaîne implicite et `in` explicite**, les deux : courte pour les petits patches, explicite quand ça compte. La doc recommande `in` dès qu'un patch dépasse une chaîne simple.
 4. **Vue graphique du patch : plus tard** (après la phase 2).
 5. **`sound` reste un addon à part** (simple, orienté jeu, banque JSON) mais passe sur l'`AudioEngine` partagé dès la phase 1, pour qu'un jeu puisse mêler `sonic-sound` et des `sonic-patch` sur le même master.
+
+## Phase 2 — critères d'acceptation (validés)
+
+- [x] Mini-notation : suite table-driven (59 cas, entrées invalides comprises).
+- [x] Gigue : 64 pas à 140 bpm enregistrés (MediaRecorder) : écart maximal 0,09 ms à la grille (objectif < 2 ms) ; programmation exacte à 0 µs.
+- [x] Même graine → mêmes événements.
+- [x] `sonic-shader channel0="#spectre"` reçoit une texture mise à jour à chaque image.
+- [x] Sampler : blob WAV transposé (A4 → A5 = 880 Hz), URL dangereuse refusée.
+- [x] Démo « Vie sonore » zéro JS : jeu de la vie en store, séquenceur en mode store, pluck + kit, fond shader piloté par l'analyseur.
+- [ ] `sonic-sample-osc` (sample comme oscillateur de patch) : reporté.
 
 ## Ce qui reste côté Concorde (prompt Cursor, non bloquant)
 

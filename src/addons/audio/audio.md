@@ -16,6 +16,9 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 | `sonic-delay` `sonic-reverb` `sonic-chorus` `sonic-comp` | Effets |
 | `sonic-mod` | Câble de modulation |
 | `sonic-param` | Paramètre lu dans un DataProvider, ou exposé au preset |
+| `sonic-sequencer` | Horloge musicale : motifs en mini-notation joués sur des instruments, ou pas envoyés à un store |
+| `sonic-sampler` | Joue des samples (URL, enregistrement en DataProvider), par nom ou chromatiquement |
+| `sonic-audio-analyser` | Niveaux, bandes, attaques, hauteur en DataProvider + texture pour `sonic-shader` |
 | `sonic-audio-unlock` | Bouton « Activer le son » (caché une fois actif) |
 | `sonic-audio-master` | Volume / muet du master |
 
@@ -143,9 +146,79 @@ La note jouée au moment même où l'utilisateur active le son n'est pas perdue 
 
 `to="flt.freq-hz"` + au choix `source="game.cutoff"` (DP, rampe `ramp-s`, bornes `min` / `max`), `expose="cutoff"` (réglable par `params` du patch), `value="900"`. Un paramètre non modulable (`a`, `d`, `wave`…) s'applique aux notes suivantes.
 
+## Séquenceur (`sonic-sequencer`)
+
+Horloge calée sur l'audio (ordonnancement anticipé : précision à l'échantillon, mesurée à 0,1 ms près). Deux usages, cumulables :
+
+**Direct** — `pattern` joue des lignes sur des instruments désignés par leur `id` (`sonic-patch`, `sonic-sampler`) :
+
+```json
+{ "tagName": "sonic-sequencer", "attributes": {
+  "id": "seq", "bpm": "112", "swing": "0.1", "control": "game.transport",
+  "pattern": "{\"kit\":{\"kick\":\"x...x...x...x...\",\"snare\":\"....x.......x...\",\"hat\":\"[..x.]*4\"},\"bass\":{\"notes\":\"0 ~ 0 [2 4]\",\"scale\":\"a2:minor-pentatonic\"},\"lead\":\"<c5 e5 g5 [a5 g5]>\"}" } }
+```
+
+- Clé de premier niveau = `id` de l'instrument.
+- Valeur chaîne = ligne de notes. Valeur objet : `notes` (ligne de notes) et/ou des lignes de pads (`"kick": "x..."` envoie `{ sample: "kick" }`), plus `scale` (`"a:minor-pentatonic"`, `"c3:dorian"`…), `octave`, `vel` (0.8), `gate` (part de la case tenue, 0.9), `transpose`.
+
+**Store** — `store="life"` envoie à chaque pas, en avance de `lookahead-ms` (100), l'action `{ type: "step", payload: { step, beat, bar, phase, when, bpm } }`. Le reducer écrit des notes avec ce `when` dans un DataProvider lu par un instrument (`events`) : la musique calculée tombe exactement sur le temps. Le reducer doit répondre en moins de `lookahead-ms` (augmenter `budget-ms` du store et `lookahead-ms` pour un reducer lourd).
+
+**Pilotage** : `control` (DP) `{ playing, bpm, swing, seed, pattern }` ; attributs `playing`, `bpm`, `swing`, `seed`, `beats` (4), `steps-per-beat` (4). Le tempo change sans saut. Le séquenceur démarre au premier geste si `playing` est vrai.
+
+**État** (`out-data-provider`, défaut `<id>State`) : `{ status, playing, bpm, swing, step, beat, bar, phase, errors, warnings }`, publié quand le pas est **entendu** (latence de sortie comprise).
+
+### Mini-notation
+
+Une ligne décrit **une mesure** ; ses éléments se partagent le temps.
+
+| Écriture | Sens |
+|---|---|
+| `x...x...x...x...` | grille : un caractère par pas (`x` frappe, `X` accent, `.` silence) |
+| `c4 e4 g4 b4` | 4 notes réparties sur la mesure |
+| `c4 [e4 g4]` | sous-division |
+| `~` ou `.` | silence |
+| `c4 - e4 _` | `-` / `_` prolongent l'élément précédent |
+| `<c4 e4 g4>` | alternance : un élément par mesure |
+| `x*4` `[x .]*2` | répétition dans la case |
+| `c4!3` | duplication en 3 cases |
+| `c4@3 e4` | poids (c4 dure 3 fois plus) |
+| `x?0.3` | probabilité (défaut 0.5), tirage déterministe : même `seed`, même musique |
+| `x(3,8)` `x(3,8,2)` | rythme euclidien (k frappes sur n pas, rotation à gauche) |
+| `[c4, e4, g4]` ou `c4+e4+g4` | accord |
+| `0 2 4 7` | degrés de `scale` (sinon notes MIDI) |
+
+Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 3e quart) ; pour répéter : `[..x.]*4`.
+
+## Sampler (`sonic-sampler`)
+
+```json
+{ "tagName": "sonic-sampler", "attributes": {
+  "id": "drums",
+  "samples": "{\"kick\":\"https://exemple.org/kick.wav\",\"snare\":{\"url\":\"https://exemple.org/snare.wav\",\"gain\":0.8},\"voix\":{\"ref\":\"rec.last\",\"root\":\"C4\"}}",
+  "choke": "[[\"hat\",\"openhat\"]]" } }
+```
+
+- Sources : URL `https:`, `blob:`, `data:audio/…` ou relative ; ou `ref` = DataProvider contenant un `SonicMediaRef` (`{ url }`), par exemple un enregistrement.
+- Par sample : `gain`, `pan`, `pitch` (demi-tons), `root` (note de référence pour jouer chromatiquement), `start`, `end` (s), `loop`, `reverse`, `gate` (couper à la fin de la note ; sinon le sample est joué en entier).
+- Événements : `{ sample: "kick" }`, ou `{ note: "E4" }` (sample `chromatic`, sinon le premier qui a un `root` ; `notes-map` pour associer des notes à des noms).
+- `choke` : groupes où jouer un sample coupe les autres (charleston ouvert / fermé).
+- Mêmes `events` / `trigger` / `output` que `sonic-patch`. État : `{ status, loaded, total, samples, voices, played, errors }`. Les samples sont décodés avant même le premier geste.
+
+## Analyseur (`sonic-audio-analyser`)
+
+```json
+{ "tagName": "sonic-audio-analyser", "attributes": { "id": "spectre", "source": "master", "bands": "16", "rate": "30" } }
+```
+
+- `source` : `master` (défaut) ou `#id` d'un patch / sampler (suivi même si le patch est recompilé).
+- État (`out-data-provider`, défaut `<id>State`) : `rms`, `peak`, `db`, `bands` (0..1, échelle log 40 Hz – 16 kHz), `centroidHz`, `onset` (attaque à cette mise à jour), `onsetCount` (compteur, utilisable comme `trigger`), `pitchHz` (avec l'attribut `pitch`).
+- **Texture** : `sonic-shader channel0="#spectre"` reçoit une image de 512 × 2 (ligne du haut : spectre, ligne du bas : forme d'onde). Dans le shader : `texture(iChannel0, vec2(x, 0.25)).r` pour le spectre, `vec2(x, 0.75)` pour l'onde.
+- `fft` (2048), `smoothing` (0.7), `onset-threshold` (1.5).
+
 ## Démo
 
-`examples/premier-son.sdui.json` : clavier (`sonic-keyboard`) → `sonic-store` → `synth/lead`, un patch écrit à la main avec filtre piloté par le store, et `drums/kit`.
+- `examples/premier-son.sdui.json` : clavier (`sonic-keyboard`) → `sonic-store` → `synth/lead`, un patch écrit à la main avec filtre piloté par le store, et `drums/kit`.
+- `examples/vie-sonore.sdui.json` : jeu de la vie dans un `sonic-store` lu par le séquenceur en mode store (une colonne par pas, une génération par mesure), `synth/pluck`, `drums/kit` en mode direct, fond `sonic-shader` nourri par l'analyseur.
 
 ## API JS
 

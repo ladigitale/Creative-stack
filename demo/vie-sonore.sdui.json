@@ -1,0 +1,397 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:34rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "life",
+      "initial": "{\"grid\": \"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\", \"cells\": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], \"col\": -1, \"gen\": 0, \"seed\": 11, \"started\": false, \"population\": 0, \"notes\": [], \"transport\": {\"playing\": false, \"bpm\": 96}}",
+      "reducer": "(\n  $t := $action.type;\n  $s := $state;\n  $W := 16; $H := 8;\n  $scale := [81, 79, 76, 74, 72, 69, 67, 64];\n  $cell := function($g, $x, $y){ $substring($g, (($y + $H) % $H) * $W + (($x + $W) % $W), 1) = \"1\" ? 1 : 0 };\n  $next := function($g){ $join([$map([0..127], function($i){(\n    $x := $i % $W; $y := $floor($i / $W);\n    $n := $cell($g, $x - 1, $y - 1) + $cell($g, $x, $y - 1) + $cell($g, $x + 1, $y - 1)\n        + $cell($g, $x - 1, $y) + $cell($g, $x + 1, $y)\n        + $cell($g, $x - 1, $y + 1) + $cell($g, $x, $y + 1) + $cell($g, $x + 1, $y + 1);\n    ($n = 3 or ($n = 2 and $substring($g, $i, 1) = \"1\")) ? \"1\" : \"0\"\n  )})]) };\n  $random := function($seed){ $join([$map([0..127], function($i){ $rand($seed + $i * 7919).value < 0.28 ? \"1\" : \"0\" })]) };\n  $pop := function($g){ $length($replace($g, \"0\", \"\")) };\n  $view := function($g, $col){ [$map([0..127], function($i){(\n    $v := $substring($g, $i, 1) = \"1\";\n    $i % $W = $col ? ($v ? 2 : 3) : ($v ? 1 : 0)\n  )})] };\n  $t = \"step\" ? (\n    $col := $action.payload.step;\n    $evolved := $col = 0 and $s.started ? $next($s.grid) : $s.grid;\n    $g := $pop($evolved) = 0 ? $random($s.seed + $s.gen) : $evolved;\n    $alive := [$filter([0..7], function($y){ $substring($g, $y * $W + $col, 1) = \"1\" })];\n    $play := [$filter($alive, function($y, $k){ $k < 4 })];\n    $merge([$s, {\n      \"grid\": $g,\n      \"col\": $col,\n      \"gen\": $col = 0 ? $s.gen + 1 : $s.gen,\n      \"started\": true,\n      \"population\": $col = 0 ? $pop($g) : $s.population,\n      \"cells\": $view($g, $col),\n      \"notes\": [$map($play, function($y){ { \"note\": $scale[$y], \"when\": $action.payload.when, \"vel\": 0.55 + 0.1 * $count($play), \"durS\": 0.35 } })]\n    }])\n  ) :\n  $t = \"random\" ? (\n    $seed := $s.seed + 17;\n    $g := $random($seed);\n    $merge([$s, {\"grid\": $g, \"seed\": $seed, \"cells\": $view($g, $s.col), \"population\": $pop($g)}])\n  ) :\n  $t = \"glider\" ? (\n    $on := [17, 34, 48, 49, 50, 72, 73, 74, 107, 108, 123, 124];\n    $g := $join([$map([0..127], function($i){ $i in $on ? \"1\" : \"0\" })]);\n    $merge([$s, {\"grid\": $g, \"cells\": $view($g, $s.col), \"population\": $pop($g)}])\n  ) :\n  $t = \"play\" ? $merge([$s, {\"transport\": $merge([$s.transport, {\"playing\": $not($s.transport.playing)}])}]) :\n  $t = \"faster\" ? $merge([$s, {\"transport\": $merge([$s.transport, {\"bpm\": $min([$s.transport.bpm + 10, 180])}])}]) :\n  $t = \"slower\" ? $merge([$s, {\"transport\": $merge([$s.transport, {\"bpm\": $max([$s.transport.bpm - 10, 60])}])}]) :\n  $t = \"init\" ? ($g := $random($s.seed); $merge([$s, {\"grid\": $g, \"cells\": $view($g, -1), \"population\": $pop($g)}])) :\n  $s\n)",
+      "budget-ms": "100",
+      "boot-action": "init",
+      "max-state-bytes": "60000"
+     }
+    },
+    {
+     "tagName": "sonic-sequencer",
+     "attributes": {
+      "id": "seq",
+      "store": "life",
+      "control": "life.transport",
+      "pattern": "{\"kit\": {\"kick\": \"x...x...x...x...\", \"snare\": \"....x.......x..x\", \"hat\": \"[..x.]*4\", \"openhat\": \"<~ ~ ~ [~ ~ ~ x]>\"}}",
+      "swing": "0.08",
+      "lookahead-ms": "150"
+     }
+    },
+    {
+     "tagName": "sonic-patch",
+     "attributes": {
+      "id": "pluck",
+      "preset": "synth/pluck",
+      "events": "life.notes",
+      "poly": "12",
+      "params": "{\"cutoff\": 1600}",
+      "gain": "0.3"
+     }
+    },
+    {
+     "tagName": "sonic-patch",
+     "attributes": {
+      "id": "kit",
+      "preset": "drums/kit",
+      "gain": "0.4"
+     }
+    },
+    {
+     "tagName": "sonic-audio-analyser",
+     "attributes": {
+      "id": "spectre",
+      "source": "master",
+      "bands": "8"
+     }
+    },
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "title"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-shader",
+     "attributes": {
+      "id": "viz",
+      "channel0": "#spectre",
+      "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  float x = pow(uv.x, 1.6);\n  float s = texture(iChannel0, vec2(x * 0.5, 0.25)).r;\n  float w = texture(iChannel0, vec2(uv.x, 0.75)).r - 0.5;\n  float bar = smoothstep(s, s - 0.02, uv.y);\n  float line = smoothstep(0.012, 0.0, abs(uv.y - 0.5 - w * 0.8));\n  vec3 bg = mix(vec3(0.04, 0.05, 0.09), vec3(0.09, 0.06, 0.16), uv.y);\n  vec3 col = bg + bar * mix(vec3(0.13, 0.83, 0.93), vec3(0.98, 0.45, 0.85), uv.x) * 0.85 + line * vec3(1.0, 0.9, 0.6);\n  c = vec4(col, 1.0);\n}",
+      "style": "display:block;width:100%;height:110px;border-radius:.8rem;overflow:hidden"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "background:#0b0d14;border-radius:.8rem;padding:.4rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-matrix",
+       "attributes": {
+        "dataProvider": "life",
+        "key": "cells",
+        "cols": "16",
+        "cell": "auto",
+        "gap": "2",
+        "palette": "{\"0\": \"#161a28\", \"1\": \"#22d3ee\", \"2\": \"#facc15\", \"3\": \"#232a40\"}"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-audio-unlock"
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(5,1fr);gap:.35rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "life",
+        "type": "play"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "play"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "play"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "life",
+        "type": "random"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "random"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "random"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "life",
+        "type": "glider"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "glider"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "glider"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "life",
+        "type": "slower"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "slower"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "slower"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "life",
+        "type": "faster"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "faster"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "faster"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(2,1fr);gap:.35rem"
+     },
+     "nodes": [
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "gen"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "life",
+            "key": "gen"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "pop"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "life",
+            "key": "population"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "bpm"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "seqState",
+            "key": "bpm"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "bar"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "seqState",
+            "key": "bar"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "class": "text-xs",
+      "style": "opacity:.7;margin:0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "help"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

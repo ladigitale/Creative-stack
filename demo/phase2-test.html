@@ -1,0 +1,77 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Phase 2 — tests</title>
+<script type="module">
+  import "@supersoniks/concorde/index";
+  import "../src/addons/audio";
+  import "../src/addons/shader";
+  import { AudioEngine } from "../src/addons/audio";
+  import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+  window.__get = get;
+  window.__set = set;
+  window.AudioEngine = AudioEngine;
+  AudioEngine.get();
+
+  /** Capture brute de la sortie d'un nœud (ScriptProcessor, page de test uniquement). */
+  window.capture = (node, seconds) =>
+    new Promise((resolve) => {
+      const ac = AudioEngine.get().context;
+      const sp = ac.createScriptProcessor(1024, 1, 1);
+      const chunks = [];
+      const t0 = ac.currentTime;
+      sp.onaudioprocess = (e) => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      node.connect(sp);
+      sp.connect(ac.destination);
+      setTimeout(() => {
+        node.disconnect(sp);
+        sp.disconnect();
+        const len = chunks.reduce((a, c) => a + c.length, 0);
+        const all = new Float32Array(len);
+        let o = 0;
+        for (const c of chunks) { all.set(c, o); o += c.length; }
+        resolve({ data: all, sampleRate: ac.sampleRate, t0 });
+      }, seconds * 1000);
+    });
+
+  /** Attaques : enveloppe redressée, franchissement de seuil après silence. */
+  window.onsets = (data, sr, threshold = 0.05, holdMs = 40) => {
+    const out = [];
+    let last = -Infinity;
+    for (let i = 0; i < data.length; i++) {
+      if (Math.abs(data[i]) > threshold && i - last > (holdMs / 1000) * sr) {
+        out.push(i / sr);
+        last = i;
+      } else if (Math.abs(data[i]) > threshold) last = i;
+    }
+    return out;
+  };
+
+  /** WAV mono 16 bits d'un sinus (pour le sampler). */
+  window.toneWav = (freq, secs, sr = 44100) => {
+    const n = Math.floor(secs * sr);
+    const buf = new DataView(new ArrayBuffer(44 + n * 2));
+    const w = (o, s) => [...s].forEach((c, i) => buf.setUint8(o + i, c.charCodeAt(0)));
+    w(0, "RIFF"); buf.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt ");
+    buf.setUint32(16, 16, true); buf.setUint16(20, 1, true); buf.setUint16(22, 1, true);
+    buf.setUint32(24, sr, true); buf.setUint32(28, sr * 2, true); buf.setUint16(32, 2, true); buf.setUint16(34, 16, true);
+    w(36, "data"); buf.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) {
+      const env = Math.min(1, i / 200, (n - i) / 2000);
+      buf.setInt16(44 + i * 2, Math.sin((2 * Math.PI * freq * i) / sr) * 0.6 * env * 0x7fff, true);
+    }
+    return URL.createObjectURL(new Blob([buf.buffer], { type: "audio/wav" }));
+  };
+
+  /** Fréquence dominante par passages par zéro. */
+  window.zeroFreq = (data, sr, from, to) => {
+    let z = 0, first = -1, last = -1;
+    for (let i = Math.floor(from * sr) + 1; i < Math.min(data.length, to * sr); i++) {
+      if (data[i - 1] < 0 && data[i] >= 0) { z++; if (first < 0) first = i; last = i; }
+    }
+    return z > 2 ? ((z - 1) * sr) / (last - first) : 0;
+  };
+  document.title = "ready";
+</script>
+<body>
+  <div id="stage"></div>
+</body>
