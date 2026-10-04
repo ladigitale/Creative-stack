@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>cdn-audio</title>
+<script src="/node_modules/@supersoniks/concorde/concorde-core.bundle.js"></script>
+<script src="/dist/creative-stack-sound.bundle.js"></script>
+<script src="/dist/creative-stack-audio.bundle.js"></script>
+<sonic-sound id="fx" bank='{"sfx":{"c":"coin"}}' control="ctl"></sonic-sound>
+<sonic-patch id="lead" preset="synth/pluck" events="seq.notes" trigger="seq.tick"></sonic-patch>
+<button id="b">go</button>

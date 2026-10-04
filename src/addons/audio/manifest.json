@@ -1,0 +1,434 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "audio",
+  "label": "Audio (synthèse modulaire)",
+  "description": "Moteur audio partagé (un seul AudioContext, master limité) et synthèse modulaire déclarative : sonic-patch + modules, bibliothèque de patches, pilotage par DataProvider.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "audio.md",
+  "examples": [
+    "examples/premier-son.sdui.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-patch",
+      "description": "Instrument modulaire : enfants sonic-voice (+ modules) ou preset (synth/lead synth/bass synth/pad synth/pluck synth/fm-bell synth/chip drums/kick drums/snare drums/hat drums/kit). events (DP liste) + trigger (DP), état dans out-data-provider",
+      "props": {
+        "preset": {
+          "type": "string",
+          "description": "synth/lead, synth/bass, synth/pad, synth/pluck, synth/fm-bell, synth/chip, drums/kick, drums/snare, drums/hat, drums/kit"
+        },
+        "params": {
+          "type": "object",
+          "description": "Valeurs des paramètres exposés du preset"
+        },
+        "events": {
+          "type": "string",
+          "description": "DP : liste d'événements {note|sample, vel, durS, type}"
+        },
+        "trigger": {
+          "type": "string",
+          "description": "DP : chaque changement rejoue events"
+        },
+        "poly": {
+          "type": "number"
+        },
+        "steal": {
+          "type": "string"
+        },
+        "vel-sense": {
+          "type": "number"
+        },
+        "gain": {
+          "type": "number"
+        },
+        "bpm": {
+          "type": "number"
+        },
+        "dur-s": {
+          "type": "number"
+        },
+        "out": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string",
+          "description": "master (défaut), #id ou none"
+        },
+        "notes-map": {
+          "type": "object"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-voice",
+      "description": "Portée « par note » d'un patch ; sample=\"kick\" / note=\"C2\" pour un kit",
+      "props": {
+        "sample": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "out": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-osc",
+      "description": "Oscillateur (sine square sawtooth triangle pulse, harmonics) ; freq-hz = voice.pitch par défaut",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "wave": {
+          "type": "string"
+        },
+        "freq-hz": {
+          "type": "string"
+        },
+        "detune": {
+          "type": "number"
+        },
+        "octave": {
+          "type": "number"
+        },
+        "semi": {
+          "type": "number"
+        },
+        "pw": {
+          "type": "number"
+        },
+        "harmonics": {
+          "type": "string"
+        },
+        "level": {
+          "type": "number"
+        },
+        "fm": {
+          "type": "string"
+        },
+        "fm-amount": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-noise",
+      "description": "Bruit blanc / rose / brun",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        },
+        "level": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-mixer",
+      "description": "Somme pondérée de ses entrées (in, levels) ; sans in : toutes les sources précédentes",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "levels": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-filter",
+      "description": "Filtre biquad",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "freq-hz": {
+          "type": "number"
+        },
+        "q": {
+          "type": "number"
+        },
+        "gain-db": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-vca",
+      "description": "Ampli ; gain=\"<env>\" pour une enveloppe",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "gain": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-env",
+      "description": "Enveloppe ADSR déclenchée par la note (sortie 0..1)",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "a": {
+          "type": "number"
+        },
+        "d": {
+          "type": "number"
+        },
+        "s": {
+          "type": "number"
+        },
+        "r": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-lfo",
+      "description": "LFO (sortie -1..1), rate-hz ou sync=\"1/8\"",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "wave": {
+          "type": "string"
+        },
+        "rate-hz": {
+          "type": "number"
+        },
+        "sync": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-shaper",
+      "description": "Saturation / wavefold",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "curve": {
+          "type": "string"
+        },
+        "drive": {
+          "type": "number"
+        },
+        "oversample": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-pan",
+      "description": "Panoramique",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "pan": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-delay",
+      "description": "Délai (time en s ou 3/16), seul module qui autorise une boucle",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "time": {
+          "type": "number"
+        },
+        "feedback": {
+          "type": "number"
+        },
+        "mix": {
+          "type": "number"
+        },
+        "tone": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-reverb",
+      "description": "Réverbération générée",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "size-s": {
+          "type": "number"
+        },
+        "damp": {
+          "type": "number"
+        },
+        "mix": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-chorus",
+      "description": "Chorus",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "rate-hz": {
+          "type": "number"
+        },
+        "depth": {
+          "type": "number"
+        },
+        "delay": {
+          "type": "number"
+        },
+        "mix": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-comp",
+      "description": "Compresseur",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "threshold-db": {
+          "type": "number"
+        },
+        "ratio": {
+          "type": "number"
+        },
+        "knee": {
+          "type": "number"
+        },
+        "attack": {
+          "type": "number"
+        },
+        "release": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-mod",
+      "description": "Câble de modulation : from (module ou voice.pitch|gate|vel|note|rand) → to (module.param), amount, curve=exp",
+      "props": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "curve": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-param",
+      "description": "Paramètre piloté : to (module.param), source (DP), expose, value, ramp-s, min, max",
+      "props": {
+        "to": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "expose": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        },
+        "ramp-s": {
+          "type": "number"
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-audio-unlock",
+      "description": "Bouton « Activer le son » (caché une fois le son actif)",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "persist": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "name": "sonic-audio-master",
+      "description": "Volume / muet du master partagé (attributs ou DP control)",
+      "props": {
+        "volume": {
+          "type": "number"
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "control": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

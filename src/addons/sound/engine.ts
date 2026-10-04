@@ -2,6 +2,7 @@
  * Moteur son : contexte audio, bus, bruitages, musique, état.
  * Piloté par un objet SoundControl (réconciliation), publie un SoundState.
  */
+import { AudioEngine } from "../../shared/audio/engine";
 import { midiToFreq, presetSfxNames, validateSoundBank } from "./bank";
 import { SFX_PRESETS } from "./presets";
 import { SongPlayer, type SongPosition } from "./sequencer";
@@ -22,14 +23,6 @@ type Bus = (typeof BUSES)[number];
 
 type Playing = { id: string; player: SongPlayer; gain: GainNode; stopAt: number | null };
 
-type AudioCtor = typeof AudioContext;
-
-function audioCtor(): AudioCtor | null {
-  if (typeof window === "undefined") return null;
-  const w = window as unknown as { AudioContext?: AudioCtor; webkitAudioContext?: AudioCtor };
-  return w.AudioContext ?? w.webkitAudioContext ?? null;
-}
-
 const presetCache: Record<string, ResolvedSfx> = (() => {
   const { bank } = validateSoundBank({
     sfx: Object.fromEntries(presetSfxNames().map((n) => [n, { preset: n, bus: uiPreset(n) ? "ui" : "sfx" }])),
@@ -49,15 +42,13 @@ export type EngineOptions = {
   id: string;
   maxVoices?: number;
   onState?: (state: SoundState) => void;
-  /** Injection pour les tests. */
-  createContext?: () => BaseAudioContext;
 };
 
 export class SoundEngine {
   readonly id: string;
   maxVoices: number;
   private onState?: (s: SoundState) => void;
-  private createContext?: () => BaseAudioContext;
+  private unsubscribeEngine: () => void;
 
   private ac: BaseAudioContext | null = null;
   private bus: Partial<Record<Bus, GainNode>> = {};
@@ -95,18 +86,14 @@ export class SoundEngine {
     this.id = opts.id;
     this.maxVoices = opts.maxVoices ?? 32;
     this.onState = opts.onState;
-    this.createContext = opts.createContext;
-    if (typeof window !== "undefined") {
-      for (const ev of ["pointerdown", "keydown", "touchend"]) {
-        window.addEventListener(ev, this.onGesture, { capture: true, passive: true });
-      }
-      document.addEventListener("visibilitychange", this.onVisibility);
-    }
+    // Contexte, déverrouillage, master et mise en veille : AudioEngine partagé.
+    this.unsubscribeEngine = AudioEngine.get().onChange(() => this.syncEngine());
+    this.syncEngine();
     this.publish();
   }
 
   get supported(): boolean {
-    return Boolean(this.createContext || audioCtor());
+    return AudioEngine.get().supported;
   }
 
   get context(): BaseAudioContext | null {
@@ -401,49 +388,29 @@ export class SoundEngine {
   /* Contexte, déverrouillage, volumes                                */
   /* ---------------------------------------------------------------- */
 
-  private onGesture = (): void => {
-    void this.unlock();
-  };
+  /** Déverrouille l'AudioEngine partagé. À appeler depuis un geste utilisateur. */
+  unlock(): Promise<void> {
+    return AudioEngine.get().unlock();
+  }
 
-  /** Crée / reprend le contexte audio. À appeler depuis un geste utilisateur. */
-  async unlock(): Promise<void> {
+  private syncEngine(): void {
     if (this.destroyed) return;
-    if (!this.ac) {
-      const make = this.createContext ?? (() => new (audioCtor()!)());
-      if (!this.createContext && !audioCtor()) return;
-      this.ac = make();
-      this.buildGraph();
+    const engine = AudioEngine.get();
+    if (engine.context && engine.master && !this.ac) {
+      this.ac = engine.context;
+      this.buildGraph(engine.master);
     }
-    const ac = this.ac as AudioContext;
-    if (ac.state === "suspended" && typeof ac.resume === "function" && !document.hidden) {
-      try {
-        await ac.resume();
-      } catch {
-        /* reste suspendu */
-      }
-    }
-    const running = (ac.state as string) === "running" || !("resume" in ac);
-    if (running && !this.unlocked) {
+    if (engine.ready && this.ac && !this.unlocked) {
       this.unlocked = true;
-      for (const ev of ["pointerdown", "keydown", "touchend"]) {
-        window.removeEventListener(ev, this.onGesture, { capture: true });
-      }
       if (this.control.music && !this.current) this.startMusic(this.control.music);
       this.publish();
     }
   }
 
-  private buildGraph(): void {
+  private buildGraph(output: AudioNode): void {
     const ac = this.ac!;
-    const comp = ac.createDynamicsCompressor();
-    comp.threshold.value = -12;
-    comp.knee.value = 12;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.15;
-    comp.connect(ac.destination);
     const master = ac.createGain();
-    master.connect(comp);
+    master.connect(output);
     this.bus.master = master;
     for (const b of ["music", "sfx", "ui"] as const) {
       const g = ac.createGain();
@@ -470,13 +437,6 @@ export class SoundEngine {
       else g.setTargetAtTime(target[b], ac.currentTime, 0.03);
     }
   }
-
-  private onVisibility = (): void => {
-    const ac = this.ac as AudioContext | null;
-    if (!ac || typeof ac.suspend !== "function") return;
-    if (document.hidden) void ac.suspend();
-    else if (this.unlocked) void ac.resume();
-  };
 
   /* ---------------------------------------------------------------- */
   /* État                                                             */
@@ -514,14 +474,13 @@ export class SoundEngine {
     this.destroyed = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (typeof window !== "undefined") {
-      for (const ev of ["pointerdown", "keydown", "touchend"]) {
-        window.removeEventListener(ev, this.onGesture, { capture: true });
-      }
-      document.removeEventListener("visibilitychange", this.onVisibility);
+    this.unsubscribeEngine();
+    // Le contexte appartient à l'AudioEngine : on se débranche seulement.
+    try {
+      this.bus.master?.disconnect();
+    } catch {
+      /* déjà débranché */
     }
-    const ac = this.ac as AudioContext | null;
-    if (ac && typeof ac.close === "function") void ac.close();
     this.ac = null;
   }
 }

@@ -14,6 +14,7 @@
     "./hugging-face-infer": "./src/addons/hugging-face-infer/index.ts",
     "./hugging-face-infer/worker": "./src/addons/hugging-face-infer/hf-worker-runtime.ts",
     "./sound": "./src/addons/sound/index.ts",
+    "./audio": "./src/addons/audio/index.ts",
     "./shared/*": "./src/shared/*.ts",
     "./dist/*": "./dist/*",
     "./schemas/*": "./schemas/*"
@@ -26,7 +27,7 @@
     "README.md"
   ],
   "scripts": {
-    "dev": "vite --open demo/sound.html",
+    "dev": "vite --open demo/audio.html",
     "typecheck": "tsc --noEmit",
     "catalog": "node scripts/build-catalog.mjs",
     "build": "node scripts/build-catalog.mjs && node scripts/build-addons.mjs",

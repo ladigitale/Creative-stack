@@ -33,7 +33,8 @@ const manifests = readdirSync(addonsDir, { withFileTypes: true })
     for (const f of [m.docs, ...(m.examples ?? [])].filter(Boolean)) {
       if (!existsSync(path.join(addonsDir, d.name, f))) errors.push(`${d.name} : fichier ${f} introuvable`);
     }
-    const source = readdirSync(path.join(addonsDir, d.name))
+    const source = readdirSync(path.join(addonsDir, d.name), { recursive: true })
+      .map(String)
       .filter((f) => f.endsWith(".ts") && !f.endsWith(".spec.ts"))
       .map((f) => readFileSync(path.join(addonsDir, d.name, f), "utf8"))
       .join("\n");

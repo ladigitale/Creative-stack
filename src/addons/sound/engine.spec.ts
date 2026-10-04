@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { SoundEngine } from "./engine";
+import { AudioEngine } from "../../shared/audio/engine";
 import { FakeAudioContext } from "./fake-audio";
 import type { SoundState } from "./types";
 import "./sound";
@@ -10,15 +11,17 @@ import example from "./examples/neon-run.bank.json";
 const engines: SoundEngine[] = [];
 afterEach(() => {
   for (const e of engines.splice(0)) e.destroy();
+  AudioEngine.reset();
+  AudioEngine.setContextFactory(null);
   document.body.innerHTML = "";
 });
 
 async function makeEngine(unlock = true) {
   const ac = new FakeAudioContext();
   let state: SoundState | null = null;
+  AudioEngine.setContextFactory(() => ac as unknown as BaseAudioContext);
   const engine = new SoundEngine({
     id: "t",
-    createContext: () => ac as unknown as BaseAudioContext,
     onState: (s) => (state = s),
   });
   engines.push(engine);
@@ -33,6 +36,15 @@ async function makeEngine(unlock = true) {
 }
 
 describe("SoundEngine", () => {
+  it("partage le contexte et le master de l'AudioEngine", async () => {
+    const { ac, engine } = await makeEngine();
+    const other = new SoundEngine({ id: "u" });
+    engines.push(other);
+    expect(engine.context).toBe(ac);
+    expect(other.context).toBe(ac);
+    expect(AudioEngine.get().context).toBe(ac);
+  });
+
   it("rien ne joue avant le déverrouillage ; la musique demandée démarre ensuite", async () => {
     const { ac, engine, flush } = await makeEngine(false);
     engine.applyControl({ music: "theme" });
@@ -97,7 +109,7 @@ describe("SoundEngine", () => {
     engine.applyControl({ muted: true, volume: { master: 0.5 } });
     expect(engine.play("coin")).toBe(false);
     expect((await flush()).muted).toBe(true);
-    const master = ac.gains[0];
+    const master = ac.gains[1]; // gains[0] = master de l'AudioEngine, gains[1] = master du son
     expect(master.gain.value).toBe(0);
     engine.applyControl({ muted: false });
     expect(master.gain.value).toBe(0.5);

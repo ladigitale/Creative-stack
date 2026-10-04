@@ -14,6 +14,7 @@ Concorde reste le design system (composants UI, DataProviders, `sonic-sdui`, `so
 | `hugging-face-infer` | `sonic-hugging-face-infer` | `@huggingface/transformers` |
 | `interactive` | `sonic-store`, `sonic-keyboard`, `sonic-gamepad`, `sonic-gesture`, `sonic-action`, `sonic-ticker`, `sonic-matrix` | — |
 | `sound` | `sonic-sound`, `sonic-sfx` | — |
+| `audio` | `sonic-patch` + 15 modules (`sonic-osc`, `sonic-filter`, `sonic-env`…), `sonic-audio-unlock`, `sonic-audio-master` | — |
 
 `3d`, `shader`, `webgpu`, `hugging-face-infer` et `interactive` sont portés depuis `@supersoniks/concorde@4.9.98-visual-stack.4`. `sound` est nouveau : musiques, jingles, bruitages et sons d'interface synthétisés en WebAudio depuis une banque JSON de quelques Ko, pilotés par DataProvider (voir [`src/addons/sound/sound.md`](src/addons/sound/sound.md)).
 
@@ -47,7 +48,7 @@ src/addons/<id>/
   manifest.json   ce que l'agent voit : composants, props, dépendances, statut
   *.md            doc de l'addon
   *.spec.ts       tests
-src/shared/       utilitaires communs (mediaRef, similarity)
+src/shared/       utilitaires communs (mediaRef, similarity) et socle audio (AudioEngine, contrats)
 schemas/          JSON Schema du manifeste et de la banque son
 demo/             pages de démo (yarn dev → Sound lab en SDUI)
 scripts/          build-addons, build-catalog, hf-vendor
@@ -62,13 +63,15 @@ scripts/          build-addons, build-catalog, hf-vendor
 
 ## Scripts
 
-- `yarn dev` : serveur Vite sur les démos (`demo/sound.html`)
+- `yarn dev` : serveur Vite sur les démos (`demo/audio.html` « Premier son », `demo/sound.html` « Sound lab »)
 - `yarn build` : catalogue + un bundle ES et IIFE par addon dans `dist/`
 - `yarn catalog` : génère `dist/catalog.json`. `CREATIVE_STACK_ADDONS=3d,interactive yarn catalog` force une sélection.
 - `yarn test` / `yarn test:ci`
 - `yarn typecheck`
 
 L'installation ignore les scripts postinstall (`.yarnrc`) : `onnxruntime-node`, tiré par `@huggingface/transformers`, n'est pas utile côté navigateur.
+
+Feuille de route complète : [`PLAN.md`](PLAN.md).
 
 ## À faire
 

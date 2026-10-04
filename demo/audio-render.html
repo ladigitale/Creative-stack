@@ -1,0 +1,141 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Rendu patches</title>
+<script type="module">
+  import { compilePatch, PatchRuntime, PATCH_LIBRARY } from "../src/addons/audio/index.ts";
+
+  const SR = 44100;
+  const n = (tag, attrs = {}, children) => ({ tag: "sonic-" + tag, attrs, children });
+
+  function chain(ac) {
+    // Même chaîne que le master de l'AudioEngine : volume 0.9 → limiteur → sortie.
+    const lim = ac.createDynamicsCompressor();
+    lim.threshold.value = -6; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.1;
+    lim.connect(ac.destination);
+    const master = ac.createGain();
+    master.gain.value = 0.8;
+    master.connect(lim);
+    return master;
+  }
+
+  function runtime(ac, nodes, opts = {}) {
+    const compiled = compilePatch(nodes);
+    if (compiled.errors.length) throw new Error(compiled.errors.join(" | "));
+    const rt = new PatchRuntime(ac, compiled, { bpm: 120, poly: 8, steal: "oldest", velSense: 0.6, gain: 0.6, random: () => 0.5, ...opts });
+    return rt;
+  }
+
+  function stats(buf) {
+    let peak = 0, sum = 0, nan = 0, n = 0;
+    for (let c = 0; c < buf.numberOfChannels; c++) for (const v of buf.getChannelData(c)) {
+      if (Number.isNaN(v)) nan++; const a = Math.abs(v); if (a > peak) peak = a; sum += v * v; n++;
+    }
+    return { peak: +peak.toFixed(3), rms: +Math.sqrt(sum / n).toFixed(4), nan };
+  }
+
+  function wav(buf) {
+    const ch = buf.numberOfChannels, len = buf.length, bytes = 44 + len * ch * 2;
+    const v = new DataView(new ArrayBuffer(bytes));
+    const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, "RIFF"); v.setUint32(4, bytes - 8, true); w(8, "WAVE"); w(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true);
+    v.setUint32(24, SR, true); v.setUint32(28, SR * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true);
+    w(36, "data"); v.setUint32(40, len * ch * 2, true);
+    let o = 44;
+    const data = [...Array(ch)].map((_, c) => buf.getChannelData(c));
+    for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) {
+      const s = Math.max(-1, Math.min(1, data[c][i])); v.setInt16(o, s * 0x7fff, true); o += 2;
+    }
+    let bin = ""; const u8 = new Uint8Array(v.buffer);
+    for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+
+  async function pitchOf(midi) {
+    const ac = new OfflineAudioContext(1, SR, SR);
+    const { bank: b } = validateSoundBank({ sfx: { t: { wave: "sine", dur: 0.8, attack: 0.01, release: 0.01, vol: 0.5 } } });
+    playSynth(ac, ac.destination, b.sfx.t, { time: 0, freq: midiToFreq(midi) });
+    const d = (await ac.startRendering()).getChannelData(0);
+    let z = 0, first = -1, last = -1;
+    for (let i = 2205; i < 30000; i++) if (d[i - 1] < 0 && d[i] >= 0) { z++; if (first < 0) first = i; last = i; }
+    return +(((z - 1) * SR) / (last - first)).toFixed(1);
+  }
+
+
+  async function pitchAndEnvelope() {
+    const ac = new OfflineAudioContext(1, SR, SR);
+    const rt = runtime(ac, [n("voice", {}, [
+      n("osc", { name: "o", wave: "sine" }),
+      n("env", { name: "e", a: "0.05", d: "0.1", s: "0.5", r: "0.1" }),
+      n("vca", { name: "v", gain: "e" }),
+    ])], { velSense: 0, gain: 1 });
+    rt.output.connect(ac.destination);
+    rt.noteOn(69, 1, 0.1, 0.5);
+    const d = (await ac.startRendering()).getChannelData(0);
+    // fréquence : passages par zéro entre 0.25 et 0.55 s
+    let z = 0, first = -1, last = -1;
+    for (let i = Math.floor(0.25 * SR); i < 0.55 * SR; i++) if (d[i - 1] < 0 && d[i] >= 0) { z++; if (first < 0) first = i; last = i; }
+    const freq = ((z - 1) * SR) / (last - first);
+    // enveloppe : crête par fenêtre de 2 ms
+    const win = Math.floor(0.002 * SR);
+    const env = [];
+    for (let i = 0; i < d.length; i += win) { let m = 0; for (let k = i; k < i + win && k < d.length; k++) m = Math.max(m, Math.abs(d[k])); env.push([i / SR, m]); }
+    const peakT = env.reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+    const sustain = env.filter(([t]) => t > 0.3 && t < 0.55).map(([, v]) => v);
+    const susLevel = sustain.reduce((a, b) => a + b, 0) / sustain.length;
+    const startT = env.find(([, v]) => v > 0.01)?.[0];
+    const endT = [...env].reverse().find(([, v]) => v > 0.01)?.[0];
+    return { freq: +freq.toFixed(2), startT, peakT, susLevel: +susLevel.toFixed(3), endT };
+  }
+
+  async function renderPreset(name) {
+    const isKit = name === "drums/kit";
+    const isDrum = name.startsWith("drums/");
+    const secs = isKit ? 3.2 : name === "synth/pad" ? 5 : 3;
+    const ac = new OfflineAudioContext(2, SR * secs, SR);
+    const rt = runtime(ac, PATCH_LIBRARY[name].nodes);
+    rt.output.connect(chain(ac));
+    if (isKit) {
+      const pattern = ["kick", "hat", "snare", "hat", "kick", "kick", "clap", "openhat"];
+      pattern.forEach((s, i) => rt.noteOn(null, 0.9, 0.05 + i * 0.3, 0.2, s));
+      [0, 0.3, 0.6, 0.9].forEach((t) => rt.noteOn(null, 0.7, 2.5 + t * 0.5, 0.1, ["kick", "snare", "hat", "clap"][t / 0.3]));
+    } else if (isDrum) {
+      [0.05, 0.55, 1.05, 1.3, 1.55].forEach((t, i) => rt.noteOn(null, i % 2 ? 0.6 : 1, t, 0.2));
+    } else {
+      const melody = [[60, 0.1], [64, 0.45], [67, 0.8], [72, 1.15]];
+      melody.forEach(([m, t]) => rt.noteOn(m, 0.85, t, 0.3));
+      [60, 64, 67].forEach((m) => rt.noteOn(m, 0.7, 1.6, name === "synth/pad" ? 2.2 : 0.8));
+    }
+    const buf = await ac.startRendering();
+    return { buf, stats: stats(buf) };
+  }
+
+  async function renderFm() {
+    const ac = new OfflineAudioContext(2, SR * 2, SR);
+    const rt = runtime(ac, [n("voice", {}, [
+      n("env", { name: "me", a: "0.001", d: "0.6", s: "0.1", r: "0.3" }),
+      n("osc", { name: "op2", wave: "sine", semi: "12", level: "me" }),
+      n("osc", { name: "op1", wave: "sine", fm: "op2", "fm-amount": "500" }),
+      n("env", { name: "ae", a: "0.002", d: "0.8", s: "0.3", r: "0.3" }),
+      n("vca", { in: "op1", gain: "ae" }),
+    ])]);
+    rt.output.connect(chain(ac));
+    [45, 48, 52].forEach((m, i) => rt.noteOn(m, 0.9, 0.05 + i * 0.5, 0.4));
+    const buf = await ac.startRendering();
+    return { buf, stats: stats(buf) };
+  }
+
+  window.runAll = async () => {
+    const out = { pitch: await pitchAndEnvelope(), presets: {}, files: {} };
+    for (const name of Object.keys(PATCH_LIBRARY)) {
+      const r = await renderPreset(name);
+      out.presets[name] = r.stats;
+      out.files[name.replace("/", "-")] = wav(r.buf);
+    }
+    const fm = await renderFm();
+    out.presets["fm-main"] = fm.stats;
+    out.files["fm-main"] = wav(fm.buf);
+    return out;
+  };
+  document.title = "ready";
+</script>

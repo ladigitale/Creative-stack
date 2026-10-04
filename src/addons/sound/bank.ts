@@ -3,6 +3,7 @@
  * utilisable côté serveur pour valider ce qu'un agent a écrit.
  */
 import { ALL_PRESETS, INSTRUMENT_PRESETS } from "./presets";
+import { noteToMidi } from "../../shared/audio/notes";
 import type {
   FilterType,
   NoteEvent,
@@ -31,21 +32,7 @@ const WAVES: Wave[] = ["sine", "square", "triangle", "sawtooth", "noise"];
 const FILTERS: FilterType[] = ["lowpass", "highpass", "bandpass", "notch"];
 const NAME_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
-const NOTE_OFFSETS: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
-
-/** `C4` → 60, `C#4` → 61, `Eb3` → 51. null si invalide. */
-export function noteToMidi(note: string): number | null {
-  const m = /^([A-Ga-g])(#|b)?(-?\d)$/.exec(note);
-  if (!m) return null;
-  let midi = (Number(m[3]) + 1) * 12 + NOTE_OFFSETS[m[1].toLowerCase()];
-  if (m[2] === "#") midi += 1;
-  if (m[2] === "b") midi -= 1;
-  return midi >= 0 && midi <= 127 ? midi : null;
-}
-
-export function midiToFreq(midi: number): number {
-  return 440 * Math.pow(2, (midi - 69) / 12);
-}
+export { noteToMidi, midiToFreq } from "../../shared/audio/notes";
 
 /* ------------------------------------------------------------------ */
 
