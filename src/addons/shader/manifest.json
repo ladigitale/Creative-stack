@@ -1,0 +1,74 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "shader",
+  "label": "Shader (WebGL)",
+  "description": "Shaders fragment au format Shadertoy, buffers A–D, canaux image/vidéo/caméra.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "components": [
+    {
+      "name": "sonic-shader",
+      "description": "Shader fragment Shadertoy",
+      "props": {
+        "image": {
+          "type": "string"
+        },
+        "buffer-a": {
+          "type": "string"
+        },
+        "buffer-b": {
+          "type": "string"
+        },
+        "buffer-c": {
+          "type": "string"
+        },
+        "buffer-d": {
+          "type": "string"
+        },
+        "common": {
+          "type": "string"
+        },
+        "channel0": {
+          "type": "string"
+        },
+        "channel1": {
+          "type": "string"
+        },
+        "channel2": {
+          "type": "string"
+        },
+        "channel3": {
+          "type": "string"
+        },
+        "play": {
+          "type": "boolean"
+        },
+        "play-on-hover": {
+          "type": "boolean"
+        },
+        "mouse": {
+          "type": "boolean"
+        },
+        "mouse-mode": {
+          "type": "string"
+        },
+        "param0": {
+          "type": "number"
+        },
+        "param1": {
+          "type": "number"
+        },
+        "param2": {
+          "type": "number"
+        },
+        "param3": {
+          "type": "number"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

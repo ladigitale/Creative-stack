@@ -1,0 +1,155 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "interactive",
+  "label": "Interactivité",
+  "description": "Store déclaratif à reducer JSONata, entrées clavier/manette/gestes, horloge et grille canvas.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "components": [
+    {
+      "name": "sonic-store",
+      "description": "Store declaratif + reducer JSONata",
+      "props": {
+        "initial": {
+          "type": "object"
+        },
+        "reducer": {
+          "type": "string"
+        },
+        "max-state-bytes": {
+          "type": "number"
+        },
+        "budget-ms": {
+          "type": "number"
+        },
+        "history": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-keyboard",
+      "description": "Clavier -> actions store",
+      "props": {
+        "target": {
+          "type": "string"
+        },
+        "keymap": {
+          "type": "object"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "repeat": {
+          "type": "object"
+        },
+        "keyup": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "name": "sonic-gamepad",
+      "description": "Manette -> actions store",
+      "props": {
+        "target": {
+          "type": "string"
+        },
+        "keymap": {
+          "type": "object"
+        },
+        "deadzone": {
+          "type": "number"
+        },
+        "repeat": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "name": "sonic-gesture",
+      "description": "Gestes tactiles -> actions",
+      "props": {
+        "target": {
+          "type": "string"
+        },
+        "swipe-threshold": {
+          "type": "number"
+        },
+        "long-press-ms": {
+          "type": "number"
+        },
+        "drag": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "name": "sonic-action",
+      "description": "Clic / hold -> action",
+      "props": {
+        "target": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object"
+        },
+        "hold-repeat": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-ticker",
+      "description": "Horloge tick -> store",
+      "props": {
+        "target": {
+          "type": "string"
+        },
+        "interval": {
+          "type": "number"
+        },
+        "interval-key": {
+          "type": "string"
+        },
+        "running-key": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-matrix",
+      "description": "Grille 2D canvas",
+      "props": {
+        "key": {
+          "type": "string"
+        },
+        "cols": {
+          "type": "number"
+        },
+        "palette": {
+          "type": "object"
+        },
+        "cell": {
+          "type": "string"
+        },
+        "gap": {
+          "type": "number"
+        },
+        "ghost-key": {
+          "type": "string"
+        },
+        "label-key": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

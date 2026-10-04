@@ -1,0 +1,65 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "webgpu",
+  "label": "WebGPU",
+  "description": "Shaders et kernels WGSL, repli WebGL2 puis canvas2d.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "components": [
+    {
+      "name": "sonic-webgpu",
+      "description": "Shader / kernel WGSL",
+      "props": {
+        "shader": {
+          "type": "string"
+        },
+        "kernel": {
+          "type": "string"
+        },
+        "backend": {
+          "type": "string"
+        },
+        "channel0": {
+          "type": "string"
+        },
+        "channel1": {
+          "type": "string"
+        },
+        "channel2": {
+          "type": "string"
+        },
+        "channel3": {
+          "type": "string"
+        },
+        "play": {
+          "type": "boolean"
+        },
+        "mouse": {
+          "type": "boolean"
+        },
+        "param0": {
+          "type": "number"
+        },
+        "param1": {
+          "type": "number"
+        },
+        "param2": {
+          "type": "number"
+        },
+        "param3": {
+          "type": "number"
+        },
+        "out-data-provider": {
+          "type": "string"
+        },
+        "frame-out": {
+          "type": "boolean"
+        },
+        "aspect-ratio": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manifeste d'addon creative-stack",
+  "type": "object",
+  "required": ["id", "label", "description", "components"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "type": "string", "pattern": "^[a-z0-9-]+$", "description": "Identique au nom du dossier src/addons/<id>." },
+    "label": { "type": "string" },
+    "description": { "type": "string", "description": "Une phrase, lue par l'agent dans le catalogue." },
+    "status": { "enum": ["experimental", "stable", "deprecated"], "default": "experimental" },
+    "enabledByDefault": { "type": "boolean", "default": true, "description": "false : construit mais absent du catalogue sauf activation explicite." },
+    "requires": { "type": "array", "items": { "type": "string" }, "description": "Dépendances npm (peer) nécessaires." },
+    "scripts": { "type": "array", "items": { "type": "string" }, "description": "IDs du catalogue de scripts de l'app Artefacts que l'addon attend." },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "description", "props"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^sonic-[a-z0-9-]+$" },
+          "description": { "type": "string" },
+          "props": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": { "enum": ["string", "number", "boolean", "object", "array", "url"] },
+                "description": { "type": "string" }
+              }
+            }
+          },
+          "emits": { "type": "array", "items": { "type": "string" }, "description": "Types d'actions envoyées au store." }
+        }
+      }
+    }
+  }
+}

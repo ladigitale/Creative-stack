@@ -1,0 +1,52 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "3d",
+  "label": "3D (Three.js)",
+  "description": "Rendu glTF Three.js : orbite, pick, animations, post-traitements, sortie frame vers DataProvider.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [
+    "three"
+  ],
+  "components": [
+    {
+      "name": "sonic-3d",
+      "description": "Scène 3D glTF",
+      "props": {
+        "src": {
+          "type": "url"
+        },
+        "fov": {
+          "type": "number"
+        },
+        "exposure": {
+          "type": "number"
+        },
+        "auto-rotate": {
+          "type": "boolean"
+        },
+        "fit": {
+          "type": "boolean"
+        },
+        "pick": {
+          "type": "boolean"
+        },
+        "play": {
+          "type": "boolean"
+        },
+        "play-on-hover": {
+          "type": "boolean"
+        },
+        "out-data-provider": {
+          "type": "string"
+        },
+        "frame-out": {
+          "type": "boolean"
+        },
+        "aspect-ratio": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "hugging-face-infer",
+  "label": "Inférence Hugging Face",
+  "description": "Inférence Transformers.js dans le navigateur, modèles en allowlist via configureHuggingFace.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [
+    "@huggingface/transformers"
+  ],
+  "components": [
+    {
+      "name": "sonic-hugging-face-infer",
+      "description": "Inférence ML navigateur",
+      "props": {
+        "model": {
+          "type": "string"
+        },
+        "inputProvider": {
+          "type": "string"
+        },
+        "outputProvider": {
+          "type": "string"
+        },
+        "statusProvider": {
+          "type": "string"
+        },
+        "triggerProvider": {
+          "type": "string"
+        },
+        "consentProvider": {
+          "type": "string"
+        },
+        "load": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "debounce": {
+          "type": "number"
+        },
+        "maxItems": {
+          "type": "number"
+        },
+        "maxChars": {
+          "type": "number"
+        },
+        "timeoutMs": {
+          "type": "number"
+        }
+      }
+    }
+  ]
+}
