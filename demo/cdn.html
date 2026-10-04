@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>cdn</title>
+<script src="/node_modules/@supersoniks/concorde/concorde-core.bundle.js"></script>
+<script src="/dist/creative-stack-interactive.bundle.js"></script>
+<script src="/dist/creative-stack-sound.bundle.js"></script>
+<sonic-store id="game" initial='{"score":0,"sound":{"music":"theme","play":{"coin":0}}}'
+  reducer='$action.type = "coin" ? $merge([$state, {"score": $state.score + 1, "sound": $merge([$state.sound, {"play": {"coin": $state.sound.play.coin + 1}}])}]) : $state'></sonic-store>
+<sonic-sound id="main" control="game.sound" out-data-provider="sfxState"
+  bank='{"songs":{"theme":{"instruments":{"kick":"kick"},"patterns":{"A":{"kick":"x . . ."}}}}}'></sonic-sound>
+<sonic-action target="game" type="coin"><button id="b">coin</button></sonic-action>
+<p>score: <sonic-value id="score" dataProvider="game" key="score"></sonic-value></p>
+<p>music: <sonic-value id="music" dataProvider="sfxState" key="music.id"></sonic-value></p>

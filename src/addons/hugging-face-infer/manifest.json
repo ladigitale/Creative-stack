@@ -8,6 +8,7 @@
   "requires": [
     "@huggingface/transformers"
   ],
+  "docs": "hugging-face-infer.md",
   "components": [
     {
       "name": "sonic-hugging-face-infer",

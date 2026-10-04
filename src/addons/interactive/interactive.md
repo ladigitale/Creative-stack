@@ -30,4 +30,4 @@ Injected: `$rand`, `$randInt`, `$clamp`, `$range`, `$set`, `$matrix`, `$rotate`.
 
 ## Out of scope (this pass)
 
-Declarative sound, multiplayer, persistence.
+Multiplayer, persistence. Pour le son, voir l’addon `sound` (`sonic-sound` piloté par une sous-clé du store).

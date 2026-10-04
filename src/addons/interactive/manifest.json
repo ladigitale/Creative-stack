@@ -6,6 +6,7 @@
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
+  "docs": "interactive.md",
   "components": [
     {
       "name": "sonic-store",

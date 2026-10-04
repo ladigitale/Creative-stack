@@ -6,6 +6,7 @@
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
+  "docs": "webgpu.md",
   "components": [
     {
       "name": "sonic-webgpu",

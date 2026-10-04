@@ -30,6 +30,9 @@ const manifests = readdirSync(addonsDir, { withFileTypes: true })
     if (m.id !== d.name) errors.push(`${d.name} : id "${m.id}" ≠ nom du dossier`);
     if (!existsSync(path.join(addonsDir, d.name, "index.ts")))
       errors.push(`${d.name} : index.ts manquant`);
+    for (const f of [m.docs, ...(m.examples ?? [])].filter(Boolean)) {
+      if (!existsSync(path.join(addonsDir, d.name, f))) errors.push(`${d.name} : fichier ${f} introuvable`);
+    }
     const source = readdirSync(path.join(addonsDir, d.name))
       .filter((f) => f.endsWith(".ts") && !f.endsWith(".spec.ts"))
       .map((f) => readFileSync(path.join(addonsDir, d.name, f), "utf8"))
@@ -76,6 +79,8 @@ const catalog = {
     status: m.status ?? "experimental",
     requires: m.requires ?? [],
     scripts: m.scripts ?? [],
+    docs: m.docs ? `src/addons/${m.id}/${m.docs}` : null,
+    examples: (m.examples ?? []).map((f) => `src/addons/${m.id}/${f}`),
     bundles: {
       es: `creative-stack-${m.id}.es.js`,
       iife: `creative-stack-${m.id}.bundle.js`,

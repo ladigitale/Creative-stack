@@ -8,6 +8,7 @@
   "requires": [
     "three"
   ],
+  "docs": "3d.md",
   "components": [
     {
       "name": "sonic-3d",

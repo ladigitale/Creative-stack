@@ -1,0 +1,138 @@
+{
+ "sfx": {
+  "jump": "jump",
+  "coin": {
+   "preset": "coin"
+  },
+  "hit": "hit",
+  "boom": {
+   "preset": "explosion",
+   "vol": 0.45
+  },
+  "power": "powerup",
+  "dash": {
+   "preset": "whoosh",
+   "vol": 0.4
+  },
+  "combo": {
+   "preset": "pickup",
+   "cooldown": 0
+  }
+ },
+ "songs": {
+  "theme": {
+   "bpm": 132,
+   "vol": 0.7,
+   "loopFrom": 1,
+   "instruments": {
+    "lead": {
+     "preset": "lead"
+    },
+    "bass": {
+     "preset": "bass"
+    },
+    "pad": {
+     "preset": "pad"
+    },
+    "kick": "kick",
+    "snare": "snare",
+    "hat": "hat"
+   },
+   "patterns": {
+    "intro": {
+     "bass": "A2 . A2 . A3 . A2 . A2 . A3 . A2 . G2 . | F2 . F2 . F3 . F2 . F2 . F3 . F2 . E2 .",
+     "pad": "A3+C4+E4 - - - - - - - - - - - - - - - | F3+A3+C4 - - - - - - - - - - - - - - -",
+     "hat": ". . x ."
+    },
+    "A": {
+     "lead": "E5 - - . A5 - G5 - E5 - - . C5 - D5 - | C5 - - . F5 - E5 - C5 - A4 - - - . .",
+     "bass": "A2 . A2 . A3 . A2 . A2 . A3 . A2 . G2 . | F2 . F2 . F3 . F2 . F2 . F3 . F2 . E2 .",
+     "pad": "A3+C4+E4 - - - - - - - - - - - - - - - | F3+A3+C4 - - - - - - - - - - - - - - -",
+     "kick": "x . . . x . . . x . . . x . . .",
+     "snare": ". . . . x . . . . . . . x . . .",
+     "hat": ". . x ."
+    },
+    "B": {
+     "lead": "G5 - - . E5 - G5 - C6 - - . B5 - G5 - | D5 - - . B4 - D5 - G5 - - - . . B4 -",
+     "bass": "C3 . C3 . C4 . C3 . C3 . C4 . C3 . D3 . | G2 . G2 . G3 . G2 . G2 . G3 . G2 . B2 .",
+     "pad": "C4+E4+G4 - - - - - - - - - - - - - - - | G3+B3+D4 - - - - - - - - - - - - - - -",
+     "kick": "x . . . x . . . x . . . x . x .",
+     "snare": ". . . . x . . . . . . . x . . X",
+     "hat": ". . x ."
+    }
+   },
+   "sequence": [
+    "intro",
+    "A",
+    "B",
+    "A",
+    "B"
+   ]
+  },
+  "boss": {
+   "bpm": 150,
+   "vol": 0.7,
+   "instruments": {
+    "lead": {
+     "preset": "lead",
+     "wave": "sawtooth",
+     "vol": 0.12
+    },
+    "bass": "bass",
+    "kick": "kick",
+    "snare": "snare",
+    "hat": "hat"
+   },
+   "patterns": {
+    "A": {
+     "bass": "E2 . E2 E2 E3 . E2 E2 G2 . E2 E2 Bb2 . A2 G2",
+     "lead": "E5 - - - G5 - F#5 - E5 - - - B4 - - -",
+     "kick": "x . . x x . . . x . . x x . . .",
+     "snare": ". . . . X . . . . . . . X . . .",
+     "hat": ". x"
+    },
+    "B": {
+     "bass": "C3 . C3 C3 C4 . C3 C3 B2 . B2 B2 B3 . B2 B2",
+     "lead": "C5 - - - E5 - D5 - B4 - - - - - . .",
+     "kick": "x . . x x . . . x . . x x . x x",
+     "snare": ". . . . X . . . . . . . X . X X",
+     "hat": ". x"
+    }
+   },
+   "sequence": [
+    "A",
+    "B"
+   ]
+  },
+  "win": {
+   "bpm": 160,
+   "loop": false,
+   "instruments": {
+    "lead": "chip",
+    "bass": "bass",
+    "kick": "kick"
+   },
+   "patterns": {
+    "end": {
+     "lead": "C5 E5 G5 C6 - - G5 C6 - - - - . . . .",
+     "bass": "C3 . . . . . G2 C3 - - - - . . . .",
+     "kick": "x . . . . . x x . . . . . . . ."
+    }
+   }
+  },
+  "lose": {
+   "bpm": 90,
+   "loop": false,
+   "instruments": {
+    "lead": "flute",
+    "bass": "sub"
+   },
+   "patterns": {
+    "end": {
+     "lead": "G4 - F#4 - F4 - E4 - - - - - . . . .",
+     "bass": "C3 - - - B2 - - - Bb2 - - - A2 - - -"
+    }
+   }
+  }
+ }
+}

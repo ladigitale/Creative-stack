@@ -1,0 +1,73 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "sound",
+  "label": "Son (jeux & interfaces)",
+  "description": "Bruitages, sons d'interface et musiques synthétisés en WebAudio à partir d'une banque JSON légère ; pilotage et état complets par DataProvider.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "sound.md",
+  "examples": [
+    "examples/neon-run.bank.json",
+    "examples/sound-lab.artifact.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-sound",
+      "description": "Moteur son : banque JSON (sfx + songs), pilotage par DP control {music, volume, muted, paused, fade, play:{nom:compteur}}, état publié dans out-data-provider",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Id du moteur (défaut \"default\")"
+        },
+        "bank": {
+          "type": "object",
+          "description": "Banque { sfx: {nom: SynthDef}, songs: {nom: SongDef} }"
+        },
+        "bank-provider": {
+          "type": "string",
+          "description": "DP contenant une banque, fusionnée sur bank"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage (chemin pointé accepté, ex. game.sound)"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP de l'état publié (défaut <id>State ou soundState)"
+        },
+        "max-voices": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-sfx",
+      "description": "Enveloppe des éléments et joue un son sur un événement (clic par défaut) et au survol",
+      "props": {
+        "sound": {
+          "type": "string",
+          "description": "Nom du son (banque ou preset : click, select, coin, jump…)"
+        },
+        "on": {
+          "type": "string",
+          "description": "Événement déclencheur (défaut click)"
+        },
+        "hover": {
+          "type": "string",
+          "description": "Son au survol"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "pitch": {
+          "type": "number",
+          "description": "Transposition en demi-tons"
+        },
+        "vol": {
+          "type": "number"
+        }
+      }
+    }
+  ]
+}

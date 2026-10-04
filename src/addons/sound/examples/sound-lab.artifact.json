@@ -1,0 +1,604 @@
+{
+ "schema": "artifacts/1",
+ "title": "Sound lab",
+ "theme": "default",
+ "defaultView": "lab",
+ "views": [
+  {
+   "id": "lab",
+   "title": "Lab",
+   "root": {
+    "nodes": [
+     {
+      "tagName": "div",
+      "attributes": {
+       "style": "display:flex;flex-direction:column;gap:.75rem;max-width:30rem;margin:1rem auto;padding:0 1rem"
+      },
+      "nodes": [
+       {
+        "tagName": "sonic-store",
+        "attributes": {
+         "id": "game",
+         "initial": "{\"score\": 0, \"combo\": 0, \"sound\": {\"music\": null, \"muted\": false, \"paused\": false, \"fade\": 0.8, \"play\": {\"coin\": {\"n\": 0}, \"jump\": {\"n\": 0}, \"hit\": {\"n\": 0}, \"boom\": {\"n\": 0}, \"power\": {\"n\": 0}, \"win\": {\"n\": 0}, \"lose\": {\"n\": 0}}}}",
+         "reducer": "(\n  $t := $action.type;\n  $s := $state;\n  $snd := $s.sound;\n  $p := $snd.play;\n  $n := function($k){ $type($lookup($p, $k)) = \"object\" ? $lookup($p, $k).n : $lookup($p, $k) };\n  $withSound := function($patch){ $merge([$s, {\"sound\": $merge([$snd, $patch])}]) };\n  $bump := function($k, $extra){ $merge([$p, {$k: $merge([{\"n\": $n($k) + 1}, $extra])}]) };\n  $t = \"coin\" ? (\n    $c := $s.combo + 1;\n    $merge([$withSound({\"play\": $bump(\"coin\", {\"pitch\": $min([$c - 1, 12])})}), {\"score\": $s.score + $c, \"combo\": $c}])\n  ) :\n  $t = \"hit\" ? $merge([$withSound({\"play\": $bump(\"hit\", {})}), {\"combo\": 0}]) :\n  $t in [\"jump\", \"boom\", \"power\", \"win\", \"lose\"] ? $withSound({\"play\": $bump($t, {})}) :\n  $t = \"music\" ? $withSound({\"music\": $action.payload}) :\n  $t = \"mute\" ? $withSound({\"muted\": $not($snd.muted)}) :\n  $t = \"pause\" ? $withSound({\"paused\": $not($snd.paused)}) :\n  $s\n)",
+         "budget-ms": "40"
+        }
+       },
+       {
+        "tagName": "sonic-sound",
+        "attributes": {
+         "id": "main",
+         "bank": "{\"sfx\":{\"jump\":\"jump\",\"coin\":{\"preset\":\"coin\"},\"hit\":\"hit\",\"boom\":{\"preset\":\"explosion\",\"vol\":0.45},\"power\":\"powerup\",\"dash\":{\"preset\":\"whoosh\",\"vol\":0.4},\"combo\":{\"preset\":\"pickup\",\"cooldown\":0}},\"songs\":{\"theme\":{\"bpm\":132,\"vol\":0.7,\"loopFrom\":1,\"instruments\":{\"lead\":{\"preset\":\"lead\"},\"bass\":{\"preset\":\"bass\"},\"pad\":{\"preset\":\"pad\"},\"kick\":\"kick\",\"snare\":\"snare\",\"hat\":\"hat\"},\"patterns\":{\"intro\":{\"bass\":\"A2 . A2 . A3 . A2 . A2 . A3 . A2 . G2 . | F2 . F2 . F3 . F2 . F2 . F3 . F2 . E2 .\",\"pad\":\"A3+C4+E4 - - - - - - - - - - - - - - - | F3+A3+C4 - - - - - - - - - - - - - - -\",\"hat\":\". . x .\"},\"A\":{\"lead\":\"E5 - - . A5 - G5 - E5 - - . C5 - D5 - | C5 - - . F5 - E5 - C5 - A4 - - - . .\",\"bass\":\"A2 . A2 . A3 . A2 . A2 . A3 . A2 . G2 . | F2 . F2 . F3 . F2 . F2 . F3 . F2 . E2 .\",\"pad\":\"A3+C4+E4 - - - - - - - - - - - - - - - | F3+A3+C4 - - - - - - - - - - - - - - -\",\"kick\":\"x . . . x . . . x . . . x . . .\",\"snare\":\". . . . x . . . . . . . x . . .\",\"hat\":\". . x .\"},\"B\":{\"lead\":\"G5 - - . E5 - G5 - C6 - - . B5 - G5 - | D5 - - . B4 - D5 - G5 - - - . . B4 -\",\"bass\":\"C3 . C3 . C4 . C3 . C3 . C4 . C3 . D3 . | G2 . G2 . G3 . G2 . G2 . G3 . G2 . B2 .\",\"pad\":\"C4+E4+G4 - - - - - - - - - - - - - - - | G3+B3+D4 - - - - - - - - - - - - - - -\",\"kick\":\"x . . . x . . . x . . . x . x .\",\"snare\":\". . . . x . . . . . . . x . . X\",\"hat\":\". . x .\"}},\"sequence\":[\"intro\",\"A\",\"B\",\"A\",\"B\"]},\"boss\":{\"bpm\":150,\"vol\":0.7,\"instruments\":{\"lead\":{\"preset\":\"lead\",\"wave\":\"sawtooth\",\"vol\":0.12},\"bass\":\"bass\",\"kick\":\"kick\",\"snare\":\"snare\",\"hat\":\"hat\"},\"patterns\":{\"A\":{\"bass\":\"E2 . E2 E2 E3 . E2 E2 G2 . E2 E2 Bb2 . A2 G2\",\"lead\":\"E5 - - - G5 - F#5 - E5 - - - B4 - - -\",\"kick\":\"x . . x x . . . x . . x x . . .\",\"snare\":\". . . . X . . . . . . . X . . .\",\"hat\":\". x\"},\"B\":{\"bass\":\"C3 . C3 C3 C4 . C3 C3 B2 . B2 B2 B3 . B2 B2\",\"lead\":\"C5 - - - E5 - D5 - B4 - - - - - . .\",\"kick\":\"x . . x x . . . x . . x x . x x\",\"snare\":\". . . . X . . . . . . . X . X X\",\"hat\":\". x\"}},\"sequence\":[\"A\",\"B\"]},\"win\":{\"bpm\":160,\"loop\":false,\"instruments\":{\"lead\":\"chip\",\"bass\":\"bass\",\"kick\":\"kick\"},\"patterns\":{\"end\":{\"lead\":\"C5 E5 G5 C6 - - G5 C6 - - - - . . . .\",\"bass\":\"C3 . . . . . G2 C3 - - - - . . . .\",\"kick\":\"x . . . . . x x . . . . . . . .\"}}},\"lose\":{\"bpm\":90,\"loop\":false,\"instruments\":{\"lead\":\"flute\",\"bass\":\"sub\"},\"patterns\":{\"end\":{\"lead\":\"G4 - F#4 - F4 - E4 - - - - - . . . .\",\"bass\":\"C3 - - - B2 - - - Bb2 - - - A2 - - -\"}}}}}",
+         "control": "game.sound",
+         "out-data-provider": "sfxState"
+        }
+       },
+       {
+        "tagName": "sonic-keyboard",
+        "attributes": {
+         "target": "game",
+         "scope": "document",
+         "keymap": "{\"KeyC\": \"coin\", \"Space\": \"jump\", \"KeyH\": \"hit\", \"KeyM\": \"mute\"}"
+        }
+       },
+       {
+        "tagName": "h1",
+        "attributes": {
+         "class": "text-xl font-bold m-0"
+        },
+        "nodes": [
+         {
+          "tagName": "sonic-value",
+          "attributes": {
+           "dataProvider": "t",
+           "key": "title"
+          }
+         }
+        ]
+       },
+       {
+        "tagName": "sonic-sfx",
+        "attributes": {
+         "sound": "click",
+         "hover": "hover"
+        },
+        "nodes": [
+         {
+          "tagName": "div",
+          "attributes": {
+           "style": "display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem"
+          },
+          "nodes": [
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "coin"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "default",
+               "style": "width:100%",
+               "data-action": "coin"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "coin"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "jump"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "jump"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "jump"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "hit"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "hit"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "hit"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "boom"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "boom"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "boom"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "power"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "power"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "power"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "win"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "win"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "win"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "lose"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "lose"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "lose"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "mute"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "mute"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "mute"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "tagName": "div",
+          "attributes": {
+           "style": "display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem;margin-top:.4rem"
+          },
+          "nodes": [
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "music",
+             "payload": "\"theme\""
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "theme"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "theme"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "music",
+             "payload": "\"boss\""
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "boss"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "boss"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "music",
+             "payload": "null"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "stop"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "stop"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "tagName": "sonic-action",
+            "attributes": {
+             "target": "game",
+             "type": "pause"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "width:100%",
+               "data-action": "pause"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "t",
+                 "key": "pause"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "tagName": "div",
+        "attributes": {
+         "style": "display:flex;justify-content:space-between;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+        },
+        "nodes": [
+         {
+          "tagName": "small",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "t",
+             "key": "score"
+            }
+           }
+          ]
+         },
+         {
+          "tagName": "strong",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "game",
+             "key": "score"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "tagName": "div",
+        "attributes": {
+         "style": "display:flex;justify-content:space-between;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+        },
+        "nodes": [
+         {
+          "tagName": "small",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "t",
+             "key": "combo"
+            }
+           }
+          ]
+         },
+         {
+          "tagName": "strong",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "game",
+             "key": "combo"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "tagName": "div",
+        "attributes": {
+         "style": "display:flex;justify-content:space-between;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+        },
+        "nodes": [
+         {
+          "tagName": "small",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "t",
+             "key": "unlocked"
+            }
+           }
+          ]
+         },
+         {
+          "tagName": "strong",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "sfxState",
+             "key": "unlocked"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "tagName": "div",
+        "attributes": {
+         "style": "display:flex;justify-content:space-between;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+        },
+        "nodes": [
+         {
+          "tagName": "small",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "t",
+             "key": "music"
+            }
+           }
+          ]
+         },
+         {
+          "tagName": "strong",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "sfxState",
+             "key": "music.id"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "tagName": "div",
+        "attributes": {
+         "style": "display:flex;justify-content:space-between;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+        },
+        "nodes": [
+         {
+          "tagName": "small",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "t",
+             "key": "bar"
+            }
+           }
+          ]
+         },
+         {
+          "tagName": "strong",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "sfxState",
+             "key": "music.bar"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "tagName": "div",
+        "attributes": {
+         "style": "display:flex;justify-content:space-between;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+        },
+        "nodes": [
+         {
+          "tagName": "small",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "t",
+             "key": "beat"
+            }
+           }
+          ]
+         },
+         {
+          "tagName": "strong",
+          "nodes": [
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "sfxState",
+             "key": "music.beat"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "data": {
+  "transforms": {
+   "t": {
+    "jsonata": "{\"title\": \"Sound lab\", \"coin\": \"Pièce\", \"jump\": \"Saut\", \"hit\": \"Coup\", \"boom\": \"Boum\", \"power\": \"Bonus\", \"win\": \"Victoire\", \"lose\": \"Défaite\", \"theme\": \"Thème\", \"boss\": \"Boss\", \"stop\": \"Stop\", \"mute\": \"Muet\", \"pause\": \"Pause\", \"score\": \"Score\", \"combo\": \"Combo\", \"bar\": \"Mesure\", \"beat\": \"Temps\", \"music\": \"Musique\", \"unlocked\": \"Son actif\"}"
+   }
+  }
+ }
+}

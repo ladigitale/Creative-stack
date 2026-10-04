@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "creative-stack/sound-bank",
+  "title": "Banque son (addon sound)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sfx": {
+      "type": "object",
+      "maxProperties": 200,
+      "propertyNames": { "pattern": "^[A-Za-z0-9_-]{1,40}$" },
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string", "description": "Nom de preset" },
+          {
+            "allOf": [{ "$ref": "#/$defs/synth" }],
+            "properties": {
+              "bus": { "enum": ["sfx", "ui"] },
+              "cooldown": { "type": "number", "minimum": 0, "maximum": 10000 }
+            }
+          }
+        ]
+      }
+    },
+    "songs": {
+      "type": "object",
+      "maxProperties": 50,
+      "propertyNames": { "pattern": "^[A-Za-z0-9_-]{1,40}$" },
+      "additionalProperties": { "$ref": "#/$defs/song" }
+    }
+  },
+  "$defs": {
+    "synth": {
+      "type": "object",
+      "properties": {
+        "preset": { "type": "string" },
+        "wave": { "enum": ["sine", "square", "triangle", "sawtooth", "noise"] },
+        "freq": { "type": "number", "minimum": 20, "maximum": 20000 },
+        "transpose": { "type": "number", "minimum": -48, "maximum": 48 },
+        "slide": { "type": "number", "minimum": -96, "maximum": 96 },
+        "slideTime": { "type": "number", "minimum": 0.001, "maximum": 10 },
+        "dur": { "type": "number", "minimum": 0, "maximum": 10 },
+        "attack": { "type": "number", "minimum": 0, "maximum": 10 },
+        "decay": { "type": "number", "minimum": 0, "maximum": 10 },
+        "sustain": { "type": "number", "minimum": 0, "maximum": 1 },
+        "release": { "type": "number", "minimum": 0, "maximum": 10 },
+        "vol": { "type": "number", "minimum": 0, "maximum": 1 },
+        "arp": { "type": "array", "maxItems": 32, "items": { "type": "number" } },
+        "arpRate": { "type": "number", "minimum": 0.01, "maximum": 2 },
+        "vibrato": {
+          "type": "object",
+          "properties": { "rate": { "type": "number" }, "depth": { "type": "number" } },
+          "required": ["rate", "depth"]
+        },
+        "filter": {
+          "type": "object",
+          "properties": {
+            "type": { "enum": ["lowpass", "highpass", "bandpass", "notch"] },
+            "freq": { "type": "number", "minimum": 20, "maximum": 20000 },
+            "q": { "type": "number" },
+            "to": { "type": "number", "minimum": 20, "maximum": 20000 }
+          },
+          "required": ["freq"]
+        },
+        "repeat": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "repeatGap": { "type": "number", "minimum": 0, "maximum": 2 },
+        "jitter": { "type": "number", "minimum": 0, "maximum": 24 },
+        "pan": { "type": "number", "minimum": -1, "maximum": 1 },
+        "layers": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/synth" } }
+      }
+    },
+    "song": {
+      "type": "object",
+      "required": ["instruments", "patterns"],
+      "properties": {
+        "bpm": { "type": "number", "minimum": 20, "maximum": 400 },
+        "steps": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "beats": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "vol": { "type": "number", "minimum": 0, "maximum": 1 },
+        "loop": { "type": "boolean" },
+        "loopFrom": { "type": "integer", "minimum": 0 },
+        "swing": { "type": "number", "minimum": 0, "maximum": 0.5 },
+        "instruments": {
+          "type": "object",
+          "maxProperties": 16,
+          "additionalProperties": { "oneOf": [{ "type": "string" }, { "$ref": "#/$defs/synth" }] }
+        },
+        "patterns": {
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "description": "Pas séparés par des espaces : C4, F#3, C4+E4+G4, -, ., x, X, G4!, |"
+            }
+          }
+        },
+        "sequence": { "type": "array", "maxItems": 512, "items": { "type": "string" } }
+      }
+    }
+  }
+}

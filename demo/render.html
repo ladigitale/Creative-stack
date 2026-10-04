@@ -1,0 +1,97 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Rendu offline</title>
+<script type="module">
+  import { validateSoundBank, playSynth, SongPlayer, midiToFreq, songDuration } from "../src/addons/sound/index.ts";
+  import bank from "../src/addons/sound/examples/neon-run.bank.json";
+  import { SFX_PRESETS } from "../src/addons/sound/presets.ts";
+
+  const SR = 44100;
+
+  async function renderSong(song, seconds) {
+    const ac = new OfflineAudioContext(2, Math.ceil(SR * seconds), SR);
+    // Même chaîne que le moteur : morceau → bus musique (0.7) → master (0.8) → compresseur.
+    const comp = ac.createDynamicsCompressor();
+    Object.assign(comp, {});
+    comp.threshold.value = -12; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.15;
+    comp.connect(ac.destination);
+    const out = ac.createGain();
+    out.gain.value = song.vol * 0.7 * 0.8;
+    out.connect(comp);
+    const p = new SongPlayer(song, {
+      note: (ev, time, hold) => {
+        const inst = song.instruments[ev.instrument];
+        for (const freq of ev.midi ? ev.midi.map(midiToFreq) : [null]) {
+          playSynth(ac, out, inst, { time, freq, hold: hold < 0 ? null : hold, gain: ev.accent ? 1.2 : 1, random: () => 0.5 });
+        }
+      },
+    });
+    p.start(0);
+    p.schedule(seconds - 0.5);
+    return ac.startRendering();
+  }
+
+  async function renderSfxSequence(defs, gap = 0.25) {
+    const total = defs.length * gap + 1;
+    const ac = new OfflineAudioContext(2, Math.ceil(SR * total), SR);
+    defs.forEach((d, i) => playSynth(ac, ac.destination, d, { time: 0.05 + i * gap, random: () => 0.5 }));
+    return ac.startRendering();
+  }
+
+  function stats(buf) {
+    let peak = 0, sum = 0, nan = 0, n = 0;
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (const v of d) { if (Number.isNaN(v)) nan++; const a = Math.abs(v); if (a > peak) peak = a; sum += v * v; n++; }
+    }
+    return { peak: +peak.toFixed(3), rms: +Math.sqrt(sum / n).toFixed(4), nan, seconds: +buf.duration.toFixed(2) };
+  }
+
+  function wav(buf) {
+    const ch = buf.numberOfChannels, len = buf.length, bytes = 44 + len * ch * 2;
+    const v = new DataView(new ArrayBuffer(bytes));
+    const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, "RIFF"); v.setUint32(4, bytes - 8, true); w(8, "WAVE"); w(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true);
+    v.setUint32(24, SR, true); v.setUint32(28, SR * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true);
+    w(36, "data"); v.setUint32(40, len * ch * 2, true);
+    let o = 44;
+    const data = [...Array(ch)].map((_, c) => buf.getChannelData(c));
+    for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) {
+      const s = Math.max(-1, Math.min(1, data[c][i])); v.setInt16(o, s * 0x7fff, true); o += 2;
+    }
+    let bin = ""; const u8 = new Uint8Array(v.buffer);
+    for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+
+  async function pitchOf(midi) {
+    const ac = new OfflineAudioContext(1, SR, SR);
+    const { bank: b } = validateSoundBank({ sfx: { t: { wave: "sine", dur: 0.8, attack: 0.01, release: 0.01, vol: 0.5 } } });
+    playSynth(ac, ac.destination, b.sfx.t, { time: 0, freq: midiToFreq(midi) });
+    const d = (await ac.startRendering()).getChannelData(0);
+    let z = 0, first = -1, last = -1;
+    for (let i = 2205; i < 30000; i++) if (d[i - 1] < 0 && d[i] >= 0) { z++; if (first < 0) first = i; last = i; }
+    return +(((z - 1) * SR) / (last - first)).toFixed(1);
+  }
+
+  window.renderAll = async () => {
+    const { bank: b, errors } = validateSoundBank(bank);
+    const presets = validateSoundBank({ sfx: Object.fromEntries(Object.keys(SFX_PRESETS).map((k) => [k, k])) });
+    const results = { errors, presetErrors: presets.errors, files: {}, stats: {} };
+    results.pitch = { A4_440: await pitchOf(69), C4_261_6: await pitchOf(60), A2_110: await pitchOf(45) };
+    for (const [name, song] of Object.entries(b.songs)) {
+      const secs = song.loop ? songDuration(song) + 1.5 : songDuration(song) + 1.5;
+      const buf = await renderSong(song, Math.min(secs, 30));
+      results.stats["song-" + name] = stats(buf);
+      results.files["song-" + name] = wav(buf);
+    }
+    const names = Object.keys(presets.bank.sfx);
+    const buf = await renderSfxSequence(names.map((n) => presets.bank.sfx[n]), 0.6);
+    results.stats["sfx-presets"] = { ...stats(buf), order: names.join(",") };
+    results.files["sfx-presets"] = wav(buf);
+    for (const n of names) results.stats["sfx-" + n] = stats(await renderSfxSequence([presets.bank.sfx[n]]));
+    return results;
+  };
+  document.title = "ready";
+</script>

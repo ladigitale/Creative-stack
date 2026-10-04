@@ -13,8 +13,9 @@ Concorde reste le design system (composants UI, DataProviders, `sonic-sdui`, `so
 | `webgpu` | `sonic-webgpu` | — |
 | `hugging-face-infer` | `sonic-hugging-face-infer` | `@huggingface/transformers` |
 | `interactive` | `sonic-store`, `sonic-keyboard`, `sonic-gamepad`, `sonic-gesture`, `sonic-action`, `sonic-ticker`, `sonic-matrix` | — |
+| `sound` | `sonic-sound`, `sonic-sfx` | — |
 
-Code porté depuis `@supersoniks/concorde@4.9.98-visual-stack.4`.
+`3d`, `shader`, `webgpu`, `hugging-face-infer` et `interactive` sont portés depuis `@supersoniks/concorde@4.9.98-visual-stack.4`. `sound` est nouveau : musiques, jingles, bruitages et sons d'interface synthétisés en WebAudio depuis une banque JSON de quelques Ko, pilotés par DataProvider (voir [`src/addons/sound/sound.md`](src/addons/sound/sound.md)).
 
 ## Utilisation
 
@@ -25,12 +26,18 @@ import "@supersoniks/creative-stack/interactive";
 import "@supersoniks/creative-stack/shader";
 ```
 
-En CDN, après le bundle Concorde core :
+Deux bundles par addon dans `dist/` :
+
+- `creative-stack-<id>.es.js` : Concorde, Lit, three… restent des imports. À utiliser derrière un bundler (une seule instance de Concorde).
+- `creative-stack-<id>.bundle.js` : autonome, à charger après le bundle Concorde core.
 
 ```html
 <script src="concorde-core.bundle.js"></script>
 <script src="creative-stack-interactive.bundle.js"></script>
+<script src="creative-stack-sound.bundle.js"></script>
 ```
+
+Un bundle autonome embarque sa propre copie de Concorde ; une passerelle (`src/shared/iife-bridge.ts`) le branche au chargement sur les DataProviders de Concorde core (`window.SonicPublisherManager`) et ignore la redéfinition des composants déjà présents. `demo/cdn.html` vérifie ce mode.
 
 ## Structure
 
@@ -41,7 +48,8 @@ src/addons/<id>/
   *.md            doc de l'addon
   *.spec.ts       tests
 src/shared/       utilitaires communs (mediaRef, similarity)
-schemas/          JSON Schema du manifeste
+schemas/          JSON Schema du manifeste et de la banque son
+demo/             pages de démo (yarn dev → Sound lab en SDUI)
 scripts/          build-addons, build-catalog, hf-vendor
 ```
 
@@ -54,6 +62,7 @@ scripts/          build-addons, build-catalog, hf-vendor
 
 ## Scripts
 
+- `yarn dev` : serveur Vite sur les démos (`demo/sound.html`)
 - `yarn build` : catalogue + un bundle ES et IIFE par addon dans `dist/`
 - `yarn catalog` : génère `dist/catalog.json`. `CREATIVE_STACK_ADDONS=3d,interactive yarn catalog` force une sélection.
 - `yarn test` / `yarn test:ci`
@@ -63,6 +72,6 @@ L'installation ignore les scripts postinstall (`.yarnrc`) : `onnxruntime-node`, 
 
 ## À faire
 
-- Externaliser Concorde et Lit dans les bundles IIFE (aujourd'hui chaque bundle embarque sa copie ; les DataProviders restent partagés via le singleton `window`).
+- Côté Concorde : exposer l'API core en global (et relire `window.SonicPublisherManager` dans `getInstance`), pour que les bundles autonomes n'aient plus à embarquer Concorde ni la passerelle.
 - Brancher l'app Artefacts sur `dist/catalog.json`.
-- Addon `physics` (pilote : moteur 2D, événements discrets vers le store).
+- Addon `physics` (moteur 2D, événements discrets vers le store).

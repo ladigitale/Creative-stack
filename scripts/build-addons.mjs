@@ -1,5 +1,7 @@
 /**
- * Construit un bundle par addon (ES + IIFE) dans dist/.
+ * Construit deux bundles par addon dans dist/ :
+ *  - creative-stack-<id>.es.js     Concorde, Lit, three… restent des imports (à consommer via un bundler)
+ *  - creative-stack-<id>.bundle.js autonome (IIFE), embarque sa propre copie de Concorde
  * Les addons sont découverts depuis src/addons/<id>/index.ts.
  * Usage : node scripts/build-addons.mjs [id ...]
  */
@@ -17,11 +19,13 @@ const wanted = process.argv.slice(2);
 const addons = wanted.length ? wanted : all;
 
 for (const addon of addons) {
-  console.log(`📦 Addon : ${addon}`);
-  execSync("npx vite build", {
-    cwd: root,
-    stdio: "inherit",
-    env: { ...process.env, ADDON: addon },
-  });
+  for (const format of ["es", "iife"]) {
+    console.log(`📦 Addon : ${addon} (${format})`);
+    execSync("npx vite build", {
+      cwd: root,
+      stdio: "inherit",
+      env: { ...process.env, ADDON: addon, FORMAT: format },
+    });
+  }
 }
 console.log(`✅ ${addons.length} addon(s) construit(s)`);
