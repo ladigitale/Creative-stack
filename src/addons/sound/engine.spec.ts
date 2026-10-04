@@ -128,6 +128,21 @@ describe("SoundEngine", () => {
     expect(s.music).toMatchObject({ id: null, playing: false, bpm: 0 });
   });
 
+  it("pause : un temps déjà programmé ne relance pas la lecture", async () => {
+    const { engine, flush } = await makeEngine();
+    engine.applyControl({ music: "theme" });
+    await flush();
+    // un temps arrive juste après la pause (rappel programmé avant)
+    engine.applyControl({ paused: true });
+    (engine as unknown as { onBeat: (p: unknown, pos: object) => void }).onBeat(
+      (engine as unknown as { current: unknown }).current,
+      { index: 0, pattern: "A", step: 4, bar: 0, beat: 1, loops: 0 },
+    );
+    const s = await flush();
+    expect(s.paused).toBe(true);
+    expect(s.music.playing).toBe(false);
+  });
+
   it("polyphonie : voix comptées et libérées", async () => {
     const { ac, engine, flush } = await makeEngine();
     engine.play("explosion");

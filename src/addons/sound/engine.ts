@@ -320,7 +320,8 @@ export class SoundEngine {
   }
 
   private onBeat(p: Playing, pos: SongPosition): void {
-    if (p !== this.current) return;
+    // Un temps programmé juste avant une pause ne doit pas la défaire.
+    if (p !== this.current || this.control.paused) return;
     this.musicState = {
       ...this.musicState,
       playing: true,
