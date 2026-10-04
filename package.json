@@ -35,7 +35,7 @@
   },
   "peerDependencies": {
     "@huggingface/transformers": "4.3.0",
-    "@supersoniks/concorde": "^5.0.4",
+    "@supersoniks/concorde": ">=4.9.98-visual-stack.4 <6",
     "lit": "^3.1.3",
     "three": "0.180.0"
   },
