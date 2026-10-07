@@ -33,7 +33,7 @@
      "tagName": "sonic-video",
      "attributes": {
       "id": "clip",
-      "src": "assets/clip.webm",
+      "src": "https://cdn.jsdelivr.net/gh/ladigitale/creative-stack@51ec01a5e9d2278b06b8c122b3175d6afd16d019/demo/assets/clip.webm",
       "loop": "",
       "hidden-preview": "",
       "audio-out": "master",
