@@ -96,6 +96,11 @@ export class AudioEngine {
     return this.masterIn;
   }
 
+  /** Sortie finale (après le limiteur) : à brancher sur un enregistreur pour capter ce qu'on entend. */
+  get output(): AudioNode | null {
+    return this.limiter;
+  }
+
   /** Appelé à chaque changement (déverrouillage, état, volume). Retourne la désinscription. */
   onChange(listener: Listener): () => void {
     this.listeners.add(listener);

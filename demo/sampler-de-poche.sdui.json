@@ -1,0 +1,764 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:34rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "poche",
+      "initial": "{\"armed\": \"A\", \"rec\": {\"recording\": false, \"target\": \"takes.A\"}, \"notes\": [], \"tick\": 0, \"transport\": {\"playing\": false}, \"export\": {\"recording\": false}}",
+      "reducer": "(\n  $t := $action.type;\n  $s := $state;\n  $t = \"arm\" ? $merge([$s, {\"armed\": $action.payload, \"rec\": $merge([$s.rec, {\"target\": \"takes.\" & $action.payload}])}]) :\n  $t = \"rec\" ? $merge([$s, {\"rec\": $merge([$s.rec, {\"recording\": $not($s.rec.recording)}])}]) :\n  $t = \"hit\" ? $merge([$s, {\"notes\": [{\"sample\": $action.payload, \"vel\": 0.9}], \"tick\": $s.tick + 1}]) :\n  $t = \"play\" ? $merge([$s, {\"transport\": $merge([$s.transport, {\"playing\": $not($s.transport.playing)}])}]) :\n  $t = \"export\" ? $merge([$s, {\"export\": {\"recording\": $not($s.export.recording)}}]) :\n  $s\n)"
+     }
+    },
+    {
+     "tagName": "sonic-mic",
+     "attributes": {
+      "id": "mic"
+     }
+    },
+    {
+     "tagName": "sonic-patch",
+     "attributes": {
+      "id": "clean",
+      "output": "none",
+      "gain": "1"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-audio-input",
+       "attributes": {
+        "name": "voix",
+        "source": "#mic",
+        "level": "1.4"
+       }
+      },
+      {
+       "tagName": "sonic-filter",
+       "attributes": {
+        "name": "hp",
+        "type": "highpass",
+        "freq-hz": "110"
+       }
+      },
+      {
+       "tagName": "sonic-comp",
+       "attributes": {
+        "name": "cmp",
+        "threshold-db": "-24",
+        "ratio": "4"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-audio-recorder",
+     "attributes": {
+      "id": "rec",
+      "source": "#clean",
+      "control": "poche.rec",
+      "max-s": "6"
+     }
+    },
+    {
+     "tagName": "sonic-sampler",
+     "attributes": {
+      "id": "pads",
+      "samples": "{\"A\": {\"ref\": \"takes.A\"}, \"B\": {\"ref\": \"takes.B\"}, \"C\": {\"ref\": \"takes.C\", \"gain\": 0.7}, \"D\": {\"ref\": \"takes.D\"}}",
+      "events": "poche.notes",
+      "trigger": "poche.tick",
+      "gain": "0.9"
+     }
+    },
+    {
+     "tagName": "sonic-sequencer",
+     "attributes": {
+      "id": "seq",
+      "bpm": "96",
+      "control": "poche.transport",
+      "pattern": "{\"pads\": {\"A\": \"x.......x.......\", \"B\": \"....x.......x...\", \"C\": \"[..x.]*4\", \"D\": \"<~ [~ ~ ~ x]>\"}}"
+     }
+    },
+    {
+     "tagName": "sonic-audio-analyser",
+     "attributes": {
+      "id": "spectre",
+      "source": "master",
+      "bands": "8"
+     }
+    },
+    {
+     "tagName": "sonic-audio-analyser",
+     "attributes": {
+      "id": "voixSpec",
+      "source": "#mic"
+     }
+    },
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "title"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "position:relative;border-radius:.8rem;overflow:hidden;background:#0b0d14;aspect-ratio:16/9"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-shader",
+       "attributes": {
+        "id": "viz",
+        "channel0": "#spectre",
+        "channel1": "#voixSpec",
+        "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  vec2 q = uv - 0.5; q.x *= iResolution.x / iResolution.y;\n  float r = length(q);\n  float a = atan(q.y, q.x);\n  float x = fract(a / 6.2831853 + 0.5);\n  float band = texture(iChannel0, vec2(pow(abs(x * 2.0 - 1.0), 1.4) * 0.5, 0.25)).r;\n  float wave = texture(iChannel1, vec2(uv.x, 0.75)).r - 0.5;\n  float ring = smoothstep(0.012, 0.0, abs(r - 0.18 - band * 0.22));\n  float glow = band * smoothstep(0.5, 0.0, r);\n  float line = smoothstep(0.01, 0.0, abs(uv.y - 0.5 - wave * 0.9)) * 0.8;\n  vec3 bg = mix(vec3(0.03, 0.04, 0.08), vec3(0.10, 0.05, 0.14), uv.y + 0.2 * sin(iTime * 0.3));\n  vec3 hue = 0.5 + 0.5 * cos(6.2831853 * (x + vec3(0.0, 0.33, 0.67)) + iTime * 0.4);\n  vec3 col = bg + ring * hue + glow * hue * 0.6 + line * vec3(1.0, 0.85, 0.5);\n  c = vec4(col, 1.0);\n}",
+        "style": "display:block;width:100%;height:100%"
+       }
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none"
+       },
+       "nodes": [
+        {
+         "tagName": "div",
+         "attributes": {
+          "style": "pointer-events:auto"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-audio-unlock",
+           "attributes": {
+            "start": "mic",
+            "label": "Activer le son et le micro"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-media-recorder",
+     "attributes": {
+      "id": "export",
+      "video-source": "#viz",
+      "audio-source": "master",
+      "control": "poche.export",
+      "max-s": "30"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem"
+     },
+     "nodes": [
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;gap:.25rem"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-action",
+         "attributes": {
+          "target": "poche",
+          "type": "hit",
+          "payload": "\"A\""
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-button",
+           "attributes": {
+            "variant": "default",
+            "style": "width:100%;height:4.2rem;font-size:1.4rem",
+            "data-action": "hit-A"
+           },
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "padA"
+             }
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "tagName": "small",
+         "attributes": {
+          "style": "text-align:center;opacity:.7"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "takes",
+            "key": "A.durS"
+           }
+          },
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "s"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "sonic-action",
+         "attributes": {
+          "target": "poche",
+          "type": "arm",
+          "payload": "\"A\""
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-button",
+           "attributes": {
+            "variant": "outline",
+            "style": "width:100%",
+            "data-action": "arm-A"
+           },
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "arm"
+             }
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;gap:.25rem"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-action",
+         "attributes": {
+          "target": "poche",
+          "type": "hit",
+          "payload": "\"B\""
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-button",
+           "attributes": {
+            "variant": "default",
+            "style": "width:100%;height:4.2rem;font-size:1.4rem",
+            "data-action": "hit-B"
+           },
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "padB"
+             }
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "tagName": "small",
+         "attributes": {
+          "style": "text-align:center;opacity:.7"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "takes",
+            "key": "B.durS"
+           }
+          },
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "s"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "sonic-action",
+         "attributes": {
+          "target": "poche",
+          "type": "arm",
+          "payload": "\"B\""
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-button",
+           "attributes": {
+            "variant": "outline",
+            "style": "width:100%",
+            "data-action": "arm-B"
+           },
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "arm"
+             }
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;gap:.25rem"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-action",
+         "attributes": {
+          "target": "poche",
+          "type": "hit",
+          "payload": "\"C\""
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-button",
+           "attributes": {
+            "variant": "default",
+            "style": "width:100%;height:4.2rem;font-size:1.4rem",
+            "data-action": "hit-C"
+           },
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "padC"
+             }
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "tagName": "small",
+         "attributes": {
+          "style": "text-align:center;opacity:.7"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "takes",
+            "key": "C.durS"
+           }
+          },
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "s"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "sonic-action",
+         "attributes": {
+          "target": "poche",
+          "type": "arm",
+          "payload": "\"C\""
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-button",
+           "attributes": {
+            "variant": "outline",
+            "style": "width:100%",
+            "data-action": "arm-C"
+           },
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "arm"
+             }
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;gap:.25rem"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-action",
+         "attributes": {
+          "target": "poche",
+          "type": "hit",
+          "payload": "\"D\""
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-button",
+           "attributes": {
+            "variant": "default",
+            "style": "width:100%;height:4.2rem;font-size:1.4rem",
+            "data-action": "hit-D"
+           },
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "padD"
+             }
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "tagName": "small",
+         "attributes": {
+          "style": "text-align:center;opacity:.7"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "takes",
+            "key": "D.durS"
+           }
+          },
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "s"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "sonic-action",
+         "attributes": {
+          "target": "poche",
+          "type": "arm",
+          "payload": "\"D\""
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-button",
+           "attributes": {
+            "variant": "outline",
+            "style": "width:100%",
+            "data-action": "arm-D"
+           },
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "arm"
+             }
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "poche",
+        "type": "rec"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "rec"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "rec"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "poche",
+        "type": "play"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "play"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "play"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "poche",
+        "type": "export"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "export"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "export"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-download",
+       "attributes": {
+        "source": "exportState.last",
+        "filename": "sampler-de-poche"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-value",
+         "attributes": {
+          "dataProvider": "t",
+          "key": "download"
+         }
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-media-download",
+       "attributes": {
+        "source": "recState.last",
+        "filename": "prise"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-value",
+         "attributes": {
+          "dataProvider": "t",
+          "key": "take"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;font-variant-numeric:tabular-nums"
+     },
+     "nodes": [
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "armed"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "poche",
+            "key": "armed"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "recState"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "recState",
+            "key": "status"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "expState"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "exportState",
+            "key": "status"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "opacity:.75;font-size:.9rem;margin:0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "help"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

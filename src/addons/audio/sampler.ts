@@ -33,12 +33,15 @@ export type SamplerState = {
   loaded: number;
   total: number;
   samples: string[];
+  /** Samples `ref` encore sans enregistrement. */
+  empty: string[];
   voices: number;
   played: number;
   errors: string[];
 };
 
-type Loaded = { spec: SampleSpec; buffer: AudioBuffer | null; reversed: AudioBuffer | null; error: string | null };
+/** `empty` : sample `ref` dont le DataProvider est encore vide (pad pas encore enregistré). */
+type Loaded = { spec: SampleSpec; buffer: AudioBuffer | null; reversed: AudioBuffer | null; error: string | null; empty: boolean };
 type Voice = { sample: string; src: AudioBufferSourceNode; gain: GainNode; end: number };
 
 /* ------------------------------------------------------------------ */
@@ -210,9 +213,10 @@ export class SonicSampler extends LitElement implements SonicInstrument {
     this.errors = [];
     const next = new Map<string, Loaded>();
     for (const [name, spec] of Object.entries(this.specs())) {
-      const entry: Loaded = { spec, buffer: null, reversed: null, error: null };
+      const entry: Loaded = { spec, buffer: null, reversed: null, error: null, empty: !!spec.ref };
       next.set(name, entry);
       const load = (url: string) => {
+        entry.empty = false;
         if (!safeSampleUrl(url)) {
           entry.error = `${name} : URL refusée (https, blob:, data:audio ou relative)`;
           this.publish();
@@ -468,7 +472,7 @@ export class SonicSampler extends LitElement implements SonicInstrument {
     const loaded = entries.filter((e) => e.buffer).length;
     const loadErrors = entries.map((e) => e.error).filter((e): e is string => !!e);
     const supported = AudioEngine.get().supported;
-    const pending = entries.filter((e) => !e.buffer && !e.error).length;
+    const pending = entries.filter((e) => !e.buffer && !e.error && !e.empty).length;
     return {
       status: !supported
         ? "unsupported"
@@ -482,6 +486,7 @@ export class SonicSampler extends LitElement implements SonicInstrument {
       loaded,
       total: entries.length,
       samples: [...this.loaded.keys()],
+      empty: [...this.loaded].filter(([, e]) => e.empty).map(([n]) => n),
       voices: this.voices.length,
       played: this.played,
       errors: [...loadErrors, ...this.errors],

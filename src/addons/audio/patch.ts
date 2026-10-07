@@ -2,7 +2,7 @@ import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { AudioEngine, resolveAudioElement } from "../../shared/audio/engine";
-import { isAudioSink, type SonicInstrument, type SonicNoteEvent } from "../../shared/audio/contracts";
+import { isAudioSink, isAudioSource, type SonicInstrument, type SonicNoteEvent } from "../../shared/audio/contracts";
 import { toMidi } from "../../shared/audio/notes";
 import { listenDp, plain } from "../../shared/audio/dp";
 import { compilePatch, domToPatchNodes, type CompiledPatch, type PatchNode } from "./patch/compile";
@@ -19,6 +19,8 @@ export type PatchState = {
   voices: number;
   /** Notes jouées depuis le chargement. */
   played: number;
+  /** sonic-audio-input : branché (true) ou en attente de sa source (false). */
+  inputs: Record<string, boolean>;
   errors: string[];
   warnings: string[];
 };
@@ -117,12 +119,14 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     this.observer = new MutationObserver(() => this.queueRecompile());
     this.observer.observe(this, { childList: true, subtree: true, attributes: true });
     this.unsubscribeEngine = AudioEngine.get().onChange(() => this.ensureRuntime());
+    this.inputClock = setInterval(() => this.wireInputs(), 400);
     this.recompile();
   }
 
   disconnectedCallback(): void {
     this.observer?.disconnect();
     this.unsubscribeEngine?.();
+    if (this.inputClock) clearInterval(this.inputClock);
     for (const u of [...this.unsubs, ...this.paramUnsubs]) u();
     this.unsubs = [];
     this.paramUnsubs = [];
@@ -200,6 +204,12 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     this.runtime?.allNotesOff();
   }
 
+  /** Entrée audio (SonicAudioSink) : le premier sonic-audio-input du patch, pour `output="#ce-patch"` d'une autre source. */
+  getAudioInput(): AudioNode | null {
+    const first = this.runtime?.inputs()[0];
+    return first ? (this.runtime?.inputNode(first.name) ?? null) : null;
+  }
+
   /** Sortie audio du patch (pour un analyseur, un enregistreur…). */
   getAudioOutput(): AudioNode | null {
     return this.runtime?.output ?? null;
@@ -269,10 +279,46 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     if (dest) this.runtime.output.connect(dest);
     this.applyParams();
     this.listenParams();
+    this.wireInputs();
     const fresh = this.pending.filter((p) => performance.now() - p.at < 500);
     this.pending = [];
     for (const p of fresh) this.schedule(p.events.map((e) => ({ ...e, when: undefined })));
     this.publish();
+  }
+
+  private inputClock: ReturnType<typeof setInterval> | null = null;
+  private inputsState: Record<string, boolean> = {};
+
+  /** Branche les sonic-audio-input sur leur source dès qu'elle est prête (micro activé, vidéo chargée…). */
+  private wireInputs(): void {
+    const rt = this.runtime;
+    const next: Record<string, boolean> = {};
+    if (rt) {
+      for (const { name, source } of rt.inputs()) {
+        if (source === "master") {
+          this.warnOnce(`${name} : source "master" interdite (boucle de larsen)`);
+          next[name] = false;
+          continue;
+        }
+        if (source === "none" || source === "in") {
+          next[name] = true;
+          continue;
+        }
+        const el = resolveAudioElement(this, source);
+        if (el === this) {
+          this.warnOnce(`${name} : un patch ne peut pas être sa propre source`);
+          next[name] = false;
+          continue;
+        }
+        const node = isAudioSource(el) ? el.getAudioOutput() : null;
+        rt.attachInput(name, node);
+        next[name] = !!node;
+      }
+    }
+    if (JSON.stringify(next) !== JSON.stringify(this.inputsState)) {
+      this.inputsState = next;
+      this.publish();
+    }
   }
 
   private resolveOutput(master: AudioNode): AudioNode | null {
@@ -375,6 +421,7 @@ export class SonicPatch extends LitElement implements SonicInstrument {
       preset: this.preset || null,
       voices: this.runtime?.voiceCount ?? 0,
       played: this.played,
+      inputs: { ...this.inputsState },
       errors,
       warnings: [...(this.compiled?.warnings ?? []), ...this.runtimeErrors],
     };

@@ -286,6 +286,17 @@ export class SonicVideo extends LitElement implements SonicFrameSource, SonicFra
     v.currentTime = Math.min(Math.max(0, t), d);
   }
 
+  /** Images de la vidéo en flux (pour un enregistreur ; son exclu : il passe par `audio-out`). */
+  getMediaStream(): MediaStream | null {
+    const v = this.videoEl as (HTMLVideoElement & { captureStream?: () => MediaStream }) | undefined;
+    if (!v || typeof v.captureStream !== "function" || v.readyState < 1) return null;
+    try {
+      return new MediaStream(v.captureStream().getVideoTracks());
+    } catch {
+      return null;
+    }
+  }
+
   /** Pour `sonic-media-start` (appelé dans un geste) : active le son et lance la lecture. */
   start(): void {
     if (this.audioOut) void AudioEngine.get().unlock();

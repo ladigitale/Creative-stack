@@ -76,10 +76,10 @@ type SonicNoteEvent = {
 | 3 | `media` | `sonic-camera` | Caméra, aperçu, `snapshot` → `SonicMediaRef`, source de frames pour shader | **fait** |
 | 3 | `media` | `sonic-video` | Lecteur propriétaire de sa `<video>`, pilotage DP, son routable vers l'`AudioEngine` | **fait** |
 | 3 | `media` | `sonic-media-start` | Bouton d'invite : démarre caméra / micro / vidéo sur un clic, affiche un refus | **fait** |
-| 4 | `audio` | `sonic-audio-recorder` | Enregistre une source → `SonicMediaRef` (rejouable par le sampler) | |
-| 4 | `media` | `sonic-media-recorder` | Export d'une performance (canvas shader/3D + son) en webm/mp4 | |
-| 4 | `media` | `sonic-media-download` | Lien de téléchargement d'un enregistrement | |
-| 4 | `audio` | `sonic-patch` + `sonic-input` | Un patch qui traite une entrée (effet autonome : `#mic → #fx`) | |
+| 4 | `audio` | `sonic-audio-recorder` | Enregistre une source → `SonicMediaRef` (rejouable par le sampler) | **fait** |
+| 4 | `media` | `sonic-media-recorder` | Export d'une performance (canvas shader/3D + son) en webm/mp4 | **fait** |
+| 4 | `media` | `sonic-media-download` | Lien de téléchargement d'un enregistrement | **fait** |
+| 4 | `audio` | `sonic-patch` + `sonic-audio-input` | Un patch qui traite une entrée (effet autonome : `#mic → #fx`) | **fait** |
 | 5 | `audio` | `sonic-midi` | Web MIDI entrée / sortie / horloge, MPE en entrée | |
 | 5 | `media` | `sonic-screen` | Capture d'écran (`getDisplayMedia`) | |
 | 6 | `audio` | modules AudioWorklet | `sonic-osc sync` (BLEP), `sonic-ladder`, `sonic-fold`, `sonic-karplus`, `sonic-resonator`, `sonic-grain` | |
@@ -130,6 +130,14 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 - [x] Lecture automatique refusée : démarrage muet `needs-gesture`, son rétabli au premier geste.
 - [x] Démos « Miroir » et « Clip réactif » zéro JS.
 - [x] Correctif de câblage : les sources ne débranchent plus en bloc leur sortie (un analyseur abonné était coupé) — `AudioRoute`.
+
+## Phase 4 — critères d'acceptation (validés)
+
+- [x] Micro factice → `sonic-audio-recorder` 2 s : prise de 2,00 s (WebM/Opus) écrite dans `control.target`, chargée par `sonic-sampler` (`ref`) et rejouée (niveau mesuré par l'analyseur).
+- [x] `sonic-audio-input` : patch sans `sonic-voice` branché sur `#mic` dès que le micro est prêt (`inputs.voix = true`), `master` refusé ; balise distincte de `sonic-input` de Concorde (le catalogue refuse désormais tout doublon de balise Concorde).
+- [x] Export 3 s d'un `sonic-shader` + master : `<video>` relit 2,98 s (± 0,2 s), 320 × 180, pistes VP9 + Opus ; durée écrite dans le WebM (ffprobe la lit sans parcourir le fichier).
+- [x] `sonic-media-download` : caché sans prise, lien `blob:` avec nom et extension déduits du format ; URL non `blob:` refusée.
+- [x] Démo « Sampler de poche » zéro JS : micro nettoyé (`sonic-audio-input` → filtre → compresseur) → 4 pads enregistrés → sampler à la main et au séquenceur → fond shader → export vidéo téléchargeable.
 
 ## Ce qui reste côté Concorde (prompt Cursor, non bloquant)
 

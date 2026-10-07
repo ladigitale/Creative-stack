@@ -1,6 +1,6 @@
 # Media (SDUI)
 
-Addon `@supersoniks/creative-stack/media` : caméra, lecteur vidéo et bouton d'invite. Chaque composant est piloté par DataProvider, publie son état, et sert de **source d'images** pour `sonic-shader channel0="#id"` (le shader de Concorde, sans modification). Le son d'une vidéo peut passer par le moteur audio partagé (addon `audio`) pour être analysé.
+Addon `@supersoniks/creative-stack/media` : caméra, lecteur vidéo, bouton d'invite, export vidéo et téléchargement. Chaque composant est piloté par DataProvider, publie son état, et sert de **source d'images** pour `sonic-shader channel0="#id"` (le shader de Concorde, sans modification). Le son d'une vidéo peut passer par le moteur audio partagé (addon `audio`) pour être analysé.
 
 Le micro (`sonic-mic`) est dans l'addon `audio`.
 
@@ -18,6 +18,8 @@ Le micro (`sonic-mic`) est dans l'addon `audio`.
 | `sonic-camera` | Caméra : aperçu, images pour les shaders, photos |
 | `sonic-video` | Lecteur vidéo propriétaire de sa `<video>` |
 | `sonic-media-start` | Bouton d'invite qui démarre caméra / micro / vidéo, affiche un refus |
+| `sonic-media-recorder` | Export vidéo d'un shader, d'une caméra ou d'une vidéo, avec le son |
+| `sonic-media-download` | Lien de téléchargement d'une prise, d'une photo ou d'un export |
 
 ## `sonic-camera`
 
@@ -81,9 +83,36 @@ Dans un shader : `channel0="#clip"`. Le shader ne pilote jamais la vidéo (il li
 
 Bouton (contenu libre en slot) qui démarre les éléments listés dans `for` (caméra, micro, vidéo) : la demande d'accès part d'un clic. Caché quand toutes les cibles sont prêtes (`persist` pour le garder) ; affiche le message en cas de refus.
 
+## `sonic-media-recorder`
+
+```json
+{ "tagName": "sonic-media-recorder", "attributes": {
+  "id": "export", "video-source": "#viz", "audio-source": "master", "control": "game.export", "max-s": "30" } }
+```
+
+| Attribut | Rôle |
+|---|---|
+| `video-source` | `#id` d'une source d'images : `sonic-shader`, `sonic-camera`, `sonic-video` (tout ce qui sert de `channel0`) |
+| `audio-source` | `master` (défaut : ce qu'on entend), `#id` d'une source audio, `none` |
+| `fps` (30), `bits-per-second` (4 000 000) | Cadence et débit vidéo |
+| `max-s` (20), `max-takes` (4) | Durée max d'un export ; exports gardés en mémoire |
+| `take-provider` | Chemin DP où écrire chaque export |
+| `control` | DP : `{ recording: true | false }` |
+
+Export = SonicMediaRef `{ url, mime, durS, size, width, height }` (WebM VP9/Opus, MP4 sur Safari ; la durée est écrite dans le fichier). État : `{ status: idle | waiting-source | ready | recording | error | unsupported, error, recording, elapsedS, last, takes }`. L'export filme le canvas tel qu'affiché (taille du `sonic-shader` dans la page).
+
+## `sonic-media-download`
+
+```json
+{ "tagName": "sonic-media-download", "attributes": { "source": "exportState.last", "filename": "ma-creation" }, "nodes": [ { "tagName": "sonic-value", "attributes": { "dataProvider": "t", "key": "download" } } ] }
+```
+
+Lien `<a download>` vers le SonicMediaRef lu dans `source` (`exportState.last`, `recState.last`, `camState.snapshot`…). Seules les URL `blob:` créées dans la page sont acceptées. Caché tant qu'il n'y a rien ; contenu libre en slot (sinon `label`) ; extension déduite du format (`.webm`, `.mp4`, `.m4a`, `.jpg`…).
+
 ## Démos
 
 - `examples/miroir.sdui.json` : caméra (au clic) → shader à 4 effets choisis par le store ; photo par compteur, affichée encadrée dans un second shader via `snapshot-provider`.
+- Sampler de poche (addon `audio`, `examples/sampler-de-poche.sdui.json`) : export du visuel avec le son et téléchargement.
 - `examples/clip-reactif.sdui.json` : `sonic-video` → moteur audio → analyseur ; le shader lit l'image (`#clip`) et le spectre (`#spectre`) : zoom et décalage des couleurs sur la grosse caisse. Lecture, boucle et vitesse pilotées par le store.
 
 ## Plateforme (viewer Artefacts)

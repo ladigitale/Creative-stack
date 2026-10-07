@@ -9,6 +9,7 @@ export { SonicSequencer, type SequencerState } from "./sequencer";
 export { SonicSampler, safeSampleUrl, type SamplerState, type SampleSpec } from "./sampler";
 export { SonicAudioAnalyser, estimatePitch, type AnalyserState } from "./analyser";
 export { SonicMic, type MicState } from "./mic";
+export { SonicAudioRecorder, type AudioRecorderState } from "./recorder";
 export { compilePattern, SequencerCore } from "./seq/core";
 export { parseLine, eventsForCycle, euclid, SCALES } from "./seq/mini";
 export { MODULE_TAGS } from "./modules-elements";

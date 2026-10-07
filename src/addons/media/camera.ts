@@ -233,6 +233,11 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
     this.setActive(false);
   }
 
+  /** Flux de la caméra (pour un enregistreur). */
+  getMediaStream(): MediaStream | null {
+    return this.stream;
+  }
+
   /** Bascule caméra avant / arrière. */
   flip(): void {
     this.facing = this.facing === "user" ? "environment" : "user";

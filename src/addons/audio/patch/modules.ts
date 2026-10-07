@@ -56,6 +56,14 @@ export const MODULES: Record<string, ModuleSpec> = {
       level: { default: 1, min: 0, max: 4, audio: true },
     },
   },
+  /** Entrée externe (micro, vidéo, autre patch) : hors sonic-voice uniquement. */
+  "sonic-audio-input": {
+    kind: "source",
+    params: {
+      source: { default: "#mic" },
+      level: { default: 1, min: 0, max: 4, audio: true },
+    },
+  },
   "sonic-mixer": {
     kind: "processor",
     params: { levels: { default: "", list: true } },

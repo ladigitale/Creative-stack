@@ -2,14 +2,15 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "audio",
   "label": "Audio (synthèse modulaire)",
-  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, bibliothèque), séquenceur à mini-notation, sampler, micro et analyseur (DP + texture shader), tout piloté par DataProvider.",
+  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, bibliothèque), séquenceur à mini-notation, sampler, micro, enregistreur et analyseur (DP + texture shader), tout piloté par DataProvider.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
   "docs": "audio.md",
   "examples": [
     "examples/premier-son.sdui.json",
-    "examples/vie-sonore.sdui.json"
+    "examples/vie-sonore.sdui.json",
+    "examples/sampler-de-poche.sdui.json"
   ],
   "components": [
     {
@@ -128,6 +129,22 @@
         },
         "color": {
           "type": "string"
+        },
+        "level": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-audio-input",
+      "description": "Entrée externe d'un patch (hors sonic-voice) : source=\"#mic\" (défaut) ou #id d'une source audio (vidéo, sampler, autre patch) ; un patch sans sonic-voice devient une chaîne d'effets ; master interdit",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "description": "#mic (défaut), #id d'une source audio, in (reçoit ce qui est routé vers le patch)"
         },
         "level": {
           "type": "number"
@@ -542,6 +559,31 @@
         },
         "control": {
           "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-audio-recorder",
+      "description": "Enregistreur audio : source #mic (défaut), #id ou master ; DP control {recording, target} ; chaque prise (SonicMediaRef {url, mime, durS, size}) écrite dans control.target ou take-provider, rejouable par sonic-sampler {\"ref\": \"chemin\"} ; état {status, recording, elapsedS, last, takes}",
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "max-s": {
+          "type": "number"
+        },
+        "max-takes": {
+          "type": "number"
+        },
+        "take-provider": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP : {recording: true|false, target: \"chemin.dp\"}"
         },
         "out-data-provider": {
           "type": "string"

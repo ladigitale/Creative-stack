@@ -20,6 +20,8 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 | `sonic-sampler` | Joue des samples (URL, enregistrement en DataProvider), par nom ou chromatiquement |
 | `sonic-audio-analyser` | Niveaux, bandes, attaques, hauteur en DataProvider + texture pour `sonic-shader` |
 | `sonic-mic` | Micro : source pour l'analyseur, un patch, un enregistreur (jamais vers les haut-parleurs sauf `monitor`) |
+| `sonic-audio-input` | Module de patch : entrée externe (micro, vidéo, sampler…) ; un patch sans voix devient une chaîne d'effets |
+| `sonic-audio-recorder` | Enregistre une source en prise (SonicMediaRef) rejouable par le sampler, téléchargeable |
 | `sonic-audio-unlock` | Bouton « Activer le son » (caché une fois actif) ; `start="mic"` démarre aussi le micro |
 | `sonic-audio-master` | Volume / muet du master |
 
@@ -125,6 +127,18 @@ La note jouée au moment même où l'utilisateur active le son n'est pas perdue 
 | `sonic-reverb` | `size-s` (2), `damp` (0.5), `mix` (0.25) |
 | `sonic-chorus` | *`rate-hz`* (0.8), `depth` (3 ms), `delay` (12 ms), `mix` (0.5) |
 | `sonic-comp` | *`threshold-db`* (-18), *`ratio`* (4), *`knee`*, *`attack`*, *`release`* |
+| `sonic-audio-input` | `source` (`#mic` : `#id` d'une source audio ; `in` : reçoit ce qui est routé vers le patch), *`level`* (1). Hors de `sonic-voice` uniquement |
+
+**Traiter une entrée** : un patch peut n'avoir **aucun** `sonic-voice` s'il contient un `sonic-audio-input`. Il devient une chaîne d'effets toujours active (micro nettoyé avant enregistrement, voix passée dans un délai…). Avec des voix, l'entrée se mélange aux notes (`sonic-mixer` sans `in` prend `voices` et l'entrée). L'entrée se branche dès que la source est prête (micro activé, vidéo chargée) ; l'état du patch l'indique : `inputs: { "voix": true }`. `source="master"` est refusé (boucle). Un autre élément peut aussi envoyer son son au patch : `output="#fx"` (premier `sonic-audio-input` du patch).
+
+```json
+{ "tagName": "sonic-patch", "attributes": { "id": "clean", "output": "none" }, "nodes": [
+  { "tagName": "sonic-audio-input", "attributes": { "name": "voix", "source": "#mic" } },
+  { "tagName": "sonic-filter", "attributes": { "type": "highpass", "freq-hz": "110" } },
+  { "tagName": "sonic-comp", "attributes": { "threshold-db": "-24" } } ] }
+```
+
+Micro + `output` autre que `none` = risque de Larsen sans casque : préférer `output="none"` et enregistrer / analyser `#clean`.
 
 ### `sonic-patch`
 
@@ -141,7 +155,7 @@ La note jouée au moment même où l'utilisateur active le son n'est pas perdue 
 | `notes-map` | `{"kick": 36}` : noms → notes pour les événements `sample` |
 | `out-data-provider` | État publié (défaut `<id>State`) |
 
-**État publié** : `{ status: "idle" | "ready" | "error" | "unsupported", preset, voices, played, errors, warnings }`. `idle` = en attente du premier geste. Les erreurs (module inconnu, paramètre inexistant, boucle sans délai…) rendent le patch muet ; les avertissements (valeur invalide, attribut inconnu) sont ignorés et le patch joue.
+**État publié** : `{ status: "idle" | "ready" | "error" | "unsupported", preset, voices, played, inputs, errors, warnings }`. `idle` = en attente du premier geste. Les erreurs (module inconnu, paramètre inexistant, boucle sans délai…) rendent le patch muet ; les avertissements (valeur invalide, attribut inconnu) sont ignorés et le patch joue.
 
 ### `sonic-param`
 
@@ -203,7 +217,7 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 - Par sample : `gain`, `pan`, `pitch` (demi-tons), `root` (note de référence pour jouer chromatiquement), `start`, `end` (s), `loop`, `reverse`, `gate` (couper à la fin de la note ; sinon le sample est joué en entier).
 - Événements : `{ sample: "kick" }`, ou `{ note: "E4" }` (sample `chromatic`, sinon le premier qui a un `root` ; `notes-map` pour associer des notes à des noms).
 - `choke` : groupes où jouer un sample coupe les autres (charleston ouvert / fermé).
-- Mêmes `events` / `trigger` / `output` que `sonic-patch`. État : `{ status, loaded, total, samples, voices, played, errors }`. Les samples sont décodés avant même le premier geste.
+- Mêmes `events` / `trigger` / `output` que `sonic-patch`. État : `{ status, loaded, total, samples, empty, voices, played, errors }` ; `empty` liste les samples `ref` encore vides (pad pas encore enregistré, sans bloquer `ready`). Les samples sont décodés avant même le premier geste ; une nouvelle prise écrite dans le `ref` remplace le son du pad.
 
 ## Analyseur (`sonic-audio-analyser`)
 
@@ -228,9 +242,23 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 - État (`<id>State`) : `{ status: idle | requesting | ready | denied | error | unsupported, error, active, rms, peak, db, monitor, deviceId, devices }`. `rms` / `db` à `rate` mises à jour par seconde (15).
 - Avec l'analyseur : `pitchHz` (attribut `pitch`) pour un accordeur ou un jeu chanté, `onsetCount` pour des claquements de mains.
 
+## Enregistreur (`sonic-audio-recorder`)
+
+```json
+{ "tagName": "sonic-audio-recorder", "attributes": { "id": "rec", "source": "#mic", "control": "poche.rec", "max-s": "6" } }
+```
+
+- `source` : `#mic` (défaut), `#id` d'une source audio (patch, sampler, vidéo `audio-out`) ou `master` (tout ce qu'on entend).
+- Pilotage : DP `control` `{ recording: true | false, target: "takes.A" }`. Passer `recording` à `true` démarre une prise, `false` l'arrête ; `max-s` (30) l'arrête de lui-même. Chaque prise est écrite dans `target` (sinon `take-provider`).
+- Prise = SonicMediaRef `{ url, mime, durS, size }` (WebM/Opus, ou MP4 sur Safari) : rejouable par `sonic-sampler` (`{"A": {"ref": "takes.A"}}`), téléchargeable avec `sonic-media-download source="recState.last"`.
+- `max-takes` (8) : prises gardées en mémoire, les plus anciennes sont libérées.
+- État (`<id>State`) : `{ status: idle | waiting-source | ready | recording | error | unsupported, error, recording, elapsedS, last, takes }`.
+- Avec un store qui inverse `recording` à chaque clic : si `max-s` a coupé la prise, le clic suivant remet `false` (sans effet) ; prévoir un `max-s` confortable.
+
 ## Démo
 
 - `examples/premier-son.sdui.json` : clavier (`sonic-keyboard`) → `sonic-store` → `synth/lead`, un patch écrit à la main avec filtre piloté par le store, et `drums/kit`.
+- `examples/sampler-de-poche.sdui.json` : micro nettoyé par un patch d'effets (`sonic-audio-input`) → `sonic-audio-recorder` vers 4 pads (`takes.A`…) → `sonic-sampler` joué à la main et par le séquenceur ; fond `sonic-shader` (spectre du master + onde du micro) ; export vidéo du visuel avec le son (`sonic-media-recorder`) et téléchargement (`sonic-media-download`). Demande `"capabilities": ["microphone"]`.
 - `examples/vie-sonore.sdui.json` : jeu de la vie dans un `sonic-store` lu par le séquenceur en mode store (une colonne par pas, une génération par mesure), `synth/pluck`, `drums/kit` en mode direct, fond `sonic-shader` nourri par l'analyseur.
 
 ## API JS

@@ -195,6 +195,11 @@ export function buildModule(ac: BaseAudioContext, mod: CompiledModule, ctx: Buil
       sources.push(src);
       return { ...base(), input: null, output: level, params: { level: level.gain } };
     }
+    case "sonic-audio-input": {
+      // Le runtime branche la source externe sur `input` ; `output` = niveau.
+      const level = track(ac.createGain());
+      return { ...base(), input: level, output: level, params: { level: level.gain } };
+    }
     case "sonic-mixer": {
       const sum = track(ac.createGain());
       const ins: GainNode[] = [];

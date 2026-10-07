@@ -99,7 +99,10 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
   const pendingRefs: { module: CompiledModule; param: string; ref: string; where: string }[] = [];
 
   const voiceNodes = children.filter((c) => c.tag === "sonic-voice");
-  if (voiceNodes.length === 0) errors.push("un patch doit contenir un sonic-voice (les modules joués à chaque note)");
+  const hasInput = children.some((c) => c.tag === "sonic-audio-input");
+  if (voiceNodes.length === 0 && !hasInput) {
+    errors.push("un patch doit contenir un sonic-voice (les modules joués à chaque note) ou un sonic-audio-input (traitement d'une entrée)");
+  }
   const voiceKeys = voiceNodes.map((v, i) => {
     const sample = (v.attrs.sample ?? "").trim() || null;
     const rawNote = (v.attrs.note ?? "").trim();
@@ -125,6 +128,10 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
     }
     if (modules.has(name)) {
       errors.push(`${where} : nom "${name}" déjà utilisé`);
+      return;
+    }
+    if (node.tag === "sonic-audio-input" && scope === "voice") {
+      errors.push(`${where} : sonic-audio-input se place hors de sonic-voice (entrée globale du patch)`);
       return;
     }
     const mod: CompiledModule = { name, type: node.tag, kind: spec.kind, scope, voice: scope === "voice" ? currentVoice : -1, inputs: [], levels: [], params: {} };

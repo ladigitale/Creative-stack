@@ -1,8 +1,8 @@
 {
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "media",
-  "label": "Média (caméra, vidéo)",
-  "description": "Caméra et lecteur vidéo pilotés par DataProvider, sources d'images pour sonic-shader (#id), photos en SonicMediaRef, son de la vidéo vers le moteur audio ; accès demandés seulement sur geste.",
+  "label": "Média (caméra, vidéo, export)",
+  "description": "Caméra et lecteur vidéo pilotés par DataProvider, sources d'images pour sonic-shader (#id), photos et exports vidéo en SonicMediaRef (téléchargeables), son de la vidéo vers le moteur audio ; accès demandés seulement sur geste.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -141,6 +141,54 @@
         },
         "persist": {
           "type": "boolean"
+        }
+      }
+    },
+    {
+      "name": "sonic-media-recorder",
+      "description": "Export vidéo (webm/mp4) : video-source #id (shader, caméra, vidéo) + audio-source master|#id|none ; DP control {recording} ; prise SonicMediaRef {url, mime, durS, size, width, height} dans take-provider et l'état last",
+      "props": {
+        "video-source": {
+          "type": "string"
+        },
+        "audio-source": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "bits-per-second": {
+          "type": "number"
+        },
+        "max-s": {
+          "type": "number"
+        },
+        "max-takes": {
+          "type": "number"
+        },
+        "take-provider": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-media-download",
+      "description": "Lien de téléchargement d'une prise (blob: uniquement) : source = chemin DP d'un SonicMediaRef (ex. exportState.last) ; caché tant qu'il n'y a rien ; contenu libre en slot",
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
         }
       }
     }

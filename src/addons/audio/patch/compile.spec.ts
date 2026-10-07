@@ -5,6 +5,23 @@ const n = (tag: string, attrs: Record<string, string> = {}, children?: PatchNode
 const voice = (...children: PatchNode[]) => n("sonic-voice", {}, children);
 
 describe("compilePatch", () => {
+  it("sonic-audio-input : patch d'effets sans voix, entrée chaînée", () => {
+    const p = compilePatch([
+      n("sonic-audio-input", { name: "voix", source: "#mic" }),
+      n("sonic-filter", { name: "f", type: "bandpass", "freq-hz": "1200" }),
+      n("sonic-delay", { name: "d", time: "1/8" }),
+    ]);
+    expect(p.errors).toEqual([]);
+    expect(p.voices).toEqual([]);
+    const byName = Object.fromEntries(p.global.map((m) => [m.name, m]));
+    expect(byName.voix.params.source).toBe("#mic");
+    expect(byName.f.inputs).toEqual(["voix"]);
+    expect(p.out).toBe("d");
+    const mix = compilePatch([voice(n("sonic-osc")), n("sonic-audio-input", { name: "i" }), n("sonic-mixer", { name: "m" })]);
+    expect(mix.errors).toEqual([]);
+    expect(mix.global.find((m) => m.name === "m")!.inputs).toEqual(["voices", "i"]);
+  });
+
   it("patch soustractif : câblage explicite, modulations, sortie", () => {
     const p = compilePatch([
       voice(
@@ -122,6 +139,7 @@ describe("compilePatch", () => {
       [[n("sonic-voice", { note: "H9" }, [n("sonic-osc")])], 'note "H9" invalide'],
       [[voice(n("sonic-osc", { name: "a" }), n("sonic-osc", { name: "a" }))], 'nom "a" déjà utilisé'],
       [[voice(n("sonic-osc", { name: "voices" }))], "nom réservé"],
+      [[voice(n("sonic-audio-input"), n("sonic-osc"))], "se place hors de sonic-voice"],
       [[voice(n("sonic-kazoo"))], "balise sonic-kazoo inconnue"],
       [[voice(n("sonic-osc"), n("sonic-filter", { in: "nope" }))], 'module "nope" inconnu'],
       [[voice(n("sonic-osc", { name: "o" }), n("sonic-mod", { from: "x", to: "o.detune" }))], 'source "x" inconnue'],

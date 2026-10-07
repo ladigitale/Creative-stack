@@ -77,7 +77,7 @@ const CHANNEL_KEYS = [
 
 /**
  * Champs méta publiés vers le out-dataProvider.
- * `param0…3` sont exclus du gate « consommateur » : un `sonic-input name="param0"`
+ * `param0…3` sont exclus du gate « consommateur » : un `sonic-audio-input name="param0"`
  * ne doit pas activer la publication (sinon write-back → reset des champs form).
  */
 const OUT_META_KEYS = [
@@ -644,7 +644,7 @@ export class SonicShader extends LitElement {
 
   private unbindFormProvider() {
     if (this.formPublisher) {
-      // Nested form fields (sonic-input) mutate children — root onAssign
+      // Nested form fields (sonic-audio-input) mutate children — root onAssign
       // does not fire; onInternalMutation does.
       this.formPublisher.offInternalMutation(this.onFormMutation);
       this.formPublisher = null;

@@ -307,9 +307,53 @@ export class PatchRuntime {
     return true;
   }
 
+  /* ---------------------------------------------------------------- */
+  /* Entrées externes (sonic-audio-input)                                    */
+  /* ---------------------------------------------------------------- */
+
+  private attached = new Map<string, AudioNode>();
+
+  /** Modules sonic-audio-input : nom et référence de source (`#mic`, `#id`). */
+  inputs(): { name: string; source: string }[] {
+    return this.patch.global
+      .filter((m) => m.type === "sonic-audio-input")
+      .map((m) => ({ name: m.name, source: String(m.params.source ?? "#mic").trim() || "#mic" }));
+  }
+
+  /** Branche (ou débranche avec null) une source externe sur un sonic-audio-input. Ne touche qu'à sa propre connexion. */
+  attachInput(name: string, node: AudioNode | null): boolean {
+    if (this.disposed) return false;
+    const dest = this.global.get(name)?.input;
+    if (!dest) return false;
+    const prev = this.attached.get(name);
+    if (prev === node) return true;
+    if (prev) {
+      try {
+        prev.disconnect(dest);
+      } catch {
+        /* déjà débranché */
+      }
+      this.attached.delete(name);
+    }
+    if (node) {
+      node.connect(dest);
+      this.attached.set(name, node);
+    }
+    return true;
+  }
+
+  inputNode(name: string): AudioNode | null {
+    return this.global.get(name)?.input ?? null;
+  }
+
+  isInputAttached(name: string): boolean {
+    return this.attached.has(name);
+  }
+
   /** Arrête le patch : fondu, puis libération. */
   dispose(fadeS = 0.05): void {
     if (this.disposed) return;
+    for (const name of [...this.attached.keys()]) this.attachInput(name, null);
     this.disposed = true;
     const t = this.ac.currentTime;
     this.allNotesOff(t);

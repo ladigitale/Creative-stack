@@ -68,7 +68,7 @@ export const FORM_INPUT_ONLY_KEYS = [
 
 /**
  * Clés qui comptent comme consommateurs out (gate publication paresseuse).
- * yaw / pitch / distance exclus : un `sonic-input name="yaw"` ne doit pas
+ * yaw / pitch / distance exclus : un `sonic-audio-input name="yaw"` ne doit pas
  * activer la pub télémétrie (sinon boucle form ↔ out).
  */
 export const OUT_CONSUMER_KEYS = [

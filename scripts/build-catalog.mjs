@@ -7,7 +7,8 @@
  *   sinon                                  tous les addons enabledByDefault !== false
  *
  * Vérifications : id = nom du dossier, noms de composants uniques,
- * chaque composant déclaré est bien défini dans le code de l'addon.
+ * chaque composant déclaré est bien défini dans le code de l'addon, aucune
+ * balise ne double une balise de Concorde.
  */
 import { fileURLToPath } from "url";
 import path from "path";
@@ -52,6 +53,13 @@ for (const m of manifests)
     if (seen.has(c.name)) errors.push(`${c.name} déclaré par ${seen.get(c.name)} et ${m.id}`);
     seen.set(c.name, m.id);
   }
+
+// Collision avec une balise de Concorde : la sienne gagnerait (définie avant), le composant serait muet.
+const concordeBundle = path.join(root, "node_modules/@supersoniks/concorde/dist/concorde-core.es.js");
+if (existsSync(concordeBundle)) {
+  const concordeTags = new Set(readFileSync(concordeBundle, "utf8").match(/"sonic-[a-z0-9-]+"/g)?.map((t) => t.slice(1, -1)) ?? []);
+  for (const [name, id] of seen) if (concordeTags.has(name)) errors.push(`${id} : ${name} est déjà une balise de Concorde`);
+}
 
 if (errors.length) {
   console.error("❌ Catalogue invalide :\n  " + errors.join("\n  "));
