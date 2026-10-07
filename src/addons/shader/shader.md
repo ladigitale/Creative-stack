@@ -80,7 +80,7 @@ Type : `ShaderHoverParam` = `0` | `1` | `2` | `3` | `"param0"`…`"param3"` | `"
 
 `dataProvider` est **bidirectionnel** : `param0…` en entrée ; en sortie `mouseX` / `mouseY` / `hovering` / `frame` (+ `param0…` si `out-data-provider` est séparé, ou le slot `hover-param` seul si le DP est partagé avec le formulaire). Avec `sample`, lit la couleur sous le curseur → `sampleR/G/B/A` + `sampleLuma` (`SonicShaderOutput`). Event `out` (payload complet, y compris les params). Optionnel : `out-data-provider` pour séparer l’écriture.
 
-**Publication paresseuse** : rien n’est écrit (ni `readPixels`) tant qu’aucun champ méta/sample n’a de lecteur DP (`@handle(frame)` / `@subscribe` / `sonic-value`…) et qu’aucun listener `out` n’est branché. Un `sonic-audio-input name="param0"` ne compte **pas** comme consommateur out (évite le write-back qui remettait les champs à 0). Dès qu’un vrai consommateur apparaît, les maj partent au rythme de `out-interval`. Avec `sample`, le `readPixels` suit le même gate.
+**Publication paresseuse** : rien n’est écrit (ni `readPixels`) tant qu’aucun champ méta/sample n’a de lecteur DP (`@handle(frame)` / `@subscribe` / `sonic-value`…) et qu’aucun listener `out` n’est branché. Un `sonic-input name="param0"` ne compte **pas** comme consommateur out (évite le write-back qui remettait les champs à 0). Dès qu’un vrai consommateur apparaît, les maj partent au rythme de `out-interval`. Avec `sample`, le `readPixels` suit le même gate.
 
 Pattern typique — écoute `frame` + lecture massive :
 

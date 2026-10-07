@@ -394,7 +394,7 @@ describe("SonicShader", () => {
     expect(el.param2).toBe(0.33);
     expect(el.param3).toBe(0.44);
 
-    // Nested field update (comme sonic-audio-input) doit remonter via onInternalMutation
+    // Nested field update (comme sonic-input) doit remonter via onInternalMutation
     pub.param0.set(0.99);
     await new Promise((r) => setTimeout(r, 0));
     expect(el.param0).toBe(0.99);
@@ -440,7 +440,7 @@ describe("SonicShader", () => {
     await el.updateComplete;
     await new Promise((r) => setTimeout(r, 0));
 
-    // sonic-audio-input écoute param0 ; un lecteur frame active vraiment l’out
+    // sonic-input écoute param0 ; un lecteur frame active vraiment l’out
     const onParam = () => {};
     pub.param0.onAssign(onParam);
     pub.frame.onAssign(() => {});
