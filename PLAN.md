@@ -72,9 +72,10 @@ type SonicNoteEvent = {
 | 2 | `audio` | `sonic-sampler` | Samples (URL, `SonicMediaRef`), choke, transposition | **fait** |
 | 2 | `audio` | `sonic-sample-osc` | Sample joué comme oscillateur dans un patch | |
 | 2 | `audio` | `sonic-audio-analyser` | `rms`, `peak`, `bands`, `onset`, `pitchHz` en DP + texture `#spectre` pour shader | **fait** |
-| 3 | `audio` | `sonic-mic` | Micro (jamais vers le master par défaut) | |
-| 3 | `media` | `sonic-camera` | Caméra, aperçu, `snapshot` → `SonicMediaRef`, source de frames pour shader | |
-| 3 | `media` | `sonic-video` | Lecteur propriétaire de sa `<video>`, pilotage DP, son routable vers l'`AudioEngine` | |
+| 3 | `audio` | `sonic-mic` | Micro (jamais vers le master par défaut) | **fait** |
+| 3 | `media` | `sonic-camera` | Caméra, aperçu, `snapshot` → `SonicMediaRef`, source de frames pour shader | **fait** |
+| 3 | `media` | `sonic-video` | Lecteur propriétaire de sa `<video>`, pilotage DP, son routable vers l'`AudioEngine` | **fait** |
+| 3 | `media` | `sonic-media-start` | Bouton d'invite : démarre caméra / micro / vidéo sur un clic, affiche un refus | **fait** |
 | 4 | `audio` | `sonic-audio-recorder` | Enregistre une source → `SonicMediaRef` (rejouable par le sampler) | |
 | 4 | `media` | `sonic-media-recorder` | Export d'une performance (canvas shader/3D + son) en webm/mp4 | |
 | 4 | `media` | `sonic-media-download` | Lien de téléchargement d'un enregistrement | |
@@ -116,6 +117,19 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 - [x] Sampler : blob WAV transposé (A4 → A5 = 880 Hz), URL dangereuse refusée.
 - [x] Démo « Vie sonore » zéro JS : jeu de la vie en store, séquenceur en mode store, pluck + kit, fond shader piloté par l'analyseur.
 - [ ] `sonic-sample-osc` (sample comme oscillateur de patch) : reporté.
+
+## Phase 3 — critères d'acceptation (validés)
+
+- [x] Aucune demande d'accès au chargement ; démarrage par bouton d'invite, `autostart` (premier geste) ou DP.
+- [x] Chromium avec caméra et micro factices : caméra `idle → ready`, images numérotées (~20 i/s), copie non noire, `sonic-shader channel0="#cam"` (code Concorde) abonné à la caméra.
+- [x] Photo par compteur → SonicMediaRef décodable, écrite dans `snapshot-provider`.
+- [x] Refus de permission : `status = denied`, message affiché par `sonic-media-start`, aucune exception.
+- [x] Retrait de la page : toutes les pistes `ended`.
+- [x] Micro : un clic sur `sonic-audio-unlock start="mic"` active le son et le micro ; niveau publié ; analyseur branché sur `#mic`.
+- [x] Vidéo : temps publié, déplacement / vitesse / boucle A–B / pause par DP, `preload="blob"`, URL dangereuse refusée ; son routé vers l'analyseur ; un shader hors écran qui lit `#clip` ne touche pas la vidéo (bug 10 bis).
+- [x] Lecture automatique refusée : démarrage muet `needs-gesture`, son rétabli au premier geste.
+- [x] Démos « Miroir » et « Clip réactif » zéro JS.
+- [x] Correctif de câblage : les sources ne débranchent plus en bloc leur sortie (un analyseur abonné était coupé) — `AudioRoute`.
 
 ## Ce qui reste côté Concorde (prompt Cursor, non bloquant)
 

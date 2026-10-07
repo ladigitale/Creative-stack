@@ -19,7 +19,8 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 | `sonic-sequencer` | Horloge musicale : motifs en mini-notation joués sur des instruments, ou pas envoyés à un store |
 | `sonic-sampler` | Joue des samples (URL, enregistrement en DataProvider), par nom ou chromatiquement |
 | `sonic-audio-analyser` | Niveaux, bandes, attaques, hauteur en DataProvider + texture pour `sonic-shader` |
-| `sonic-audio-unlock` | Bouton « Activer le son » (caché une fois actif) |
+| `sonic-mic` | Micro : source pour l'analyseur, un patch, un enregistreur (jamais vers les haut-parleurs sauf `monitor`) |
+| `sonic-audio-unlock` | Bouton « Activer le son » (caché une fois actif) ; `start="mic"` démarre aussi le micro |
 | `sonic-audio-master` | Volume / muet du master |
 
 ## Le plus court : un preset
@@ -214,6 +215,18 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 - État (`out-data-provider`, défaut `<id>State`) : `rms`, `peak`, `db`, `bands` (0..1, échelle log 40 Hz – 16 kHz), `centroidHz`, `onset` (attaque à cette mise à jour), `onsetCount` (compteur, utilisable comme `trigger`), `pitchHz` (avec l'attribut `pitch`).
 - **Texture** : `sonic-shader channel0="#spectre"` reçoit une image de 512 × 2 (ligne du haut : spectre, ligne du bas : forme d'onde). Dans le shader : `texture(iChannel0, vec2(x, 0.25)).r` pour le spectre, `vec2(x, 0.75)` pour l'onde.
 - `fft` (2048), `smoothing` (0.7), `onset-threshold` (1.5).
+
+## Micro (`sonic-mic`)
+
+```json
+{ "tagName": "sonic-mic", "attributes": { "id": "mic", "control": "game.mic" } }
+```
+
+- Démarrage : un clic sur `sonic-audio-unlock start="mic"` (active le son **et** le micro en un geste), `sonic-media-start for="mic"`, `autostart` (premier geste), `active` ou DP `control` `{ active, monitor, gain, deviceId }`. Jamais au chargement.
+- `monitor` : écouter le micro dans les haut-parleurs (risque de Larsen sans casque). Par défaut, le micro ne sort **pas** vers le master : il sert de source (`sonic-audio-analyser source="#mic"`, futur enregistreur).
+- `echo-cancellation`, `noise-suppression`, `auto-gain` : désactivés par défaut (son brut, pour la création) ; `gain` ; `device-id`.
+- État (`<id>State`) : `{ status: idle | requesting | ready | denied | error | unsupported, error, active, rms, peak, db, monitor, deviceId, devices }`. `rms` / `db` à `rate` mises à jour par seconde (15).
+- Avec l'analyseur : `pitchHz` (attribut `pitch`) pour un accordeur ou un jeu chanté, `onsetCount` pour des claquements de mains.
 
 ## Démo
 

@@ -15,6 +15,7 @@
     "./hugging-face-infer/worker": "./src/addons/hugging-face-infer/hf-worker-runtime.ts",
     "./sound": "./src/addons/sound/index.ts",
     "./audio": "./src/addons/audio/index.ts",
+    "./media": "./src/addons/media/index.ts",
     "./shared/*": "./src/shared/*.ts",
     "./dist/*": "./dist/*",
     "./schemas/*": "./schemas/*"

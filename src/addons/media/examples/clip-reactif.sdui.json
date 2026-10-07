@@ -1,0 +1,379 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:34rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "clipCtl",
+      "initial": "{\"player\": {\"playing\": true, \"rate\": 1, \"seek\": {\"t\": 0, \"n\": 0}, \"loopStart\": 0, \"loopEnd\": 0}}",
+      "reducer": "(\n  $t := $action.type;\n  $s := $state;\n  $p := $s.player;\n  $t = \"toggle\" ? $merge([$s, {\"player\": $merge([$p, {\"playing\": $not($p.playing)}])}]) :\n  $t = \"rate\" ? $merge([$s, {\"player\": $merge([$p, {\"rate\": $action.payload}])}]) :\n  $t = \"restart\" ? $merge([$s, {\"player\": $merge([$p, {\"seek\": {\"t\": 0, \"n\": $p.seek.n + 1}, \"playing\": true}])}]) :\n  $t = \"loop\" ? $merge([$s, {\"player\": $merge([$p, $p.loopEnd > 0 ? {\"loopStart\": 0, \"loopEnd\": 0} : {\"loopStart\": 2, \"loopEnd\": 4}])}]) :\n  $s\n)"
+     }
+    },
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "title"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-video",
+     "attributes": {
+      "id": "clip",
+      "src": "assets/clip.webm",
+      "loop": "",
+      "hidden-preview": "",
+      "audio-out": "master",
+      "control": "clipCtl.player"
+     }
+    },
+    {
+     "tagName": "sonic-audio-analyser",
+     "attributes": {
+      "id": "spectre",
+      "source": "#clip",
+      "bands": "8"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "position:relative;border-radius:.8rem;overflow:hidden;background:#0b0d14;aspect-ratio:16/9"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-shader",
+       "attributes": {
+        "id": "viz",
+        "channel0": "#clip",
+        "channel1": "#spectre",
+        "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  float bass = texture(iChannel1, vec2(0.02, 0.25)).r;\n  float mid = texture(iChannel1, vec2(0.12, 0.25)).r;\n  float kick = smoothstep(0.55, 0.95, bass);\n  vec2 q = (uv - 0.5) / (1.0 + 0.08 * kick) + 0.5;\n  float split = 0.004 + 0.02 * kick;\n  vec3 col;\n  col.r = texture(iChannel0, q + vec2(split, 0.0)).r;\n  col.g = texture(iChannel0, q).g;\n  col.b = texture(iChannel0, q - vec2(split, 0.0)).b;\n  col *= 0.85 + 0.35 * kick;\n  float x = pow(uv.x, 1.5) * 0.35;\n  float s = texture(iChannel1, vec2(x, 0.25)).r;\n  float bar = step(uv.y, s * 0.25) * step(0.5, fract(uv.x * 64.0));\n  col = mix(col, vec3(1.0, 0.95, 0.7), bar * 0.7);\n  float w = texture(iChannel1, vec2(uv.x, 0.75)).r - 0.5;\n  col += smoothstep(0.006, 0.0, abs(uv.y - 0.9 - w * 0.12)) * vec3(0.6, 0.9, 1.0) * (0.4 + mid);\n  c = vec4(col, 1.0);\n}",
+        "style": "display:block;width:100%;height:100%"
+       }
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:white"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-media-start",
+         "attributes": {
+          "for": "clip",
+          "label": "▶︎ Lancer le clip"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(5,1fr);gap:.35rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "clipCtl",
+        "type": "toggle"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "toggle"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "toggle"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "clipCtl",
+        "type": "restart"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "restart"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "restart"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "clipCtl",
+        "type": "loop"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "loop"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "loop"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "clipCtl",
+        "type": "rate",
+        "payload": "0.5"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "rate-0.5"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "half"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "clipCtl",
+        "type": "rate",
+        "payload": "1"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "rate-1"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "normal"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:1fr 1fr;gap:.35rem"
+     },
+     "nodes": [
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "time"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "clipState",
+            "key": "timeS"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "status"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "clipState",
+            "key": "status"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "level"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "spectreState",
+            "key": "db"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "onsets"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "spectreState",
+            "key": "onsetCount"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "class": "text-xs",
+      "style": "opacity:.7;margin:0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "help"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

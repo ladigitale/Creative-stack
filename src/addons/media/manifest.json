@@ -1,0 +1,148 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "media",
+  "label": "Média (caméra, vidéo)",
+  "description": "Caméra et lecteur vidéo pilotés par DataProvider, sources d'images pour sonic-shader (#id), photos en SonicMediaRef, son de la vidéo vers le moteur audio ; accès demandés seulement sur geste.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "media.md",
+  "examples": [
+    "examples/clip-reactif.sdui.json",
+    "examples/miroir.sdui.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-camera",
+      "description": "Caméra : aperçu, source d'images (#id) pour sonic-shader, photos (control.snapshot compteur → snapshot-provider) ; démarrage sur geste ; état {status, error, width, height, snapshot, snapshots}",
+      "props": {
+        "active": {
+          "type": "boolean"
+        },
+        "autostart": {
+          "type": "boolean"
+        },
+        "facing": {
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "device-id": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "fit": {
+          "type": "string"
+        },
+        "hidden-preview": {
+          "type": "boolean"
+        },
+        "keep-running": {
+          "type": "boolean"
+        },
+        "max-width": {
+          "type": "number"
+        },
+        "snapshot-type": {
+          "type": "string"
+        },
+        "max-snapshots": {
+          "type": "number"
+        },
+        "snapshot-provider": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-video",
+      "description": "Lecteur vidéo (https, relatif, blob:) : DP control {playing, seek, rate, volume, muted, loop, loopStart, loopEnd} ; état {status, timeS, durationS, progress, playing} ; source d'images (#id) ; audio-out=master|#id|none pour l'analyse",
+      "props": {
+        "src": {
+          "type": "url"
+        },
+        "src-provider": {
+          "type": "string"
+        },
+        "autoplay": {
+          "type": "boolean"
+        },
+        "loop": {
+          "type": "boolean"
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "controls": {
+          "type": "boolean"
+        },
+        "preload": {
+          "type": "string"
+        },
+        "crossorigin": {
+          "type": "string"
+        },
+        "fit": {
+          "type": "string"
+        },
+        "hidden-preview": {
+          "type": "boolean"
+        },
+        "rate": {
+          "type": "number"
+        },
+        "volume": {
+          "type": "number"
+        },
+        "loop-start": {
+          "type": "number"
+        },
+        "loop-end": {
+          "type": "number"
+        },
+        "audio-out": {
+          "type": "string"
+        },
+        "update-rate": {
+          "type": "number"
+        },
+        "control": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-media-start",
+      "description": "Bouton d'invite : démarre caméra / micro / vidéo listés dans for (clic = geste) ; caché une fois prêts ; affiche un refus",
+      "props": {
+        "for": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "persist": {
+          "type": "boolean"
+        }
+      }
+    }
+  ]
+}

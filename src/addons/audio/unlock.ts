@@ -30,6 +30,10 @@ export class SonicAudioUnlock extends LitElement {
   @property({ type: Boolean })
   persist = false;
 
+  /** Ids d'éléments à démarrer avec le son (`start="mic cam"` : sonic-mic, sonic-camera…). */
+  @property({ type: String })
+  start = "";
+
   /** Libellé par défaut (sans contenu en slot). */
   @property({ type: String })
   label = "Activer le son";
@@ -37,26 +41,49 @@ export class SonicAudioUnlock extends LitElement {
   @state()
   private ready = false;
 
+  @state()
+  private targetsReady = true;
+
   private unsubscribe: (() => void) | null = null;
+  private poll: ReturnType<typeof setInterval> | null = null;
 
   connectedCallback(): void {
     super.connectedCallback();
     const engine = AudioEngine.get();
     this.ready = engine.ready;
     this.unsubscribe = engine.onChange((e) => (this.ready = e.ready));
+    // Avec `start`, le bouton reste visible tant qu'une cible n'est pas prête.
+    this.poll = setInterval(() => (this.targetsReady = this.checkTargets()), 400);
+    this.targetsReady = this.checkTargets();
   }
 
   disconnectedCallback(): void {
     this.unsubscribe?.();
+    if (this.poll) clearInterval(this.poll);
     super.disconnectedCallback();
+  }
+
+  private targets(): (Element & { start?: () => void; getState?: () => { status?: string } })[] {
+    const root = this.getRootNode() as Document | ShadowRoot;
+    return this.start
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((id) => id.replace(/^#/, ""))
+      .map((id) => (root.getElementById?.(id) ?? document.getElementById(id)) as Element & { start?: () => void })
+      .filter(Boolean);
+  }
+
+  private checkTargets(): boolean {
+    return this.targets().every((t) => ["ready", "playing", "paused"].includes(String(t.getState?.().status)));
   }
 
   private onClick = () => {
     void AudioEngine.get().unlock();
+    for (const t of this.targets()) t.start?.();
   };
 
   render() {
-    if (this.ready && !this.persist) return nothing;
+    if (this.ready && this.targetsReady && !this.persist) return nothing;
     return html`<slot @click=${this.onClick}><button type="button" part="button" @click=${this.onClick}>${this.label}</button></slot>`;
   }
 }

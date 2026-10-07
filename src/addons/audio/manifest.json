@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "audio",
   "label": "Audio (synthèse modulaire)",
-  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, bibliothèque), séquenceur à mini-notation, sampler et analyseur (DP + texture shader), tout piloté par DataProvider.",
+  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, bibliothèque), séquenceur à mini-notation, sampler, micro et analyseur (DP + texture shader), tout piloté par DataProvider.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -510,14 +510,57 @@
       }
     },
     {
+      "name": "sonic-mic",
+      "description": "Micro : source audio (#id) pour analyseur / patch ; jamais vers le master sauf monitor ; démarrage sur geste ; DP control {active, monitor, gain, deviceId} ; état {status, error, rms, db, devices}",
+      "props": {
+        "active": {
+          "type": "boolean"
+        },
+        "autostart": {
+          "type": "boolean"
+        },
+        "monitor": {
+          "type": "boolean"
+        },
+        "gain": {
+          "type": "number"
+        },
+        "device-id": {
+          "type": "string"
+        },
+        "echo-cancellation": {
+          "type": "boolean"
+        },
+        "noise-suppression": {
+          "type": "boolean"
+        },
+        "auto-gain": {
+          "type": "boolean"
+        },
+        "rate": {
+          "type": "number"
+        },
+        "control": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
       "name": "sonic-audio-unlock",
-      "description": "Bouton « Activer le son » (caché une fois le son actif)",
+      "description": "Bouton « Activer le son » ; start=\"mic\" démarre aussi le micro dans le même geste",
       "props": {
         "label": {
           "type": "string"
         },
         "persist": {
           "type": "boolean"
+        },
+        "start": {
+          "type": "string",
+          "description": "Ids à démarrer avec le son (ex. mic)"
         }
       }
     },

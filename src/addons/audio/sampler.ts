@@ -1,10 +1,11 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
-import { AudioEngine, resolveAudioElement } from "../../shared/audio/engine";
+import { AudioEngine, AudioRoute, resolveAudioElement } from "../../shared/audio/engine";
 import { isAudioSink, type SonicInstrument, type SonicNoteEvent } from "../../shared/audio/contracts";
 import { toMidi } from "../../shared/audio/notes";
 import { listenDp, plain } from "../../shared/audio/dp";
+import { safeMediaUrl } from "../../shared/media/urls";
 
 const tagName = "sonic-sampler";
 const MAX_VOICES = 32;
@@ -58,13 +59,7 @@ function decodingContext(): BaseAudioContext | null {
 
 /** URL autorisée : https, blob:, data:audio/…, ou relative (même origine). */
 export function safeSampleUrl(url: string): boolean {
-  const u = url.trim();
-  if (!u) return false;
-  if (/^(javascript|vbscript|file):/i.test(u)) return false;
-  if (/^data:/i.test(u)) return /^data:audio\//i.test(u);
-  if (/^blob:/i.test(u)) return true;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(u)) return /^https:/i.test(u);
-  return true;
+  return safeMediaUrl(url, "audio");
 }
 
 export function loadSample(url: string): Promise<AudioBuffer> {
@@ -145,6 +140,7 @@ export class SonicSampler extends LitElement implements SonicInstrument {
   private provided: Record<string, string | SampleSpec> = {};
   private voices: Voice[] = [];
   private outGain: GainNode | null = null;
+  private route: AudioRoute | null = null;
   private played = 0;
   private errors: string[] = [];
   private seen: string[] = [];
@@ -266,20 +262,15 @@ export class SonicSampler extends LitElement implements SonicInstrument {
   private reconnect(): void {
     const engine = AudioEngine.get();
     if (!this.outGain || !engine.master) return;
-    try {
-      this.outGain.disconnect();
-    } catch {
-      /* ok */
-    }
+    this.route ??= new AudioRoute(this.outGain);
     const out = (this.output || "master").trim();
-    if (out === "none") return;
-    if (out === "master") {
-      this.outGain.connect(engine.master);
-      return;
+    if (out === "none") this.route.to(null);
+    else if (out === "master") this.route.to(engine.master);
+    else {
+      const el = resolveAudioElement(this, out);
+      const input = isAudioSink(el) ? el.getAudioInput() : null;
+      this.route.to(input ?? engine.master);
     }
-    const el = resolveAudioElement(this, out);
-    const input = isAudioSink(el) ? el.getAudioInput() : null;
-    this.outGain.connect(input ?? engine.master);
   }
 
   getAudioOutput(): AudioNode | null {

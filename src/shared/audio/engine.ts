@@ -229,3 +229,27 @@ export function resolveAudioElement(host: Element, ref: string): Element | null 
   const root = host.getRootNode() as Document | ShadowRoot;
   return (root.getElementById?.(id) ?? document.getElementById(id)) as Element | null;
 }
+
+/**
+ * Sortie d'un nœud vers UNE destination, changeable sans toucher aux autres
+ * branchements du nœud (un analyseur ou un enregistreur peut s'y être abonné :
+ * `node.disconnect()` sans argument les couperait aussi).
+ */
+export class AudioRoute {
+  private dest: AudioNode | null = null;
+
+  constructor(readonly node: AudioNode) {}
+
+  to(dest: AudioNode | null): void {
+    if (dest === this.dest) return;
+    if (this.dest) {
+      try {
+        this.node.disconnect(this.dest);
+      } catch {
+        /* déjà débranché */
+      }
+    }
+    this.dest = dest;
+    if (dest) this.node.connect(dest);
+  }
+}

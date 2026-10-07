@@ -1,0 +1,425 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:34rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "miroir",
+      "initial": "{\"param0\": 0, \"fxName\": \"Normal\", \"cam\": {\"snapshot\": 0, \"facing\": \"user\"}}",
+      "reducer": "(\n  $t := $action.type;\n  $s := $state;\n  $t = \"fx\" ? $merge([$s, {\"param0\": $action.payload, \"fxName\": [\"Normal\", \"Kaléidoscope\", \"Thermique\", \"Pixels\"][$action.payload]}]) :\n  $t = \"snap\" ? $merge([$s, {\"cam\": $merge([$s.cam, {\"snapshot\": $s.cam.snapshot + 1}])}]) :\n  $t = \"flip\" ? $merge([$s, {\"cam\": $merge([$s.cam, {\"facing\": $s.cam.facing = \"user\" ? \"environment\" : \"user\"}])}]) :\n  $s\n)"
+     }
+    },
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "title"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "hidden-preview": "",
+      "control": "miroir.cam",
+      "snapshot-provider": "gallery.channel0",
+      "width": "960",
+      "height": "540",
+      "max-width": "960"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "position:relative;border-radius:.8rem;overflow:hidden;background:#0b0d14;aspect-ratio:16/9"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-shader",
+       "attributes": {
+        "id": "fx",
+        "channel0": "#cam",
+        "dataProvider": "miroir",
+        "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  int fx = int(uParam0 + 0.5);\n  if (fx == 1) {\n    vec2 q = uv - 0.5; q.x *= iResolution.x / iResolution.y;\n    float a = atan(q.y, q.x) + iTime * 0.15; float r = length(q); float n = 6.0;\n    a = mod(a, 6.2831853 / n); a = abs(a - 3.1415926 / n);\n    uv = 0.5 + r * vec2(cos(a) * iResolution.y / iResolution.x, sin(a));\n  }\n  if (fx == 3) { vec2 cells = vec2(64.0, 36.0); uv = (floor(uv * cells) + 0.5) / cells; }\n  vec3 col = texture(iChannel0, uv).rgb;\n  if (fx == 2) {\n    float l = dot(col, vec3(0.299, 0.587, 0.114));\n    col = clamp(vec3(1.6 * l - 0.3, sin(3.14159 * l) * 1.1, 1.0 - 1.8 * l), 0.0, 1.0);\n  }\n  if (fx == 3) {\n    vec2 f = fract(uv * vec2(64.0, 36.0)) - 0.5;\n    col *= smoothstep(0.5, 0.42, max(abs(f.x), abs(f.y)));\n  }\n  c = vec4(col, 1.0);\n}",
+        "style": "display:block;width:100%;height:100%"
+       }
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "position:absolute;inset:0;display:flex;align-items:center;justify-content:center"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-media-start",
+         "attributes": {
+          "for": "cam",
+          "label": "Activer la caméra"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(4,1fr);gap:.35rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "miroir",
+        "type": "fx",
+        "payload": "0"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "fx-0"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "normal"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "miroir",
+        "type": "fx",
+        "payload": "1"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "fx-1"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "kaleido"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "miroir",
+        "type": "fx",
+        "payload": "2"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "fx-2"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "thermal"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "miroir",
+        "type": "fx",
+        "payload": "3"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "fx-3"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "pixels"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:2fr 1fr;gap:.35rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "miroir",
+        "type": "snap"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "snap"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "snap"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "miroir",
+        "type": "flip"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "flip"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "flip"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:1fr 1fr;gap:.6rem;align-items:start"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-shader",
+       "attributes": {
+        "id": "photo",
+        "dataProvider": "gallery",
+        "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  vec2 m = vec2(0.05, 0.08);\n  vec2 q = (uv - m) / (1.0 - 2.0 * m);\n  vec3 paper = vec3(0.96, 0.95, 0.92);\n  vec3 photo = texture(iChannel0, q).rgb;\n  bool inside = all(greaterThan(q, vec2(0.0))) && all(lessThan(q, vec2(1.0)));\n  float has = step(0.5, iChannelResolution[0].x);\n  vec3 empty = vec3(0.12, 0.13, 0.18);\n  c = vec4(inside ? mix(empty, photo, has) : paper, 1.0);\n}",
+        "style": "display:block;width:100%;aspect-ratio:4/3;border-radius:.4rem;overflow:hidden"
+       }
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;gap:.35rem"
+       },
+       "nodes": [
+        {
+         "tagName": "div",
+         "attributes": {
+          "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+         },
+         "nodes": [
+          {
+           "tagName": "small",
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "effect"
+             }
+            }
+           ]
+          },
+          {
+           "tagName": "strong",
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "miroir",
+              "key": "fxName"
+             }
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "tagName": "div",
+         "attributes": {
+          "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+         },
+         "nodes": [
+          {
+           "tagName": "small",
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "photos"
+             }
+            }
+           ]
+          },
+          {
+           "tagName": "strong",
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "camState",
+              "key": "snapshots"
+             }
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "tagName": "div",
+         "attributes": {
+          "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+         },
+         "nodes": [
+          {
+           "tagName": "small",
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "res"
+             }
+            }
+           ]
+          },
+          {
+           "tagName": "strong",
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "camState",
+              "key": "width"
+             }
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "tagName": "div",
+         "attributes": {
+          "style": "display:flex;justify-content:space-between;gap:.5rem;padding:.35rem .6rem;border-radius:.5rem;background:rgba(127,127,127,.12)"
+         },
+         "nodes": [
+          {
+           "tagName": "small",
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "t",
+              "key": "status"
+             }
+            }
+           ]
+          },
+          {
+           "tagName": "strong",
+           "nodes": [
+            {
+             "tagName": "sonic-value",
+             "attributes": {
+              "dataProvider": "camState",
+              "key": "status"
+             }
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "class": "text-xs",
+      "style": "opacity:.7;margin:0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "help"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

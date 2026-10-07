@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Phase 3 — tests</title>
+<script type="module">
+  import "@supersoniks/concorde/index";
+  import "../src/addons/audio";
+  import "../src/addons/media";
+  import "../src/addons/shader";
+  import { AudioEngine } from "../src/addons/audio";
+  import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+  window.__get = (k) => JSON.parse(JSON.stringify(get(k) ?? null));
+  window.__set = set;
+  window.AudioEngine = AudioEngine;
+  AudioEngine.get();
+  window.wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  window.until = async (fn, ms = 5000) => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < ms) {
+      try { if (await fn()) return true; } catch {}
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return false;
+  };
+  document.title = "ready";
+</script>
+<body style="margin:0">
+  <div id="stage"></div>
+</body>
