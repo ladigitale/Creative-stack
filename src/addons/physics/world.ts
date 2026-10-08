@@ -10,6 +10,8 @@ import "./elements";
 const tagName = "sonic-physics";
 const STEP = 1 / 60;
 const MAX_PUBLISHED = 200;
+/** Corps au plus par liste DataProvider (au-delà : ignorés, erreur publiée). */
+const MAX_LIST = 500;
 
 export type PhysicsState = {
   status: "running" | "paused" | "error";
@@ -291,7 +293,8 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
           const list = Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v as object) : [];
           const specs: BodySpec[] = [];
           const errors: string[] = [];
-          list.forEach((raw, k) => {
+          if (list.length > MAX_LIST) errors.push(`bodies : ${list.length} corps, ${MAX_LIST} au plus (les suivants sont ignorés)`);
+          list.slice(0, MAX_LIST).forEach((raw, k) => {
             if (!raw || typeof raw !== "object") return;
             const { spec, errors: e } = parseBody(raw as Record<string, unknown>, `item${k}`);
             errors.push(...e);
