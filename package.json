@@ -18,6 +18,8 @@
     "./media": "./src/addons/media/index.ts",
     "./physics": "./src/addons/physics/index.ts",
     "./controller": "./src/addons/controller/index.ts",
+    "./compat": "./src/shared/concorde-compat.ts",
+    "./jsonata": "./src/shared/jsonata-shim.ts",
     "./shared/*": "./src/shared/*.ts",
     "./dist/*": "./dist/*",
     "./schemas/*": "./schemas/*"
@@ -39,7 +41,7 @@
   },
   "peerDependencies": {
     "@huggingface/transformers": "4.3.0",
-    "@supersoniks/concorde": ">=4.9.98-visual-stack.4 <6",
+    "@supersoniks/concorde": ">=5.0.4 <6",
     "lit": "^3.1.3",
     "three": "0.180.0"
   },
@@ -57,7 +59,7 @@
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.0",
-    "@supersoniks/concorde": "^5.0.4",
+    "@supersoniks/concorde": "^5.0.5",
     "@types/node": "^24.5.2",
     "@types/three": "0.180.0",
     "@webgpu/types": "^0.1.74",

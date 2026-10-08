@@ -16,6 +16,8 @@ export { SonicAction } from "./action";
 export { SonicTicker } from "./ticker";
 export { SonicMatrix } from "./matrix";
 
+/** `sonic-if` (mode attributs) et `sonic-value` (`format`) sur Concorde classique. */
+import "../../shared/concorde-compat";
 import "./store";
 import "./keyboard";
 import "./gamepad";
