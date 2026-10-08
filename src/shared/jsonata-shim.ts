@@ -1,3 +1,4 @@
+/// <reference path="./jsonata-file.d.ts" />
 /**
  * Remplaçant du module `jsonata` pour les applications qui veulent les fonctions
  * creative-stack dans **toutes** les expressions (dont `sonic-jsonata` de Concorde) :
