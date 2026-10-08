@@ -8,7 +8,17 @@ import { listenDp, plain } from "../../shared/audio/dp";
 import { compilePatch, domToPatchNodes, type CompiledPatch, type PatchNode } from "./patch/compile";
 import { PATCH_LIBRARY } from "./patch/library";
 import { PatchRuntime } from "./patch/runtime";
+import { fallbackWarning } from "./patch/nodes";
+import { SampleBank } from "../../shared/audio/samples";
 import "./modules-elements";
+
+// Processeurs AudioWorklet (ladder, fold, karplus, osc sync) : fichier servi à côté du code
+// (le bundler de l'application le copie) ; surchargeable par AudioEngine.setWorkletUrl().
+try {
+  AudioEngine.setWorkletUrl(new URL("./worklet/processors.js", import.meta.url).href);
+} catch {
+  /* environnement sans import.meta.url : URL à fournir */
+}
 
 const tagName = "sonic-patch";
 const MAX_SEEN_IDS = 512;
@@ -119,6 +129,7 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     this.observer = new MutationObserver(() => this.queueRecompile());
     this.observer.observe(this, { childList: true, subtree: true, attributes: true });
     this.unsubscribeEngine = AudioEngine.get().onChange(() => this.ensureRuntime());
+    this.unsubscribeBank = SampleBank.get().onChange(() => this.publish());
     this.inputClock = setInterval(() => this.wireInputs(), 400);
     this.recompile();
   }
@@ -126,6 +137,7 @@ export class SonicPatch extends LitElement implements SonicInstrument {
   disconnectedCallback(): void {
     this.observer?.disconnect();
     this.unsubscribeEngine?.();
+    this.unsubscribeBank?.();
     if (this.inputClock) clearInterval(this.inputClock);
     for (const u of [...this.unsubs, ...this.paramUnsubs]) u();
     this.unsubs = [];
@@ -257,6 +269,7 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     } else if (this.preset && this.children.length) {
       this.compiled.warnings.push("preset et modules enfants : les enfants sont ignorés");
     }
+    for (const spec of this.compiled.samples) SampleBank.get().request(spec);
     for (const w of this.compiled.warnings) console.warn(`[sonic-patch${this.id ? "#" + this.id : ""}] ${w}`);
     for (const e of this.compiled.errors) console.warn(`[sonic-patch${this.id ? "#" + this.id : ""}] ${e}`);
     this.runtime?.dispose();
@@ -271,7 +284,24 @@ export class SonicPatch extends LitElement implements SonicInstrument {
       this.publish();
       return;
     }
+    // Modules AudioWorklet : attendre le chargement des processeurs (une fois par page).
+    let worklet = false;
+    if (this.compiled.needsWorklet) {
+      const ws = engine.workletState;
+      if (ws === "idle" || ws === "loading") {
+        void engine.loadWorklets().then(() => this.ensureRuntime());
+        this.publish();
+        return;
+      }
+      worklet = ws === "ready";
+    }
     this.runtimeErrors = [];
+    if (this.compiled.needsWorklet && !worklet) {
+      // repli natif : on le dit (une fois) dans les avertissements du patch
+      for (const msg of [engine.workletError, ...[...this.compiled.voice, ...this.compiled.global].map(fallbackWarning)]) {
+        if (msg && !this.runtimeErrors.includes(msg)) this.runtimeErrors.push(msg);
+      }
+    }
     this.runtime = new PatchRuntime(engine.context, this.compiled, {
       bpm: this.bpm,
       poly: Math.max(1, Math.min(32, Math.round(this.poly))),
@@ -279,6 +309,7 @@ export class SonicPatch extends LitElement implements SonicInstrument {
       velSense: Math.min(1, Math.max(0, this.velSense)),
       gain: Math.max(0, this.gain),
       onVoices: () => this.publish(),
+      worklet,
     });
     const dest = this.resolveOutput(engine.master);
     if (dest) this.runtime.output.connect(dest);
@@ -292,6 +323,7 @@ export class SonicPatch extends LitElement implements SonicInstrument {
   }
 
   private inputClock: ReturnType<typeof setInterval> | null = null;
+  private unsubscribeBank: (() => void) | null = null;
   private inputsState: Record<string, boolean> = {};
 
   /** Branche les sonic-audio-input sur leur source dès qu'elle est prête (micro activé, vidéo chargée…). */
@@ -428,7 +460,11 @@ export class SonicPatch extends LitElement implements SonicInstrument {
       played: this.played,
       inputs: { ...this.inputsState },
       errors,
-      warnings: [...(this.compiled?.warnings ?? []), ...this.runtimeErrors],
+      warnings: [
+        ...(this.compiled?.warnings ?? []),
+        ...this.runtimeErrors,
+        ...(this.compiled?.samples ?? []).map((spec) => SampleBank.get().error(spec)).filter((e): e is string => !!e),
+      ],
     };
   }
 

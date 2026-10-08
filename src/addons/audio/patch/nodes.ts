@@ -5,6 +5,7 @@
  */
 import { MODULES, tempoToSeconds } from "./modules";
 import type { CompiledModule } from "./compile";
+import { SampleBank } from "../../../shared/audio/samples";
 
 export type Built = {
   /** Entrée audio (null pour une source ou un module de contrôle). */
@@ -22,12 +23,132 @@ export type Built = {
   /** Enveloppe / gate : déclenchement et relâchement. */
   trigger?(time: number): void;
   release?(time: number): number;
+  /** Synchro dure : fréquence de l'oscillateur maître. */
+  setSync?(hz: number, time: number): void;
   nodes: AudioNode[];
 };
 
 export type BuildContext = {
   bpm: number;
+  /** Processeurs AudioWorklet chargés dans ce contexte (sinon : repli natif). */
+  worklet?: boolean;
+  /** Fréquence de la note (voix) : hauteur relative des grains. */
+  freq?: number;
 };
+
+/** Modules dont la version native (sans AudioWorklet) perd quelque chose : message pour l'état du patch. */
+export function fallbackWarning(mod: CompiledModule): string | null {
+  if (mod.type === "sonic-osc" && mod.params.sync) return `${mod.name} : synchro dure indisponible sans AudioWorklet (oscillateur simple)`;
+  if (mod.type === "sonic-ladder") return `${mod.name} : ladder remplacé par deux filtres natifs (sans AudioWorklet)`;
+  if (mod.type === "sonic-fold") return `${mod.name} : fold natif, amount et bias non modulables (sans AudioWorklet)`;
+  if (mod.type === "sonic-karplus") return `${mod.name} : corde approchée par un filtre résonant (sans AudioWorklet)`;
+  return null;
+}
+
+function workletNode(ac: BaseAudioContext, name: string, opts: AudioWorkletNodeOptions): AudioWorkletNode {
+  return new AudioWorkletNode(ac, name, { outputChannelCount: [1], ...opts });
+}
+
+/** Arrête le processeur après `t` (sinon il resterait actif après déconnexion). */
+function stopWorklet(ac: BaseAudioContext, node: AudioWorkletNode, t: number): void {
+  const delay = Math.max(0, (t - ac.currentTime) * 1000) + 50;
+  setTimeout(() => {
+    try {
+      node.port.postMessage("stop");
+    } catch {
+      /* déjà fermé */
+    }
+  }, delay);
+}
+
+/** Nuage de grains (natif : AudioBufferSource programmés en avance). */
+class GrainCloud {
+  readonly out: GainNode;
+  position = 0.5;
+  spread = 0.05;
+  size = 0.08;
+  density = 24;
+  pitch = 0;
+  jitter = 0;
+  private nextT = 0;
+  private stopAt = Infinity;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private seed = 0x2f6b9a31;
+
+  constructor(
+    private ac: BaseAudioContext,
+    private spec: string,
+    private ratio: number,
+  ) {
+    this.out = ac.createGain();
+    SampleBank.get().request(spec);
+  }
+
+  private rnd(): number {
+    let s = this.seed;
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    this.seed = s;
+    return (s >>> 0) / 4294967296;
+  }
+
+  start(t: number): void {
+    this.nextT = t;
+    this.timer = setInterval(() => this.tick(), 25);
+    this.tick();
+  }
+
+  stop(t: number): void {
+    this.stopAt = t;
+  }
+
+  private tick(): void {
+    const ac = this.ac;
+    const horizon = ac.currentTime + 0.12;
+    if (this.nextT >= this.stopAt || ac.currentTime > this.stopAt) {
+      if (this.timer) clearInterval(this.timer);
+      this.timer = null;
+      return;
+    }
+    const buf = SampleBank.get().buffer(this.spec);
+    let n = 0;
+    while (this.nextT < horizon && this.nextT < this.stopAt && n++ < 64) {
+      const t = Math.max(this.nextT, ac.currentTime);
+      if (buf) this.grain(buf, t);
+      const period = 1 / Math.max(0.5, this.density);
+      this.nextT += period * (0.85 + this.rnd() * 0.3);
+    }
+  }
+
+  private grain(buf: AudioBuffer, t: number): void {
+    const ac = this.ac;
+    const size = Math.max(0.005, this.size);
+    const rate = this.ratio * Math.pow(2, (this.pitch + this.jitter * (this.rnd() * 2 - 1)) / 12);
+    const span = size * rate;
+    const pos = Math.min(1, Math.max(0, this.position + this.spread * (this.rnd() * 2 - 1)));
+    const offset = Math.max(0, Math.min(buf.duration - span, pos * buf.duration - span / 2));
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    const g = ac.createGain();
+    const peak = 1 / Math.sqrt(Math.max(1, this.density * size));
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + size * 0.4);
+    g.gain.setValueAtTime(peak, t + size * 0.6);
+    g.gain.linearRampToValueAtTime(0, t + size);
+    src.connect(g).connect(this.out);
+    src.start(t, offset, span);
+    src.stop(t + size + 0.01);
+    src.onended = () => {
+      try {
+        g.disconnect();
+      } catch {
+        /* ok */
+      }
+    };
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Ressources générées (une fois par contexte)                         */
@@ -173,6 +294,24 @@ export function buildModule(ac: BaseAudioContext, mod: CompiledModule, ctx: Buil
 
   switch (mod.type) {
     case "sonic-osc": {
+      if (p.sync && ctx.worklet) {
+        const node = track(workletNode(ac, "cs-osc", { numberOfInputs: 0, numberOfOutputs: 1, processorOptions: { wave: p.wave } }));
+        const pm = node.parameters as unknown as Map<string, AudioParam>;
+        pm.get("pw")!.value = Number(p.pw) || 0.5;
+        const level = track(ac.createGain());
+        node.connect(level);
+        const b = base();
+        b.setters.wave = (v) => node.port.postMessage({ wave: String(v) });
+        return {
+          ...b,
+          start: () => undefined,
+          stop: (t) => stopWorklet(ac, node, t),
+          setSync: (hz, t) => pm.get("syncHz")!.setValueAtTime(hz, t),
+          input: null,
+          output: level,
+          params: { "freq-hz": pm.get("frequency")!, detune: pm.get("detune")!, level: level.gain },
+        };
+      }
       const osc = track(ac.createOscillator());
       const wave = periodicWave(ac, mod);
       if (wave) osc.setPeriodicWave(wave);
@@ -360,6 +499,165 @@ export function buildModule(ac: BaseAudioContext, mod: CompiledModule, ctx: Buil
       b.setters.depth = (v, t, r) => ramp(depth.gain, Number(v) / 1000, t, r);
       return { ...b, input, output: out, params: { "rate-hz": lfo.frequency } };
     }
+    case "sonic-ladder": {
+      if (ctx.worklet) {
+        const node = track(workletNode(ac, "cs-ladder", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: "explicit" }));
+        const pm = node.parameters as unknown as Map<string, AudioParam>;
+        return {
+          ...base(),
+          stop: (t) => stopWorklet(ac, node, t),
+          input: node,
+          output: node,
+          params: { "freq-hz": pm.get("frequency")!, res: pm.get("resonance")!, drive: pm.get("drive")!, detune: pm.get("detune")! },
+        };
+      }
+      // repli : deux passe-bas en série, fréquence et résonance partagées
+      const drive = track(ac.createGain());
+      const f1 = track(ac.createBiquadFilter());
+      const f2 = track(ac.createBiquadFilter());
+      const freq = track(ac.createConstantSource());
+      const det = track(ac.createConstantSource());
+      const res = track(ac.createConstantSource());
+      const resQ = track(ac.createGain());
+      for (const f of [f1, f2]) {
+        f.type = "lowpass";
+        f.frequency.value = 0;
+        f.detune.value = 0;
+        freq.connect(f.frequency);
+        det.connect(f.detune);
+      }
+      f1.Q.value = 0.5;
+      f2.Q.value = 0.7;
+      resQ.gain.value = 14;
+      res.connect(resQ).connect(f2.Q);
+      det.offset.value = 0;
+      drive.connect(f1).connect(f2);
+      sources.push(freq, det, res);
+      return { ...base(), input: drive, output: f2, params: { "freq-hz": freq.offset, res: res.offset, drive: drive.gain, detune: det.offset } };
+    }
+    case "sonic-fold": {
+      if (ctx.worklet) {
+        const node = track(workletNode(ac, "cs-fold", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: "explicit" }));
+        const pm = node.parameters as unknown as Map<string, AudioParam>;
+        pm.get("mix")!.value = Number(p.mix);
+        const b = base();
+        b.setters.mix = (v, t) => pm.get("mix")!.setValueAtTime(Number(v), t);
+        return { ...b, stop: (t) => stopWorklet(ac, node, t), input: node, output: node, params: { amount: pm.get("amount")!, bias: pm.get("bias")! } };
+      }
+      const ws = track(ac.createWaveShaper());
+      ws.curve = shaperCurve("fold", Math.max(0.01, Number(p.amount)));
+      ws.oversample = "4x";
+      const b = base();
+      b.setters.amount = (v) => (ws.curve = shaperCurve("fold", Math.max(0.01, Number(v))));
+      return { ...b, input: ws, output: ws, params: {} };
+    }
+    case "sonic-karplus": {
+      const level = track(ac.createGain());
+      const decay = Number(p.decay);
+      if (ctx.worklet) {
+        const node = track(workletNode(ac, "cs-karplus", { numberOfInputs: 1, numberOfOutputs: 1 }));
+        const pm = node.parameters as unknown as Map<string, AudioParam>;
+        pm.get("decay")!.value = decay;
+        pm.get("damp")!.value = Number(p.damp);
+        node.connect(level);
+        const b = base();
+        b.setters.decay = (v, t) => pm.get("decay")!.setValueAtTime(Number(v), t);
+        b.setters.damp = (v, t) => pm.get("damp")!.setValueAtTime(Number(v), t);
+        return {
+          ...b,
+          stop: (t) => stopWorklet(ac, node, t),
+          trigger: (t) => {
+            const g = pm.get("gate")!;
+            g.setValueAtTime(0, Math.max(0, t - 0.001));
+            g.setValueAtTime(1, t);
+          },
+          release: (t) => {
+            pm.get("gate")!.setValueAtTime(0, t);
+            return Math.min(decay, 6);
+          },
+          input: null,
+          output: level,
+          params: { "freq-hz": pm.get("frequency")!, detune: pm.get("detune")!, level: level.gain },
+        };
+      }
+      // repli : rafale de bruit dans un passe-bande très résonant
+      const burst = track(ac.createBufferSource());
+      burst.buffer = noiseBuffer(ac, "white");
+      const env = track(ac.createGain());
+      const bp = track(ac.createBiquadFilter());
+      bp.type = "bandpass";
+      env.gain.value = 0;
+      burst.connect(env).connect(bp).connect(level);
+      sources.push(burst);
+      const b = base();
+      return {
+        ...b,
+        trigger: (t) => {
+          const hz = p["freq-hz"] === "voice.pitch" ? (ctx.freq ?? 261.63) : Number(p["freq-hz"]);
+          const q = Math.min(1000, (Math.PI * Math.max(20, hz) * decay) / 6.9);
+          bp.Q.value = q;
+          env.gain.setValueAtTime(Math.sqrt(q) * 0.6, t);
+          env.gain.setTargetAtTime(0, t + 0.005, 0.004 + Number(p.damp) * 0.01);
+        },
+        release: () => Math.min(decay, 6),
+        input: null,
+        output: level,
+        params: { "freq-hz": bp.frequency, detune: bp.detune, level: level.gain },
+      };
+    }
+    case "sonic-resonator": {
+      const input = track(ac.createGain());
+      const sum = track(ac.createGain());
+      const freq = track(ac.createConstantSource());
+      const det = track(ac.createConstantSource());
+      sources.push(freq, det);
+      const ratios = (p.partials as number[])?.length ? (p.partials as number[]).slice(0, 16) : [1, 2, 3, 4, 5, 6];
+      const filters: BiquadFilterNode[] = [];
+      ratios.forEach((r, i) => {
+        const f = track(ac.createBiquadFilter());
+        f.type = "bandpass";
+        f.frequency.value = 0;
+        f.Q.value = Number(p.q);
+        const scale = track(ac.createGain());
+        scale.gain.value = r;
+        freq.connect(scale).connect(f.frequency);
+        det.connect(f.detune);
+        const g = track(ac.createGain());
+        g.gain.value = 1 / Math.sqrt(i + 1);
+        input.connect(f).connect(g).connect(sum);
+        filters.push(f);
+      });
+      const level = track(ac.createGain());
+      const makeup = track(ac.createGain());
+      makeup.gain.value = Math.sqrt(Number(p.q)) * 0.5;
+      sum.connect(makeup).connect(level);
+      const b = base();
+      b.setters.q = (v, t) => {
+        for (const f of filters) f.Q.setValueAtTime(Number(v), t);
+        makeup.gain.setValueAtTime(Math.sqrt(Number(v)) * 0.5, t);
+      };
+      return { ...b, input, output: level, params: { "freq-hz": freq.offset, detune: det.offset, level: level.gain } };
+    }
+    case "sonic-grain": {
+      const ratio = (ctx.freq ?? 261.63) / 261.63;
+      const cloud = new GrainCloud(ac, String(p.sample), ratio);
+      cloud.position = Number(p.position);
+      cloud.spread = Number(p.spread);
+      cloud.size = Number(p["size-s"]);
+      cloud.density = Number(p.density);
+      cloud.pitch = Number(p.pitch);
+      cloud.jitter = Number(p.jitter);
+      track(cloud.out);
+      const b = base();
+      const field = { position: "position", spread: "spread", "size-s": "size", density: "density", pitch: "pitch", jitter: "jitter" } as const;
+      for (const [param, key] of Object.entries(field)) {
+        b.setters[param] = (v) => {
+          const n = Number(v);
+          if (Number.isFinite(n)) cloud[key] = n;
+        };
+      }
+      return { ...b, start: (t) => cloud.start(t), stop: (t) => cloud.stop(t), input: null, output: cloud.out, params: { level: cloud.out.gain } };
+    }
     case "sonic-comp": {
       const c = track(ac.createDynamicsCompressor());
       return {
@@ -382,6 +680,7 @@ export function baseValue(mod: CompiledModule, param: string, ctx: BuildContext 
     return Math.min(20000, hz * Math.pow(2, semis / 12));
   }
   if (mod.type === "sonic-delay" && param === "time") return seconds(v, ctx.bpm, 0.25);
+  if (param === "freq-hz" && v === "voice.pitch") return ctx.freq;
   if (typeof v === "number") return v;
   const spec = MODULES[mod.type].params[param];
   return typeof spec?.default === "number" ? spec.default : 0;

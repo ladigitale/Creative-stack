@@ -5,7 +5,9 @@ import { AudioEngine, AudioRoute, resolveAudioElement } from "../../shared/audio
 import { isAudioSink, type SonicInstrument, type SonicNoteEvent } from "../../shared/audio/contracts";
 import { toMidi } from "../../shared/audio/notes";
 import { listenDp, plain } from "../../shared/audio/dp";
-import { safeMediaUrl } from "../../shared/media/urls";
+import { loadSample, safeSampleUrl } from "../../shared/audio/samples";
+
+export { safeSampleUrl, loadSample };
 
 const tagName = "sonic-sampler";
 const MAX_VOICES = 32;
@@ -43,44 +45,6 @@ export type SamplerState = {
 /** `empty` : sample `ref` dont le DataProvider est encore vide (pad pas encore enregistré). */
 type Loaded = { spec: SampleSpec; buffer: AudioBuffer | null; reversed: AudioBuffer | null; error: string | null; empty: boolean };
 type Voice = { sample: string; midi: number | null; src: AudioBufferSourceNode; gain: GainNode; end: number };
-
-/* ------------------------------------------------------------------ */
-/* Chargement partagé (cache par URL, décodage hors contexte)          */
-/* ------------------------------------------------------------------ */
-
-const decodeCache = new Map<string, Promise<AudioBuffer>>();
-let decoder: BaseAudioContext | null = null;
-
-function decodingContext(): BaseAudioContext | null {
-  const ctx = AudioEngine.get().context;
-  if (ctx) return ctx;
-  if (decoder) return decoder;
-  const Offline = (globalThis as unknown as { OfflineAudioContext?: typeof OfflineAudioContext }).OfflineAudioContext;
-  decoder = Offline ? new Offline(1, 1, 44100) : null;
-  return decoder;
-}
-
-/** URL autorisée : https, blob:, data:audio/…, ou relative (même origine). */
-export function safeSampleUrl(url: string): boolean {
-  return safeMediaUrl(url, "audio");
-}
-
-export function loadSample(url: string): Promise<AudioBuffer> {
-  let p = decodeCache.get(url);
-  if (!p) {
-    p = (async () => {
-      const ctx = decodingContext();
-      if (!ctx) throw new Error("WebAudio indisponible");
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.arrayBuffer();
-      return await ctx.decodeAudioData(data);
-    })();
-    decodeCache.set(url, p);
-    p.catch(() => decodeCache.delete(url));
-  }
-  return p;
-}
 
 function reverseBuffer(ctx: BaseAudioContext, buf: AudioBuffer): AudioBuffer {
   const out = ctx.createBuffer(buf.numberOfChannels, buf.length, buf.sampleRate);

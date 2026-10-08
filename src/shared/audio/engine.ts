@@ -134,6 +134,68 @@ export class AudioEngine {
     this.emit();
   }
 
+  /* ---------------------------------------------------------------- */
+  /* AudioWorklet (modules de patch phase 6)                           */
+  /* ---------------------------------------------------------------- */
+
+  private static workletUrl: string | null = null;
+  private worklet: { ctx: BaseAudioContext; state: "loading" | "ready" | "failed"; promise: Promise<boolean>; error: string | null } | null = null;
+
+  /** URL du fichier de processeurs (posée par l'addon audio ; surchargeable : CDN, hôte propre). */
+  static setWorkletUrl(url: string | null): void {
+    AudioEngine.workletUrl = url;
+  }
+
+  /** État des processeurs AudioWorklet pour le contexte courant. */
+  get workletState(): "idle" | "loading" | "ready" | "failed" {
+    if (!this.ac || !this.worklet || this.worklet.ctx !== this.ac) return "idle";
+    return this.worklet.state;
+  }
+
+  get workletError(): string | null {
+    return this.worklet?.ctx === this.ac ? (this.worklet?.error ?? null) : null;
+  }
+
+  /**
+   * Charge les processeurs dans le contexte (une fois). Résout false si impossible
+   * (navigateur sans AudioWorklet, CSP qui refuse le fichier…) : les modules
+   * passent alors sur leur version native approchée.
+   */
+  loadWorklets(): Promise<boolean> {
+    const ac = this.ac;
+    if (!ac) return Promise.resolve(false);
+    if (this.worklet?.ctx === ac) return this.worklet.promise;
+    const override = typeof window !== "undefined" ? (window as unknown as { __creativeStackWorkletUrl?: string }).__creativeStackWorkletUrl : undefined;
+    const url = override || AudioEngine.workletUrl;
+    const entry: { ctx: BaseAudioContext; state: "loading" | "ready" | "failed"; promise: Promise<boolean>; error: string | null } = {
+      ctx: ac,
+      state: "loading",
+      error: null,
+      promise: Promise.resolve(false),
+    };
+    const worklet = (ac as AudioContext).audioWorklet;
+    if (!worklet || typeof worklet.addModule !== "function" || !url) {
+      entry.state = "failed";
+      entry.error = !url ? "processeurs AudioWorklet introuvables" : "AudioWorklet non disponible dans ce navigateur";
+    } else {
+      entry.promise = worklet.addModule(url).then(
+        () => {
+          entry.state = "ready";
+          this.emit();
+          return true;
+        },
+        (e: unknown) => {
+          entry.state = "failed";
+          entry.error = `AudioWorklet refusé (${e instanceof Error ? e.message : String(e)})`;
+          this.emit();
+          return false;
+        },
+      );
+    }
+    this.worklet = entry;
+    return entry.promise;
+  }
+
   /** Écart lissé performance.now − currentTime (ms) : correspondance stable entre les deux horloges. */
   private perfOffset: number | null = null;
 

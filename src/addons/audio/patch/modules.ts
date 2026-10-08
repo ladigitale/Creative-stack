@@ -47,6 +47,8 @@ export const MODULES: Record<string, ModuleSpec> = {
       level: { default: 1, min: 0, max: 4, audio: true },
       fm: { default: "" },
       "fm-amount": { default: 200, min: 0, max: 20000 },
+      /** Synchro dure sur un autre sonic-osc (nom) : oscillateur PolyBLEP en AudioWorklet. */
+      sync: { default: "" },
     },
   },
   "sonic-noise": {
@@ -136,6 +138,58 @@ export const MODULES: Record<string, ModuleSpec> = {
       mix: { default: 0.5, min: 0, max: 1 },
     },
   },
+  /* --- Phase 6 : modules AudioWorklet (repli natif si indisponible) et natifs avancés --- */
+  "sonic-ladder": {
+    kind: "processor",
+    params: {
+      "freq-hz": { default: 1000, min: 20, max: 20000, audio: true },
+      res: { default: 0.3, min: 0, max: 1.2, audio: true },
+      drive: { default: 1, min: 0.1, max: 10, audio: true },
+      detune: { default: 0, min: -4800, max: 4800, audio: true },
+    },
+  },
+  "sonic-fold": {
+    kind: "processor",
+    params: {
+      amount: { default: 2, min: 0, max: 12, audio: true },
+      bias: { default: 0, min: -1, max: 1, audio: true },
+      mix: { default: 1, min: 0, max: 1 },
+    },
+  },
+  "sonic-karplus": {
+    kind: "source",
+    params: {
+      "freq-hz": { default: "voice.pitch", min: 20, max: 8000, audio: true },
+      detune: { default: 0, min: -4800, max: 4800, audio: true },
+      decay: { default: 1.5, min: 0.02, max: 30 },
+      damp: { default: 0.4, min: 0, max: 1 },
+      level: { default: 1, min: 0, max: 4, audio: true },
+    },
+  },
+  "sonic-resonator": {
+    kind: "processor",
+    params: {
+      "freq-hz": { default: "voice.pitch", min: 20, max: 12000, audio: true },
+      detune: { default: 0, min: -4800, max: 4800, audio: true },
+      q: { default: 40, min: 1, max: 1000 },
+      partials: { default: "", list: true },
+      level: { default: 1, min: 0, max: 8, audio: true },
+    },
+  },
+  "sonic-grain": {
+    kind: "source",
+    params: {
+      /** URL (https, blob:, relative) ou chemin DP d'un SonicMediaRef (prise, sample). */
+      sample: { default: "" },
+      position: { default: 0.5, min: 0, max: 1 },
+      spread: { default: 0.05, min: 0, max: 1 },
+      "size-s": { default: 0.08, min: 0.005, max: 2 },
+      density: { default: 24, min: 0.5, max: 200 },
+      pitch: { default: 0, min: -48, max: 48 },
+      jitter: { default: 0, min: 0, max: 12 },
+      level: { default: 1, min: 0, max: 4, audio: true },
+    },
+  },
   "sonic-comp": {
     kind: "processor",
     params: {
@@ -147,6 +201,9 @@ export const MODULES: Record<string, ModuleSpec> = {
     },
   },
 };
+
+/** Modules qui utilisent un processeur AudioWorklet (chargé avant le premier son). */
+export const WORKLET_TYPES = ["sonic-ladder", "sonic-fold", "sonic-karplus"];
 
 /** Balises de structure (pas des modules). */
 export const STRUCTURE_TAGS = ["sonic-voice", "sonic-mod", "sonic-param"];

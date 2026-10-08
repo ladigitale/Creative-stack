@@ -8,7 +8,7 @@
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import path from "path";
-import { readdirSync, existsSync } from "fs";
+import { readdirSync, existsSync, copyFileSync } from "fs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const addonsDir = path.join(root, "src/addons");
@@ -27,5 +27,11 @@ for (const addon of addons) {
       env: { ...process.env, ADDON: addon, FORMAT: format },
     });
   }
+}
+// Processeurs AudioWorklet : fichier à part pour les pages à CSP stricte (les bundles
+// les embarquent en data:, refusé par script-src) → AudioEngine.setWorkletUrl(url de ce fichier).
+if (addons.includes("audio")) {
+  copyFileSync(path.join(addonsDir, "audio/worklet/processors.js"), path.join(root, "dist/creative-stack-audio-worklet.js"));
+  console.log("🎛️  dist/creative-stack-audio-worklet.js");
 }
 console.log(`✅ ${addons.length} addon(s) construit(s)`);

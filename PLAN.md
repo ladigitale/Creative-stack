@@ -82,7 +82,7 @@ type SonicNoteEvent = {
 | 4 | `audio` | `sonic-patch` + `sonic-audio-input` | Un patch qui traite une entrée (effet autonome : `#mic → #fx`) | **fait** |
 | 5 | `audio` | `sonic-midi` | Web MIDI entrée / sortie / horloge, MPE en entrée | **fait** |
 | 5 | `media` | `sonic-screen` | Capture d'écran (`getDisplayMedia`) | **fait** |
-| 6 | `audio` | modules AudioWorklet | `sonic-osc sync` (BLEP), `sonic-ladder`, `sonic-fold`, `sonic-karplus`, `sonic-resonator`, `sonic-grain` | |
+| 6 | `audio` | modules AudioWorklet | `sonic-osc sync` (BLEP), `sonic-ladder`, `sonic-fold`, `sonic-karplus`, `sonic-resonator`, `sonic-grain` | **fait** |
 
 Chaque phase se termine par son intégration dans la plateforme : composants ajoutés au catalogue et au validateur (`tadaaa`), import dans le viewer (`artifacts`), smoke test sous CSP de prod. À partir de la phase 3 : `Permissions-Policy` (`camera`, `microphone`, `midi`, `display-capture`), `media-src blob:`, et déclaration `capabilities` dans le document avec bandeau avant le premier geste.
 
@@ -149,6 +149,21 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 - [x] Correspondance stable entre `performance.now` et l'horloge audio (`AudioEngine.ctxTimeAtPerf` / `perfAtCtxTime`, lissée) : sans elle, ±1,2 ms de gigue.
 - [x] `sonic-screen` : partage au clic, images pour `sonic-shader`, photo, export vidéo de l'écran ; arrêt par l'utilisateur → `idle` + message ; refus → `denied`.
 - [x] Démo « Jam MIDI » zéro JS : voix expressive MPE, pads de secours, batterie calée sur l'horloge d'une machine ou maîtresse (horloge sortante), panique.
+
+## Phase 6 — critères d'acceptation (validés)
+
+- [x] Rendu `OfflineAudioContext` (Chromium) des processeurs AudioWorklet :
+  - synchro dure : esclave une quinte au-dessus, période du maître (220,04 Hz) ; libre : 329,6 Hz ; crête < 1 ;
+  - PolyBLEP : repliements des harmoniques 12 et 13 d'une scie à 3 520 Hz atténués de 24 à 27 dB par rapport à une scie naïve ;
+  - ladder : bruit blanc à 500 Hz → 200 Hz / 5 kHz = ×570 ; auto-oscillation à 813 Hz pour une coupure à 800 Hz (res 1.1) ;
+  - fold : distorsion harmonique 0,03 (amount 0.5) → 1,9 (amount 4) ;
+  - Karplus-Strong : A3 à 220,15 Hz, décroissance ; bend MPE +2 demi-tons → 246,90 Hz ;
+  - résonateur (natif) : pics aux partiels, ×56 entre deux partiels.
+- [x] Presets `synth/string`, `synth/sync-lead`, `synth/acid` rendus sans NaN ni saturation.
+- [x] Temps réel : `sonic-patch` charge les processeurs une fois, patch prêt sans avertissement ; Karplus + ladder à 220 Hz.
+- [x] Granulaire (natif) : un sinus 440 Hz rejoué à 440 Hz (C4) puis 880 Hz (C5) ; prise micro → grains.
+- [x] Processeurs refusés (URL invalide, comme une CSP stricte) : repli natif qui sonne, avertissements lisibles (`AudioWorklet refusé…`, `corde approchée…`).
+- [x] Démo « Nuage » zéro JS : granulaire (exemple ou voix), fold et ladder pilotés par le store, basse acide au séquenceur.
 
 ## Ce qui reste côté Concorde (prompt Cursor, non bloquant)
 

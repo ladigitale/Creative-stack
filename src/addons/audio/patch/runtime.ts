@@ -17,6 +17,8 @@ export type RuntimeOptions = {
   gain: number;
   random?: () => number;
   onVoices?: (count: number) => void;
+  /** Processeurs AudioWorklet disponibles (sinon : modules en repli natif). */
+  worklet?: boolean;
 };
 
 type Voice = {
@@ -71,10 +73,11 @@ export class PatchRuntime {
   private buildGlobal(): void {
     const t = this.ac.currentTime;
     for (const mod of this.patch.global) {
-      const b = buildModule(this.ac, mod, { bpm: this.opts.bpm });
+      const b = buildModule(this.ac, mod, { bpm: this.opts.bpm, worklet: this.opts.worklet, freq: 261.63 });
       this.writeBases(mod, b, t, 261.63);
       this.global.set(mod.name, b);
     }
+    this.applySync(this.patch.global, this.global, t, 261.63);
     for (const mod of this.patch.global) this.wireInputs(mod, this.global);
     const outNode = this.patch.out === "voices" ? this.voicesBus : this.global.get(this.patch.out)?.output;
     outNode?.connect(this.output);
@@ -93,6 +96,17 @@ export class PatchRuntime {
     for (const b of this.global.values()) {
       b.start(t);
       b.trigger?.(t);
+    }
+  }
+
+  /** Synchro dure : chaque esclave reçoit la fréquence de base de son maître. */
+  private applySync(mods: CompiledModule[], built: Map<string, Built>, t: number, freq: number): void {
+    for (const mod of mods) {
+      const ref = mod.type === "sonic-osc" ? String(mod.params.sync ?? "") : "";
+      if (!ref) continue;
+      const master = mods.find((m) => m.name === ref);
+      const b = built.get(mod.name);
+      if (master && b?.setSync) b.setSync(baseValue(master, "freq-hz", { bpm: this.opts.bpm, freq }), t);
     }
   }
 
@@ -141,8 +155,10 @@ export class PatchRuntime {
     const built = new Map<string, Built>();
     const extra: AudioNode[] = [];
 
+    // Une voix réservée à une note garde sa hauteur propre (kit : le pad ne transpose pas).
+    const pitch = desc.note !== null || desc.sample !== null ? 261.63 : freq;
     for (const mod of desc.modules) {
-      built.set(mod.name, buildModule(ac, mod, { bpm: this.opts.bpm }));
+      built.set(mod.name, buildModule(ac, mod, { bpm: this.opts.bpm, worklet: this.opts.worklet, freq: pitch }));
     }
     // Modulations statiques (vélocité, note, aléa) ajoutées aux valeurs de base.
     const statics = new Map<string, Record<string, number>>();
@@ -154,10 +170,9 @@ export class PatchRuntime {
       rec[m.param] = (rec[m.param] ?? 0) + value * m.amount;
       statics.set(m.module, rec);
     }
-    // Une voix réservée à une note garde sa hauteur propre (kit : le pad ne transpose pas).
-    const pitch = desc.note !== null || desc.sample !== null ? 261.63 : freq;
     for (const mod of desc.modules) this.writeBases(mod, built.get(mod.name)!, when, pitch, statics.get(mod.name));
     for (const mod of desc.modules) this.wireInputs(mod, built);
+    this.applySync(desc.modules, built, when, pitch);
 
     // Gate (0/1) disponible comme source de modulation.
     const gate = ac.createConstantSource();
@@ -179,7 +194,8 @@ export class PatchRuntime {
       timbre: exprNode(clampNum(initial.timbre ?? 0, 0, 1)),
     };
     for (const mod of desc.modules) {
-      if (mod.type === "sonic-osc" && mod.params["freq-hz"] === "voice.pitch") {
+      // tout module qui suit la note (oscillateur, corde, résonateur) suit aussi le bend
+      if (mod.params["freq-hz"] === "voice.pitch") {
         const detune = built.get(mod.name)?.params.detune;
         if (detune) expr.bend.connect(detune);
       }

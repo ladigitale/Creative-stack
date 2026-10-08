@@ -5,6 +5,26 @@ const n = (tag: string, attrs: Record<string, string> = {}, children?: PatchNode
 const voice = (...children: PatchNode[]) => n("sonic-voice", {}, children);
 
 describe("compilePatch", () => {
+  it("phase 6 : synchro, AudioWorklet, samples de grain", () => {
+    const p = compilePatch([
+      voice(n("sonic-osc", { name: "m" }), n("sonic-osc", { name: "s", sync: "m" }), n("sonic-mixer", { in: "m s" }), n("sonic-ladder", { res: "0.9" })),
+      n("sonic-fold", { amount: "3" }),
+    ]);
+    expect(p.errors).toEqual([]);
+    expect(p.needsWorklet).toBe(true);
+    const g = compilePatch([voice(n("sonic-grain", { sample: "takes.voix" }), n("sonic-noise"), n("sonic-resonator", { in: "noise2", partials: "1 2.76" }), n("sonic-mixer"))]);
+    expect(g.errors).toEqual([]);
+    expect(g.needsWorklet).toBe(false);
+    expect(g.samples).toEqual(["takes.voix"]);
+    const bad = [
+      [[voice(n("sonic-osc", { name: "s", sync: "s" }))], "lui-même"],
+      [[voice(n("sonic-osc", { name: "s", sync: "zz" }))], "n'est pas un sonic-osc"],
+      [[voice(n("sonic-osc", { name: "m" })), n("sonic-lfo", { name: "l" }), voice(n("sonic-osc", { name: "s", sync: "m" }))], "même portée"],
+      [[voice(n("sonic-grain"))], "sample requis"],
+    ] as const;
+    for (const [nodes, msg] of bad) expect(compilePatch(nodes as unknown as PatchNode[]).errors.join(" | "), msg).toContain(msg);
+  });
+
   it("sonic-audio-input : patch d'effets sans voix, entrée chaînée", () => {
     const p = compilePatch([
       n("sonic-audio-input", { name: "voix", source: "#mic" }),

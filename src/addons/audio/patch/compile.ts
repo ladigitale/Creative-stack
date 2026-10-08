@@ -5,7 +5,7 @@
  * Erreurs : le patch est muet (graphe invalide). Avertissements : le patch
  * joue, l'attribut fautif est ignoré.
  */
-import { MODULES, STRUCTURE_TAGS, VOICE_SOURCES, type ModuleKind, type ParamSpec } from "./modules";
+import { MODULES, STRUCTURE_TAGS, VOICE_SOURCES, WORKLET_TYPES, type ModuleKind, type ParamSpec } from "./modules";
 import { toMidi } from "../../../shared/audio/notes";
 
 export type PatchNode = {
@@ -73,6 +73,10 @@ export type CompiledPatch = {
   out: string;
   mods: CompiledMod[];
   params: CompiledParam[];
+  /** Le patch utilise un processeur AudioWorklet (ladder, fold, karplus, osc sync). */
+  needsWorklet: boolean;
+  /** Samples demandés par des sonic-grain (URL ou chemin DP). */
+  samples: string[];
   errors: string[];
   warnings: string[];
 };
@@ -282,6 +286,20 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
     out = audioOf("global").slice(-1)[0]?.name ?? "voices";
   }
 
+  // Synchro dure : maître = autre sonic-osc de la même portée.
+  for (const m of modules.values()) {
+    if (m.type !== "sonic-osc" || !m.params.sync) continue;
+    const ref = String(m.params.sync).trim();
+    const master = modules.get(ref);
+    if (!master || master.type !== "sonic-osc") errors.push(`${m.name}.sync : "${ref}" n'est pas un sonic-osc du patch`);
+    else if (master === m) errors.push(`${m.name}.sync : un oscillateur ne peut pas se synchroniser sur lui-même`);
+    else if (master.scope !== m.scope || master.voice !== m.voice) errors.push(`${m.name}.sync : "${ref}" doit être dans la même portée (même sonic-voice)`);
+  }
+  const all = [...modules.values()];
+  const needsWorklet = all.some((m) => WORKLET_TYPES.includes(m.type) || (m.type === "sonic-osc" && !!m.params.sync));
+  const samples = [...new Set(all.filter((m) => m.type === "sonic-grain").map((m) => String(m.params.sample ?? "").trim()))];
+  for (const m of all) if (m.type === "sonic-grain" && !String(m.params.sample ?? "").trim()) errors.push(`${m.name} : sample requis (URL ou chemin DP d'une prise)`);
+
   // Modulations.
   const checkTarget = (to: string, where: string, needAudio: boolean): { module: CompiledModule; param: string } | null => {
     const dot = to.lastIndexOf(".");
@@ -402,7 +420,7 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
     for (const n of graph.keys()) if (visit(n, [])) break;
   }
 
-  return { voices, voice: lists.voice, global: lists.global, voiceOut, out, mods, params, errors, warnings };
+  return { voices, voice: lists.voice, global: lists.global, voiceOut, out, mods, params, needsWorklet, samples: samples.filter(Boolean), errors, warnings };
 }
 
 function parseParam(ps: ParamSpec, raw: string, where: string, warnings: string[]): number | string | number[] | undefined {

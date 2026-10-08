@@ -1,0 +1,86 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Phase 6 — tests</title>
+<script type="module">
+  import "@supersoniks/concorde/index";
+  import "../src/addons/audio";
+  import "../src/addons/shader";
+  import { AudioEngine, PatchRuntime, compilePatch, PATCH_LIBRARY } from "../src/addons/audio";
+  window.PATCH_LIBRARY = PATCH_LIBRARY;
+  import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+  window.__get = (k) => JSON.parse(JSON.stringify(get(k) ?? null));
+  window.__set = set;
+  window.AudioEngine = AudioEngine;
+  window.wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  window.until = async (fn, ms = 5000) => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < ms) {
+      try { if (await fn()) return true; } catch {}
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return false;
+  };
+  const n = (tag, attrs = {}, children) => ({ tag, attrs, children });
+  window.n = n;
+  window.PROCESSORS = new URL("../src/addons/audio/worklet/processors.js", import.meta.url).href;
+  /** Rendu hors ligne d'un patch : notes [{midi, at, dur}] → Float32Array. */
+  window.renderPatch = async (nodes, notes, seconds = 1, opts = {}) => {
+    const sr = 48000;
+    const ac = new OfflineAudioContext(1, Math.round(sr * seconds), sr);
+    let worklet = false;
+    if (opts.worklet !== false) { await ac.audioWorklet.addModule(PROCESSORS); worklet = true; }
+    const patch = compilePatch(nodes);
+    if (patch.errors.length) return { errors: patch.errors };
+    const rt = new PatchRuntime(ac, patch, { bpm: 120, poly: 8, steal: "oldest", velSense: 0, gain: 1, worklet });
+    rt.output.connect(ac.destination);
+    for (const no of notes) rt.noteOn(no.midi, 1, no.at ?? 0, no.dur ?? null, null, no.expr ?? {});
+    if (opts.input) {
+      // source d'entrée pour un patch d'effets : sonic-audio-input relié à un nœud du contexte
+      const src = opts.input(ac);
+      rt.attachInput(rt.inputs()[0].name, src);
+    }
+    const buf = await ac.startRendering();
+    return { data: Array.from(buf.getChannelData(0)), sr };
+  };
+  /** Amplitude d'une fréquence (Goertzel) sur un segment. */
+  window.goertzel = (x, sr, f, from = 0, to = x.length) => {
+    const w = (2 * Math.PI * f) / sr, c = 2 * Math.cos(w);
+    let s1 = 0, s2 = 0;
+    for (let i = from; i < to; i++) { const s0 = x[i] + c * s1 - s2; s2 = s1; s1 = s0; }
+    return Math.sqrt(s1 * s1 + s2 * s2 - c * s1 * s2) / ((to - from) / 2);
+  };
+  /** Fréquence fondamentale par autocorrélation normalisée. */
+  window.pitchOf = (x, sr, from, len, fmin = 50, fmax = 2000) => {
+    let best = 0, bestLag = 0;
+    const seg = x.slice(from, from + len);
+    const e = seg.reduce((a, v) => a + v * v, 0) || 1;
+    for (let lag = Math.floor(sr / fmax); lag <= Math.ceil(sr / fmin); lag++) {
+      let s = 0;
+      for (let i = 0; i + lag < seg.length; i++) s += seg[i] * seg[i + lag];
+      s /= e;
+      if (s > best) { best = s; bestLag = lag; }
+    }
+    // affinage parabolique
+    const ac = (lag) => { let s = 0; for (let i = 0; i + lag < seg.length; i++) s += seg[i] * seg[i + lag]; return s; };
+    const a = ac(bestLag - 1), b = ac(bestLag), c = ac(bestLag + 1);
+    const shift = (a - c) / (2 * (a - 2 * b + c)) || 0;
+    return sr / (bestLag + shift);
+  };
+  window.rms = (x, from = 0, to = x.length) => { let s = 0; for (let i = from; i < to; i++) s += x[i] * x[i]; return Math.sqrt(s / Math.max(1, to - from)); };
+  /** WAV 16 bits d'un sinus (blob:) pour le granulaire. */
+  window.sineWav = (f, seconds = 1, sr = 48000) => {
+    const len = Math.round(sr * seconds);
+    const buf = new ArrayBuffer(44 + len * 2);
+    const v = new DataView(buf);
+    const w = (o, s) => [...s].forEach((ch, i) => v.setUint8(o + i, ch.charCodeAt(0)));
+    w(0, "RIFF"); v.setUint32(4, 36 + len * 2, true); w(8, "WAVE"); w(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true);
+    v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, len * 2, true);
+    for (let i = 0; i < len; i++) v.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * f * i) / sr) * 0.8 * 32767), true);
+    return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  };
+  document.title = "ready";
+</script>
+<body style="margin:0">
+  <div id="stage"></div>
+</body>

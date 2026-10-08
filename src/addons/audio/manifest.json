@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "audio",
   "label": "Audio (synthèse modulaire)",
-  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, bibliothèque), séquenceur à mini-notation, sampler, micro, MIDI (entrée MPE, sortie, horloge), enregistreur et analyseur (DP + texture shader), tout piloté par DataProvider.",
+  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, dont ladder, fold, Karplus, résonateur et granulaire ; bibliothèque), séquenceur à mini-notation, sampler, micro, MIDI (entrée MPE, sortie, horloge), enregistreur et analyseur (DP + texture shader), tout piloté par DataProvider.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -11,16 +11,17 @@
     "examples/premier-son.sdui.json",
     "examples/vie-sonore.sdui.json",
     "examples/sampler-de-poche.sdui.json",
-    "examples/jam-midi.sdui.json"
+    "examples/jam-midi.sdui.json",
+    "examples/nuage.sdui.json"
   ],
   "components": [
     {
       "name": "sonic-patch",
-      "description": "Instrument modulaire : enfants sonic-voice (+ modules) ou preset (synth/lead synth/bass synth/pad synth/pluck synth/fm-bell synth/chip drums/kick drums/snare drums/hat drums/kit). events (DP liste) + trigger (DP), état dans out-data-provider",
+      "description": "Instrument modulaire : enfants sonic-voice (+ modules) ou preset (synth/lead synth/bass synth/pad synth/pluck synth/fm-bell synth/chip synth/string synth/sync-lead synth/acid drums/kick drums/snare drums/hat drums/kit). events (DP liste) + trigger (DP), état dans out-data-provider",
       "props": {
         "preset": {
           "type": "string",
-          "description": "synth/lead, synth/bass, synth/pad, synth/pluck, synth/fm-bell, synth/chip, drums/kick, drums/snare, drums/hat, drums/kit"
+          "description": "synth/lead, synth/bass, synth/pad, synth/pluck, synth/fm-bell, synth/chip, synth/string, synth/sync-lead, synth/acid, drums/kick, drums/snare, drums/hat, drums/kit"
         },
         "params": {
           "type": "object",
@@ -84,7 +85,7 @@
     },
     {
       "name": "sonic-osc",
-      "description": "Oscillateur (sine square sawtooth triangle pulse, harmonics) ; freq-hz = voice.pitch par défaut",
+      "description": "Oscillateur (sine square sawtooth triangle pulse, harmonics) ; freq-hz = voice.pitch par défaut ; sync=\"m\" : synchro dure sur l'oscillateur m (PolyBLEP, AudioWorklet)",
       "props": {
         "name": {
           "type": "string"
@@ -118,6 +119,10 @@
         },
         "fm-amount": {
           "type": "number"
+        },
+        "sync": {
+          "type": "string",
+          "description": "nom d'un autre sonic-osc de la même voix"
         }
       }
     },
@@ -346,6 +351,135 @@
           "type": "number"
         },
         "mix": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-ladder",
+      "description": "Filtre ladder 24 dB/oct non linéaire (AudioWorklet ; repli : 2 passe-bas natifs) : freq-hz, res 0..1.2 (auto-oscillation vers 1), drive, detune — tous modulables",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "freq-hz": {
+          "type": "number"
+        },
+        "res": {
+          "type": "number"
+        },
+        "drive": {
+          "type": "number"
+        },
+        "detune": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-fold",
+      "description": "Wavefolder sinusoïdal ×2 (AudioWorklet ; repli : waveshaper fixe) : amount 0..12 et bias modulables, mix",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "bias": {
+          "type": "number"
+        },
+        "mix": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-karplus",
+      "description": "Corde pincée Karplus-Strong (AudioWorklet ; repli : filtre résonant), source de voix : freq-hz = voice.pitch, decay (s), damp 0..1, level ; suit le bend MPE",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "freq-hz": {
+          "type": "string"
+        },
+        "detune": {
+          "type": "number"
+        },
+        "decay": {
+          "type": "number"
+        },
+        "damp": {
+          "type": "number"
+        },
+        "level": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-resonator",
+      "description": "Résonateur (banque de passe-bandes natifs) : excité par l'entrée (bruit, micro…), freq-hz = voice.pitch, q, partials \"1 2 3 4.2\", level",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "freq-hz": {
+          "type": "string"
+        },
+        "detune": {
+          "type": "number"
+        },
+        "q": {
+          "type": "number"
+        },
+        "partials": {
+          "type": "string"
+        },
+        "level": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-grain",
+      "description": "Granulaire (natif) : sample = URL https/blob ou chemin DP d'un SonicMediaRef (prise de sonic-audio-recorder) ; position, spread, size-s, density (grains/s), pitch, jitter réglables en direct (sonic-param) ; dans une voix, la hauteur suit la note (C4 = original)",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "sample": {
+          "type": "string"
+        },
+        "position": {
+          "type": "number"
+        },
+        "spread": {
+          "type": "number"
+        },
+        "size-s": {
+          "type": "number"
+        },
+        "density": {
+          "type": "number"
+        },
+        "pitch": {
+          "type": "number"
+        },
+        "jitter": {
+          "type": "number"
+        },
+        "level": {
           "type": "number"
         }
       }

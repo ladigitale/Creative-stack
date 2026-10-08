@@ -10,9 +10,10 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 |---|---|
 | `sonic-patch` | Instrument : compile ses modules (ou un preset), une voix WebAudio par note |
 | `sonic-voice` | Portée « par note » ; plusieurs `sonic-voice` avec `sample` / `note` = un kit |
-| `sonic-osc` `sonic-noise` | Sources |
+| `sonic-osc` `sonic-noise` `sonic-karplus` `sonic-grain` | Sources (oscillateur, bruit, corde pincée, granulaire) |
 | `sonic-mixer` `sonic-filter` `sonic-vca` `sonic-shaper` `sonic-pan` | Traitements |
 | `sonic-env` `sonic-lfo` | Modulations (enveloppe 0..1, LFO -1..1) |
+| `sonic-ladder` `sonic-fold` `sonic-resonator` | Filtre ladder, wavefolder, résonateur |
 | `sonic-delay` `sonic-reverb` `sonic-chorus` `sonic-comp` | Effets |
 | `sonic-mod` | Câble de modulation |
 | `sonic-param` | Paramètre lu dans un DataProvider, ou exposé au preset |
@@ -42,6 +43,9 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 | `synth/pluck` | corde pincée | `cutoff`, `decay` |
 | `synth/fm-bell` | cloche FM 2 opérateurs | `level` |
 | `synth/chip` | impulsion 25 %, son 8 bits | `pw` |
+| `synth/string` | corde Karplus-Strong (suit le bend MPE) | `decay`, `damp` |
+| `synth/sync-lead` | synchro dure balayée par enveloppe (et par la pression), ladder | `sweep`, `cutoff` |
+| `synth/acid` | scie dans un ladder résonant, enveloppe courte | `cutoff`, `reso`, `accent` |
 | `drums/kick` `drums/snare` `drums/hat` | batterie de synthèse | — |
 | `drums/kit` | `kick` (C2) `snare` (D2) `clap` (D#2) `hat` (F#2) `openhat` (A#2) | — |
 
@@ -117,7 +121,7 @@ La note jouée au moment même où l'utilisateur active le son n'est pas perdue 
 
 | Module | Paramètres (défaut) — *modulables en italique* |
 |---|---|
-| `sonic-osc` | `wave` (sawtooth : sine square sawtooth triangle pulse), *`freq-hz`* (voice.pitch), *`detune`* (0, cents), `octave`, `semi`, `pw` (0.5, pulse), `harmonics` (`"1 0.5 0.33"` → forme sur mesure), *`level`* (1), `fm` (module modulateur), `fm-amount` (200 Hz) |
+| `sonic-osc` | `wave` (sawtooth : sine square sawtooth triangle pulse), *`freq-hz`* (voice.pitch), *`detune`* (0, cents), `octave`, `semi`, `pw` (0.5, pulse), `harmonics` (`"1 0.5 0.33"` → forme sur mesure), *`level`* (1), `fm` (module modulateur), `fm-amount` (200 Hz), `sync` (nom d'un autre `sonic-osc` : synchro dure ¹) |
 | `sonic-noise` | `color` (white pink brown), *`level`* |
 | `sonic-mixer` | `levels` (`"0.6 0.4"`) |
 | `sonic-filter` | `type` (lowpass highpass bandpass notch lowshelf highshelf peaking allpass), *`freq-hz`* (1200), *`q`* (1), *`gain-db`* |
@@ -130,6 +134,17 @@ La note jouée au moment même où l'utilisateur active le son n'est pas perdue 
 | `sonic-reverb` | `size-s` (2), `damp` (0.5), `mix` (0.25) |
 | `sonic-chorus` | *`rate-hz`* (0.8), `depth` (3 ms), `delay` (12 ms), `mix` (0.5) |
 | `sonic-comp` | *`threshold-db`* (-18), *`ratio`* (4), *`knee`*, *`attack`*, *`release`* |
+| `sonic-ladder` ¹ | *`freq-hz`* (1000), *`res`* (0.3 ; auto-oscillation vers 1), *`drive`* (1), *`detune`* |
+| `sonic-fold` ¹ | *`amount`* (2, 0..12), *`bias`* (0), `mix` (1) |
+| `sonic-karplus` ¹ | *`freq-hz`* (voice.pitch), *`detune`*, `decay` (1.5 s), `damp` (0.4), *`level`* |
+| `sonic-resonator` | *`freq-hz`* (voice.pitch), *`detune`*, `q` (40), `partials` (`"1 2 3 4 5 6"`), *`level`* — à exciter : bruit, `sonic-audio-input`… |
+| `sonic-grain` | `sample` (URL ou chemin DP d'une prise), `position` (0.5), `spread` (0.05), `size-s` (0.08), `density` (24 grains/s), `pitch` (0), `jitter` (0 demi-ton), *`level`* |
+
+¹ Processeur **AudioWorklet**, chargé une fois par page avant le premier son (le patch reste `idle` le temps du chargement). S'il est indisponible (navigateur, CSP), le module passe sur une version native approchée et l'état du patch le dit (`warnings`). Les modules qui suivent la note (`freq-hz="voice.pitch"`) suivent aussi le bend MPE.
+
+**Granulaire** : `sonic-grain` découpe un son (URL `https:` / `blob:`, ou chemin DP d'un SonicMediaRef, par exemple une prise `takes.voix` de `sonic-audio-recorder` : une nouvelle prise remplace le son) en grains de `size-s` secondes, `density` fois par seconde, autour de `position` (0..1, ± `spread`). Dans une voix, la hauteur suit la note (C4 = vitesse d'origine). Tous ses réglages se changent pendant le jeu avec `sonic-param source="dp.pos"` ; le son est chargé une fois par page, partagé entre voix.
+
+**Fichier des processeurs** : avec un bundler (le viewer Artefacts), il est servi à côté du code. Avec les bundles autonomes (`dist/creative-stack-audio.*.js`) il est embarqué en `data:` ; sous une CSP stricte (`script-src` sans `data:`), servir `dist/creative-stack-audio-worklet.js` (ou `src/addons/audio/worklet/processors.js` via jsDelivr) et appeler `AudioEngine.setWorkletUrl(url)` (ou `window.__creativeStackWorkletUrl = url` avant le chargement).
 | `sonic-audio-input` | `source` (`#mic` : `#id` d'une source audio ; `in` : reçoit ce qui est routé vers le patch), *`level`* (1). Hors de `sonic-voice` uniquement |
 
 **Traiter une entrée** : un patch peut n'avoir **aucun** `sonic-voice` s'il contient un `sonic-audio-input`. Il devient une chaîne d'effets toujours active (micro nettoyé avant enregistrement, voix passée dans un délai…). Avec des voix, l'entrée se mélange aux notes (`sonic-mixer` sans `in` prend `voices` et l'entrée). L'entrée se branche dès que la source est prête (micro activé, vidéo chargée) ; l'état du patch l'indique : `inputs: { "voix": true }`. `source="master"` est refusé (boucle). Un autre élément peut aussi envoyer son son au patch : `output="#fx"` (premier `sonic-audio-input` du patch).
@@ -284,6 +299,7 @@ Accès demandé **sur geste** seulement (`sonic-media-start for="midi"`, `sonic-
 ## Démo
 
 - `examples/premier-son.sdui.json` : clavier (`sonic-keyboard`) → `sonic-store` → `synth/lead`, un patch écrit à la main avec filtre piloté par le store, et `drums/kit`.
+- `examples/nuage.sdui.json` : instrument granulaire sur un son d'exemple ou sur sa voix (prise de 4 s), position / taille / densité réglées par le store, `sonic-fold` et `sonic-ladder` modulés en direct, basse `synth/acid` au séquenceur.
 - `examples/jam-midi.sdui.json` : `sonic-midi mpe` → voix expressive (bend, pression → filtre et désaccord, timbre → filtre), pads de secours sans appareil ; batterie `sync="#midi"` qui suit l'horloge d'une machine, « Horloge sortante » qui pilote les machines depuis la page ; panique. Demande `"capabilities": ["midi"]`.
 - `examples/sampler-de-poche.sdui.json` : micro nettoyé par un patch d'effets (`sonic-audio-input`) → `sonic-audio-recorder` vers 4 pads (`takes.A`…) → `sonic-sampler` joué à la main et par le séquenceur ; fond `sonic-shader` (spectre du master + onde du micro) ; export vidéo du visuel avec le son (`sonic-media-recorder`) et téléchargement (`sonic-media-download`). Demande `"capabilities": ["microphone"]`.
 - `examples/vie-sonore.sdui.json` : jeu de la vie dans un `sonic-store` lu par le séquenceur en mode store (une colonne par pas, une génération par mesure), `synth/pluck`, `drums/kit` en mode direct, fond `sonic-shader` nourri par l'analyseur.
