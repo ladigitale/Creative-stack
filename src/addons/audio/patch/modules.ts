@@ -152,7 +152,11 @@ export const MODULES: Record<string, ModuleSpec> = {
 export const STRUCTURE_TAGS = ["sonic-voice", "sonic-mod", "sonic-param"];
 
 /** Sources implicites disponibles dans une voix. */
-export const VOICE_SOURCES = ["voice.pitch", "voice.gate", "voice.vel", "voice.note", "voice.rand"];
+export const VOICE_SOURCES = ["voice.pitch", "voice.gate", "voice.vel", "voice.note", "voice.rand", "voice.bend", "voice.pressure", "voice.timbre"];
+
+/** Expressions par note (MPE, pitch bend, aftertouch) : signaux mis à jour pendant la note. */
+export const VOICE_EXPRESSIONS = ["bend", "pressure", "timbre"] as const;
+export type VoiceExpression = { bend?: number; pressure?: number; timbre?: number };
 
 /** Tempo d'une fraction (`3/16`) → secondes à `bpm` (ronde = 4 temps). */
 export function tempoToSeconds(value: string, bpm: number): number | null {

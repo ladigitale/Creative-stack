@@ -1,8 +1,8 @@
 {
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "media",
-  "label": "Média (caméra, vidéo, export)",
-  "description": "Caméra et lecteur vidéo pilotés par DataProvider, sources d'images pour sonic-shader (#id), photos et exports vidéo en SonicMediaRef (téléchargeables), son de la vidéo vers le moteur audio ; accès demandés seulement sur geste.",
+  "label": "Média (caméra, écran, vidéo, export)",
+  "description": "Caméra, capture d'écran et lecteur vidéo pilotés par DataProvider, sources d'images pour sonic-shader (#id), photos et exports vidéo en SonicMediaRef (téléchargeables), son de la vidéo vers le moteur audio ; accès demandés seulement sur geste.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -123,6 +123,56 @@
         },
         "control": {
           "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-screen",
+      "description": "Capture d'écran (getDisplayMedia, clic direct requis : sonic-media-start for=\"screen\") : source d'images (#id) pour sonic-shader, photos (control.snapshot), son du partage (audio) pour l'analyseur / l'enregistreur, export par sonic-media-recorder ; état {status, error, surface, width, height, audio, snapshot}",
+      "props": {
+        "active": {
+          "type": "boolean"
+        },
+        "audio": {
+          "type": "boolean"
+        },
+        "surface": {
+          "type": "string",
+          "description": "monitor, window, browser"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "allow-self": {
+          "type": "boolean"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "max-width": {
+          "type": "number"
+        },
+        "fit": {
+          "type": "string"
+        },
+        "hidden-preview": {
+          "type": "boolean"
+        },
+        "snapshot-type": {
+          "type": "string"
+        },
+        "max-snapshots": {
+          "type": "number"
+        },
+        "snapshot-provider": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP {active, snapshot: compteur}"
         },
         "out-data-provider": {
           "type": "string"

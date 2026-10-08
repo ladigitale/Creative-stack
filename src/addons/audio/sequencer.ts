@@ -19,9 +19,14 @@ export type SequencerState = {
   beat: number;
   bar: number;
   phase: number;
+  /** Suivi d'une horloge MIDI externe (`sync="#midi"`) : écart mesuré au dernier temps reçu. */
+  sync: { source: string; locked: boolean; driftMs: number } | null;
   errors: string[];
   warnings: string[];
 };
+
+type ClockEvent = { type: "start" | "continue" | "stop" | "beat"; perf: number; ticks: number; bpm: number };
+type ClockSource = Element & { onClock(cb: (e: ClockEvent) => void): () => void };
 
 type StoreLike = { dispatchAction?: (a: { type: string; payload?: unknown; t?: number }) => void };
 
@@ -71,6 +76,10 @@ export class SonicSequencer extends LitElement {
   @property({ type: String })
   store = "";
 
+  /** Suivre une horloge MIDI externe : `#midi` (un sonic-midi). Start / Stop / tempo / phase viennent de l'appareil. */
+  @property({ type: String, attribute: "sync" })
+  syncSource = "";
+
   @property({ type: Number, attribute: "lookahead-ms" })
   lookaheadMs = 100;
 
@@ -97,6 +106,10 @@ export class SonicSequencer extends LitElement {
 
   disconnectedCallback(): void {
     this.stop();
+    this.syncOff?.();
+    this.syncOff = null;
+    if (this.syncPoll) clearInterval(this.syncPoll);
+    this.syncPoll = null;
     this.unsubscribeEngine?.();
     for (const u of this.unsubs) u();
     this.unsubs = [];
@@ -117,7 +130,85 @@ export class SonicSequencer extends LitElement {
       this.sync();
     }
     if (changed.has("control")) this.listenControl();
+    if (changed.has("syncSource")) this.setupSync();
     this.publish();
+  }
+
+  /** Position du transport (horloge MIDI sortante, visuels) : instant audio de la mesure 0 et tempo. */
+  getTransport(): { playing: boolean; bpm: number; t0: number; beats: number } | null {
+    return { playing: this.running, bpm: this.core.opts.bpm, t0: this.core.t0, beats: this.core.opts.beats };
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Horloge externe                                                   */
+  /* ---------------------------------------------------------------- */
+
+  private syncOff: (() => void) | null = null;
+  private syncPoll: ReturnType<typeof setInterval> | null = null;
+  private syncInfo: { locked: boolean; driftMs: number } = { locked: false, driftMs: 0 };
+
+  private setupSync(): void {
+    this.syncOff?.();
+    this.syncOff = null;
+    if (this.syncPoll) clearInterval(this.syncPoll);
+    this.syncPoll = null;
+    this.syncInfo = { locked: false, driftMs: 0 };
+    if (!this.syncSource) return;
+    const attach = () => {
+      const ref = this.syncSource.startsWith("#") ? this.syncSource : `#${this.syncSource}`;
+      const el = resolveAudioElement(this, ref) as ClockSource | null;
+      if (!el || typeof el.onClock !== "function") return false;
+      this.syncOff = el.onClock((e) => this.onExternalClock(e));
+      return true;
+    };
+    if (!attach()) {
+      this.syncPoll = setInterval(() => {
+        if (attach() && this.syncPoll) {
+          clearInterval(this.syncPoll);
+          this.syncPoll = null;
+        }
+      }, 500);
+    }
+  }
+
+  private onExternalClock(e: ClockEvent): void {
+    const engine = AudioEngine.get();
+    const ac = engine.context;
+    if (e.bpm >= 20 && Math.abs(e.bpm - this.core.opts.bpm) >= 0.1) this.setBpm(e.bpm);
+    if (e.type === "stop") {
+      this.wantPlaying = false;
+      this.syncInfo.locked = false;
+      this.stop();
+      return;
+    }
+    if (!ac || !engine.ready) {
+      if (e.type === "start" || e.type === "continue") this.wantPlaying = true;
+      return;
+    }
+    // instant audio entendu en même temps que le message
+    const t = engine.ctxTimeAtPerf(e.perf) ?? ac.currentTime;
+    const beatDur = 60 / this.core.opts.bpm;
+    const extBeats = e.ticks / 24;
+    if (e.type === "start" || e.type === "continue") {
+      this.wantPlaying = true;
+      if (this.running) this.stop();
+      this.running = true;
+      this.core.start(t - extBeats * beatDur);
+      this.scheduledUntil = this.core.t0 + extBeats * beatDur;
+      this.syncInfo = { locked: true, driftMs: 0 };
+      this.timer = setInterval(() => this.tick(), TICK_MS);
+      this.tick();
+      this.publish();
+      return;
+    }
+    if (e.type === "beat" && this.running) {
+      const errS = (t - this.core.t0) - extBeats * beatDur;
+      // errS > 0 : on est en avance → retarder l'ancre
+      if (Math.abs(errS) > 0.25) this.core.t0 = t - extBeats * beatDur;
+      else this.core.t0 += errS * 0.5;
+      this.syncInfo = { locked: Math.abs(errS) < 0.01, driftMs: Math.round(errS * 10000) / 10 };
+      this.publish();
+    }
   }
 
   /* ---------------------------------------------------------------- */
@@ -199,7 +290,8 @@ export class SonicSequencer extends LitElement {
     if (!this.running || !ac) return;
     const horizon = ac.currentTime + clamp(this.lookaheadMs, 20, 1000) / 1000;
     if (horizon <= this.scheduledUntil) return;
-    const from = Math.max(this.scheduledUntil, ac.currentTime - 0.01);
+    // jusqu'à 45 ms de rattrapage (départ sur horloge externe : le temps 1 est déjà un peu passé)
+    const from = Math.max(this.scheduledUntil, ac.currentTime - 0.045);
     const steps = this.core.steps(from, horizon);
     const events = this.core.window(from, horizon);
     this.scheduledUntil = horizon;
@@ -265,6 +357,7 @@ export class SonicSequencer extends LitElement {
       bpm: this.core.opts.bpm,
       swing: this.core.opts.swing,
       ...this.position,
+      sync: this.syncSource ? { source: this.syncSource, ...this.syncInfo } : null,
       errors: [...this.patternErrors],
       warnings: [...this.warnings],
     };

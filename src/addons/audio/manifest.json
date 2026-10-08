@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "audio",
   "label": "Audio (synthèse modulaire)",
-  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, bibliothèque), séquenceur à mini-notation, sampler, micro, enregistreur et analyseur (DP + texture shader), tout piloté par DataProvider.",
+  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, bibliothèque), séquenceur à mini-notation, sampler, micro, MIDI (entrée MPE, sortie, horloge), enregistreur et analyseur (DP + texture shader), tout piloté par DataProvider.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -10,7 +10,8 @@
   "examples": [
     "examples/premier-son.sdui.json",
     "examples/vie-sonore.sdui.json",
-    "examples/sampler-de-poche.sdui.json"
+    "examples/sampler-de-poche.sdui.json",
+    "examples/jam-midi.sdui.json"
   ],
   "components": [
     {
@@ -423,7 +424,7 @@
     },
     {
       "name": "sonic-sequencer",
-      "description": "Horloge musicale : pattern {idInstrument: 'mini-notation' | {notes, scale, pad: 'x..x'}} joué sur des instruments par id ; store=id reçoit {type:step, payload:{step,beat,bar,phase,when,bpm}} ; control DP {playing,bpm,swing,seed,pattern}",
+      "description": "Horloge musicale : pattern {idInstrument: 'mini-notation' | {notes, scale, pad: 'x..x'}} joué sur des instruments par id ; store=id reçoit {type:step, payload:{step,beat,bar,phase,when,bpm}} ; control DP {playing,bpm,swing,seed,pattern} ; sync=\"#midi\" : suit l'horloge MIDI d'un appareil (Start/Stop, tempo, phase) ; état sync {locked, driftMs}",
       "props": {
         "pattern": {
           "type": "object"
@@ -457,6 +458,10 @@
         },
         "out-data-provider": {
           "type": "string"
+        },
+        "sync": {
+          "type": "string",
+          "description": "#id d'un sonic-midi : horloge externe"
         }
       }
     },
@@ -584,6 +589,86 @@
         "control": {
           "type": "string",
           "description": "DP : {recording: true|false, target: \"chemin.dp\"}"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-midi",
+      "description": "Web MIDI (accès sur geste, sans SysEx). Entrée : target=\"#synth\" joue les notes (MPE : bend / pression / timbre par note → voice.bend|pressure|timbre du patch), store=id reçoit {type:\"midi\", payload:{kind, note, name, vel, ch, cc, value}} ; état {status, inputs, held, last, notes, cc, bend, pressure, clock{running,bpm,beat}}. Sortie : instrument (cible d'un sonic-sequencer ou events/trigger) vers output=\"nom\", cc-out (DP {\"74\":0.5}), clock-out=\"#seq\" (horloge 24 ppq + Start/Stop)",
+      "props": {
+        "active": {
+          "type": "boolean"
+        },
+        "autostart": {
+          "type": "boolean"
+        },
+        "input": {
+          "type": "string",
+          "description": "all (défaut), none, first ou morceau de nom"
+        },
+        "output": {
+          "type": "string",
+          "description": "vide = aucune, first, all ou morceau de nom"
+        },
+        "channel": {
+          "type": "string",
+          "description": "all ou 1..16"
+        },
+        "out-channel": {
+          "type": "number"
+        },
+        "mpe": {
+          "type": "boolean"
+        },
+        "mpe-master": {
+          "type": "number"
+        },
+        "bend-range": {
+          "type": "number"
+        },
+        "transpose": {
+          "type": "number"
+        },
+        "target": {
+          "type": "string",
+          "description": "#id d'instruments séparés par des espaces"
+        },
+        "store": {
+          "type": "string"
+        },
+        "action-type": {
+          "type": "string"
+        },
+        "events": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "cc-out": {
+          "type": "string"
+        },
+        "clock-out": {
+          "type": "string"
+        },
+        "offset-ms": {
+          "type": "number"
+        },
+        "notes-map": {
+          "type": "object"
+        },
+        "dur-s": {
+          "type": "number"
+        },
+        "rate": {
+          "type": "number"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP {active, input, output, channel, outChannel, program, panic: compteur}"
         },
         "out-data-provider": {
           "type": "string"

@@ -80,8 +80,8 @@ type SonicNoteEvent = {
 | 4 | `media` | `sonic-media-recorder` | Export d'une performance (canvas shader/3D + son) en webm/mp4 | **fait** |
 | 4 | `media` | `sonic-media-download` | Lien de téléchargement d'un enregistrement | **fait** |
 | 4 | `audio` | `sonic-patch` + `sonic-audio-input` | Un patch qui traite une entrée (effet autonome : `#mic → #fx`) | **fait** |
-| 5 | `audio` | `sonic-midi` | Web MIDI entrée / sortie / horloge, MPE en entrée | |
-| 5 | `media` | `sonic-screen` | Capture d'écran (`getDisplayMedia`) | |
+| 5 | `audio` | `sonic-midi` | Web MIDI entrée / sortie / horloge, MPE en entrée | **fait** |
+| 5 | `media` | `sonic-screen` | Capture d'écran (`getDisplayMedia`) | **fait** |
 | 6 | `audio` | modules AudioWorklet | `sonic-osc sync` (BLEP), `sonic-ladder`, `sonic-fold`, `sonic-karplus`, `sonic-resonator`, `sonic-grain` | |
 
 Chaque phase se termine par son intégration dans la plateforme : composants ajoutés au catalogue et au validateur (`tadaaa`), import dans le viewer (`artifacts`), smoke test sous CSP de prod. À partir de la phase 3 : `Permissions-Policy` (`camera`, `microphone`, `midi`, `display-capture`), `media-src blob:`, et déclaration `capabilities` dans le document avec bandeau avant le premier geste.
@@ -138,6 +138,17 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 - [x] Export 3 s d'un `sonic-shader` + master : `<video>` relit 2,98 s (± 0,2 s), 320 × 180, pistes VP9 + Opus ; durée écrite dans le WebM (ffprobe la lit sans parcourir le fichier).
 - [x] `sonic-media-download` : caché sans prise, lien `blob:` avec nom et extension déduits du format ; URL non `blob:` refusée.
 - [x] Démo « Sampler de poche » zéro JS : micro nettoyé (`sonic-audio-input` → filtre → compresseur) → 4 pads enregistrés → sampler à la main et au séquenceur → fond shader → export vidéo téléchargeable.
+
+## Phase 5 — critères d'acceptation (validés)
+
+- [x] Web MIDI factice (entrée « LinnStrument », sortie « Digitone II ») dans Chromium : aucun accès avant le clic, `requestMIDIAccess({ sysex: false })` au clic, ports listés.
+- [x] MPE : bend du canal envoyé avant la note → note tenue à +12 demi-tons ; le patch (`target="#syn"`) joue 880 Hz pour un A4 ; pression par note publiée ; store qui reçoit `{ type: "midi", payload }`.
+- [x] Sortie : `sonic-sequencer pattern='{"out": "c4 e4"}'` → notes canal 3 horodatées à 1 000 ms ± 0,03 ms ; CC envoyé au changement seulement.
+- [x] Horloge sortante : Start puis 24 ticks par noire, écart max 0,003 ms ; premier tick au même instant que la première note ; Stop à l'arrêt.
+- [x] Horloge entrante à 100 bpm : tempo mesuré, séquenceur démarré par Start, tempo suivi, verrouillé (écart < 10 ms), arrêté par Stop.
+- [x] Correspondance stable entre `performance.now` et l'horloge audio (`AudioEngine.ctxTimeAtPerf` / `perfAtCtxTime`, lissée) : sans elle, ±1,2 ms de gigue.
+- [x] `sonic-screen` : partage au clic, images pour `sonic-shader`, photo, export vidéo de l'écran ; arrêt par l'utilisateur → `idle` + message ; refus → `denied`.
+- [x] Démo « Jam MIDI » zéro JS : voix expressive MPE, pads de secours, batterie calée sur l'horloge d'une machine ou maîtresse (horloge sortante), panique.
 
 ## Ce qui reste côté Concorde (prompt Cursor, non bloquant)
 

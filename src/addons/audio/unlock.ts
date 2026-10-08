@@ -84,7 +84,7 @@ export class SonicAudioUnlock extends LitElement {
 
   render() {
     if (this.ready && this.targetsReady && !this.persist) return nothing;
-    return html`<slot @click=${this.onClick}><button type="button" part="button" @click=${this.onClick}>${this.label}</button></slot>`;
+    return html`<slot @click=${this.onClick}><button type="button" part="button">${this.label}</button></slot>`;
   }
 }
 

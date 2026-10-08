@@ -3,7 +3,7 @@
  * un graphe WebAudio par note (voix), polyphonie et vol de voix.
  */
 import { midiToFreq } from "../../../shared/audio/notes";
-import { MODULES } from "./modules";
+import { MODULES, type VoiceExpression } from "./modules";
 import { baseValue, buildModule, type Built } from "./nodes";
 import type { CompiledModule, CompiledPatch } from "./compile";
 
@@ -28,6 +28,8 @@ type Voice = {
   built: Map<string, Built>;
   extra: AudioNode[];
   gate: ConstantSourceNode;
+  /** Expressions : bend (cents), pressure (0..1), timbre (0..1). */
+  expr: { bend: ConstantSourceNode; pressure: ConstantSourceNode; timbre: ConstantSourceNode };
   out: GainNode;
   clock: ConstantSourceNode;
   disposed: boolean;
@@ -121,7 +123,7 @@ export class PatchRuntime {
   /* ---------------------------------------------------------------- */
 
   /** Démarre une note. `durS` null : tenue jusqu'à noteOff. */
-  noteOn(midi: number | null, vel: number, when: number, durS: number | null, sample: string | null = null): boolean {
+  noteOn(midi: number | null, vel: number, when: number, durS: number | null, sample: string | null = null, initial: VoiceExpression = {}): boolean {
     if (this.disposed) return false;
     const desc =
       (sample !== null ? this.patch.voices.find((v) => v.sample === sample) : undefined) ??
@@ -163,6 +165,26 @@ export class PatchRuntime {
     gate.offset.setValueAtTime(1, when);
     extra.push(gate);
 
+    // Expressions (MPE, pitch bend, aftertouch) : bend en cents vers chaque oscillateur
+    // qui suit la note, pression et timbre comme sources de modulation.
+    const exprNode = (v: number) => {
+      const c = ac.createConstantSource();
+      c.offset.value = v;
+      extra.push(c);
+      return c;
+    };
+    const expr = {
+      bend: exprNode(clampNum(initial.bend ?? 0, -96, 96) * 100),
+      pressure: exprNode(clampNum(initial.pressure ?? 0, 0, 1)),
+      timbre: exprNode(clampNum(initial.timbre ?? 0, 0, 1)),
+    };
+    for (const mod of desc.modules) {
+      if (mod.type === "sonic-osc" && mod.params["freq-hz"] === "voice.pitch") {
+        const detune = built.get(mod.name)?.params.detune;
+        if (detune) expr.bend.connect(detune);
+      }
+    }
+
     // Modulations dynamiques (enveloppes, LFO, audio, gate).
     for (const m of this.patch.mods) {
       const target = built.get(m.module);
@@ -170,6 +192,16 @@ export class PatchRuntime {
       if (!target || !param) continue;
       let src: AudioNode | null = null;
       if (m.from === "voice.gate") src = gate;
+      else if (m.from === "voice.pressure") src = expr.pressure;
+      else if (m.from === "voice.timbre") src = expr.timbre;
+      else if (m.from === "voice.bend") {
+        // en demi-tons (le nœud porte des cents)
+        const g = ac.createGain();
+        g.gain.value = 0.01;
+        expr.bend.connect(g);
+        extra.push(g);
+        src = g;
+      }
       else if (m.from === "voice.pitch") {
         const c = ac.createConstantSource();
         c.offset.value = freq;
@@ -205,8 +237,9 @@ export class PatchRuntime {
     }
     gate.start(when);
     clock.start(when);
+    for (const c of Object.values(expr)) c.start(when);
 
-    const voice: Voice = { midi, vel, start: when, releasedAt: null, end: Infinity, built, extra, gate, out, clock, disposed: false };
+    const voice: Voice = { midi, vel, start: when, releasedAt: null, end: Infinity, built, extra, gate, expr, out, clock, disposed: false };
     clock.onended = () => this.disposeVoice(voice);
     this.voices.push(voice);
     if (durS !== null) this.release(voice, when + Math.max(0.005, durS));
@@ -218,6 +251,24 @@ export class PatchRuntime {
     for (const v of this.voices) {
       if (v.releasedAt === null && v.midi === midi) this.release(v, when);
     }
+  }
+
+  /** Expressions d'une note tenue (dernière voix de cette note) : bend en demi-tons, pression et timbre 0..1. */
+  expression(midi: number | null, e: VoiceExpression, when: number): boolean {
+    let hit = false;
+    for (const v of this.voices) {
+      if (v.disposed || v.midi !== midi || v.end < when) continue;
+      hit = true;
+      const t = Math.max(when, v.start);
+      const set = (node: ConstantSourceNode, value: number) => {
+        node.offset.cancelScheduledValues(t);
+        node.offset.setTargetAtTime(value, t, 0.004);
+      };
+      if (typeof e.bend === "number" && Number.isFinite(e.bend)) set(v.expr.bend, clampNum(e.bend, -96, 96) * 100);
+      if (typeof e.pressure === "number" && Number.isFinite(e.pressure)) set(v.expr.pressure, clampNum(e.pressure, 0, 1));
+      if (typeof e.timbre === "number" && Number.isFinite(e.timbre)) set(v.expr.timbre, clampNum(e.timbre, 0, 1));
+    }
+    return hit;
   }
 
   allNotesOff(when = this.ac.currentTime): void {
@@ -253,6 +304,7 @@ export class PatchRuntime {
     const stopAt = v.end + 0.02;
     for (const b of v.built.values()) b.stop(stopAt);
     v.gate.stop(stopAt);
+    for (const c of Object.values(v.expr)) c.stop(stopAt);
     v.clock.stop(stopAt + 0.01);
   }
 
@@ -368,6 +420,10 @@ export class PatchRuntime {
       safeDisconnect(this.output);
     }, (fadeS + 0.2) * 1000);
   }
+}
+
+function clampNum(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
 }
 
 function safeDisconnect(n: AudioNode): void {

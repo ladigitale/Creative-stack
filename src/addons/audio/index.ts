@@ -10,6 +10,8 @@ export { SonicSampler, safeSampleUrl, type SamplerState, type SampleSpec } from 
 export { SonicAudioAnalyser, estimatePitch, type AnalyserState } from "./analyser";
 export { SonicMic, type MicState } from "./mic";
 export { SonicAudioRecorder, type AudioRecorderState } from "./recorder";
+export { SonicMidi, type MidiState, type MidiClockEvent } from "./midi";
+export { parseMidi, encode as encodeMidi, ClockFollower, NoteTracker, matchPorts } from "./midi/core";
 export { compilePattern, SequencerCore } from "./seq/core";
 export { parseLine, eventsForCycle, euclid, SCALES } from "./seq/mini";
 export { MODULE_TAGS } from "./modules-elements";

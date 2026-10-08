@@ -19,9 +19,11 @@ export type SonicNoteEvent = {
   /**
    * "note" (défaut) : note de durée `durS` (ou durée par défaut de l'instrument) ;
    * "noteOn" : tenue jusqu'au "noteOff" de la même note (clavier, MIDI) ;
-   * "param" : change un paramètre (`path`, `value`, `rampS`).
+   * "param" : change un paramètre (`path`, `value`, `rampS`) ;
+   * "expr" : expressions d'une note tenue (`bend`, `pressure`, `timbre`) — MPE, pitch bend, aftertouch ;
+   * "cc" : contrôle MIDI (`cc`, `value` 0..1) — ignoré par les instruments internes.
    */
-  type?: "note" | "noteOn" | "noteOff" | "param";
+  type?: "note" | "noteOn" | "noteOff" | "param" | "expr" | "cc";
   /** Nom ("A4", "C#3", "Bb2") ou numéro MIDI. */
   note?: string | number;
   /** Nom de pad / sample (sampler, batterie). */
@@ -34,6 +36,14 @@ export type SonicNoteEvent = {
   when?: number;
   /** Dédoublonnage : un même id n'est joué qu'une fois. */
   id?: string;
+  /** Expressions : bend en demi-tons, pressure et timbre 0..1 (aussi valeurs initiales d'un noteOn). */
+  bend?: number;
+  pressure?: number;
+  timbre?: number;
+  /** Canal MIDI 1..16 (entrée MIDI, ou sortie vers un appareil). */
+  ch?: number;
+  /** type "cc" : numéro de contrôleur 0..127. */
+  cc?: number;
   /** type "param" : chemin `module.param`, valeur et rampe. */
   path?: string;
   value?: number;

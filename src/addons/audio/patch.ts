@@ -192,9 +192,14 @@ export class SonicPatch extends LitElement implements SonicInstrument {
         rt.noteOff(midi, t);
         continue;
       }
+      if (type === "expr") {
+        rt.expression(midi, ev, t);
+        continue;
+      }
+      if (type === "cc") continue;
       const vel = Math.min(1, Math.max(0, typeof ev.vel === "number" ? ev.vel : 0.8));
       const dur = type === "noteOn" ? null : typeof ev.durS === "number" && ev.durS > 0 ? ev.durS : this.durS;
-      const ok = rt.noteOn(midi, vel, t, dur, ev.sample !== undefined ? String(ev.sample) : null);
+      const ok = rt.noteOn(midi, vel, t, dur, ev.sample !== undefined ? String(ev.sample) : null, ev);
       if (ok) this.played++;
       if (!ok) this.warnOnce(`aucun sonic-voice pour ${ev.sample !== undefined ? `sample "${ev.sample}"` : `note ${String(ev.note)}`}`);
     }

@@ -42,7 +42,7 @@ export type SamplerState = {
 
 /** `empty` : sample `ref` dont le DataProvider est encore vide (pad pas encore enregistré). */
 type Loaded = { spec: SampleSpec; buffer: AudioBuffer | null; reversed: AudioBuffer | null; error: string | null; empty: boolean };
-type Voice = { sample: string; src: AudioBufferSourceNode; gain: GainNode; end: number };
+type Voice = { sample: string; midi: number | null; src: AudioBufferSourceNode; gain: GainNode; end: number };
 
 /* ------------------------------------------------------------------ */
 /* Chargement partagé (cache par URL, décodage hors contexte)          */
@@ -305,7 +305,18 @@ export class SonicSampler extends LitElement implements SonicInstrument {
         for (const v of this.voices) if (v.sample === name) this.fade(v, t, 0.02);
         continue;
       }
-      if (ev.type === "param") continue;
+      if (ev.type === "param" || ev.type === "cc") continue;
+      if (ev.type === "expr") {
+        // pitch bend (MPE / molette) : désaccord de la lecture en cours
+        const midi = ev.note !== undefined ? toMidi(ev.note) : null;
+        if (typeof ev.bend !== "number" || !Number.isFinite(ev.bend)) continue;
+        for (const v of this.voices) {
+          if (v.midi !== midi) continue;
+          v.src.detune.cancelScheduledValues(t);
+          v.src.detune.setTargetAtTime(Math.max(-9600, Math.min(9600, ev.bend * 100)), t, 0.004);
+        }
+        continue;
+      }
       const name = this.resolveName(ev);
       if (!name) {
         this.error(`aucun sample pour ${ev.sample !== undefined ? `"${ev.sample}"` : `la note ${String(ev.note)}`}`);
@@ -350,6 +361,7 @@ export class SonicSampler extends LitElement implements SonicInstrument {
       if (midi !== null) semis += midi - root;
     }
     src.playbackRate.value = Math.pow(2, semis / 12);
+    if (typeof ev.bend === "number" && Number.isFinite(ev.bend)) src.detune.value = Math.max(-9600, Math.min(9600, ev.bend * 100));
     const g = ac.createGain();
     const vel = typeof ev.vel === "number" ? Math.min(1, Math.max(0, ev.vel)) : 0.8;
     const level = (spec.gain ?? 1) * (0.25 + 0.75 * vel);
@@ -381,7 +393,7 @@ export class SonicSampler extends LitElement implements SonicInstrument {
       stopAt = t + (end - start) / rate;
       if (spec.gate && typeof ev.durS === "number" && ev.durS > 0) stopAt = Math.min(stopAt, t + ev.durS);
     }
-    const voice: Voice = { sample: name, src, gain: g, end: stopAt };
+    const voice: Voice = { sample: name, midi: ev.note !== undefined ? toMidi(ev.note) : null, src, gain: g, end: stopAt };
     this.voices.push(voice);
     g.gain.setValueAtTime(level, Math.max(t + 0.002, stopAt - 0.01));
     g.gain.linearRampToValueAtTime(0, stopAt);

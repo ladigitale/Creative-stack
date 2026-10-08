@@ -16,6 +16,7 @@ Le micro (`sonic-mic`) est dans l'addon `audio`.
 | Tag | Rôle |
 |---|---|
 | `sonic-camera` | Caméra : aperçu, images pour les shaders, photos |
+| `sonic-screen` | Capture d'écran : source d'images, photos, son du partage, export |
 | `sonic-video` | Lecteur vidéo propriétaire de sa `<video>` |
 | `sonic-media-start` | Bouton d'invite qui démarre caméra / micro / vidéo, affiche un refus |
 | `sonic-media-recorder` | Export vidéo d'un shader, d'une caméra ou d'une vidéo, avec le son |
@@ -46,6 +47,27 @@ Le micro (`sonic-mic`) est dans l'addon `audio`.
 État : `{ status, error, active, facing, width, height, deviceId, devices, snapshot: { url, width, height, mime } | null, snapshots }`.
 
 Dans un shader : `channel0="#cam"` puis `texture(iChannel0, uv)`.
+
+## `sonic-screen`
+
+```json
+{ "tagName": "sonic-screen", "attributes": { "id": "screen", "hidden-preview": "", "audio": "", "control": "game.screen" } }
+```
+
+Le navigateur n'ouvre le partage que dans un **clic direct** : `sonic-media-start for="screen"` (ou un bouton dont le reducer met `control.active` à vrai). L'utilisateur choisit l'écran, la fenêtre ou l'onglet ; il peut arrêter à tout moment depuis la barre du navigateur (état `idle`, `error: "partage arrêté"`). Le partage continue quand la page passe en arrière-plan (c'est le but). Pas disponible sur mobile (`unsupported`).
+
+| Attribut | Rôle |
+|---|---|
+| `audio` | Demander aussi le son (onglet, ou écran entier sous Windows / ChromeOS) : `getAudioOutput()` pour `sonic-audio-analyser source="#screen"`, un enregistreur ; jamais envoyé vers le master (écho) |
+| `surface` | Suggestion : `monitor`, `window`, `browser` |
+| `cursor` | `always` (défaut), `motion`, `never` |
+| `allow-self` | Proposer l'onglet de la page elle-même (effet miroir infini) |
+| `fps` (30), `max-width` (1920) | Cadence ; largeur max des images et photos |
+| `fit`, `hidden-preview` | `contain` (défaut) ou `cover` ; pas d'aperçu |
+| `snapshot-type`, `max-snapshots`, `snapshot-provider` | Photos comme `sonic-camera` |
+| `control` | DP : `{ active, snapshot: compteur }` |
+
+État : `{ status, error, active, surface, width, height, audio, snapshot, snapshots }`. Dans un shader : `channel0="#screen"`. Export : `sonic-media-recorder video-source="#screen" audio-source="#screen"`.
 
 ## `sonic-video`
 
@@ -117,4 +139,4 @@ Lien `<a download>` vers le SonicMediaRef lu dans `source` (`exportState.last`, 
 
 ## Plateforme (viewer Artefacts)
 
-Le document déclare ce qu'il utilise : `"capabilities": ["camera"]`, `["microphone"]`. Le viewer refuse un `sonic-camera` / `sonic-mic` non déclaré et l'en-tête `Permissions-Policy` doit autoriser `camera=(self)` et `microphone=(self)`.
+Le document déclare ce qu'il utilise : `"capabilities": ["camera", "microphone", "midi", "screen"]`. Le viewer refuse un `sonic-camera` / `sonic-mic` / `sonic-midi` / `sonic-screen` non déclaré, et l'en-tête `Permissions-Policy` doit autoriser `camera=(self)`, `microphone=(self)`, `midi=(self)` et `display-capture=(self)`.

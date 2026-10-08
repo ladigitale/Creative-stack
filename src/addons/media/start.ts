@@ -89,7 +89,7 @@ export class SonicMediaStart extends LitElement {
 
   render() {
     if (this.ready && !this.persist) return nothing;
-    return html`<slot @click=${this.onClick}><button type="button" part="button" @click=${this.onClick}>${this.label}</button></slot>${this.error
+    return html`<slot @click=${this.onClick}><button type="button" part="button">${this.label}</button></slot>${this.error
         ? html`<span class="error" part="error" role="status">${this.error}</span>`
         : nothing}`;
   }

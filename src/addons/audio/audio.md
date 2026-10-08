@@ -21,6 +21,7 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 | `sonic-audio-analyser` | Niveaux, bandes, attaques, hauteur en DataProvider + texture pour `sonic-shader` |
 | `sonic-mic` | Micro : source pour l'analyseur, un patch, un enregistreur (jamais vers les haut-parleurs sauf `monitor`) |
 | `sonic-audio-input` | Module de patch : entrée externe (micro, vidéo, sampler…) ; un patch sans voix devient une chaîne d'effets |
+| `sonic-midi` | Web MIDI : claviers et contrôleurs MPE en entrée, notes / CC / horloge vers des appareils |
 | `sonic-audio-recorder` | Enregistre une source en prise (SonicMediaRef) rejouable par le sampler, téléchargeable |
 | `sonic-audio-unlock` | Bouton « Activer le son » (caché une fois actif) ; `start="mic"` démarre aussi le micro |
 | `sonic-audio-master` | Volume / muet du master |
@@ -58,7 +59,9 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 | `sample` | Nom de pad (`drums/kit`, ou `sonic-voice sample="…"`) |
 | `vel` | 0..1 (défaut 0.8) |
 | `durS` | Durée en s (défaut : attribut `dur-s` du patch, 0.3) |
-| `type` | `note` (défaut), `noteOn` (tenue jusqu'au `noteOff`), `noteOff`, `param` (`path`, `value`, `rampS`) |
+| `type` | `note` (défaut), `noteOn` (tenue jusqu'au `noteOff`), `noteOff`, `param` (`path`, `value`, `rampS`), `expr` (expressions d'une note tenue), `cc` (vers un appareil MIDI : `cc`, `value` 0..1) |
+| `bend`, `pressure`, `timbre` | Expressions : bend en demi-tons, pression et timbre 0..1 (valeurs initiales d'un `noteOn`, ou mises à jour avec `type: "expr"`) |
+| `ch` | Canal MIDI 1..16 (entrée MIDI, ou sortie vers un appareil) |
 | `id` | Dédoublonnage : un id déjà joué est ignoré |
 | `when` | Instant audio précis (séquenceur) ; passé de plus de 50 ms = ignoré |
 
@@ -100,7 +103,7 @@ La note jouée au moment même où l'utilisateur active le son n'est pas perdue 
 
 ### Règles
 
-- **Dans `sonic-voice`** : modules recréés à chaque note. Sources implicites : `voice.pitch` (Hz de la note), `voice.gate` (0/1), `voice.vel`, `voice.note` (MIDI), `voice.rand` (0..1 tiré à chaque note).
+- **Dans `sonic-voice`** : modules recréés à chaque note. Sources implicites : `voice.pitch` (Hz de la note), `voice.gate` (0/1), `voice.vel`, `voice.note` (MIDI), `voice.rand` (0..1 tiré à chaque note), et les **expressions** qui bougent pendant la note : `voice.bend` (demi-tons), `voice.pressure` (0..1, aftertouch), `voice.timbre` (0..1, CC74 en MPE). Le bend s'applique tout seul aux oscillateurs qui suivent la note ; pression et timbre se branchent avec `sonic-mod` (`from="voice.pressure" to="flt.freq-hz" amount="2000"`).
 - **Hors de `sonic-voice`** : modules créés une fois (LFO communs, effets). `voices` = somme des voix ; le premier effet global la reçoit automatiquement.
 - **Audio** : `in="o1 o2"` (plusieurs = somme). Sans `in` : entrée = module audio précédent. Un `sonic-mixer` sans `in` prend toutes les sources précédentes non utilisées.
 - **Sortie** : dernier module audio de la voix (ou `out` sur `sonic-voice`) ; dernier module global (ou `out` sur le patch).
@@ -178,9 +181,11 @@ Horloge calée sur l'audio (ordonnancement anticipé : précision à l'échantil
 
 **Store** — `store="life"` envoie à chaque pas, en avance de `lookahead-ms` (100), l'action `{ type: "step", payload: { step, beat, bar, phase, when, bpm } }`. Le reducer écrit des notes avec ce `when` dans un DataProvider lu par un instrument (`events`) : la musique calculée tombe exactement sur le temps. Le reducer doit répondre en moins de `lookahead-ms` (augmenter `budget-ms` du store et `lookahead-ms` pour un reducer lourd).
 
+**Horloge externe** : `sync="#midi"` (un `sonic-midi`) : Start / Continue / Stop, tempo mesuré et phase viennent de l'appareil (Elektron, DAW…). La phase est recalée à chaque temps ; l'état publie `sync: { source, locked, driftMs }`. Sans horloge reçue, `playing` / `control` marchent comme d'habitude.
+
 **Pilotage** : `control` (DP) `{ playing, bpm, swing, seed, pattern }` ; attributs `playing`, `bpm`, `swing`, `seed`, `beats` (4), `steps-per-beat` (4). Le tempo change sans saut. Le séquenceur démarre au premier geste si `playing` est vrai.
 
-**État** (`out-data-provider`, défaut `<id>State`) : `{ status, playing, bpm, swing, step, beat, bar, phase, errors, warnings }`, publié quand le pas est **entendu** (latence de sortie comprise).
+**État** (`out-data-provider`, défaut `<id>State`) : `{ status, playing, bpm, swing, step, beat, bar, phase, sync, errors, warnings }`, publié quand le pas est **entendu** (latence de sortie comprise).
 
 ### Mini-notation
 
@@ -242,6 +247,27 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 - État (`<id>State`) : `{ status: idle | requesting | ready | denied | error | unsupported, error, active, rms, peak, db, monitor, deviceId, devices }`. `rms` / `db` à `rate` mises à jour par seconde (15).
 - Avec l'analyseur : `pitchHz` (attribut `pitch`) pour un accordeur ou un jeu chanté, `onsetCount` pour des claquements de mains.
 
+## MIDI (`sonic-midi`)
+
+```json
+{ "tagName": "sonic-midi", "attributes": { "id": "midi", "mpe": "", "target": "#voix", "store": "jam", "output": "digitone", "clock-out": "#seq" } }
+```
+
+Accès demandé **sur geste** seulement (`sonic-media-start for="midi"`, `sonic-audio-unlock start="midi"`, `autostart`, `active`, DP `control`), jamais de SysEx. Le document déclare `"capabilities": ["midi"]`.
+
+**Entrée**
+- `input` : `all` (défaut), `none`, `first` ou un morceau de nom (`linnstrument`) ; `channel` : `all` ou `1..16` ; `transpose`.
+- `target="#voix #kit"` : les notes jouent directement sur ces instruments (`noteOn` / `noteOff`, sans passer par un store : latence minimale). Pitch bend, pression (canal ou polyphonique) et CC74 arrivent en événements `expr` : dans un patch, `voice.bend`, `voice.pressure`, `voice.timbre` ; dans un sampler, le bend désaccorde la lecture.
+- `mpe` : un canal par note (zone basse, canal maître 1 ; `mpe-master="16"` pour la zone haute) ; bend ±48 demi-tons par note (`bend-range`), ±2 sur le canal maître. Sans `mpe`, bend / pression d'un canal touchent toutes ses notes (`bend-range` 2).
+- `store="jam"` : chaque message devient `{ type: "midi" (action-type), payload: { kind: "noteOn" | "noteOff" | "cc" | "program" | "start" | "stop" | "beat", ch, note, name, vel, cc, value, beat, bpm } }`. Pas d'horloge à 24 ppq dans le store : un `beat` par noire.
+- État (`<id>State`) : `{ status, error, inputs, outputs, input, output, held: [{ note, name, ch, vel, bend, pressure, timbre }], last, notes (compteur), sent, cc: { "74": 0.5 }, bend, pressure, program, clock: { running, bpm, ticks, beat } }`. Valeurs continues publiées au plus `rate` fois par seconde (30).
+
+**Sortie** — `output` : vide (aucune, défaut), `first`, `all` ou morceau de nom ; `out-channel` (1).
+- C'est un **instrument** : `sonic-sequencer pattern='{"midi": "c3 ~ e3 g3"}'` joue sur l'appareil, horodaté au son près (même ancre que l'audio) ; ou `events` / `trigger` comme un patch. `ch` dans un événement choisit le canal, `notes-map` associe des pads à des notes.
+- `cc-out="knobs"` : DP `{ "74": 0.5, "71": 0.2 }`, chaque valeur changée (0..1) part en CC (pas les valeurs initiales).
+- `clock-out="#seq"` : horloge 24 ppq + Start / Stop calée sur le séquenceur (la machine suit le tempo et la mesure de la page). `offset-ms` compense la latence d'un appareil.
+- `control` (DP) : `{ active, input, output, channel, outChannel, program, panic: compteur }` — `panic` coupe toutes les notes (CC 123 sur les 16 canaux).
+
 ## Enregistreur (`sonic-audio-recorder`)
 
 ```json
@@ -258,6 +284,7 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 ## Démo
 
 - `examples/premier-son.sdui.json` : clavier (`sonic-keyboard`) → `sonic-store` → `synth/lead`, un patch écrit à la main avec filtre piloté par le store, et `drums/kit`.
+- `examples/jam-midi.sdui.json` : `sonic-midi mpe` → voix expressive (bend, pression → filtre et désaccord, timbre → filtre), pads de secours sans appareil ; batterie `sync="#midi"` qui suit l'horloge d'une machine, « Horloge sortante » qui pilote les machines depuis la page ; panique. Demande `"capabilities": ["midi"]`.
 - `examples/sampler-de-poche.sdui.json` : micro nettoyé par un patch d'effets (`sonic-audio-input`) → `sonic-audio-recorder` vers 4 pads (`takes.A`…) → `sonic-sampler` joué à la main et par le séquenceur ; fond `sonic-shader` (spectre du master + onde du micro) ; export vidéo du visuel avec le son (`sonic-media-recorder`) et téléchargement (`sonic-media-download`). Demande `"capabilities": ["microphone"]`.
 - `examples/vie-sonore.sdui.json` : jeu de la vie dans un `sonic-store` lu par le séquenceur en mode store (une colonne par pas, une génération par mesure), `synth/pluck`, `drums/kit` en mode direct, fond `sonic-shader` nourri par l'analyseur.
 
@@ -267,5 +294,6 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 import { AudioEngine, compilePatch, PATCH_LIBRARY } from "@supersoniks/creative-stack/audio";
 
 document.querySelector("sonic-patch#lead").schedule([{ note: "C4", durS: 0.5 }]);
+document.querySelector("sonic-midi#midi").send([0xb0, 74, 64]); // message brut vers la sortie
 const { errors, warnings } = compilePatch(tree); // pur : validation côté serveur possible
 ```

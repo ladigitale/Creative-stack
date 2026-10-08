@@ -1,0 +1,667 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:34rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "jam",
+      "initial": "{\"transport\": {\"playing\": false}, \"midi\": {\"output\": \"none\", \"panic\": 0}, \"clockOn\": false, \"notes\": [], \"tick\": 0, \"last\": \"\\u2014\"}",
+      "reducer": "(\n  $t := $action.type;\n  $s := $state;\n  $p := $action.payload;\n  $scale := [\"C4\", \"D4\", \"E4\", \"G4\", \"A4\", \"C5\"];\n  $t = \"midi\" and $p.kind = \"noteOn\" ? $merge([$s, {\"last\": $p.name}]) :\n  $t = \"midi\" ? $s :\n  $t = \"pad\" ? $merge([$s, {\"notes\": [{\"note\": $scale[$p], \"vel\": 0.8, \"durS\": 0.6, \"timbre\": 0.3 + $p * 0.1}], \"tick\": $s.tick + 1, \"last\": $scale[$p]}]) :\n  $t = \"play\" ? $merge([$s, {\"transport\": {\"playing\": $not($s.transport.playing)}}]) :\n  $t = \"clock\" ? $merge([$s, {\"clockOn\": $not($s.clockOn), \"midi\": $merge([$s.midi, {\"output\": $s.clockOn ? \"none\" : \"all\"}])}]) :\n  $t = \"panic\" ? $merge([$s, {\"midi\": $merge([$s.midi, {\"panic\": $s.midi.panic + 1}])}]) :\n  $s\n)"
+     }
+    },
+    {
+     "tagName": "sonic-midi",
+     "attributes": {
+      "id": "midi",
+      "mpe": "",
+      "target": "#voix",
+      "store": "jam",
+      "clock-out": "#beat",
+      "control": "jam.midi"
+     }
+    },
+    {
+     "tagName": "sonic-patch",
+     "attributes": {
+      "id": "voix",
+      "poly": "10",
+      "gain": "0.45",
+      "events": "jam.notes",
+      "trigger": "jam.tick"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-voice",
+       "attributes": {},
+       "nodes": [
+        {
+         "tagName": "sonic-osc",
+         "attributes": {
+          "name": "o1",
+          "wave": "sawtooth",
+          "detune": "-6"
+         }
+        },
+        {
+         "tagName": "sonic-osc",
+         "attributes": {
+          "name": "o2",
+          "wave": "square",
+          "octave": "-1",
+          "level": "0.6"
+         }
+        },
+        {
+         "tagName": "sonic-mixer",
+         "attributes": {
+          "name": "mix",
+          "in": "o1 o2",
+          "levels": "0.5 0.4"
+         }
+        },
+        {
+         "tagName": "sonic-filter",
+         "attributes": {
+          "name": "flt",
+          "type": "lowpass",
+          "freq-hz": "500",
+          "q": "4"
+         }
+        },
+        {
+         "tagName": "sonic-env",
+         "attributes": {
+          "name": "aenv",
+          "a": "0.01",
+          "d": "0.2",
+          "s": "0.7",
+          "r": "0.6"
+         }
+        },
+        {
+         "tagName": "sonic-vca",
+         "attributes": {
+          "name": "amp",
+          "in": "flt",
+          "gain": "aenv"
+         }
+        },
+        {
+         "tagName": "sonic-mod",
+         "attributes": {
+          "from": "voice.timbre",
+          "to": "flt.freq-hz",
+          "amount": "2600"
+         }
+        },
+        {
+         "tagName": "sonic-mod",
+         "attributes": {
+          "from": "voice.pressure",
+          "to": "flt.freq-hz",
+          "amount": "2200"
+         }
+        },
+        {
+         "tagName": "sonic-mod",
+         "attributes": {
+          "from": "voice.pressure",
+          "to": "o1.detune",
+          "amount": "14"
+         }
+        },
+        {
+         "tagName": "sonic-mod",
+         "attributes": {
+          "from": "voice.vel",
+          "to": "flt.freq-hz",
+          "amount": "700"
+         }
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-delay",
+       "attributes": {
+        "name": "dly",
+        "time": "3/16",
+        "feedback": "0.3",
+        "mix": "0.2"
+       }
+      },
+      {
+       "tagName": "sonic-reverb",
+       "attributes": {
+        "name": "rev",
+        "size-s": "2.5",
+        "mix": "0.25"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-patch",
+     "attributes": {
+      "id": "kit",
+      "preset": "drums/kit",
+      "gain": "0.4"
+     }
+    },
+    {
+     "tagName": "sonic-sequencer",
+     "attributes": {
+      "id": "beat",
+      "bpm": "110",
+      "sync": "#midi",
+      "control": "jam.transport",
+      "pattern": "{\"kit\": {\"kick\": \"x...x...x...x...\", \"snare\": \"....x.......x...\", \"hat\": \"[..x.]*4\", \"openhat\": \"<~ ~ ~ [~ ~ ~ x]>\"}}"
+     }
+    },
+    {
+     "tagName": "sonic-audio-analyser",
+     "attributes": {
+      "id": "spectre",
+      "source": "master",
+      "bands": "8"
+     }
+    },
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "title"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "position:relative;border-radius:.8rem;overflow:hidden;background:#0b0d14;aspect-ratio:16/7"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-shader",
+       "attributes": {
+        "id": "viz",
+        "channel0": "#spectre",
+        "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  float s = texture(iChannel0, vec2(pow(uv.x, 1.5) * 0.5, 0.25)).r;\n  float w = texture(iChannel0, vec2(uv.x, 0.75)).r - 0.5;\n  float bars = smoothstep(s, s - 0.015, abs(uv.y - 0.5) * 2.6);\n  float line = smoothstep(0.012, 0.0, abs(uv.y - 0.5 - w * 0.7));\n  vec3 bg = mix(vec3(0.03, 0.03, 0.06), vec3(0.08, 0.03, 0.12), uv.y);\n  vec3 hue = 0.55 + 0.45 * cos(6.2831853 * (uv.x * 0.8 + vec3(0.0, 0.25, 0.5)) + iTime * 0.3);\n  c = vec4(bg + bars * hue * 0.8 + line * vec3(1.0, 0.9, 0.7), 1.0);\n}",
+        "style": "display:block;width:100%;height:100%"
+       }
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "position:absolute;inset:0;display:flex;gap:.5rem;align-items:center;justify-content:center;pointer-events:none"
+       },
+       "nodes": [
+        {
+         "tagName": "div",
+         "attributes": {
+          "style": "pointer-events:auto;display:flex;gap:.5rem"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-audio-unlock",
+           "attributes": {}
+          },
+          {
+           "tagName": "sonic-media-start",
+           "attributes": {
+            "for": "midi"
+           },
+           "nodes": [
+            {
+             "tagName": "sonic-button",
+             "attributes": {
+              "variant": "default",
+              "data-action": "midi-start"
+             },
+             "nodes": [
+              {
+               "tagName": "sonic-value",
+               "attributes": {
+                "dataProvider": "t",
+                "key": "midi"
+               }
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(6,1fr);gap:.35rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jam",
+        "type": "pad",
+        "payload": "0"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "pad-0"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "n0"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jam",
+        "type": "pad",
+        "payload": "1"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "pad-1"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "n1"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jam",
+        "type": "pad",
+        "payload": "2"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "pad-2"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "n2"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jam",
+        "type": "pad",
+        "payload": "3"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "pad-3"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "n3"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jam",
+        "type": "pad",
+        "payload": "4"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "pad-4"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "n4"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jam",
+        "type": "pad",
+        "payload": "5"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "pad-5"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "n5"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jam",
+        "type": "play"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "play"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "play"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jam",
+        "type": "clock"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "clock"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "clock"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jam",
+        "type": "panic"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "panic"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "panic"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;font-variant-numeric:tabular-nums"
+     },
+     "nodes": [
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "status"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "midiState",
+            "key": "status"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "last"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "jam",
+            "key": "last"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "bpm"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "midiState",
+            "key": "clock.bpm"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "drift"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "beatState",
+            "key": "sync.driftMs"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "opacity:.75;font-size:.9rem;margin:0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "help"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

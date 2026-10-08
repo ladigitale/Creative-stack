@@ -134,6 +134,40 @@ export class AudioEngine {
     this.emit();
   }
 
+  /** Écart lissé performance.now − currentTime (ms) : correspondance stable entre les deux horloges. */
+  private perfOffset: number | null = null;
+
+  private clockOffset(): number | null {
+    const ac = this.ac as AudioContext | null;
+    if (!ac) return null;
+    const ts = typeof ac.getOutputTimestamp === "function" ? ac.getOutputTimestamp() : null;
+    // instant où sort l'échantillon `contextTime` : la latence de sortie est comprise
+    const raw =
+      ts && ts.contextTime && ts.performanceTime
+        ? ts.performanceTime - ts.contextTime * 1000
+        : performance.now() - ac.currentTime * 1000 + this.getState().latencyS * 1000;
+    // lissage : les relevés tremblent d'environ 1 ms ; un saut net (changement de sortie) est repris tel quel
+    if (this.perfOffset === null || Math.abs(raw - this.perfOffset) > 15) this.perfOffset = raw;
+    else this.perfOffset += (raw - this.perfOffset) * 0.02;
+    return this.perfOffset;
+  }
+
+  /**
+   * Instant audio (currentTime) dont le son est entendu à l'instant `perfMs`
+   * (horloge performance.now, celle des messages MIDI). Sert à caler le son
+   * sur un appareil externe. null sans contexte.
+   */
+  ctxTimeAtPerf(perfMs: number): number | null {
+    const off = this.clockOffset();
+    return off === null ? null : (perfMs - off) / 1000;
+  }
+
+  /** Inverse de `ctxTimeAtPerf` : instant performance.now où le son programmé à `when` sera entendu. */
+  perfAtCtxTime(when: number): number | null {
+    const off = this.clockOffset();
+    return off === null ? null : when * 1000 + off;
+  }
+
   getState(): AudioEngineState {
     const ac = this.ac as AudioContext | null;
     return {
