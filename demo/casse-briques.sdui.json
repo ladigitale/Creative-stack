@@ -80,7 +80,7 @@
         "id": "fond",
         "channel0": "#world",
         "channel1": "#spectre",
-        "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  vec2 px = 1.0 / iResolution.xy;\n  vec3 glow = vec3(0.0);\n  for (int i = -4; i <= 4; i++) {\n    for (int j = -4; j <= 4; j++) {\n      vec2 o = vec2(float(i), float(j)) * px * 5.0;\n      glow += texture(iChannel0, uv + o).rgb;\n    }\n  }\n  glow /= 81.0;\n  float s = texture(iChannel1, vec2(uv.x * 0.5, 0.25)).r;\n  vec3 bg = mix(vec3(0.02, 0.02, 0.05), vec3(0.06, 0.03, 0.1), uv.y) + s * 0.08 * vec3(0.4, 0.6, 1.0);\n  float grid = smoothstep(0.98, 1.0, max(fract(uv.x * 40.0), fract(uv.y * 22.5))) * 0.05;\n  c = vec4(bg + grid + glow * 1.6, 1.0);\n}",
+        "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  vec2 px = 1.0 / iResolution.xy;\n  vec3 glow = vec3(0.0);\n  for (int i = -2; i <= 2; i++) {\n    for (int j = -2; j <= 2; j++) {\n      vec2 o = vec2(float(i), float(j)) * px * 9.0;\n      glow += texture(iChannel0, uv + o).rgb;\n    }\n  }\n  glow /= 25.0;\n  float s = texture(iChannel1, vec2(uv.x * 0.5, 0.25)).r;\n  vec3 bg = mix(vec3(0.02, 0.02, 0.05), vec3(0.06, 0.03, 0.1), uv.y) + s * 0.08 * vec3(0.4, 0.6, 1.0);\n  float grid = smoothstep(0.98, 1.0, max(fract(uv.x * 40.0), fract(uv.y * 22.5))) * 0.05;\n  c = vec4(bg + grid + glow * 1.6, 1.0);\n}",
         "style": "position:absolute;inset:0;width:100%;height:100%"
        }
       },
