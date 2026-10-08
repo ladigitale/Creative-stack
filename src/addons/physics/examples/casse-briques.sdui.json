@@ -1,0 +1,371 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:44rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "jeu",
+      "budget-ms": "50",
+      "initial": "{\"level\": [{\"name\": \"b-0-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-1-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-2-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-3-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-4-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}], \"bricks\": [{\"name\": \"b-0-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-0-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 60, \"fill\": \"#f472b6\", \"tags\": \"brick\", \"row\": 0}, {\"name\": \"b-1-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-1-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 88, \"fill\": \"#fb923c\", \"tags\": \"brick\", \"row\": 1}, {\"name\": \"b-2-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-2-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 116, \"fill\": \"#facc15\", \"tags\": \"brick\", \"row\": 2}, {\"name\": \"b-3-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-3-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 144, \"fill\": \"#4ade80\", \"tags\": \"brick\", \"row\": 3}, {\"name\": \"b-4-0\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 67, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-1\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 141, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-2\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 215, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-3\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 289, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-4\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 363, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-5\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 437, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-6\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 511, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-7\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 585, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-8\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 659, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}, {\"name\": \"b-4-9\", \"type\": \"static\", \"shape\": \"box\", \"w\": 66, \"h\": 20, \"x\": 733, \"y\": 172, \"fill\": \"#38bdf8\", \"tags\": \"brick\", \"row\": 4}], \"score\": 0, \"lives\": 3, \"state\": \"prêt\", \"input\": {\"paddle\": {\"vx\": 0, \"set\": {\"n\": 0, \"x\": 400, \"y\": 420}}, \"ball\": {\"impulse\": {\"n\": 0, \"x\": 0, \"y\": 0}, \"set\": {\"n\": 0, \"x\": 400, \"y\": 396}}}, \"notes\": [], \"tick\": 0, \"padCtl\": {\"rumble\": {\"n\": 0, \"ms\": 120}}}",
+      "reducer": "(\n  $t := $action.type;\n  $s := $state;\n  $p := $action.payload;\n  $scale := [\"C6\", \"A5\", \"G5\", \"E5\", \"D5\"];\n  $vx := function($s, $v) { $merge([$s, {\"input\": $merge([$s.input, {\"paddle\": $merge([$s.input.paddle, {\"vx\": $v}])}])}]) };\n  $launch := function($s) {\n    $s.state = \"prêt\" ? $merge([$s, {\"state\": \"en jeu\", \"input\": $merge([$s.input, {\"ball\": $merge([$s.input.ball, {\"impulse\": {\"n\": $s.input.ball.impulse.n + 1, \"x\": (($s.lives * 7 + $count($s.bricks) + $s.input.ball.impulse.n) % 9 - 4) * 5, \"y\": -34}}])}])}]) : $s\n  };\n  $place := function($s, $state) {\n    $merge([$s, {\"state\": $state, \"input\": {\n      \"paddle\": {\"vx\": 0, \"set\": {\"n\": $s.input.paddle.set.n + 1, \"x\": 400, \"y\": 420}},\n      \"ball\": {\"impulse\": $s.input.ball.impulse, \"set\": {\"n\": $s.input.ball.set.n + 1, \"x\": 400, \"y\": 396}}\n    }}])\n  };\n  $t = \"left\" ? $vx($s, -650) :\n  $t = \"right\" ? $vx($s, 650) :\n  ($t = \"left:up\" and $s.input.paddle.vx < 0) or ($t = \"right:up\" and $s.input.paddle.vx > 0) ? $vx($s, 0) :\n  $t = \"stick\" ? $vx($s, $round($p.lx * 700)) :\n  $t = \"launch\" ? $launch($s) :\n  $t = \"tap\" ? (\n    $moved := $merge([$s, {\"input\": $merge([$s.input, {\"paddle\": $merge([$s.input.paddle, {\"set\": {\"n\": $s.input.paddle.set.n + 1, \"x\": $p.x, \"y\": 420}}])}])}]);\n    $s.state = \"prêt\" ? $launch($place($s, \"prêt\")) : $moved\n  ) :\n  $t = \"collide\" ? (\n    $brick := \"brick\" in $p.tagsA ? $p.a : (\"brick\" in $p.tagsB ? $p.b : \"\");\n    $paddle := \"paddle\" in $p.tagsA or \"paddle\" in $p.tagsB;\n    $brick != \"\" ? (\n      $hit := $s.bricks[name = $brick];\n      $left := [$s.bricks[name != $brick]];\n      $won := $count($left) = 0;\n      $next := $merge([$s, {\n        \"bricks\": $left, \"score\": $s.score + 10 * (5 - $hit.row),\n        \"notes\": [{\"note\": $scale[$hit.row], \"vel\": 0.85}], \"tick\": $s.tick + 1,\n        \"padCtl\": {\"rumble\": {\"n\": $s.padCtl.rumble.n + 1, \"ms\": 60}}\n      }]);\n      $won ? $place($next, \"gagné !\") : $next\n    ) :\n    $paddle ? $merge([$s, {\"notes\": [{\"note\": \"C4\", \"vel\": 0.5}], \"tick\": $s.tick + 1}]) : $s\n  ) :\n  $t = \"out\" and $p.body = \"ball\" and $s.state = \"en jeu\" ? (\n    $lives := $s.lives - 1;\n    $merge([$place($s, $lives <= 0 ? \"perdu\" : \"prêt\"), {\n      \"lives\": $lives, \"notes\": [{\"note\": \"C2\", \"durS\": 0.6, \"vel\": 0.9}], \"tick\": $s.tick + 1,\n      \"padCtl\": {\"rumble\": {\"n\": $s.padCtl.rumble.n + 1, \"ms\": 400}}\n    }])\n  ) :\n  $t = \"restart\" ? $merge([$place($s, \"prêt\"), {\"bricks\": $s.level, \"score\": 0, \"lives\": 3}]) :\n  $s\n)"
+     }
+    },
+    {
+     "tagName": "sonic-keyboard",
+     "attributes": {
+      "target": "jeu",
+      "scope": "document",
+      "keyup": "",
+      "keymap": "{\"ArrowLeft\": \"left\", \"ArrowRight\": \"right\", \"KeyA\": \"left\", \"KeyD\": \"right\", \"Space\": \"launch\", \"Enter\": \"restart\"}"
+     }
+    },
+    {
+     "tagName": "sonic-controller",
+     "attributes": {
+      "id": "pad",
+      "store": "jeu",
+      "analog-action": "stick",
+      "control": "jeu.padCtl",
+      "keymap": "{\"a\": \"launch\", \"start\": \"restart\", \"left\": \"left\", \"right\": \"right\"}",
+      "release": ""
+     }
+    },
+    {
+     "tagName": "sonic-patch",
+     "attributes": {
+      "id": "son",
+      "preset": "synth/pluck",
+      "events": "jeu.notes",
+      "trigger": "jeu.tick",
+      "gain": "0.4"
+     }
+    },
+    {
+     "tagName": "sonic-audio-analyser",
+     "attributes": {
+      "id": "spectre",
+      "source": "master",
+      "bands": "8"
+     }
+    },
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "title"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "position:relative;border-radius:.8rem;overflow:hidden;background:#05060a;aspect-ratio:16/9"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-shader",
+       "attributes": {
+        "id": "fond",
+        "channel0": "#world",
+        "channel1": "#spectre",
+        "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  vec2 px = 1.0 / iResolution.xy;\n  vec3 glow = vec3(0.0);\n  for (int i = -4; i <= 4; i++) {\n    for (int j = -4; j <= 4; j++) {\n      vec2 o = vec2(float(i), float(j)) * px * 5.0;\n      glow += texture(iChannel0, uv + o).rgb;\n    }\n  }\n  glow /= 81.0;\n  float s = texture(iChannel1, vec2(uv.x * 0.5, 0.25)).r;\n  vec3 bg = mix(vec3(0.02, 0.02, 0.05), vec3(0.06, 0.03, 0.1), uv.y) + s * 0.08 * vec3(0.4, 0.6, 1.0);\n  float grid = smoothstep(0.98, 1.0, max(fract(uv.x * 40.0), fract(uv.y * 22.5))) * 0.05;\n  c = vec4(bg + grid + glow * 1.6, 1.0);\n}",
+        "style": "position:absolute;inset:0;width:100%;height:100%"
+       }
+      },
+      {
+       "tagName": "sonic-physics",
+       "attributes": {
+        "id": "world",
+        "width": "800",
+        "height": "450",
+        "gravity": "0 0",
+        "bounds": "box",
+        "store": "jeu",
+        "bodies": "jeu.bricks",
+        "input": "jeu.input",
+        "publish": "ball paddle",
+        "style": "position:absolute;inset:0"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-body",
+         "attributes": {
+          "name": "paddle",
+          "type": "kinematic",
+          "shape": "polygon",
+          "points": "-60,7 60,7 60,-1 44,-7 -44,-7 -60,-1",
+          "x": "400",
+          "y": "420",
+          "clamp-x": "62 738",
+          "friction": "0",
+          "tags": "paddle",
+          "fill": "#e2e8f0"
+         }
+        },
+        {
+         "tagName": "sonic-body",
+         "attributes": {
+          "name": "ball",
+          "shape": "circle",
+          "r": "8",
+          "x": "400",
+          "y": "396",
+          "restitution": "1",
+          "friction": "0",
+          "bullet": "",
+          "fixed-rotation": "",
+          "tags": "ball",
+          "fill": "#ffffff"
+         }
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "position:absolute;top:.6rem;right:.6rem;line-height:normal"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-audio-unlock",
+         "attributes": {}
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;font-variant-numeric:tabular-nums"
+     },
+     "nodes": [
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "score"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "jeu",
+            "key": "score"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "lives"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "jeu",
+            "key": "lives"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "state"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "jeu",
+            "key": "state"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "div",
+       "attributes": {
+        "style": "display:flex;flex-direction:column;align-items:center;padding:.4rem;border-radius:.6rem;background:rgba(127,127,127,.1)"
+       },
+       "nodes": [
+        {
+         "tagName": "small",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "pad"
+           }
+          }
+         ]
+        },
+        {
+         "tagName": "strong",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "padState",
+            "key": "status"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:repeat(2,1fr);gap:.4rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "launch"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "default",
+          "style": "width:100%",
+          "data-action": "launch"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "launch"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "restart"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "variant": "outline",
+          "style": "width:100%",
+          "data-action": "restart"
+         },
+         "nodes": [
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "t",
+            "key": "restart"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "opacity:.75;font-size:.9rem;margin:0"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "t",
+        "key": "help"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

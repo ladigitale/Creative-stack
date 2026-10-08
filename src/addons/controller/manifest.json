@@ -1,0 +1,47 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "controller",
+  "label": "Manettes",
+  "description": "Manettes (API Gamepad) : jusqu'à 4, sticks et gâchettes analogiques, appuis et relâchements vers le store, état en DataProvider, vibration par compteur.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "controller.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-controller",
+      "description": "Manettes : keymap {\"a\":\"jump\",\"start\":\"pause\",\"ls-left\":\"left\"} → actions au store (release : aussi <type>:up), analog-action=\"stick\" → {type:\"stick\", payload:{pad, lx, ly, rx, ry, lt, rt}} quand un axe bouge ; état <id>State {status, count, pads:[{index, id, lx, ly, rx, ry, lt, rt, pressed}]} ; control DP {rumble:{n: compteur, ms, strong, weak}}. Boutons : a b x y lb rb lt rt select start ls rs up down left right home, ls-left/right/up/down",
+      "props": {
+        "store": {
+          "type": "string"
+        },
+        "keymap": {
+          "type": "object"
+        },
+        "release": {
+          "type": "boolean"
+        },
+        "analog-action": {
+          "type": "string"
+        },
+        "deadzone": {
+          "type": "number"
+        },
+        "player": {
+          "type": "string",
+          "description": "all ou 0..3"
+        },
+        "rate": {
+          "type": "number"
+        },
+        "control": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

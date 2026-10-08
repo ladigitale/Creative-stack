@@ -82,6 +82,8 @@ type SonicNoteEvent = {
 | 4 | `audio` | `sonic-patch` + `sonic-audio-input` | Un patch qui traite une entrée (effet autonome : `#mic → #fx`) | **fait** |
 | 5 | `audio` | `sonic-midi` | Web MIDI entrée / sortie / horloge, MPE en entrée | **fait** |
 | 5 | `media` | `sonic-screen` | Capture d'écran (`getDisplayMedia`) | **fait** |
+| 7 | `physics` | `sonic-physics` + `sonic-body` + `sonic-joint` | Monde 2D planck.js (Box2D) en SDUI : chocs / capteurs / sorties vers le store, rendu canvas = source shader | **fait** |
+| 7 | `controller` | `sonic-controller` | Manettes analogiques (sticks, gâchettes), relâchements, 4 joueurs, vibration | **fait** |
 | 6 | `audio` | modules AudioWorklet | `sonic-osc sync` (BLEP), `sonic-ladder`, `sonic-fold`, `sonic-karplus`, `sonic-resonator`, `sonic-grain` | **fait** |
 
 Chaque phase se termine par son intégration dans la plateforme : composants ajoutés au catalogue et au validateur (`tadaaa`), import dans le viewer (`artifacts`), smoke test sous CSP de prod. À partir de la phase 3 : `Permissions-Policy` (`camera`, `microphone`, `midi`, `display-capture`), `media-src blob:`, et déclaration `capabilities` dans le document avec bandeau avant le premier geste.
@@ -164,6 +166,13 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 - [x] Granulaire (natif) : un sinus 440 Hz rejoué à 440 Hz (C4) puis 880 Hz (C5) ; prise micro → grains.
 - [x] Processeurs refusés (URL invalide, comme une CSP stricte) : repli natif qui sonne, avertissements lisibles (`AudioWorklet refusé…`, `corde approchée…`).
 - [x] Démo « Nuage » zéro JS : granulaire (exemple ou voix), fold et ladder pilotés par le store, basse acide au séquenceur.
+
+## Phase 7 — critères d'acceptation (validés)
+
+- [x] Cœur testé seul (vitest) : chute libre conforme à ½gt² (0,5 s → 61 px à 50 px/m), repos sur le sol, choc avec impulsion ; restitution 1 / 0 ; capteur enter / leave ; sortie du monde une seule fois ; seuil de choc ; vitesse imposée + `clamp-x` ; impulsion et placement par compteur ; liste du store (ajout, mise à jour sans recréer, retrait) ; pendule, moteur ; glisser.
+- [x] Chromium : balle posée au sol, chocs et capteur dans le store, couleur de la balle sous sa position dans le canvas, `sonic-shader` de Concorde abonné à `#w`, liste DP ajout / retrait, glisser à la souris (la caisse suit le pointeur), `tap`, reset par compteur.
+- [x] `sonic-controller` (manette factice) : stick → store → vitesse d'un corps ; appui / relâchement ; état ; vibration par compteur.
+- [x] Démo « Casse-briques » zéro JS : briques retirées par le reducer, score par rangée, vies, note par choc, fond shader qui fait briller le monde.
 
 ## Ce qui reste côté Concorde (prompt Cursor, non bloquant)
 

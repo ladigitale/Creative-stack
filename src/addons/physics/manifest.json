@@ -1,0 +1,239 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "physics",
+  "label": "Physique 2D (planck.js)",
+  "description": "Monde physique 2D planck.js (Box2D) décrit en SDUI : corps et joints en balises ou en liste DataProvider, pilotage par DataProvider, chocs / capteurs / sorties envoyés au store, rendu canvas utilisable comme source d'images pour sonic-shader.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "physics.md",
+  "examples": [
+    "examples/casse-briques.sdui.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-physics",
+      "description": "Monde 2D (px, y vers le bas) : enfants sonic-body / sonic-joint, bodies=DP liste de corps (ajout / retrait suivis), input=DP {nom: {vx, vy, fx, fy, spin, torque, impulse:{n,x,y}, set:{n,x,y,vx,vy,angle}}} (n = compteur), control=DP {running, reset: compteur, gravity:[x,y], timeScale}, store=id reçoit collide {a,b,tagsA,tagsB,impulse,x,y} / enter / leave {sensor, body, tags} / out {body, side} / tap {x,y,body} ; état <id>State {bodies:{nom:{x,y,angle,vx,vy}}, collisions, time} ; source d'images #id pour sonic-shader",
+      "props": {
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "scale": {
+          "type": "number"
+        },
+        "gravity": {
+          "type": "string",
+          "description": "\"0 9.8\" (m/s², défaut), \"0 0\" vue de dessus"
+        },
+        "bounds": {
+          "type": "string",
+          "description": "walls (défaut), box (sans sol), floor, none"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "time-scale": {
+          "type": "number"
+        },
+        "bodies": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "store": {
+          "type": "string"
+        },
+        "action-prefix": {
+          "type": "string"
+        },
+        "collide-min": {
+          "type": "number"
+        },
+        "drag": {
+          "type": "boolean"
+        },
+        "publish": {
+          "type": "string",
+          "description": "noms des corps publiés (défaut : tous)"
+        },
+        "rate": {
+          "type": "number"
+        },
+        "background": {
+          "type": "string"
+        },
+        "debug": {
+          "type": "boolean"
+        },
+        "hidden-preview": {
+          "type": "boolean"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-body",
+      "description": "Corps : type dynamic|static|kinematic, shape circle (r) | box (w h) | polygon / edge / chain (points \"x,y x,y\" relatifs au centre), x y angle vx vy spin, density friction restitution, sensor, bullet, fixed-rotation, damping, gravity-scale, group / collides (filtres), tags (repris dans les événements), clamp-x / clamp-y \"min max\", rendu fill stroke line label hidden",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "shape": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "w": {
+          "type": "number"
+        },
+        "h": {
+          "type": "number"
+        },
+        "r": {
+          "type": "number"
+        },
+        "points": {
+          "type": "string"
+        },
+        "loop": {
+          "type": "boolean"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "vx": {
+          "type": "number"
+        },
+        "vy": {
+          "type": "number"
+        },
+        "spin": {
+          "type": "number"
+        },
+        "density": {
+          "type": "number"
+        },
+        "friction": {
+          "type": "number"
+        },
+        "restitution": {
+          "type": "number"
+        },
+        "sensor": {
+          "type": "boolean"
+        },
+        "bullet": {
+          "type": "boolean"
+        },
+        "fixed-rotation": {
+          "type": "boolean"
+        },
+        "damping": {
+          "type": "number"
+        },
+        "angular-damping": {
+          "type": "number"
+        },
+        "gravity-scale": {
+          "type": "number"
+        },
+        "group": {
+          "type": "string"
+        },
+        "collides": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "string"
+        },
+        "clamp-x": {
+          "type": "string"
+        },
+        "clamp-y": {
+          "type": "string"
+        },
+        "fill": {
+          "type": "string"
+        },
+        "stroke": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "label": {
+          "type": "string"
+        },
+        "hidden": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "name": "sonic-joint",
+      "description": "Joint entre deux corps (a, b ; ground = le décor) : revolute (pivot at, motor °/s, max-torque, lower / upper °), distance (ressort : frequency, damping, length), rope (length), weld, prismatic (axis, limites, moteur)",
+      "props": {
+        "type": {
+          "type": "string"
+        },
+        "a": {
+          "type": "string"
+        },
+        "b": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "description": "\"x y\" ancrage (monde)"
+        },
+        "to": {
+          "type": "string",
+          "description": "second ancrage"
+        },
+        "frequency": {
+          "type": "number"
+        },
+        "damping": {
+          "type": "number"
+        },
+        "length": {
+          "type": "number"
+        },
+        "motor": {
+          "type": "number"
+        },
+        "max-torque": {
+          "type": "number"
+        },
+        "lower": {
+          "type": "number"
+        },
+        "upper": {
+          "type": "number"
+        },
+        "axis": {
+          "type": "string"
+        },
+        "collide": {
+          "type": "boolean"
+        }
+      }
+    }
+  ]
+}

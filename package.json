@@ -16,6 +16,8 @@
     "./sound": "./src/addons/sound/index.ts",
     "./audio": "./src/addons/audio/index.ts",
     "./media": "./src/addons/media/index.ts",
+    "./physics": "./src/addons/physics/index.ts",
+    "./controller": "./src/addons/controller/index.ts",
     "./shared/*": "./src/shared/*.ts",
     "./dist/*": "./dist/*",
     "./schemas/*": "./schemas/*"
@@ -50,7 +52,8 @@
     }
   },
   "dependencies": {
-    "jsonata": "^2.2.2"
+    "jsonata": "^2.2.2",
+    "planck": "1.4.2"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.0",
