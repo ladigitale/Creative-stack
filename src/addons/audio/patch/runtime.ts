@@ -5,7 +5,7 @@
 import { midiToFreq } from "../../../shared/audio/notes";
 import { MODULES, type VoiceExpression } from "./modules";
 import { baseValue, buildModule, type Built } from "./nodes";
-import type { CompiledModule, CompiledPatch } from "./compile";
+import type { CompiledMod, CompiledModule, CompiledPatch } from "./compile";
 
 export type RuntimeOptions = {
   bpm: number;
@@ -29,6 +29,8 @@ type Voice = {
   end: number;
   built: Map<string, Built>;
   extra: AudioNode[];
+  /** Gains des câbles nommés (profondeur modifiable en direct). */
+  modGains: Map<string, GainNode[]>;
   gate: ConstantSourceNode;
   /** Expressions : bend (cents), pressure (0..1), timbre (0..1). */
   expr: { bend: ConstantSourceNode; pressure: ConstantSourceNode; timbre: ConstantSourceNode };
@@ -48,6 +50,8 @@ export class PatchRuntime {
   private voicesBus: GainNode;
   private voices: Voice[] = [];
   private overrides = new Map<string, number | string>();
+  /** Gains des câbles globaux nommés. */
+  private globalModGains = new Map<string, GainNode[]>();
   private random: () => number;
   private disposed = false;
 
@@ -89,9 +93,10 @@ export class PatchRuntime {
       const param = target.params[m.param];
       if (!src || !param) continue;
       const g = this.ac.createGain();
-      g.gain.value = m.amount;
+      g.gain.value = this.modAmount(m);
       src.output.connect(g).connect(param);
       target.nodes.push(g);
+      if (m.name) this.globalModGains.set(m.name, [...(this.globalModGains.get(m.name) ?? []), g]);
     }
     for (const b of this.global.values()) {
       b.start(t);
@@ -100,6 +105,12 @@ export class PatchRuntime {
   }
 
   /** Synchro dure : chaque esclave reçoit la fréquence de base de son maître. */
+  /** Profondeur courante d'un câble : valeur du `sonic-param to="nom.amount"` si elle existe, sinon l'attribut. */
+  private modAmount(m: CompiledMod): number {
+    const o = m.name ? this.overrides.get(`${m.name}.amount`) : undefined;
+    return typeof o === "number" ? (m.exp ? o * 100 : o) : m.amount;
+  }
+
   private applySync(mods: CompiledModule[], built: Map<string, Built>, t: number, freq: number): void {
     for (const mod of mods) {
       const ref = mod.type === "sonic-osc" ? String(mod.params.sync ?? "") : "";
@@ -167,7 +178,7 @@ export class PatchRuntime {
       const value = m.from === "voice.vel" ? vel : m.from === "voice.note" ? (midi ?? 60) : m.from === "voice.rand" ? rand : null;
       if (value === null) continue;
       const rec = statics.get(m.module) ?? {};
-      rec[m.param] = (rec[m.param] ?? 0) + value * m.amount;
+      rec[m.param] = (rec[m.param] ?? 0) + value * this.modAmount(m);
       statics.set(m.module, rec);
     }
     for (const mod of desc.modules) this.writeBases(mod, built.get(mod.name)!, when, pitch, statics.get(mod.name));
@@ -202,6 +213,7 @@ export class PatchRuntime {
     }
 
     // Modulations dynamiques (enveloppes, LFO, audio, gate).
+    const modGains = new Map<string, GainNode[]>();
     for (const m of this.patch.mods) {
       const target = built.get(m.module);
       const param = target?.params[m.param];
@@ -226,9 +238,10 @@ export class PatchRuntime {
       } else if (!m.from.startsWith("voice.")) src = built.get(m.from)?.output ?? this.global.get(m.from)?.output ?? null;
       if (!src) continue;
       const g = ac.createGain();
-      g.gain.value = m.amount;
+      g.gain.value = this.modAmount(m);
       src.connect(g).connect(param);
       extra.push(g);
+      if (m.name) modGains.set(m.name, [...(modGains.get(m.name) ?? []), g]);
     }
 
     // Sortie de voix : vélocité + anti-clic.
@@ -255,7 +268,7 @@ export class PatchRuntime {
     clock.start(when);
     for (const c of Object.values(expr)) c.start(when);
 
-    const voice: Voice = { midi, vel, start: when, releasedAt: null, end: Infinity, built, extra, gate, expr, out, clock, disposed: false };
+    const voice: Voice = { midi, vel, start: when, releasedAt: null, end: Infinity, built, extra, modGains, gate, expr, out, clock, disposed: false };
     clock.onended = () => this.disposeVoice(voice);
     this.voices.push(voice);
     if (durS !== null) this.release(voice, when + Math.max(0.005, durS));
@@ -352,6 +365,22 @@ export class PatchRuntime {
 
   /** Change un paramètre (rampe si AudioParam). Vaut pour la chaîne globale, les voix actives et les suivantes. */
   setParam(module: string, param: string, value: number | string, rampS = 0.02, when = this.ac.currentTime): boolean {
+    // Profondeur d'un câble nommé (`sonic-mod name="vib"` → `vib.amount`).
+    const cable = param === "amount" ? this.patch.mods.find((m) => m.name === module) : undefined;
+    if (cable) {
+      if (typeof value !== "number" || !Number.isFinite(value)) return false;
+      this.overrides.set(`${module}.amount`, value);
+      const target = cable.exp ? value * 100 : value;
+      const ramp = (g: GainNode) => {
+        g.gain.cancelScheduledValues(when);
+        g.gain.setValueAtTime(g.gain.value, when);
+        if (rampS > 0) g.gain.linearRampToValueAtTime(target, when + rampS);
+        else g.gain.setValueAtTime(target, when);
+      };
+      for (const g of this.globalModGains.get(module) ?? []) ramp(g);
+      for (const v of this.voices) if (!v.disposed) for (const g of v.modGains.get(module) ?? []) ramp(g);
+      return true;
+    }
     const mod = [...this.patch.voice, ...this.patch.global].find((m) => m.name === module);
     if (!mod || !MODULES[mod.type].params[param]) return false;
     this.overrides.set(`${module}.${param}`, value);

@@ -112,6 +112,7 @@ La note jouée au moment même où l'utilisateur active le son n'est pas perdue 
 - **Audio** : `in="o1 o2"` (plusieurs = somme). Sans `in` : entrée = module audio précédent. Un `sonic-mixer` sans `in` prend toutes les sources précédentes non utilisées.
 - **Sortie** : dernier module audio de la voix (ou `out` sur `sonic-voice`) ; dernier module global (ou `out` sur le patch).
 - **Modulation** : `sonic-mod from="fenv" to="flt.freq-hz" amount="2400"` ajoute `source × amount` à la valeur du paramètre, dans ses unités (Hz, cents…). `curve="exp"` (vers `freq-hz` d'un oscillateur, d'un filtre, d'un ladder ou d'une corde Karplus) : `amount` en demi-tons. Raccourci : un paramètre modulable peut recevoir un nom (`gain="aenv"`) ou `freq-hz="voice.pitch"`.
+- **Profondeur réglable en direct** : un LFO ou une enveloppe n'a pas de « profondeur » propre, c'est l'`amount` du `sonic-mod` qui la porte. Pour la régler (potard de vibrato, de wah…), nomme le câble et pilote-le : `<sonic-mod name="vib" from="lfo" to="o1.detune" amount="0"/>` puis `<sonic-param to="vib.amount" source="ui.vib" min="0" max="100"/>`. Le nom du câble ne doit pas être celui d'un module ; seul `amount` est pilotable (en demi-tons pour `curve="exp"`, comme dans l'attribut). Pour une source `voice.*`, la valeur compte à la note suivante.
 - Un module global peut moduler une voix (LFO commun), pas l'inverse.
 - **Boucles** autorisées seulement à travers un `sonic-delay`.
 - **Noms** (`name`) locaux au patch ; seul le patch a un `id`.
