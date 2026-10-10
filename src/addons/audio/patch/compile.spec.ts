@@ -222,4 +222,14 @@ describe("bibliothèque de patches", () => {
       ["openhat", 46],
     ]);
   });
+
+  it("curve=\"exp\" : vers freq-hz de tout module qui a aussi un detune (ladder compris)", () => {
+    const ok = compilePatch([
+      voice(n("sonic-osc", { name: "o" }), n("sonic-ladder", { name: "f", in: "o" }), n("sonic-lfo", { name: "l" }), n("sonic-mod", { from: "l", to: "f.freq-hz", amount: "12", curve: "exp" })),
+    ]);
+    expect(ok.errors).toEqual([]);
+    expect(ok.mods[0]).toMatchObject({ module: "f", param: "detune", amount: 1200, exp: true });
+    const bad = compilePatch([voice(n("sonic-lfo", { name: "l" }), n("sonic-pan", { name: "p" }), n("sonic-mod", { from: "l", to: "p.pan", amount: "1", curve: "exp" }))]);
+    expect(bad.errors.join(" ")).toContain('curve="exp" seulement vers freq-hz de');
+  });
 });

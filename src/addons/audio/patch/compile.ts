@@ -351,8 +351,11 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
         return;
       }
     }
-    if (exp && !(target.param === "freq-hz" && (target.module.type === "sonic-osc" || target.module.type === "sonic-filter"))) {
-      errors.push(`${where} : curve="exp" seulement vers freq-hz d'un sonic-osc ou sonic-filter`);
+    // exp : appliqué au `detune` (cents) du module, donc tout module qui a freq-hz ET detune modulables
+    // (sonic-osc, sonic-filter, sonic-ladder, sonic-karplus…).
+    if (exp && !(target.param === "freq-hz" && MODULES[target.module.type].params.detune?.audio)) {
+      const ok = Object.entries(MODULES).filter(([, m]) => m.params["freq-hz"]?.audio && m.params.detune?.audio).map(([t]) => t);
+      errors.push(`${where} : curve="exp" seulement vers freq-hz de ${ok.join(", ")}`);
       return;
     }
     mods.push({ from, module: target.module.name, param: exp ? "detune" : target.param, amount, exp });
