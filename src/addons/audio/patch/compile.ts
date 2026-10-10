@@ -84,6 +84,14 @@ export type CompiledPatch = {
 const COMMON_ATTRS = new Set(["name", "in", "class", "style", "id", "slot", "hidden"]);
 const RESERVED = new Set(["voices", "master", "voice"]);
 
+/** Modules dont le freq-hz accepte `curve="exp"` (modulation du detune, en cents). */
+function isExpTarget(type: string): boolean {
+  return type === "sonic-filter" || !!MODULES[type]?.params.detune?.audio;
+}
+function EXP_TYPES(): string[] {
+  return Object.keys(MODULES).filter((t) => !!MODULES[t].params["freq-hz"]?.audio && isExpTarget(t));
+}
+
 function short(tag: string): string {
   return tag.replace(/^sonic-/, "");
 }
@@ -351,11 +359,10 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
         return;
       }
     }
-    // exp : appliqué au `detune` (cents) du module, donc tout module qui a freq-hz ET detune modulables
-    // (sonic-osc, sonic-filter, sonic-ladder, sonic-karplus…).
-    if (exp && !(target.param === "freq-hz" && MODULES[target.module.type].params.detune?.audio)) {
-      const ok = Object.entries(MODULES).filter(([, m]) => m.params["freq-hz"]?.audio && m.params.detune?.audio).map(([t]) => t);
-      errors.push(`${where} : curve="exp" seulement vers freq-hz de ${ok.join(", ")}`);
+    // exp : appliqué au `detune` (cents) du module : sonic-filter (detune natif, non déclaré dans MODULES)
+    // et tout module dont freq-hz ET detune sont modulables (osc, ladder, karplus, resonator).
+    if (exp && !(target.param === "freq-hz" && isExpTarget(target.module.type))) {
+      errors.push(`${where} : curve="exp" seulement vers freq-hz de ${EXP_TYPES().join(", ")}`);
       return;
     }
     mods.push({ from, module: target.module.name, param: exp ? "detune" : target.param, amount, exp });

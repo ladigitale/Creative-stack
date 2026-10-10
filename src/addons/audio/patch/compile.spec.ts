@@ -229,6 +229,8 @@ describe("bibliothèque de patches", () => {
     ]);
     expect(ok.errors).toEqual([]);
     expect(ok.mods[0]).toMatchObject({ module: "f", param: "detune", amount: 1200, exp: true });
+    const filt = compilePatch([voice(n("sonic-osc", { name: "o" }), n("sonic-filter", { name: "f" }), n("sonic-env", { name: "e" }), n("sonic-mod", { from: "e", to: "f.freq-hz", amount: "12", curve: "exp" }))]);
+    expect(filt.errors).toEqual([]);
     const bad = compilePatch([voice(n("sonic-lfo", { name: "l" }), n("sonic-pan", { name: "p" }), n("sonic-mod", { from: "l", to: "p.pan", amount: "1", curve: "exp" }))]);
     expect(bad.errors.join(" ")).toContain('curve="exp" seulement vers freq-hz de');
   });
