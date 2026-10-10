@@ -234,4 +234,22 @@ describe("bibliothèque de patches", () => {
     const bad = compilePatch([voice(n("sonic-lfo", { name: "l" }), n("sonic-pan", { name: "p" }), n("sonic-mod", { from: "l", to: "p.pan", amount: "1", curve: "exp" }))]);
     expect(bad.errors.join(" ")).toContain('curve="exp" seulement vers freq-hz de');
   });
+
+  it("sonic-mod nommé : sa profondeur se pilote par sonic-param to=\"nom.amount\"", () => {
+    const base = (...extra: PatchNode[]) => [
+      voice(n("sonic-osc", { name: "o" }), n("sonic-ladder", { name: "f", in: "o" }), n("sonic-lfo", { name: "l" }),
+        n("sonic-mod", { name: "vib", from: "l", to: "o.detune", amount: "0" }), n("sonic-mod", { name: "wah", from: "l", to: "f.freq-hz", amount: "2", curve: "exp" })),
+      ...extra,
+    ];
+    const ok = compilePatch(base(n("sonic-param", { to: "vib.amount", source: "x.v", min: "0", max: "100" }), n("sonic-param", { to: "wah.amount", value: "6" })));
+    expect(ok.errors).toEqual([]);
+    expect(ok.mods.map((m) => [m.name, m.amount, m.exp])).toEqual([["vib", 0, false], ["wah", 200, true]]);
+    expect(ok.params.map((p) => [p.module, p.param, p.source, p.value, p.min, p.max])).toEqual([["vib", "amount", "x.v", null, 0, 100], ["wah", "amount", null, 6, null, null]]);
+
+    const msg = (nodes: PatchNode[]) => compilePatch(nodes).errors.join(" | ");
+    expect(msg(base(n("sonic-param", { to: "vib.depth", value: "1" })))).toContain('n\'a que le paramètre "amount"');
+    expect(msg(base(n("sonic-param", { to: "vibrato.amount", value: "1" })))).toContain('module "vibrato" inconnu');
+    expect(msg([voice(n("sonic-osc", { name: "o" }), n("sonic-lfo", { name: "l" }), n("sonic-mod", { name: "o", from: "l", to: "o.detune" }))])).toContain("déjà utilisé");
+    expect(msg([voice(n("sonic-osc", { name: "o" }), n("sonic-lfo", { name: "l" }), n("sonic-mod", { name: "a", from: "l", to: "o.detune" }), n("sonic-mod", { name: "a", from: "l", to: "o.detune" }))])).toContain("déjà utilisé");
+  });
 });

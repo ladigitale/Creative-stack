@@ -513,8 +513,11 @@
     },
     {
       "name": "sonic-mod",
-      "description": "Câble de modulation : from (module ou voice.pitch|gate|vel|note|rand) → to (module.param), amount, curve=exp",
+      "description": "Câble de modulation : from (module ou voice.pitch|gate|vel|note|rand) → to (module.param), amount (profondeur), curve=exp. Avec name, la profondeur se règle en direct : sonic-param to=\"nom.amount\"",
       "props": {
+        "name": {
+          "type": "string"
+        },
         "from": {
           "type": "string"
         },

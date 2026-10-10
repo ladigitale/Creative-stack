@@ -32,6 +32,8 @@ export type CompiledModule = {
 };
 
 export type CompiledMod = {
+  /** Nom du câble (`sonic-mod name`) : sa profondeur est alors pilotable (`sonic-param to="nom.amount"`). */
+  name?: string;
   /** Nom de module, ou `voice.pitch|gate|vel|note|rand`. */
   from: string;
   module: string;
@@ -42,6 +44,7 @@ export type CompiledMod = {
 };
 
 export type CompiledParam = {
+  /** Nom du module, ou du `sonic-mod` nommé quand `param` vaut "amount". */
   module: string;
   param: string;
   /** Chemin DataProvider (notation pointée). */
@@ -332,7 +335,7 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
     }
     return { module, param };
   };
-  const addMod = (from: string, to: string, amount: number, exp: boolean, where: string) => {
+  const addMod = (from: string, to: string, amount: number, exp: boolean, where: string, name: string | null = null) => {
     const target = checkTarget(to, where, true);
     if (!target) return;
     if (from.startsWith("voice.")) {
@@ -365,8 +368,9 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
       errors.push(`${where} : curve="exp" seulement vers freq-hz de ${EXP_TYPES().join(", ")}`);
       return;
     }
-    mods.push({ from, module: target.module.name, param: exp ? "detune" : target.param, amount, exp });
+    mods.push({ ...(name ? { name } : {}), from, module: target.module.name, param: exp ? "detune" : target.param, amount, exp });
   };
+  const modNames = new Set<string>();
   for (const { module, param, ref, where } of pendingRefs) {
     module.params[param] = 0;
     addMod(ref, `${module.name}.${param}`, 1, false, where);
@@ -384,14 +388,33 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
       continue;
     }
     const exp = (node.attrs.curve ?? "").trim() === "exp";
+    const modName = (node.attrs.name ?? "").trim() || null;
+    if (modName) {
+      if (RESERVED.has(modName) || modName.startsWith("voice.") || modName.includes(".")) {
+        errors.push(`${where} : nom de câble invalide "${modName}"`);
+        continue;
+      }
+      if (modules.has(modName) || modNames.has(modName)) {
+        errors.push(`${where} : nom "${modName}" déjà utilisé (module ou autre sonic-mod)`);
+        continue;
+      }
+      modNames.add(modName);
+    }
     // en exp, amount en demi-tons appliqué au detune (cents)
-    addMod(from, to, exp ? amount * 100 : amount, exp, where);
+    addMod(from, to, exp ? amount * 100 : amount, exp, where, modName);
   }
 
   // Paramètres pilotés.
   for (const { node, where } of pendingParams) {
     const to = (node.attrs.to ?? "").trim();
-    const target = checkTarget(to, where, false);
+    // Profondeur d'un câble nommé : `sonic-param to="nom.amount"`.
+    const dot = to.lastIndexOf(".");
+    const modTarget = dot > 0 && modNames.has(to.slice(0, dot)) ? to.slice(0, dot) : null;
+    if (modTarget !== null && to.slice(dot + 1) !== "amount") {
+      errors.push(`${where} : un sonic-mod n'a que le paramètre "amount" (${to})`);
+      continue;
+    }
+    const target = modTarget !== null ? { module: { name: modTarget }, param: "amount" } : checkTarget(to, where, false);
     if (!target) continue;
     const n = (v: string | undefined) => (v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
     const source = (node.attrs.source ?? "").trim() || null;
