@@ -1,0 +1,139 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "animation",
+  "label": "Animation",
+  "description": "Le temps est une valeur de DataProvider : sonic-clock le produit, sonic-timeline anime des éléments en le lisant, sonic-animate applique des recettes (reveal, fade, slide-up, count-up, typewriter).",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "animation.md",
+  "examples": [
+    "examples/reveal-liste.sdui.json",
+    "examples/horloge-timeline.sdui.json",
+    "examples/scrub.sdui.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-animate",
+      "description": "Applique une recette d'animation aux enfants directs (horloge locale, ou temps lu dans un DataProvider avec time-source). Le plus simple : commence par lui.",
+      "props": {
+        "recipe": {
+          "type": "string",
+          "description": "reveal | fade | slide-up | count-up | typewriter (obligatoire)."
+        },
+        "trigger": {
+          "type": "string",
+          "description": "viewport (défaut) | load | data (changement du chemin watch) | manual (appel de start())."
+        },
+        "duration": {
+          "type": "number",
+          "description": "Durée d'un effet en secondes (défaut propre à la recette)."
+        },
+        "stagger": {
+          "type": "number",
+          "description": "Décalage en secondes entre enfants."
+        },
+        "once": {
+          "type": "boolean",
+          "description": "true (défaut) : joue une fois ; false : rejoue à chaque entrée dans l'écran."
+        },
+        "time-source": {
+          "type": "string",
+          "description": "Chemin DataProvider d'un temps 0..1 (ex. scrub.t) qui remplace l'horloge locale."
+        },
+        "watch": {
+          "type": "string",
+          "description": "Chemin DataProvider surveillé par trigger=data."
+        },
+        "from": {
+          "type": "number",
+          "description": "count-up : valeur de départ."
+        },
+        "to": {
+          "type": "number",
+          "description": "count-up : valeur d'arrivée."
+        },
+        "decimals": {
+          "type": "number",
+          "description": "count-up : nombre de décimales."
+        },
+        "text-prefix": {
+          "type": "string",
+          "description": "count-up : texte avant le nombre."
+        },
+        "text-suffix": {
+          "type": "string",
+          "description": "count-up : texte après le nombre."
+        },
+        "ease": {
+          "type": "string",
+          "description": "linear | easeIn | easeOut | easeInOut."
+        }
+      }
+    },
+    {
+      "name": "sonic-clock",
+      "description": "Produit du temps, n'anime rien : écrit t (0..1), time, duration, playing, rate, direction, origin dans son DataProvider. Se pilote en écrivant playing, rate ou t.",
+      "props": {
+        "dataProvider": {
+          "type": "string",
+          "description": "DataProvider où l'horloge publie son état (obligatoire, un seul écrivain par DataProvider)."
+        },
+        "duration": {
+          "type": "number",
+          "description": "Durée d'un tour en secondes (défaut 1)."
+        },
+        "mode": {
+          "type": "string",
+          "description": "once (défaut) | loop | pingpong."
+        },
+        "rate": {
+          "type": "number",
+          "description": "Vitesse : 1 = temps réel, négatif = à rebours."
+        },
+        "autoplay": {
+          "type": "boolean",
+          "description": "Démarre à la connexion."
+        },
+        "on-hidden": {
+          "type": "string",
+          "description": "freeze (défaut) | catch-up : comportement au retour d'un onglet masqué."
+        }
+      }
+    },
+    {
+      "name": "sonic-timeline",
+      "description": "Lit un temps normalisé 0..1 dans un DataProvider (time-source) et anime des éléments par leur id : arbre de nœuds seq, par, stagger, tween, text, set, label.",
+      "props": {
+        "descriptor": {
+          "type": "object",
+          "description": "Descripteur JSON en chaîne : {timeSource, duration?, outOfRange?, smooth?, root}."
+        },
+        "descriptor-dp": {
+          "type": "string",
+          "description": "DataProvider qui contient le descripteur (remplace descriptor)."
+        },
+        "time-source": {
+          "type": "string",
+          "description": "Chemin DataProvider du temps 0..1 (remplace timeSource du descripteur)."
+        },
+        "out-of-range": {
+          "type": "string",
+          "description": "clamp (défaut) | wrap : comportement hors de 0..1."
+        },
+        "smooth": {
+          "type": "number",
+          "description": "Lissage du temps en secondes (0 = aucun), utile pour un temps reçu par p2p."
+        },
+        "duration": {
+          "type": "number",
+          "description": "Durée totale en secondes (sinon déduite des nœuds)."
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DataProvider où publier status, progress, time, duration, currentLabel, issues."
+        }
+      }
+    }
+  ]
+}

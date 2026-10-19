@@ -1,0 +1,108 @@
+{
+  "nodes": [
+    {
+      "tagName": "div",
+      "attributes": {
+        "style": "display:flex;flex-direction:column;gap:1rem;max-width:40rem;margin:1.5rem auto;padding:0 1rem"
+      },
+      "nodes": [
+        {
+          "tagName": "sonic-clock",
+          "attributes": {
+            "dataProvider": "clock-main",
+            "duration": "4",
+            "mode": "pingpong",
+            "autoplay": "true"
+          }
+        },
+        {
+          "tagName": "h1",
+          "nodeId": "titre",
+          "attributes": {
+            "id": "titre"
+          },
+          "textContent": "Timeline pilotée par une horloge"
+        },
+        {
+          "tagName": "div",
+          "nodeId": "liste",
+          "attributes": {
+            "id": "liste",
+            "style": "display:grid;gap:.75rem"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "nodeId": "a",
+              "attributes": {
+                "id": "a",
+                "style": "padding:1rem;border:1px solid #8884;border-radius:.75rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "strong",
+                  "textContent": "Un"
+                },
+                {
+                  "tagName": "p",
+                  "textContent": "Premier élément."
+                }
+              ]
+            },
+            {
+              "tagName": "div",
+              "nodeId": "b",
+              "attributes": {
+                "id": "b",
+                "style": "padding:1rem;border:1px solid #8884;border-radius:.75rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "strong",
+                  "textContent": "Deux"
+                },
+                {
+                  "tagName": "p",
+                  "textContent": "Deuxième élément."
+                }
+              ]
+            },
+            {
+              "tagName": "div",
+              "nodeId": "c",
+              "attributes": {
+                "id": "c",
+                "style": "padding:1rem;border:1px solid #8884;border-radius:.75rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "strong",
+                  "textContent": "Trois"
+                },
+                {
+                  "tagName": "p",
+                  "textContent": "Troisième élément."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-timeline",
+          "attributes": {
+            "time-source": "clock-main.t",
+            "out-data-provider": "tl-intro",
+            "descriptor": "{\"duration\":4,\"root\":{\"type\":\"seq\",\"nodes\":[{\"type\":\"tween\",\"targets\":[\"titre\"],\"props\":{\"opacity\":[0,1],\"y\":[24,0]},\"duration\":0.8,\"ease\":\"easeOut\"},{\"type\":\"label\",\"name\":\"cartes\"},{\"type\":\"stagger\",\"each\":0.2,\"nodes\":[{\"type\":\"tween\",\"targets\":[\"children:liste\"],\"props\":{\"opacity\":[0,1],\"scale\":[0.9,1]},\"duration\":0.6,\"ease\":\"easeOut\"}]}]}}"
+          }
+        },
+        {
+          "tagName": "sonic-value",
+          "attributes": {
+            "dataProvider": "tl-intro",
+            "key": "currentLabel"
+          }
+        }
+      ]
+    }
+  ]
+}
