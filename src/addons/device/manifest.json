@@ -1,0 +1,225 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "device",
+  "label": "Appareil et navigateur",
+  "description": "API du navigateur en DataProviders, sans JS : plein écran, pointer lock, wake lock, orientation et capteurs, presse-papiers, partage, vibration, état de la page, et un agrégateur de capacités (ce que la page hôte autorise). Manettes : addon controller ; MIDI : addon audio.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "device.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-fullscreen",
+      "description": "Plein écran (sans rendu). Commandes control {enter:n, exit:n, toggle:n}, ou for=\"idBouton\" (clic = bascule, geste exigé). target = sélecteur CSS (défaut toute la page). État <id>State {status, error, supported, allowed, active, element, supportsVideoOnly}. Événement sonic-fullscreen-change. iPhone : seulement sur une <video>. Iframe : allow=\"fullscreen\"",
+      "props": {
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance la commande par défaut, dans le geste"
+        },
+        "target": {
+          "type": "string",
+          "description": "sélecteur CSS de l'élément (défaut page entière)"
+        },
+        "navigation-ui": {
+          "type": "string",
+          "description": "auto, hide ou show"
+        }
+      }
+    },
+    {
+      "name": "sonic-pointer-lock",
+      "description": "Pointer Lock : souris verrouillée, déplacements relatifs (visée, caméra orbitale, potentiomètre infini). Commandes control {lock:n, unlock:n, toggle:n, reset:n} ou for. État <id>State {status, error, supported, allowed, active, element, dx, dy, x, y, raw} (dx/dy = somme depuis la publication précédente, x/y = cumul depuis le verrouillage). Événements sonic-pointerlock-change, sonic-pointerlock-move {dx,dy}. Iframe : sandbox allow-pointer-lock. Échap rend la souris",
+      "props": {
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance la commande par défaut, dans le geste"
+        },
+        "rate": {
+          "type": "number",
+          "description": "publications par seconde au plus (30)"
+        },
+        "target": {
+          "type": "string",
+          "description": "sélecteur CSS de l'élément verrouillé (défaut body)"
+        },
+        "unadjusted-movement": {
+          "type": "boolean",
+          "description": "mouvement brut sans accélération (repli automatique)"
+        }
+      }
+    },
+    {
+      "name": "sonic-wake-lock",
+      "description": "Garde l'écran allumé (séquenceur, live, présentation). Commandes control {acquire:n, release:n, toggle:n} ou for. auto : essaie au chargement puis au premier geste. Repris au retour de l'onglet tant que wanted. État <id>State {status, error, supported, allowed, active, wanted, reacquired}. Iframe : allow=\"screen-wake-lock\"",
+      "props": {
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance la commande par défaut, dans le geste"
+        },
+        "auto": {
+          "type": "boolean",
+          "description": "prend le verrou dès que possible"
+        }
+      }
+    },
+    {
+      "name": "sonic-orientation",
+      "description": "Orientation de l'écran (lecture, verrouillage) et capteurs de mouvement (inclinaison alpha/beta/gamma, accélération ax/ay/az, rotation ra/rb/rg ; null tant que rien n'arrive). Commandes control {lock:{n,type}, unlock:n, sensors:n, stop:n} ; for = démarre les capteurs (iOS : permission dans le clic). État <id>State {status, error, supported, allowed, active, type, angle, locked, sensors, permission, alpha, beta, gamma, ax, ay, az, ra, rb, rg}. Verrouiller exige souvent le plein écran. Iframe : allow=\"accelerometer; gyroscope; magnetometer\"",
+      "props": {
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance la commande par défaut, dans le geste"
+        },
+        "rate": {
+          "type": "number",
+          "description": "publications par seconde au plus (30)"
+        },
+        "sensors": {
+          "type": "boolean",
+          "description": "écoute les capteurs dès que possible"
+        },
+        "smoothing": {
+          "type": "number",
+          "description": "lissage 0..0.95 des capteurs (0 = brut)"
+        }
+      }
+    },
+    {
+      "name": "sonic-clipboard",
+      "description": "Presse-papiers texte. Commandes control {copy:{n, text}, read:n} ; for = copie l'attribut text. La lecture n'a lieu que sur commande, jamais seule (permission du navigateur). État <id>State {status, error, supported, allowed, active, copied, text}. Iframe : allow=\"clipboard-write; clipboard-read\"",
+      "props": {
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance la commande par défaut, dans le geste"
+        },
+        "text": {
+          "type": "string",
+          "description": "texte copié par défaut"
+        }
+      }
+    },
+    {
+      "name": "sonic-share",
+      "description": "Partage natif (titre, texte, URL http(s)) avec repli par copie. Commandes control {share:{n, title, text, url}} ; for = partage les attributs. Annulation = cancelled, pas une erreur. État <id>State {status, error, supported, allowed, active, canShare, shared, cancelled, via}. Iframe : allow=\"web-share\"",
+      "props": {
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance la commande par défaut, dans le geste"
+        },
+        "title": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "url": {
+          "type": "url",
+          "description": "http(s) seulement"
+        },
+        "fallback": {
+          "type": "string",
+          "description": "copy (défaut) ou none"
+        }
+      }
+    },
+    {
+      "name": "sonic-vibrate",
+      "description": "Vibration (Android ; absente sous iOS : supported false). Commandes control {vibrate:{n, pattern}, stop:n} ; pattern = 200, \"100,50,100\" ou liste (vibration, pause, vibration…), borné à 20 éléments de 5 s ; for = fait vibrer. État <id>State {status, error, supported, allowed, active, count}",
+      "props": {
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance la commande par défaut, dans le geste"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "motif par défaut, ex. \"100,50,100\" (200)"
+        }
+      }
+    },
+    {
+      "name": "sonic-page-state",
+      "description": "État de la page en DataProvider, sans permission : visible (onglet), focused, online, width, height, dpr, reducedMotion, colorScheme (light|dark), touch, hover. Sert à suspendre rendu et son quand visible vaut false. État <id>State {status, active, visible, focused, online, width, height, dpr, reducedMotion, colorScheme, touch, hover}",
+      "props": {
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "rate": {
+          "type": "number",
+          "description": "publications par seconde au plus (30)"
+        }
+      }
+    },
+    {
+      "name": "sonic-capabilities",
+      "description": "Ce que l'environnement autorise, en un DataProvider, sans ouvrir de demande de permission : pour fullscreen, pointerLock, wakeLock, gamepad, midi, orientation, clipboard, share, vibrate, camera, microphone, audio, screen → {supported, allowed (Permissions Policy), permission}, plus embedded (iframe) et secureContext. À lire pour dégrader proprement. control {refresh:n} relit. État <id>State {status:\"ready\", embedded, secureContext, fullscreen:{…}, …}",
+      "props": {
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        }
+      }
+    }
+  ]
+}
