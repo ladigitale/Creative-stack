@@ -12,6 +12,7 @@ import {
 } from "../../shared/media/capture";
 import { bool, CounterTrigger } from "../../shared/media/control";
 import { VideoFrames } from "../../shared/media/frames";
+import { TrackAdjuster } from "../../shared/media/track-controls";
 import { revokeMediaUrls, type SonicFrameConsumerHost, type SonicFrameSource, type SonicMediaRef } from "../../shared/mediaRef";
 
 const tagName = "sonic-camera";
@@ -37,6 +38,11 @@ export type CameraState = {
  * Démarrage : `active`, `autostart` (au premier geste), DP `control`
  * ({ active, facing, deviceId, snapshot: compteur }) ou `sonic-media-start for="cam"`.
  * Jamais de demande de permission au chargement de la page.
+ *
+ * Réglages de la piste (zoom, torche, focus, exposition, balance des blancs…) :
+ *  - `capabilities-provider` (défaut `<id>Capabilities`) : ce que la caméra sait faire ;
+ *  - `adjust` : DP d'entrée, les valeurs demandées ;
+ *  - `settings-provider` (défaut `<id>Settings`) : valeurs demandées et réellement appliquées.
  */
 @customElement(tagName)
 export class SonicCamera extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
@@ -132,6 +138,25 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: String, attribute: "out-data-provider" })
   outDataProvider = "";
 
+  /**
+   * Demande aussi panoramique / inclinaison / zoom motorisés à l'ouverture. Chrome affiche alors
+   * une permission supplémentaire : à n'activer que si l'artefact en a besoin.
+   */
+  @property({ type: Boolean })
+  ptz = false;
+
+  /** DP d'entrée des réglages : `{ zoom: 2, torch: true, focusMode: "manual", focusDistance: 0.4 }`, `null` pour oublier une clé. */
+  @property({ type: String })
+  adjust = "";
+
+  /** DP de sortie des capacités (défaut : `<id>Capabilities`). */
+  @property({ type: String, attribute: "capabilities-provider" })
+  capabilitiesProvider = "";
+
+  /** DP de sortie des réglages demandés / appliqués (défaut : `<id>Settings`). */
+  @property({ type: String, attribute: "settings-provider" })
+  settingsProvider = "";
+
   @query("video")
   private videoEl!: HTMLVideoElement;
 
@@ -144,6 +169,11 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
   private refs: SonicMediaRef[] = [];
   private snapshotTrigger = new CounterTrigger();
   private unsubs: (() => void)[] = [];
+  private adjustUnsub: (() => void) | null = null;
+  private adjuster = new TrackAdjuster(
+    () => this.publishAdjust(),
+    () => ({ width: { ideal: this.width }, height: { ideal: this.height }, frameRate: { ideal: this.fps } }),
+  );
   private cancelGesture: (() => void) | null = null;
   private state: CameraState = {
     status: "idle", error: null, active: false, facing: "user", width: 0, height: 0,
@@ -182,6 +212,7 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
     super.connectedCallback();
     document.addEventListener("visibilitychange", this.onVisibility);
     this.publish();
+    this.publishAdjust();
   }
 
   disconnectedCallback(): void {
@@ -190,6 +221,8 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
     this.cancelGesture = null;
     for (const u of this.unsubs) u();
     this.unsubs = [];
+    this.adjustUnsub?.();
+    this.adjustUnsub = null;
     this.close("idle");
     this.frames?.stop();
     revokeMediaUrls(this.refs.map((r) => r.url ?? ""));
@@ -215,9 +248,10 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
       this.frames.maxWidth = this.maxWidth;
       this.frames.mirror = this.isMirrored();
     }
-    const restartKeys = ["facing", "deviceId", "width", "height", "fps"];
+    const restartKeys = ["facing", "deviceId", "width", "height", "fps", "ptz"];
     if (restartKeys.some((k) => changed.has(k) && changed.get(k) !== undefined) && (this.stream || this.opening)) this.restart();
     if (changed.has("control")) this.listenControl();
+    if (changed.has("adjust")) this.listenAdjust();
     if (changed.has("fit")) this.style.setProperty("--sonic-camera-fit", this.fit === "contain" ? "contain" : "cover");
   }
 
@@ -289,6 +323,11 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
     );
   }
 
+  private listenAdjust(): void {
+    this.adjustUnsub?.();
+    this.adjustUnsub = this.adjust ? listenDp(this.adjust, (v) => this.adjuster.request(v)) : null;
+  }
+
   private setActive(on: boolean): void {
     this.wantActive = on;
     if (!this.frames) return; // ouverture après le premier rendu
@@ -305,19 +344,16 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
     const token = ++this.token;
     this.opening = true;
     this.patch({ status: "requesting", error: null });
-    const res = await openStream(
-      {
-        audio: false,
-        video: {
-          deviceId: this.deviceId ? { exact: this.deviceId } : undefined,
-          facingMode: this.deviceId ? undefined : { ideal: this.facing },
-          width: { ideal: this.width },
-          height: { ideal: this.height },
-          frameRate: { ideal: this.fps },
-        },
-      },
-      "caméra",
-    );
+    const videoConstraints: MediaTrackConstraints = {
+      deviceId: this.deviceId ? { exact: this.deviceId } : undefined,
+      facingMode: this.deviceId ? undefined : { ideal: this.facing },
+      width: { ideal: this.width },
+      height: { ideal: this.height },
+      frameRate: { ideal: this.fps },
+    };
+    // Demande de permission PTZ : seulement sur opt-in, elle déclenche une invite de plus.
+    if (this.ptz) Object.assign(videoConstraints, { pan: true, tilt: true, zoom: true });
+    const res = await openStream({ audio: false, video: videoConstraints }, "caméra");
     if (token !== this.token) {
       if ("stream" in res) stopStream(res.stream);
       return;
@@ -343,6 +379,7 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
     } catch {
       /* muet + playsinline : la lecture d'un flux caméra n'est pas bloquée */
     }
+    if (track) this.adjuster.attach(track, { ptz: this.ptz });
     const s = track?.getSettings() ?? {};
     this.patch({
       status: "ready",
@@ -362,6 +399,7 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
     this.opening = false;
     stopStream(this.stream);
     this.stream = null;
+    this.adjuster.detach();
     if (this.videoEl) this.videoEl.srcObject = null;
     this.patch({ status, error, active: false });
     this.requestUpdate();
@@ -391,6 +429,23 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
     queueMicrotask(() => {
       this.publishQueued = false;
       set(out, this.getState());
+    });
+  }
+
+  private adjustQueued = false;
+  private publishAdjust(): void {
+    const base = this.id || "";
+    const capsPath = (this.capabilitiesProvider || (base ? `${base}Capabilities` : "")).trim();
+    const setPath = (this.settingsProvider || (base ? `${base}Settings` : "")).trim();
+    if ((!capsPath && !setPath) || this.adjustQueued) return;
+    this.adjustQueued = true;
+    queueMicrotask(() => {
+      this.adjustQueued = false;
+      // Lues au moment de publier : plusieurs changements dans le même tour ne produisent qu'une publication.
+      const c = this.adjuster.getCapabilities();
+      const s = this.adjuster.getState();
+      if (capsPath) set(capsPath, JSON.parse(JSON.stringify(c)));
+      if (setPath) set(setPath, JSON.parse(JSON.stringify(s)));
     });
   }
 
