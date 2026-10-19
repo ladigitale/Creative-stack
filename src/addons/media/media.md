@@ -43,10 +43,86 @@ Le micro (`sonic-mic`) est dans l'addon `audio`.
 | `snapshot-type`, `max-snapshots` | `jpeg` (défaut), `png`, `webp` ; photos gardées (8) |
 | `snapshot-provider` | Chemin DP où écrire chaque photo (SonicMediaRef `{ url, width, height, mime }`) : par ex. `gallery.channel0` pour l'afficher dans un `sonic-shader dataProvider="gallery"` |
 | `control` | DP : `{ active, facing, deviceId, snapshot: compteur }` |
+| `adjust` | DP d'entrée des réglages de la piste (zoom, torche, focus…) — voir « Réglages de la caméra » |
+| `capabilities-provider`, `settings-provider` | DP de sortie des capacités et des réglages (défauts `<id>Capabilities` et `<id>Settings`) |
+| `ptz` | Demande aussi panoramique / inclinaison / zoom motorisés à l'ouverture (permission supplémentaire dans Chrome : seulement si nécessaire) |
 
 État : `{ status, error, active, facing, width, height, deviceId, devices, snapshot: { url, width, height, mime } | null, snapshots }`.
 
 Dans un shader : `channel0="#cam"` puis `texture(iChannel0, uv)`.
+
+### Réglages de la caméra
+
+Au-delà de la résolution et de la caméra choisie (attributs `width`, `height`, `fps`, `facing`, qui **redémarrent** le flux), la piste vidéo expose des réglages sans redémarrage : zoom, torche, mise au point, exposition, balance des blancs, image. Trois DataProviders, qui séparent *ce que la caméra sait faire* de *ce qu'on lui demande* :
+
+| DP | Sens | Contenu |
+|---|---|---|
+| `<id>Capabilities` | sortie | Réglages pris en charge par la caméra ouverte |
+| `adjust` (attribut) | entrée | Valeurs demandées |
+| `<id>Settings` | sortie | Valeurs demandées (`desired`) et réellement appliquées (`applied`) |
+
+**1. Lire les capacités avant d'écrire.** Les capacités n'existent qu'une fois la caméra ouverte (le navigateur ne les donne qu'après `getUserMedia`) ; avant, `status` vaut `unavailable`.
+
+```json
+{
+  "status": "ready",
+  "deviceId": "…",
+  "ptz": false,
+  "controls": {
+    "zoom": { "key": "zoom", "kind": "range", "label": "Zoom", "unit": "×", "min": 1, "max": 5, "step": 0.1, "value": 1 },
+    "torch": { "key": "torch", "kind": "boolean", "label": "Torche", "value": false },
+    "focusMode": { "key": "focusMode", "kind": "enum", "label": "Mode de mise au point", "values": ["continuous", "manual"], "value": "continuous" }
+  },
+  "list": [ "…les mêmes descripteurs, en tableau (modes d'abord), pour une liste SDUI…" ],
+  "unsupported": ["iso", "colorTemperature", "…"]
+}
+```
+
+Chaque descripteur est un **schéma de contrôle** : `kind` (`range` → curseur avec `min`/`max`/`step`, `enum` → choix parmi `values`, `boolean` → interrupteur), `label` en français, `unit` éventuelle, `value` courante. Un réglage absent de `controls` n'existe pas sur cette caméra : ne pas l'afficher, ne pas le demander. Beaucoup de caméras n'en gèrent qu'une partie (ordinateur portable : souvent aucun ; téléphone : zoom, torche, mise au point).
+
+| Clé | Type | Remarque |
+|---|---|---|
+| `zoom` | plage | Sur ordinateur, peut exiger `ptz` |
+| `torch` | booléen | Lumière continue, pas un flash ; tant que le flux est ouvert |
+| `focusMode`, `exposureMode`, `whiteBalanceMode` | énuméré | `continuous`, `manual`, `single-shot`, `none` selon la caméra |
+| `focusDistance` (m), `exposureTime`, `exposureCompensation` (EV), `iso`, `colorTemperature` (K) | plage | Les valeurs « manuelles » demandent d'abord le mode `manual` correspondant |
+| `brightness`, `contrast`, `saturation`, `sharpness` | plage | |
+| `pan`, `tilt` | plage | Seulement avec l'attribut `ptz` et la permission accordée |
+
+**2. Demander.** Le DP `adjust` reçoit un objet ; seules les clés présentes sont modifiées, `null` oublie une clé. Revenir en automatique : remettre le mode (`"focusMode": "continuous"`).
+
+```json
+{ "zoom": 2, "torch": true, "focusMode": "manual", "focusDistance": 0.4 }
+```
+
+- Nombres **bornés et alignés sur le pas** de la caméra ; énumérés et booléens vérifiés. Une valeur invalide ou un réglage absent produit un message dans `errors`, jamais d'exception.
+- Les **modes passent avant les valeurs** (`focusMode` avant `focusDistance`), quel que soit l'ordre dans l'objet.
+- Un réglage à la fois : si l'un est refusé, les autres passent. Les demandes qui s'enchaînent vite (curseur) sont regroupées, les valeurs intermédiaires sautées.
+- Valeur présente dans le DP **avant** l'ouverture de la caméra (par ex. dans le `initial` d'un store) : mémorisée, bornée puis appliquée à l'ouverture. Après un changement de caméra (`facing`, `device-id`), les réglages demandés sont revérifiés sur la nouvelle : ceux qu'elle ne gère pas restent demandés avec un message dans `errors`.
+
+**3. Lire le résultat.**
+
+```json
+{
+  "desired": { "zoom": 2, "torch": true },
+  "applied": { "zoom": 2, "torch": true },
+  "pending": [],
+  "errors": { "iso": "non pris en charge par cette caméra" }
+}
+```
+
+**Lire `applied`, jamais `desired`** : le navigateur arrondit, ajuste ou refuse (« valeur refusée par la caméra »). `pending` liste les clés en cours d'application, `errors` un message par clé. Les bornes d'un réglage peuvent changer quand on en modifie un autre (mode manuel) : les capacités sont relues après chaque passe.
+
+Le DP `adjust` s'alimente comme `control` : un chemin d'un store (`adjust="reglages.adj"`, avec un reducer qui met à jour `adj`, voir `control="miroir.cam"` dans `examples/miroir.sdui.json`) ou n'importe quel DataProvider.
+
+Pour n'afficher les commandes qu'une fois la caméra prête : `sonic-if dataProvider="camCapabilities" key="status" equals="ready"`.
+
+Limites à connaître :
+- **Chrome / Chromium surtout** (Android en tête). Firefox et Safari exposent très peu, voire aucun de ces réglages ; la torche n'est pas disponible dans Safari sur iPhone. Toujours se fonder sur `controls`, pas sur le navigateur. Comportements décrits d'après la spécification et l'usage courant, **à confirmer sur les appareils visés**.
+- Une webcam d'ordinateur n'expose souvent que luminosité, contraste, saturation et netteté, parfois zoom et mise au point.
+- La torche s'éteint avec le flux (arrêt, onglet caché sans `keep-running`, changement de caméra) et revient à la réouverture si elle est toujours demandée.
+- Une caméra ne s'ouvre qu'une fois à la fois : deux `sonic-camera` sur le même appareil se disputent le flux.
+- La photo (`takeSnapshot`) reprend l'image du flux affiché. Les réglages propres à la prise de vue (`ImageCapture` : flash, résolution du capteur) ne sont pas encore pilotables.
 
 ## `sonic-screen`
 

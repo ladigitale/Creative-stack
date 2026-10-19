@@ -19,6 +19,7 @@
     "./physics": "./src/addons/physics/index.ts",
     "./controller": "./src/addons/controller/index.ts",
     "./animation": "./src/addons/animation/index.ts",
+    "./p2p": "./src/addons/p2p/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",
     "./shared/*": "./src/shared/*.ts",

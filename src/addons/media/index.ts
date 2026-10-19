@@ -10,5 +10,16 @@ export { SonicMediaRecorder, type MediaRecorderState } from "./recorder";
 export { SonicMediaDownload } from "./download";
 export { pickMime, extensionFor } from "../../shared/media/record";
 export { VideoFrames } from "../../shared/media/frames";
+export {
+  CONTROLS,
+  TrackAdjuster,
+  describeCapabilities,
+  normalizeAdjust,
+  type CameraAdjustState,
+  type CameraCapabilities,
+  type ControlDescriptor,
+  type ControlKey,
+  type ControlValue,
+} from "../../shared/media/track-controls";
 export { safeMediaUrl } from "../../shared/media/urls";
 export { captureError, type CaptureStatus } from "../../shared/media/capture";
