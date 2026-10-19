@@ -17,6 +17,7 @@ Concorde reste le design system (composants UI, DataProviders, `sonic-sdui`, `so
 | `audio` | `sonic-patch` + modules (`sonic-osc`, `sonic-filter`, `sonic-ladder`, `sonic-karplus`, `sonic-grain`, `sonic-env`…), `sonic-sequencer`, `sonic-sampler`, `sonic-audio-analyser`, `sonic-mic`, `sonic-midi`, `sonic-audio-recorder`, `sonic-audio-unlock`, `sonic-audio-master` | — |
 | `physics` | `sonic-physics`, `sonic-body`, `sonic-joint` (planck.js) | `planck` (dépendance) |
 | `controller` | `sonic-controller` (manettes analogiques) | — |
+| `animation` | `sonic-animate` (recettes), `sonic-clock`, `sonic-timeline` : le temps est une valeur de DataProvider (voir [`animation.md`](src/addons/animation/animation.md)) | — |
 | `media` | `sonic-camera`, `sonic-screen`, `sonic-video`, `sonic-media-start`, `sonic-media-recorder`, `sonic-media-download` | — |
 
 `3d`, `shader`, `webgpu`, `hugging-face-infer` et `interactive` sont portés depuis `@supersoniks/concorde@4.9.98-visual-stack.4`. `sound` est nouveau : musiques, jingles, bruitages et sons d'interface synthétisés en WebAudio depuis une banque JSON de quelques Ko, pilotés par DataProvider (voir [`src/addons/sound/sound.md`](src/addons/sound/sound.md)).
@@ -66,7 +67,7 @@ scripts/          build-addons, build-catalog, hf-vendor
 
 ## Scripts
 
-- `yarn dev` : serveur Vite sur les démos (`demo/audio.html` « Premier son », `demo/vie-sonore.html`, `demo/miroir.html`, `demo/clip-reactif.html`, `demo/sampler-de-poche.html`, `demo/jam-midi.html`, `demo/nuage.html`, `demo/casse-briques.html`, `demo/sound.html` « Sound lab »)
+- `yarn dev` : serveur Vite sur les démos (`demo/audio.html` « Premier son », `demo/vie-sonore.html`, `demo/miroir.html`, `demo/clip-reactif.html`, `demo/sampler-de-poche.html`, `demo/jam-midi.html`, `demo/nuage.html`, `demo/casse-briques.html`, `demo/animation.html` (`?ex=reveal|horloge|scrub`), `demo/sound.html` « Sound lab »)
 - `yarn build` : catalogue + un bundle ES et IIFE par addon dans `dist/`
 - `yarn catalog` : génère `dist/catalog.json`. `CREATIVE_STACK_ADDONS=3d,interactive yarn catalog` force une sélection.
 - `yarn test` / `yarn test:ci`

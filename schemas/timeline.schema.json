@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ladigitale/Creative-stack/schemas/timeline.schema.json",
+  "title": "Descripteur de sonic-timeline (creative-stack, addon animation)",
+  "description": "À passer en chaîne JSON dans l'attribut `descriptor` de `sonic-timeline`. Voir src/addons/animation/animation.md.",
+  "type": "object",
+  "required": ["root"],
+  "additionalProperties": false,
+  "properties": {
+    "timeSource": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Chemin DataProvider du temps normalisé 0..1 (ex. clock-main.t). Peut être remplacé par l'attribut time-source."
+    },
+    "duration": { "type": "number", "exclusiveMinimum": 0, "maximum": 600, "description": "Secondes ; sinon déduite des nœuds." },
+    "outOfRange": { "enum": ["clamp", "wrap"], "default": "clamp" },
+    "smooth": { "type": "number", "minimum": 0, "default": 0, "description": "Constante de lissage en secondes." },
+    "root": { "$ref": "#/$defs/node" }
+  },
+  "$defs": {
+    "ease": {
+      "oneOf": [
+        { "enum": ["linear", "easeIn", "easeOut", "easeInOut"] },
+        { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4, "description": "cubic-bezier [x1, y1, x2, y2]" }
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": { "type": "string", "minLength": 1, "description": "id | children:id | group:nom | @self" }
+    },
+    "range": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "[départ, arrivée], sans unité" },
+    "tweenProps": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "opacity": { "$ref": "#/$defs/range" },
+        "x": { "$ref": "#/$defs/range" },
+        "y": { "$ref": "#/$defs/range" },
+        "scale": { "$ref": "#/$defs/range" },
+        "rotate": { "$ref": "#/$defs/range" },
+        "blur": { "$ref": "#/$defs/range" }
+      },
+      "patternProperties": { "^--[A-Za-z0-9_-]+$": { "$ref": "#/$defs/range" } },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "tween" },
+            "targets": { "$ref": "#/$defs/targets" },
+            "props": { "$ref": "#/$defs/tweenProps" },
+            "duration": { "type": "number", "minimum": 0, "default": 0.5 },
+            "delay": { "type": "number", "minimum": 0, "default": 0 },
+            "ease": { "$ref": "#/$defs/ease" }
+          },
+          "required": ["type", "targets", "props"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "text" },
+            "mode": { "enum": ["count", "type"] },
+            "targets": { "$ref": "#/$defs/targets" },
+            "from": { "type": "number" },
+            "to": { "type": "number" },
+            "decimals": { "type": "integer", "minimum": 0, "maximum": 6 },
+            "prefix": { "type": "string" },
+            "suffix": { "type": "string" },
+            "duration": { "type": "number", "minimum": 0, "default": 0.5 },
+            "delay": { "type": "number", "minimum": 0, "default": 0 },
+            "ease": { "$ref": "#/$defs/ease" }
+          },
+          "required": ["type", "mode", "targets"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "enum": ["seq", "par"] },
+            "nodes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/node" } }
+          },
+          "required": ["type", "nodes"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "stagger" },
+            "each": { "type": "number", "minimum": 0, "default": 0.1 },
+            "nodes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/node" } }
+          },
+          "required": ["type", "nodes"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "set" },
+            "at": { "type": "number", "minimum": 0, "default": 0 },
+            "path": { "type": "string", "minLength": 1, "description": "Chemin DataProvider ; pas celui du temps de cette timeline." },
+            "value": {}
+          },
+          "required": ["type", "path"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "label" },
+            "name": { "type": "string", "minLength": 1 },
+            "at": { "type": "number", "minimum": 0, "default": 0 }
+          },
+          "required": ["type", "name"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

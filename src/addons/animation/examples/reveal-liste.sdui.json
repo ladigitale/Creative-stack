@@ -1,0 +1,104 @@
+{
+  "nodes": [
+    {
+      "tagName": "div",
+      "attributes": {
+        "style": "display:flex;flex-direction:column;gap:1rem;max-width:40rem;margin:1.5rem auto;padding:0 1rem"
+      },
+      "nodes": [
+        {
+          "tagName": "h1",
+          "textContent": "Bienvenue"
+        },
+        {
+          "tagName": "sonic-animate",
+          "nodeId": "cartes",
+          "attributes": {
+            "recipe": "reveal",
+            "trigger": "viewport",
+            "stagger": "0.12",
+            "duration": "0.7"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "nodeId": "c1",
+              "attributes": {
+                "id": "c1",
+                "style": "padding:1rem;border:1px solid #8884;border-radius:.75rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "strong",
+                  "textContent": "Simple"
+                },
+                {
+                  "tagName": "p",
+                  "textContent": "Une recette, aucun JSON de timeline."
+                }
+              ]
+            },
+            {
+              "tagName": "div",
+              "nodeId": "c2",
+              "attributes": {
+                "id": "c2",
+                "style": "padding:1rem;border:1px solid #8884;border-radius:.75rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "strong",
+                  "textContent": "Décalé"
+                },
+                {
+                  "tagName": "p",
+                  "textContent": "Chaque enfant démarre un peu après le précédent."
+                }
+              ]
+            },
+            {
+              "tagName": "div",
+              "nodeId": "c3",
+              "attributes": {
+                "id": "c3",
+                "style": "padding:1rem;border:1px solid #8884;border-radius:.75rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "strong",
+                  "textContent": "Une seule fois"
+                },
+                {
+                  "tagName": "p",
+                  "textContent": "Rejoue à chaque entrée avec once=\"false\"."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "p",
+          "nodes": [
+            {
+              "tagName": "sonic-animate",
+              "attributes": {
+                "recipe": "count-up",
+                "trigger": "viewport",
+                "from": "0",
+                "to": "1280",
+                "text-suffix": " visiteurs",
+                "duration": "1.5"
+              },
+              "nodes": [
+                {
+                  "tagName": "strong",
+                  "textContent": "0 visiteurs"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
