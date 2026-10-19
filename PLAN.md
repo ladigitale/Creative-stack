@@ -84,6 +84,13 @@ type SonicNoteEvent = {
 | 5 | `media` | `sonic-screen` | Capture d'écran (`getDisplayMedia`) | **fait** |
 | 7 | `physics` | `sonic-physics` + `sonic-body` + `sonic-joint` | Monde 2D planck.js (Box2D) en SDUI : chocs / capteurs / sorties vers le store, rendu canvas = source shader | **fait** |
 | 7 | `controller` | `sonic-controller` | Manettes analogiques (sticks, gâchettes), relâchements, 4 joueurs, vibration | **fait** |
+| 8 | `device` | `sonic-fullscreen` | Plein écran (page ou élément), suivi de `fullscreenchange`, repli WebKit / vidéo iPhone | **fait** |
+| 8 | `device` | `sonic-pointer-lock` | Souris verrouillée, déplacements relatifs sommés par publication, mouvement brut avec repli | **fait** |
+| 8 | `device` | `sonic-wake-lock` | Écran allumé, repris au retour de l'onglet | **fait** |
+| 8 | `device` | `sonic-orientation` | Orientation de l'écran (verrou), capteurs d'inclinaison et de mouvement, permission iOS | **fait** |
+| 8 | `device` | `sonic-clipboard` / `sonic-share` / `sonic-vibrate` | Presse-papiers texte, partage natif (repli copie), vibration | **fait** |
+| 8 | `device` | `sonic-page-state` | Visibilité, focus, connexion, taille, préférences, pointeur | **fait** |
+| 8 | `device` | `sonic-capabilities` | `{ supported, allowed, permission }` par fonction, `embedded`, `secureContext`, sans ouvrir de demande | **fait** |
 | 6 | `audio` | modules AudioWorklet | `sonic-osc sync` (BLEP), `sonic-ladder`, `sonic-fold`, `sonic-karplus`, `sonic-resonator`, `sonic-grain` | **fait** |
 
 Chaque phase se termine par son intégration dans la plateforme : composants ajoutés au catalogue et au validateur (`tadaaa`), import dans le viewer (`artifacts`), smoke test sous CSP de prod. À partir de la phase 3 : `Permissions-Policy` (`camera`, `microphone`, `midi`, `display-capture`), `media-src blob:`, et déclaration `capabilities` dans le document avec bandeau avant le premier geste.
@@ -173,6 +180,16 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 - [x] Chromium : balle posée au sol, chocs et capteur dans le store, couleur de la balle sous sa position dans le canvas, `sonic-shader` de Concorde abonné à `#w`, liste DP ajout / retrait, glisser à la souris (la caisse suit le pointeur), `tap`, reset par compteur.
 - [x] `sonic-controller` (manette factice) : stick → store → vitesse d'un corps ; appui / relâchement ; état ; vibration par compteur.
 - [x] Démo « Casse-briques » zéro JS : briques retirées par le reducer, score par rangée, vies, note par choc, fond shader qui fait briller le monde.
+
+
+## Phase 8 — critères d'acceptation (validés)
+
+- [x] Contrat commun (`src/shared/device/base.ts`) : état `status / error / supported / allowed / active`, pilotage par compteurs (`control`), clic direct (`for`, appel dans le geste), publication plafonnée avec dernier état toujours envoyé, nettoyage au retrait.
+- [x] Tests (jsdom, API doublées) : plein écran (entrée, sortie, Échap, refus, iPhone vidéo seule), pointer lock (cumul des deltas, retour à zéro, repli du mouvement brut, API sans promesse, `pointerlockerror`), wake lock (reprise au retour de l'onglet, intention gardée onglet masqué, refus puis geste), capteurs (permission iOS, lissage, `alpha` par le plus court chemin), presse-papiers (aucune lecture seule), partage (URL dangereuse refusée, annulation non fautive, repli copie), vibration (bornes, refus), état de la page, capacités (aucun appel `getUserMedia`, politique lue, permissions suivies).
+- [ ] À vérifier en navigateur réel (Chromium, Firefox, Safari iOS) : réussite effective du plein écran, du pointer lock et du wake lock depuis un clic SDUI (`for` et compteur), valeurs `allow` d'iframe du viewer Artefacts, capteurs sous iOS.
+- [ ] Démo combinée (plein écran + pointer lock + wake lock + manette) : à faire.
+- [ ] Alignement de `sonic-camera` et de l'audio sur l'état commun : non fait (leurs états `status` / `error` suivent déjà la convention ; `sonic-capabilities` fait sa propre détection).
+- [ ] `sonic-gamepad` et `sonic-midi` : déjà livrés (addons `controller`, `interactive`, `audio`), non refaits.
 
 ## Ce qui reste côté Concorde (prompt Cursor, non bloquant)
 

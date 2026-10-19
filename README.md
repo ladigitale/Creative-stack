@@ -17,6 +17,7 @@ Concorde reste le design system (composants UI, DataProviders, `sonic-sdui`, `so
 | `audio` | `sonic-patch` + modules (`sonic-osc`, `sonic-filter`, `sonic-ladder`, `sonic-karplus`, `sonic-grain`, `sonic-env`…), `sonic-sequencer`, `sonic-sampler`, `sonic-audio-analyser`, `sonic-mic`, `sonic-midi`, `sonic-audio-recorder`, `sonic-audio-unlock`, `sonic-audio-master` | — |
 | `physics` | `sonic-physics`, `sonic-body`, `sonic-joint` (planck.js) | `planck` (dépendance) |
 | `controller` | `sonic-controller` (manettes analogiques) | — |
+| `device` | `sonic-fullscreen`, `sonic-pointer-lock`, `sonic-wake-lock`, `sonic-orientation`, `sonic-clipboard`, `sonic-share`, `sonic-vibrate`, `sonic-page-state`, `sonic-capabilities` : API appareil du navigateur en DataProviders (voir [`device.md`](src/addons/device/device.md)) | — |
 | `animation` | `sonic-animate` (recettes), `sonic-clock`, `sonic-timeline` : le temps est une valeur de DataProvider (voir [`animation.md`](src/addons/animation/animation.md)) | — |
 | `media` | `sonic-camera`, `sonic-screen`, `sonic-video`, `sonic-media-start`, `sonic-media-recorder`, `sonic-media-download` | — |
 
