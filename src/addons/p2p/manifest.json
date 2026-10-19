@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "p2p",
+  "label": "Salons temps réel",
+  "description": "Salons à places limitées entre visiteurs d'un artefact (jeux, tableau blanc) : liste publique, code facultatif, entrée libre ou sur acceptation de l'hôte. Partage d'un état par DataProvider.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "p2p.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-p2p",
+      "description": "Salons temps réel : share=\"game.local\" diffuse cette valeur aux autres (rate fois/s max) ; les valeurs des autres arrivent dans <id>Peers {idMembre: valeur} ; control DP {cmd:{n: compteur, type: refresh|create|join|leave|approve|reject|kick|send, …}} ; état <id>State {status: idle|connecting|pending|ready|rejected|kicked|closed|error, error, rooms, room, me, members, pending, received}. create {name, access: open|approval, code: true|\"mot\", listed, max 2..32} ; join {roomId, code} ; approve/reject/kick {id}. Besoin : artifact (slug) et api (origine de l'API).",
+      "props": {
+        "api": { "type": "string" },
+        "artifact": { "type": "string" },
+        "link-token": { "type": "string" },
+        "pseudo": { "type": "string" },
+        "share": { "type": "string" },
+        "rate": { "type": "number" },
+        "control": { "type": "string" },
+        "store": { "type": "string" },
+        "message-action": { "type": "string" },
+        "out-data-provider": { "type": "string" },
+        "peers-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
