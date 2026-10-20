@@ -95,7 +95,7 @@
           "type": "number",
           "description": "Inertie de l'orbite (défaut 0.08, 0 = aucune)"
         },
-        "data-provider": {
+        "dataProvider": {
           "type": "string",
           "description": "DP d'entrée : glb, nodes, src, fov, yaw, pitch, distance…"
         }
