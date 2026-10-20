@@ -4,6 +4,7 @@ import {
   DEFAULT_EXPOSURE,
   DEFAULT_FOV,
   DEFAULT_MAX_DISTANCE,
+  DEFAULT_MAX_GLB_BYTES,
   DEFAULT_MAX_POLAR_DEG,
   DEFAULT_MIN_DISTANCE,
   DEFAULT_MIN_POLAR_DEG,
@@ -17,6 +18,16 @@ import type { Sonic3dAsset } from "./types";
 export class Sonic3dProps extends LitElement {
   @property() src = "";
   @property({ attribute: false }) asset: Sonic3dAsset | null = null;
+  /** GLB embarqué en base64 (sans `fetch`). */
+  @property() glb = "";
+  @property({ type: Number, attribute: "max-glb-bytes" })
+  maxGlbBytes = DEFAULT_MAX_GLB_BYTES;
+  /** Id du `sonic-store` qui reçoit les taps (`pick`). */
+  @property({ type: String }) target = "";
+  @property({ type: String, attribute: "pick-action-type" })
+  pickActionType = "pick";
+  @property({ type: String, attribute: "pick-names" }) pickNames = "";
+  @property({ type: Boolean, attribute: "pick-empty" }) pickEmpty = false;
   @property({ reflect: true })
   camera: Sonic3dCameraMode = Sonic3dCameraMode.Orbit;
   @property({ type: Number }) fov = DEFAULT_FOV;

@@ -34,11 +34,27 @@ function parseCameraMode(
   return Sonic3dCameraMode.Orbit;
 }
 
+const GLB_DATA_URI = /^data:model\/gltf-binary(?:;[^,]*)?;base64,/i;
+
+/** `data:model/gltf-binary;base64,XXX` → `XXX` ; sinon chaîne vide. */
+function parseGlbDataUri(value: string): string {
+  const m = GLB_DATA_URI.exec(value);
+  return m ? value.slice(m[0].length).trim() : "";
+}
+
+/** Accepte base64 brut ou data URI ; retire espaces / retours ligne. */
+function normalizeGlb(value: string): string {
+  const v = value.trim();
+  return (parseGlbDataUri(v) || v).replace(/\s+/g, "");
+}
+
 /** Normalise une valeur DP / attr en `Sonic3dAsset | null`. */
 function parseAsset(value: unknown): Sonic3dAsset | null {
   if (value == null || value === "") return null;
   if (typeof value === "string") {
     const url = value.trim();
+    const embedded = parseGlbDataUri(url);
+    if (embedded) return { kind: "glb", glb: embedded };
     return url ? { kind: guessKind(url), url } : null;
   }
   if (typeof value !== "object") return null;
@@ -48,7 +64,9 @@ function parseAsset(value: unknown): Sonic3dAsset | null {
     typeof record.url === "string" ? record.url.trim() : "";
   const url = urlFromField || fromMedia || "";
   const blob = record.blob instanceof Blob ? record.blob : undefined;
-  if (!url && !blob) return null;
+  const glb =
+    typeof record.glb === "string" ? normalizeGlb(record.glb) : "";
+  if (!url && !blob && !glb) return null;
   const kindRaw =
     typeof record.kind === "string" ? record.kind.trim().toLowerCase() : "";
   let kind: Sonic3dAssetKind;
@@ -60,6 +78,10 @@ function parseAsset(value: unknown): Sonic3dAsset | null {
     kind = "url";
   }
   const asset: Sonic3dAsset = { kind };
+  if (glb) {
+    asset.kind = "glb";
+    asset.glb = glb;
+  }
   if (url) asset.url = url;
   if (blob) asset.blob = blob;
   if (record.morphTargets && typeof record.morphTargets === "object") {
@@ -89,6 +111,7 @@ function isFormFlagOn(v: unknown): boolean {
 export const parse = {
   cameraMode: parseCameraMode,
   asset: parseAsset,
+  glb: normalizeGlb,
   guessKind,
   toNum,
   isFormFlagOn,

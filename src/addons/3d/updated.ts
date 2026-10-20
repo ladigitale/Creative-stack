@@ -77,7 +77,7 @@ function updated(
       (host as unknown as { damping: number }).damping,
     );
   }
-  if (changed.has("src") || changed.has("asset")) void reload.run(host as never);
+  if (changed.has("src") || changed.has("asset") || changed.has("glb")) void reload.run(host as never);
   if (postBind.propsChanged(changed)) {
     postBind.applyConfig(host as never);
   }

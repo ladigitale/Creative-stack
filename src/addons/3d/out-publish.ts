@@ -93,7 +93,10 @@ function buildOutput(host: OutPublishHost, time: number): Sonic3dOutput {
       yaw: 0,
       pitch: 0,
     };
-  return { ...base, moving: host.moving };
+  const out: Sonic3dOutput = { ...base, moving: host.moving };
+  const missing = host.runtime?.nodes.missing;
+  if (missing !== undefined) out.nodesMissing = missing;
+  return out;
 }
 
 function writePayload(host: OutPublishHost, payload: Sonic3dOutput) {

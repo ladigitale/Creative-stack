@@ -21,6 +21,9 @@ export type FormBindHost = {
   camera: Sonic3dCameraMode;
   asset: Sonic3dAsset | null;
   src: string;
+  glb: string;
+  raf: number;
+  lastNodesJson: string;
   runtime: SceneRuntime | null;
   frame: number;
   hovering: boolean;
@@ -92,6 +95,7 @@ function applyFormParams(host: FormBindHost, data: Record<string, unknown>) {
 
   formFields.pushToRuntime(host, data);
   applyFormOrbit(host, data);
+  formFields.applyNodes(host, data);
   postBind.applyFormPost(host as never, data);
   if (needReload) void reload.run(host as never);
 }

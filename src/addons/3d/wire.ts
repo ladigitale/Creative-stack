@@ -15,6 +15,7 @@ type WireHost = LifeHost & {
   ) => void;
   onPointerMove: (e: PointerEvent) => void;
   onPointerDown: (e: PointerEvent) => void;
+  onPointerUp: (e: PointerEvent) => void;
   onDblClick: () => void;
   onPointerLeave: () => void;
   onPointerEnter: () => void;
@@ -34,6 +35,7 @@ type WireHost = LifeHost & {
 function connect(host: WireHost) {
   host.addEventListener("pointermove", host.onPointerMove as EventListener);
   host.addEventListener("pointerdown", host.onPointerDown as EventListener);
+  host.addEventListener("pointerup", host.onPointerUp as EventListener);
   host.addEventListener("dblclick", host.onDblClick);
   host.addEventListener("pointerleave", host.onPointerLeave);
   host.addEventListener("pointerenter", host.onPointerEnter);
@@ -44,6 +46,7 @@ function connect(host: WireHost) {
 function disconnect(host: WireHost) {
   host.removeEventListener("pointermove", host.onPointerMove as EventListener);
   host.removeEventListener("pointerdown", host.onPointerDown as EventListener);
+  host.removeEventListener("pointerup", host.onPointerUp as EventListener);
   host.removeEventListener("dblclick", host.onDblClick);
   host.removeEventListener("pointerleave", host.onPointerLeave);
   host.removeEventListener("pointerenter", host.onPointerEnter);
