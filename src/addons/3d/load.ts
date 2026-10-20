@@ -3,6 +3,7 @@ import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { parse } from "./parse";
 import type { Sonic3dAsset } from "./types";
 import { demoContent } from "./demo-content";
+import { DEFAULT_MAX_GLB_BYTES, HARD_MAX_GLB_BYTES } from "./constants";
 import { pick, type HighlightCtx } from "./pick";
 
 export type LoadCtx = HighlightCtx & {
@@ -66,6 +67,29 @@ function applyMorphTargets(
   });
 }
 
+/** base64 → ArrayBuffer, avec plafond (jamais de `fetch`). */
+function decodeGlb(b64: string, maxBytes?: number): ArrayBuffer {
+  const max = Math.min(
+    maxBytes && maxBytes > 0 ? maxBytes : DEFAULT_MAX_GLB_BYTES,
+    HARD_MAX_GLB_BYTES,
+  );
+  const clean = b64.replace(/\s+/g, "");
+  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
+  const size = Math.floor((clean.length * 3) / 4) - padding;
+  if (size > max) {
+    throw new Error(`GLB trop volumineux (${size} o > ${max} o).`);
+  }
+  let bin: string;
+  try {
+    bin = atob(clean);
+  } catch {
+    throw new Error("GLB base64 invalide.");
+  }
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
 /**
  * Charge un asset (URL / blob) ou affiche le cube de démo si vide.
  * Retourne `{ ready, error }` ; lève si load échoue après fallback démo.
@@ -86,7 +110,14 @@ async function asset(
       url = ctx.blobUrl;
     }
 
-    if (!url) {
+    if (asset?.glb && !url) {
+      const buf = decodeGlb(asset.glb, asset.maxBytes);
+      const gltf = await ctx.loader.parseAsync(buf, "");
+      if (!isCurrent(token)) return { ready: false, error: null };
+      ctx.content = gltf.scene;
+      ctx.root.add(ctx.content);
+      if (asset.morphTargets) applyMorphTargets(ctx.content, asset.morphTargets);
+    } else if (!url) {
       ctx.content = demoContent.create();
       ctx.root.add(ctx.content);
     } else {
@@ -126,4 +157,5 @@ export const load = {
   clearContent,
   updateBBox,
   revokeBlob,
+  decodeGlb,
 } as const;

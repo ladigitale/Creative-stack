@@ -42,13 +42,45 @@ function applyAsset(
       reload = true;
     }
   }
-  if ("src" in data && typeof data.src === "string" && !("asset" in data)) {
+  if ("glb" in data && typeof data.glb === "string") {
+    const glb = parse.glb(data.glb);
+    if (host.glb !== glb) {
+      host.glb = glb;
+      reload = true;
+    }
+  }
+  if (
+    "src" in data &&
+    typeof data.src === "string" &&
+    !("asset" in data) &&
+    !("glb" in data)
+  ) {
     if (host.src !== data.src) {
       host.src = data.src;
       reload = true;
     }
   }
   return reload;
+}
+
+/**
+ * Clé DP `nodes` → surcharges de nœuds. Idempotent (comparaison par valeur) ;
+ * ignoré tant que la scène n'est pas prête (réappliqué après chaque load).
+ */
+function applyNodes(host: FormBindHost, data: Record<string, unknown>) {
+  if (!("nodes" in data) || !host.runtime?.ready) return;
+  const spec = data.nodes;
+  if (!spec || typeof spec !== "object") return;
+  let json: string;
+  try {
+    json = JSON.stringify(spec);
+  } catch {
+    return;
+  }
+  if (json === host.lastNodesJson) return;
+  host.lastNodesJson = json;
+  const animate = host.raf !== 0;
+  if (host.runtime.applyNodes(spec as never, animate)) host.runtime.render();
 }
 
 function orbitLimitsTouched(data: Record<string, unknown>): boolean {
@@ -76,5 +108,6 @@ function pushToRuntime(host: FormBindHost, data: Record<string, unknown>) {
 export const formFields = {
   applyScalars,
   applyAsset,
+  applyNodes,
   pushToRuntime,
 } as const;

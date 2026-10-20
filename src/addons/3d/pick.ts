@@ -28,7 +28,15 @@ function raycastHits(
   if (!ctx.content) return [];
   ctx.pointerNdc.set(normX * 2 - 1, -(normY * 2 - 1));
   ctx.raycaster.setFromCamera(ctx.pointerNdc, ctx.activeCam);
-  return ctx.raycaster.intersectObject(ctx.content, true);
+  // Three ne filtre pas `visible` au raycast : on ignore les nœuds masqués.
+  return ctx.raycaster
+    .intersectObject(ctx.content, true)
+    .filter((h) => isVisibleChain(h.object));
+}
+
+function isVisibleChain(obj: THREE.Object3D | null): boolean {
+  for (let o = obj; o; o = o.parent) if (!o.visible) return false;
+  return true;
 }
 
 function hitFromIntersection(h: THREE.Intersection): SceneHit {

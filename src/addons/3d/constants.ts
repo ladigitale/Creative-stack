@@ -23,6 +23,12 @@ export const DEFAULT_FOV = 45;
 export const DEFAULT_EXPOSURE = 1;
 export const DEFAULT_MIN_DISTANCE = 0.5;
 export const DEFAULT_MAX_DISTANCE = 50;
+/** GLB base64 : plafond par défaut (octets décodés) et plafond dur. */
+export const DEFAULT_MAX_GLB_BYTES = 512 * 1024;
+export const HARD_MAX_GLB_BYTES = 2 * 1024 * 1024;
+/** Tap (vs drag d'orbite) : déplacement max en px et durée max en ms. */
+export const TAP_MAX_MOVE_PX = 6;
+export const TAP_MAX_MS = 400;
 /** Polar Lit attrs (degrés). */
 export const DEFAULT_MIN_POLAR_DEG = 8;
 export const DEFAULT_MAX_POLAR_DEG = 172;
@@ -36,6 +42,8 @@ export const DEFAULT_MIN_POLAR_RAD =
 export const FORM_CONTROL_KEYS = [
   "src",
   "asset",
+  "glb",
+  "nodes",
   "camera",
   "fov",
   "exposure",
@@ -56,6 +64,8 @@ export const FORM_CONTROL_KEYS = [
 export const FORM_INPUT_ONLY_KEYS = [
   "src",
   "asset",
+  "glb",
+  "nodes",
   "camera",
   "fov",
   "exposure",

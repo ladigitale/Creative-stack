@@ -1,3 +1,5 @@
+import { dispatch } from "../interactive";
+import { TAP_MAX_MOVE_PX, TAP_MAX_MS } from "./constants";
 import type { SceneHit } from "./pick";
 import type { SceneRuntime } from "./runtime";
 
@@ -5,6 +7,11 @@ export type PointerHost = {
   pointerX: number;
   pointerY: number;
   pick: boolean;
+  target: string;
+  pickActionType: string;
+  pickNames: string;
+  pickEmpty: boolean;
+  tapStart: { x: number; y: number; t: number } | null;
   runtime: SceneRuntime | null;
   lastHit: SceneHit | null;
   hovering: boolean;
@@ -41,6 +48,7 @@ function onDown(host: PointerHost, e: PointerEvent) {
   host.pointerY = p.y;
   if (!host.pick || !host.runtime) return;
   if (e.button !== 0) return;
+  host.tapStart = { x: e.clientX, y: e.clientY, t: performance.now() };
   const hit = host.runtime.pick(p.x, p.y);
   host.lastHit = hit;
   if (!hit) return;
@@ -51,6 +59,41 @@ function onDown(host: PointerHost, e: PointerEvent) {
       composed: true,
     }),
   );
+}
+
+function nameAllowed(pattern: string, name: string): boolean {
+  if (!pattern) return true;
+  try {
+    return new RegExp(pattern).test(name);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Tap (déplacement < 6 px, durée < 400 ms) → action vers `target`.
+ * Un drag d'orbite n'envoie rien.
+ */
+function onUp(host: PointerHost, e: PointerEvent) {
+  const start = host.tapStart;
+  host.tapStart = null;
+  if (!start || e.button !== 0) return;
+  if (!host.pick || !host.target || !host.runtime?.ready) return;
+  const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+  if (moved >= TAP_MAX_MOVE_PX || performance.now() - start.t >= TAP_MAX_MS) {
+    return;
+  }
+  const p = normPointer(host, e);
+  const hit = host.runtime.pick(p.x, p.y);
+  const type = host.pickActionType || "pick";
+  if (hit && nameAllowed(host.pickNames, hit.objectId)) {
+    dispatch(host.target, {
+      type,
+      payload: { objectId: hit.objectId, x: hit.x, y: hit.y, z: hit.z },
+    });
+  } else if (host.pickEmpty) {
+    dispatch(host.target, { type, payload: { objectId: null } });
+  }
 }
 
 function onDblClick(host: PointerHost) {
@@ -73,6 +116,7 @@ function onLeave(host: PointerHost) {
 export const pointer = {
   onMove,
   onDown,
+  onUp,
   onDblClick,
   onEnter,
   onLeave,

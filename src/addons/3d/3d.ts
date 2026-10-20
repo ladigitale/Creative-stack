@@ -54,6 +54,10 @@ export class Sonic3d extends Sonic3dProps {
   frameSeq = 0;
   lastDrawAt = 0;
   lastFormOrbit: FormOrbit | null = null;
+  /** Dernier `nodes` appliqué (idempotence). */
+  lastNodesJson = "";
+  /** Début du pointerdown courant (tap vs drag). */
+  tapStart: { x: number; y: number; t: number } | null = null;
   /** Consommateurs live (`registerFrameConsumer`). */
   private frameConsumers = new Set<object>();
   /** 1 si caméra en mouvement, 0 sinon (publié en out). */
@@ -97,6 +101,9 @@ export class Sonic3d extends Sonic3dProps {
       this.bindOutPublisher,
       this.onPointerMove,
       this.onPointerDown,
+      this.onPointerUp,
+      this.tapStart,
+      this.lastNodesJson,
       this.onDblClick,
       this.onPointerEnter,
       this.onPointerLeave,
@@ -245,6 +252,7 @@ export class Sonic3d extends Sonic3dProps {
 
   onPointerMove = (e: PointerEvent) => pointer.onMove(this as never, e);
   onPointerDown = (e: PointerEvent) => pointer.onDown(this as never, e);
+  onPointerUp = (e: PointerEvent) => pointer.onUp(this as never, e);
   onDblClick = () => pointer.onDblClick(this as never);
   onPointerEnter = () => pointer.onEnter(this as never);
   onPointerLeave = () => pointer.onLeave(this as never);

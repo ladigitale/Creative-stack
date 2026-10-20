@@ -25,6 +25,10 @@ export type Sonic3dAsset = {
   blob?: Blob;
   /** Morph targets optionnels (clip weights 0–1). */
   morphTargets?: Record<string, number>;
+  /** GLB embarqué en base64 (chargé via `GLTFLoader.parse`, sans `fetch`). */
+  glb?: string;
+  /** Plafond de taille du GLB décodé (octets). */
+  maxBytes?: number;
 };
 
 /**
@@ -38,6 +42,21 @@ export type Sonic3dConfig = {
    * Peut aussi arriver via dataProvider (`asset` ou `src`).
    */
   asset?: Sonic3dAsset | null;
+  /**
+   * GLB en base64 (ou `data:model/gltf-binary;base64,…`), chargé sans réseau.
+   * Prioritaire sur `src`. Aussi clé DP `glb`.
+   */
+  glb?: string;
+  /** Plafond du GLB décodé en octets (défaut 512 Ko, max dur 2 Mo). */
+  maxGlbBytes?: number;
+  /** Id d'un `sonic-store` : reçoit `{type: pickActionType, payload}` sur tap. */
+  target?: string;
+  /** Type d'action envoyé au `target` (défaut `pick`). */
+  pickActionType?: string;
+  /** Regex sur le nom du nœud : seuls les nœuds correspondants sont émis. */
+  pickNames?: string;
+  /** Envoie aussi `{objectId:null}` pour un tap dans le vide. */
+  pickEmpty?: boolean;
 
   camera?: Sonic3dCameraMode;
   /** FOV perspective (deg, défaut 45). */
@@ -133,6 +152,8 @@ export type Sonic3dOutput = {
   pitch: number;
   /** 1 si la caméra bouge (orbit / inertie / autoRotate), sinon 0. */
   moving?: number;
+  /** Noms de `nodes` introuvables dans la scène à la dernière application. */
+  nodesMissing?: number;
   /** Présents après un pick réussi. */
   hitX?: number;
   hitY?: number;

@@ -24,6 +24,9 @@ export type ReloadHost = {
   outPublisher: ReturnType<typeof PublisherManager.get> | null;
   asset: Sonic3dAsset | null;
   src: string;
+  glb: string;
+  maxGlbBytes: number;
+  lastNodesJson: string;
   minDistance: number;
   maxDistance: number;
   minPolar: number;
@@ -38,6 +41,7 @@ async function run(host: ReloadHost) {
   if (!host.runtime) return;
   const token = ++host.loadToken;
   host.errorMessage = "";
+  host.lastNodesJson = "";
   try {
     await host.runtime.load(asset.resolve(host, host.formPublisher));
     if (token !== host.loadToken) return;

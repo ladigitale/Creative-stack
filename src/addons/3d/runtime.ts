@@ -12,6 +12,7 @@ import {
   type PostFxConfig,
   type PostFxUniforms,
 } from "./post-fx";
+import { NodeOverrides, type NodesSpec } from "./nodes";
 import { tune, type TuneCtx } from "./tune";
 import type { Sonic3dAsset, Sonic3dOutput } from "./types";
 import { view, type ViewCtx } from "./view";
@@ -37,6 +38,8 @@ export class SceneRuntime {
   private content: THREE.Object3D | null = null;
   private lights: THREE.Light[];
   private loader = new GLTFLoader();
+  /** Surcharges de nœuds pilotées par DP (clé `nodes`). */
+  readonly nodes = new NodeOverrides();
   private loadToken = 0;
   private blobUrl: string | null = null;
   private dprMax: number;
@@ -173,7 +176,15 @@ export class SceneRuntime {
     this.postFx.resize(cssW * dpr, cssH * dpr);
   }
   async load(asset: Sonic3dAsset | null) {
-    return ops.runLoad(this.asOpsCtx(), asset);
+    this.nodes.dispose();
+    await ops.runLoad(this.asOpsCtx(), asset);
+    this.nodes.attach(this.content);
+  }
+
+  /** Applique `nodes` ; true si la scène a changé (un seul render à la charge de l'appelant). */
+  applyNodes(spec: NodesSpec, animate = true): boolean {
+    if (!this._ready) return false;
+    return this.nodes.apply(spec, performance.now(), animate);
   }
   fitToContent() {
     ops.fitToContent(this.asOpsCtx());
@@ -200,6 +211,7 @@ export class SceneRuntime {
   }
 
   render() {
+    this.nodes.step(performance.now());
     this.controls?.update();
     if (this.postFx.isEnabled) {
       this.postFx.render(this.scene, this.activeCam, this.postFrame);
@@ -227,6 +239,7 @@ export class SceneRuntime {
     return ops.buildSnapshot(this.asOpsCtx(), base);
   }
   dispose(loseContext = false) {
+    this.nodes.dispose();
     this.postFx.dispose();
     ops.dispose(this.asOpsCtx(), loseContext);
   }

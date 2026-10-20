@@ -17,6 +17,24 @@
         "src": {
           "type": "url"
         },
+        "glb": {
+          "type": "string"
+        },
+        "max-glb-bytes": {
+          "type": "number"
+        },
+        "target": {
+          "type": "string"
+        },
+        "pick-action-type": {
+          "type": "string"
+        },
+        "pick-names": {
+          "type": "string"
+        },
+        "pick-empty": {
+          "type": "boolean"
+        },
         "fov": {
           "type": "number"
         },
