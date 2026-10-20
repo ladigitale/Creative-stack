@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "3d",
   "label": "3D (Three.js)",
-  "description": "Rendu glTF Three.js : orbite, pick, animations, post-traitements, sortie frame vers DataProvider.",
+  "description": "Scène 3D glTF/GLB Three.js (orbite, pick) pilotable par données : GLB embarqué en base64 sans réseau, surcharges de nœuds en direct (clé DP nodes), taps envoyés à un sonic-store (target).",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [
@@ -12,28 +12,34 @@
   "components": [
     {
       "name": "sonic-3d",
-      "description": "Scène 3D glTF",
+      "description": "Scène 3D glTF/GLB. SCÈNE PILOTÉE PAR LES DONNÉES (jeux, plateaux) : <sonic-3d dataProvider=\"game\" target=\"game\" pick pick-names=\"^(m_|hole_)\" min-polar=\"0.6\" max-polar=\"1.25\" min-distance=\"9\" max-distance=\"17\" fit=\"false\">. Le DP game (écrit par le reducer du store) contient : glb = GLB en base64 (aucun fetch, ≤ 512 Ko ; pas de glTF JSON avec buffers data:, utiliser GLB ; changer glb recharge et purge les surcharges) et nodes = {nomDeNoeud: {x,y,z (position locale), rx,ry,rz (rad), scale (n ou [x,y,z]), visible, color, emissive (intensité 0..1), emissiveColor, opacity, ease:{ms,curve:linear|in|out|inOut}, lift (hauteur de l'arc en y pendant ease.ms)}, \"$reset\": true}. Sémantique patch : champs absents inchangés, nœuds absents non réinitialisés, $reset remet l'état du fichier ; republier la même valeur ne fait rien ; ≤ 200 nœuds par mutation ; noms inconnus ignorés (compteur nodesMissing en sortie). Un tap (pointeur < 6 px et < 400 ms, un drag d'orbite n'envoie rien) sur un nœud visible envoie au store {type: pick-action-type (défaut \"pick\"), payload:{objectId: nom du nœud, x, y, z}} ; pick-names filtre par regex ; pick-empty envoie {objectId:null} pour un tap dans le vide. Orbite : min/max-distance, min/max-polar (degrés), damping. Sortie (out-data-provider) : yaw pitch distance hit* moving ready nodesMissing.",
       "props": {
         "src": {
           "type": "url"
         },
         "glb": {
-          "type": "string"
+          "type": "string",
+          "description": "GLB en base64 (ou clé DP glb), chargé sans fetch ; prioritaire sur src"
         },
         "max-glb-bytes": {
-          "type": "number"
+          "type": "number",
+          "description": "Plafond du GLB décodé en octets (défaut 524288, max 2097152)"
         },
         "target": {
-          "type": "string"
+          "type": "string",
+          "description": "Id du sonic-store qui reçoit les taps (requiert pick)"
         },
         "pick-action-type": {
-          "type": "string"
+          "type": "string",
+          "description": "Type d'action envoyé à target (défaut pick)"
         },
         "pick-names": {
-          "type": "string"
+          "type": "string",
+          "description": "Regex sur le nom du nœud ; les autres taps sont ignorés"
         },
         "pick-empty": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Envoie {objectId:null} pour un tap dans le vide"
         },
         "fov": {
           "type": "number"
