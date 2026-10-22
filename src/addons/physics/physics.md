@@ -80,6 +80,7 @@ Simulation à pas fixe (1/60 s), suspendue quand l'onglet est caché.
 ```
 
 - `vx` / `vy` : vitesse imposée à chaque pas ; `fx` / `fy` : force continue ; `spin` (°/s), `torque`.
+- `impulse: { n, toward: {x, y}, power }` vise un point du monde : direction depuis la position courante du corps (inutile de la connaître : billard, lancer), norme `power`. `x` / `y` restent disponibles pour une direction fixe.
 - `impulse` et `set` sont des **compteurs** : rien au chargement, chaque hausse de `n` donne une impulsion ou replace le corps (position, vitesse, angle).
 - Le reducer écrit ces valeurs à partir du clavier (`sonic-keyboard keyup` : `left` / `left:up`), d'une manette (`sonic-controller analog-action="stick"`), d'un bouton…
 

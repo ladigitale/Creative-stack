@@ -101,7 +101,15 @@ export type Drive = {
   torque?: number;
   spin?: number;
   /** Impulsion unique quand `n` augmente. */
-  impulse?: { n?: number; x?: number; y?: number };
+  impulse?: {
+    n?: number;
+    x?: number;
+    y?: number;
+    /** Vise un point du monde : direction (corps → point), norme = `power`. Remplace `x` / `y`. */
+    toward?: { x?: number; y?: number };
+    /** Norme de l'impulsion avec `toward` (px·kg, comme `x` / `y`). */
+    power?: number;
+  };
   /** Placement unique quand `n` augmente (position, vitesse, angle). */
   set?: { n?: number; x?: number; y?: number; vx?: number; vy?: number; angle?: number };
 };
@@ -524,7 +532,25 @@ export class PhysicsWorld {
       if (typeof d.fx === "number" || typeof d.fy === "number") b.applyForceToCenter(Vec2(this.m(d.fx ?? 0), this.m(d.fy ?? 0)), true);
       if (typeof d.torque === "number") b.applyTorque(d.torque, true);
       if (d.impulse && this.counter(name, "impulse", d.impulse.n)) {
-        b.applyLinearImpulse(Vec2(this.m(num(d.impulse.x, 0)), this.m(num(d.impulse.y, 0))), b.getWorldCenter(), true);
+        let ix = num(d.impulse.x, 0);
+        let iy = num(d.impulse.y, 0);
+        const tw = d.impulse.toward;
+        if (tw && typeof tw === "object") {
+          // Direction depuis la position courante du corps : l'appelant n'a pas besoin de la connaître.
+          const p = b.getPosition();
+          const dx = num(tw.x, this.px(p.x)) - this.px(p.x);
+          const dy = num(tw.y, this.px(p.y)) - this.px(p.y);
+          const len = Math.hypot(dx, dy);
+          const power = num(d.impulse.power, 0);
+          if (len > 1e-9) {
+            ix = (dx / len) * power;
+            iy = (dy / len) * power;
+          } else {
+            ix = 0;
+            iy = 0;
+          }
+        }
+        b.applyLinearImpulse(Vec2(this.m(ix), this.m(iy)), b.getWorldCenter(), true);
       }
       if (d.set && this.counter(name, "set", d.set.n)) {
         const p = b.getPosition();

@@ -44,9 +44,24 @@ function applyAspectRatio(host: LifeHost) {
   host.style.removeProperty("--sonic-3d-ar");
 }
 
+/**
+ * Sous-clés dont l'assignation ne remonte pas toujours à la racine : `sonic-mix`
+ * (composition `{"nodes": "world.bodies"}`) écrit `nodes` comme enfant du DP.
+ */
+type NodesChild = { onAssign: (h: () => void) => void; offAssign: (h: () => void) => void };
+const nodesChildren = new WeakMap<object, NodesChild>();
+
+function nodesChildOf(pub: unknown): NodesChild | null {
+  const child = (pub as { nodes?: NodesChild } | null)?.nodes;
+  return child && typeof child.onAssign === "function" && typeof child.offAssign === "function" ? child : null;
+}
+
 function unbindFormProvider(host: LifeHost) {
   if (host.formPublisher) {
     host.formPublisher.offInternalMutation(host.onFormMutation);
+    const child = nodesChildren.get(host.formPublisher as object);
+    child?.offAssign(host.onFormMutation);
+    nodesChildren.delete(host.formPublisher as object);
     host.formPublisher = null;
   }
 }
@@ -60,6 +75,11 @@ function bindFormProvider(host: LifeHost) {
   if (!id) return;
   host.formPublisher = PublisherManager.get(id);
   host.formPublisher.onInternalMutation(host.onFormMutation);
+  const child = nodesChildOf(host.formPublisher);
+  if (child) {
+    child.onAssign(host.onFormMutation);
+    nodesChildren.set(host.formPublisher as object, child);
+  }
   host.onFormMutation();
 }
 
