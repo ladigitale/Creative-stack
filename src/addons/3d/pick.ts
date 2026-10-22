@@ -20,10 +20,26 @@ export type HighlightCtx = PickCtx & {
   prevEmissiveIntensity: number;
 };
 
+/** Vrai si le nœud (ou un de ses parents) porte un nom accepté par la regex. */
+function nameAllowed(pattern: string | undefined, obj: THREE.Object3D): boolean {
+  if (!pattern) return true;
+  let re: RegExp;
+  try {
+    re = new RegExp(pattern);
+  } catch {
+    return true;
+  }
+  for (let o: THREE.Object3D | null = obj; o; o = o.parent) {
+    if (o.name && re.test(o.name)) return true;
+  }
+  return false;
+}
+
 function raycastHits(
   ctx: PickCtx,
   normX: number,
   normY: number,
+  names?: string,
 ): THREE.Intersection[] {
   if (!ctx.content) return [];
   ctx.pointerNdc.set(normX * 2 - 1, -(normY * 2 - 1));
@@ -31,7 +47,7 @@ function raycastHits(
   // Three ne filtre pas `visible` au raycast : on ignore les nœuds masqués.
   return ctx.raycaster
     .intersectObject(ctx.content, true)
-    .filter((h) => isVisibleChain(h.object));
+    .filter((h) => isVisibleChain(h.object) && nameAllowed(names, h.object));
 }
 
 function isVisibleChain(obj: THREE.Object3D | null): boolean {
@@ -49,8 +65,13 @@ function hitFromIntersection(h: THREE.Intersection): SceneHit {
 }
 
 /** Pick en coords normalisées host (0–1, origine haut-gauche CSS). */
-function hit(ctx: PickCtx, normX: number, normY: number): SceneHit | null {
-  const hits = raycastHits(ctx, normX, normY);
+function hit(
+  ctx: PickCtx,
+  normX: number,
+  normY: number,
+  names?: string,
+): SceneHit | null {
+  const hits = raycastHits(ctx, normX, normY, names);
   if (!hits.length) return null;
   return hitFromIntersection(hits[0]);
 }
@@ -71,10 +92,13 @@ function setHoverAt(
   ctx: HighlightCtx,
   normX: number,
   normY: number,
+  names?: string,
+  highlight = true,
 ): SceneHit | null {
-  const hits = raycastHits(ctx, normX, normY);
-  const mesh = hits[0]?.object as THREE.Mesh | undefined;
+  const hits = raycastHits(ctx, normX, normY, names);
+  const mesh = highlight ? (hits[0]?.object as THREE.Mesh | undefined) : undefined;
   const next = mesh?.isMesh ? mesh : null;
+  if (!highlight) clearHighlight(ctx);
   if (next === ctx.highlighted) {
     return hits.length ? hitFromIntersection(hits[0]) : null;
   }

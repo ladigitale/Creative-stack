@@ -38,7 +38,8 @@ function onMove(host: PointerHost, e: PointerEvent) {
   host.pointerX = p.x;
   host.pointerY = p.y;
   if (host.pick && host.runtime?.ready) {
-    host.runtime.setHoverAt(p.x, p.y);
+    // Avec `target`, c'est le store qui pilote l'apparence : pas de surlignage bleu.
+    host.runtime.setHoverAt(p.x, p.y, host.pickNames, !host.target);
   }
 }
 
@@ -49,7 +50,7 @@ function onDown(host: PointerHost, e: PointerEvent) {
   if (!host.pick || !host.runtime) return;
   if (e.button !== 0) return;
   host.tapStart = { x: e.clientX, y: e.clientY, t: performance.now() };
-  const hit = host.runtime.pick(p.x, p.y);
+  const hit = host.runtime.pick(p.x, p.y, host.pickNames);
   host.lastHit = hit;
   if (!hit) return;
   host.dispatchEvent(
@@ -59,15 +60,6 @@ function onDown(host: PointerHost, e: PointerEvent) {
       composed: true,
     }),
   );
-}
-
-function nameAllowed(pattern: string, name: string): boolean {
-  if (!pattern) return true;
-  try {
-    return new RegExp(pattern).test(name);
-  } catch {
-    return true;
-  }
 }
 
 /**
@@ -84,9 +76,10 @@ function onUp(host: PointerHost, e: PointerEvent) {
     return;
   }
   const p = normPointer(host, e);
-  const hit = host.runtime.pick(p.x, p.y);
+  // `pick-names` filtre le raycast : les nœuds décoratifs (table, reflets…) sont transparents au tap.
+  const hit = host.runtime.pick(p.x, p.y, host.pickNames);
   const type = host.pickActionType || "pick";
-  if (hit && nameAllowed(host.pickNames, hit.objectId)) {
+  if (hit) {
     dispatch(host.target, {
       type,
       payload: { objectId: hit.objectId, x: hit.x, y: hit.y, z: hit.z },

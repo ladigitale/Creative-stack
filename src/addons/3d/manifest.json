@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "3d",
   "label": "3D (Three.js)",
-  "description": "Rendu glTF Three.js : orbite, pick, animations, post-traitements, sortie frame vers DataProvider.",
+  "description": "Scène 3D glTF/GLB Three.js (orbite, pick) pilotable par données : GLB embarqué en base64 sans réseau, surcharges de nœuds en direct (clé DP nodes), taps envoyés à un sonic-store (target), matériaux procéduraux tex:wood|felt|marble|noise (UV générés), lumières KHR du glb.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [
@@ -12,28 +12,34 @@
   "components": [
     {
       "name": "sonic-3d",
-      "description": "Scène 3D glTF",
+      "description": "Scène 3D glTF/GLB pilotable par données : glb (base64, sans fetch), nodes (surcharges de nœuds via le DP), target (taps → sonic-store). Détail : règle « 3d » du catalogue ; sinon 3d.md.",
       "props": {
         "src": {
           "type": "url"
         },
         "glb": {
-          "type": "string"
+          "type": "string",
+          "description": "GLB en base64 (ou clé DP glb), chargé sans fetch ; prioritaire sur src"
         },
         "max-glb-bytes": {
-          "type": "number"
+          "type": "number",
+          "description": "Plafond du GLB décodé en octets (défaut 524288, max 2097152)"
         },
         "target": {
-          "type": "string"
+          "type": "string",
+          "description": "Id du sonic-store qui reçoit les taps (requiert pick)"
         },
         "pick-action-type": {
-          "type": "string"
+          "type": "string",
+          "description": "Type d'action envoyé à target (défaut pick)"
         },
         "pick-names": {
-          "type": "string"
+          "type": "string",
+          "description": "Regex sur le nom du nœud ; les autres taps sont ignorés"
         },
         "pick-empty": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Envoie {objectId:null} pour un tap dans le vide"
         },
         "fov": {
           "type": "number"
@@ -64,6 +70,34 @@
         },
         "aspect-ratio": {
           "type": "string"
+        },
+        "camera": {
+          "type": "string",
+          "description": "orbit (défaut), perspective ou ortho"
+        },
+        "min-distance": {
+          "type": "number",
+          "description": "Zoom orbite mini (défaut 0.5)"
+        },
+        "max-distance": {
+          "type": "number",
+          "description": "Zoom orbite maxi (défaut 50)"
+        },
+        "min-polar": {
+          "type": "number",
+          "description": "Angle vertical mini en degrés (défaut 8)"
+        },
+        "max-polar": {
+          "type": "number",
+          "description": "Angle vertical maxi en degrés (défaut 172) ; ~80 empêche de passer sous un plateau"
+        },
+        "damping": {
+          "type": "number",
+          "description": "Inertie de l'orbite (défaut 0.08, 0 = aucune)"
+        },
+        "dataProvider": {
+          "type": "string",
+          "description": "DP d'entrée : glb, nodes, src, fov, yaw, pitch, distance…"
         }
       }
     }

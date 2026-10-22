@@ -181,7 +181,13 @@ describe("tap → store", () => {
       tapStart: null,
       lastHit: null,
       hovering: false,
-      runtime: { ready: true, pick: vi.fn(() => hit) },
+      // Le filtre `pick-names` est appliqué par le runtime (raycast) : le mock le reproduit.
+      runtime: {
+        ready: true,
+        pick: vi.fn((_x: number, _y: number, names?: string) =>
+          names && !new RegExp(names).test(hit.objectId) ? null : hit,
+        ),
+      },
       getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }) as DOMRect,
       dispatchEvent: () => true,
       syncPlayback: () => {},

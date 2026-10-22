@@ -5,6 +5,7 @@ import type { Sonic3dAsset } from "./types";
 import { demoContent } from "./demo-content";
 import { DEFAULT_MAX_GLB_BYTES, HARD_MAX_GLB_BYTES } from "./constants";
 import { pick, type HighlightCtx } from "./pick";
+import { textures } from "./textures";
 
 export type LoadCtx = HighlightCtx & {
   root: THREE.Group;
@@ -14,7 +15,18 @@ export type LoadCtx = HighlightCtx & {
   loader: GLTFLoader;
   fitEnabled: boolean;
   fitToContent: () => void;
+  /** Lumières par défaut de la scène (masquées si le glb apporte les siennes). */
+  lights?: THREE.Light[];
 };
+
+/** Un glb avec ses propres lumières (KHR_lights_punctual) remplace l'éclairage par défaut. */
+function adoptSceneLights(ctx: LoadCtx) {
+  let own = false;
+  ctx.content?.traverse((o) => {
+    if ((o as THREE.Light).isLight) own = true;
+  });
+  for (const l of ctx.lights ?? []) l.visible = !own;
+}
 
 function revokeBlob(ctx: { blobUrl: string | null }) {
   if (ctx.blobUrl) {
@@ -137,6 +149,8 @@ async function asset(
     }
 
     if (!isCurrent(token)) return { ready: false, error: null };
+    textures.apply(ctx.content);
+    adoptSceneLights(ctx);
     updateBBox(ctx);
     if (ctx.fitEnabled) ctx.fitToContent();
     return { ready: true, error: null };
