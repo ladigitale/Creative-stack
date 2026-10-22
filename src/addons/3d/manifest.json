@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "3d",
   "label": "3D (Three.js)",
-  "description": "Scène 3D glTF/GLB Three.js (orbite, pick) pilotable par données : GLB embarqué en base64 sans réseau, surcharges de nœuds en direct (clé DP nodes), taps envoyés à un sonic-store (target).",
+  "description": "Scène 3D glTF/GLB Three.js (orbite, pick) pilotable par données : GLB embarqué en base64 sans réseau, surcharges de nœuds en direct (clé DP nodes), taps envoyés à un sonic-store (target), matériaux procéduraux tex:wood|felt|marble|noise (UV générés), lumières KHR du glb.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [

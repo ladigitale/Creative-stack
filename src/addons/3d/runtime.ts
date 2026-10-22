@@ -219,11 +219,16 @@ export class SceneRuntime {
       this.renderer.render(this.scene, this.activeCam);
     }
   }
-  pick(normX: number, normY: number): SceneHit | null {
-    return ops.pick(this.asOpsCtx(), normX, normY);
+  pick(normX: number, normY: number, names?: string): SceneHit | null {
+    return ops.pick(this.asOpsCtx(), normX, normY, names);
   }
-  setHoverAt(normX: number, normY: number): SceneHit | null {
-    return ops.setHoverAt(this.asOpsCtx(), normX, normY);
+  setHoverAt(
+    normX: number,
+    normY: number,
+    names?: string,
+    highlight = true,
+  ): SceneHit | null {
+    return ops.setHoverAt(this.asOpsCtx(), normX, normY, names, highlight);
   }
   clearHighlight() {
     ops.clearHighlight(this.asOpsCtx());

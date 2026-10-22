@@ -119,8 +119,14 @@ export const ops = {
   fitToContent,
   buildSnapshot,
   dispose,
-  pick: (ctx: HighlightCtx, x: number, y: number) => pick.hit(ctx, x, y),
-  setHoverAt: (ctx: HighlightCtx, x: number, y: number) =>
-    pick.setHoverAt(ctx, x, y),
+  pick: (ctx: HighlightCtx, x: number, y: number, names?: string) =>
+    pick.hit(ctx, x, y, names),
+  setHoverAt: (
+    ctx: HighlightCtx,
+    x: number,
+    y: number,
+    names?: string,
+    highlight = true,
+  ) => pick.setHoverAt(ctx, x, y, names, highlight),
   clearHighlight: (ctx: HighlightCtx) => pick.clearHighlight(ctx),
 } as const;
