@@ -89,7 +89,9 @@ export type JointSpec = {
 export type PhysicsEvent =
   | { type: "collide"; a: string; b: string; tagsA: string[]; tagsB: string[]; impulse: number; x: number; y: number }
   | { type: "enter" | "leave"; sensor: string; body: string; tags: string[] }
-  | { type: "out"; body: string; tags: string[]; side: "left" | "right" | "top" | "bottom" };
+  | { type: "out"; body: string; tags: string[]; side: "left" | "right" | "top" | "bottom" }
+  /** Tous les corps dynamiques viennent de s'immobiliser (jeux au tour par tour) : positions finales. */
+  | { type: "rest"; bodies: Record<string, { x: number; y: number; angle: number }> };
 
 export type BodyState = { x: number; y: number; angle: number; vx: number; vy: number; awake: boolean };
 
@@ -257,6 +259,8 @@ export class PhysicsWorld {
   private wallBodies: Body[] = [];
   private categories = new Map<string, number>();
   private events: PhysicsEvent[] = [];
+  /** Au moins un corps dynamique était éveillé au pas précédent. */
+  private moving = false;
   private begun: { contact: Contact; a: Fixture; b: Fixture }[] = [];
   private impulses = new Map<Contact, number>();
   private counters = new Map<string, number>();
@@ -611,6 +615,24 @@ export class PhysicsWorld {
         this.events.push({ type: "out", body: name, tags: [...s.tags], side });
       } else if (!side) data.out = false;
     }
+    // Repos : le dernier corps dynamique éveillé vient de s'endormir (Box2D endort un corps lent après ~0,5 s).
+    let awake = false;
+    for (const b of this.bodies.values()) {
+      if (b.getType() === "dynamic" && b.isAwake()) {
+        awake = true;
+        break;
+      }
+    }
+    if (this.moving && !awake) {
+      const bodies: Record<string, { x: number; y: number; angle: number }> = {};
+      for (const [name, b] of this.bodies) {
+        if (b.getType() !== "dynamic") continue;
+        const st = this.bodyState(name)!;
+        bodies[name] = { x: st.x, y: st.y, angle: st.angle };
+      }
+      this.events.push({ type: "rest", bodies });
+    }
+    this.moving = awake;
     const out = this.events;
     this.events = [];
     return out;

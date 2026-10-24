@@ -34,6 +34,7 @@ La balle tombe, rebondit, roule sur la rampe ; `drag` permet de la lancer à la 
 | `drag` | Glisser les corps dynamiques (souris, doigt) |
 | `paused`, `time-scale` | Pause, ralenti / accéléré |
 | `publish`, `rate` | Corps publiés dans l'état (noms ; défaut : tous), publications par seconde (30) |
+| `nodes-plane`, `nodes-scale`, `nodes-origin`, `nodes-y` | Publie aussi `nodes` dans l'état, au format du DP `nodes` de `sonic-3d` (`xz` : sol, `xy` : mur ; `nodes-scale` unités 3D par px, 0,01 par défaut ; `nodes-origin` `"x y"` en px placé à l'origine, centre par défaut ; `nodes-y` hauteur fixe). Pointer `sonic-3d data-provider` sur `<id>State` : les nœuds glTF du même nom suivent les corps, sans adaptateur |
 | `background`, `debug`, `hidden-preview` | Fond du canvas ; capteurs et joints visibles ; monde invisible (seulement source d'images) |
 
 Simulation à pas fixe (1/60 s), suspendue quand l'onglet est caché.
@@ -91,6 +92,7 @@ Simulation à pas fixe (1/60 s), suspendue quand l'onglet est caché.
 | `enter`, `leave` | `{ sensor, body, tags }` |
 | `out` | `{ body, tags, side }` : un corps quitte la scène (balle perdue) |
 | `tap` | `{ x, y, body }` : clic / toucher dans le monde |
+| `rest` | `{ bodies: { nom: { x, y, angle } } }` : une seule fois quand le dernier corps dynamique s'immobilise (fin de coup) ; positions finales de tous les corps dynamiques |
 
 Reducer type (casse-briques) : retirer la brique touchée de la liste `bodies`, compter les points, jouer une note.
 
