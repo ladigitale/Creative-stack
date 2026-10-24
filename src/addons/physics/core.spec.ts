@@ -104,6 +104,26 @@ describe("PhysicsWorld", () => {
     expect(run(w, 12).filter((e) => e.type === "rest").length).toBe(1); // un nouveau tir, un nouveau repos
   });
 
+  it("impulsion vers un point : direction depuis la position du corps, norme = power", () => {
+    const w = world({ gravity: [0, 0] });
+    w.upsert(body({ name: "cue", r: 8, x: 100, y: 100 }));
+    w.drive({ cue: { impulse: { n: 0, toward: { x: 400, y: 500 }, power: 5 } } }); // n = 0 : rien au chargement
+    w.step(1 / 60);
+    expect(w.bodyState("cue")!.vx).toBe(0);
+    w.drive({ cue: { impulse: { n: 1, toward: { x: 400, y: 500 }, power: 5 } } });
+    w.step(1 / 60);
+    const s = w.bodyState("cue")!;
+    // cible à (300, 400) : direction 3-4-5, vitesse perpendiculaire nulle
+    expect(s.vx).toBeGreaterThan(0);
+    expect(s.vy / s.vx).toBeCloseTo(400 / 300, 1);
+    // même cible que la position : pas de direction, pas d'impulsion
+    const w2 = world({ gravity: [0, 0] });
+    w2.upsert(body({ name: "cue", r: 8, x: 100, y: 100 }));
+    w2.drive({ cue: { impulse: { n: 1, toward: { x: 100, y: 100 }, power: 5 } } });
+    w2.step(1 / 60);
+    expect(w2.bodyState("cue")).toMatchObject({ vx: 0, vy: 0 });
+  });
+
   it("liste du store : ajout, mise à jour sans recréer, retrait", () => {
     const w = world({ gravity: [0, 0] });
     let owned = new Set<string>();
