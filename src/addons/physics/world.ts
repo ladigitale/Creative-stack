@@ -5,6 +5,8 @@ import { listenDp, plain } from "../../shared/audio/dp";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
 import { CounterTrigger } from "../../shared/media/control";
 import { parseBody, parseJoint, PhysicsWorld, type BodySpec, type BodyState, type Drive, type JointSpec, type PhysicsEvent, type WorldOptions } from "./core";
+import { parseNodesMap, toNodes } from "./nodes";
+import type { NodePatch } from "../../shared/nodes";
 import "./elements";
 
 const tagName = "sonic-physics";
@@ -26,6 +28,8 @@ export type PhysicsState = {
   /** Corps tenu à la souris / au doigt. */
   dragging: string | null;
   errors: string[];
+  /** Avec `nodes-plane` / `nodes-scale` : les mêmes corps au format `nodes` de `sonic-3d`. */
+  nodes?: Record<string, NodePatch>;
 };
 
 type StoreLike = { dispatchAction(action: { type: string; payload?: unknown }): void };
@@ -95,6 +99,16 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
   @property({ type: Boolean }) debug = false;
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
+  /** Publie aussi `nodes` (format `sonic-3d`) : plan `xz` (vue de dessus, défaut) ou `xy` (mur). */
+  @property({ type: String, attribute: "nodes-plane" }) nodesPlane = "";
+  /** Unités 3D par pixel du monde (0,01 par défaut quand `nodes-plane` est posé). */
+  @property({ type: Number, attribute: "nodes-scale" }) nodesScale = 0;
+  /** Point du monde (px) placé à l'origine 3D (défaut : centre de la scène). */
+  @property({ type: String, attribute: "nodes-origin" }) nodesOrigin = "";
+  /** Hauteur fixe des nœuds sur le plan `xz`. */
+  @property({ type: String, attribute: "nodes-y" }) nodesY = "";
+  /** Interpolation (ms) ajoutée à chaque nœud publié ; vide = intervalle entre deux publications (1000 / rate), 0 = aucune. */
+  @property({ type: String, attribute: "nodes-ease" }) nodesEase = "";
 
   @query("canvas") private canvas!: HTMLCanvasElement;
 
@@ -188,6 +202,11 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
       }
     }
     const errors = [...this.specErrors, ...(sim?.errors ?? [])];
+    const map = parseNodesMap(this.nodesPlane, this.nodesScale, this.nodesOrigin, this.nodesY, { width: this.width, height: this.height });
+    if (map) {
+      const e = this.nodesEase.trim() === "" ? 1000 / Math.max(1, Math.min(60, this.rate)) : Number(this.nodesEase);
+      map.ease = Number.isFinite(e) && e > 0 ? Math.round(e) : 0;
+    }
     return {
       status: errors.length && !sim?.bodies.size ? "error" : this.running ? "running" : "paused",
       running: this.running,
@@ -198,6 +217,7 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
       count: sim?.bodies.size ?? 0,
       dragging: sim?.dragging ?? null,
       errors,
+      ...(map ? { nodes: toNodes(bodies, map) } : {}),
     };
   }
 

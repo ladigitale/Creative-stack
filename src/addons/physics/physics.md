@@ -34,6 +34,7 @@ La balle tombe, rebondit, roule sur la rampe ; `drag` permet de la lancer à la 
 | `drag` | Glisser les corps dynamiques (souris, doigt) |
 | `paused`, `time-scale` | Pause, ralenti / accéléré |
 | `publish`, `rate` | Corps publiés dans l'état (noms ; défaut : tous), publications par seconde (30) |
+| `nodes-plane`, `nodes-scale`, `nodes-origin`, `nodes-y` | Publie aussi `nodes` dans l'état, au format `nodes` partagé par les rendus : `xz` (sol 3D), `xy` (mur 3D) pour `sonic-3d`, `screen` (2D, y vers le bas, rotation `rz` en radians) pour `sonic-stage`. `nodes-scale` : unités du rendu par px (0,01 par défaut ; 1 pour `screen`) ; `nodes-origin` `"x y"` en px placé à l'origine (centre par défaut ; `0 0` pour `screen`) ; `nodes-y` hauteur fixe (3D) ; `nodes-ease` interpolation ajoutée à chaque nœud pour un rendu fluide entre deux publications (défaut `1000 / rate` ms, `0` : aucune). Pointer le rendu sur `<id>State` (`dataProvider`) : les nœuds du même nom suivent les corps, sans adaptateur |
 | `background`, `debug`, `hidden-preview` | Fond du canvas ; capteurs et joints visibles ; monde invisible (seulement source d'images) |
 
 Simulation à pas fixe (1/60 s), suspendue quand l'onglet est caché.
@@ -92,6 +93,7 @@ Simulation à pas fixe (1/60 s), suspendue quand l'onglet est caché.
 | `enter`, `leave` | `{ sensor, body, tags }` |
 | `out` | `{ body, tags, side }` : un corps quitte la scène (balle perdue) |
 | `tap` | `{ x, y, body }` : clic / toucher dans le monde |
+| `rest` | `{ bodies: { nom: { x, y, angle } } }` : une seule fois quand le dernier corps dynamique s'immobilise (fin de coup) ; positions finales de tous les corps dynamiques |
 
 Reducer type (casse-briques) : retirer la brique touchée de la liste `bodies`, compter les points, jouer une note.
 

@@ -41,6 +41,10 @@ export class SonicTimeline extends LitElement {
   @property({ type: Number })
   duration?: number;
 
+  /** Mode nodes : publie l'état des cibles dans `<dp>.nodes` (format partagé, lu par sonic-stage / sonic-3d) au lieu d'écrire dans le DOM. */
+  @property({ type: String, attribute: "nodes-out" })
+  nodesOut = "";
+
   /** DataProvider où publier `status`, `progress`, `time`, `duration`, `currentLabel`, `issues`. */
   @property({ type: String, attribute: "out-data-provider" })
   outDataProvider = "";
@@ -57,7 +61,12 @@ export class SonicTimeline extends LitElement {
 
   connectedCallback(): void {
     super.connectedCallback();
-    this.runner = new TimelineRunner(this, { onState: (s) => this.publish(s) });
+    this.createRunner();
+  }
+
+  private createRunner(): void {
+    this.runner?.dispose();
+    this.runner = new TimelineRunner(this, { onState: (s) => this.publish(s), nodesOut: this.nodesOut.trim() || undefined });
     this.rebuild();
   }
 
@@ -72,6 +81,7 @@ export class SonicTimeline extends LitElement {
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
     if (!this.runner) return;
+    if (changed.has("nodesOut") && changed.get("nodesOut") !== undefined) return this.createRunner();
     const keys = ["descriptor", "descriptorDp", "timeSource", "outOfRange", "smooth", "duration"];
     if (keys.some((k) => changed.has(k))) this.rebuild();
   }

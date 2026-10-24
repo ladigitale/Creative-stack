@@ -1,0 +1,165 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "2d",
+  "label": "2D / 2.5D (PixiJS)",
+  "description": "sonic-2d : scène 2D / 2.5D WebGL (PixiJS) pilotée par données comme sonic-3d : sprites déclarés (sonic-sprite ou liste en DataProvider), mouvement par la clé nodes (format partagé : sonic-physics nodes-plane=\"screen\", sonic-store, sonic-timeline nodes-out, sonic-p2p), caméra {x, y, zoom} et calques à parallaxe, taps vers un sonic-store.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [
+    "pixi.js"
+  ],
+  "docs": "2d.md",
+  "examples": [
+    "examples/parallaxe.sdui.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-2d",
+      "description": "Scène 2D/2.5D : width × height logiques (mise à l'échelle de la largeur) ; enfants sonic-sprite ou sprites=DP liste ; dataProvider : clé nodes {nom:{x, y, rz (radians), scale, opacity, visible, z, color, ease}} et clé camera {x, y, zoom, ease} (ou attribut camera = chemin) ; layers=\"ciel:0 decor:0.4 monde:1:y hud:0\" (parallaxe ; :y = tri par y) ; target reçoit {type:pick, payload:{objectId, x, y}} ; rendu à la demande.",
+      "props": {
+        "dataProvider": {
+          "type": "string",
+          "description": "DataProvider lu : clés nodes (mouvement) et camera (sinon celui d'un ancêtre)"
+        },
+        "width": {
+          "type": "number",
+          "description": "Largeur logique de la scène (défaut 800)"
+        },
+        "height": {
+          "type": "number",
+          "description": "Hauteur logique (défaut 450)"
+        },
+        "background": {
+          "type": "string",
+          "description": "Couleur de fond CSS (vide ou transparent : transparent)"
+        },
+        "layers": {
+          "type": "string",
+          "description": "Calques du fond vers l'avant, nom:parallaxe[:y] (1 suit la caméra, 0 fixe à l'écran, :y trie par y) ; défaut : un calque monde"
+        },
+        "camera": {
+          "type": "string",
+          "description": "Chemin DataProvider de la caméra {x, y, zoom, ease} (défaut : clé camera du dataProvider)"
+        },
+        "sprites": {
+          "type": "string",
+          "description": "Chemin DataProvider d'une liste de sprites (mêmes clés que sonic-sprite ; ajouts et retraits suivis)"
+        },
+        "target": {
+          "type": "string",
+          "description": "Id du sonic-store qui reçoit les taps"
+        },
+        "pick-action-type": {
+          "type": "string",
+          "description": "Type d'action envoyé à target (défaut pick)"
+        },
+        "pick-names": {
+          "type": "string",
+          "description": "Regex sur le nom du sprite touché ; les autres taps sont ignorés"
+        },
+        "pick-empty": {
+          "type": "boolean",
+          "description": "Envoie aussi {objectId:null, x, y} (coordonnées du monde) pour un tap hors sprite"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DataProvider où publier {status, error, count, missing, errors}"
+        },
+        "max-dpr": {
+          "type": "number",
+          "description": "Densité de pixels maximale (défaut 2)"
+        }
+      }
+    },
+    {
+      "name": "sonic-sprite",
+      "description": "Sprite déclaratif d'un sonic-2d (aucun rendu propre) : shape box (w h radius) | circle (r) | polygon (points \"x,y …\") | text (text font-size font) | image (src data:image/… ou https://, w h) ; fill stroke line ; x y angle (°) de départ ; opacity layer z hidden. Le nom relie le sprite à son nœud (et au corps de même nom).",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Nom du nœud (nodes, corps physique, taps)"
+        },
+        "shape": {
+          "type": "string",
+          "description": "box (défaut) | circle | polygon | text | image"
+        },
+        "x": {
+          "type": "number",
+          "description": "Position de départ (le mouvement vient ensuite de nodes)"
+        },
+        "y": {
+          "type": "number",
+          "description": "Position de départ"
+        },
+        "angle": {
+          "type": "number",
+          "description": "Angle de départ en degrés"
+        },
+        "w": {
+          "type": "number",
+          "description": "Largeur (box, image)"
+        },
+        "h": {
+          "type": "number",
+          "description": "Hauteur (box, image)"
+        },
+        "r": {
+          "type": "number",
+          "description": "Rayon (circle)"
+        },
+        "radius": {
+          "type": "number",
+          "description": "Coins arrondis (box)"
+        },
+        "points": {
+          "type": "string",
+          "description": "Points \"x,y x,y …\" relatifs au centre (polygon)"
+        },
+        "fill": {
+          "type": "string",
+          "description": "Couleur de remplissage (texte : couleur du texte)"
+        },
+        "stroke": {
+          "type": "string",
+          "description": "Couleur du contour"
+        },
+        "line": {
+          "type": "number",
+          "description": "Épaisseur du contour"
+        },
+        "text": {
+          "type": "string",
+          "description": "Texte (shape text ; emoji acceptés)"
+        },
+        "font-size": {
+          "type": "number",
+          "description": "Taille du texte (défaut 24)"
+        },
+        "font": {
+          "type": "string",
+          "description": "Police CSS (défaut system-ui)"
+        },
+        "src": {
+          "type": "string",
+          "description": "Image : data:image/… (base64) ou URL https://"
+        },
+        "opacity": {
+          "type": "number",
+          "description": "Opacité 0..1"
+        },
+        "layer": {
+          "type": "string",
+          "description": "Calque (défaut monde)"
+        },
+        "z": {
+          "type": "number",
+          "description": "Ordre dans le calque"
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "Caché au départ"
+        }
+      }
+    }
+  ]
+}

@@ -85,7 +85,7 @@ Lit un temps normalisé et anime des éléments par `id`.
 }
 ```
 
-Attributs : `descriptor` (JSON en chaîne), `descriptor-dp` (le descripteur vient d'un DataProvider), `time-source` (chemin du temps ; remplace `timeSource` du descripteur), `out-of-range` (`clamp` défaut ou `wrap`), `smooth` (secondes de lissage, 0 = aucun), `duration` (secondes ; sinon déduite des nœuds), `out-data-provider` (publie `status`, `progress`, `time`, `duration`, `currentLabel`, `issues`).
+Attributs : `descriptor` (JSON en chaîne), `descriptor-dp` (le descripteur vient d'un DataProvider), `time-source` (chemin du temps ; remplace `timeSource` du descripteur), `out-of-range` (`clamp` défaut ou `wrap`), `smooth` (secondes de lissage, 0 = aucun), `duration` (secondes ; sinon déduite des nœuds), `out-data-provider` (publie `status`, `progress`, `time`, `duration`, `currentLabel`, `issues`), `nodes-out` (mode nodes, voir plus bas).
 
 ### Descripteur
 
@@ -158,3 +158,7 @@ Dans le navigateur, un descripteur invalide rend la timeline **muette** (aucun s
 ## Hors périmètre (v1)
 
 Ressorts et physique, `flip` / `draw-path` / `pulse`, transitions de vues (View Transitions), animation de la mise en page, synchronisation de l'horloge interne par p2p (le pilotage p2p passe par `time-source`).
+
+## Mode `nodes` : animer une scène (`sonic-stage`, `sonic-3d`)
+
+`nodes-out="anim"` : la timeline n'écrit plus dans le DOM, elle publie l'état de ses cibles dans `anim.nodes`, au format partagé (`x`, `y`, `scale`, `opacity` ; `rotate` en degrés devient `rz` en radians ; `blur`, variables CSS et texte sont ignorés). Les cibles sont des **noms de nœuds** : `id` d'un élément de `sonic-stage dataProvider="anim"`, ou nœud glTF de `sonic-3d dataProvider="anim"`. `children:` et `group:` n'existent pas dans ce mode. Un seul écrivain par DataProvider : la timeline possède `anim.nodes`.

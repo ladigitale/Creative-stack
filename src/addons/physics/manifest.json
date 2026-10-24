@@ -13,7 +13,7 @@
   "components": [
     {
       "name": "sonic-physics",
-      "description": "Monde 2D (px, y vers le bas) : enfants sonic-body / sonic-joint, bodies=DP liste de corps (ajout / retrait suivis), input=DP {nom: {vx, vy, fx, fy, spin, torque, impulse:{n,x,y | toward:{x,y},power}, set:{n,x,y,vx,vy,angle}}} (n = compteur), control=DP {running, reset: compteur, gravity:[x,y], timeScale}, store=id reçoit collide {a,b,tagsA,tagsB,impulse,x,y} / enter / leave {sensor, body, tags} / out {body, side} / tap {x,y,body} ; état <id>State {bodies:{nom:{x,y,angle,vx,vy}}, collisions, time} ; source d'images #id pour sonic-shader",
+      "description": "Monde 2D (px, y vers le bas) : enfants sonic-body / sonic-joint, bodies=DP liste de corps (ajout / retrait suivis), input=DP {nom: {vx, vy, fx, fy, spin, torque, impulse:{n,x,y | toward:{x,y},power}, set:{n,x,y,vx,vy,angle}}} (n = compteur), control=DP {running, reset: compteur, gravity:[x,y], timeScale}, store=id reçoit collide {a,b,tagsA,tagsB,impulse,x,y} / enter / leave {sensor, body, tags} / out {body, side} / tap {x,y,body} / rest {bodies:{nom:{x,y,angle}}} (une fois, quand le dernier corps dynamique s'immobilise) ; état <id>State {bodies:{nom:{x,y,angle,vx,vy}}, nodes (si nodes-plane/nodes-scale), collisions, time} ; source d'images #id pour sonic-shader",
       "props": {
         "width": {
           "type": "number"
@@ -77,6 +77,26 @@
         },
         "out-data-provider": {
           "type": "string"
+        },
+        "nodes-plane": {
+          "type": "string",
+          "description": "xz (sol 3D) | xy (mur 3D) | screen (2D, y vers le bas) : publie aussi nodes {nom:{x,y,z,ry|rz}} au format nodes partagé (sonic-3d, sonic-stage)"
+        },
+        "nodes-scale": {
+          "type": "number",
+          "description": "unités du rendu par px (défaut 0,01 ; 1 pour screen)"
+        },
+        "nodes-origin": {
+          "type": "string",
+          "description": "\"x y\" en px du monde placé à l'origine du rendu (défaut : centre ; 0 0 pour screen)"
+        },
+        "nodes-ease": {
+          "type": "number",
+          "description": "ms d'interpolation ajoutés à chaque nœud (défaut : 1000 / rate ; 0 : aucune)"
+        },
+        "nodes-y": {
+          "type": "number",
+          "description": "hauteur 3D fixe des corps (plan xz)"
         }
       }
     },

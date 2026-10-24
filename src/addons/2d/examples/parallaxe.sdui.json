@@ -1,0 +1,488 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:44rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "jeu",
+      "initial": "{\"taps\": 0, \"camera\": {\"x\": 400, \"y\": 225, \"zoom\": 1, \"ease\": {\"ms\": 700, \"curve\": \"inOut\"}}, \"input\": {\"b1\": {\"impulse\": {\"n\": 0, \"x\": 0, \"y\": 0}}, \"b2\": {\"impulse\": {\"n\": 0, \"x\": 0, \"y\": 0}}, \"b3\": {\"impulse\": {\"n\": 0, \"x\": 0, \"y\": 0}}, \"b4\": {\"impulse\": {\"n\": 0, \"x\": 0, \"y\": 0}}}}",
+      "reducer": "(\n  $p := $action.payload;\n  $o := $p.objectId ? $lookup($state.input, $p.objectId) : undefined;\n  $cam := function($s, $c) { $merge([$s, {\"camera\": $merge([$s.camera, $c])}]) };\n  $action.type = \"pick\" and $o ? $merge([$state, {\n    \"taps\": $state.taps + 1,\n    \"input\": $merge([$state.input, {$p.objectId: {\"impulse\": {\n      \"n\": $o.impulse.n + 1, \"x\": (($o.impulse.n * 7 + $state.taps) % 9 - 4) * 25, \"y\": -260\n    }}}])\n  }]) :\n  $action.type = \"pick\" ? $cam($state, {\"x\": $max([400, $min([1200, $p.x])])}) :\n  $action.type = \"zoom\" ? $cam($state, {\"zoom\": $max([0.5, $min([2, $state.camera.zoom * $p.k])])}) :\n  $state\n)"
+     }
+    },
+    {
+     "tagName": "sonic-physics",
+     "attributes": {
+      "id": "monde",
+      "width": "1600",
+      "height": "450",
+      "bounds": "walls",
+      "input": "jeu.input",
+      "hidden-preview": "",
+      "nodes-plane": "screen",
+      "style": "position:absolute;width:0;height:0;overflow:hidden"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-body",
+       "attributes": {
+        "name": "b1",
+        "shape": "circle",
+        "r": "28",
+        "x": "300",
+        "y": "90",
+        "restitution": "0.5"
+       }
+      },
+      {
+       "tagName": "sonic-body",
+       "attributes": {
+        "name": "b2",
+        "shape": "circle",
+        "r": "28",
+        "x": "700",
+        "y": "90",
+        "restitution": "0.5"
+       }
+      },
+      {
+       "tagName": "sonic-body",
+       "attributes": {
+        "name": "b3",
+        "shape": "circle",
+        "r": "28",
+        "x": "1100",
+        "y": "90",
+        "restitution": "0.5"
+       }
+      },
+      {
+       "tagName": "sonic-body",
+       "attributes": {
+        "name": "b4",
+        "shape": "circle",
+        "r": "28",
+        "x": "1400",
+        "y": "90",
+        "restitution": "0.5"
+       }
+      },
+      {
+       "tagName": "sonic-body",
+       "attributes": {
+        "name": "sol",
+        "type": "static",
+        "w": "1600",
+        "h": "40",
+        "x": "800",
+        "y": "430"
+       }
+      },
+      {
+       "tagName": "sonic-body",
+       "attributes": {
+        "name": "p1",
+        "type": "static",
+        "w": "260",
+        "h": "24",
+        "x": "600",
+        "y": "300",
+        "angle": "-8"
+       }
+      },
+      {
+       "tagName": "sonic-body",
+       "attributes": {
+        "name": "p2",
+        "type": "static",
+        "w": "260",
+        "h": "24",
+        "x": "1150",
+        "y": "260",
+        "angle": "6"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-2d",
+     "attributes": {
+      "dataProvider": "mondeState",
+      "camera": "jeu.camera",
+      "width": "800",
+      "height": "450",
+      "background": "#0b1020",
+      "layers": "ciel:0 montagnes:0.35 monde:1 hud:0",
+      "target": "jeu",
+      "pick-empty": "",
+      "pick-names": "^b[0-9]$",
+      "style": "border-radius:.8rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "soleil",
+        "layer": "ciel",
+        "shape": "circle",
+        "r": "42",
+        "x": "660",
+        "y": "90",
+        "fill": "#fde68a"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "etoile0",
+        "layer": "ciel",
+        "shape": "circle",
+        "r": "2",
+        "x": "80",
+        "y": "60",
+        "fill": "#e2e8f0"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "etoile1",
+        "layer": "ciel",
+        "shape": "circle",
+        "r": "2",
+        "x": "200",
+        "y": "120",
+        "fill": "#e2e8f0"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "etoile2",
+        "layer": "ciel",
+        "shape": "circle",
+        "r": "2",
+        "x": "330",
+        "y": "40",
+        "fill": "#e2e8f0"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "etoile3",
+        "layer": "ciel",
+        "shape": "circle",
+        "r": "2",
+        "x": "480",
+        "y": "90",
+        "fill": "#e2e8f0"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "etoile4",
+        "layer": "ciel",
+        "shape": "circle",
+        "r": "2",
+        "x": "560",
+        "y": "30",
+        "fill": "#e2e8f0"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "etoile5",
+        "layer": "ciel",
+        "shape": "circle",
+        "r": "2",
+        "x": "760",
+        "y": "140",
+        "fill": "#e2e8f0"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "mont0",
+        "layer": "montagnes",
+        "shape": "polygon",
+        "points": "-170,0 0,-150 170,0",
+        "x": "60",
+        "y": "450",
+        "fill": "#1e293b"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "mont1",
+        "layer": "montagnes",
+        "shape": "polygon",
+        "points": "-170,0 0,-210 170,0",
+        "x": "320",
+        "y": "450",
+        "fill": "#334155"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "mont2",
+        "layer": "montagnes",
+        "shape": "polygon",
+        "points": "-170,0 0,-150 170,0",
+        "x": "560",
+        "y": "450",
+        "fill": "#1e293b"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "mont3",
+        "layer": "montagnes",
+        "shape": "polygon",
+        "points": "-170,0 0,-210 170,0",
+        "x": "820",
+        "y": "450",
+        "fill": "#334155"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "mont4",
+        "layer": "montagnes",
+        "shape": "polygon",
+        "points": "-170,0 0,-150 170,0",
+        "x": "1060",
+        "y": "450",
+        "fill": "#1e293b"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "sol",
+        "layer": "monde",
+        "shape": "box",
+        "w": "1600",
+        "h": "40",
+        "x": "800",
+        "y": "430",
+        "fill": "#14532d"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "p1",
+        "layer": "monde",
+        "shape": "box",
+        "w": "260",
+        "h": "24",
+        "x": "600",
+        "y": "300",
+        "angle": "-8",
+        "radius": "6",
+        "fill": "#a16207"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "p2",
+        "layer": "monde",
+        "shape": "box",
+        "w": "260",
+        "h": "24",
+        "x": "1150",
+        "y": "260",
+        "angle": "6",
+        "radius": "6",
+        "fill": "#a16207"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "arbre0",
+        "layer": "monde",
+        "shape": "text",
+        "text": "🌲",
+        "font-size": "56",
+        "x": "120",
+        "y": "382",
+        "z": "-1"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "arbre1",
+        "layer": "monde",
+        "shape": "text",
+        "text": "🌲",
+        "font-size": "56",
+        "x": "480",
+        "y": "382",
+        "z": "-1"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "arbre2",
+        "layer": "monde",
+        "shape": "text",
+        "text": "🌲",
+        "font-size": "56",
+        "x": "900",
+        "y": "382",
+        "z": "-1"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "arbre3",
+        "layer": "monde",
+        "shape": "text",
+        "text": "🌲",
+        "font-size": "56",
+        "x": "1300",
+        "y": "382",
+        "z": "-1"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "arbre4",
+        "layer": "monde",
+        "shape": "text",
+        "text": "🌲",
+        "font-size": "56",
+        "x": "1520",
+        "y": "382",
+        "z": "-1"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "b1",
+        "layer": "monde",
+        "shape": "circle",
+        "r": "28",
+        "x": "300",
+        "y": "90",
+        "fill": "#f472b6",
+        "stroke": "#0b1020",
+        "line": "3"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "b2",
+        "layer": "monde",
+        "shape": "circle",
+        "r": "28",
+        "x": "700",
+        "y": "90",
+        "fill": "#fb923c",
+        "stroke": "#0b1020",
+        "line": "3"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "b3",
+        "layer": "monde",
+        "shape": "circle",
+        "r": "28",
+        "x": "1100",
+        "y": "90",
+        "fill": "#facc15",
+        "stroke": "#0b1020",
+        "line": "3"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "b4",
+        "layer": "monde",
+        "shape": "circle",
+        "r": "28",
+        "x": "1400",
+        "y": "90",
+        "fill": "#4ade80",
+        "stroke": "#0b1020",
+        "line": "3"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "aide",
+        "layer": "hud",
+        "shape": "text",
+        "text": "Touche une bille : elle saute. Touche ailleurs : la caméra y va.",
+        "font-size": "16",
+        "x": "400",
+        "y": "22",
+        "fill": "#e2e8f0"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.5rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "zoom",
+        "payload": "{\"k\":1.25}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "textContent": "Zoom +"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "zoom",
+        "payload": "{\"k\":0.8}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "textContent": "Zoom −"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

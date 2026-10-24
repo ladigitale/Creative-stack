@@ -1,0 +1,57 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "stage",
+  "label": "Scène 2D (DOM)",
+  "description": "sonic-stage place ses éléments SDUI (par id) d'après la clé nodes de son DataProvider, au même format que sonic-3d : un sonic-physics (nodes-plane=\"screen\"), un sonic-store ou un sonic-p2p les anime sans adaptateur ; taps en coordonnées de scène vers un sonic-store.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "stage.md",
+  "examples": [
+    "examples/billes-dom.sdui.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-stage",
+      "description": "Scène 2D : enfants SDUI nommés par id ; nodes {nom:{x, y, rz (radians), scale, opacity, visible, z (empilement), color, ease {ms, curve linear|in|out|inOut}}} lu dans dataProvider (patch, $reset) ; width + height = taille logique, mise à l'échelle de la largeur, (x, y) = centre de l'élément ; layout=offset = décalage depuis la mise en page ; target = store qui reçoit {type:pick, payload:{objectId, x, y}}. Ne crée ni ne retire d'éléments (rôle du SDUI, de sonic-list, sonic-states, sonic-if).",
+      "props": {
+        "dataProvider": {
+          "type": "string",
+          "description": "DataProvider dont la clé nodes place les éléments (sinon celui d'un ancêtre)"
+        },
+        "width": {
+          "type": "number",
+          "description": "Largeur logique de la scène (unités de nodes)"
+        },
+        "height": {
+          "type": "number",
+          "description": "Hauteur logique de la scène"
+        },
+        "layout": {
+          "type": "string",
+          "description": "absolute (défaut avec width et height : x, y = centre dans la scène) | offset (décalage depuis la place de mise en page)"
+        },
+        "target": {
+          "type": "string",
+          "description": "Id du sonic-store qui reçoit les taps"
+        },
+        "pick-action-type": {
+          "type": "string",
+          "description": "Type d'action envoyé à target (défaut pick)"
+        },
+        "pick-names": {
+          "type": "string",
+          "description": "Regex sur le nom (id) du nœud tapé ; les autres taps sont ignorés"
+        },
+        "pick-empty": {
+          "type": "boolean",
+          "description": "Envoie aussi {objectId:null, x, y} pour un tap hors nœud"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DataProvider où publier {count, missing} (nœuds sans élément)"
+        }
+      }
+    }
+  ]
+}

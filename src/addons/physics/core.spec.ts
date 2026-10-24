@@ -86,6 +86,24 @@ describe("PhysicsWorld", () => {
     expect(w.bodyState("ball")).toMatchObject({ x: 100, y: 100, vx: 0, vy: 0 });
   });
 
+  it("rest : un seul événement quand le dernier corps dynamique s'endort, avec les positions finales", () => {
+    const w = world({ gravity: [0, 0] });
+    w.upsert(body({ name: "a", r: 8, x: 100, y: 100, damping: 1 }));
+    w.upsert(body({ name: "wall", type: "static", w: 20, h: 20, x: 600, y: 300 }));
+    w.drive({ a: { impulse: { n: 0, x: 30, y: 0 } } });
+    w.step(1 / 60);
+    w.drive({ a: { impulse: { n: 1, x: 30, y: 0 } } });
+    const ev = run(w, 12).filter((e) => e.type === "rest");
+    expect(ev.length).toBe(1);
+    const rest = ev[0] as Extract<PhysicsEvent, { type: "rest" }>;
+    expect(Object.keys(rest.bodies)).toEqual(["a"]); // les corps statiques ne comptent pas
+    expect(rest.bodies.a.x).toBeGreaterThan(150);
+    expect(rest.bodies.a.x).toBeCloseTo(w.bodyState("a")!.x, 0);
+    expect(run(w, 2).some((e) => e.type === "rest")).toBe(false); // pas de répétition à l'arrêt
+    w.drive({ a: { impulse: { n: 2, x: 30, y: 0 } } });
+    expect(run(w, 12).filter((e) => e.type === "rest").length).toBe(1); // un nouveau tir, un nouveau repos
+  });
+
   it("impulsion vers un point : direction depuis la position du corps, norme = power", () => {
     const w = world({ gravity: [0, 0] });
     w.upsert(body({ name: "cue", r: 8, x: 100, y: 100 }));

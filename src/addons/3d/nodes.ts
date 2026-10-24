@@ -1,33 +1,17 @@
 import * as THREE from "three";
 
-/** Courbes d'interpolation acceptées dans `ease.curve`. */
-export type NodeCurve = "linear" | "in" | "out" | "inOut";
+import {
+  MAX_NODES_PER_MUTATION,
+  easeCurve as ease,
+  isNum,
+  patchOf,
+  type NodeCurve,
+  type NodePatch,
+  type NodesSpec,
+} from "../../shared/nodes";
 
-export type NodeEase = { ms?: number; curve?: NodeCurve };
-
-/** Surcharge d'un nœud (clé DP `nodes.<nom>`). Champs absents = inchangés. */
-export type NodePatch = {
-  x?: number;
-  y?: number;
-  z?: number;
-  rx?: number;
-  ry?: number;
-  rz?: number;
-  scale?: number | [number, number, number];
-  visible?: boolean;
-  color?: string | number;
-  emissive?: number;
-  emissiveColor?: string | number;
-  opacity?: number;
-  ease?: NodeEase;
-  /** Hauteur max en y au milieu d'une interpolation de position (requiert `ease.ms`). */
-  lift?: number;
-};
-
-export type NodesSpec = { $reset?: boolean } & Record<string, NodePatch | boolean>;
-
-/** Nombre max de nœuds traités par mutation. */
-export const MAX_NODES_PER_MUTATION = 200;
+export { MAX_NODES_PER_MUTATION };
+export type { NodeCurve, NodeEase, NodePatch, NodesSpec } from "../../shared/nodes";
 
 type Channel = "px" | "py" | "pz" | "rx" | "ry" | "rz" | "sx" | "sy" | "sz" | "em" | "op";
 
@@ -58,16 +42,7 @@ type Baseline = {
 
 type StdMat = THREE.MeshStandardMaterial;
 
-function ease(curve: NodeCurve, t: number): number {
-  if (curve === "in") return t * t;
-  if (curve === "out") return 1 - (1 - t) * (1 - t);
-  if (curve === "inOut") return t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
-  return t;
-}
 
-function isNum(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
 
 function toColor(v: unknown): THREE.Color | null {
   if (typeof v !== "string" && !isNum(v)) return null;
@@ -78,9 +53,6 @@ function toColor(v: unknown): THREE.Color | null {
   }
 }
 
-function patchOf(v: unknown): NodePatch | null {
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as NodePatch) : null;
-}
 
 /**
  * Surcharges de nœuds d'une scène glTF pilotées par données.
