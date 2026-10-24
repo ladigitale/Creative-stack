@@ -32,7 +32,29 @@ export type RunnerOptions = {
   write?: (path: string, value: unknown) => void;
   /** Force `prefers-reduced-motion` (tests). */
   reducedMotion?: boolean;
+  /**
+   * Mode `nodes` : au lieu d'écrire dans le DOM, publie l'état des cibles au format `nodes` partagé
+   * (src/shared/nodes.ts) dans ce DataProvider (`<dp>.nodes`). Les cibles sont alors des noms de nœuds
+   * (élément de `sonic-stage`, nœud glTF de `sonic-3d`).
+   */
+  nodesOut?: string;
 };
+
+/** Cible fictive d'un nœud en mode `nodes` (aucun élément DOM). */
+type NodeTarget = { nodeName: string };
+const RAD = Math.PI / 180;
+const r4 = (n: number) => Math.round(n * 10000) / 10000;
+
+/** Propriétés de timeline → champs `nodes` (rotation en degrés → `rz` en radians ; le reste est ignoré). */
+export function propsToNode(props: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  if ("x" in props) out.x = r4(props.x);
+  if ("y" in props) out.y = r4(props.y);
+  if ("rotate" in props) out.rz = r4(props.rotate * RAD);
+  if ("scale" in props) out.scale = r4(props.scale);
+  if ("opacity" in props) out.opacity = r4(props.opacity);
+  return out;
+}
 
 const escAttr = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 const TOKEN = /^(children|group):(.+)$/;
@@ -52,6 +74,8 @@ export class TimelineRunner {
   private issues: AnimationIssue[] = [];
   private warned = new Set<string>();
   private disposed = false;
+  private lastNodes = "";
+  private nodeTargets = new Map<string, NodeTarget>();
 
   constructor(private host: HTMLElement, private options: RunnerOptions = {}) {}
 
@@ -157,7 +181,20 @@ export class TimelineRunner {
     // Mouvement réduit : état final, sans passage par les états intermédiaires.
     const time = this.reduced() ? duration : this.shown * duration;
     const states = evaluate(compiled, time, (t) => this.resolve(t));
-    for (const [el, st] of states) applyState(el, st);
+    const out = this.options.nodesOut?.trim();
+    if (out) {
+      const nodes: Record<string, Record<string, number>> = {};
+      for (const [target, st] of states) nodes[(target as unknown as NodeTarget).nodeName] = propsToNode(st.props);
+      const sig = JSON.stringify(nodes);
+      if (sig !== this.lastNodes) {
+        this.lastNodes = sig;
+        try {
+          (this.options.write ?? setDp)(`${out}.nodes`, nodes);
+        } catch {
+          /* écriture refusée : ignorée */
+        }
+      }
+    } else for (const [el, st] of states) applyState(el, st);
 
     if (time < this.lastTime) this.lastTime = time;
     for (const s of setsCrossed(compiled, this.lastTime, time)) {
@@ -186,6 +223,14 @@ export class TimelineRunner {
   private resolve(target: string): Element[] {
     const hit = this.cache.get(target);
     if (hit) return hit;
+    if (this.options.nodesOut?.trim()) {
+      // Mode nodes : une cible = un nom de nœud ; `children:` et `group:` n'ont pas de sens sans DOM.
+      let t = this.nodeTargets.get(target);
+      if (!t && !TOKEN.test(target) && target !== "@self") this.nodeTargets.set(target, (t = { nodeName: target }));
+      const els = (t ? [t] : []) as unknown as Element[];
+      this.cache.set(target, els);
+      return els;
+    }
     const root = this.root();
     let els: Element[] = [];
     const m = TOKEN.exec(target);
@@ -208,7 +253,7 @@ export class TimelineRunner {
   }
 
   private observe(): void {
-    if (this.observer || typeof MutationObserver === "undefined") return;
+    if (this.observer || typeof MutationObserver === "undefined" || this.options.nodesOut?.trim()) return;
     const root = this.root() as unknown as Node;
     this.observer = new MutationObserver(() => {
       if (this.refreshQueued) return;

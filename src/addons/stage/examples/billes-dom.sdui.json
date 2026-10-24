@@ -1,0 +1,171 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:44rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "jeu",
+      "initial": "{\"taps\": 0, \"input\": {\"b1\": {\"impulse\": {\"n\": 0, \"x\": 0, \"y\": 0}}, \"b2\": {\"impulse\": {\"n\": 0, \"x\": 0, \"y\": 0}}, \"b3\": {\"impulse\": {\"n\": 0, \"x\": 0, \"y\": 0}}, \"b4\": {\"impulse\": {\"n\": 0, \"x\": 0, \"y\": 0}}}}",
+      "reducer": "(\n  $p := $action.payload;\n  $o := $p.objectId ? $lookup($state.input, $p.objectId) : undefined;\n  $action.type = \"pick\" and $o ? $merge([$state, {\n    \"taps\": $state.taps + 1,\n    \"input\": $merge([$state.input, {$p.objectId: {\"impulse\": {\n      \"n\": $o.impulse.n + 1,\n      \"x\": (($o.impulse.n * 7 + $state.taps) % 9 - 4) * 25,\n      \"y\": -260\n    }}}])\n  }]) : $state\n)"
+     }
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0"
+     },
+     "textContent": "Touche une bille : elle saute. Les billes et la carte sont des éléments HTML placés par la physique, sans canvas visible."
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "position:relative;border-radius:.8rem;overflow:hidden;background:#0b1020"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-physics",
+       "attributes": {
+        "id": "monde",
+        "width": "800",
+        "height": "450",
+        "bounds": "walls",
+        "input": "jeu.input",
+        "store": "jeu",
+        "hidden-preview": "",
+        "nodes-plane": "screen",
+        "style": "position:absolute;inset:0"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-body",
+         "attributes": {
+          "name": "b1",
+          "shape": "circle",
+          "r": "28",
+          "x": "200",
+          "y": "90",
+          "restitution": "0.55"
+         }
+        },
+        {
+         "tagName": "sonic-body",
+         "attributes": {
+          "name": "b2",
+          "shape": "circle",
+          "r": "28",
+          "x": "330",
+          "y": "90",
+          "restitution": "0.55"
+         }
+        },
+        {
+         "tagName": "sonic-body",
+         "attributes": {
+          "name": "b3",
+          "shape": "circle",
+          "r": "28",
+          "x": "470",
+          "y": "90",
+          "restitution": "0.55"
+         }
+        },
+        {
+         "tagName": "sonic-body",
+         "attributes": {
+          "name": "b4",
+          "shape": "circle",
+          "r": "28",
+          "x": "600",
+          "y": "90",
+          "restitution": "0.55"
+         }
+        },
+        {
+         "tagName": "sonic-body",
+         "attributes": {
+          "name": "carte",
+          "type": "static",
+          "w": "300",
+          "h": "90",
+          "x": "400",
+          "y": "330",
+          "angle": "-6"
+         }
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-stage",
+       "attributes": {
+        "dataProvider": "mondeState",
+        "width": "800",
+        "height": "450",
+        "target": "jeu",
+        "pick-names": "^b[0-9]$"
+       },
+       "nodes": [
+        {
+         "tagName": "div",
+         "attributes": {
+          "id": "b1",
+          "style": "width:56px;height:56px;border-radius:50%;background:#f472b6;display:grid;place-items:center;font:700 1.4rem system-ui;color:#111;box-shadow:0 4px 10px #0006;cursor:pointer;user-select:none"
+         },
+         "textContent": "A"
+        },
+        {
+         "tagName": "div",
+         "attributes": {
+          "id": "b2",
+          "style": "width:56px;height:56px;border-radius:50%;background:#fb923c;display:grid;place-items:center;font:700 1.4rem system-ui;color:#111;box-shadow:0 4px 10px #0006;cursor:pointer;user-select:none"
+         },
+         "textContent": "B"
+        },
+        {
+         "tagName": "div",
+         "attributes": {
+          "id": "b3",
+          "style": "width:56px;height:56px;border-radius:50%;background:#facc15;display:grid;place-items:center;font:700 1.4rem system-ui;color:#111;box-shadow:0 4px 10px #0006;cursor:pointer;user-select:none"
+         },
+         "textContent": "C"
+        },
+        {
+         "tagName": "div",
+         "attributes": {
+          "id": "b4",
+          "style": "width:56px;height:56px;border-radius:50%;background:#4ade80;display:grid;place-items:center;font:700 1.4rem system-ui;color:#111;box-shadow:0 4px 10px #0006;cursor:pointer;user-select:none"
+         },
+         "textContent": "D"
+        },
+        {
+         "tagName": "div",
+         "attributes": {
+          "id": "carte",
+          "style": "width:300px;height:90px;box-sizing:border-box;border-radius:.6rem;background:#e2e8f0;color:#0b1020;display:grid;place-items:center;font:600 1.1rem system-ui"
+         },
+         "nodes": [
+          {
+           "tagName": "span",
+           "textContent": "Rebonds : "
+          },
+          {
+           "tagName": "sonic-value",
+           "attributes": {
+            "dataProvider": "jeu",
+            "key": "taps"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

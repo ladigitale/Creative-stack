@@ -129,6 +129,10 @@
           "type": "number",
           "description": "Durée totale en secondes (sinon déduite des nœuds)."
         },
+        "nodes-out": {
+          "type": "string",
+          "description": "Mode nodes : publie l'état des cibles (noms de nœuds) dans <dp>.nodes au format partagé lu par sonic-stage et sonic-3d (x, y, rotate → rz radians, scale, opacity), au lieu d'écrire dans le DOM."
+        },
         "out-data-provider": {
           "type": "string",
           "description": "DataProvider où publier status, progress, time, duration, currentLabel, issues."

@@ -5,7 +5,8 @@ import { listenDp, plain } from "../../shared/audio/dp";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
 import { CounterTrigger } from "../../shared/media/control";
 import { parseBody, parseJoint, PhysicsWorld, type BodySpec, type BodyState, type Drive, type JointSpec, type PhysicsEvent, type WorldOptions } from "./core";
-import { parseNodesMap, toNodes, type NodePatch } from "./nodes";
+import { parseNodesMap, toNodes } from "./nodes";
+import type { NodePatch } from "../../shared/nodes";
 import "./elements";
 
 const tagName = "sonic-physics";
@@ -106,6 +107,8 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
   @property({ type: String, attribute: "nodes-origin" }) nodesOrigin = "";
   /** Hauteur fixe des nœuds sur le plan `xz`. */
   @property({ type: String, attribute: "nodes-y" }) nodesY = "";
+  /** Interpolation (ms) ajoutée à chaque nœud publié ; vide = intervalle entre deux publications (1000 / rate), 0 = aucune. */
+  @property({ type: String, attribute: "nodes-ease" }) nodesEase = "";
 
   @query("canvas") private canvas!: HTMLCanvasElement;
 
@@ -200,6 +203,10 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
     }
     const errors = [...this.specErrors, ...(sim?.errors ?? [])];
     const map = parseNodesMap(this.nodesPlane, this.nodesScale, this.nodesOrigin, this.nodesY, { width: this.width, height: this.height });
+    if (map) {
+      const e = this.nodesEase.trim() === "" ? 1000 / Math.max(1, Math.min(60, this.rate)) : Number(this.nodesEase);
+      map.ease = Number.isFinite(e) && e > 0 ? Math.round(e) : 0;
+    }
     return {
       status: errors.length && !sim?.bodies.size ? "error" : this.running ? "running" : "paused",
       running: this.running,

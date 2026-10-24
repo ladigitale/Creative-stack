@@ -80,15 +80,19 @@
         },
         "nodes-plane": {
           "type": "string",
-          "description": "xz (sol) | xy (mur) : publie aussi nodes {nom:{x,y,z,ry|rz}} au format du DP nodes de sonic-3d"
+          "description": "xz (sol 3D) | xy (mur 3D) | screen (2D, y vers le bas) : publie aussi nodes {nom:{x,y,z,ry|rz}} au format nodes partagé (sonic-3d, sonic-stage)"
         },
         "nodes-scale": {
           "type": "number",
-          "description": "unités 3D par px (défaut 0,01)"
+          "description": "unités du rendu par px (défaut 0,01 ; 1 pour screen)"
         },
         "nodes-origin": {
           "type": "string",
-          "description": "\"x y\" en px du monde placé à l'origine 3D (défaut : centre)"
+          "description": "\"x y\" en px du monde placé à l'origine du rendu (défaut : centre ; 0 0 pour screen)"
+        },
+        "nodes-ease": {
+          "type": "number",
+          "description": "ms d'interpolation ajoutés à chaque nœud (défaut : 1000 / rate ; 0 : aucune)"
         },
         "nodes-y": {
           "type": "number",

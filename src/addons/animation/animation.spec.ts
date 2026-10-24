@@ -161,6 +161,21 @@ describe("sonic-timeline", () => {
     expect(box.style.opacity).toBe("1");
   });
 
+  it("nodes-out : publie l'état au format nodes partagé (rotation en radians) sans toucher au DOM", async () => {
+    const dp = id("scrub");
+    const out = id("scene");
+    document.body.innerHTML = `
+      <div id="titre"></div>
+      <sonic-timeline nodes-out="${out}" descriptor='${JSON.stringify({
+        timeSource: `${dp}.t`,
+        root: { type: "tween", targets: ["titre"], props: { x: [0, 100], rotate: [0, 180], opacity: [0, 1], blur: [4, 0] }, duration: 1 },
+      })}'></sonic-timeline>`;
+    await (document.querySelector("sonic-timeline") as SonicTimeline).updateComplete;
+    set(`${dp}.t`, 0.5);
+    expect(get(`${out}.nodes`)).toEqual({ titre: { x: 50, rz: 1.5708, opacity: 0.5 } });
+    expect(document.getElementById("titre")!.style.transform).toBe("");
+  });
+
   it("targets children: et @self ; groupes", async () => {
     const dp = id("scrub");
     document.body.innerHTML = `

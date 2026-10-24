@@ -25,6 +25,17 @@ describe("nodes : monde 2D → format sonic-3d", () => {
     expect(toNodes({ a: body(100, 200) }, m).a).toMatchObject({ x: 1, z: 2 });
   });
 
+  it("plan screen : repère de l'écran (y vers le bas), origine 0 0 et échelle 1 par défaut, rotation horaire", () => {
+    const m = parseNodesMap("screen", 0, "", "", world)!;
+    expect(m).toMatchObject({ plane: "screen", scale: 1, origin: [0, 0] });
+    expect(toNodes({ a: body(120, 80, 90) }, m).a).toEqual({ x: 120, y: 80, rz: 1.5708 });
+  });
+
+  it("ease : ajouté à chaque nœud quand demandé", () => {
+    const m = { ...parseNodesMap("screen", 0, "", "", world)!, ease: 33 };
+    expect(toNodes({ a: body(1, 2) }, m).a.ease).toEqual({ ms: 33 });
+  });
+
   it("plan xy (mur) : y vers le haut", () => {
     const m = parseNodesMap("xy", 1, "0 0", "", world)!;
     expect(toNodes({ a: body(3, 4) }, m).a).toEqual({ x: 3, y: -4, rz: -0 });

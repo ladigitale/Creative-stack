@@ -230,7 +230,9 @@ export function validateSduiAnimation(sdui: unknown): AnimationIssue[] {
         if (!d.timeSource && !a["time-source"]) {
           issues.push({ path: `${path}.attributes`, field: "timeSource", message: "Aucun timeSource : la timeline ne bougera jamais.", fix: 'Ajoute "timeSource": "clock-main.t" au descripteur (ou l\'attribut "time-source").' });
         }
-        issues.push(...validateTimelineDescriptor(parsed, { knownIds: ids, path: `${path}.attributes.descriptor` }));
+        // nodes-out : les cibles sont des noms de nœuds (sonic-stage, ou glTF de sonic-3d), pas forcément des id DOM.
+        const knownIds = a["nodes-out"] ? undefined : ids;
+        issues.push(...validateTimelineDescriptor(parsed, { knownIds, path: `${path}.attributes.descriptor` }));
       }
     } else if (n.tagName === "sonic-animate") {
       if (!recipes.includes(String(a.recipe))) {
