@@ -145,7 +145,7 @@
          "tagName": "div",
          "attributes": {
           "id": "carte",
-          "style": "width:300px;height:90px;box-sizing:border-box;border-radius:.6rem;background:#e2e8f0;color:#0b1020;display:grid;place-items:center;font:600 1.1rem system-ui"
+          "style": "width:300px;height:90px;box-sizing:border-box;border-radius:.6rem;background:#e2e8f0;color:#0b1020;display:flex;align-items:center;justify-content:center;gap:.4rem;font:600 1.1rem system-ui"
          },
          "nodes": [
           {
