@@ -17,7 +17,7 @@ const addon = process.env.ADDON;
 /** `es` : Concorde, Lit et les libs restent des imports (une seule instance côté app). `iife` : autonome. */
 const format = (process.env.FORMAT ?? "es") as "es" | "iife";
 const external = (id: string) =>
-  /^(lit|@lit\/|@supersoniks\/concorde|three|jsonata|@huggingface\/)/.test(id);
+  /^(lit|@lit\/|@supersoniks\/concorde|three|pixi\.js|jsonata|@huggingface\/)/.test(id);
 if (addon && !addonIds.includes(addon)) {
   throw new Error(`Addon inconnu : ${addon} (connus : ${addonIds.join(", ")})`);
 }

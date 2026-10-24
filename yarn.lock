@@ -471,6 +471,11 @@
   resolved "https://registry.yarnpkg.com/@napi-rs/lzma-linux-x64-gnu/-/lzma-linux-x64-gnu-1.5.1.tgz#e57d4306966078662038094fb38eb9146dc3aea9"
   integrity sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==
 
+"@pixi/colord@^2.9.6":
+  version "2.9.6"
+  resolved "https://registry.yarnpkg.com/@pixi/colord/-/colord-2.9.6.tgz#7e4e7851480da6fd3cef4e331f008d60be7e1204"
+  integrity sha512-nezytU2pw587fQstUu1AsJZDVEynjskwOL+kibwcdxsMBFqPsFFNA7xl0ii/gXuDi6M0xj3mfRJj8pBSc2jCfA==
+
 "@protobufjs/aspromise@^1.1.1", "@protobufjs/aspromise@^1.1.2":
   version "1.1.2"
   resolved "https://registry.yarnpkg.com/@protobufjs/aspromise/-/aspromise-1.1.2.tgz#9b8b0cc663d669a7d8f6f5d0893a14d348f30fbf"
@@ -677,6 +682,13 @@
   resolved "https://registry.yarnpkg.com/@types/deep-eql/-/deep-eql-4.0.2.tgz#334311971d3a07121e7eb91b684a605e7eea9cbd"
   integrity sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==
 
+"@types/earcut@^3.0.0":
+  version "3.2.4"
+  resolved "https://registry.yarnpkg.com/@types/earcut/-/earcut-3.2.4.tgz#c87264116ccbe95a554ed80701e5c3f4754cf4d8"
+  integrity sha512-I688mi107oflZOpzhs4EwasCN4ycLlZHf7XAGhM6EQIHEJkRTEuTL08lemIZOQ1YAACJoNoCzAiSDCJujpJLHA==
+  dependencies:
+    earcut "*"
+
 "@types/estree@1.0.9", "@types/estree@^1.0.0":
   version "1.0.9"
   resolved "https://registry.yarnpkg.com/@types/estree/-/estree-1.0.9.tgz#cf3f0e876d7bee15a93ab925b82bf570a3904a24"
@@ -829,10 +841,15 @@
     loupe "^3.1.4"
     tinyrainbow "^2.0.0"
 
-"@webgpu/types@*", "@webgpu/types@^0.1.74":
+"@webgpu/types@*", "@webgpu/types@^0.1.69", "@webgpu/types@^0.1.74":
   version "0.1.74"
   resolved "https://registry.yarnpkg.com/@webgpu/types/-/types-0.1.74.tgz#e0e0417074a90da1929c7bf710d6bb970aa91b13"
   integrity sha512-lgiI4hbuLcI9unnm2cL/tvCaQU45dp0xcLWJh5uB/9MBGvIA4F8XIk7nSiBeg+K4xWGYwgZKn80LmERI5CxoTA==
+
+"@xmldom/xmldom@^0.8.13":
+  version "0.8.15"
+  resolved "https://registry.yarnpkg.com/@xmldom/xmldom/-/xmldom-0.8.15.tgz#71ebf80729e4e95221d519ac9b1e1eaea7784907"
+  integrity sha512-/5NV/vDALVFDXgLmfsy9TRCBlKwO2LNBFzpzvb9iIj+jR+eSc6DLYYvVOdivT/jm7MtU6TebYuRmzEOI7w40UA==
 
 adm-zip@^0.6.0:
   version "0.6.1"
@@ -963,6 +980,11 @@ detect-libc@^2.1.2:
   resolved "https://registry.yarnpkg.com/detect-libc/-/detect-libc-2.1.2.tgz#689c5dcdc1900ef5583a4cb9f6d7b473742074ad"
   integrity sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==
 
+earcut@*, earcut@^3.0.2:
+  version "3.2.4"
+  resolved "https://registry.yarnpkg.com/earcut/-/earcut-3.2.4.tgz#a030635fbb9a639984ce0e319b0f16e17e6e15ad"
+  integrity sha512-FHc6yNpnTORB0tM5kmZ03iD2mDuNakDE2lvf4Hw1XkfxtEHIGVi01B/GqUSwx+NcC1WGjidAfpTXzeALtPtfpg==
+
 entities@^6.0.0:
   version "6.0.1"
   resolved "https://registry.yarnpkg.com/entities/-/entities-6.0.1.tgz#c28c34a43379ca7f61d074130b2f5f7020a30694"
@@ -1032,6 +1054,11 @@ estree-walker@^3.0.3:
   dependencies:
     "@types/estree" "^1.0.0"
 
+eventemitter3@^5.0.1:
+  version "5.0.4"
+  resolved "https://registry.yarnpkg.com/eventemitter3/-/eventemitter3-5.0.4.tgz#a86d66170433712dde814707ac52b5271ceb1feb"
+  integrity sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==
+
 expect-type@^1.2.1:
   version "1.4.0"
   resolved "https://registry.yarnpkg.com/expect-type/-/expect-type-1.4.0.tgz#24edf7f0cc69a44d008567ba4594ab96f3c3a3d6"
@@ -1068,6 +1095,13 @@ fsevents@~2.3.2, fsevents@~2.3.3:
   version "2.3.3"
   resolved "https://registry.yarnpkg.com/fsevents/-/fsevents-2.3.3.tgz#cac6407785d03675a2a5e1a5305c697b347d90d6"
   integrity sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==
+
+gifuct-js@^2.1.2:
+  version "2.1.2"
+  resolved "https://registry.yarnpkg.com/gifuct-js/-/gifuct-js-2.1.2.tgz#06152437ba30ec914db8398bd838bd0fbc8a6ecd"
+  integrity sha512-rI2asw77u0mGgwhV3qA+OEgYqaDn5UNqgs+Bx0FGwSpuqfYn+Ir6RQY5ENNQ8SbIiG/m5gVa7CD5RriO4f4Lsg==
+  dependencies:
+    js-binary-schema-parser "^2.0.3"
 
 global-agent@^4.1.3:
   version "4.1.3"
@@ -1149,6 +1183,11 @@ is-potential-custom-element-name@^1.0.1:
   resolved "https://registry.yarnpkg.com/is-potential-custom-element-name/-/is-potential-custom-element-name-1.0.1.tgz#171ed6f19e3ac554394edf78caa05784a45bebb5"
   integrity sha512-bCYeRA2rVibKZd+s2625gGnGF/t7DSqDs4dP7CrLA1m7jKWz6pps0LpYLJN8Q64HtmPKJ1hrN3nzPNKFEKOUiQ==
 
+ismobilejs@^1.1.1:
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/ismobilejs/-/ismobilejs-1.1.1.tgz#c56ca0ae8e52b24ca0f22ba5ef3215a2ddbbaa0e"
+  integrity sha512-VaFW53yt8QO61k2WJui0dHf4SlL8lxBofUuUmwBo0ljPk0Drz2TiuDW4jo3wDcv41qy/SxrJ+VAzJ/qYqsmzRw==
+
 jest-diff@30.5.2:
   version "30.5.2"
   resolved "https://registry.yarnpkg.com/jest-diff/-/jest-diff-30.5.2.tgz#0d96ecb53aac3949132a6ce2106790d9212edced"
@@ -1211,6 +1250,11 @@ jest-util@30.5.1:
     ci-info "^4.2.0"
     graceful-fs "^4.2.11"
     picomatch "^4.0.3"
+
+js-binary-schema-parser@^2.0.3:
+  version "2.0.3"
+  resolved "https://registry.yarnpkg.com/js-binary-schema-parser/-/js-binary-schema-parser-2.0.3.tgz#3d7848748e8586e63b34e8911b643f59cfb6396e"
+  integrity sha512-xezGJmOb4lk/M1ZZLTR/jaBHQ4gG/lqQnJqdIv4721DMggsa1bDVlHXNeHYogaIEHD9vCRv0fcL4hMA+Coarkg==
 
 js-tokens@^4.0.0:
   version "4.0.0"
@@ -1363,6 +1407,11 @@ onnxruntime-web@1.31.0-dev.20260914-8d85527a0:
     platform "^1.3.6"
     protobufjs "^7.2.4"
 
+parse-svg-path@^0.2.0:
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/parse-svg-path/-/parse-svg-path-0.2.0.tgz#38bc8747e7aa32327ae2579c331b161c4867a167"
+  integrity sha512-Tf7FFIrguPKQwzD4pWnYkR2VOv3raoHeKED80Bm+BYHI3KxC8KsgsGC5+fSMzAGDA6UEk4bHvmi+RsjmL3khpg==
+
 parse5@^7.2.1:
   version "7.3.0"
   resolved "https://registry.yarnpkg.com/parse5/-/parse5-7.3.0.tgz#d7e224fa72399c7a175099f45fc2ad024b05ec05"
@@ -1389,6 +1438,22 @@ picomatch@^4.0.2, picomatch@^4.0.3, picomatch@^4.0.4:
   version "4.0.7"
   resolved "https://registry.yarnpkg.com/picomatch/-/picomatch-4.0.7.tgz#6313360034ccb36b3dc61ecbdff78121f90fe21f"
   integrity sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==
+
+pixi.js@8.19.0:
+  version "8.19.0"
+  resolved "https://registry.yarnpkg.com/pixi.js/-/pixi.js-8.19.0.tgz#4a0e9056f88ee61293f092723c8cbc2e083c8a7f"
+  integrity sha512-pq1O6emA/GFjjeF+8d3Pb5t7knD8FsnfWGqQcRjYjsqFZ7QdzG1XgjLDUu0DFJRbafjV5+g8iNLFBx0b9649lg==
+  dependencies:
+    "@pixi/colord" "^2.9.6"
+    "@types/earcut" "^3.0.0"
+    "@webgpu/types" "^0.1.69"
+    "@xmldom/xmldom" "^0.8.13"
+    earcut "^3.0.2"
+    eventemitter3 "^5.0.1"
+    gifuct-js "^2.1.2"
+    ismobilejs "^1.1.1"
+    parse-svg-path "^0.2.0"
+    tiny-lru "^11.4.7"
 
 planck@1.4.2:
   version "1.4.2"
@@ -1595,6 +1660,11 @@ three@0.180.0:
   version "0.180.0"
   resolved "https://registry.yarnpkg.com/three/-/three-0.180.0.tgz#b930cabfb524f6d36bf63e874b4d866888b50487"
   integrity sha512-o+qycAMZrh+TsE01GqWUxUIKR1AL0S8pq7zDkYOQw8GqfX8b8VoCKYUoHbhiX5j+7hr8XsuHDVU6+gkQJQKg9w==
+
+tiny-lru@^11.4.7:
+  version "11.4.7"
+  resolved "https://registry.yarnpkg.com/tiny-lru/-/tiny-lru-11.4.7.tgz#7ddfabe22720c98f7e48b2806d9d9a71a93ee0d6"
+  integrity sha512-w/Te7uMUVeH0CR8vZIjr+XiN41V+30lkDdK+NRIDCUYKKuL9VcmaUEmaPISuwGhLlrTGh5yu18lENtR9axSxYw==
 
 tinybench@^2.9.0:
   version "2.9.0"
