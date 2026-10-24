@@ -3,6 +3,8 @@
  * rendu à la demande. Les décisions (format nodes, calques, toucher) sont dans ./model.ts et
  * src/shared/node-state.ts ; ici on ne fait qu'appliquer.
  */
+// Sans ce module, Pixi compile ses shaders avec `new Function` : refusé par une CSP sans unsafe-eval (viewer Artefacts).
+import "pixi.js/unsafe-eval";
 import { Application, Container, Graphics, Sprite, Text, Texture, type ContainerChild } from "pixi.js";
 import { NodeStates } from "../../shared/node-state";
 import {
