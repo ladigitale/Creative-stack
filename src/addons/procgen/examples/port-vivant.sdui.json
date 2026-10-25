@@ -1,0 +1,152 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:48rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "monde",
+      "initial": "{\"scene\": \"port vivant (animé)\", \"seed\": \"1\", \"seedN\": 1, \"anim\": {\"play\": true, \"speed\": 1}, \"picked\": \"(rien)\"}",
+      "reducer": "(\n  $a := $action.type; $p := $action.payload;\n  $a = \"scene\" ? $merge([$state, {\"scene\": $p.scene, \"seed\": $p.seed ? $p.seed : $state.seed}]) :\n  $a = \"seed\" ? $merge([$state, {\"seed\": $string($state.seedN + 1), \"seedN\": $state.seedN + 1}]) :\n  $a = \"style\" ? $merge([$state, {\"style\": $p.style}]) :\n  $a = \"play\" ? $merge([$state, {\"anim\": {\"play\": $not($state.anim.play), \"speed\": $state.anim.speed}}]) :\n  $a = \"speed\" ? $merge([$state, {\"anim\": {\"play\": $state.anim.play, \"speed\": $p.v}}]) :\n  $a = \"select\" ? $merge([$state, {\"picked\": $p.objectId ? $p.objectId : \"(rien)\"}]) :\n  $state\n)"
+     }
+    },
+    {
+     "tagName": "sonic-procgen",
+     "attributes": {
+      "dataProvider": "monde",
+      "target": "monde",
+      "style": "height:380px;border-radius:.75rem;overflow:hidden"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;flex-wrap:wrap;gap:.5rem;align-items:center"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "scene",
+        "payload": "{\"scene\": \"port vivant (animé)\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Port"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "scene",
+        "payload": "{\"scene\": \"bivouac de nuit (animé)\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Bivouac"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "scene",
+        "payload": "{\"scene\": \"rue vivante (animé)\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Rue"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "scene",
+        "payload": "{\"scene\": \"forêt de nuit\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Forêt de nuit"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "seed"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Autre graine"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "play"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Lecture / pause"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Objet touché : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "monde",
+        "key": "picked"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

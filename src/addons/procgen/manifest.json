@@ -1,0 +1,49 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "procgen",
+  "label": "Scènes procédurales (GPU 2D)",
+  "description": "sonic-procgen : scène 2D procédurale rendue sur GPU (WebGL2), animée, avec sol et rues, personnages, signalétique, motifs et jeux ; scène, graine, paramètres, style, vue et animation lus dans un DataProvider, sélection et état publiés.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "procgen.md",
+  "examples": [
+    "examples/port-vivant.sdui.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-procgen",
+      "description": "Scène procédurale GPU. Attributs : dataProvider (chemin lu/écrit : scene, seed, params, style, view, select, anim ; écrit : selection, status, view), scene (nom, valeur initiale), seed, scene-style (nom de style initial), interactive=\"false\" (pas de pan/zoom/clic), target (id d'un sonic-store qui reçoit {type:select, payload:{objectId, pointer, copy, type, def}}), select-action-type. Scènes : port vivant (animé), bivouac de nuit (animé), rue vivante (animé), rue (scène déclarative), allée forestière, plaine des montgolfières, personnages, rue à vapeur, espace profond, fond marin, port au phare, désert, donjon (vu du dessus), inventaire de jeu, insignes et blasons, signalétique, foule et robots, motifs et matières, bestiaire, bourg isométrique, bourg oblique, carte, forêt de nuit, ruines, marais, paysage, ville néon, ville à vapeur (ancienne). Styles : laiton, gravure sépia, nuit vapeur, nocturne, braise, brume, papier, encre, néon, aquarelle, brutaliste, crypte, réverbères, bivouac, cosmos, abysses, bande dessinée, trame, gouache, pixel art. Donner une hauteur (style height ou conteneur) ; 2 par document au maximum.",
+      "props": {
+        "dataProvider": {
+          "type": "string",
+          "description": "Chemin DataProvider lu et écrit (scene, patch, seed, params, style, view, select, anim / selection, status, view)"
+        },
+        "scene": {
+          "type": "string",
+          "description": "Nom d'une scène de la bibliothèque (valeur initiale si le DataProvider n'a pas de scene)"
+        },
+        "seed": {
+          "type": "string",
+          "description": "Graine (valeur initiale)"
+        },
+        "scene-style": {
+          "type": "string",
+          "description": "Nom d'un style de la bibliothèque (valeur initiale)"
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "false : pas de pan, zoom ni sélection (défaut true)"
+        },
+        "target": {
+          "type": "string",
+          "description": "Id du sonic-store qui reçoit la sélection"
+        },
+        "select-action-type": {
+          "type": "string",
+          "description": "Type d'action envoyé à target (défaut select)"
+        }
+      }
+    }
+  ]
+}

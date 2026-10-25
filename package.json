@@ -23,6 +23,7 @@
     "./animation": "./src/addons/animation/index.ts",
     "./p2p": "./src/addons/p2p/index.ts",
     "./stage": "./src/addons/stage/index.ts",
+    "./procgen": "./src/addons/procgen/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",
     "./shared/*": "./src/shared/*.ts",
