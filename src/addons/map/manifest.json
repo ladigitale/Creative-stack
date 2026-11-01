@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "map",
+  "label": "Carte (MapLibre)",
+  "description": "sonic-map : carte MapLibre GL JS entièrement pilotée par DataProviders. dataProvider=\"carte\" lit carte/points ([{id, lat, lon, …}] ou {data, cluster}), carte/view (caméra, projection globe, relief, interactions, contrôles, sélection) et carte/style (style MapLibre complet, patches, états d'objets), et publie carte/state (caméra, bornes, ids visibles, survol, clic, sélection, erreurs).",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": ["maplibre-gl"],
+  "docs": "map.md",
+  "examples": ["examples/bitd-gicat.sdui.json"],
+  "components": [
+    {
+      "name": "sonic-map",
+      "description": "Carte MapLibre pilotée par DP. Entrées : <dp>/points, <dp>/view {center [lon,lat], zoom, bearing, pitch, bounds, fit:\"points\"|\"selection\", mode jump|ease|fly, duration, seq, projection mercator|globe, terrain, interactions, controls, selectedId}, <dp>/style {style, patches, patchSeq, featureStates, pointStyle}. Sortie : <dp>/state. Clic sur un point : target + pick-action-type → {type, payload:{id}}. URL externes du style refusées sauf allowed-hosts.",
+      "props": {
+        "dataProvider": { "type": "string", "description": "Base des DP : <nom>/points, /view, /style, /state" },
+        "points-provider": { "type": "string", "description": "DP des points (remplace <dataProvider>/points), ex. une transform" },
+        "view-provider": { "type": "string", "description": "DP de la vue (remplace <dataProvider>/view)" },
+        "style-provider": { "type": "string", "description": "DP du style (remplace <dataProvider>/style)" },
+        "state-provider": { "type": "string", "description": "DP où publier l'état (remplace <dataProvider>/state)" },
+        "target": { "type": "string", "description": "Id du store qui reçoit les clics sur un point" },
+        "pick-action-type": { "type": "string", "description": "Type d'action envoyé à target (défaut select)" },
+        "auto-select": { "type": "boolean", "description": "Un clic sur un point le sélectionne (state.selected)" },
+        "allowed-hosts": { "type": "string", "description": "Hôtes https autorisés pour tuiles, glyphes et sprites, séparés par des espaces" },
+        "emit": { "type": "string", "values": ["end", "move"], "description": "Publication de l'état : fin de mouvement (défaut) ou continue" },
+        "throttle-ms": { "type": "number", "description": "Intervalle minimal entre deux publications en mode move (défaut 100)" }
+      }
+    }
+  ]
+}
