@@ -23,7 +23,7 @@ Les `*-provider` permettent de brancher une transform ou une sortie de `sonic-js
   "allowed-hosts": "tiles.openfreemap.org", "style": "display:block;height:480px" } }
 ```
 
-Exemple complet (495 entreprises, recherche, région, liste à gabarit, fiche, lien Google Maps en lat/lon) : `examples/bitd-gicat.sdui.json`, construit par `examples/build-bitd-example.mjs` depuis l'asset `examples/data/bitd-gicat.json`.
+Exemple complet (495 entreprises, recherche, région, onglets Carte / Liste, bouton « Voir sur la carte », fiche en modal, icônes, lien Google Maps en lat/lon) : `examples/bitd-gicat.sdui.json`, dérivé de l'artefact Tadaaa (`examples/build-bitd-artifact.mjs`, puis `examples/build-bitd-example.mjs`) depuis l'asset `examples/data/bitd-gicat.json`.
 
 ## Vue (`view`)
 
