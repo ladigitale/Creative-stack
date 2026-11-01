@@ -55,12 +55,15 @@ const files = parts.map((p, k) => {
 
 const regions = [...new Set(rows.map((e) => e.rg).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 
-// Sélection, fermeture et recadrage : le store ne garde que des identifiants (les données sont dans « bitd »).
+// Sélection, onglets, fermeture et recadrage : le store ne garde que des identifiants (les données sont dans « bitd »).
+// detOn : 'off' | 'a' | 'b'. Chaque sélection bascule a <-> b : le modal (une copie par valeur) est remonté et
+// se rouvre, même si l'utilisateur l'avait fermé par la croix ou le fond, ce que le store ne voit pas.
 const REDUCER = `(
   $t := $action.type; $p := $action.payload; $s := $state.seq + 1;
-  $t = 'select' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': 'true', 'seq': $s}])
-  : $t = 'close' ? $merge([$state, {'sel': -1, 'detOn': 'false', 'seq': $s}])
-  : $t = 'fit' ? $merge([$state, {'sel': -1, 'detOn': 'false', 'seq': $s}])
+  $t = 'select' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $state.detOn = 'a' ? 'b' : 'a', 'seq': $s}])
+  : $t = 'close' ? $merge([$state, {'detOn': 'off', 'seq': $s}])
+  : $t = 'fit' ? $merge([$state, {'sel': -1, 'detOn': 'off', 'seq': $s}])
+  : $t = 'tab' ? $merge([$state, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])
   : $state
 )`;
 
@@ -87,7 +90,7 @@ const doc = {
   page: { padding: "compact" },
   data: {
     stores: {
-      etat: { initial: { parts: [], sel: -1, detOn: "false", seq: 0 }, reducer: REDUCER },
+      etat: { initial: { parts: [], sel: -1, detOn: "off", seq: 0, onglet: "carte", vCarte: "default", vListe: "ghost" }, reducer: REDUCER },
       fond: { initial: { style: "https://tiles.openfreemap.org/styles/positron" }, reducer: "$state" },
     },
   },
@@ -111,59 +114,75 @@ const doc = {
             { tagName: "sonic-input", attributes: { name: "q", formDataProvider: "filtres", label: "Recherche", placeholder: "Nom, ville, 37, 2A, drone, cyber…" } },
             { tagName: "sonic-select", attributes: { name: "reg", formDataProvider: "filtres", label: "Région",
               options: JSON.stringify([{ value: "", wording: "Toutes les régions" }, ...regions.map((r) => ({ value: r, wording: r }))]) } },
-            { tagName: "sonic-action", attributes: { target: "etat", type: "fit" }, nodes: [{ tagName: "sonic-button", attributes: { type: "default", variant: "outline" }, nodes: [text("span", "Recadrer la carte")] }] },
           ],
         },
         { tagName: "p", attributes: { style: "font-size:.875rem;margin:0" }, nodes: [{ tagName: "sonic-value", attributes: { dataProvider: "compte", key: "txt" } }] },
-        {
-          tagName: "div", attributes: { style: "display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));align-items:start" },
+        // Onglets : sonic-menu, l'onglet actif est plein (::variant lu dans le store)
+        { tagName: "sonic-subscriber", attributes: { dataProvider: "etat" }, nodes: [{
+          tagName: "sonic-menu", attributes: { direction: "row" },
           nodes: [
-            {
-              tagName: "div", attributes: { style: "display:grid;gap:.75rem;align-content:start" },
-              nodes: [
-                { tagName: "sonic-if", attributes: { dataProvider: "etat", key: "detOn", equals: "true" }, nodes: [{
-                  tagName: "sonic-card", nodes: [{
-                    tagName: "div", attributes: { style: "display:grid;gap:.5rem;padding:1rem" },
-                    nodes: [
-                      { tagName: "h2", attributes: { style: "font-size:1.125rem;font-weight:600;margin:0" }, nodes: [{ tagName: "sonic-value", attributes: { dataProvider: "fiche", key: "n" } }] },
-                      field("Adresse", "a"), field("Commune", "v"), field("Département", "dn"), field("Région", "rg"),
-                      field("Téléphone", "t"), field("Site", "w"), field("Effectif", "f"), field("Domaines", "dm"),
-                      { tagName: "sonic-subscriber", attributes: { dataProvider: "fiche" }, nodes: [{
-                        tagName: "div", attributes: { style: "display:flex;gap:.75rem;padding-top:.5rem" },
-                        nodes: [{ tagName: "a", attributes: { "data-bind": "", "::href": "https://www.google.com/maps/search/?api=1&query=$mq", target: "_blank", rel: "noopener noreferrer", style: "text-decoration:underline" }, textContent: "Ouvrir dans Google Maps" }],
-                      }] },
-                      { tagName: "sonic-action", attributes: { target: "etat", type: "close" }, nodes: [{ tagName: "sonic-button", attributes: { type: "default", variant: "ghost", size: "sm" }, nodes: [text("span", "Fermer la fiche")] }] },
-                    ],
-                  }],
-                }] },
-                {
-                  tagName: "div", attributes: { style: "display:grid;gap:.25rem;max-height:60vh;overflow:auto" },
-                  nodes: [{
-                    tagName: "sonic-list", attributes: { dataProvider: "liste" },
-                    nodes: [
-                      { tagName: "template", nodes: [{
-                        tagName: "sonic-action", attributes: { target: "etat", type: "select", "data-bind": "", "::payload": "$i" },
-                        nodes: [{
-                          tagName: "div", attributes: { class: "ligne", style: "display:grid;cursor:pointer;border-radius:6px;padding:.4rem .75rem;border-bottom:1px solid var(--sc-base-200, #e5e5e5)" },
-                          nodes: [
-                            { tagName: "strong", nodes: [{ tagName: "sonic-value", attributes: { key: "n" } }] },
-                            { tagName: "span", attributes: { style: "font-size:.875rem;opacity:.7", "data-bind": "", "::text-content": "$v · $dn ($d) · $rg" } },
-                          ],
-                        }],
-                      }] },
-                      { tagName: "template", attributes: { "data-value": "no-item" }, nodes: [text("p", "Aucune entreprise ne correspond. Élargissez la recherche.", { style: "font-size:.875rem;opacity:.7;padding:.75rem" })] },
-                    ],
-                  }],
-                },
-              ],
-            },
+            { tagName: "sonic-action", attributes: { target: "etat", type: "tab", payload: { tab: "carte" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vCarte" }, nodes: [text("span", "Carte")] }] },
+            { tagName: "sonic-action", attributes: { target: "etat", type: "tab", payload: { tab: "liste" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vListe" }, nodes: [text("span", "Liste")] }] },
+          ],
+        }] },
+        // Panneau Carte : les points sont cliquables (clic → select → modal de détail)
+        { tagName: "sonic-if", attributes: { dataProvider: "etat", key: "onglet", equals: "carte" }, nodes: [{
+          tagName: "div", attributes: { style: "display:grid;gap:.5rem" },
+          nodes: [
             { tagName: "sonic-map", attributes: {
               "points-provider": "pts", "view-provider": "vue", "style-provider": "fond", "state-provider": "carteEtat",
               target: "etat", "pick-action-type": "select", "auto-select": true,
               "allowed-hosts": "tiles.openfreemap.org", style: "display:block;height:min(70vh,640px);border-radius:8px;overflow:hidden",
             } },
+            { tagName: "div", attributes: { style: "display:flex;gap:.5rem;align-items:center;justify-content:space-between;flex-wrap:wrap" }, nodes: [
+              text("span", "Cliquez sur un point pour voir la fiche de l'entreprise.", { style: "font-size:.875rem;opacity:.7" }),
+              { tagName: "sonic-action", attributes: { target: "etat", type: "fit" }, nodes: [{ tagName: "sonic-button", attributes: { type: "default", variant: "outline", size: "sm" }, nodes: [text("span", "Recadrer la carte")] }] },
+            ] },
           ],
-        },
+        }] },
+        // Panneau Liste : aucune sélection au clic sur la ligne, seul le bouton « Détails » ouvre la fiche
+        { tagName: "sonic-if", attributes: { dataProvider: "etat", key: "onglet", equals: "liste" }, nodes: [{
+          tagName: "div", attributes: { style: "display:grid;gap:.25rem;max-height:70vh;overflow:auto" },
+          nodes: [{
+            tagName: "sonic-list", attributes: { dataProvider: "liste" },
+            nodes: [
+              { tagName: "template", nodes: [{
+                tagName: "div", attributes: { class: "ligne", style: "display:flex;gap:.75rem;align-items:center;justify-content:space-between;padding:.4rem .75rem;border-bottom:1px solid var(--sc-base-200, #e5e5e5)" },
+                nodes: [
+                  { tagName: "div", attributes: { style: "display:grid;min-width:0" }, nodes: [
+                    { tagName: "strong", nodes: [{ tagName: "sonic-value", attributes: { key: "n" } }] },
+                    { tagName: "span", attributes: { style: "font-size:.875rem;opacity:.7", "data-bind": "", "::text-content": "$v · $dn ($d) · $rg" } },
+                  ] },
+                  { tagName: "sonic-action", attributes: { target: "etat", type: "select", "data-bind": "", "::payload": "$i" }, nodes: [
+                    { tagName: "sonic-button", attributes: { type: "primary", variant: "outline", size: "sm" }, nodes: [text("span", "Détails")] },
+                  ] },
+                ],
+              }] },
+              { tagName: "template", attributes: { "data-value": "no-item" }, nodes: [text("p", "Aucune entreprise ne correspond. Élargissez la recherche.", { style: "font-size:.875rem;opacity:.7;padding:.75rem" })] },
+            ],
+          }],
+        }] },
+        // Détail : modal. Deux copies (a / b) : voir le réducteur.
+        ...["a", "b"].map((slot) => ({
+          tagName: "sonic-if", attributes: { dataProvider: "etat", key: "detOn", equals: slot },
+          nodes: [{
+            tagName: "sonic-modal", attributes: { visible: true, maxWidth: "min(100vw, 36rem)" },
+            nodes: [
+              { tagName: "sonic-modal-title", nodes: [{ tagName: "sonic-value", attributes: { dataProvider: "fiche", key: "n" } }] },
+              { tagName: "sonic-modal-content", nodes: [{
+                tagName: "div", attributes: { style: "display:grid;gap:.5rem" },
+                nodes: [
+                  field("Adresse", "a"), field("Commune", "v"), field("Département", "dn"), field("Région", "rg"),
+                  field("Téléphone", "t"), field("Site", "w"), field("Effectif", "f"), field("Domaines", "dm"),
+                  { tagName: "sonic-subscriber", attributes: { dataProvider: "fiche" }, nodes: [{
+                    tagName: "div", attributes: { style: "padding-top:.5rem" },
+                    nodes: [{ tagName: "a", attributes: { "data-bind": "", "::href": "https://www.google.com/maps/search/?api=1&query=$mq", target: "_blank", rel: "noopener noreferrer", style: "text-decoration:underline" }, textContent: "Ouvrir dans Google Maps" }],
+                  }] },
+                ],
+              }] },
+            ],
+          }],
+        })),
       ],
     }] },
   }],
