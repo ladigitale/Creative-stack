@@ -17,7 +17,7 @@
      "vCarte": "default",
      "vListe": "ghost"
     },
-    "reducer": "(\n  $t := $action.type; $p := $action.payload; $s := $state.seq + 1;\n  $t = 'select' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $state.detOn = 'a' ? 'b' : 'a', 'seq': $s}])\n  : $t = 'close' ? $merge([$state, {'detOn': 'off', 'seq': $s}])\n  : $t = 'fit' ? $merge([$state, {'sel': -1, 'detOn': 'off', 'seq': $s}])\n  : $t = 'tab' ? $merge([$state, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])\n  : $state\n)"
+    "reducer": "(\n  $t := $action.type; $p := $action.payload; $s := $state.seq + 1;\n  $t = 'select' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $state.detOn = 'a' ? 'b' : 'a', 'seq': $s}])\n  : $t = 'close' ? $merge([$state, {'detOn': 'off', 'seq': $s}])\n  : $t = 'locate' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'detOn': 'off', 'seq': $s}])\n  : $t = 'fit' ? $merge([$state, {'sel': -1, 'detOn': 'off', 'seq': $s}])\n  : $t = 'tab' ? $merge([$state, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])\n  : $state\n)"
    },
    "fond": {
     "initial": {
@@ -420,33 +420,74 @@
                   ]
                  },
                  {
-                  "tagName": "sonic-action",
+                  "tagName": "div",
                   "attributes": {
-                   "target": "etat",
-                   "type": "select",
-                   "data-bind": "",
-                   "::payload": "$i"
+                   "style": "display:flex;gap:.5rem;flex-shrink:0"
                   },
                   "nodes": [
                    {
-                    "tagName": "sonic-button",
+                    "tagName": "sonic-action",
                     "attributes": {
-                     "type": "primary",
-                     "variant": "outline",
-                     "size": "sm"
+                     "target": "etat",
+                     "type": "locate",
+                     "data-bind": "",
+                     "::payload": "$i"
                     },
                     "nodes": [
                      {
-                      "tagName": "sonic-icon",
+                      "tagName": "sonic-button",
                       "attributes": {
-                       "library": "iconoir",
-                       "name": "info-empty",
-                       "slot": "prefix"
-                      }
-                     },
+                       "type": "default",
+                       "variant": "outline",
+                       "size": "sm"
+                      },
+                      "nodes": [
+                       {
+                        "tagName": "sonic-icon",
+                        "attributes": {
+                         "library": "iconoir",
+                         "name": "pin",
+                         "slot": "prefix"
+                        }
+                       },
+                       {
+                        "tagName": "span",
+                        "textContent": "Voir sur la carte"
+                       }
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "tagName": "sonic-action",
+                    "attributes": {
+                     "target": "etat",
+                     "type": "select",
+                     "data-bind": "",
+                     "::payload": "$i"
+                    },
+                    "nodes": [
                      {
-                      "tagName": "span",
-                      "textContent": "Détails"
+                      "tagName": "sonic-button",
+                      "attributes": {
+                       "type": "primary",
+                       "variant": "outline",
+                       "size": "sm"
+                      },
+                      "nodes": [
+                       {
+                        "tagName": "sonic-icon",
+                        "attributes": {
+                         "library": "iconoir",
+                         "name": "info-empty",
+                         "slot": "prefix"
+                        }
+                       },
+                       {
+                        "tagName": "span",
+                        "textContent": "Détails"
+                       }
+                      ]
                      }
                     ]
                    }

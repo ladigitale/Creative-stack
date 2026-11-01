@@ -62,6 +62,7 @@ const REDUCER = `(
   $t := $action.type; $p := $action.payload; $s := $state.seq + 1;
   $t = 'select' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $state.detOn = 'a' ? 'b' : 'a', 'seq': $s}])
   : $t = 'close' ? $merge([$state, {'detOn': 'off', 'seq': $s}])
+  : $t = 'locate' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'detOn': 'off', 'seq': $s}])
   : $t = 'fit' ? $merge([$state, {'sel': -1, 'detOn': 'off', 'seq': $s}])
   : $t = 'tab' ? $merge([$state, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])
   : $state
@@ -163,8 +164,13 @@ const doc = {
                       { tagName: "span", attributes: { "data-bind": "", "::text-content": "$v · $dn ($d) · $rg" } },
                     ] },
                   ] },
-                  { tagName: "sonic-action", attributes: { target: "etat", type: "select", "data-bind": "", "::payload": "$i" }, nodes: [
-                    { tagName: "sonic-button", attributes: { type: "primary", variant: "outline", size: "sm" }, nodes: [icon("info-empty", { slot: "prefix" }), text("span", "Détails")] },
+                  { tagName: "div", attributes: { style: "display:flex;gap:.5rem;flex-shrink:0" }, nodes: [
+                    { tagName: "sonic-action", attributes: { target: "etat", type: "locate", "data-bind": "", "::payload": "$i" }, nodes: [
+                      { tagName: "sonic-button", attributes: { type: "default", variant: "outline", size: "sm" }, nodes: [icon("pin", { slot: "prefix" }), text("span", "Voir sur la carte")] },
+                    ] },
+                    { tagName: "sonic-action", attributes: { target: "etat", type: "select", "data-bind": "", "::payload": "$i" }, nodes: [
+                      { tagName: "sonic-button", attributes: { type: "primary", variant: "outline", size: "sm" }, nodes: [icon("info-empty", { slot: "prefix" }), text("span", "Détails")] },
+                    ] },
                   ] },
                 ],
               }] },
