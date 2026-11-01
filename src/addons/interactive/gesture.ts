@@ -1,11 +1,21 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch, type SonicActionMessage } from "./registry";
+import { CONTINUOUS, GestureTracker, coalesce, type GestureAction, type GestureOptions } from "./gesture-core";
 
 const tagName = "sonic-gesture";
 
 /**
- * Zone tactile : tap, double-tap, swipe, long-press (+ drag optionnel).
+ * Zone tactile multipoint → actions vers un sonic-store (`target`).
+ *
+ * Toujours : tap / double-tap / long-press ({x, y, u, v} : px dans la zone et fraction), swipe-up|down|left|right.
+ * `drag` : drag {dx, dy} cumulés en fraction de la zone (1 doigt) + drag-end.
+ * `pan` : pan {dx, dy, x, y} en px depuis l'action précédente (centre des doigts) + pan-end {dx, dy, vx, vy} ; pas de swipe.
+ * `pinch` : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end (deux doigts).
+ * `wheel` : la molette envoie pinch {source: "wheel", dScale…}.
+ * Les actions continues (drag, pan, pinch) sont regroupées : au plus une de chaque par image.
+ * `state-provider` : DataProvider qui reçoit {active, pointers, scale, rotation, panX, panY, x, y}.
  */
 @customElement(tagName)
 export class SonicGesture extends LitElement {
@@ -32,83 +42,123 @@ export class SonicGesture extends LitElement {
   @property({ type: Boolean })
   drag = false;
 
+  @property({ type: Boolean })
+  pan = false;
+
+  @property({ type: Boolean })
+  pinch = false;
+
+  @property({ type: Boolean })
+  wheel = false;
+
+  @property({ type: String, attribute: "state-provider" })
+  stateProvider = "";
+
   @property({ type: Boolean, attribute: "dispatch-event" })
   dispatchEventFlag = false;
 
-  private startX = 0;
-  private startY = 0;
-  private startT = 0;
+  private tracker = new GestureTracker();
   private longTimer: number | null = null;
-  private lastTap = 0;
-  private pointerId: number | null = null;
+  private queue: GestureAction[] = [];
+  private frame: number | null = null;
 
-  private onDown = (e: PointerEvent) => {
-    if (this.pointerId != null) return;
-    this.pointerId = e.pointerId;
-    this.setPointerCapture(e.pointerId);
-    this.startX = e.clientX;
-    this.startY = e.clientY;
-    this.startT = performance.now();
-    this.longTimer = window.setTimeout(() => {
-      this.emit({ type: "long-press" });
-      this.longTimer = null;
-    }, this.longPressMs);
-  };
+  private options(): GestureOptions {
+    const r = this.getBoundingClientRect();
+    return {
+      swipeThreshold: this.swipeThreshold,
+      longPressMs: this.longPressMs,
+      doubleTapMs: this.doubleTapMs,
+      drag: this.drag,
+      pan: this.pan,
+      pinch: this.pinch,
+      width: r.width,
+      height: r.height,
+    };
+  }
 
-  private onMove = (e: PointerEvent) => {
-    if (this.pointerId !== e.pointerId) return;
-    const dx = e.clientX - this.startX;
-    const dy = e.clientY - this.startY;
-    if (Math.hypot(dx, dy) > 10 && this.longTimer != null) {
-      clearTimeout(this.longTimer);
-      this.longTimer = null;
-    }
-    if (this.drag) {
-      const rect = this.getBoundingClientRect();
-      this.emit({
-        type: "drag",
-        payload: {
-          dx: rect.width ? dx / rect.width : 0,
-          dy: rect.height ? dy / rect.height : 0,
-        },
-      });
-    }
-  };
+  private point(e: PointerEvent) {
+    const r = this.getBoundingClientRect();
+    return { id: e.pointerId, x: e.clientX - r.left, y: e.clientY - r.top, t: e.timeStamp || performance.now() };
+  }
 
-  private onUp = (e: PointerEvent) => {
-    if (this.pointerId !== e.pointerId) return;
+  private clearLong(): void {
     if (this.longTimer != null) {
       clearTimeout(this.longTimer);
       this.longTimer = null;
     }
-    const dx = e.clientX - this.startX;
-    const dy = e.clientY - this.startY;
-    const dist = Math.hypot(dx, dy);
-    const dt = performance.now() - this.startT;
-    this.pointerId = null;
-    if (dist >= this.swipeThreshold) {
-      const type =
-        Math.abs(dx) > Math.abs(dy)
-          ? dx > 0
-            ? "swipe-right"
-            : "swipe-left"
-          : dy > 0
-            ? "swipe-down"
-            : "swipe-up";
-      this.emit({ type });
-      return;
+  }
+
+  private onDown = (e: PointerEvent) => {
+    try {
+      this.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointeur déjà relâché */
     }
-    if (dt < this.longPressMs) {
-      const now = performance.now();
-      if (now - this.lastTap < this.doubleTapMs) {
-        this.emit({ type: "double-tap" });
-        this.lastTap = 0;
-      } else {
-        this.emit({ type: "tap" });
-        this.lastTap = now;
-      }
+    this.handle(this.tracker.down(this.point(e), this.options()));
+    this.clearLong();
+    if (this.tracker.canLongPress()) {
+      this.longTimer = window.setTimeout(() => {
+        this.longTimer = null;
+        this.handle(this.tracker.longPress(this.options()));
+      }, this.longPressMs);
     }
   };
+
+  private onMove = (e: PointerEvent) => {
+    const actions = this.tracker.move(this.point(e), this.options());
+    if (!this.tracker.canLongPress()) this.clearLong();
+    this.handle(actions);
+  };
+
+  private onUp = (e: PointerEvent) => {
+    this.clearLong();
+    this.handle(this.tracker.up(this.point(e), this.options()));
+  };
+
+  private onCancel = (e: PointerEvent) => {
+    this.clearLong();
+    // Un pointeur annulé (geste système) termine le geste sans tap ni swipe.
+    if (this.tracker.size <= 1) this.handle(this.tracker.cancel());
+    else this.handle(this.tracker.up(this.point(e), { ...this.options(), swipeThreshold: Infinity, longPressMs: 0 }));
+  };
+
+  private onWheel = (e: WheelEvent) => {
+    if (!this.wheel) return;
+    e.preventDefault();
+    const r = this.getBoundingClientRect();
+    this.handle([this.tracker.wheel(e.deltaY, e.clientX - r.left, e.clientY - r.top)]);
+  };
+
+  /** Actions ponctuelles : envoyées tout de suite (après les continues en attente) ; continues : par image. */
+  private handle(actions: GestureAction[]): void {
+    if (!actions.length) return;
+    for (const a of actions) {
+      if (CONTINUOUS.has(a.type)) {
+        this.queue.push(a);
+        if (this.frame == null) this.frame = requestAnimationFrame(() => this.flush());
+      } else {
+        this.flush();
+        this.emit(a);
+        this.publishState();
+      }
+    }
+  }
+
+  private flush(): void {
+    if (this.frame != null) {
+      cancelAnimationFrame(this.frame);
+      this.frame = null;
+    }
+    if (!this.queue.length) return;
+    const batch = coalesce(this.queue);
+    this.queue = [];
+    for (const a of batch) this.emit(a);
+    this.publishState();
+  }
+
+  private publishState(): void {
+    if (this.stateProvider) set(this.stateProvider, this.tracker.state());
+  }
 
   private emit(action: SonicActionMessage): void {
     if (this.target) dispatch(this.target, action);
@@ -130,15 +180,21 @@ export class SonicGesture extends LitElement {
     this.addEventListener("pointerdown", this.onDown);
     this.addEventListener("pointermove", this.onMove);
     this.addEventListener("pointerup", this.onUp);
-    this.addEventListener("pointercancel", this.onUp);
+    this.addEventListener("pointercancel", this.onCancel);
+    this.addEventListener("wheel", this.onWheel, { passive: false });
   }
 
   disconnectedCallback(): void {
     this.removeEventListener("pointerdown", this.onDown);
     this.removeEventListener("pointermove", this.onMove);
     this.removeEventListener("pointerup", this.onUp);
-    this.removeEventListener("pointercancel", this.onUp);
-    if (this.longTimer != null) clearTimeout(this.longTimer);
+    this.removeEventListener("pointercancel", this.onCancel);
+    this.removeEventListener("wheel", this.onWheel);
+    this.clearLong();
+    if (this.frame != null) cancelAnimationFrame(this.frame);
+    this.frame = null;
+    this.queue = [];
+    this.tracker.cancel();
     super.disconnectedCallback();
   }
 
