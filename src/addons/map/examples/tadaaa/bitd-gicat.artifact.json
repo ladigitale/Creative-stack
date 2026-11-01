@@ -119,7 +119,17 @@
            "formDataProvider": "filtres",
            "label": "Recherche",
            "placeholder": "Nom, ville, 37, 2A, drone, cyber…"
-          }
+          },
+          "nodes": [
+           {
+            "tagName": "sonic-icon",
+            "attributes": {
+             "library": "iconoir",
+             "name": "search",
+             "slot": "prefix"
+            }
+           }
+          ]
          },
          {
           "tagName": "sonic-select",
@@ -128,16 +138,33 @@
            "formDataProvider": "filtres",
            "label": "Région",
            "options": "[{\"value\":\"\",\"wording\":\"Toutes les régions\"},{\"value\":\"Auvergne-Rhône-Alpes\",\"wording\":\"Auvergne-Rhône-Alpes\"},{\"value\":\"Bourgogne-Franche-Comté\",\"wording\":\"Bourgogne-Franche-Comté\"},{\"value\":\"Bretagne\",\"wording\":\"Bretagne\"},{\"value\":\"Centre-Val de Loire\",\"wording\":\"Centre-Val de Loire\"},{\"value\":\"Corse\",\"wording\":\"Corse\"},{\"value\":\"Grand Est\",\"wording\":\"Grand Est\"},{\"value\":\"Hauts-de-France\",\"wording\":\"Hauts-de-France\"},{\"value\":\"Île-de-France\",\"wording\":\"Île-de-France\"},{\"value\":\"Normandie\",\"wording\":\"Normandie\"},{\"value\":\"Nouvelle-Aquitaine\",\"wording\":\"Nouvelle-Aquitaine\"},{\"value\":\"Occitanie\",\"wording\":\"Occitanie\"},{\"value\":\"Pays de la Loire\",\"wording\":\"Pays de la Loire\"},{\"value\":\"Provence-Alpes-Côte d'Azur\",\"wording\":\"Provence-Alpes-Côte d'Azur\"}]"
-          }
+          },
+          "nodes": [
+           {
+            "tagName": "sonic-icon",
+            "attributes": {
+             "library": "iconoir",
+             "name": "pin-alt",
+             "slot": "prefix"
+            }
+           }
+          ]
          }
         ]
        },
        {
         "tagName": "p",
         "attributes": {
-         "style": "font-size:.875rem;margin:0"
+         "style": "font-size:.875rem;margin:0;display:flex;align-items:center;gap:.4rem"
         },
         "nodes": [
+         {
+          "tagName": "sonic-icon",
+          "attributes": {
+           "library": "iconoir",
+           "name": "building"
+          }
+         },
          {
           "tagName": "sonic-value",
           "attributes": {
@@ -178,6 +205,14 @@
               },
               "nodes": [
                {
+                "tagName": "sonic-icon",
+                "attributes": {
+                 "library": "iconoir",
+                 "name": "map",
+                 "slot": "prefix"
+                }
+               },
+               {
                 "tagName": "span",
                 "textContent": "Carte"
                }
@@ -203,6 +238,14 @@
                "::variant": "$vListe"
               },
               "nodes": [
+               {
+                "tagName": "sonic-icon",
+                "attributes": {
+                 "library": "iconoir",
+                 "name": "list",
+                 "slot": "prefix"
+                }
+               },
                {
                 "tagName": "span",
                 "textContent": "Liste"
@@ -251,10 +294,22 @@
             "nodes": [
              {
               "tagName": "span",
-              "textContent": "Cliquez sur un point pour voir la fiche de l'entreprise.",
               "attributes": {
-               "style": "font-size:.875rem;opacity:.7"
-              }
+               "style": "display:inline-flex;align-items:center;gap:.4rem;font-size:.875rem;opacity:.7"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-icon",
+                "attributes": {
+                 "library": "iconoir",
+                 "name": "cursor-pointer"
+                }
+               },
+               {
+                "tagName": "span",
+                "textContent": "Cliquez sur un point pour voir la fiche de l'entreprise."
+               }
+              ]
              },
              {
               "tagName": "sonic-action",
@@ -271,6 +326,14 @@
                  "size": "sm"
                 },
                 "nodes": [
+                 {
+                  "tagName": "sonic-icon",
+                  "attributes": {
+                   "library": "iconoir",
+                   "name": "expand",
+                   "slot": "prefix"
+                  }
+                 },
                  {
                   "tagName": "span",
                   "textContent": "Recadrer la carte"
@@ -335,10 +398,24 @@
                    {
                     "tagName": "span",
                     "attributes": {
-                     "style": "font-size:.875rem;opacity:.7",
-                     "data-bind": "",
-                     "::text-content": "$v · $dn ($d) · $rg"
-                    }
+                     "style": "display:inline-flex;align-items:center;gap:.4rem;font-size:.875rem;opacity:.7"
+                    },
+                    "nodes": [
+                     {
+                      "tagName": "sonic-icon",
+                      "attributes": {
+                       "library": "iconoir",
+                       "name": "pin-alt"
+                      }
+                     },
+                     {
+                      "tagName": "span",
+                      "attributes": {
+                       "data-bind": "",
+                       "::text-content": "$v · $dn ($d) · $rg"
+                      }
+                     }
+                    ]
                    }
                   ]
                  },
@@ -360,6 +437,14 @@
                     },
                     "nodes": [
                      {
+                      "tagName": "sonic-icon",
+                      "attributes": {
+                       "library": "iconoir",
+                       "name": "info-empty",
+                       "slot": "prefix"
+                      }
+                     },
+                     {
                       "tagName": "span",
                       "textContent": "Détails"
                      }
@@ -379,10 +464,23 @@
               "nodes": [
                {
                 "tagName": "p",
-                "textContent": "Aucune entreprise ne correspond. Élargissez la recherche.",
                 "attributes": {
-                 "style": "font-size:.875rem;opacity:.7;padding:.75rem"
-                }
+                 "style": "display:flex;align-items:center;gap:.5rem;font-size:.875rem;opacity:.7;padding:.75rem"
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-icon",
+                  "attributes": {
+                   "library": "iconoir",
+                   "name": "emoji-sad",
+                   "size": "lg"
+                  }
+                 },
+                 {
+                  "tagName": "span",
+                  "textContent": "Aucune entreprise ne correspond. Élargissez la recherche."
+                 }
+                ]
                }
               ]
              }
@@ -411,11 +509,27 @@
             "tagName": "sonic-modal-title",
             "nodes": [
              {
-              "tagName": "sonic-value",
+              "tagName": "span",
               "attributes": {
-               "dataProvider": "fiche",
-               "key": "n"
-              }
+               "style": "display:inline-flex;align-items:center;gap:.5rem"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-icon",
+                "attributes": {
+                 "library": "iconoir",
+                 "name": "building",
+                 "size": "lg"
+                }
+               },
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "fiche",
+                 "key": "n"
+                }
+               }
+              ]
              }
             ]
            },
@@ -431,15 +545,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Adresse",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "pin-alt"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Adresse"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -453,15 +579,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Commune",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "city"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Commune"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -475,15 +613,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Département",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "map"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Département"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -497,15 +647,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Région",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "globe"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Région"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -519,15 +681,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Téléphone",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "phone"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Téléphone"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -541,15 +715,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Site",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "internet"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Site"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -563,15 +749,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Effectif",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "group"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Effectif"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -585,15 +783,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Domaines",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "label-outline"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Domaines"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -623,9 +833,21 @@
                      "::href": "https://www.google.com/maps/search/?api=1&query=$mq",
                      "target": "_blank",
                      "rel": "noopener noreferrer",
-                     "style": "text-decoration:underline"
+                     "style": "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline"
                     },
-                    "textContent": "Ouvrir dans Google Maps"
+                    "nodes": [
+                     {
+                      "tagName": "sonic-icon",
+                      "attributes": {
+                       "library": "iconoir",
+                       "name": "open-new-window"
+                      }
+                     },
+                     {
+                      "tagName": "span",
+                      "textContent": "Ouvrir dans Google Maps"
+                     }
+                    ]
                    }
                   ]
                  }
@@ -658,11 +880,27 @@
             "tagName": "sonic-modal-title",
             "nodes": [
              {
-              "tagName": "sonic-value",
+              "tagName": "span",
               "attributes": {
-               "dataProvider": "fiche",
-               "key": "n"
-              }
+               "style": "display:inline-flex;align-items:center;gap:.5rem"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-icon",
+                "attributes": {
+                 "library": "iconoir",
+                 "name": "building",
+                 "size": "lg"
+                }
+               },
+               {
+                "tagName": "sonic-value",
+                "attributes": {
+                 "dataProvider": "fiche",
+                 "key": "n"
+                }
+               }
+              ]
              }
             ]
            },
@@ -678,15 +916,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Adresse",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "pin-alt"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Adresse"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -700,15 +950,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Commune",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "city"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Commune"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -722,15 +984,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Département",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "map"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Département"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -744,15 +1018,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Région",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "globe"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Région"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -766,15 +1052,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Téléphone",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "phone"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Téléphone"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -788,15 +1086,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Site",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "internet"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Site"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -810,15 +1120,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Effectif",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "group"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Effectif"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -832,15 +1154,27 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem"
+                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
-                  "textContent": "Domaines",
                   "attributes": {
-                   "style": "opacity:.7;width:7rem;flex-shrink:0"
-                  }
+                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "label-outline"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Domaines"
+                   }
+                  ]
                  },
                  {
                   "tagName": "sonic-value",
@@ -870,9 +1204,21 @@
                      "::href": "https://www.google.com/maps/search/?api=1&query=$mq",
                      "target": "_blank",
                      "rel": "noopener noreferrer",
-                     "style": "text-decoration:underline"
+                     "style": "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline"
                     },
-                    "textContent": "Ouvrir dans Google Maps"
+                    "nodes": [
+                     {
+                      "tagName": "sonic-icon",
+                      "attributes": {
+                       "library": "iconoir",
+                       "name": "open-new-window"
+                      }
+                     },
+                     {
+                      "tagName": "span",
+                      "textContent": "Ouvrir dans Google Maps"
+                     }
+                    ]
                    }
                   ]
                  }
