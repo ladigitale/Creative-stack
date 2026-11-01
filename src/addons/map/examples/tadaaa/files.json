@@ -1,0 +1,31 @@
+{
+ "meta": {
+  "source": "Annuaire GICAT 2026 (informations déclaratives des sociétés)",
+  "extraction": "2026-11-01",
+  "coordonnees": "Centre de la commune (GeoNames, CC BY 4.0, via le paquet npm cities.json), pas l adresse exacte ; null si commune non trouvée",
+  "count": 495,
+  "sansCoordonnees": 34
+ },
+ "files": [
+  {
+   "name": "bitd-01.json",
+   "bytes": 61327,
+   "sha256": "68cb98f9ac5711a584e0d564809fb4a50af83035c964cfead06e66e371f1e227"
+  },
+  {
+   "name": "bitd-02.json",
+   "bytes": 61369,
+   "sha256": "78dbd890190014ebf34f6c3616ea142574e55977b6b5436e15c6a493bcb64397"
+  },
+  {
+   "name": "bitd-03.json",
+   "bytes": 61059,
+   "sha256": "7eb4580bf2a0e50dd4c713cdadc7455442738332be404735c8bd9e8cd2d628df"
+  },
+  {
+   "name": "bitd-04.json",
+   "bytes": 43683,
+   "sha256": "bf088f90d3a83bcf411d57ca14106e374a376aba1e4cad966977479d902757c6"
+  }
+ ]
+}
