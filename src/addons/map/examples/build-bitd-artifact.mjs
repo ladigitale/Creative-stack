@@ -138,8 +138,8 @@ const doc = {
         { tagName: "sonic-subscriber", attributes: { dataProvider: "etat" }, nodes: [{
           tagName: "sonic-menu", attributes: { direction: "row" },
           nodes: [
-            { tagName: "sonic-action", attributes: { target: "etat", type: "tab", payload: { tab: "carte" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vCarte" }, nodes: [icon("map", { slot: "prefix" }), text("span", "Carte")] }] },
-            { tagName: "sonic-action", attributes: { target: "etat", type: "tab", payload: { tab: "liste" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vListe" }, nodes: [icon("list", { slot: "prefix" }), text("span", "Liste")] }] },
+            { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "tab", payload: { tab: "carte" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vCarte" }, nodes: [icon("map", { slot: "prefix" }), text("span", "Carte")] }] },
+            { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "tab", payload: { tab: "liste" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vListe" }, nodes: [icon("list", { slot: "prefix" }), text("span", "Liste")] }] },
           ],
         }] },
         // Panneau Carte : les points sont cliquables (clic → select → modal de détail)
@@ -153,7 +153,7 @@ const doc = {
             } },
             { tagName: "div", attributes: { style: "display:flex;gap:.5rem;align-items:center;justify-content:space-between;flex-wrap:wrap" }, nodes: [
               withIcon("cursor-pointer", "Cliquez sur un point pour voir la fiche de l'entreprise.", "display:inline-flex;align-items:center;gap:.4rem;font-size:.875rem;opacity:.7"),
-              { tagName: "sonic-action", attributes: { target: "etat", type: "fit" }, nodes: [{ tagName: "sonic-button", attributes: { type: "default", variant: "outline", size: "sm" }, nodes: [icon("expand", { slot: "prefix" }), text("span", "Recadrer la carte")] }] },
+              { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "fit" }, nodes: [{ tagName: "sonic-button", attributes: { type: "default", variant: "outline", size: "sm" }, nodes: [icon("expand", { slot: "prefix" }), text("span", "Recadrer la carte")] }] },
             ] },
           ],
         }] },
@@ -174,10 +174,10 @@ const doc = {
                     ] },
                   ] },
                   { tagName: "div", attributes: { style: "display:flex;gap:.5rem;flex-shrink:0" }, nodes: [
-                    { tagName: "sonic-action", attributes: { target: "etat", type: "locate", "data-bind": "", "::payload": "$i" }, nodes: [
+                    { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "locate", "data-bind": "", "::payload": "$i" }, nodes: [
                       { tagName: "sonic-button", attributes: { type: "default", variant: "outline", size: "sm" }, nodes: [icon("pin", { slot: "prefix" }), text("span", "Voir sur la carte")] },
                     ] },
-                    { tagName: "sonic-action", attributes: { target: "etat", type: "select", "data-bind": "", "::payload": "$i" }, nodes: [
+                    { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "select", "data-bind": "", "::payload": "$i" }, nodes: [
                       { tagName: "sonic-button", attributes: { type: "primary", variant: "outline", size: "sm" }, nodes: [icon("info-empty", { slot: "prefix" }), text("span", "Détails")] },
                     ] },
                   ] },

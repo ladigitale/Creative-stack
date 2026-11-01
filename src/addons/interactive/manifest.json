@@ -129,6 +129,12 @@
         },
         "hold-repeat": {
           "type": "string"
+        },
+        "trigger": {
+          "type": "string",
+          "values": ["pointerdown", "click"],
+          "default": "pointerdown",
+          "description": "pointerdown : jeux et manettes tactiles ; click : interfaces (comme un bouton Concorde)"
         }
       }
     },

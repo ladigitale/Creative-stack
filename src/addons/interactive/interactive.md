@@ -10,7 +10,7 @@ Addon opt-in `@supersoniks/creative-stack/interactive` for **declarative** playa
 | `sonic-keyboard` | Keymap → actions |
 | `sonic-gamepad` | Standard gamepad → actions |
 | `sonic-gesture` | Tap / swipe / long-press, drag, pan, pinch (multipoint), wheel — see below |
-| `sonic-action` | Click / hold-repeat → action |
+| `sonic-action` | `pointerdown` (default: games, touch d-pads, `hold-repeat`) or `trigger="click"` (UI buttons: tabs, details, filters) → action |
 | `sonic-ticker` | Clock `tick` with `dt` |
 | `sonic-matrix` | 2D grid canvas from DataProvider |
 

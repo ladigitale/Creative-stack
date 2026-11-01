@@ -191,6 +191,7 @@
            {
             "tagName": "sonic-action",
             "attributes": {
+             "trigger": "click",
              "target": "etat",
              "type": "tab",
              "payload": {
@@ -225,6 +226,7 @@
            {
             "tagName": "sonic-action",
             "attributes": {
+             "trigger": "click",
              "target": "etat",
              "type": "tab",
              "payload": {
@@ -316,6 +318,7 @@
              {
               "tagName": "sonic-action",
               "attributes": {
+               "trigger": "click",
                "target": "etat",
                "type": "fit"
               },
@@ -430,6 +433,7 @@
                    {
                     "tagName": "sonic-action",
                     "attributes": {
+                     "trigger": "click",
                      "target": "etat",
                      "type": "locate",
                      "data-bind": "",
@@ -463,6 +467,7 @@
                    {
                     "tagName": "sonic-action",
                     "attributes": {
+                     "trigger": "click",
                      "target": "etat",
                      "type": "select",
                      "data-bind": "",
