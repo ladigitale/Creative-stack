@@ -70,19 +70,47 @@
     },
     {
       "name": "sonic-gesture",
-      "description": "Gestes tactiles -> actions",
+      "description": "Gestes tactiles multipoints -> actions vers target. Toujours : tap / double-tap / long-press {x, y (px dans la zone), u, v (fraction)}, swipe-up|down|left|right. drag : drag {dx, dy} cumulés en fraction de la zone + drag-end. pan : pan {dx, dy, x, y} en px depuis l'action précédente + pan-end {dx, dy, vx, vy}, sans swipe. pinch : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end. wheel : molette -> pinch {source:\"wheel\"}. Continues regroupées par image.",
       "props": {
         "target": {
-          "type": "string"
+          "type": "string",
+          "description": "Id du sonic-store qui reçoit les actions"
         },
         "swipe-threshold": {
-          "type": "number"
+          "type": "number",
+          "description": "Distance minimale d'un swipe en px (défaut 40)"
         },
         "long-press-ms": {
-          "type": "number"
+          "type": "number",
+          "description": "Durée d'un appui long (défaut 450)"
+        },
+        "double-tap-ms": {
+          "type": "number",
+          "description": "Délai maximal entre deux taps (défaut 280)"
         },
         "drag": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Émet drag {dx, dy} en fraction cumulée de la zone (1 doigt) et drag-end"
+        },
+        "pan": {
+          "type": "boolean",
+          "description": "Émet pan {dx, dy} en px (delta) et pan-end ; supprime les swipes"
+        },
+        "pinch": {
+          "type": "boolean",
+          "description": "Émet pinch-start / pinch {scale, dScale, rotation, dRotation, cx, cy} / pinch-end à deux doigts"
+        },
+        "wheel": {
+          "type": "boolean",
+          "description": "La molette émet pinch {source:\"wheel\", dScale} (et bloque le défilement de la page sur la zone)"
+        },
+        "state-provider": {
+          "type": "string",
+          "description": "DataProvider qui reçoit {active, pointers, scale, rotation, panX, panY, x, y}"
+        },
+        "dispatch-event": {
+          "type": "boolean",
+          "description": "Émet aussi l'événement DOM sonic-action"
         }
       }
     },
