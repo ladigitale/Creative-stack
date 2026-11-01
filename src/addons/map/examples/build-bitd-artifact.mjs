@@ -56,15 +56,21 @@ const files = parts.map((p, k) => {
 const regions = [...new Set(rows.map((e) => e.rg).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 
 // Sélection, onglets, fermeture et recadrage : le store ne garde que des identifiants (les données sont dans « bitd »).
-// detOn : 'off' | 'a' | 'b'. Chaque sélection bascule a <-> b : le modal (une copie par valeur) est remonté et
-// se rouvre, même si l'utilisateur l'avait fermé par la croix ou le fond, ce que le store ne voit pas.
+// detOn : 'off' | 'a' | 'b'. Chaque sélection bascule a <-> b, et visA / visB (booléens) pilotent `visible` de deux modals
+// par data-bind. Pourquoi : sonic-if garde son contenu dans le DOM et le modal se ferme tout seul (croix, fond, Échap) sans
+// que le store le sache ; un `visible: true` réécrit à chaque ouverture, sur la copie qui était fermée, le rouvre à coup sûr.
+// Toute autre action (fermer, onglet, recadrer, localiser) remet les deux à false.
 const REDUCER = `(
   $t := $action.type; $p := $action.payload; $s := $state.seq + 1;
-  $t = 'select' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $state.detOn = 'a' ? 'b' : 'a', 'seq': $s}])
-  : $t = 'close' ? $merge([$state, {'detOn': 'off', 'seq': $s}])
-  : $t = 'locate' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'detOn': 'off', 'seq': $s}])
-  : $t = 'fit' ? $merge([$state, {'sel': -1, 'detOn': 'off', 'seq': $s}])
-  : $t = 'tab' ? $merge([$state, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])
+  $off := {'detOn': 'off', 'visA': false, 'visB': false};
+  $t = 'select' ? (
+    $n := $state.detOn = 'a' ? 'b' : 'a';
+    $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $n, 'visA': $n = 'a', 'visB': $n = 'b', 'seq': $s}])
+  )
+  : $t = 'close' ? $merge([$state, $off, {'seq': $s}])
+  : $t = 'locate' ? $merge([$state, $off, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'seq': $s}])
+  : $t = 'fit' ? $merge([$state, $off, {'sel': -1, 'seq': $s}])
+  : $t = 'tab' ? $merge([$state, $off, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])
   : $state
 )`;
 
@@ -98,7 +104,7 @@ const doc = {
   page: { padding: "compact" },
   data: {
     stores: {
-      etat: { initial: { parts: [], sel: -1, detOn: "off", seq: 0, onglet: "carte", vCarte: "default", vListe: "ghost" }, reducer: REDUCER },
+      etat: { initial: { parts: [], sel: -1, detOn: "off", visA: false, visB: false, seq: 0, onglet: "carte", vCarte: "default", vListe: "ghost" }, reducer: REDUCER },
       fond: { initial: { style: "https://tiles.openfreemap.org/styles/positron" }, reducer: "$state" },
     },
   },
@@ -180,9 +186,9 @@ const doc = {
         }] },
         // Détail : modal. Deux copies (a / b) : voir le réducteur.
         ...["a", "b"].map((slot) => ({
-          tagName: "sonic-if", attributes: { dataProvider: "etat", key: "detOn", equals: slot },
+          tagName: "sonic-subscriber", attributes: { dataProvider: "etat" },
           nodes: [{
-            tagName: "sonic-modal", attributes: { visible: true, maxWidth: "min(100vw, 36rem)" },
+            tagName: "sonic-modal", attributes: { "data-bind": "", "::visible": slot === "a" ? "$visA" : "$visB", maxWidth: "min(100vw, 36rem)" },
             nodes: [
               { tagName: "sonic-modal-title", nodes: [{ tagName: "span", attributes: { style: "display:inline-flex;align-items:center;gap:.5rem" }, nodes: [icon("building", { size: "lg" }), { tagName: "sonic-value", attributes: { dataProvider: "fiche", key: "n" } }] }] },
               { tagName: "sonic-modal-content", nodes: [{

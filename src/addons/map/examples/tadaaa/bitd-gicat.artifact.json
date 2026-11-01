@@ -12,12 +12,14 @@
      "parts": [],
      "sel": -1,
      "detOn": "off",
+     "visA": false,
+     "visB": false,
      "seq": 0,
      "onglet": "carte",
      "vCarte": "default",
      "vListe": "ghost"
     },
-    "reducer": "(\n  $t := $action.type; $p := $action.payload; $s := $state.seq + 1;\n  $t = 'select' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $state.detOn = 'a' ? 'b' : 'a', 'seq': $s}])\n  : $t = 'close' ? $merge([$state, {'detOn': 'off', 'seq': $s}])\n  : $t = 'locate' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'detOn': 'off', 'seq': $s}])\n  : $t = 'fit' ? $merge([$state, {'sel': -1, 'detOn': 'off', 'seq': $s}])\n  : $t = 'tab' ? $merge([$state, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])\n  : $state\n)"
+    "reducer": "(\n  $t := $action.type; $p := $action.payload; $s := $state.seq + 1;\n  $off := {'detOn': 'off', 'visA': false, 'visB': false};\n  $t = 'select' ? (\n    $n := $state.detOn = 'a' ? 'b' : 'a';\n    $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $n, 'visA': $n = 'a', 'visB': $n = 'b', 'seq': $s}])\n  )\n  : $t = 'close' ? $merge([$state, $off, {'seq': $s}])\n  : $t = 'locate' ? $merge([$state, $off, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'seq': $s}])\n  : $t = 'fit' ? $merge([$state, $off, {'sel': -1, 'seq': $s}])\n  : $t = 'tab' ? $merge([$state, $off, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])\n  : $state\n)"
    },
    "fond": {
     "initial": {
@@ -532,17 +534,16 @@
         ]
        },
        {
-        "tagName": "sonic-if",
+        "tagName": "sonic-subscriber",
         "attributes": {
-         "dataProvider": "etat",
-         "key": "detOn",
-         "equals": "a"
+         "dataProvider": "etat"
         },
         "nodes": [
          {
           "tagName": "sonic-modal",
           "attributes": {
-           "visible": true,
+           "data-bind": "",
+           "::visible": "$visA",
            "maxWidth": "min(100vw, 36rem)"
           },
           "nodes": [
@@ -903,17 +904,16 @@
         ]
        },
        {
-        "tagName": "sonic-if",
+        "tagName": "sonic-subscriber",
         "attributes": {
-         "dataProvider": "etat",
-         "key": "detOn",
-         "equals": "b"
+         "dataProvider": "etat"
         },
         "nodes": [
          {
           "tagName": "sonic-modal",
           "attributes": {
-           "visible": true,
+           "data-bind": "",
+           "::visible": "$visB",
            "maxWidth": "min(100vw, 36rem)"
           },
           "nodes": [
