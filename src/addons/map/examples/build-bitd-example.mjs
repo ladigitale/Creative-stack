@@ -43,7 +43,8 @@ const REDUCER = `(
   : $state
 )`;
 
-// Filtre commun (variables du formulaire « filtres » : $q, $reg). Un code 2-3 chiffres ou 2A/2B = département exact.
+// Filtre commun (variables du formulaire « filtres » : $q, $reg). Un seul résultat = un objet en JSONata :
+// $append([], …) garantit un tableau pour sonic-list et sonic-map. Un code 2-3 chiffres ou 2A/2B = département exact.
 const FILTER = `$qq := $lowercase($trim($string($exists($q) ? $q : '')));
   $rr := $exists($reg) and $reg != null ? $reg : '';
   $isDep := $contains($qq, /^([0-9]{2,3}|2[ab])$/);
@@ -75,8 +76,8 @@ const doc = {
     root: { nodes: [{
       tagName: "div", attributes: { class: "grid gap-4" },
       nodes: [
-        jsonata("liste", `( ${FILTER}; $f[[0..${MAX_ROWS - 1}]] )`),
-        jsonata("pts", `( ${FILTER}; {'data': $f[lat != null].{'id': i, 'lat': lat, 'lon': lon, 'label': n}} )`),
+        jsonata("liste", `( ${FILTER}; $append([], $f[[0..${MAX_ROWS - 1}]]) )`),
+        jsonata("pts", `( ${FILTER}; {'data': $append([], $f[lat != null].{'id': i, 'lat': lat, 'lon': lon, 'label': n})} )`),
         jsonata("vue", "$input.view"),
         jsonata("compte", `( ${FILTER}; $n := $count($f); {'txt': $string($n) & ' entreprise' & ($n > 1 ? 's' : '') & ($n > ${MAX_ROWS} ? ' (${MAX_ROWS} premières listées)' : '') & ' · ' & $string($count($f[lat != null])) & ' sur la carte'} )`),
         text("h1", "Membres du GICAT par territoire", { class: "text-2xl font-semibold" }),
