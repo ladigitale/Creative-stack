@@ -857,37 +857,47 @@
                 ]
                },
                {
-                "tagName": "sonic-subscriber",
+                "tagName": "sonic-if",
                 "attributes": {
-                 "dataProvider": "fiche"
+                 "dataProvider": "fiche",
+                 "key": "wp",
+                 "truthy": true
                 },
                 "nodes": [
                  {
-                  "tagName": "div",
+                  "tagName": "sonic-subscriber",
                   "attributes": {
-                   "style": "padding-top:.5rem"
+                   "dataProvider": "fiche"
                   },
                   "nodes": [
                    {
-                    "tagName": "a",
+                    "tagName": "div",
                     "attributes": {
-                     "data-bind": "",
-                     "::href": "https://www.google.com/maps/search/?api=1&query=$mq",
-                     "target": "_blank",
-                     "rel": "noopener noreferrer",
-                     "style": "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline"
+                     "style": "padding-top:.5rem"
                     },
                     "nodes": [
                      {
-                      "tagName": "sonic-icon",
+                      "tagName": "a",
                       "attributes": {
-                       "library": "iconoir",
-                       "name": "open-new-window"
-                      }
-                     },
-                     {
-                      "tagName": "span",
-                      "textContent": "Ouvrir dans Google Maps"
+                       "data-bind": "",
+                       "::href": "https://fr.wikipedia.org/wiki/$wp",
+                       "target": "_blank",
+                       "rel": "noopener noreferrer",
+                       "style": "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline"
+                      },
+                      "nodes": [
+                       {
+                        "tagName": "sonic-icon",
+                        "attributes": {
+                         "library": "iconoir",
+                         "name": "book"
+                        }
+                       },
+                       {
+                        "tagName": "span",
+                        "textContent": "Page Wikipédia"
+                       }
+                      ]
                      }
                     ]
                    }
@@ -1227,37 +1237,47 @@
                 ]
                },
                {
-                "tagName": "sonic-subscriber",
+                "tagName": "sonic-if",
                 "attributes": {
-                 "dataProvider": "fiche"
+                 "dataProvider": "fiche",
+                 "key": "wp",
+                 "truthy": true
                 },
                 "nodes": [
                  {
-                  "tagName": "div",
+                  "tagName": "sonic-subscriber",
                   "attributes": {
-                   "style": "padding-top:.5rem"
+                   "dataProvider": "fiche"
                   },
                   "nodes": [
                    {
-                    "tagName": "a",
+                    "tagName": "div",
                     "attributes": {
-                     "data-bind": "",
-                     "::href": "https://www.google.com/maps/search/?api=1&query=$mq",
-                     "target": "_blank",
-                     "rel": "noopener noreferrer",
-                     "style": "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline"
+                     "style": "padding-top:.5rem"
                     },
                     "nodes": [
                      {
-                      "tagName": "sonic-icon",
+                      "tagName": "a",
                       "attributes": {
-                       "library": "iconoir",
-                       "name": "open-new-window"
-                      }
-                     },
-                     {
-                      "tagName": "span",
-                      "textContent": "Ouvrir dans Google Maps"
+                       "data-bind": "",
+                       "::href": "https://fr.wikipedia.org/wiki/$wp",
+                       "target": "_blank",
+                       "rel": "noopener noreferrer",
+                       "style": "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline"
+                      },
+                      "nodes": [
+                       {
+                        "tagName": "sonic-icon",
+                        "attributes": {
+                         "library": "iconoir",
+                         "name": "book"
+                        }
+                       },
+                       {
+                        "tagName": "span",
+                        "textContent": "Page Wikipédia"
+                       }
+                      ]
                      }
                     ]
                    }

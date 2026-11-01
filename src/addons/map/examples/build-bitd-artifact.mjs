@@ -22,15 +22,18 @@ const src = JSON.parse(readFileSync(path.join(here, "data/bitd-gicat.json"), "ut
 const CHUNK = 60 * 1024;
 const MAX_ROWS = 150;
 
+// Pages Wikipédia (fr) des entreprises qui en ont une : data/bitd-wikipedia.json, id -> {n, t = titre de page}.
+const wiki = JSON.parse(readFileSync(path.join(here, "data/bitd-wikipedia.json"), "utf8")).pages;
+
 const strip = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const rows = src.entreprises.map((e) => {
   const dm = e.domaines.join(" · ");
-  const adresse = [e.adresse, `${e.cp} ${e.ville}`, "France"].filter(Boolean).join(", ");
   return {
     i: e.i, n: e.nom, v: e.ville, c: e.cp, d: e.dep, dn: e.depNom, rg: e.region,
     a: e.adresse, t: e.tel, w: e.site, f: e.effectif ? `${e.effectif.toLocaleString("fr-FR")} personnes` : "",
     dm, lat: e.lat, lon: e.lon,
-    mq: e.lat !== null ? `${e.lat},${e.lon}` : encodeURIComponent(adresse),
+    // Titre de page encodé pour l'URL (« wp » vide : pas de page, le lien n'est pas affiché)
+    wp: wiki[e.i] ? encodeURIComponent(wiki[e.i].t) : "",
     s: strip([e.nom, e.ville, e.cp, e.depNom, e.region, dm].join(" ")),
   };
 });
@@ -196,9 +199,12 @@ const doc = {
                 nodes: [
                   field("Adresse", "a", "pin-alt"), field("Commune", "v", "city"), field("Département", "dn", "map"), field("Région", "rg", "globe"),
                   field("Téléphone", "t", "phone"), field("Site", "w", "internet"), field("Effectif", "f", "group"), field("Domaines", "dm", "label-outline"),
-                  { tagName: "sonic-subscriber", attributes: { dataProvider: "fiche" }, nodes: [{
-                    tagName: "div", attributes: { style: "padding-top:.5rem" },
-                    nodes: [{ tagName: "a", attributes: { "data-bind": "", "::href": "https://www.google.com/maps/search/?api=1&query=$mq", target: "_blank", rel: "noopener noreferrer", style: "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline" }, nodes: [icon("open-new-window"), text("span", "Ouvrir dans Google Maps")] }],
+                  // Lien Wikipédia : seulement si l'entreprise a sa page (champ « wp » non vide)
+                  { tagName: "sonic-if", attributes: { dataProvider: "fiche", key: "wp", truthy: true }, nodes: [{
+                    tagName: "sonic-subscriber", attributes: { dataProvider: "fiche" }, nodes: [{
+                      tagName: "div", attributes: { style: "padding-top:.5rem" },
+                      nodes: [{ tagName: "a", attributes: { "data-bind": "", "::href": "https://fr.wikipedia.org/wiki/$wp", target: "_blank", rel: "noopener noreferrer", style: "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline" }, nodes: [icon("book"), text("span", "Page Wikipédia")] }],
+                    }],
                   }] },
                 ],
               }] },

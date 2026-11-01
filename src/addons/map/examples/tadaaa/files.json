@@ -9,23 +9,23 @@
  "files": [
   {
    "name": "bitd-01.json",
-   "bytes": 61327,
-   "sha256": "68cb98f9ac5711a584e0d564809fb4a50af83035c964cfead06e66e371f1e227"
+   "bytes": 61273,
+   "sha256": "aef6860402cad76cd84bf0bb2a2a7d4eb4acbf92de87d71f132200d89c1e9463"
   },
   {
    "name": "bitd-02.json",
-   "bytes": 61369,
-   "sha256": "78dbd890190014ebf34f6c3616ea142574e55977b6b5436e15c6a493bcb64397"
+   "bytes": 61043,
+   "sha256": "ca88ff0bb299307a5fca309ba85cba859b17e5b718080e8a250ef721365e2215"
   },
   {
    "name": "bitd-03.json",
-   "bytes": 61059,
-   "sha256": "7eb4580bf2a0e50dd4c713cdadc7455442738332be404735c8bd9e8cd2d628df"
+   "bytes": 61121,
+   "sha256": "bcdb463db131bf421604f08183487d72c17b8082f1fe86b92a50ce6f796577de"
   },
   {
    "name": "bitd-04.json",
-   "bytes": 43683,
-   "sha256": "bf088f90d3a83bcf411d57ca14106e374a376aba1e4cad966977479d902757c6"
+   "bytes": 34912,
+   "sha256": "36fa3490bef414fa36cc01eee1ff009093b0183798494c13722adfbd3a2aa3d8"
   }
  ]
 }
