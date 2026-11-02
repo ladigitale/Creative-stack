@@ -99,7 +99,7 @@ export function parseSprite(raw: Record<string, unknown>, fallbackName: string):
       line: Math.max(0, num(o.line, 1.5)),
       text: String(o.text ?? o.label ?? ""),
       fontSize: Math.max(4, num(o.fontsize, 24)),
-      font: String(o.font ?? "system-ui, sans-serif"),
+      font: o.font == null ? "" : String(o.font), // vide : police de la page (scene.ts)
       src,
       angle: num(o.angle, 0),
       opacity: Math.max(0, Math.min(1, num(o.opacity, 1))),

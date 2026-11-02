@@ -35,6 +35,8 @@ export type SceneOptions = {
   height: number;
   background: string;
   resolution: number;
+  /** Police par défaut des sprites texte (celle de la page hôte). */
+  font?: string;
   /** Demande un rendu (coalescé par l'élément). */
   invalidate: () => void;
 };
@@ -43,6 +45,7 @@ export class Scene2D {
   readonly app = new Application();
   readonly nodes: NodeStates;
   private entries = new Map<string, Entry>();
+  private textResolution = 2;
   private layers = new Map<string, { layer: Layer; container: Container }>();
   private order: Layer[] = [];
   private camera: Camera;
@@ -115,6 +118,15 @@ export class Scene2D {
     r.resolution = resolution;
     r.resize(Math.max(1, Math.round(cssWidth)), Math.max(1, Math.round(this.height * k)));
     this.app.stage.scale.set(k);
+    // Les textes sont rastérisés à leur taille logique : agrandis par la mise à l'échelle de la
+    // scène, ils devenaient flous. On les rastérise à la taille affichée (zoom caméra modéré compris).
+    const textRes = Math.min(8, Math.max(1, resolution * k * 1.5));
+    if (Math.abs(textRes - this.textResolution) > 0.01) {
+      this.textResolution = textRes;
+      for (const e of this.entries.values()) {
+        if (e.art instanceof Text) e.art.resolution = textRes;
+      }
+    }
   }
 
   render(): void {
@@ -267,7 +279,11 @@ export class Scene2D {
     }
     let art: ContainerChild;
     if (s.shape === "text") {
-      const t = new Text({ text: s.text, style: { fill: fill || "#ffffff", fontSize: s.fontSize, fontFamily: s.font, align: "center" } });
+      const t = new Text({
+        text: s.text,
+        resolution: this.textResolution,
+        style: { fill: fill || "#ffffff", fontSize: s.fontSize, fontFamily: s.font || this.opts.font || "system-ui, sans-serif", align: "center" },
+      });
       t.anchor.set(0.5);
       art = t;
     } else if (s.shape === "image") {
