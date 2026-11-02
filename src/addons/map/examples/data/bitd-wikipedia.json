@@ -1,0 +1,273 @@
+{
+ "meta": {
+  "source": "Wikipédia (fr) via Wikidata ; page de l'entreprise elle-même (pas du groupe), contrôlée par SIREN, site web ou titre exact",
+  "generated": "2026-11-01",
+  "count": 66
+ },
+ "pages": {
+  "5": {
+   "n": "ACCURACY",
+   "t": "Accuracy_(entreprise)"
+  },
+  "17": {
+   "n": "AIRBUS DEFENCE AND SPACE",
+   "t": "Airbus_Defence_and_Space"
+  },
+  "18": {
+   "n": "AIRBUS HELICOPTERS",
+   "t": "Airbus_Helicopters"
+  },
+  "29": {
+   "n": "ALSETEX",
+   "t": "Alsetex"
+  },
+  "30": {
+   "n": "ALTA ARES",
+   "t": "Alta_Ares"
+  },
+  "50": {
+   "n": "ARQUUS (A JOHN COCKERILL COMPANY)",
+   "t": "Arquus"
+  },
+  "60": {
+   "n": "AUBERT & DUVAL",
+   "t": "Aubert_&_Duval"
+  },
+  "75": {
+   "n": "BERTIN TECHNOLOGIES",
+   "t": "Bertin_Technologies"
+  },
+  "86": {
+   "n": "CAPGEMINI",
+   "t": "Capgemini"
+  },
+  "94": {
+   "n": "CERBAIR",
+   "t": "CerbAir"
+  },
+  "101": {
+   "n": "CHAPSVISION",
+   "t": "ChapsVision"
+  },
+  "103": {
+   "n": "CILAS",
+   "t": "Compagnie_industrielle_des_lasers"
+  },
+  "108": {
+   "n": "CMA-CGM",
+   "t": "CMA_CGM"
+  },
+  "110": {
+   "n": "CNIM SYSTÈMES INDUSTRIELS",
+   "t": "CNIM_Systèmes_Industriels"
+  },
+  "114": {
+   "n": "COLLINS AEROSPACE",
+   "t": "Collins_Aerospace"
+  },
+  "121": {
+   "n": "CROSSCALL",
+   "t": "Crosscall"
+  },
+  "124": {
+   "n": "CYBERGUN GROUP (ARKANIA GROUP)",
+   "t": "Cybergun"
+  },
+  "126": {
+   "n": "DAHER",
+   "t": "Daher"
+  },
+  "130": {
+   "n": "DAVEY BICKFORD DEFENSE",
+   "t": "Davey_Bickford"
+  },
+  "132": {
+   "n": "DÉFENSE CONSEIL INTERNATIONAL",
+   "t": "Défense_conseil_international"
+  },
+  "133": {
+   "n": "DELAIR",
+   "t": "Delair"
+  },
+  "162": {
+   "n": "ELISTAIR",
+   "t": "Elistair"
+  },
+  "179": {
+   "n": "EURENCO",
+   "t": "Eurenco"
+  },
+  "183": {
+   "n": "EVIDEN",
+   "t": "Eviden"
+  },
+  "185": {
+   "n": "EXAIL",
+   "t": "Exail"
+  },
+  "190": {
+   "n": "EXOSENS",
+   "t": "Exosens"
+  },
+  "206": {
+   "n": "GATEWATCHER",
+   "t": "Gatewatcher"
+  },
+  "209": {
+   "n": "GEODIS",
+   "t": "Geodis"
+  },
+  "210": {
+   "n": "GEOFIT",
+   "t": "GEOFIT"
+  },
+  "213": {
+   "n": "GEOS",
+   "t": "GEOS_(entreprise)"
+  },
+  "216": {
+   "n": "GLIMPS",
+   "t": "GLIMPS"
+  },
+  "217": {
+   "n": "GROUPE ADF",
+   "t": "Groupe_ADF"
+  },
+  "224": {
+   "n": "HEMERIA",
+   "t": "Hemeria"
+  },
+  "233": {
+   "n": "HUTCHINSON SNC",
+   "t": "Hutchinson_(entreprise)"
+  },
+  "237": {
+   "n": "IGN FI",
+   "t": "IGN_FI"
+  },
+  "245": {
+   "n": "INGEROP CONSEIL & INGÉNIERIE",
+   "t": "Ingérop"
+  },
+  "258": {
+   "n": "JOHN COCKERILL DEFENSE FRANCE",
+   "t": "John_Cockerill_Defense"
+  },
+  "263": {
+   "n": "KNDS FRANCE",
+   "t": "KNDS_France"
+  },
+  "269": {
+   "n": "LACROIX",
+   "t": "Lacroix_(entreprise)"
+  },
+  "285": {
+   "n": "MANITOU",
+   "t": "Manitou_Group"
+  },
+  "288": {
+   "n": "MANUTAN",
+   "t": "Manutan"
+  },
+  "291": {
+   "n": "MBDA",
+   "t": "MBDA"
+  },
+  "298": {
+   "n": "MENTALISTA",
+   "t": "Mentalista"
+  },
+  "300": {
+   "n": "METRAVIB DEFENCE",
+   "t": "Metravib_Defence"
+  },
+  "301": {
+   "n": "MICHELIN",
+   "t": "Michelin"
+  },
+  "302": {
+   "n": "MICROWAVE VISION SAS",
+   "t": "Microwave_Vision"
+  },
+  "331": {
+   "n": "NTN EUROPE",
+   "t": "NTN_Europe"
+  },
+  "333": {
+   "n": "NUMALIS",
+   "t": "Numalis"
+  },
+  "345": {
+   "n": "ORANGE BUSINESS",
+   "t": "Orange_Business"
+  },
+  "348": {
+   "n": "OUVRY",
+   "t": "Ouvry"
+  },
+  "349": {
+   "n": "OVHCLOUD",
+   "t": "OVHcloud"
+  },
+  "354": {
+   "n": "PARROT DRONES",
+   "t": "Parrot_(entreprise)"
+  },
+  "379": {
+   "n": "RENAULT TRUCKS",
+   "t": "Renault_Trucks"
+  },
+  "384": {
+   "n": "ROXEL",
+   "t": "Roxel"
+  },
+  "387": {
+   "n": "SAFT",
+   "t": "Saft"
+  },
+  "397": {
+   "n": "SCHNEIDER ELECTRIC",
+   "t": "Schneider_Electric"
+  },
+  "402": {
+   "n": "SEGULA TECHNOLOGIES",
+   "t": "Segula_Technologies"
+  },
+  "412": {
+   "n": "SHARK ROBOTICS",
+   "t": "Shark_Robotics"
+  },
+  "420": {
+   "n": "SKF FRANCE SAS",
+   "t": "SKF_(France)"
+  },
+  "426": {
+   "n": "SOFRAME",
+   "t": "Soframe"
+  },
+  "432": {
+   "n": "SOPRA STERIA",
+   "t": "Sopra_Steria"
+  },
+  "457": {
+   "n": "TEXELIS",
+   "t": "Texelis"
+  },
+  "458": {
+   "n": "THALES GROUP",
+   "t": "Thales"
+  },
+  "464": {
+   "n": "TIXEO",
+   "t": "Tixeo"
+  },
+  "480": {
+   "n": "UNSEENLABS",
+   "t": "Unseenlabs"
+  },
+  "486": {
+   "n": "VOCAPIA RESEARCH",
+   "t": "Vocapia_Research"
+  }
+ }
+}

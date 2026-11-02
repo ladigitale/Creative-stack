@@ -22,15 +22,18 @@ const src = JSON.parse(readFileSync(path.join(here, "data/bitd-gicat.json"), "ut
 const CHUNK = 60 * 1024;
 const MAX_ROWS = 150;
 
+// Pages Wikipédia (fr) des entreprises qui en ont une : data/bitd-wikipedia.json, id -> {n, t = titre de page}.
+const wiki = JSON.parse(readFileSync(path.join(here, "data/bitd-wikipedia.json"), "utf8")).pages;
+
 const strip = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const rows = src.entreprises.map((e) => {
   const dm = e.domaines.join(" · ");
-  const adresse = [e.adresse, `${e.cp} ${e.ville}`, "France"].filter(Boolean).join(", ");
   return {
     i: e.i, n: e.nom, v: e.ville, c: e.cp, d: e.dep, dn: e.depNom, rg: e.region,
     a: e.adresse, t: e.tel, w: e.site, f: e.effectif ? `${e.effectif.toLocaleString("fr-FR")} personnes` : "",
     dm, lat: e.lat, lon: e.lon,
-    mq: e.lat !== null ? `${e.lat},${e.lon}` : encodeURIComponent(adresse),
+    // Titre de page encodé pour l'URL (« wp » vide : pas de page, le lien n'est pas affiché)
+    wp: wiki[e.i] ? encodeURIComponent(wiki[e.i].t) : "",
     s: strip([e.nom, e.ville, e.cp, e.depNom, e.region, dm].join(" ")),
   };
 });
@@ -56,15 +59,21 @@ const files = parts.map((p, k) => {
 const regions = [...new Set(rows.map((e) => e.rg).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 
 // Sélection, onglets, fermeture et recadrage : le store ne garde que des identifiants (les données sont dans « bitd »).
-// detOn : 'off' | 'a' | 'b'. Chaque sélection bascule a <-> b : le modal (une copie par valeur) est remonté et
-// se rouvre, même si l'utilisateur l'avait fermé par la croix ou le fond, ce que le store ne voit pas.
+// detOn : 'off' | 'a' | 'b'. Chaque sélection bascule a <-> b, et visA / visB (booléens) pilotent `visible` de deux modals
+// par data-bind. Pourquoi : sonic-if garde son contenu dans le DOM et le modal se ferme tout seul (croix, fond, Échap) sans
+// que le store le sache ; un `visible: true` réécrit à chaque ouverture, sur la copie qui était fermée, le rouvre à coup sûr.
+// Toute autre action (fermer, onglet, recadrer, localiser) remet les deux à false.
 const REDUCER = `(
   $t := $action.type; $p := $action.payload; $s := $state.seq + 1;
-  $t = 'select' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $state.detOn = 'a' ? 'b' : 'a', 'seq': $s}])
-  : $t = 'close' ? $merge([$state, {'detOn': 'off', 'seq': $s}])
-  : $t = 'locate' ? $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'detOn': 'off', 'seq': $s}])
-  : $t = 'fit' ? $merge([$state, {'sel': -1, 'detOn': 'off', 'seq': $s}])
-  : $t = 'tab' ? $merge([$state, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])
+  $off := {'detOn': 'off', 'visA': false, 'visB': false};
+  $t = 'select' ? (
+    $n := $state.detOn = 'a' ? 'b' : 'a';
+    $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $n, 'visA': $n = 'a', 'visB': $n = 'b', 'seq': $s}])
+  )
+  : $t = 'close' ? $merge([$state, $off, {'seq': $s}])
+  : $t = 'locate' ? $merge([$state, $off, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'seq': $s}])
+  : $t = 'fit' ? $merge([$state, $off, {'sel': -1, 'seq': $s}])
+  : $t = 'tab' ? $merge([$state, $off, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])
   : $state
 )`;
 
@@ -83,13 +92,42 @@ const text = (tagName, t, attributes) => ({ tagName, textContent: t, ...(attribu
 const icon = (name, attrs = {}) => ({ tagName: "sonic-icon", attributes: { library: "iconoir", name, ...attrs } });
 const withIcon = (name, label, style = "display:inline-flex;align-items:center;gap:.4rem") =>
   ({ tagName: "span", attributes: { style }, nodes: [icon(name), text("span", label)] });
+// Jetons du thème uniquement (le viewer applique le thème du lecteur) : aucune couleur codée en dur.
+const BORDER = "1px solid color-mix(in oklab,var(--sc-base-content) 12%,transparent)";
+const SURFACE = "color-mix(in oklab,var(--sc-base-content) 4%,var(--sc-base))";
 const field = (label, key, ic) => ({
-  tagName: "div", attributes: { style: "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline" },
+  tagName: "div", attributes: { style: "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline" },
   nodes: [
-    { tagName: "span", attributes: { style: "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem" }, nodes: [icon(ic), text("span", label)] },
+    { tagName: "span", attributes: { style: "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px" }, nodes: [icon(ic), text("span", label)] },
     { tagName: "sonic-value", attributes: { dataProvider: "fiche", key } },
   ],
 });
+
+// Filtres : un store (le champ de recherche y écrit q, le menu de régions y envoie `set`).
+const FILTRES_REDUCER = "$action.type = 'set' ? $merge([$state, $action.payload]) : $action.type = 'reset' ? {'q': '', 'reg': ''} : $state";
+const act = (type, payload, nodes) => ({ tagName: "sonic-action", attributes: { trigger: "click", target: "filtres", type, ...(payload ? { payload } : {}) }, nodes });
+// Région : sonic-pop + sonic-menu + sonic-menu-item (jamais select / sonic-select). L'item actif est plein.
+const regionItems = [{ label: "Toutes les régions", reg: "" }, ...regions.map((r) => ({ label: r, reg: r }))];
+const REGION_ACTIVE = `( $r := $exists($input.reg) ? $input.reg : ''; { 'lbl': $r = '' ? 'Toutes' : $r, ${regionItems
+  .map((it, k) => `'r${k}': $r = ${JSON.stringify(it.reg)} ? 'default' : 'ghost'`)
+  .join(", ")} } )`;
+const regionPop = {
+  tagName: "sonic-subscriber", attributes: { dataProvider: "regActif" },
+  nodes: [{
+    tagName: "sonic-pop", attributes: { placement: "bottom-start" },
+    nodes: [
+      { tagName: "sonic-button", attributes: { variant: "outline", style: "min-width:13rem;justify-content:space-between" }, nodes: [
+        icon("pin-alt", { slot: "prefix" }),
+        { tagName: "span", attributes: { style: "display:inline-flex;gap:6px" }, nodes: [text("span", "Région :"), { tagName: "sonic-value", attributes: { dataProvider: "regActif", key: "lbl" } }] },
+        icon("nav-arrow-down", { slot: "suffix" }),
+      ] },
+      { tagName: "sonic-menu", attributes: { slot: "content", direction: "column", align: "left", size: "sm", minWidth: "14rem" },
+        nodes: regionItems.map((it, k) => act("set", { reg: it.reg }, [
+          { tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": `$r${k}` }, nodes: [text("span", it.label)] },
+        ])) },
+    ],
+  }],
+};
 
 const doc = {
   schema: "artifacts/1",
@@ -98,101 +136,118 @@ const doc = {
   page: { padding: "compact" },
   data: {
     stores: {
-      etat: { initial: { parts: [], sel: -1, detOn: "off", seq: 0, onglet: "carte", vCarte: "default", vListe: "ghost" }, reducer: REDUCER },
+      etat: { initial: { parts: [], sel: -1, detOn: "off", visA: false, visB: false, seq: 0, onglet: "carte", vCarte: "default", vListe: "ghost" }, reducer: REDUCER, budgetMs: 40 },
+      filtres: { initial: { q: "", reg: "" }, reducer: FILTRES_REDUCER, budgetMs: 40 },
       fond: { initial: { style: "https://tiles.openfreemap.org/styles/positron" }, reducer: "$state" },
     },
   },
   views: [{
     id: "carte", title: "Carte",
     root: { nodes: [{
-      tagName: "div", attributes: { style: "display:grid;gap:1rem" },
+      tagName: "div", attributes: { style: "display:grid;gap:16px;max-width:1200px;margin:0 auto" },
       nodes: [
         // Données : morceaux JSON (fichiers de l'artefact) → un tableau
         jsonata("etat", null, "bitd", "$reduce($input.parts, function($a, $p) { $append($a, $eval($p)) }, [])"),
         jsonata("bitd", "filtres", "liste", `( ${FILTER}; $append([], $f[[0..${MAX_ROWS - 1}]]) )`),
         jsonata("bitd", "filtres", "pts", `( ${FILTER}; {'data': $append([], $f[lat != null].{'id': i, 'lat': lat, 'lon': lon, 'label': n})} )`),
         jsonata("bitd", "filtres", "compte", `( ${FILTER}; $n := $count($f); {'txt': $string($n) & ' entreprise' & ($n > 1 ? 's' : '') & ($n > ${MAX_ROWS} ? ' (${MAX_ROWS} premières listées)' : '') & ' · ' & $string($count($f[lat != null])) & ' sur la carte'} )`),
+        jsonata("filtres", null, "regActif", REGION_ACTIVE),
         jsonata("bitd", "etat", "fiche", "( $e := $input[i = $sel]; $exists($e) ? $e : {} )"),
         jsonata("bitd", "etat", "vue", "( $e := $input[i = $sel]; $exists($e) and $e.lat != null ? {'center': [$e.lon, $e.lat], 'zoom': 10, 'mode': 'fly', 'duration': 800, 'seq': $seq, 'selectedId': $sel} : {'fit': 'points', 'mode': 'ease', 'duration': 600, 'seq': $seq, 'selectedId': null} )"),
-        text("h1", "Membres du GICAT par territoire", { style: "font-size:1.5rem;font-weight:600;margin:0" }),
-        text("p", `Annuaire GICAT 2026, informations déclarées par les sociétés. Position = centre de la commune (${src.meta.sansCoordonnees} entreprises sans position). Une adhésion au GICAT ne suffit pas à classer une entreprise dans la BITD.`, { style: "font-size:.875rem;opacity:.7;margin:0" }),
-        {
-          tagName: "div", attributes: { style: "display:grid;gap:.5rem;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end" },
-          nodes: [
-            { tagName: "sonic-input", attributes: { name: "q", formDataProvider: "filtres", label: "Recherche", placeholder: "Nom, ville, 37, 2A, drone, cyber…" }, nodes: [icon("search", { slot: "prefix" })] },
-            { tagName: "sonic-select", attributes: { name: "reg", formDataProvider: "filtres", label: "Région",
-              options: JSON.stringify([{ value: "", wording: "Toutes les régions" }, ...regions.map((r) => ({ value: r, wording: r }))]) }, nodes: [icon("pin-alt", { slot: "prefix" })] },
-          ],
-        },
-        { tagName: "p", attributes: { style: "font-size:.875rem;margin:0;display:flex;align-items:center;gap:.4rem" }, nodes: [icon("building"), { tagName: "sonic-value", attributes: { dataProvider: "compte", key: "txt" } }] },
+        // En-tête : titre, compteur, source
+        { tagName: "div", attributes: { style: "display:grid;gap:4px" }, nodes: [
+          text("h1", "Membres du GICAT par territoire", { style: "font-family:var(--sc-font-family-headings);font-size:24px;font-weight:600;line-height:1.15;letter-spacing:-.01em;margin:0;text-wrap:balance" }),
+          { tagName: "p", attributes: { style: "font-size:14px;margin:0;display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums" }, nodes: [icon("building"), { tagName: "sonic-value", attributes: { dataProvider: "compte", key: "txt" } }] },
+          text("p", `Annuaire GICAT 2026, informations déclarées par les sociétés. Position = centre de la commune (${src.meta.sansCoordonnees} entreprises sans position). Une adhésion au GICAT ne suffit pas à classer une entreprise dans la BITD.`, { style: "font-size:12px;line-height:1.5;opacity:.65;margin:0;max-width:65ch" }),
+        ] },
+        // Barre d'outils : recherche (la plus large), région, réinitialiser
+        { tagName: "div", attributes: { style: `display:flex;flex-wrap:wrap;gap:8px;align-items:end;padding:12px;border:${BORDER};border-radius:var(--sc-rounded-lg);background:${SURFACE}` }, nodes: [
+          { tagName: "div", attributes: { style: "flex:1 1 16rem;min-width:0" }, nodes: [
+            { tagName: "sonic-input", attributes: { type: "search", name: "q", formDataProvider: "filtres", label: "Recherche", placeholder: "Nom, ville, 37, 2A, drone, cyber…" }, nodes: [icon("search", { slot: "prefix" })] },
+          ] },
+          regionPop,
+          act("reset", null, [{ tagName: "sonic-button", attributes: { variant: "ghost" }, nodes: [icon("refresh-double", { slot: "prefix" }), text("span", "Réinitialiser")] }]),
+        ] },
+        // Filtre actif : puce cliquable pour le retirer
+        { tagName: "sonic-if", attributes: { dataProvider: "filtres", key: "reg", truthy: true }, nodes: [
+          act("set", { reg: "" }, [{ tagName: "sonic-badge", attributes: { variant: "outline", style: "cursor:pointer;justify-self:start;gap:6px" }, nodes: [
+            text("span", "Région :"), { tagName: "sonic-value", attributes: { dataProvider: "filtres", key: "reg" } }, icon("cancel", { size: "sm" }),
+          ] }]),
+        ] },
         // Onglets : sonic-menu, l'onglet actif est plein (::variant lu dans le store)
         { tagName: "sonic-subscriber", attributes: { dataProvider: "etat" }, nodes: [{
           tagName: "sonic-menu", attributes: { direction: "row" },
           nodes: [
-            { tagName: "sonic-action", attributes: { target: "etat", type: "tab", payload: { tab: "carte" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vCarte" }, nodes: [icon("map", { slot: "prefix" }), text("span", "Carte")] }] },
-            { tagName: "sonic-action", attributes: { target: "etat", type: "tab", payload: { tab: "liste" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vListe" }, nodes: [icon("list", { slot: "prefix" }), text("span", "Liste")] }] },
+            { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "tab", payload: { tab: "carte" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vCarte" }, nodes: [icon("map", { slot: "prefix" }), text("span", "Carte")] }] },
+            { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "tab", payload: { tab: "liste" } }, nodes: [{ tagName: "sonic-menu-item", attributes: { type: "primary", "data-bind": "", "::variant": "$vListe" }, nodes: [icon("list", { slot: "prefix" }), text("span", "Liste")] }] },
           ],
         }] },
         // Panneau Carte : les points sont cliquables (clic → select → modal de détail)
         { tagName: "sonic-if", attributes: { dataProvider: "etat", key: "onglet", equals: "carte" }, nodes: [{
-          tagName: "div", attributes: { style: "display:grid;gap:.5rem" },
+          tagName: "div", attributes: { style: "display:grid;gap:8px" },
           nodes: [
             { tagName: "sonic-map", attributes: {
               "points-provider": "pts", "view-provider": "vue", "style-provider": "fond", "state-provider": "carteEtat",
               target: "etat", "pick-action-type": "select", "auto-select": true,
-              "allowed-hosts": "tiles.openfreemap.org", style: "display:block;height:min(70vh,640px);border-radius:8px;overflow:hidden",
+              "allowed-hosts": "tiles.openfreemap.org", style: `display:block;height:min(70vh,640px);border:${BORDER};border-radius:var(--sc-rounded-lg);overflow:hidden`,
             } },
-            { tagName: "div", attributes: { style: "display:flex;gap:.5rem;align-items:center;justify-content:space-between;flex-wrap:wrap" }, nodes: [
-              withIcon("cursor-pointer", "Cliquez sur un point pour voir la fiche de l'entreprise.", "display:inline-flex;align-items:center;gap:.4rem;font-size:.875rem;opacity:.7"),
-              { tagName: "sonic-action", attributes: { target: "etat", type: "fit" }, nodes: [{ tagName: "sonic-button", attributes: { type: "default", variant: "outline", size: "sm" }, nodes: [icon("expand", { slot: "prefix" }), text("span", "Recadrer la carte")] }] },
+            { tagName: "div", attributes: { style: "display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap" }, nodes: [
+              withIcon("cursor-pointer", "Cliquez sur un point pour voir la fiche de l'entreprise.", "display:inline-flex;align-items:center;gap:8px;font-size:14px;opacity:.7"),
+              { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "fit" }, nodes: [{ tagName: "sonic-button", attributes: { variant: "outline" }, nodes: [icon("expand", { slot: "prefix" }), text("span", "Recadrer la carte")] }] },
             ] },
           ],
         }] },
-        // Panneau Liste : aucune sélection au clic sur la ligne, seul le bouton « Détails » ouvre la fiche
+        // Panneau Liste : liste compacte, action de ligne explicite (« Détails »), sans sélection au clic sur la ligne
         { tagName: "sonic-if", attributes: { dataProvider: "etat", key: "onglet", equals: "liste" }, nodes: [{
-          tagName: "div", attributes: { style: "display:grid;gap:.25rem;max-height:70vh;overflow:auto" },
+          tagName: "div", attributes: { style: `max-height:70vh;overflow:auto;border:${BORDER};border-radius:var(--sc-rounded-lg);background:${SURFACE}` },
           nodes: [{
             tagName: "sonic-list", attributes: { dataProvider: "liste" },
             nodes: [
               { tagName: "template", nodes: [{
-                tagName: "div", attributes: { class: "ligne", style: "display:flex;gap:.75rem;align-items:center;justify-content:space-between;padding:.4rem .75rem;border-bottom:1px solid var(--sc-base-200, #e5e5e5)" },
+                tagName: "div", attributes: { style: `display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:${BORDER}` },
                 nodes: [
-                  { tagName: "div", attributes: { style: "display:grid;min-width:0" }, nodes: [
-                    { tagName: "strong", nodes: [{ tagName: "sonic-value", attributes: { key: "n" } }] },
-                    { tagName: "span", attributes: { style: "display:inline-flex;align-items:center;gap:.4rem;font-size:.875rem;opacity:.7" }, nodes: [
+                  { tagName: "div", attributes: { style: "display:grid;gap:2px;min-width:0;flex:1 1 14rem" }, nodes: [
+                    { tagName: "strong", attributes: { style: "font-size:15px;font-weight:600;line-height:1.3" }, nodes: [{ tagName: "sonic-value", attributes: { key: "n" } }] },
+                    { tagName: "span", attributes: { style: "display:inline-flex;align-items:center;gap:8px;font-size:14px;line-height:1.4;opacity:.65" }, nodes: [
                       icon("pin-alt"),
                       { tagName: "span", attributes: { "data-bind": "", "::text-content": "$v · $dn ($d) · $rg" } },
                     ] },
                   ] },
-                  { tagName: "div", attributes: { style: "display:flex;gap:.5rem;flex-shrink:0" }, nodes: [
-                    { tagName: "sonic-action", attributes: { target: "etat", type: "locate", "data-bind": "", "::payload": "$i" }, nodes: [
-                      { tagName: "sonic-button", attributes: { type: "default", variant: "outline", size: "sm" }, nodes: [icon("pin", { slot: "prefix" }), text("span", "Voir sur la carte")] },
+                  { tagName: "div", attributes: { style: "display:flex;flex-wrap:wrap;gap:8px" }, nodes: [
+                    { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "locate", "data-bind": "", "::payload": "$i" }, nodes: [
+                      { tagName: "sonic-button", attributes: { variant: "outline" }, nodes: [icon("pin", { slot: "prefix" }), text("span", "Voir sur la carte")] },
                     ] },
-                    { tagName: "sonic-action", attributes: { target: "etat", type: "select", "data-bind": "", "::payload": "$i" }, nodes: [
-                      { tagName: "sonic-button", attributes: { type: "primary", variant: "outline", size: "sm" }, nodes: [icon("info-empty", { slot: "prefix" }), text("span", "Détails")] },
+                    { tagName: "sonic-action", attributes: { trigger: "click", target: "etat", type: "select", "data-bind": "", "::payload": "$i" }, nodes: [
+                      { tagName: "sonic-button", attributes: { type: "primary" }, nodes: [icon("info-empty", { slot: "prefix" }), text("span", "Détails")] },
                     ] },
                   ] },
                 ],
               }] },
-              { tagName: "template", attributes: { "data-value": "no-item" }, nodes: [{ tagName: "p", attributes: { style: "display:flex;align-items:center;gap:.5rem;font-size:.875rem;opacity:.7;padding:.75rem" }, nodes: [icon("emoji-sad", { size: "lg" }), text("span", "Aucune entreprise ne correspond. Élargissez la recherche.")] }] },
+              { tagName: "template", attributes: { "data-value": "no-item" }, nodes: [{ tagName: "div", attributes: { style: "display:grid;justify-items:start;gap:12px;padding:24px 16px" }, nodes: [
+                { tagName: "p", attributes: { style: "display:flex;align-items:center;gap:8px;font-size:15px;margin:0" }, nodes: [icon("emoji-sad", { size: "lg" }), text("span", "Aucune entreprise pour ces filtres.")] },
+                act("reset", null, [{ tagName: "sonic-button", attributes: { variant: "outline" }, nodes: [icon("refresh-double", { slot: "prefix" }), text("span", "Réinitialiser les filtres")] }]),
+              ] }] },
             ],
           }],
         }] },
         // Détail : modal. Deux copies (a / b) : voir le réducteur.
         ...["a", "b"].map((slot) => ({
-          tagName: "sonic-if", attributes: { dataProvider: "etat", key: "detOn", equals: slot },
+          tagName: "sonic-subscriber", attributes: { dataProvider: "etat" },
           nodes: [{
-            tagName: "sonic-modal", attributes: { visible: true, maxWidth: "min(100vw, 36rem)" },
+            tagName: "sonic-modal", attributes: { "data-bind": "", "::visible": slot === "a" ? "$visA" : "$visB", maxWidth: "min(100vw, 36rem)" },
             nodes: [
-              { tagName: "sonic-modal-title", nodes: [{ tagName: "span", attributes: { style: "display:inline-flex;align-items:center;gap:.5rem" }, nodes: [icon("building", { size: "lg" }), { tagName: "sonic-value", attributes: { dataProvider: "fiche", key: "n" } }] }] },
+              { tagName: "sonic-modal-title", nodes: [{ tagName: "span", attributes: { style: "display:inline-flex;align-items:center;gap:8px;font-family:var(--sc-font-family-headings);line-height:1.2" }, nodes: [icon("building", { size: "lg" }), { tagName: "sonic-value", attributes: { dataProvider: "fiche", key: "n" } }] }] },
               { tagName: "sonic-modal-content", nodes: [{
-                tagName: "div", attributes: { style: "display:grid;gap:.5rem" },
+                tagName: "div", attributes: { style: "display:grid;gap:12px" },
                 nodes: [
                   field("Adresse", "a", "pin-alt"), field("Commune", "v", "city"), field("Département", "dn", "map"), field("Région", "rg", "globe"),
                   field("Téléphone", "t", "phone"), field("Site", "w", "internet"), field("Effectif", "f", "group"), field("Domaines", "dm", "label-outline"),
-                  { tagName: "sonic-subscriber", attributes: { dataProvider: "fiche" }, nodes: [{
-                    tagName: "div", attributes: { style: "padding-top:.5rem" },
-                    nodes: [{ tagName: "a", attributes: { "data-bind": "", "::href": "https://www.google.com/maps/search/?api=1&query=$mq", target: "_blank", rel: "noopener noreferrer", style: "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline" }, nodes: [icon("open-new-window"), text("span", "Ouvrir dans Google Maps")] }],
+                  // Lien Wikipédia : seulement si l'entreprise a sa page (champ « wp » non vide)
+                  { tagName: "sonic-if", attributes: { dataProvider: "fiche", key: "wp", truthy: true }, nodes: [{
+                    tagName: "sonic-subscriber", attributes: { dataProvider: "fiche" }, nodes: [{
+                      tagName: "div", attributes: { style: "padding-top:4px" },
+                      nodes: [{ tagName: "a", attributes: { "data-bind": "", "::href": "https://fr.wikipedia.org/wiki/$wp", target: "_blank", rel: "noopener noreferrer", style: "display:inline-flex;align-items:center;gap:8px;font-size:14px;text-decoration:underline" }, nodes: [icon("book"), text("span", "Page Wikipédia")] }],
+                    }],
                   }] },
                 ],
               }] },

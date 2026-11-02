@@ -5,8 +5,10 @@ import { dispatch, type SonicActionMessage } from "./registry";
 const tagName = "sonic-action";
 
 /**
- * Wrapper clic → dispatch vers un store.
- * `hold-repeat="170,50"` pour d-pad tactile.
+ * Wrapper : envoie une action à un store.
+ * Par défaut au `pointerdown` (réactivité des croix directionnelles et des jeux ; `hold-repeat="170,50"` pour d-pad tactile).
+ * `trigger="click"` : au clic, comme un bouton Concorde (interfaces : onglets, « Détails », filtres), donc annulable
+ * en sortant du bouton avant de relâcher et sans déclenchement à l'appui d'un doigt qui défile.
  */
 @customElement(tagName)
 export class SonicAction extends LitElement {
@@ -28,13 +30,22 @@ export class SonicAction extends LitElement {
   @property({ type: String, attribute: "hold-repeat" })
   holdRepeat = "";
 
+  /** "pointerdown" (défaut, jeux et manettes tactiles) ou "click" (interfaces). */
+  @property({ type: String })
+  trigger: "pointerdown" | "click" = "pointerdown";
+
   @property({ type: Boolean, attribute: "dispatch-event" })
   dispatchEventFlag = false;
 
   private holdTimer: number | null = null;
   private holdInterval: number | null = null;
 
+  private onClick = () => {
+    if (this.trigger === "click") this.emit();
+  };
+
   private onPointerDown = (e: PointerEvent) => {
+    if (this.trigger === "click") return;
     if (e.button != null && e.button !== 0) return;
     this.emit();
     const parts = this.holdRepeat.split(",").map((s) => Number(s.trim()));
@@ -73,6 +84,7 @@ export class SonicAction extends LitElement {
 
   render() {
     return html`<slot
+      @click=${this.onClick}
       @pointerdown=${this.onPointerDown}
       @pointerup=${this.onPointerUp}
       @pointercancel=${this.onPointerUp}
