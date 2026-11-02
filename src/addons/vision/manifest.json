@@ -1,0 +1,75 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "vision",
+  "label": "Vision (suivi ML local)",
+  "description": "Suivi temps réel par modèles ML qui tournent sur l'appareil : mains (21 points, pince, ouverture, rotation, gestes) par rôle gauche/droite, publiés en DataProvider ; modèles en alias ou URL https sous niveaux de confiance et consentement.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "vision.md",
+  "examples": [
+    "examples/theremin-deux-mains.sdui.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-hand-tracker",
+      "description": "Suit jusqu'à 2 mains dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : count, left/right {present, x, y, z, tipX, tipY, pinch, openness, roll, gesture, gestureScore}, hands[].landmarks/world (21 points) ; map = clés dérivées sans latence (« cents=right.x*3600 ; gain=left.present ? 1-left.y : 0 ») ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée",
+      "props": {
+        "for": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "max-hands": {
+          "type": "number"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "delegate": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "smooth": {
+          "type": "number"
+        },
+        "hold-ms": {
+          "type": "number"
+        },
+        "min-score": {
+          "type": "number"
+        },
+        "gestures": {
+          "type": "string"
+        },
+        "map": {
+          "type": "string"
+        },
+        "outputProvider": {
+          "type": "string"
+        },
+        "statusProvider": {
+          "type": "string"
+        },
+        "consentProvider": {
+          "type": "string"
+        },
+        "load": {
+          "type": "string"
+        },
+        "model-sha256": {
+          "type": "string"
+        },
+        "thread": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}
