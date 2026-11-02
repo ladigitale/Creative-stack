@@ -17,6 +17,7 @@
     "./sound": "./src/addons/sound/index.ts",
     "./audio": "./src/addons/audio/index.ts",
     "./media": "./src/addons/media/index.ts",
+    "./vision": "./src/addons/vision/index.ts",
     "./physics": "./src/addons/physics/index.ts",
     "./controller": "./src/addons/controller/index.ts",
     "./device": "./src/addons/device/index.ts",
