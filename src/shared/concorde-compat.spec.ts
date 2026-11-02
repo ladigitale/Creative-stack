@@ -114,6 +114,22 @@ describe("sonic-value (Concorde classique complété)", () => {
     expect(el.shadowRoot?.textContent?.trim()).toBe("00042");
   });
 
+  it("format en propriété (liaison ::format d'un gabarit de liste)", async () => {
+    PublisherManager.get("compatVal4").set({ total: 1234.5 });
+    const el = await mount('<sonic-value dataProvider="compatVal4" key="total"></sonic-value>');
+    (el as unknown as { format: string }).format = "intl:fr-FR";
+    await tick();
+    await el.updateComplete;
+    expect(el.shadowRoot?.textContent?.trim()).toBe(new Intl.NumberFormat("fr-FR").format(1234.5));
+  });
+
+  it("valeur formatée rendue en texte, jamais en HTML", async () => {
+    PublisherManager.get("compatVal5").set({ name: "<b>gras</b>" });
+    const el = await mount('<sonic-value dataProvider="compatVal5" key="name" format="000"></sonic-value>');
+    expect(el.shadowRoot?.querySelector("b")).toBeNull();
+    expect(el.shadowRoot?.textContent?.trim()).toBe("<b>gras</b>");
+  });
+
   it("sans format : rendu Concorde inchangé", async () => {
     PublisherManager.get("compatVal2").set({ label: "Niveau 3" });
     const el = await mount('<sonic-value dataProvider="compatVal2" key="label"></sonic-value>');

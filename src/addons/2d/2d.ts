@@ -173,6 +173,8 @@ export class Sonic2d extends LitElement {
       height: Math.max(10, this.height),
       background: this.background,
       resolution: this.dpr(),
+      // Police du conteneur : l'hôte impose system-ui à ses propres libellés.
+      font: this.parentElement ? getComputedStyle(this.parentElement).fontFamily || undefined : undefined,
       invalidate: () => this.invalidate(),
     });
     this.scene = scene;

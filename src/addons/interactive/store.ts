@@ -15,6 +15,13 @@ const tagName = "sonic-store";
 
 const DEFAULT_MAX_STATE_BYTES = 256 * 1024;
 const DEFAULT_BUDGET_MS = 8;
+/**
+ * Premières évaluations : JSONata et le moteur JS sont froids (compilation, JIT), un
+ * réducteur de 1 ms en prend vite 20 à 40. Sans cette marge, la toute première action
+ * (« start » d'un jeu) était rejetée sans bruit et la page semblait figée.
+ */
+const WARMUP_EVALS = 5;
+const WARMUP_BUDGET_MS = 60;
 
 type HistoryEntry = unknown;
 
@@ -58,6 +65,7 @@ export class SonicStore extends LitElement {
 
   private state: unknown = null;
   private queue: SonicActionMessage[] = [];
+  private evals = 0;
   private draining = false;
   private compiled: ReturnType<typeof jsonata> | null = null;
   private historyStack: HistoryEntry[] = [];
@@ -191,8 +199,9 @@ export class SonicStore extends LitElement {
         env,
       });
       const elapsed = performance.now() - started;
-      if (elapsed > this.budgetMs) {
-        this.fail(`budget ${this.budgetMs}ms dépassé (${elapsed.toFixed(1)}ms)`);
+      const budget = this.evals++ < WARMUP_EVALS ? Math.max(this.budgetMs, WARMUP_BUDGET_MS) : this.budgetMs;
+      if (elapsed > budget) {
+        this.fail(`budget ${budget}ms dépassé (${elapsed.toFixed(1)}ms) : action « ${action.type} » ignorée, augmenter budget-ms`);
         return;
       }
       if (result === undefined) return;
@@ -237,6 +246,8 @@ export class SonicStore extends LitElement {
   }
 
   private fail(message: string): void {
+    // Visible en console (et donc dans render_artifact) : sinon l'action disparaît sans trace.
+    if (message !== this.lastError) console.warn(`[sonic-store ${this.id || "?"}] ${message}`);
     this.lastError = message;
     this.dispatchEvent(
       new CustomEvent("error", {

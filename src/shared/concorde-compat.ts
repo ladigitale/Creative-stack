@@ -15,13 +15,13 @@
  * c'est la classe de Concorde core de la page qui est complétée, pas la copie embarquée.
  */
 import { html, nothing, type ReactiveController, type TemplateResult } from "lit";
-import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { HTML, PublisherManager } from "@supersoniks/concorde/utils";
 import "@supersoniks/concorde/if";
 import "@supersoniks/concorde/value";
 
 const PATCHED_IF = Symbol.for("creative-stack.compat.if");
 const PATCHED_VALUE = Symbol.for("creative-stack.compat.value");
+const FORMAT_PROP = Symbol("sonicValueFormat");
 const PATCHED_PROPS = Symbol.for("creative-stack.compat.props");
 
 type Publisher = {
@@ -280,12 +280,29 @@ function patchValue(ctor: CustomElementConstructor): void {
   const proto = ctor.prototype as SubscriberHost & { [PATCHED_VALUE]?: boolean };
   if (Object.prototype.hasOwnProperty.call(proto, PATCHED_VALUE)) return;
   proto[PATCHED_VALUE] = true;
+  // `format` aussi en propriété : une liaison de gabarit (`"::format": "intl:fr-FR"`) écrit la
+  // propriété, pas l'attribut ; sans accesseur, la valeur restait brute et rien ne se redessinait.
+  if (!Object.prototype.hasOwnProperty.call(proto, "format")) {
+    Object.defineProperty(proto, "format", {
+      configurable: true,
+      get(this: SubscriberHost & { [FORMAT_PROP]?: string }) {
+        return this[FORMAT_PROP] ?? this.getAttribute("format") ?? "";
+      },
+      set(this: SubscriberHost & { [FORMAT_PROP]?: string }, value: unknown) {
+        const next = value == null ? undefined : String(value);
+        if (next === this[FORMAT_PROP]) return;
+        this[FORMAT_PROP] = next;
+        this.requestUpdate();
+      },
+    });
+  }
   const render = proto.render;
   proto.render = function (this: SubscriberHost) {
-    const format = this.getAttribute("format") ?? "";
+    const format = this.getAttribute("format") ?? (this as SubscriberHost & { [FORMAT_PROP]?: string })[FORMAT_PROP] ?? "";
     const raw = this.props;
     if (!format || typeof raw === "object" || raw === undefined) return render.call(this);
-    return html`${unsafeHTML(formatValue(raw, format))}<slot name="prefix"></slot><slot></slot
+    // Texte, jamais du HTML : une valeur non numérique (saisie d'un visiteur…) revient telle quelle.
+    return html`${formatValue(raw, format)}<slot name="prefix"></slot><slot></slot
       ><slot name="suffix"></slot>` as TemplateResult;
   };
 }
