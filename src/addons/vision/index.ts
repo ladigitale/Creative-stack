@@ -16,6 +16,7 @@ export {
 } from "./hand-engine";
 export { HandTrackerCore, type HandsOutput, type RoleOutput } from "./hand-state";
 export {
+  DEFAULT_POLICY,
   configureMl,
   decideTrust,
   getMlPolicy,
