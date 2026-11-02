@@ -19,7 +19,16 @@
      "vCarte": "default",
      "vListe": "ghost"
     },
-    "reducer": "(\n  $t := $action.type; $p := $action.payload; $s := $state.seq + 1;\n  $off := {'detOn': 'off', 'visA': false, 'visB': false};\n  $t = 'select' ? (\n    $n := $state.detOn = 'a' ? 'b' : 'a';\n    $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $n, 'visA': $n = 'a', 'visB': $n = 'b', 'seq': $s}])\n  )\n  : $t = 'close' ? $merge([$state, $off, {'seq': $s}])\n  : $t = 'locate' ? $merge([$state, $off, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'seq': $s}])\n  : $t = 'fit' ? $merge([$state, $off, {'sel': -1, 'seq': $s}])\n  : $t = 'tab' ? $merge([$state, $off, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])\n  : $state\n)"
+    "reducer": "(\n  $t := $action.type; $p := $action.payload; $s := $state.seq + 1;\n  $off := {'detOn': 'off', 'visA': false, 'visB': false};\n  $t = 'select' ? (\n    $n := $state.detOn = 'a' ? 'b' : 'a';\n    $merge([$state, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'detOn': $n, 'visA': $n = 'a', 'visB': $n = 'b', 'seq': $s}])\n  )\n  : $t = 'close' ? $merge([$state, $off, {'seq': $s}])\n  : $t = 'locate' ? $merge([$state, $off, {'sel': $number($type($p) = 'object' ? $p.id : $p), 'onglet': 'carte', 'vCarte': 'default', 'vListe': 'ghost', 'seq': $s}])\n  : $t = 'fit' ? $merge([$state, $off, {'sel': -1, 'seq': $s}])\n  : $t = 'tab' ? $merge([$state, $off, {'onglet': $p.tab, 'vCarte': $p.tab = 'carte' ? 'default' : 'ghost', 'vListe': $p.tab = 'liste' ? 'default' : 'ghost'}])\n  : $state\n)",
+    "budgetMs": 40
+   },
+   "filtres": {
+    "initial": {
+     "q": "",
+     "reg": ""
+    },
+    "reducer": "$action.type = 'set' ? $merge([$state, $action.payload]) : $action.type = 'reset' ? {'q': '', 'reg': ''} : $state",
+    "budgetMs": 40
    },
    "fond": {
     "initial": {
@@ -38,7 +47,7 @@
      {
       "tagName": "div",
       "attributes": {
-       "style": "display:grid;gap:1rem"
+       "style": "display:grid;gap:16px;max-width:1200px;margin:0 auto"
       },
       "nodes": [
        {
@@ -79,6 +88,14 @@
        {
         "tagName": "sonic-jsonata",
         "attributes": {
+         "inputProvider": "filtres",
+         "outputProvider": "regActif",
+         "expression": "( $r := $exists($input.reg) ? $input.reg : ''; { 'lbl': $r = '' ? 'Toutes' : $r, 'r0': $r = \"\" ? 'default' : 'ghost', 'r1': $r = \"Auvergne-Rhône-Alpes\" ? 'default' : 'ghost', 'r2': $r = \"Bourgogne-Franche-Comté\" ? 'default' : 'ghost', 'r3': $r = \"Bretagne\" ? 'default' : 'ghost', 'r4': $r = \"Centre-Val de Loire\" ? 'default' : 'ghost', 'r5': $r = \"Corse\" ? 'default' : 'ghost', 'r6': $r = \"Grand Est\" ? 'default' : 'ghost', 'r7': $r = \"Hauts-de-France\" ? 'default' : 'ghost', 'r8': $r = \"Île-de-France\" ? 'default' : 'ghost', 'r9': $r = \"Normandie\" ? 'default' : 'ghost', 'r10': $r = \"Nouvelle-Aquitaine\" ? 'default' : 'ghost', 'r11': $r = \"Occitanie\" ? 'default' : 'ghost', 'r12': $r = \"Pays de la Loire\" ? 'default' : 'ghost', 'r13': $r = \"Provence-Alpes-Côte d'Azur\" ? 'default' : 'ghost' } )"
+        }
+       },
+       {
+        "tagName": "sonic-jsonata",
+        "attributes": {
          "inputProvider": "bitd",
          "formDataProvider": "etat",
          "outputProvider": "fiche",
@@ -95,84 +112,613 @@
         }
        },
        {
-        "tagName": "h1",
-        "textContent": "Membres du GICAT par territoire",
-        "attributes": {
-         "style": "font-size:1.5rem;font-weight:600;margin:0"
-        }
-       },
-       {
-        "tagName": "p",
-        "textContent": "Annuaire GICAT 2026, informations déclarées par les sociétés. Position = centre de la commune (34 entreprises sans position). Une adhésion au GICAT ne suffit pas à classer une entreprise dans la BITD.",
-        "attributes": {
-         "style": "font-size:.875rem;opacity:.7;margin:0"
-        }
-       },
-       {
         "tagName": "div",
         "attributes": {
-         "style": "display:grid;gap:.5rem;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end"
+         "style": "display:grid;gap:4px"
         },
         "nodes": [
          {
-          "tagName": "sonic-input",
+          "tagName": "h1",
+          "textContent": "Membres du GICAT par territoire",
           "attributes": {
-           "name": "q",
-           "formDataProvider": "filtres",
-           "label": "Recherche",
-           "placeholder": "Nom, ville, 37, 2A, drone, cyber…"
+           "style": "font-family:var(--sc-font-family-headings);font-size:24px;font-weight:600;line-height:1.15;letter-spacing:-.01em;margin:0;text-wrap:balance"
+          }
+         },
+         {
+          "tagName": "p",
+          "attributes": {
+           "style": "font-size:14px;margin:0;display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums"
           },
           "nodes": [
            {
             "tagName": "sonic-icon",
             "attributes": {
              "library": "iconoir",
-             "name": "search",
-             "slot": "prefix"
+             "name": "building"
+            }
+           },
+           {
+            "tagName": "sonic-value",
+            "attributes": {
+             "dataProvider": "compte",
+             "key": "txt"
             }
            }
           ]
          },
          {
-          "tagName": "sonic-select",
+          "tagName": "p",
+          "textContent": "Annuaire GICAT 2026, informations déclarées par les sociétés. Position = centre de la commune (34 entreprises sans position). Une adhésion au GICAT ne suffit pas à classer une entreprise dans la BITD.",
           "attributes": {
-           "name": "reg",
-           "formDataProvider": "filtres",
-           "label": "Région",
-           "options": "[{\"value\":\"\",\"wording\":\"Toutes les régions\"},{\"value\":\"Auvergne-Rhône-Alpes\",\"wording\":\"Auvergne-Rhône-Alpes\"},{\"value\":\"Bourgogne-Franche-Comté\",\"wording\":\"Bourgogne-Franche-Comté\"},{\"value\":\"Bretagne\",\"wording\":\"Bretagne\"},{\"value\":\"Centre-Val de Loire\",\"wording\":\"Centre-Val de Loire\"},{\"value\":\"Corse\",\"wording\":\"Corse\"},{\"value\":\"Grand Est\",\"wording\":\"Grand Est\"},{\"value\":\"Hauts-de-France\",\"wording\":\"Hauts-de-France\"},{\"value\":\"Île-de-France\",\"wording\":\"Île-de-France\"},{\"value\":\"Normandie\",\"wording\":\"Normandie\"},{\"value\":\"Nouvelle-Aquitaine\",\"wording\":\"Nouvelle-Aquitaine\"},{\"value\":\"Occitanie\",\"wording\":\"Occitanie\"},{\"value\":\"Pays de la Loire\",\"wording\":\"Pays de la Loire\"},{\"value\":\"Provence-Alpes-Côte d'Azur\",\"wording\":\"Provence-Alpes-Côte d'Azur\"}]"
+           "style": "font-size:12px;line-height:1.5;opacity:.65;margin:0;max-width:65ch"
+          }
+         }
+        ]
+       },
+       {
+        "tagName": "div",
+        "attributes": {
+         "style": "display:flex;flex-wrap:wrap;gap:8px;align-items:end;padding:12px;border:1px solid color-mix(in oklab,var(--sc-base-content) 12%,transparent);border-radius:var(--sc-rounded-lg);background:color-mix(in oklab,var(--sc-base-content) 4%,var(--sc-base))"
+        },
+        "nodes": [
+         {
+          "tagName": "div",
+          "attributes": {
+           "style": "flex:1 1 16rem;min-width:0"
           },
           "nodes": [
            {
-            "tagName": "sonic-icon",
+            "tagName": "sonic-input",
             "attributes": {
-             "library": "iconoir",
-             "name": "pin-alt",
-             "slot": "prefix"
-            }
+             "type": "search",
+             "name": "q",
+             "formDataProvider": "filtres",
+             "label": "Recherche",
+             "placeholder": "Nom, ville, 37, 2A, drone, cyber…"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-icon",
+              "attributes": {
+               "library": "iconoir",
+               "name": "search",
+               "slot": "prefix"
+              }
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "tagName": "sonic-subscriber",
+          "attributes": {
+           "dataProvider": "regActif"
+          },
+          "nodes": [
+           {
+            "tagName": "sonic-pop",
+            "attributes": {
+             "placement": "bottom-start"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-button",
+              "attributes": {
+               "variant": "outline",
+               "style": "min-width:13rem;justify-content:space-between"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-icon",
+                "attributes": {
+                 "library": "iconoir",
+                 "name": "pin-alt",
+                 "slot": "prefix"
+                }
+               },
+               {
+                "tagName": "span",
+                "attributes": {
+                 "style": "display:inline-flex;gap:6px"
+                },
+                "nodes": [
+                 {
+                  "tagName": "span",
+                  "textContent": "Région :"
+                 },
+                 {
+                  "tagName": "sonic-value",
+                  "attributes": {
+                   "dataProvider": "regActif",
+                   "key": "lbl"
+                  }
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-icon",
+                "attributes": {
+                 "library": "iconoir",
+                 "name": "nav-arrow-down",
+                 "slot": "suffix"
+                }
+               }
+              ]
+             },
+             {
+              "tagName": "sonic-menu",
+              "attributes": {
+               "slot": "content",
+               "direction": "column",
+               "align": "left",
+               "size": "sm",
+               "minWidth": "14rem"
+              },
+              "nodes": [
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": ""
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r0"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Toutes les régions"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Auvergne-Rhône-Alpes"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r1"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Auvergne-Rhône-Alpes"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Bourgogne-Franche-Comté"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r2"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Bourgogne-Franche-Comté"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Bretagne"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r3"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Bretagne"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Centre-Val de Loire"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r4"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Centre-Val de Loire"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Corse"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r5"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Corse"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Grand Est"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r6"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Grand Est"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Hauts-de-France"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r7"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Hauts-de-France"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Île-de-France"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r8"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Île-de-France"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Normandie"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r9"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Normandie"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Nouvelle-Aquitaine"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r10"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Nouvelle-Aquitaine"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Occitanie"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r11"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Occitanie"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Pays de la Loire"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r12"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Pays de la Loire"
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "tagName": "sonic-action",
+                "attributes": {
+                 "trigger": "click",
+                 "target": "filtres",
+                 "type": "set",
+                 "payload": {
+                  "reg": "Provence-Alpes-Côte d'Azur"
+                 }
+                },
+                "nodes": [
+                 {
+                  "tagName": "sonic-menu-item",
+                  "attributes": {
+                   "type": "primary",
+                   "data-bind": "",
+                   "::variant": "$r13"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "span",
+                    "textContent": "Provence-Alpes-Côte d'Azur"
+                   }
+                  ]
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "tagName": "sonic-action",
+          "attributes": {
+           "trigger": "click",
+           "target": "filtres",
+           "type": "reset"
+          },
+          "nodes": [
+           {
+            "tagName": "sonic-button",
+            "attributes": {
+             "variant": "ghost"
+            },
+            "nodes": [
+             {
+              "tagName": "sonic-icon",
+              "attributes": {
+               "library": "iconoir",
+               "name": "refresh-double",
+               "slot": "prefix"
+              }
+             },
+             {
+              "tagName": "span",
+              "textContent": "Réinitialiser"
+             }
+            ]
            }
           ]
          }
         ]
        },
        {
-        "tagName": "p",
+        "tagName": "sonic-if",
         "attributes": {
-         "style": "font-size:.875rem;margin:0;display:flex;align-items:center;gap:.4rem"
+         "dataProvider": "filtres",
+         "key": "reg",
+         "truthy": true
         },
         "nodes": [
          {
-          "tagName": "sonic-icon",
+          "tagName": "sonic-action",
           "attributes": {
-           "library": "iconoir",
-           "name": "building"
-          }
-         },
-         {
-          "tagName": "sonic-value",
-          "attributes": {
-           "dataProvider": "compte",
-           "key": "txt"
-          }
+           "trigger": "click",
+           "target": "filtres",
+           "type": "set",
+           "payload": {
+            "reg": ""
+           }
+          },
+          "nodes": [
+           {
+            "tagName": "sonic-badge",
+            "attributes": {
+             "variant": "outline",
+             "style": "cursor:pointer;justify-self:start;gap:6px"
+            },
+            "nodes": [
+             {
+              "tagName": "span",
+              "textContent": "Région :"
+             },
+             {
+              "tagName": "sonic-value",
+              "attributes": {
+               "dataProvider": "filtres",
+               "key": "reg"
+              }
+             },
+             {
+              "tagName": "sonic-icon",
+              "attributes": {
+               "library": "iconoir",
+               "name": "cancel",
+               "size": "sm"
+              }
+             }
+            ]
+           }
+          ]
          }
         ]
        },
@@ -273,7 +819,7 @@
          {
           "tagName": "div",
           "attributes": {
-           "style": "display:grid;gap:.5rem"
+           "style": "display:grid;gap:8px"
           },
           "nodes": [
            {
@@ -287,19 +833,19 @@
              "pick-action-type": "select",
              "auto-select": true,
              "allowed-hosts": "tiles.openfreemap.org",
-             "style": "display:block;height:min(70vh,640px);border-radius:8px;overflow:hidden"
+             "style": "display:block;height:min(70vh,640px);border:1px solid color-mix(in oklab,var(--sc-base-content) 12%,transparent);border-radius:var(--sc-rounded-lg);overflow:hidden"
             }
            },
            {
             "tagName": "div",
             "attributes": {
-             "style": "display:flex;gap:.5rem;align-items:center;justify-content:space-between;flex-wrap:wrap"
+             "style": "display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap"
             },
             "nodes": [
              {
               "tagName": "span",
               "attributes": {
-               "style": "display:inline-flex;align-items:center;gap:.4rem;font-size:.875rem;opacity:.7"
+               "style": "display:inline-flex;align-items:center;gap:8px;font-size:14px;opacity:.7"
               },
               "nodes": [
                {
@@ -326,9 +872,7 @@
                {
                 "tagName": "sonic-button",
                 "attributes": {
-                 "type": "default",
-                 "variant": "outline",
-                 "size": "sm"
+                 "variant": "outline"
                 },
                 "nodes": [
                  {
@@ -364,7 +908,7 @@
          {
           "tagName": "div",
           "attributes": {
-           "style": "display:grid;gap:.25rem;max-height:70vh;overflow:auto"
+           "style": "max-height:70vh;overflow:auto;border:1px solid color-mix(in oklab,var(--sc-base-content) 12%,transparent);border-radius:var(--sc-rounded-lg);background:color-mix(in oklab,var(--sc-base-content) 4%,var(--sc-base))"
           },
           "nodes": [
            {
@@ -379,18 +923,20 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "class": "ligne",
-                 "style": "display:flex;gap:.75rem;align-items:center;justify-content:space-between;padding:.4rem .75rem;border-bottom:1px solid var(--sc-base-200, #e5e5e5)"
+                 "style": "display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid color-mix(in oklab,var(--sc-base-content) 12%,transparent)"
                 },
                 "nodes": [
                  {
                   "tagName": "div",
                   "attributes": {
-                   "style": "display:grid;min-width:0"
+                   "style": "display:grid;gap:2px;min-width:0;flex:1 1 14rem"
                   },
                   "nodes": [
                    {
                     "tagName": "strong",
+                    "attributes": {
+                     "style": "font-size:15px;font-weight:600;line-height:1.3"
+                    },
                     "nodes": [
                      {
                       "tagName": "sonic-value",
@@ -403,7 +949,7 @@
                    {
                     "tagName": "span",
                     "attributes": {
-                     "style": "display:inline-flex;align-items:center;gap:.4rem;font-size:.875rem;opacity:.7"
+                     "style": "display:inline-flex;align-items:center;gap:8px;font-size:14px;line-height:1.4;opacity:.65"
                     },
                     "nodes": [
                      {
@@ -427,7 +973,7 @@
                  {
                   "tagName": "div",
                   "attributes": {
-                   "style": "display:flex;gap:.5rem;flex-shrink:0"
+                   "style": "display:flex;flex-wrap:wrap;gap:8px"
                   },
                   "nodes": [
                    {
@@ -443,9 +989,7 @@
                      {
                       "tagName": "sonic-button",
                       "attributes": {
-                       "type": "default",
-                       "variant": "outline",
-                       "size": "sm"
+                       "variant": "outline"
                       },
                       "nodes": [
                        {
@@ -477,9 +1021,7 @@
                      {
                       "tagName": "sonic-button",
                       "attributes": {
-                       "type": "primary",
-                       "variant": "outline",
-                       "size": "sm"
+                       "type": "primary"
                       },
                       "nodes": [
                        {
@@ -511,22 +1053,60 @@
               },
               "nodes": [
                {
-                "tagName": "p",
+                "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;align-items:center;gap:.5rem;font-size:.875rem;opacity:.7;padding:.75rem"
+                 "style": "display:grid;justify-items:start;gap:12px;padding:24px 16px"
                 },
                 "nodes": [
                  {
-                  "tagName": "sonic-icon",
+                  "tagName": "p",
                   "attributes": {
-                   "library": "iconoir",
-                   "name": "emoji-sad",
-                   "size": "lg"
-                  }
+                   "style": "display:flex;align-items:center;gap:8px;font-size:15px;margin:0"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-icon",
+                    "attributes": {
+                     "library": "iconoir",
+                     "name": "emoji-sad",
+                     "size": "lg"
+                    }
+                   },
+                   {
+                    "tagName": "span",
+                    "textContent": "Aucune entreprise pour ces filtres."
+                   }
+                  ]
                  },
                  {
-                  "tagName": "span",
-                  "textContent": "Aucune entreprise ne correspond. Élargissez la recherche."
+                  "tagName": "sonic-action",
+                  "attributes": {
+                   "trigger": "click",
+                   "target": "filtres",
+                   "type": "reset"
+                  },
+                  "nodes": [
+                   {
+                    "tagName": "sonic-button",
+                    "attributes": {
+                     "variant": "outline"
+                    },
+                    "nodes": [
+                     {
+                      "tagName": "sonic-icon",
+                      "attributes": {
+                       "library": "iconoir",
+                       "name": "refresh-double",
+                       "slot": "prefix"
+                      }
+                     },
+                     {
+                      "tagName": "span",
+                      "textContent": "Réinitialiser les filtres"
+                     }
+                    ]
+                   }
+                  ]
                  }
                 ]
                }
@@ -558,7 +1138,7 @@
              {
               "tagName": "span",
               "attributes": {
-               "style": "display:inline-flex;align-items:center;gap:.5rem"
+               "style": "display:inline-flex;align-items:center;gap:8px;font-family:var(--sc-font-family-headings);line-height:1.2"
               },
               "nodes": [
                {
@@ -586,19 +1166,19 @@
              {
               "tagName": "div",
               "attributes": {
-               "style": "display:grid;gap:.5rem"
+               "style": "display:grid;gap:12px"
               },
               "nodes": [
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -626,13 +1206,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -660,13 +1240,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -694,13 +1274,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -728,13 +1308,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -762,13 +1342,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -796,13 +1376,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -830,13 +1410,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -878,7 +1458,7 @@
                    {
                     "tagName": "div",
                     "attributes": {
-                     "style": "padding-top:.5rem"
+                     "style": "padding-top:4px"
                     },
                     "nodes": [
                      {
@@ -888,7 +1468,7 @@
                        "::href": "https://fr.wikipedia.org/wiki/$wp",
                        "target": "_blank",
                        "rel": "noopener noreferrer",
-                       "style": "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline"
+                       "style": "display:inline-flex;align-items:center;gap:8px;font-size:14px;text-decoration:underline"
                       },
                       "nodes": [
                        {
@@ -938,7 +1518,7 @@
              {
               "tagName": "span",
               "attributes": {
-               "style": "display:inline-flex;align-items:center;gap:.5rem"
+               "style": "display:inline-flex;align-items:center;gap:8px;font-family:var(--sc-font-family-headings);line-height:1.2"
               },
               "nodes": [
                {
@@ -966,19 +1546,19 @@
              {
               "tagName": "div",
               "attributes": {
-               "style": "display:grid;gap:.5rem"
+               "style": "display:grid;gap:12px"
               },
               "nodes": [
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -1006,13 +1586,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -1040,13 +1620,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -1074,13 +1654,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -1108,13 +1688,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -1142,13 +1722,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -1176,13 +1756,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -1210,13 +1790,13 @@
                {
                 "tagName": "div",
                 "attributes": {
-                 "style": "display:flex;gap:.5rem;font-size:.875rem;align-items:baseline"
+                 "style": "display:flex;gap:12px;font-size:14px;line-height:1.4;align-items:baseline"
                 },
                 "nodes": [
                  {
                   "tagName": "span",
                   "attributes": {
-                   "style": "opacity:.7;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:.4rem"
+                   "style": "opacity:.65;width:9rem;flex-shrink:0;display:inline-flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                    {
@@ -1258,7 +1838,7 @@
                    {
                     "tagName": "div",
                     "attributes": {
-                     "style": "padding-top:.5rem"
+                     "style": "padding-top:4px"
                     },
                     "nodes": [
                      {
@@ -1268,7 +1848,7 @@
                        "::href": "https://fr.wikipedia.org/wiki/$wp",
                        "target": "_blank",
                        "rel": "noopener noreferrer",
-                       "style": "display:inline-flex;align-items:center;gap:.4rem;text-decoration:underline"
+                       "style": "display:inline-flex;align-items:center;gap:8px;font-size:14px;text-decoration:underline"
                       },
                       "nodes": [
                        {
