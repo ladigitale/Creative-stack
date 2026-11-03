@@ -2,11 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   WORKER_SOURCE,
   configureVision,
-  createMediaPipeEngine,
-  createWorkerEngine,
+  createMediaPipeMpEngine,
+  createWorkerMpEngine,
+  plainResult,
   resetVisionConfig,
-  type HandEngineOptions,
-} from "./hand-engine";
+  type MpEngineOptions,
+} from "./mp-engine";
 
 const lm = Array.from({ length: 21 }, (_, i) => ({ x: i / 21, y: 0.5, z: 0.1 }));
 const MP_RESULT = {
@@ -16,11 +17,10 @@ const MP_RESULT = {
   gestures: [[{ categoryName: "Open_Palm", score: 0.9 }]],
 };
 
-const opts = (over: Partial<HandEngineOptions> = {}): HandEngineOptions => ({
+const opts = (over: Partial<MpEngineOptions> = {}): MpEngineOptions => ({
+  task: "gesture",
   model: new Uint8Array([1, 2, 3]),
-  gestures: true,
-  maxHands: 2,
-  minScore: 0.5,
+  options: { numHands: 2, minHandDetectionConfidence: 0.5 },
   delegate: "auto",
   thread: "auto",
   ...over,
@@ -61,21 +61,24 @@ function stubBitmap() {
   vi.stubGlobal("createImageBitmap", async () => ({ close }));
 }
 
-describe("createWorkerEngine", () => {
+describe("createWorkerMpEngine", () => {
   it("initialise, détecte hors du fil principal et convertit le résultat", async () => {
     stubBitmap();
     const w = new FakeWorker();
     configureVision({ createWorker: () => w as unknown as Worker });
-    const engine = await createWorkerEngine(opts());
+    const engine = await createWorkerMpEngine(opts());
     expect(engine).toMatchObject({ thread: "worker", backend: "gpu" });
-    const init = w.sent[0] as unknown as { type: string; model: Uint8Array; bundleUrl: string; gestures: boolean };
+    const init = w.sent[0] as unknown as { type: string; model: Uint8Array; bundleUrl: string; task: string; options: Record<string, unknown> };
     expect(init.type).toBe("init");
     expect(init.model).toBeInstanceOf(Uint8Array);
     expect(init.bundleUrl).toContain("@mediapipe/tasks-vision@0.10.21");
-    const hands = await engine.detect({} as CanvasImageSource, 10);
-    expect(hands).toHaveLength(1);
-    expect(hands[0]).toMatchObject({ label: "Right", gesture: "Open_Palm", score: 0.95 });
-    expect(hands[0].landmarks).toHaveLength(21);
+    expect(init.task).toBe("gesture");
+    expect(init.options).toMatchObject({ numHands: 2 });
+    const result = await engine.detect({} as CanvasImageSource, 10);
+    expect(result.landmarks).toHaveLength(1);
+    expect(result.landmarks?.[0]).toHaveLength(21);
+    expect(result.gestures?.[0]?.[0]).toMatchObject({ categoryName: "Open_Palm" });
+    expect(result.handedness?.[0]?.[0]).toMatchObject({ categoryName: "Right", score: 0.95 });
     engine.close();
     expect(w.terminated).toBe(true);
     await expect(engine.detect({} as CanvasImageSource, 20)).rejects.toThrow();
@@ -85,21 +88,21 @@ describe("createWorkerEngine", () => {
     const w = new FakeWorker();
     configureVision({ createWorker: () => w as unknown as Worker });
     const o = opts();
-    await createWorkerEngine(o);
+    await createWorkerMpEngine(o);
     expect(o.model.byteLength).toBe(3);
   });
 
   it("échec d'initialisation : rejet et worker terminé", async () => {
     const w = new FakeWorker({ init: "error" });
     configureVision({ createWorker: () => w as unknown as Worker });
-    await expect(createWorkerEngine(opts())).rejects.toThrow("wasm introuvable");
+    await expect(createWorkerMpEngine(opts())).rejects.toThrow("wasm introuvable");
     expect(w.terminated).toBe(true);
   });
 
   it("initialisation sans réponse : délai dépassé", async () => {
     const w = new FakeWorker({ init: "silent" });
     configureVision({ createWorker: () => w as unknown as Worker, initTimeoutMs: 20 });
-    await expect(createWorkerEngine(opts())).rejects.toThrow("trop longue");
+    await expect(createWorkerMpEngine(opts())).rejects.toThrow("trop longue");
     expect(w.terminated).toBe(true);
   });
 
@@ -107,24 +110,24 @@ describe("createWorkerEngine", () => {
     stubBitmap();
     const w = new FakeWorker({ detect: "error" });
     configureVision({ createWorker: () => w as unknown as Worker, detectTimeoutMs: 20 });
-    const engine = await createWorkerEngine(opts());
+    const engine = await createWorkerMpEngine(opts());
     await expect(engine.detect({} as CanvasImageSource, 1)).rejects.toThrow("gpu perdu");
     const w2 = new FakeWorker({ detect: "silent" });
     configureVision({ createWorker: () => w2 as unknown as Worker });
-    const engine2 = await createWorkerEngine(opts());
+    const engine2 = await createWorkerMpEngine(opts());
     await expect(engine2.detect({} as CanvasImageSource, 1)).rejects.toThrow("trop longue");
   });
 
   it("environnement sans Worker / OffscreenCanvas : erreur claire", async () => {
-    await expect(createWorkerEngine(opts())).rejects.toThrow(/indisponible/);
+    await expect(createWorkerMpEngine(opts())).rejects.toThrow(/indisponible/);
   });
 });
 
-describe("createMediaPipeEngine : repli", () => {
+describe("createMediaPipeMpEngine : repli", () => {
   it("thread=worker : pas de repli", async () => {
     const w = new FakeWorker({ init: "error" });
     configureVision({ createWorker: () => w as unknown as Worker });
-    await expect(createMediaPipeEngine(opts({ thread: "worker" }))).rejects.toThrow("wasm introuvable");
+    await expect(createMediaPipeMpEngine(opts({ thread: "worker" }))).rejects.toThrow("wasm introuvable");
   });
 
   it("thread=auto : repli sur le fil principal quand le worker échoue", async () => {
@@ -137,10 +140,20 @@ describe("createMediaPipeEngine : repli", () => {
       createWorker: () => w as unknown as Worker,
       mediapipeBundleUrl: `data:text/javascript,${encodeURIComponent(moduleSrc)}`,
     });
-    const engine = await createMediaPipeEngine(opts());
+    const engine = await createMediaPipeMpEngine(opts());
     expect(engine.thread).toBe("main");
     expect(w.terminated).toBe(true);
-    expect(await engine.detect({} as CanvasImageSource, 1)).toEqual([]);
+    expect(await engine.detect({} as CanvasImageSource, 1)).toEqual({ landmarks: [] });
+  });
+});
+
+describe("plainResult", () => {
+  it("copie en objets simples : typés → tableaux, fonctions ignorées, profondeur bornée", () => {
+    const out = plainResult({ a: new Float32Array([1, 2]), f: () => 1, n: { b: [1, "x", true] }, u: undefined }) as Record<string, unknown>;
+    expect(out.a).toEqual([1, 2]);
+    expect("f" in out).toBe(false);
+    expect(out.n).toEqual({ b: [1, "x", true] });
+    expect(JSON.parse(JSON.stringify(out))).toEqual(out);
   });
 });
 
@@ -167,7 +180,7 @@ describe("WORKER_SOURCE (script du worker)", () => {
       HandLandmarker: { createFromOptions: vi.fn() },
     };
     const { self, posted, importHook } = boot(mp);
-    await self.onmessage!({ data: { type: "init", bundleUrl: "https://x/b.mjs", wasmUrl: "https://x/wasm", model: new Uint8Array([9]), gestures: true, maxHands: 2, minScore: 0.5, delegate: "gpu" } });
+    await self.onmessage!({ data: { type: "init", bundleUrl: "https://x/b.mjs", wasmUrl: "https://x/wasm", model: new Uint8Array([9]), task: "gesture", options: { numHands: 2 }, delegate: "gpu" } });
     expect(importHook).toHaveBeenCalledWith("https://x/b.mjs");
     expect(create.mock.calls[0][1]).toMatchObject({ runningMode: "VIDEO", numHands: 2, baseOptions: { delegate: "GPU" } });
     expect(posted).toEqual([{ type: "ready", backend: "gpu" }]);
@@ -177,12 +190,12 @@ describe("WORKER_SOURCE (script du worker)", () => {
     const create = vi.fn().mockRejectedValueOnce(new Error("no gl")).mockResolvedValueOnce(task());
     const mp = { FilesetResolver: { forVisionTasks: async () => ({}) }, GestureRecognizer: { createFromOptions: create }, HandLandmarker: { createFromOptions: create } };
     const a = boot(mp);
-    await a.self.onmessage!({ data: { type: "init", bundleUrl: "u", wasmUrl: "w", model: new Uint8Array(1), gestures: true, maxHands: 1, minScore: 0.5, delegate: "auto" } });
+    await a.self.onmessage!({ data: { type: "init", bundleUrl: "u", wasmUrl: "w", model: new Uint8Array(1), task: "gesture", options: { numHands: 1 }, delegate: "auto" } });
     expect(a.posted).toEqual([{ type: "ready", backend: "cpu" }]);
 
     const create2 = vi.fn().mockRejectedValue(new Error("no gl"));
     const b = boot({ ...mp, GestureRecognizer: { createFromOptions: create2 } });
-    await b.self.onmessage!({ data: { type: "init", bundleUrl: "u", wasmUrl: "w", model: new Uint8Array(1), gestures: true, maxHands: 1, minScore: 0.5, delegate: "gpu" } });
+    await b.self.onmessage!({ data: { type: "init", bundleUrl: "u", wasmUrl: "w", model: new Uint8Array(1), task: "gesture", options: { numHands: 1 }, delegate: "gpu" } });
     expect(b.posted).toEqual([{ type: "error", id: undefined, message: "no gl" }]);
   });
 
@@ -190,7 +203,7 @@ describe("WORKER_SOURCE (script du worker)", () => {
     const t = task();
     const mp = { FilesetResolver: { forVisionTasks: async () => ({}) }, HandLandmarker: { createFromOptions: async () => t }, GestureRecognizer: { createFromOptions: async () => t } };
     const { self, posted } = boot(mp);
-    await self.onmessage!({ data: { type: "init", bundleUrl: "u", wasmUrl: "w", model: new Uint8Array(1), gestures: false, maxHands: 2, minScore: 0.5, delegate: "cpu" } });
+    await self.onmessage!({ data: { type: "init", bundleUrl: "u", wasmUrl: "w", model: new Uint8Array(1), task: "hand", options: { numHands: 2 }, delegate: "cpu" } });
     const bitmap = { close: vi.fn() };
     await self.onmessage!({ data: { type: "detect", id: 7, ts: 100, bitmap } });
     expect(t.detectForVideo).toHaveBeenCalledWith(bitmap, 100);
@@ -199,6 +212,21 @@ describe("WORKER_SOURCE (script du worker)", () => {
     expect(res).toMatchObject({ type: "result", id: 7 });
     expect(JSON.parse(JSON.stringify(res.result)).landmarks[0]).toHaveLength(21);
     expect(typeof (res.result as Record<string, unknown>).close).toBe("undefined");
+  });
+
+  it("tâche face : classe FaceLandmarker, options transmises, matrices typées → tableaux", async () => {
+    const t = {
+      detectForVideo: vi.fn(() => ({ faceLandmarks: [lm], facialTransformationMatrixes: [{ rows: 4, columns: 4, data: new Float32Array(16) }] })),
+      close: vi.fn(),
+    };
+    const create = vi.fn(async (_fs: unknown, _o: unknown) => t);
+    const { self, posted } = boot({ FilesetResolver: { forVisionTasks: async () => ({}) }, FaceLandmarker: { createFromOptions: create } });
+    await self.onmessage!({ data: { type: "init", bundleUrl: "u", wasmUrl: "w", model: new Uint8Array(1), task: "face", options: { numFaces: 1, outputFaceBlendshapes: true }, delegate: "cpu" } });
+    expect(create.mock.calls[0][1]).toMatchObject({ numFaces: 1, outputFaceBlendshapes: true, runningMode: "VIDEO" });
+    await self.onmessage!({ data: { type: "detect", id: 1, ts: 5, bitmap: { close() {} } } });
+    const res = posted[1] as { result: { facialTransformationMatrixes: Array<{ data: number[] }> } };
+    expect(Array.isArray(res.result.facialTransformationMatrixes[0].data)).toBe(true);
+    expect(res.result.facialTransformationMatrixes[0].data).toHaveLength(16);
   });
 
   it("detect avant init : erreur rapportée avec l'id, image fermée", async () => {

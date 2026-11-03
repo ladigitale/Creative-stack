@@ -1,0 +1,214 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "play",
+      "initial": "{\"go\": 0, \"ev\": [{\"id\": \"t\", \"type\": \"noteOn\", \"note\": \"C3\", \"vel\": 1, \"durS\": 86400}]}",
+      "reducer": "$action.type = \"go\" ? $merge([$state, {\"go\": $state.go + 1}]) : $state"
+     }
+    },
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Synthé du visage"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Hoche la tête pour changer la hauteur, ouvre la bouche pour ouvrir le filtre. Aucune calibration."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "fit": "cover",
+      "style": "aspect-ratio:4/3;border-radius:.8rem"
+     }
+    },
+    {
+     "tagName": "sonic-face-tracker",
+     "attributes": {
+      "id": "face",
+      "for": "cam",
+      "smooth": "0.6",
+      "hold-ms": "250",
+      "map": "cents=clamp(1-y*1.6+0.25,0,1)*2400; cut=300+mouthOpen*5000; gain=present ? 0.4 : 0"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      },
+      {
+       "tagName": "sonic-audio-unlock",
+       "attributes": {
+        "label": "Activer le son"
+       }
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "play",
+        "type": "go",
+        "payload": "{}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "type": "primary"
+         },
+         "nodes": [
+          {
+           "tagName": "span",
+           "textContent": "Jouer"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "suivi : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "faceState",
+        "key": "phase"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · détecté "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "face",
+        "key": "present"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-patch",
+     "attributes": {
+      "id": "synth",
+      "events": "play.ev",
+      "trigger": "play.go",
+      "poly": "1"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-voice",
+       "attributes": {
+        "out": "a"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-osc",
+         "attributes": {
+          "name": "o1",
+          "wave": "sawtooth",
+          "level": "1"
+         }
+        },
+        {
+         "tagName": "sonic-filter",
+         "attributes": {
+          "name": "f",
+          "in": "o1",
+          "type": "lowpass",
+          "freq-hz": "1200",
+          "q": "2"
+         }
+        },
+        {
+         "tagName": "sonic-vca",
+         "attributes": {
+          "name": "a",
+          "in": "f",
+          "gain": "0"
+         }
+        },
+        {
+         "tagName": "sonic-param",
+         "attributes": {
+          "source": "face.cents",
+          "to": "o1.detune",
+          "ramp-s": "0.04"
+         }
+        },
+        {
+         "tagName": "sonic-param",
+         "attributes": {
+          "source": "face.cut",
+          "to": "f.freq-hz",
+          "ramp-s": "0.05"
+         }
+        },
+        {
+         "tagName": "sonic-param",
+         "attributes": {
+          "source": "face.gain",
+          "to": "a.gain",
+          "ramp-s": "0.04"
+         }
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-reverb",
+       "attributes": {
+        "mix": "0.2",
+        "size-s": "2"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

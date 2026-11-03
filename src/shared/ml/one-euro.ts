@@ -47,3 +47,25 @@ export function oneEuroFor(smooth: number): OneEuro | null {
   if (s === 0) return null;
   return new OneEuro(0.1 + 3 * (1 - s), 8, 1);
 }
+
+/** Un filtre One Euro par clé (`x`, `joints.leftWrist.x`…), créé à la demande. `smooth` 0 : aucun lissage. */
+export class Smoother {
+  private filters = new Map<string, OneEuro>();
+  constructor(public smooth: number) {}
+
+  apply(key: string, value: number, tMs: number): number {
+    if (!(this.smooth > 0)) return value;
+    let f = this.filters.get(key);
+    if (!f) {
+      const made = oneEuroFor(this.smooth);
+      if (!made) return value;
+      f = made;
+      this.filters.set(key, f);
+    }
+    return f.filter(value, tMs);
+  }
+
+  reset(): void {
+    this.filters.clear();
+  }
+}
