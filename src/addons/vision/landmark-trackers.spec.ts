@@ -4,10 +4,14 @@ import { configureMl, resetMlConfig, type ConsentStore } from "../../shared/ml/t
 import { configureVision, resetVisionConfig, type MpEngine, type MpEngineOptions, type MpResult } from "./mp-engine";
 import { SonicFaceTracker } from "./face-tracker";
 import { SonicPoseTracker } from "./pose-tracker";
+import { SonicObjectDetector } from "./object-detector";
+import { SonicSegmenter } from "./segmenter";
 import { fakePose, mpFaceResult } from "./test-bodies";
 
 void SonicFaceTracker;
 void SonicPoseTracker;
+void SonicObjectDetector;
+void SonicSegmenter;
 
 function memoryConsent(): ConsentStore {
   const m = new Map<string, "accepted" | "declined">();
@@ -137,5 +141,108 @@ describe("sonic-pose-tracker", () => {
     await flush();
     expect(el.getState()).toMatchObject({ phase: "error", error: { code: "origin-not-allowed" } });
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe("sonic-object-detector", () => {
+  const detResult = () => ({
+    size: { width: 640, height: 480 },
+    detections: [{ boundingBox: { originX: 64, originY: 48, width: 128, height: 96 }, categories: [{ categoryName: "cup", score: 0.8 }] }],
+  });
+
+  it("modèle par défaut, options, sortie normalisée", async () => {
+    mountSource();
+    const mp = fakeMp(detResult);
+    configureVision({ createMpEngine: mp.create });
+    const el = await mount("sonic-object-detector", { id: "d1", for: "cam", load: "auto", mirror: "false", categories: "cup, person", "max-results": "3", "min-score": "0.4" });
+    await flush();
+    expect(el.getState().model?.url).toContain("efficientdet_lite0");
+    expect(mp.seen[0]).toMatchObject({ task: "detect", options: { maxResults: 3, scoreThreshold: 0.4, categoryAllowlist: ["cup", "person"] } });
+    const out = await el.processFrame(100);
+    expect(out).toMatchObject({ present: 1, count: 1, label: "cup" });
+    const d = dp("d1").get() as { x: number; w: number; labels: { cup: number } };
+    expect(d.x).toBeCloseTo(0.1);
+    expect(d.w).toBeCloseTo(0.2);
+    expect(d.labels.cup).toBe(1);
+  });
+
+  it("sans catégories : pas de liste blanche", async () => {
+    mountSource();
+    const mp = fakeMp(() => ({ size: { width: 1, height: 1 } }));
+    configureVision({ createMpEngine: mp.create });
+    await mount("sonic-object-detector", { id: "d2", for: "cam", load: "auto" });
+    await flush();
+    expect("categoryAllowlist" in mp.seen[0].options).toBe(false);
+  });
+});
+
+describe("sonic-segmenter", () => {
+  const maskResult = () => ({
+    masks: [
+      { width: 4, height: 2, data: new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, 255]) }, // fond
+      { width: 4, height: 2, data: new Uint8ClampedArray([0, 0, 255, 255, 0, 0, 0, 0]) }, // personne
+    ],
+  });
+
+  function stubCanvas() {
+    const puts: Uint8ClampedArray[] = [];
+    const ctx = {
+      createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData: (img: { data: Uint8ClampedArray }) => void puts.push(img.data.slice()),
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as never);
+    return puts;
+  }
+
+  it("masque exposé comme source d'images, statistiques publiées", async () => {
+    mountSource();
+    const puts = stubCanvas();
+    const mp = fakeMp(maskResult);
+    configureVision({ createMpEngine: mp.create });
+    const el = (await mount("sonic-segmenter", { id: "s1", for: "cam", load: "auto", mirror: "false", smooth: "0" })) as unknown as SonicSegmenter & { processFrame(n: number): Promise<Record<string, unknown> | null> };
+    await flush();
+    expect(el.getState().model?.url).toContain("selfie_segmenter");
+    expect(mp.seen[0]).toMatchObject({ task: "segment", options: { outputConfidenceMasks: true } });
+    expect(el.getFrameCanvas()).toBeNull();
+    expect(el.frameSeq).toBe(0);
+
+    const out = await el.processFrame(100);
+    expect(out).toMatchObject({ present: 1 });
+    expect((out as { coverage: number }).coverage).toBeCloseTo(0.25); // dernier masque = personne
+    expect((out as { cx: number }).cx).toBeCloseTo(0.75);
+    expect(el.frameSeq).toBe(1);
+    expect(el.getFrameCanvas()).not.toBeNull();
+    expect(puts[0]).toHaveLength(32);
+    expect(puts[0][8]).toBe(255); // gray : pixel 2 de la première ligne
+    expect(puts[0][0]).toBe(0);
+  });
+
+  it("mode alpha, inversion, indice de masque explicite", async () => {
+    mountSource();
+    const puts = stubCanvas();
+    configureVision({ createMpEngine: fakeMp(maskResult).create });
+    const el = (await mount("sonic-segmenter", { id: "s2", for: "cam", load: "auto", mirror: "false", mode: "alpha", invert: "true", "mask-index": "0", smooth: "0" })) as unknown as { processFrame(n: number): Promise<Record<string, unknown> | null> };
+    await flush();
+    const out = await el.processFrame(100);
+    expect((out as { coverage: number }).coverage).toBe(1); // masque 0 : tout couvert (les stats ne suivent pas l'inversion)
+    expect([...puts[0].slice(0, 4)]).toEqual([255, 255, 255, 0]); // alpha = 255 - 255
+  });
+
+  it("personne absente : present 0 après le maintien", async () => {
+    mountSource();
+    stubCanvas();
+    let empty = false;
+    configureVision({
+      createMpEngine: fakeMp(() => (empty ? { masks: [{ width: 2, height: 2, data: new Uint8ClampedArray(4) }] } : maskResult())).create,
+    });
+    const el = (await mount("sonic-segmenter", { id: "s3", for: "cam", load: "auto", mirror: "false", "hold-ms": "50", smooth: "0" })) as unknown as { processFrame(n: number): Promise<Record<string, unknown> | null> } & { frameSeq: number };
+    await flush();
+    await el.processFrame(0);
+    empty = true;
+    const src = document.getElementById("cam") as unknown as { t: number };
+    src.t = 2;
+    expect(((await el.processFrame(20)) as { present: number }).present).toBe(1);
+    src.t = 3;
+    expect(((await el.processFrame(500)) as { present: number }).present).toBe(0);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { facesFromMediaPipe, posesFromMediaPipe } from "./landmarkers";
+import { detectionsFromMediaPipe, facesFromMediaPipe, posesFromMediaPipe } from "./landmarkers";
 import { mpFaceResult } from "./test-bodies";
 
 describe("facesFromMediaPipe", () => {
@@ -29,5 +29,30 @@ describe("posesFromMediaPipe", () => {
   it("visibilité absente = 1 ; poses incomplètes ignorées", () => {
     expect(posesFromMediaPipe({ landmarks: [lm.map(({ x, y, z }) => ({ x, y, z }))] })[0].landmarks[0].visibility).toBe(1);
     expect(posesFromMediaPipe({ landmarks: [lm.slice(0, 10)] })).toEqual([]);
+  });
+});
+
+describe("detectionsFromMediaPipe", () => {
+  const det = (name: string, score: number, ox: number, oy: number, w: number, h: number) => ({
+    boundingBox: { originX: ox, originY: oy, width: w, height: h },
+    categories: [{ categoryName: name, score }],
+  });
+  it("normalise par la taille de l'image, trie par score, borne à 0..1", () => {
+    const out = detectionsFromMediaPipe({
+      size: { width: 640, height: 480 },
+      detections: [det("cup", 0.6, 64, 48, 128, 96), det("person", 0.9, -10, 0, 700, 480)],
+    });
+    expect(out.map((d) => d.label)).toEqual(["person", "cup"]);
+    expect(out[1].x).toBeCloseTo(0.1);
+    expect(out[1].y).toBeCloseTo(0.1);
+    expect(out[1].w).toBeCloseTo(0.2);
+    expect(out[1].h).toBeCloseTo(0.2);
+    expect(out[0].x).toBe(0);
+    expect(out[0].x + out[0].w).toBe(1);
+  });
+  it("seuil de score ; sans taille ou sans boîte : rien", () => {
+    expect(detectionsFromMediaPipe({ size: { width: 10, height: 10 }, detections: [det("a", 0.2, 0, 0, 5, 5)] }, 0.5)).toEqual([]);
+    expect(detectionsFromMediaPipe({ detections: [det("a", 0.9, 0, 0, 5, 5)] })).toEqual([]);
+    expect(detectionsFromMediaPipe({ size: { width: 10, height: 10 }, detections: [{ categories: [] }] })).toEqual([]);
   });
 });

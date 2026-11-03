@@ -6,7 +6,7 @@
  * Le modèle arrive déjà téléchargé et vérifié (`shared/ml/model-fetch`) sous forme de buffer.
  */
 
-export type MpTask = "hand" | "gesture" | "face" | "pose";
+export type MpTask = "hand" | "gesture" | "face" | "pose" | "detect" | "segment";
 
 export type MpEngineOptions = {
   task: MpTask;
@@ -32,6 +32,12 @@ export type MpResult = {
   faceLandmarks?: MpPoint[][];
   faceBlendshapes?: Array<{ categories?: MpCategory[] }>;
   facialTransformationMatrixes?: Array<{ rows?: number; columns?: number; data?: number[] }>;
+  /** Détecteur d'objets : boîtes en pixels de l'image analysée. */
+  detections?: Array<{ boundingBox?: { originX: number; originY: number; width: number; height: number }; categories?: MpCategory[] }>;
+  /** Segmenteur : masques de confiance 0..255 (un par catégorie du modèle). */
+  masks?: Array<{ width: number; height: number; data: Uint8ClampedArray }>;
+  /** Taille de l'image analysée (pixels) : sert à normaliser les boîtes. */
+  size?: { width: number; height: number };
 };
 
 export type MpEngine = {
@@ -94,11 +100,17 @@ const TASK_CLASS: Record<MpTask, string> = {
   gesture: "GestureRecognizer",
   face: "FaceLandmarker",
   pose: "PoseLandmarker",
+  detect: "ObjectDetector",
+  segment: "ImageSegmenter",
 };
 
 /* ---------------- fil principal ---------------- */
 
-type MpTaskInstance = { detectForVideo(frame: CanvasImageSource, tsMs: number): unknown; close(): void };
+type MpTaskInstance = {
+  detectForVideo?(frame: CanvasImageSource, tsMs: number): unknown;
+  segmentForVideo?(frame: CanvasImageSource, tsMs: number): unknown;
+  close(): void;
+};
 type MpModule = {
   FilesetResolver: { forVisionTasks(wasm: string): Promise<unknown> };
 } & Record<string, { createFromOptions(fs: unknown, o: unknown): Promise<MpTaskInstance> }>;
@@ -107,6 +119,7 @@ type MpModule = {
 export function plainResult(value: unknown, depth = 0): unknown {
   if (depth > 6 || value === null || value === undefined) return value ?? undefined;
   if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") return value;
+  if (value instanceof Uint8ClampedArray || value instanceof Uint8Array) return value; // masques : binaire, clonable tel quel
   if (ArrayBuffer.isView(value)) return Array.from(value as unknown as ArrayLike<number>);
   if (Array.isArray(value)) return value.map((v) => plainResult(v, depth + 1));
   if (typeof value === "object") {
@@ -145,9 +158,36 @@ export async function createMainThreadMpEngine(opts: MpEngineOptions): Promise<M
   return {
     backend,
     thread: "main",
-    detect: async (frame, tsMs) => plainResult(task.detectForVideo(frame, tsMs)) as MpResult,
+    detect: async (frame, tsMs) => {
+      const size = frameSize(frame);
+      if (opts.task === "segment") return { masks: readMasks(task.segmentForVideo!(frame, tsMs)), size };
+      return { ...(plainResult(task.detectForVideo!(frame, tsMs)) as MpResult), size };
+    },
     close: () => task.close(),
   };
+}
+
+/** Taille en pixels d'une image (vidéo, canvas, bitmap). */
+export function frameSize(frame: CanvasImageSource): { width: number; height: number } {
+  const f = frame as { videoWidth?: number; videoHeight?: number; width?: number; height?: number };
+  return { width: f.videoWidth || f.width || 0, height: f.videoHeight || f.height || 0 };
+}
+
+type MpMask = { width: number; height: number; getAsFloat32Array(): Float32Array; close(): void };
+
+/** Lit les masques de confiance d'un résultat de segmentation en octets 0..255, puis les libère. */
+export function readMasks(result: unknown): NonNullable<MpResult["masks"]> {
+  const r = result as { confidenceMasks?: MpMask[]; close?: () => void } | undefined;
+  const out: NonNullable<MpResult["masks"]> = [];
+  for (const mk of r?.confidenceMasks ?? []) {
+    const f = mk.getAsFloat32Array();
+    const data = new Uint8ClampedArray(f.length);
+    for (let i = 0; i < f.length; i++) data[i] = f[i] * 255;
+    out.push({ width: mk.width, height: mk.height, data });
+    mk.close();
+  }
+  r?.close?.();
+  return out;
 }
 
 /* ---------------- worker ---------------- */
@@ -158,12 +198,26 @@ export async function createMainThreadMpEngine(opts: MpEngineOptions): Promise<M
  */
 export const WORKER_SOURCE = `"use strict";
 let task = null;
-const CLASSES = { hand: "HandLandmarker", gesture: "GestureRecognizer", face: "FaceLandmarker", pose: "PoseLandmarker" };
+const CLASSES = { hand: "HandLandmarker", gesture: "GestureRecognizer", face: "FaceLandmarker", pose: "PoseLandmarker", detect: "ObjectDetector", segment: "ImageSegmenter" };
+let kind = "hand";
+const readMasks = (r) => {
+  const out = [];
+  for (const mk of (r && r.confidenceMasks) || []) {
+    const f = mk.getAsFloat32Array();
+    const data = new Uint8ClampedArray(f.length);
+    for (let i = 0; i < f.length; i++) data[i] = f[i] * 255;
+    out.push({ width: mk.width, height: mk.height, data });
+    mk.close();
+  }
+  if (r && r.close) r.close();
+  return out;
+};
 const plain = (v, d) => {
   d = d || 0;
   if (d > 6 || v === null || v === undefined) return v === null ? null : undefined;
   const t = typeof v;
   if (t === "number" || t === "string" || t === "boolean") return v;
+  if (v instanceof Uint8ClampedArray || v instanceof Uint8Array) return v;
   if (ArrayBuffer.isView(v)) return Array.from(v);
   if (Array.isArray(v)) return v.map((x) => plain(x, d + 1));
   if (t === "object") {
@@ -181,6 +235,7 @@ self.onmessage = async (e) => {
       const fileset = await mp.FilesetResolver.forVisionTasks(m.wasmUrl);
       const Task = mp[CLASSES[m.task]];
       if (!Task) throw new Error("Tâche MediaPipe inconnue : " + m.task);
+      kind = m.task;
       const make = (delegate) =>
         Task.createFromOptions(fileset, Object.assign({ baseOptions: { modelAssetBuffer: m.model.slice(), delegate }, runningMode: "VIDEO" }, m.options));
       let backend = m.delegate === "cpu" ? "cpu" : "gpu";
@@ -194,8 +249,10 @@ self.onmessage = async (e) => {
       self.postMessage({ type: "ready", backend });
     } else if (m.type === "detect") {
       try {
-        const result = task.detectForVideo(m.bitmap, m.ts);
-        self.postMessage({ type: "result", id: m.id, result: plain(result) });
+        const size = { width: m.bitmap.width, height: m.bitmap.height };
+        const out = kind === "segment" ? { masks: readMasks(task.segmentForVideo(m.bitmap, m.ts)) } : plain(task.detectForVideo(m.bitmap, m.ts));
+        out.size = size;
+        self.postMessage({ type: "result", id: m.id, result: out });
       } finally {
         if (m.bitmap && m.bitmap.close) m.bitmap.close();
       }

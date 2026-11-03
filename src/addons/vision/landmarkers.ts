@@ -32,3 +32,32 @@ export function posesFromMediaPipe(result: MpResult): RawPose[] {
   }
   return out;
 }
+
+export type RawDetection = { label: string; score: number; x: number; y: number; w: number; h: number };
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/** Détections MediaPipe (boîtes en pixels) → boîtes normalisées 0..1, triées par score décroissant. */
+export function detectionsFromMediaPipe(result: MpResult, minScore = 0): RawDetection[] {
+  const size = result.size;
+  if (!size || size.width <= 0 || size.height <= 0) return [];
+  const out: RawDetection[] = [];
+  for (const d of result.detections ?? []) {
+    const b = d.boundingBox;
+    const cat = d.categories?.[0];
+    if (!b || !cat) continue;
+    const score = cat.score ?? 0;
+    if (score < minScore) continue;
+    const x = clamp01(b.originX / size.width);
+    const y = clamp01(b.originY / size.height);
+    out.push({
+      label: cat.categoryName ?? cat.displayName ?? "",
+      score,
+      x,
+      y,
+      w: clamp01((b.originX + b.width) / size.width) - x,
+      h: clamp01((b.originY + b.height) / size.height) - y,
+    });
+  }
+  return out.sort((a, b) => b.score - a.score);
+}

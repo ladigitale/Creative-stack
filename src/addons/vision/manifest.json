@@ -1,8 +1,8 @@
 {
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "vision",
-  "label": "Vision (suivi ML local : mains, visage, corps)",
-  "description": "Suivi temps réel par modèles ML qui tournent sur l'appareil (aucune image envoyée) : mains (21 points, pince, ouverture, gestes) par rôle gauche/droite, visage (orientation, expressions : bouche, sourire, sourcils, clignements, regard), corps (33 points nommés, bras levés, écartement) ; sorties en DataProvider, map = clés dérivées sans latence ; modèles en alias ou URL https sous niveaux de confiance et consentement.",
+  "label": "Vision (suivi ML local : mains, visage, corps, objets, silhouette)",
+  "description": "Suivi temps réel par modèles ML qui tournent sur l'appareil (aucune image envoyée) : mains, visage (orientation, expressions), corps (33 points nommés), objets (80 classes COCO, boîtes), silhouette (masque lu comme source d'images par sonic-shader) ; sorties en DataProvider, map = clés dérivées sans latence ; sonic-landmarks-overlay dessine points, squelette, contours et boîtes dans un panneau séparé ; modèles en alias ou URL https sous niveaux de confiance et consentement.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -10,7 +10,10 @@
   "examples": [
     "examples/theremin-deux-mains.sdui.json",
     "examples/synthe-visage.sdui.json",
-    "examples/theremin-corps.sdui.json"
+    "examples/theremin-corps.sdui.json",
+    "examples/controle-mains-panneau.sdui.json",
+    "examples/silhouette.sdui.json",
+    "examples/detecteur-objets.sdui.json"
   ],
   "components": [
     {
@@ -187,6 +190,177 @@
         },
         "max-poses": {
           "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-object-detector",
+      "description": "Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…) dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, label/score/x/y/w/h/cx/cy du meilleur objet, labels.<étiquette> = nombre d'objets (étiquette en minuscules, _ pour les séparateurs), objects[] {label, score, x, y, w, h, cx, cy} en 0..1 repère écran ; categories=\"person,cup\" filtre ; max-results ; min-score ; hold-ms ; map = clés dérivées sans latence ; smooth sans effet ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée",
+      "props": {
+        "for": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "delegate": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "smooth": {
+          "type": "number"
+        },
+        "hold-ms": {
+          "type": "number"
+        },
+        "min-score": {
+          "type": "number"
+        },
+        "map": {
+          "type": "string"
+        },
+        "outputProvider": {
+          "type": "string"
+        },
+        "statusProvider": {
+          "type": "string"
+        },
+        "consentProvider": {
+          "type": "string"
+        },
+        "load": {
+          "type": "string"
+        },
+        "model-sha256": {
+          "type": "string"
+        },
+        "thread": {
+          "type": "string"
+        },
+        "max-results": {
+          "type": "number"
+        },
+        "categories": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-segmenter",
+      "description": "Segmente la personne dans une source d'images (for=\"cam\") : le masque est une SOURCE D'IMAGES lue par sonic-shader (channel1=\"#seg\", mode gray : r=g=b=masque, ou alpha : blanc + alpha = masque ; invert) ; sortie dans output-provider (défaut = id) : present, coverage 0..1, cx, cy, x0, y0, x1, y1 (repère écran, lissés) ; threshold des statistiques ; mask-index si le modèle fournit plusieurs masques (auto : le dernier) ; map = clés dérivées ; modèle par défaut selfie-segmenter ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée",
+      "props": {
+        "for": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "delegate": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "smooth": {
+          "type": "number"
+        },
+        "hold-ms": {
+          "type": "number"
+        },
+        "min-score": {
+          "type": "number"
+        },
+        "map": {
+          "type": "string"
+        },
+        "outputProvider": {
+          "type": "string"
+        },
+        "statusProvider": {
+          "type": "string"
+        },
+        "consentProvider": {
+          "type": "string"
+        },
+        "load": {
+          "type": "string"
+        },
+        "model-sha256": {
+          "type": "string"
+        },
+        "thread": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "invert": {
+          "type": "string"
+        },
+        "threshold": {
+          "type": "number"
+        },
+        "mask-index": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-landmarks-overlay",
+      "description": "Dessine sur un canvas la sortie d'un tracker (source=\"hand\" : DataProvider de sortie) : points et squelette des mains, contours du visage (le tracker doit publier landmarks=\"true\"), squelette du corps, boîtes étiquetées d'objets ; kind auto|hands|face|pose|objects ; background=\"cam\" redessine l'image de la caméra (ou d'un sonic-segmenter) dessous ; pensé comme panneau séparé : ne rien superposer à la vue caméra ; color, color2, line-width, point-radius, points, bones, fill, width, height, mirror ; aucun HTML injecté",
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "fill": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        },
+        "color2": {
+          "type": "string"
+        },
+        "line-width": {
+          "type": "number"
+        },
+        "point-radius": {
+          "type": "number"
+        },
+        "points": {
+          "type": "string"
+        },
+        "bones": {
+          "type": "string"
         }
       }
     }
