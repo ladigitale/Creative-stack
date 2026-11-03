@@ -1,0 +1,110 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Silhouette en direct"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Le masque de la personne est lu comme une source d'images par un shader : la silhouette en négatif."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "hidden-preview": "",
+      "mirror": "false"
+     }
+    },
+    {
+     "tagName": "sonic-segmenter",
+     "attributes": {
+      "id": "seg",
+      "for": "cam",
+      "smooth": "0.3"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-shader",
+     "attributes": {
+      "id": "fx",
+      "channel0": "#cam",
+      "channel1": "#seg",
+      "style": "display:block;width:100%;aspect-ratio:4/3;border-radius:.8rem;overflow:hidden",
+      "image": "void mainImage(out vec4 o, in vec2 f){ vec2 uv=f/iResolution.xy; vec3 c=texture(iChannel0, vec2(1.-uv.x, uv.y)).rgb; float m=texture(iChannel1, uv).r; vec3 bg=vec3(dot(c, vec3(.3,.59,.11)))*.25; o=vec4(mix(bg, c, m), 1.); }"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "suivi : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "segState",
+        "key": "phase"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · couverture "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "seg",
+        "key": "coverage"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
