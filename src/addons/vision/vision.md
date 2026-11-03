@@ -2,7 +2,7 @@
 
 Addon `@supersoniks/creative-stack/vision` : suivi temps réel par des modèles ML qui **tournent sur l'appareil** (aucune image n'est envoyée). Les résultats sont publiés en DataProvider, avec des clés plates et stables, directement lisibles par `sonic-param`, `sonic-if`, `sonic-value`, `sonic-stage`, `sonic-shader` et `sonic-jsonata`.
 
-Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps), `sonic-object-detector` (objets), `sonic-segmenter` (silhouette), et `sonic-landmarks-overlay` pour dessiner leurs sorties. Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
+Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps), `sonic-object-detector` (objets), `sonic-segmenter` (silhouette), `sonic-example-classifier` (gestes appris par l'utilisateur), et `sonic-landmarks-overlay` pour dessiner leurs sorties. Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
 
 ## Règles communes
 
@@ -190,6 +190,34 @@ Segmente la personne (modèle `selfie-segmenter` par défaut). Le masque est une
 
 Le masque est dessiné en repère écran (miroir appliqué comme pour les autres trackers) ; l'image de la caméra lue par le shader, elle, n'est pas retournée si elle vient de la vidéo native : retourner `x` dans le shader (`1.-uv.x`) avec `mirror="false"` sur la caméra. Sortie : `present`, `coverage` (part de l'image), `cx`, `cy`, `x0`, `y0`, `x1`, `y1` (centre et boîte, lissés).
 
+## `sonic-example-classifier`
+
+```json
+{ "tagName": "sonic-example-classifier", "attributes": {
+  "id": "gesture", "source": "hand", "control": "learn", "storage": "mes-gestes" } }
+```
+
+Apprend à reconnaître des **poses de main, de corps ou des expressions de visage à partir d'exemples** que l'utilisateur enregistre (k plus proches voisins) : pas de modèle, pas de réseau, tout est local. Branché sur la sortie d'un tracker (`source`). Les mains et le corps sont comparés relativement au poignet / aux hanches et à leur taille : un geste appris est reconnu où que la main soit dans l'image et à n'importe quelle distance.
+
+Pilotage par le DataProvider `control` (typiquement un `sonic-store`) : `label` (étiquette courante), `record` (compteur : une hausse enregistre `samples` exemples sous `label`), `clear` (compteur : efface `label`, ou tout si `label` est vide), `clearAll` (compteur : efface tout). La première valeur vue sert de référence : rien ne s'enregistre au chargement.
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `source` | DataProvider de sortie d'un tracker | requis |
+| `features` | `auto` (d'après les clés), `hand`, `pose`, `face` (blendshapes) | `auto` |
+| `hand` | `any`, `left`, `right` (côté écran) | `any` |
+| `control` | DataProvider de pilotage | aucun |
+| `outputProvider` | DataProvider de sortie | l'id |
+| `k` | Voisins du vote | `3` |
+| `samples` | Exemples pris par enregistrement | `20` |
+| `sample-ms` | Écart minimal entre deux exemples | `50` |
+| `window` | Dernières prédictions votant pour l'étiquette stable | `5` |
+| `min-confidence` | Confiance minimale pour afficher une étiquette | `0.6` |
+| `max-distance` | Distance maximale au plus proche exemple, 0 = sans limite | `0` |
+| `storage` | Clé de mémoire locale (`localStorage`) des exemples ; vide = pas de sauvegarde | aucune |
+
+Sortie : `present`, `label` (stable, vide sans exemples ni confiance), `raw` (dernière image, sans lissage), `confidence`, `scores.<étiquette>`, `match.<étiquette>` (1 pour l'étiquette stable, utile à `sonic-if`), `counts.<étiquette>`, `total`, `recording`, `recordingLabel`, `samplesLeft`. Les étiquettes servent de clés en minuscules (`_` pour les séparateurs). Un enregistrement dont la dimension ne correspond pas aux exemples existants (autre type de source) s'arrête sans rien ajouter.
+
 ## `sonic-landmarks-overlay`
 
 ```json
@@ -219,3 +247,4 @@ Dessine sur un canvas la sortie d'un tracker : points et squelette des mains, sq
 - `examples/controle-mains-panneau.sdui.json` : caméra + squelette des mains dans un panneau séparé.
 - `examples/silhouette.sdui.json` : silhouette lue par un shader.
 - `examples/detecteur-objets.sdui.json` : boîtes d'objets dans un panneau séparé.
+- `examples/mes-gestes.sdui.json` : apprendre ses propres gestes (A, B, C) et les reconnaître.

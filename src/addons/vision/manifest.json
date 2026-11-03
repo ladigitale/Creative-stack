@@ -1,7 +1,7 @@
 {
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "vision",
-  "label": "Vision (suivi ML local : mains, visage, corps, objets, silhouette)",
+  "label": "Vision (suivi ML local : mains, visage, corps, objets, silhouette, gestes appris)",
   "description": "Suivi temps réel par modèles ML qui tournent sur l'appareil (aucune image envoyée) : mains, visage (orientation, expressions), corps (33 points nommés), objets (80 classes COCO, boîtes), silhouette (masque lu comme source d'images par sonic-shader) ; sorties en DataProvider, map = clés dérivées sans latence ; sonic-landmarks-overlay dessine points, squelette, contours et boîtes dans un panneau séparé ; modèles en alias ou URL https sous niveaux de confiance et consentement.",
   "status": "experimental",
   "enabledByDefault": true,
@@ -13,7 +13,8 @@
     "examples/theremin-corps.sdui.json",
     "examples/controle-mains-panneau.sdui.json",
     "examples/silhouette.sdui.json",
-    "examples/detecteur-objets.sdui.json"
+    "examples/detecteur-objets.sdui.json",
+    "examples/mes-gestes.sdui.json"
   ],
   "components": [
     {
@@ -360,6 +361,48 @@
           "type": "string"
         },
         "bones": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-example-classifier",
+      "description": "Apprend à reconnaître des poses de main / de corps ou des expressions de visage à partir d'EXEMPLES enregistrés par l'utilisateur (k plus proches voisins, sans modèle ni réseau), à partir de la sortie d'un tracker (source=\"hand\" ; invariant à la position et à l'échelle) ; pilotage par le DataProvider control {label, record, clear, clearAll} (compteurs : une hausse enregistre `samples` exemples sous `label`, efface `label` ou tout) ; sortie dans output-provider (défaut = id) : present, label (stable, vote des `window` dernières images), raw, confidence, scores.<étiquette>, match.<étiquette> 0|1, counts, total, recording, recordingLabel, samplesLeft ; features auto|hand|pose|face, hand any|left|right, k, sample-ms, min-confidence, max-distance (0 = sans limite), storage = clé de mémoire locale des exemples",
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "features": {
+          "type": "string"
+        },
+        "hand": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "outputProvider": {
+          "type": "string"
+        },
+        "k": {
+          "type": "number"
+        },
+        "samples": {
+          "type": "number"
+        },
+        "sample-ms": {
+          "type": "number"
+        },
+        "window": {
+          "type": "number"
+        },
+        "min-confidence": {
+          "type": "number"
+        },
+        "max-distance": {
+          "type": "number"
+        },
+        "storage": {
           "type": "string"
         }
       }
