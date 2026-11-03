@@ -2,7 +2,7 @@
 
 Addon `@supersoniks/creative-stack/vision` : suivi temps réel par des modèles ML qui **tournent sur l'appareil** (aucune image n'est envoyée). Les résultats sont publiés en DataProvider, avec des clés plates et stables, directement lisibles par `sonic-param`, `sonic-if`, `sonic-value`, `sonic-stage`, `sonic-shader` et `sonic-jsonata`.
 
-Premier composant : `sonic-hand-tracker`. D'autres (visage, corps, segmentation…) suivront le même contrat.
+Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps). Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
 
 ## Règles communes
 
@@ -12,7 +12,7 @@ Premier composant : `sonic-hand-tracker`. D'autres (visage, corps, segmentation�
 
   | Niveau | Source | Consentement |
   |---|---|---|
-  | alias | `hand-landmarker`, `gesture-recognizer`, ou alias ajoutés par l'hôte | aucun |
+  | alias | `hand-landmarker`, `gesture-recognizer`, `face-landmarker`, `pose-landmarker` (léger), `pose-landmarker-full`, `pose-landmarker-heavy`, ou alias ajoutés par l'hôte | aucun |
   | `origins` (défaut) | URL dans une origine approuvée (`storage.googleapis.com/mediapipe-models/`, `huggingface.co`, `cdn.jsdelivr.net` par défaut, plus `capabilities.ml` de l'artefact) | par origine, mémorisé |
   | `open` | toute URL https | par modèle, mémorisé |
 
@@ -100,9 +100,63 @@ Par défaut l'inférence tourne dans un **worker classique** (blob) : le fil pri
 
 - Le chargement réel de MediaPipe depuis le CDN et le suivi sur une vraie caméra n'ont pas été testés (les tests couvrent le protocole du worker, le repli, le téléchargement, les contrôles de confiance et la logique de suivi avec des mains synthétiques).
 - Attribution gauche/droite d'une main **seule** à l'apparition : d'après l'étiquette du modèle puis la moitié d'écran ; non vérifiée sur matériel réel.
-- Seuils de `openness` et `pinch` empiriques.
+- Seuils de `openness` et `pinch` empiriques ; `yaw` / `pitch` / `roll` du visage et `lean` / `raise*` du corps sont des estimations géométriques, pas des mesures 3D.
+- Côtés gauche/droite du visage (clignements) et du corps : convention « écran » déduite de l'image miroir ; non vérifiée sur matériel réel.
 - Le modèle est téléchargé par le composant : un hôte dont la CSP interdit `connect-src` vers l'origine du modèle doit l'autoriser (ou servir le modèle lui-même).
 
-## Exemple
+## `sonic-face-tracker`
 
-`examples/theremin-deux-mains.sdui.json` : main droite = hauteur, main gauche = volume, sans calibration.
+```json
+{ "tagName": "sonic-face-tracker", "attributes": {
+  "id": "face", "for": "cam", "smooth": "0.6",
+  "map": "cut=300+mouthOpen*5000; gain=present ? 0.4 : 0" } }
+```
+
+Mêmes attributs communs que `sonic-hand-tracker` (`for`, `model`, `model-sha256`, `thread`, `fps`, `delegate`, `mirror`, `smooth`, `hold-ms`, `min-score`, `map`, `outputProvider`, `statusProvider`, `consentProvider`, `load`), plus :
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `max-faces` | 1 ou 2 | `1` |
+| `landmarks` | `"true"` : publie aussi les 478 points de chaque visage (`faces.N.landmarks`). Lourd | `false` |
+
+Modèle par défaut : alias `face-landmarker`. Sortie (premier visage, repère écran, miroir appliqué) :
+
+| Clé | Contenu |
+|---|---|
+| `present`, `count` | `1` si un visage est suivi (ou maintenu par `hold-ms`) ; nombre de visages vus |
+| `x`, `y`, `z` | Bout du nez, 0..1 |
+| `size` | Largeur du visage (joue à joue) relative à l'image : proxy de distance |
+| `yaw`, `pitch`, `roll` | Orientation de la tête, -1..1 (estimée d'après les points, sans matrice 3D) : `yaw` > 0 visage tourné vers la droite de l'écran, `pitch` > 0 tête baissée, `roll` > 0 oreille vers la droite de l'écran |
+| `mouthOpen`, `smile`, `pucker`, `browUp`, `browDown` | Expressions 0..1 (d'après `jawOpen`, `mouthSmile*`, `mouthPucker`, `browInnerUp` / `browOuterUp*`, `browDown*`) |
+| `blinkLeft`, `blinkRight` | Clignements 0..1, côtés **écran** (échangés si l'image n'est pas en miroir) |
+| `gazeX`, `gazeY` | Regard, -1..1 (> 0 : vers la droite de l'écran / vers le haut) |
+| `blend.<nom>` | Les 52 blendshapes MediaPipe bruts (`jawOpen`, `eyeBlinkLeft`, …), noms du sujet |
+| `faces.N.blend` | Idem pour chaque visage |
+
+## `sonic-pose-tracker`
+
+```json
+{ "tagName": "sonic-pose-tracker", "attributes": {
+  "id": "body", "for": "cam", "smooth": "0.6",
+  "map": "cents=raiseRight*3600; gain=present ? 0.5*raiseLeft : 0" } }
+```
+
+Attributs communs, plus `max-poses` (1 à 4, défaut `1`). Modèle par défaut : `pose-landmarker` (léger) ; `pose-landmarker-full` et `pose-landmarker-heavy` plus précis, plus lents. Sortie (premier corps, côtés **écran** : `leftWrist` est le poignet du côté gauche de l'écran) :
+
+| Clé | Contenu |
+|---|---|
+| `present`, `count` | `1` si un corps est suivi (ou maintenu) ; nombre de corps vus |
+| `x`, `y` | Centre des hanches |
+| `raiseLeft`, `raiseRight` | Hauteur du poignet : hanche ≈ 0, épaule 0,5, une longueur de buste au-dessus de l'épaule 1 |
+| `span` | Écart entre les poignets / largeur d'épaules (bras écartés ≈ 3 à 4) |
+| `lean` | Inclinaison du buste, -1..1 (> 0 : épaules vers la droite de l'écran) |
+| `joints.<nom>.x/y/z/v` | 33 points (`nose`, `leftShoulder`, `rightWrist`, `leftFootIndex`…) ; `v` = visibilité 0..1 |
+| `poses.N.landmarks.I.x/y/z` | Les 33 points de chaque corps |
+
+Aucun des deux ne demande de calibration. Les côtés gauche/droite ne sont pas vérifiés sur matériel réel (voir limites).
+
+## Exemples
+
+- `examples/theremin-deux-mains.sdui.json` : main droite = hauteur, main gauche = volume.
+- `examples/synthe-visage.sdui.json` : hocher la tête = hauteur, ouvrir la bouche = filtre.
+- `examples/theremin-corps.sdui.json` : bras droit levé = hauteur, bras gauche levé = volume.

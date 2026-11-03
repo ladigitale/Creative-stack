@@ -30,6 +30,10 @@ export const DEFAULT_POLICY: MlPolicy = {
   aliases: {
     "hand-landmarker": `${DEFAULT_MEDIAPIPE_MODELS}hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
     "gesture-recognizer": `${DEFAULT_MEDIAPIPE_MODELS}gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task`,
+    "face-landmarker": `${DEFAULT_MEDIAPIPE_MODELS}face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+    "pose-landmarker": `${DEFAULT_MEDIAPIPE_MODELS}pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`,
+    "pose-landmarker-full": `${DEFAULT_MEDIAPIPE_MODELS}pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task`,
+    "pose-landmarker-heavy": `${DEFAULT_MEDIAPIPE_MODELS}pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task`,
   },
   origins: [DEFAULT_MEDIAPIPE_MODELS, "https://huggingface.co/", "https://cdn.jsdelivr.net/"],
   maxBytes: 64 * 1024 * 1024,

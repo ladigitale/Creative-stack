@@ -25,3 +25,21 @@ describe("OneEuro", () => {
     expect(oneEuroFor(NaN)).toBeNull();
   });
 });
+
+import { Smoother } from "./one-euro";
+
+describe("Smoother", () => {
+  it("un filtre par clé, amortit un saut, reset repart de zéro", () => {
+    const s = new Smoother(0.9);
+    expect(s.apply("a", 0.5, 0)).toBe(0.5);
+    expect(s.apply("b", 0.1, 0)).toBe(0.1);
+    const next = s.apply("a", 0.9, 33);
+    expect(next).toBeGreaterThan(0.5);
+    expect(next).toBeLessThan(0.9);
+    s.reset();
+    expect(s.apply("a", 0.9, 66)).toBe(0.9);
+  });
+  it("smooth 0 : valeur inchangée", () => {
+    expect(new Smoother(0).apply("a", 0.3, 0)).toBe(0.3);
+  });
+});

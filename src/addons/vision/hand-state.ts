@@ -3,7 +3,7 @@
  * (`hold-ms`), clés de sortie plates et attribut `map`. Testé seul, avec des mains synthétiques.
  */
 import { assignRoles, metricsOf, mirrorPoints, type HandMetrics, type Point, type RawHand, type Role, type RoleMemory } from "../../shared/ml/hands";
-import { evalMap, type CompiledMap } from "../../shared/ml/map-expr";
+import { assignPath, evalMap, type CompiledMap } from "../../shared/ml/map-expr";
 import { OneEuro, oneEuroFor } from "../../shared/ml/one-euro";
 
 export type RoleOutput = HandMetrics & {
@@ -147,19 +147,8 @@ export class HandTrackerCore {
       hands: handOut,
     };
     if (this.opts.map && this.opts.map.ok) {
-      for (const [key, value] of Object.entries(evalMap(this.opts.map, output))) setPath(output, key, value);
+      for (const [key, value] of Object.entries(evalMap(this.opts.map, output))) assignPath(output, key, value);
     }
     return output;
   }
-}
-
-function setPath(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const parts = path.split(".");
-  let cur = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const next = cur[parts[i]];
-    if (next === null || typeof next !== "object") cur[parts[i]] = {};
-    cur = cur[parts[i]] as Record<string, unknown>;
-  }
-  cur[parts[parts.length - 1]] = value;
 }

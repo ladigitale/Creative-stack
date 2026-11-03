@@ -1,14 +1,16 @@
 {
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "vision",
-  "label": "Vision (suivi ML local)",
-  "description": "Suivi temps réel par modèles ML qui tournent sur l'appareil : mains (21 points, pince, ouverture, rotation, gestes) par rôle gauche/droite, publiés en DataProvider ; modèles en alias ou URL https sous niveaux de confiance et consentement.",
+  "label": "Vision (suivi ML local : mains, visage, corps)",
+  "description": "Suivi temps réel par modèles ML qui tournent sur l'appareil (aucune image envoyée) : mains (21 points, pince, ouverture, gestes) par rôle gauche/droite, visage (orientation, expressions : bouche, sourire, sourcils, clignements, regard), corps (33 points nommés, bras levés, écartement) ; sorties en DataProvider, map = clés dérivées sans latence ; modèles en alias ou URL https sous niveaux de confiance et consentement.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
   "docs": "vision.md",
   "examples": [
-    "examples/theremin-deux-mains.sdui.json"
+    "examples/theremin-deux-mains.sdui.json",
+    "examples/synthe-visage.sdui.json",
+    "examples/theremin-corps.sdui.json"
   ],
   "components": [
     {
@@ -68,6 +70,123 @@
         },
         "thread": {
           "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-face-tracker",
+      "description": "Suit 1 ou 2 visages dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, x, y, z (nez), size, yaw/pitch/roll -1..1, mouthOpen, smile, pucker, browUp, browDown, blinkLeft, blinkRight (côtés écran), gazeX, gazeY, blend.<52 blendshapes MediaPipe> 0..1, faces[].blend ; landmarks=\"true\" ajoute faces[].landmarks (478 points) ; map = clés dérivées sans latence (« cut=300+mouthOpen*5000 ») ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée",
+      "props": {
+        "for": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "model-sha256": {
+          "type": "string"
+        },
+        "thread": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "delegate": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "smooth": {
+          "type": "number"
+        },
+        "hold-ms": {
+          "type": "number"
+        },
+        "min-score": {
+          "type": "number"
+        },
+        "map": {
+          "type": "string"
+        },
+        "outputProvider": {
+          "type": "string"
+        },
+        "statusProvider": {
+          "type": "string"
+        },
+        "consentProvider": {
+          "type": "string"
+        },
+        "load": {
+          "type": "string"
+        },
+        "max-faces": {
+          "type": "number"
+        },
+        "landmarks": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-pose-tracker",
+      "description": "Suit le corps (33 points) dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, x, y (centre des hanches), raiseLeft/raiseRight 0..1 (poignet : hanche 0, épaule 0,5, au-dessus 1), span (écart des poignets / largeur d'épaules), lean -1..1, joints.<nom>.{x,y,z,v} (nose, leftShoulder, rightWrist… 33 noms, côtés écran), poses[].landmarks ; map = clés dérivées sans latence (« cents=raiseRight*3600 ») ; modèles pose-landmarker (léger), pose-landmarker-full, pose-landmarker-heavy ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée",
+      "props": {
+        "for": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "model-sha256": {
+          "type": "string"
+        },
+        "thread": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "delegate": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "smooth": {
+          "type": "number"
+        },
+        "hold-ms": {
+          "type": "number"
+        },
+        "min-score": {
+          "type": "number"
+        },
+        "map": {
+          "type": "string"
+        },
+        "outputProvider": {
+          "type": "string"
+        },
+        "statusProvider": {
+          "type": "string"
+        },
+        "consentProvider": {
+          "type": "string"
+        },
+        "load": {
+          "type": "string"
+        },
+        "max-poses": {
+          "type": "number"
         }
       }
     }
