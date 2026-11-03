@@ -5,10 +5,15 @@
 export { SonicHandTracker, type HandTrackerPhase, type HandTrackerStatus } from "./hand-tracker";
 export { SonicFaceTracker } from "./face-tracker";
 export { SonicPoseTracker } from "./pose-tracker";
+export { SonicObjectDetector } from "./object-detector";
+export { SonicSegmenter, type SegmentOutput } from "./segmenter";
+export { SonicLandmarksOverlay } from "./landmarks-overlay";
+export { SonicExampleClassifier, type ClassifierOutput } from "./example-classifier";
+export { DetectorCore, labelKey, type ObjectsOutput } from "./detector-state";
 export { SonicMlTracker, type TrackerEngine, type TrackerPhase, type TrackerStatus } from "./tracker-base";
 export { FaceTrackerCore, type FacesOutput } from "./face-state";
 export { PoseTrackerCore, type PoseOutput } from "./pose-state";
-export { facesFromMediaPipe, posesFromMediaPipe } from "./landmarkers";
+export { detectionsFromMediaPipe, facesFromMediaPipe, posesFromMediaPipe, type RawDetection } from "./landmarkers";
 export {
   createMediaPipeMpEngine,
   plainResult,

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   WORKER_SOURCE,
   configureVision,
+  frameSize,
+  readMasks,
   createMediaPipeMpEngine,
   createWorkerMpEngine,
   plainResult,
@@ -143,7 +145,7 @@ describe("createMediaPipeMpEngine : repli", () => {
     const engine = await createMediaPipeMpEngine(opts());
     expect(engine.thread).toBe("main");
     expect(w.terminated).toBe(true);
-    expect(await engine.detect({} as CanvasImageSource, 1)).toEqual({ landmarks: [] });
+    expect(await engine.detect({} as CanvasImageSource, 1)).toEqual({ landmarks: [], size: { width: 0, height: 0 } });
   });
 });
 
@@ -154,6 +156,28 @@ describe("plainResult", () => {
     expect("f" in out).toBe(false);
     expect(out.n).toEqual({ b: [1, "x", true] });
     expect(JSON.parse(JSON.stringify(out))).toEqual(out);
+  });
+});
+
+describe("frameSize / readMasks", () => {
+  it("frameSize : vidéo, canvas, vide", () => {
+    expect(frameSize({ videoWidth: 640, videoHeight: 480 } as unknown as CanvasImageSource)).toEqual({ width: 640, height: 480 });
+    expect(frameSize({ width: 10, height: 20 } as unknown as CanvasImageSource)).toEqual({ width: 10, height: 20 });
+    expect(frameSize({} as CanvasImageSource)).toEqual({ width: 0, height: 0 });
+  });
+  it("readMasks : confiance 0..1 → octets, masques libérés", () => {
+    const close = vi.fn();
+    const rclose = vi.fn();
+    const masks = readMasks({
+      confidenceMasks: [{ width: 2, height: 2, getAsFloat32Array: () => new Float32Array([0, 0.5, 1, 0.2]), close }],
+      close: rclose,
+    });
+    expect(masks).toHaveLength(1);
+    expect([...masks[0].data]).toEqual([0, 128, 255, 51]);
+    expect(masks[0]).toMatchObject({ width: 2, height: 2 });
+    expect(close).toHaveBeenCalled();
+    expect(rclose).toHaveBeenCalled();
+    expect(readMasks(undefined)).toEqual([]);
   });
 });
 
@@ -227,6 +251,35 @@ describe("WORKER_SOURCE (script du worker)", () => {
     const res = posted[1] as { result: { facialTransformationMatrixes: Array<{ data: number[] }> } };
     expect(Array.isArray(res.result.facialTransformationMatrixes[0].data)).toBe(true);
     expect(res.result.facialTransformationMatrixes[0].data).toHaveLength(16);
+  });
+
+  it("tâche detect : ObjectDetector, boîtes brutes et taille de l'image", async () => {
+    const dets = [{ boundingBox: { originX: 10, originY: 20, width: 30, height: 40 }, categories: [{ categoryName: "cup", score: 0.9 }] }];
+    const t = { detectForVideo: vi.fn(() => ({ detections: dets })), close: vi.fn() };
+    const create = vi.fn(async (_fs: unknown, _o: unknown) => t);
+    const { self, posted } = boot({ FilesetResolver: { forVisionTasks: async () => ({}) }, ObjectDetector: { createFromOptions: create } });
+    await self.onmessage!({ data: { type: "init", bundleUrl: "u", wasmUrl: "w", model: new Uint8Array(1), task: "detect", options: { maxResults: 3 }, delegate: "cpu" } });
+    expect(create.mock.calls[0][1]).toMatchObject({ maxResults: 3, runningMode: "VIDEO" });
+    await self.onmessage!({ data: { type: "detect", id: 2, ts: 7, bitmap: { width: 640, height: 480, close() {} } } });
+    const res = posted[1] as { result: { detections: typeof dets; size: unknown } };
+    expect(res.result.detections[0].boundingBox.originX).toBe(10);
+    expect(res.result.size).toEqual({ width: 640, height: 480 });
+  });
+
+  it("tâche segment : segmentForVideo, masques en octets, libérés", async () => {
+    const close = vi.fn();
+    const t = {
+      segmentForVideo: vi.fn(() => ({ confidenceMasks: [{ width: 2, height: 1, getAsFloat32Array: () => new Float32Array([0, 1]), close }], close() {} })),
+      close: vi.fn(),
+    };
+    const { self, posted } = boot({ FilesetResolver: { forVisionTasks: async () => ({}) }, ImageSegmenter: { createFromOptions: async () => t } });
+    await self.onmessage!({ data: { type: "init", bundleUrl: "u", wasmUrl: "w", model: new Uint8Array(1), task: "segment", options: {}, delegate: "cpu" } });
+    await self.onmessage!({ data: { type: "detect", id: 3, ts: 9, bitmap: { width: 4, height: 4, close() {} } } });
+    const res = posted[1] as { result: { masks: Array<{ width: number; data: Uint8ClampedArray }>; size: unknown } };
+    expect(res.result.masks[0].width).toBe(2);
+    expect([...res.result.masks[0].data]).toEqual([0, 255]);
+    expect(res.result.masks[0].data).toBeInstanceOf(Uint8ClampedArray);
+    expect(close).toHaveBeenCalled();
   });
 
   it("detect avant init : erreur rapportée avec l'id, image fermée", async () => {

@@ -2,7 +2,7 @@
 
 Addon `@supersoniks/creative-stack/vision` : suivi temps réel par des modèles ML qui **tournent sur l'appareil** (aucune image n'est envoyée). Les résultats sont publiés en DataProvider, avec des clés plates et stables, directement lisibles par `sonic-param`, `sonic-if`, `sonic-value`, `sonic-stage`, `sonic-shader` et `sonic-jsonata`.
 
-Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps). Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
+Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps), `sonic-object-detector` (objets), `sonic-segmenter` (silhouette), `sonic-example-classifier` (gestes appris par l'utilisateur), et `sonic-landmarks-overlay` pour dessiner leurs sorties. Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
 
 ## Règles communes
 
@@ -12,7 +12,7 @@ Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic
 
   | Niveau | Source | Consentement |
   |---|---|---|
-  | alias | `hand-landmarker`, `gesture-recognizer`, `face-landmarker`, `pose-landmarker` (léger), `pose-landmarker-full`, `pose-landmarker-heavy`, ou alias ajoutés par l'hôte | aucun |
+  | alias | `hand-landmarker`, `gesture-recognizer`, `face-landmarker`, `pose-landmarker` (léger), `pose-landmarker-full`, `pose-landmarker-heavy`, `object-detector`, `selfie-segmenter`, ou alias ajoutés par l'hôte | aucun |
   | `origins` (défaut) | URL dans une origine approuvée (`storage.googleapis.com/mediapipe-models/`, `huggingface.co`, `cdn.jsdelivr.net` par défaut, plus `capabilities.ml` de l'artefact) | par origine, mémorisé |
   | `open` | toute URL https | par modèle, mémorisé |
 
@@ -101,6 +101,7 @@ Par défaut l'inférence tourne dans un **worker classique** (blob) : le fil pri
 - Le chargement réel de MediaPipe depuis le CDN et le suivi sur une vraie caméra n'ont pas été testés (les tests couvrent le protocole du worker, le repli, le téléchargement, les contrôles de confiance et la logique de suivi avec des mains synthétiques).
 - Attribution gauche/droite d'une main **seule** à l'apparition : d'après l'étiquette du modèle puis la moitié d'écran ; non vérifiée sur matériel réel.
 - Seuils de `openness` et `pinch` empiriques ; `yaw` / `pitch` / `roll` du visage et `lean` / `raise*` du corps sont des estimations géométriques, pas des mesures 3D.
+- Segmentation et détection : API `ImageSegmenter` / `ObjectDetector` de MediaPipe 0.10.21 utilisée d'après sa documentation, non exécutée ici ; le choix du masque « personne » quand le modèle en fournit deux (`mask-index=auto` prend le dernier) est à vérifier sur le vrai modèle.
 - Côtés gauche/droite du visage (clignements) et du corps : convention « écran » déduite de l'image miroir ; non vérifiée sur matériel réel.
 - Le modèle est téléchargé par le composant : un hôte dont la CSP interdit `connect-src` vers l'origine du modèle doit l'autoriser (ou servir le modèle lui-même).
 
@@ -155,8 +156,95 @@ Attributs communs, plus `max-poses` (1 à 4, défaut `1`). Modèle par défaut :
 
 Aucun des deux ne demande de calibration. Les côtés gauche/droite ne sont pas vérifiés sur matériel réel (voir limites).
 
+## `sonic-object-detector`
+
+```json
+{ "tagName": "sonic-object-detector", "attributes": {
+  "id": "obj", "for": "cam", "categories": "person,cup", "min-score": "0.45", "hold-ms": "300" } }
+```
+
+Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…). Attributs communs, plus `max-results` (1 à 20, défaut `5`) et `categories` (liste blanche d'étiquettes séparées par des virgules). `smooth` est sans effet (pas d'identité entre images). Modèle par défaut : `object-detector` (EfficientDet-Lite0). Sortie, repère écran, boîtes 0..1 :
+
+| Clé | Contenu |
+|---|---|
+| `present`, `count` | `1` si au moins un objet (ou maintenu par `hold-ms`) ; nombre d'objets |
+| `label`, `score`, `x`, `y`, `w`, `h`, `cx`, `cy` | Meilleur objet (score le plus haut) |
+| `labels.<étiquette>` | Nombre d'objets par étiquette (minuscules, `_` pour les séparateurs : `labels.cell_phone`) |
+| `objects.N.label/score/x/y/w/h/cx/cy` | Tous les objets, du meilleur au moins bon |
+
+## `sonic-segmenter`
+
+```json
+[ { "tagName": "sonic-segmenter", "attributes": { "id": "seg", "for": "cam" } },
+  { "tagName": "sonic-shader", "attributes": { "channel0": "#cam", "channel1": "#seg", "image": "…" } } ]
+```
+
+Segmente la personne (modèle `selfie-segmenter` par défaut). Le masque est une **source d'images** (même contrat que `sonic-camera`) : un `sonic-shader` le lit par `channelN="#seg"`, sans passer par un DataProvider ni encoder d'image. Attributs communs, plus :
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `mode` | `gray` : r = g = b = masque, alpha 255 ; `alpha` : blanc, alpha = masque (à composer) | `gray` |
+| `invert` | `"true"` : fond au lieu de la personne | `false` |
+| `threshold` | Seuil 0..1 des statistiques | `0.5` |
+| `mask-index` | Masque à utiliser si le modèle en fournit plusieurs : `auto` (le dernier si plusieurs) ou un indice | `auto` |
+
+Le masque est dessiné en repère écran (miroir appliqué comme pour les autres trackers) ; l'image de la caméra lue par le shader, elle, n'est pas retournée si elle vient de la vidéo native : retourner `x` dans le shader (`1.-uv.x`) avec `mirror="false"` sur la caméra. Sortie : `present`, `coverage` (part de l'image), `cx`, `cy`, `x0`, `y0`, `x1`, `y1` (centre et boîte, lissés).
+
+## `sonic-example-classifier`
+
+```json
+{ "tagName": "sonic-example-classifier", "attributes": {
+  "id": "gesture", "source": "hand", "control": "learn", "storage": "mes-gestes" } }
+```
+
+Apprend à reconnaître des **poses de main, de corps ou des expressions de visage à partir d'exemples** que l'utilisateur enregistre (k plus proches voisins) : pas de modèle, pas de réseau, tout est local. Branché sur la sortie d'un tracker (`source`). Les mains et le corps sont comparés relativement au poignet / aux hanches et à leur taille : un geste appris est reconnu où que la main soit dans l'image et à n'importe quelle distance.
+
+Pilotage par le DataProvider `control` (typiquement un `sonic-store`) : `label` (étiquette courante), `record` (compteur : une hausse enregistre `samples` exemples sous `label`), `clear` (compteur : efface `label`, ou tout si `label` est vide), `clearAll` (compteur : efface tout). La première valeur vue sert de référence : rien ne s'enregistre au chargement.
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `source` | DataProvider de sortie d'un tracker | requis |
+| `features` | `auto` (d'après les clés), `hand`, `pose`, `face` (blendshapes) | `auto` |
+| `hand` | `any`, `left`, `right` (côté écran) | `any` |
+| `control` | DataProvider de pilotage | aucun |
+| `outputProvider` | DataProvider de sortie | l'id |
+| `k` | Voisins du vote | `3` |
+| `samples` | Exemples pris par enregistrement | `20` |
+| `sample-ms` | Écart minimal entre deux exemples | `50` |
+| `window` | Dernières prédictions votant pour l'étiquette stable | `5` |
+| `min-confidence` | Confiance minimale pour afficher une étiquette | `0.6` |
+| `max-distance` | Distance maximale au plus proche exemple, 0 = sans limite | `0` |
+| `storage` | Clé de mémoire locale (`localStorage`) des exemples ; vide = pas de sauvegarde | aucune |
+
+Sortie : `present`, `label` (stable, vide sans exemples ni confiance), `raw` (dernière image, sans lissage), `confidence`, `scores.<étiquette>`, `match.<étiquette>` (1 pour l'étiquette stable, utile à `sonic-if`), `counts.<étiquette>`, `total`, `recording`, `recordingLabel`, `samplesLeft`. Les étiquettes servent de clés en minuscules (`_` pour les séparateurs). Un enregistrement dont la dimension ne correspond pas aux exemples existants (autre type de source) s'arrête sans rien ajouter.
+
+## `sonic-landmarks-overlay`
+
+```json
+{ "tagName": "sonic-landmarks-overlay", "attributes": {
+  "source": "hand", "background": "cam", "color": "#f2b45c", "color2": "#5cc8f2" } }
+```
+
+Dessine sur un canvas la sortie d'un tracker : points et squelette des mains, squelette du corps, contours et points du visage (le tracker doit publier `landmarks="true"`), boîtes étiquetées des objets. Pensé comme **panneau séparé** (rien ne se superpose à la vue de jeu ou de caméra) et comme mode de réglage : on y juge `smooth`, `min-score`, `thread`. Aucun HTML n'est injecté.
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `source` | DataProvider de sortie du tracker (son `outputProvider`, ou son id) | requis |
+| `kind` | `auto` (d'après les clés), `hands`, `face`, `pose`, `objects` | `auto` |
+| `background` | Id d'une source d'images (`sonic-camera`, `sonic-segmenter`) redessinée dessous | aucun |
+| `mirror` | Miroir de l'image de fond : `auto` (retournée si la source est une vidéo native), `true`, `false` | `auto` |
+| `width`, `height` | Taille du canvas sans image de fond | 640 × 480 |
+| `fill` | Couleur de fond | transparent |
+| `color`, `color2` | Gauche / premier ; droite / suivants | `#f2b45c`, `#5cc8f2` |
+| `line-width`, `point-radius` | Trait et points | 3, 4 |
+| `points`, `bones` | `"false"` les masque | `true` |
+
 ## Exemples
 
 - `examples/theremin-deux-mains.sdui.json` : main droite = hauteur, main gauche = volume.
 - `examples/synthe-visage.sdui.json` : hocher la tête = hauteur, ouvrir la bouche = filtre.
 - `examples/theremin-corps.sdui.json` : bras droit levé = hauteur, bras gauche levé = volume.
+- `examples/controle-mains-panneau.sdui.json` : caméra + squelette des mains dans un panneau séparé.
+- `examples/silhouette.sdui.json` : silhouette lue par un shader.
+- `examples/detecteur-objets.sdui.json` : boîtes d'objets dans un panneau séparé.
+- `examples/mes-gestes.sdui.json` : apprendre ses propres gestes (A, B, C) et les reconnaître.

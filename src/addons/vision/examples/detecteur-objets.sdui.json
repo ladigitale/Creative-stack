@@ -1,0 +1,112 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Détecteur d'objets"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Tient une tasse devant la caméra : les boîtes sont dessinées dans un panneau séparé."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "hidden-preview": ""
+     }
+    },
+    {
+     "tagName": "sonic-object-detector",
+     "attributes": {
+      "id": "obj",
+      "for": "cam",
+      "max-results": "5",
+      "min-score": "0.45",
+      "hold-ms": "300"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-landmarks-overlay",
+     "attributes": {
+      "source": "obj",
+      "background": "cam",
+      "kind": "objects",
+      "color": "#f2b45c",
+      "color2": "#5cc8f2",
+      "style": "border-radius:.8rem;overflow:hidden;background:#0b0d14"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "objets : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "obj",
+        "key": "count"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · meilleur : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "obj",
+        "key": "label"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
