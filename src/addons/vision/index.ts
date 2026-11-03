@@ -3,6 +3,20 @@
  * branchables sans code sur sonic-param, sonic-if, sonic-stage, sonic-shader et sonic-jsonata.
  */
 export { SonicHandTracker, type HandTrackerPhase, type HandTrackerStatus } from "./hand-tracker";
+export { SonicFaceTracker } from "./face-tracker";
+export { SonicPoseTracker } from "./pose-tracker";
+export { SonicMlTracker, type TrackerEngine, type TrackerPhase, type TrackerStatus } from "./tracker-base";
+export { FaceTrackerCore, type FacesOutput } from "./face-state";
+export { PoseTrackerCore, type PoseOutput } from "./pose-state";
+export { facesFromMediaPipe, posesFromMediaPipe } from "./landmarkers";
+export {
+  createMediaPipeMpEngine,
+  plainResult,
+  type MpEngine,
+  type MpEngineFactory,
+  type MpEngineOptions,
+  type MpTask,
+} from "./mp-engine";
 export {
   configureVision,
   createMediaPipeEngine,

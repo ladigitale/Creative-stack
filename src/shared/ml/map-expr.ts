@@ -217,3 +217,16 @@ export function evalMap(compiled: CompiledMap, data: unknown): Record<string, nu
   }
   return out;
 }
+
+/** Écrit `valeur` à un chemin pointé (`a.b.c`), en créant les objets manquants. Les clés dangereuses sont ignorées. */
+export function assignPath(obj: Record<string, unknown>, path: string, value: unknown): void {
+  const parts = path.split(".");
+  if (parts.some((seg) => seg === "__proto__" || seg === "constructor" || seg === "prototype")) return;
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const next = cur[parts[i]];
+    if (next === null || typeof next !== "object") cur[parts[i]] = {};
+    cur = cur[parts[i]] as Record<string, unknown>;
+  }
+  cur[parts[parts.length - 1]] = value;
+}

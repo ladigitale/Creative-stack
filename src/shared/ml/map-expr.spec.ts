@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileMap, evalMap } from "./map-expr";
+import { assignPath, compileMap, evalMap } from "./map-expr";
 
 const data = { right: { x: 0.5, y: 0.2, present: 1 }, left: { present: 0, y: 0.25 }, n: 4 };
 const run = (src: string) => evalMap(compileMap(src), data);
@@ -42,5 +42,17 @@ describe("compileMap / evalMap", () => {
   });
   it("pas d'évaluation de code : identifiants globaux inertes", () => {
     expect(run("a=constructor.name+1; b=window.x; c=__proto__.x")).toEqual({ a: 1, b: 0, c: 0 });
+  });
+});
+
+describe("assignPath", () => {
+  it("crée les niveaux manquants, ignore les clés dangereuses", () => {
+    const o: Record<string, unknown> = {};
+    assignPath(o, "a.b.c", 1);
+    expect(o).toEqual({ a: { b: { c: 1 } } });
+    assignPath(o, "__proto__.x", 2);
+    assignPath(o, "a.constructor.y", 3);
+    expect(({} as Record<string, unknown>).x).toBeUndefined();
+    expect(o).toEqual({ a: { b: { c: 1 } } });
   });
 });
