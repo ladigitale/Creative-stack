@@ -1,0 +1,86 @@
+{
+ "schema": "palettes/1",
+ "description": "Palettes de 5 couleurs, du plus sombre au plus clair (sauf nuit-neon et fruits).",
+ "palettes": [
+  {
+   "id": "aube",
+   "couleurs": [
+    "#264653",
+    "#2a9d8f",
+    "#e9c46a",
+    "#f4a261",
+    "#e76f51"
+   ]
+  },
+  {
+   "id": "nuit-neon",
+   "couleurs": [
+    "#0b0c1e",
+    "#2d1b69",
+    "#7b2cbf",
+    "#00f5d4",
+    "#f15bb5"
+   ]
+  },
+  {
+   "id": "foret",
+   "couleurs": [
+    "#1b2d1f",
+    "#2f5233",
+    "#587b4b",
+    "#a3b18a",
+    "#dad7cd"
+   ]
+  },
+  {
+   "id": "ocean",
+   "couleurs": [
+    "#03045e",
+    "#0077b6",
+    "#00b4d8",
+    "#90e0ef",
+    "#caf0f8"
+   ]
+  },
+  {
+   "id": "terre-cuite",
+   "couleurs": [
+    "#3d2b1f",
+    "#8c4a2f",
+    "#c8733e",
+    "#e3b27a",
+    "#f2e3cf"
+   ]
+  },
+  {
+   "id": "papier",
+   "couleurs": [
+    "#1f2933",
+    "#52606d",
+    "#9aa5b1",
+    "#e4e7eb",
+    "#fbfbf8"
+   ]
+  },
+  {
+   "id": "fruits",
+   "couleurs": [
+    "#d62839",
+    "#ff8c42",
+    "#ffd23f",
+    "#6bbf59",
+    "#7b5ea7"
+   ]
+  },
+  {
+   "id": "sable-sauge",
+   "couleurs": [
+    "#4a5043",
+    "#7d8a6f",
+    "#b7bf9f",
+    "#e6dcc3",
+    "#c9a66b"
+   ]
+  }
+ ]
+}

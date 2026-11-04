@@ -1,0 +1,526 @@
+{
+ "schema": "cards/1",
+ "description": "Jeu français de 52 cartes, sans jokers. valeur : as=1 … roi=13.",
+ "cartes": [
+  {
+   "id": "as-coeur",
+   "rang": "as",
+   "valeur": 1,
+   "symbole_rang": "A",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "A♥"
+  },
+  {
+   "id": "2-coeur",
+   "rang": "2",
+   "valeur": 2,
+   "symbole_rang": "2",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "2♥"
+  },
+  {
+   "id": "3-coeur",
+   "rang": "3",
+   "valeur": 3,
+   "symbole_rang": "3",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "3♥"
+  },
+  {
+   "id": "4-coeur",
+   "rang": "4",
+   "valeur": 4,
+   "symbole_rang": "4",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "4♥"
+  },
+  {
+   "id": "5-coeur",
+   "rang": "5",
+   "valeur": 5,
+   "symbole_rang": "5",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "5♥"
+  },
+  {
+   "id": "6-coeur",
+   "rang": "6",
+   "valeur": 6,
+   "symbole_rang": "6",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "6♥"
+  },
+  {
+   "id": "7-coeur",
+   "rang": "7",
+   "valeur": 7,
+   "symbole_rang": "7",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "7♥"
+  },
+  {
+   "id": "8-coeur",
+   "rang": "8",
+   "valeur": 8,
+   "symbole_rang": "8",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "8♥"
+  },
+  {
+   "id": "9-coeur",
+   "rang": "9",
+   "valeur": 9,
+   "symbole_rang": "9",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "9♥"
+  },
+  {
+   "id": "10-coeur",
+   "rang": "10",
+   "valeur": 10,
+   "symbole_rang": "10",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "10♥"
+  },
+  {
+   "id": "valet-coeur",
+   "rang": "valet",
+   "valeur": 11,
+   "symbole_rang": "V",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "V♥"
+  },
+  {
+   "id": "dame-coeur",
+   "rang": "dame",
+   "valeur": 12,
+   "symbole_rang": "D",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "D♥"
+  },
+  {
+   "id": "roi-coeur",
+   "rang": "roi",
+   "valeur": 13,
+   "symbole_rang": "R",
+   "couleur": "coeur",
+   "symbole": "♥",
+   "teinte": "rouge",
+   "label": "R♥"
+  },
+  {
+   "id": "as-carreau",
+   "rang": "as",
+   "valeur": 1,
+   "symbole_rang": "A",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "A♦"
+  },
+  {
+   "id": "2-carreau",
+   "rang": "2",
+   "valeur": 2,
+   "symbole_rang": "2",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "2♦"
+  },
+  {
+   "id": "3-carreau",
+   "rang": "3",
+   "valeur": 3,
+   "symbole_rang": "3",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "3♦"
+  },
+  {
+   "id": "4-carreau",
+   "rang": "4",
+   "valeur": 4,
+   "symbole_rang": "4",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "4♦"
+  },
+  {
+   "id": "5-carreau",
+   "rang": "5",
+   "valeur": 5,
+   "symbole_rang": "5",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "5♦"
+  },
+  {
+   "id": "6-carreau",
+   "rang": "6",
+   "valeur": 6,
+   "symbole_rang": "6",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "6♦"
+  },
+  {
+   "id": "7-carreau",
+   "rang": "7",
+   "valeur": 7,
+   "symbole_rang": "7",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "7♦"
+  },
+  {
+   "id": "8-carreau",
+   "rang": "8",
+   "valeur": 8,
+   "symbole_rang": "8",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "8♦"
+  },
+  {
+   "id": "9-carreau",
+   "rang": "9",
+   "valeur": 9,
+   "symbole_rang": "9",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "9♦"
+  },
+  {
+   "id": "10-carreau",
+   "rang": "10",
+   "valeur": 10,
+   "symbole_rang": "10",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "10♦"
+  },
+  {
+   "id": "valet-carreau",
+   "rang": "valet",
+   "valeur": 11,
+   "symbole_rang": "V",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "V♦"
+  },
+  {
+   "id": "dame-carreau",
+   "rang": "dame",
+   "valeur": 12,
+   "symbole_rang": "D",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "D♦"
+  },
+  {
+   "id": "roi-carreau",
+   "rang": "roi",
+   "valeur": 13,
+   "symbole_rang": "R",
+   "couleur": "carreau",
+   "symbole": "♦",
+   "teinte": "rouge",
+   "label": "R♦"
+  },
+  {
+   "id": "as-trefle",
+   "rang": "as",
+   "valeur": 1,
+   "symbole_rang": "A",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "A♣"
+  },
+  {
+   "id": "2-trefle",
+   "rang": "2",
+   "valeur": 2,
+   "symbole_rang": "2",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "2♣"
+  },
+  {
+   "id": "3-trefle",
+   "rang": "3",
+   "valeur": 3,
+   "symbole_rang": "3",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "3♣"
+  },
+  {
+   "id": "4-trefle",
+   "rang": "4",
+   "valeur": 4,
+   "symbole_rang": "4",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "4♣"
+  },
+  {
+   "id": "5-trefle",
+   "rang": "5",
+   "valeur": 5,
+   "symbole_rang": "5",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "5♣"
+  },
+  {
+   "id": "6-trefle",
+   "rang": "6",
+   "valeur": 6,
+   "symbole_rang": "6",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "6♣"
+  },
+  {
+   "id": "7-trefle",
+   "rang": "7",
+   "valeur": 7,
+   "symbole_rang": "7",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "7♣"
+  },
+  {
+   "id": "8-trefle",
+   "rang": "8",
+   "valeur": 8,
+   "symbole_rang": "8",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "8♣"
+  },
+  {
+   "id": "9-trefle",
+   "rang": "9",
+   "valeur": 9,
+   "symbole_rang": "9",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "9♣"
+  },
+  {
+   "id": "10-trefle",
+   "rang": "10",
+   "valeur": 10,
+   "symbole_rang": "10",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "10♣"
+  },
+  {
+   "id": "valet-trefle",
+   "rang": "valet",
+   "valeur": 11,
+   "symbole_rang": "V",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "V♣"
+  },
+  {
+   "id": "dame-trefle",
+   "rang": "dame",
+   "valeur": 12,
+   "symbole_rang": "D",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "D♣"
+  },
+  {
+   "id": "roi-trefle",
+   "rang": "roi",
+   "valeur": 13,
+   "symbole_rang": "R",
+   "couleur": "trefle",
+   "symbole": "♣",
+   "teinte": "noir",
+   "label": "R♣"
+  },
+  {
+   "id": "as-pique",
+   "rang": "as",
+   "valeur": 1,
+   "symbole_rang": "A",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "A♠"
+  },
+  {
+   "id": "2-pique",
+   "rang": "2",
+   "valeur": 2,
+   "symbole_rang": "2",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "2♠"
+  },
+  {
+   "id": "3-pique",
+   "rang": "3",
+   "valeur": 3,
+   "symbole_rang": "3",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "3♠"
+  },
+  {
+   "id": "4-pique",
+   "rang": "4",
+   "valeur": 4,
+   "symbole_rang": "4",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "4♠"
+  },
+  {
+   "id": "5-pique",
+   "rang": "5",
+   "valeur": 5,
+   "symbole_rang": "5",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "5♠"
+  },
+  {
+   "id": "6-pique",
+   "rang": "6",
+   "valeur": 6,
+   "symbole_rang": "6",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "6♠"
+  },
+  {
+   "id": "7-pique",
+   "rang": "7",
+   "valeur": 7,
+   "symbole_rang": "7",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "7♠"
+  },
+  {
+   "id": "8-pique",
+   "rang": "8",
+   "valeur": 8,
+   "symbole_rang": "8",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "8♠"
+  },
+  {
+   "id": "9-pique",
+   "rang": "9",
+   "valeur": 9,
+   "symbole_rang": "9",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "9♠"
+  },
+  {
+   "id": "10-pique",
+   "rang": "10",
+   "valeur": 10,
+   "symbole_rang": "10",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "10♠"
+  },
+  {
+   "id": "valet-pique",
+   "rang": "valet",
+   "valeur": 11,
+   "symbole_rang": "V",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "V♠"
+  },
+  {
+   "id": "dame-pique",
+   "rang": "dame",
+   "valeur": 12,
+   "symbole_rang": "D",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "D♠"
+  },
+  {
+   "id": "roi-pique",
+   "rang": "roi",
+   "valeur": 13,
+   "symbole_rang": "R",
+   "couleur": "pique",
+   "symbole": "♠",
+   "teinte": "noir",
+   "label": "R♠"
+  }
+ ]
+}
