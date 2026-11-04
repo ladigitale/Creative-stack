@@ -1,0 +1,20 @@
+{
+  "schema": "library/1",
+  "entries": [
+    {
+      "id": "gammes-accords",
+      "kind": "data",
+      "file": "gammes-accords.json",
+      "version": 1,
+      "license": "MIT",
+      "title": "Gammes et accords",
+      "description": "15 gammes et modes et 10 accords en demi-tons depuis la fondamentale, noms de notes fr/en et formule MIDI → fréquence.",
+      "tags": [
+        "musique",
+        "gammes",
+        "accords",
+        "données"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "schema": "library/1",
+  "entries": [
+    {
+      "id": "plateau-grille-5x5",
+      "kind": "model3d",
+      "file": "plateau-grille-5x5.json",
+      "version": 1,
+      "license": "MIT",
+      "title": "Plateau 5×5",
+      "description": "Plateau de jeu : cadre en bois procédural (matériau tex:wood) et 25 cases en damier nommées cell_<ligne>_<colonne> (0–4), pickables avec pick-names=\"^cell_\" et pilotables via nodes. Enveloppe JSON {glb (base64), nodes} : ranger `glb` dans un fichier *.b64 de l'artefact (≈ 5 Ko).",
+      "tags": [
+        "jeu",
+        "plateau",
+        "glb",
+        "damier"
+      ]
+    },
+    {
+      "id": "pions-6",
+      "kind": "model3d",
+      "file": "pions-6.json",
+      "version": 1,
+      "license": "MIT",
+      "title": "Six pions",
+      "description": "Six pions cylindriques pion_0…pion_5 de couleurs distinctes, alignés sur l'axe x. Enveloppe JSON {glb (base64), nodes}. Se déplacent avec nodes {x,z,lift,ease}.",
+      "tags": [
+        "jeu",
+        "pions",
+        "glb"
+      ]
+    },
+    {
+      "id": "socle-vitrine",
+      "kind": "model3d",
+      "file": "socle-vitrine.json",
+      "version": 1,
+      "license": "MIT",
+      "title": "Socle de vitrine",
+      "description": "Socle (disque épais + anneau doré) pour présenter un objet posé à y = 0.4 : noeuds socle_vitrine, socle, anneau. Enveloppe JSON {glb (base64), nodes} ; ≈ 13 Ko décodé.",
+      "tags": [
+        "vitrine",
+        "produit",
+        "glb",
+        "socle"
+      ]
+    }
+  ]
+}

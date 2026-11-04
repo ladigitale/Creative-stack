@@ -1,0 +1,63 @@
+{
+  "schema": "library/1",
+  "entries": [
+    {
+      "id": "jeu-de-cartes-52",
+      "kind": "data",
+      "file": "jeu-de-cartes-52.json",
+      "version": 1,
+      "license": "MIT",
+      "title": "Jeu de 52 cartes",
+      "description": "Jeu français sans jokers : id, rang, valeur (as=1…roi=13), couleur, symbole, teinte (rouge/noir), label (ex. R♠).",
+      "tags": [
+        "cartes",
+        "jeu",
+        "données"
+      ]
+    },
+    {
+      "id": "palettes-couleurs",
+      "kind": "data",
+      "file": "palettes-couleurs.json",
+      "version": 1,
+      "license": "MIT",
+      "title": "Palettes de couleurs",
+      "description": "Huit palettes de cinq couleurs hexadécimales nommées (aube, nuit-neon, foret, ocean…).",
+      "tags": [
+        "couleurs",
+        "palette",
+        "design",
+        "données"
+      ]
+    },
+    {
+      "id": "motif-points",
+      "kind": "image",
+      "file": "motif-points.svg",
+      "version": 1,
+      "license": "MIT",
+      "title": "Motif de points",
+      "description": "Fond SVG de points réguliers gris sur blanc cassé, sans script ni police ; se retaille librement.",
+      "tags": [
+        "motif",
+        "fond",
+        "svg"
+      ]
+    },
+    {
+      "id": "motif-vagues",
+      "kind": "image",
+      "file": "motif-vagues.svg",
+      "version": 1,
+      "license": "MIT",
+      "title": "Motif de vagues",
+      "description": "Fond SVG de vaguelettes bleues sur bleu pâle, sans script ni police ; se retaille librement.",
+      "tags": [
+        "motif",
+        "fond",
+        "svg",
+        "eau"
+      ]
+    }
+  ]
+}

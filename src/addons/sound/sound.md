@@ -194,3 +194,7 @@ import { playSound, getSoundEngine, validateSoundBank } from "@supersoniks/creat
 playSound("coin", { pitch: 3 });
 const { bank, errors } = validateSoundBank(json); // pur : utilisable côté serveur
 ```
+
+## Ressources de base
+
+`sound/gammes-accords` (`src/addons/sound/library/`) : 15 gammes et modes et 10 accords en demi-tons depuis la fondamentale, noms de notes fr/en, formule MIDI → fréquence. À consulter avant de coder des gammes à la main.

@@ -42,6 +42,7 @@
   "scripts": {
     "dev": "vite --open demo/audio.html",
     "typecheck": "tsc --noEmit",
+    "library:3d": "node src/addons/3d/library/generate.mjs",
     "catalog": "node scripts/build-catalog.mjs && node scripts/build-library.mjs",
     "build": "node scripts/build-catalog.mjs && node scripts/build-library.mjs && node scripts/build-addons.mjs",
     "test": "vitest",
