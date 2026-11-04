@@ -34,4 +34,16 @@ describe("bibliothèque de shaders de base", () => {
   it("un shader qui lit iChannel0 le déclare dans `channels`", () => {
     for (const e of library.entries) if (/iChannel0/.test(source(e))) expect(e.channels.length).toBeGreaterThan(0);
   });
+
+  it("contrôles statiques (pas de compilateur GLSL en test) : parenthèses équilibrées, pas de #version, smoothstep croissant, boucles à bornes constantes", () => {
+    for (const e of library.entries) {
+      const src = source(e).replace(/\/\/.*$/gm, "");
+      for (const [open, close] of [["(", ")"], ["{", "}"], ["[", "]"]]) {
+        expect(src.split(open).length, `${e.id} ${open}${close}`).toBe(src.split(close).length);
+      }
+      expect(src).not.toMatch(/#version/);
+      for (const m of src.matchAll(/smoothstep\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,/g)) expect(Number(m[1]), `${e.id} smoothstep`).toBeLessThan(Number(m[2]));
+      for (const m of src.matchAll(/for\s*\([^;]*;[^;]*<=?\s*([^;]+);/g)) expect(m[1].trim(), `${e.id} borne de boucle`).toMatch(/^-?\d+$/);
+    }
+  });
 });
