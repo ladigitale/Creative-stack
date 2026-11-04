@@ -3,6 +3,7 @@
   "entries": [
     {
       "id": "plasma",
+      "kind": "shader",
       "file": "plasma.glsl",
       "version": 1,
       "license": "MIT",
@@ -39,6 +40,7 @@
     },
     {
       "id": "kaleidoscope",
+      "kind": "shader",
       "file": "kaleidoscope.glsl",
       "version": 1,
       "license": "MIT",
@@ -71,6 +73,7 @@
     },
     {
       "id": "thermal",
+      "kind": "shader",
       "file": "thermal.glsl",
       "version": 1,
       "license": "MIT",
@@ -95,6 +98,7 @@
     },
     {
       "id": "pixelate",
+      "kind": "shader",
       "file": "pixelate.glsl",
       "version": 1,
       "license": "MIT",
@@ -120,6 +124,7 @@
     },
     {
       "id": "sobel",
+      "kind": "shader",
       "file": "sobel.glsl",
       "version": 1,
       "license": "MIT",
@@ -159,6 +164,7 @@
     },
     {
       "id": "dither-bayer",
+      "kind": "shader",
       "file": "dither-bayer.glsl",
       "version": 1,
       "license": "MIT",
@@ -199,6 +205,7 @@
     },
     {
       "id": "halftone",
+      "kind": "shader",
       "file": "halftone.glsl",
       "version": 1,
       "license": "MIT",
@@ -240,6 +247,7 @@
     },
     {
       "id": "harris",
+      "kind": "shader",
       "file": "harris.glsl",
       "version": 1,
       "license": "MIT",
@@ -279,6 +287,7 @@
     },
     {
       "id": "hough-lines",
+      "kind": "shader",
       "file": "hough-lines.glsl",
       "version": 1,
       "license": "MIT",
@@ -311,6 +320,7 @@
     },
     {
       "id": "hough-circles",
+      "kind": "shader",
       "file": "hough-circles.glsl",
       "version": 1,
       "license": "MIT",
