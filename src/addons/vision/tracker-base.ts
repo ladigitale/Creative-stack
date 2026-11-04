@@ -48,7 +48,31 @@ type FrameSource = Element & {
   frameSeq?: number;
 };
 
-type Frame = { image: CanvasImageSource; native: boolean; token: number };
+type Frame = {
+  image: CanvasImageSource;
+  native: boolean;
+  token: number;
+  /** `frameSeq` de la source au moment de la prise (identité exacte de l'image analysée). */
+  seq: number | null;
+  /** `currentTime` (s) de la `<video>` analysée, `null` pour une source canvas. */
+  time: number | null;
+};
+
+/**
+ * Clés ajoutées à chaque sortie publiée : elles disent QUELLE image de la source a été analysée.
+ * `sonic-frame-sync sync="<dp du tracker>"` s'en sert pour afficher exactement cette image,
+ * de sorte que vidéo et effet restent alignés malgré le temps de calcul.
+ */
+export type TrackerFrameMeta = {
+  /** `frameSeq` de la source (caméra, vidéo, écran) pour l'image analysée. */
+  frameSeq: number | null;
+  /** `currentTime` de la vidéo analysée (secondes), `null` hors `<video>`. */
+  frameTime: number | null;
+  /** `performance.now()` (ms) au moment où l'image a été envoyée au modèle. */
+  capturedAt: number;
+  /** Durée de l'inférence pour cette image (ms) : `capturedAt + latencyMs` = arrivée du résultat. */
+  latencyMs: number;
+};
 
 const BASE_RELOAD_KEYS = ["model", "modelSha256", "delegate", "minScore", "engine", "thread"];
 const BASE_CORE_KEYS = ["smooth", "holdMs", "mirror", "map"];
@@ -321,7 +345,13 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
     if (engine !== this.trackerEngine) return null; // fermé ou rechargé pendant la détection
     const latency = performance.now() - t0;
     const mirror = this.mirror === "true" || (this.mirror === "auto" && frame.native);
-    const output = this.toOutput(result, now, mirror);
+    const meta: TrackerFrameMeta = {
+      frameSeq: frame.seq,
+      frameTime: frame.time,
+      capturedAt: t0,
+      latencyMs: Math.round(latency * 10) / 10,
+    };
+    const output = Object.assign({}, this.toOutput(result, now, mirror), meta) as O;
     this.lastOutput = output;
     const dt = now - this.lastRun;
     if (Number.isFinite(dt) && dt > 0) this.fpsEma = this.fpsEma ? this.fpsEma * 0.9 + (1000 / dt) * 0.1 : 1000 / dt;
@@ -365,11 +395,17 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
     if (!src) return null;
     const video = src.getFrameSource?.();
     if (video && video.readyState >= 2 && video.videoWidth > 0) {
-      return { image: video, native: true, token: video.currentTime };
+      return {
+        image: video,
+        native: true,
+        token: video.currentTime,
+        seq: typeof src.frameSeq === "number" ? src.frameSeq : null,
+        time: video.currentTime,
+      };
     }
     const canvas = src.getFrameCanvas?.();
     if (canvas && typeof src.frameSeq === "number" && canvas.width > 0) {
-      return { image: canvas, native: false, token: src.frameSeq };
+      return { image: canvas, native: false, token: src.frameSeq, seq: src.frameSeq, time: null };
     }
     return null;
   }

@@ -9,7 +9,8 @@
   "docs": "media.md",
   "examples": [
     "examples/clip-reactif.sdui.json",
-    "examples/miroir.sdui.json"
+    "examples/miroir.sdui.json",
+    "examples/synchro-visage.sdui.json"
   ],
   "components": [
     {
@@ -139,6 +140,36 @@
         },
         "control": {
           "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-frame-sync",
+      "description": "Resynchronise image et effet : garde les dernières images d'une source (#id) et montre celle que le tracker a réellement analysée (sync=<out-data-provider du tracker>, exact via frameSeq), ou une image retardée (delay-ms), ou le direct. Source d'images (#id) pour sonic-shader ; état {mode, matched, seq, delayMs, trackerSeq, filled}",
+      "props": {
+        "for": {
+          "type": "string"
+        },
+        "sync": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "delay-ms": {
+          "type": "number"
+        },
+        "history": {
+          "type": "number"
+        },
+        "max-width": {
+          "type": "number"
+        },
+        "stale-ms": {
+          "type": "number"
         },
         "out-data-provider": {
           "type": "string"

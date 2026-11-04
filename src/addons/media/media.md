@@ -18,6 +18,7 @@ Le micro (`sonic-mic`) est dans l'addon `audio`.
 | `sonic-camera` | Caméra : aperçu, images pour les shaders, photos |
 | `sonic-screen` | Capture d'écran : source d'images, photos, son du partage, export |
 | `sonic-video` | Lecteur vidéo propriétaire de sa `<video>` |
+| `sonic-frame-sync` | Resynchronise l'image et un résultat de tracker (image exacte analysée, ou retard fixe) |
 | `sonic-media-start` | Bouton d'invite qui démarre caméra / micro / vidéo, affiche un refus |
 | `sonic-media-recorder` | Export vidéo d'un shader, d'une caméra ou d'une vidéo, avec le son |
 | `sonic-media-download` | Lien de téléchargement d'une prise, d'une photo ou d'un export |
@@ -172,6 +173,58 @@ Le navigateur n'ouvre le partage que dans un **clic direct** : `sonic-media-star
 État : `{ status: idle | loading | ready | playing | paused | ended | needs-gesture | error, error, src, playing, ended, timeS, durationS, progress, rate, volume, muted, width, height }`.
 
 Dans un shader : `channel0="#clip"`. Le shader ne pilote jamais la vidéo (il lit seulement ses images).
+
+## `sonic-frame-sync` : image et effet alignés
+
+**Problème.** Un tracker (visage, mains…) rend son résultat 30 à 150 ms après avoir pris l'image. Si un shader dessine l'effet (renard, déformation…) sur l'image *courante* de la caméra, l'effet est en retard sur la vidéo. Remède : afficher la vidéo **telle qu'elle était quand le tracker l'a analysée**.
+
+**Principe.** Chaque tracker publie l'identité de l'image analysée (`frameSeq`, voir `vision.md`). `sonic-frame-sync` garde les `history` dernières images de la source dans un tampon et expose celle dont le numéro correspond. C'est une source d'images (`getFrameCanvas()` + `frameSeq`) : `sonic-shader channel0="#synced"`.
+
+```json
+[
+  { "tagName": "sonic-camera", "attributes": { "id": "cam", "hidden-preview": "", "mirror": "true", "max-width": "960" } },
+  { "tagName": "sonic-face-tracker", "attributes": { "id": "face", "for": "cam", "load": "auto", "mirror": "true", "smooth": "0" } },
+  { "tagName": "sonic-frame-sync", "attributes": { "id": "synced", "for": "cam", "sync": "face", "out-data-provider": "syncState" } },
+  { "tagName": "sonic-shader", "attributes": { "channel0": "#synced", "dataProvider": "face", "image": "…" } }
+]
+```
+
+Le shader lit `#synced` (pas `#cam`) et les valeurs du tracker (`param0..3` via `map`, voir `shader.md`) : les deux viennent de la même image.
+
+### Les trois modes
+
+| Mode | Réglage | Comportement | Quand |
+|---|---|---|---|
+| `sync` | `sync="<DP de sortie du tracker>"` | Image exacte (`frameSeq`). Si le tracker ne publie plus depuis `stale-ms` (600) : retard = dernière latence mesurée, sinon direct | Cas normal avec un tracker |
+| `delay` | `delay-ms="120"` | Image prise il y a N ms | Source sans numéro d'image, ou latence connue et stable |
+| `live` | rien | Dernière image, aucun tampon utile | Désactiver sans retirer le composant |
+
+`mode="auto"` (défaut) choisit : `sync` si `sync` est renseigné, sinon `delay` si `delay-ms` > 0, sinon `live`. `mode="sync|delay|live"` force.
+
+### Attributs
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `for` | `#id` de la source (`sonic-camera`, `sonic-video`, `sonic-screen`) : **la même que celle du tracker** | – |
+| `sync` | DP de sortie du tracker (son `outputProvider`, souvent son `id`) | – |
+| `mode` | `auto`, `sync`, `delay`, `live` | `auto` |
+| `delay-ms` | Retard fixe (mode `delay`) | `0` |
+| `history` | Images gardées (2–120). Au moins `latence × fps + 2` : 150 ms à 30 fps → 7 | `12` |
+| `max-width` | Largeur max des copies (mémoire) ; 0 = taille de la source | `0` |
+| `stale-ms` | Silence du tracker toléré en mode `sync` | `600` |
+| `out-data-provider` | DP d'état | – |
+
+État publié : `{ mode, matched, seq, delayMs, trackerSeq, filled }`. `mode` = mode réellement utilisé (peut passer de `sync` à `delay`/`live` en repli), `matched` = l'image montrée est exactement celle du tracker, `delayMs` = âge de l'image montrée par rapport à la plus récente.
+
+### À savoir
+
+- **Miroir.** Le miroir de la caméra s'applique aux images du tampon. Le tracker lit la vidéo non retournée : mettre `mirror="true"` sur le tracker **et** sur la caméra, pour que les coordonnées publiées collent à l'image affichée. Ne pas retourner une seconde fois dans le shader.
+- **Coût.** Une copie canvas par image de la source (pas par image affichée) ; `max-width` et `history` bornent la mémoire (960 × 540 × 4 o × 12 ≈ 25 Mo).
+- **Retard visible.** La vidéo affichée a la latence du tracker (souvent 50–120 ms). C'est le prix de l'alignement exact ; en mode `live` la vidéo est fluide mais l'effet traîne.
+- **Précision.** `frameSeq` est le compteur de la source au moment où le tracker lit l'image : au pire un écart d'une image si la source en présente une nouvelle pile à cet instant.
+- **Plusieurs trackers.** Une instance de `sonic-frame-sync` par tracker ; un seul sert de référence à un même shader.
+- **Diagnostic.** `matched: false` en mode `sync` = l'image du tracker n'est plus dans le tampon (augmenter `history`) ou la source de `for` n'est pas celle du tracker.
+- **Pas de frameSeq ?** (source qui n'est pas un composant Media) → `delay-ms` avec la `latencyMs` du tracker (`statusProvider` ou sortie).
 
 ## `sonic-media-start`
 

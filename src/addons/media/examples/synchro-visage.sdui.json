@@ -1,0 +1,53 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": { "style": "display:flex;flex-direction:column;gap:.7rem;max-width:34rem;margin:1rem auto;padding:0 1rem" },
+   "nodes": [
+    {
+     "tagName": "sonic-camera",
+     "attributes": { "id": "cam", "hidden-preview": "", "mirror": "true", "width": "960", "height": "540", "max-width": "960" }
+    },
+    {
+     "tagName": "sonic-face-tracker",
+     "attributes": {
+      "id": "face", "for": "cam", "load": "auto", "mirror": "true", "smooth": "0",
+      "map": "param0=x; param1=y; param2=present; param3=size"
+     }
+    },
+    {
+     "tagName": "sonic-frame-sync",
+     "attributes": { "id": "synced", "for": "cam", "sync": "face", "history": "12", "max-width": "960", "out-data-provider": "syncState" }
+    },
+    {
+     "tagName": "div",
+     "attributes": { "style": "position:relative;border-radius:.8rem;overflow:hidden;background:#0b0d14;aspect-ratio:16/9" },
+     "nodes": [
+      {
+       "tagName": "sonic-shader",
+       "attributes": {
+        "id": "fx",
+        "channel0": "#synced",
+        "dataProvider": "face",
+        "image": "void mainImage(out vec4 c, in vec2 p){\n  vec2 uv = p / iResolution.xy;\n  vec3 col = texture(iChannel0, uv).rgb;\n  vec2 nose = vec2(uParam0, uParam1);\n  float d = length((uv - nose) * vec2(iResolution.x / iResolution.y, 1.0));\n  float ring = smoothstep(0.012, 0.0, abs(d - 0.5 * uParam3));\n  c = vec4(mix(col, vec3(1.0, 0.45, 0.1), ring * uParam2), 1.0);\n}",
+        "style": "display:block;width:100%;height:100%"
+       }
+      },
+      {
+       "tagName": "div",
+       "attributes": { "style": "position:absolute;inset:0;display:flex;align-items:center;justify-content:center" },
+       "nodes": [{ "tagName": "sonic-media-start", "attributes": { "for": "cam", "label": "Activer la caméra" } }]
+      }
+     ]
+    },
+    {
+     "tagName": "small",
+     "attributes": { "style": "opacity:.7" },
+     "nodes": [
+      { "tagName": "sonic-value", "attributes": { "dataProvider": "syncState", "key": "mode" } }
+     ]
+    }
+   ]
+  }
+ ]
+}
