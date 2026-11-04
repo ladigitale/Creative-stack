@@ -72,6 +72,19 @@ Repère **écran** (après miroir) : `left` est la main qui apparaît à gauche 
 
 Une main seule garde son rôle quand elle traverse le centre ; deux mains : la plus à gauche est `left`. Quand une main disparaît plus longtemps que `hold-ms`, `present` passe à 0 et les autres valeurs gardent leur dernière valeur (utile pour tenir une note).
 
+### Identité de l'image analysée (tous les trackers)
+
+Chaque sortie contient aussi, à la racine :
+
+| Clé | Contenu |
+|---|---|
+| `frameSeq` | `frameSeq` de la source à l'instant où l'image a été lue (null si la source n'en a pas) |
+| `frameTime` | `currentTime` de la vidéo pour cette image (s) ; null pour une source canvas |
+| `capturedAt` | `performance.now()` (ms) au début de l'analyse |
+| `latencyMs` | Durée de l'analyse (lecture de l'image → résultat), ms |
+
+C'est ce qui permet à `sonic-frame-sync` (addon media) d'afficher l'image exacte que le tracker a analysée : voir `media.md`. Ces clés ne sont pas lissées et sont publiées à chaque analyse (même sans visage).
+
 ### `map`
 
 `clé=expression; clé=expression`, évaluées sur la sortie avant publication, sans `eval` : nombres, chemins (`right.x`), `+ - * / %`, comparaisons, `&& || !`, `?:`, parenthèses et `min max abs clamp mix pow sqrt floor round log2 sign`. Chemin absent = 0, booléen = 1 / 0. Les clés peuvent être pointées (`play.cents`) ; `__proto__`, `constructor`, `prototype` sont refusés. Une erreur de syntaxe est publiée dans le statut (`error.code = "invalid-map"`).

@@ -195,6 +195,18 @@ Un shader qui garde un état via `self` (feedback frame précédente) n’est pl
 
 Changer `channel0…3` / `*-ch*` re-lie les textures **sans** recompiler ni vider les buffers.
 
+## Effet sur un visage (caméra + tracker + shader)
+
+Recette complète : `sonic-camera` → `sonic-face-tracker` → `sonic-frame-sync` → `sonic-shader`. Exemple : `media/examples/synchro-visage.sdui.json`. Explication de la synchronisation et des trois modes (`sync`, `delay-ms`, `live`) : `media.md`.
+
+1. **Une seule image de référence.** Le shader lit `channel0="#synced"` (le `sonic-frame-sync`), jamais `#cam` directement, sinon l'effet est en avance sur la vidéo de la latence du tracker. Sans `sonic-frame-sync`, le repli est un retard fixe ou le direct (l'effet traîne).
+2. **Miroir.** `mirror="true"` sur la caméra (les images envoyées au shader sont retournées) **et** sur le tracker (ses `x` sont retournés pareil). Ne jamais retourner à nouveau dans le shader.
+3. **Passer les données au shader.** Seuls `uParam0–3` (4 flottants) viennent du DataProvider (`param0..param3`). Les remplir avec `map` du tracker : `map="param0=x; param1=y; param2=present; param3=size"`, et `dataProvider="<id du tracker>"` sur le shader. Pas de `smooth` plus haut que nécessaire : un lissage ajoute du retard que l'image synchronisée ne compense pas.
+4. **Plus de 4 valeurs.** Un flottant 32 bits représente exactement tout entier jusqu'à 2²⁴ : on y loge deux valeurs 0..1 quantifiées sur 12 bits, `p = $floor(a*4095)*4096 + $floor(b*4095)` côté `map`, puis dans le GLSL `float hi = floor(p/4096.); float lo = p - hi*4096.; a = hi/4095.; b = lo/4095.;`. Quatre uniformes portent ainsi huit valeurs de 12 bits. Au-delà, utiliser un second `sonic-shader` qui écrit les données dans une texture (lue avec `texelFetch` depuis `channel1="#id"`).
+5. **Points du visage** (MediaPipe, 478 points, repère image 0..1, y vers le bas) : iris gauche/droit 468 / 473, bouche 13 (haut) 14 (bas) 61 / 291 (coins), menton 152, joues 234 / 454, front 10, nez 1, sourcils 105 / 334, paupières 159 / 145 (œil gauche) et 386 / 374 (œil droit). « Gauche/droite » = côté du sujet ; avec le miroir, le côté **écran** est inversé : les clés `blinkLeft/blinkRight` du tracker sont déjà exprimées côté écran.
+6. **Pièges JSONata dans `map`** : pas de trigonométrie (calculer les angles dans le shader, à partir de `x`, `y`, `size`, `yaw`, `pitch`, `roll`) ; comparer une valeur absente (`undefined`) donne `undefined`, pas `false` : écrire `present = 1 ? … : 0`, ou `$exists(x)` ; une division par zéro lève une erreur (protéger : `size > 0.001 ? a / size : 0`) ; les clés d'un `formData` sont exposées en `$clé`, l'entrée s'appelle `$input` (pas `$$`).
+7. **Vérifier** : lire le DP d'état de `sonic-frame-sync` (`matched` doit être `true` en `sync`, `delayMs` ≈ latence du tracker) et celui du tracker (`latencyMs`, `fps`). `matched: false` en continu = `for` différent entre tracker et synchroniseur, ou `history` trop petit.
+
 ## Markup
 
 <sonic-code language="html">

@@ -81,6 +81,20 @@ describe("sonic-face-tracker", () => {
     expect((dp("f1").get() as { smile: number }).smile).toBeCloseTo(0.3);
   });
 
+  it("publie l'identité de l'image analysée (frameSeq, frameTime, capturedAt, latencyMs)", async () => {
+    const cam = mountSource();
+    cam.frameSeq = 42;
+    cam.t = 3.5;
+    const mp = fakeMp(() => mpFaceResult({}));
+    configureVision({ createMpEngine: mp.create });
+    const el = await mount("sonic-face-tracker", { id: "f1m", for: "cam", load: "auto", mirror: "false" });
+    await flush();
+    const out = (await el.processFrame(1000)) as Record<string, number>;
+    expect(out).toMatchObject({ frameSeq: 42, frameTime: 3.5, capturedAt: expect.any(Number) });
+    expect(out.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(dp("f1m").get()).toMatchObject({ frameSeq: 42, frameTime: 3.5 });
+  });
+
   it("max-faces borné à 2, landmarks à la demande", async () => {
     mountSource();
     const mp = fakeMp(() => mpFaceResult({}));
