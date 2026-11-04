@@ -42,10 +42,10 @@
   "scripts": {
     "dev": "vite --open demo/audio.html",
     "typecheck": "tsc --noEmit",
-    "catalog": "node scripts/build-catalog.mjs",
-    "build": "node scripts/build-catalog.mjs && node scripts/build-addons.mjs",
+    "catalog": "node scripts/build-catalog.mjs && node scripts/build-library.mjs",
+    "build": "node scripts/build-catalog.mjs && node scripts/build-library.mjs && node scripts/build-addons.mjs",
     "test": "vitest",
-    "test:ci": "node scripts/build-catalog.mjs && vitest run"
+    "test:ci": "node scripts/build-catalog.mjs && node scripts/build-library.mjs && vitest run"
   },
   "peerDependencies": {
     "@huggingface/transformers": "4.3.0",
