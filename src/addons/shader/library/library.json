@@ -1,0 +1,359 @@
+{
+  "schema": "shader-library/1",
+  "entries": [
+    {
+      "id": "plasma",
+      "file": "plasma.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Plasma",
+      "description": "Fond animé de type plasma, 3 réglages, le clic déplace le centre des ondes.",
+      "tags": [
+        "fond",
+        "génératif"
+      ],
+      "channels": [],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Vitesse",
+          "min": 0,
+          "max": 3,
+          "default": 1
+        },
+        {
+          "name": "uParam1",
+          "label": "Échelle",
+          "min": 1,
+          "max": 12,
+          "default": 4
+        },
+        {
+          "name": "uParam2",
+          "label": "Teinte",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        }
+      ]
+    },
+    {
+      "id": "kaleidoscope",
+      "file": "kaleidoscope.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Kaléidoscope",
+      "description": "Symétrie rotative de l'image du canal 0 (caméra : channel0=\"#cam\").",
+      "tags": [
+        "effet",
+        "caméra",
+        "image"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Branches",
+          "min": 2,
+          "max": 12,
+          "default": 6
+        },
+        {
+          "name": "uParam1",
+          "label": "Rotation",
+          "min": -1,
+          "max": 1,
+          "default": 0.15
+        }
+      ]
+    },
+    {
+      "id": "thermal",
+      "file": "thermal.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Thermique",
+      "description": "Palette thermique sur l'image du canal 0.",
+      "tags": [
+        "effet",
+        "caméra"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Intensité",
+          "min": 0,
+          "max": 1,
+          "default": 1
+        }
+      ]
+    },
+    {
+      "id": "pixelate",
+      "file": "pixelate.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Pixels",
+      "description": "Mosaïque de pixels avec joints sur l'image du canal 0.",
+      "tags": [
+        "effet",
+        "caméra",
+        "rétro"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Colonnes",
+          "min": 8,
+          "max": 160,
+          "default": 64
+        }
+      ]
+    },
+    {
+      "id": "sobel",
+      "file": "sobel.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Sobel",
+      "description": "Détection de contours (gradient de Sobel) : contours seuls, superposés ou direction en couleur. En mode 0, sert de carte de contours à hough-lines / hough-circles.",
+      "tags": [
+        "vision",
+        "contours",
+        "caméra"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Épaisseur (texels)",
+          "min": 1,
+          "max": 4,
+          "default": 1
+        },
+        {
+          "name": "uParam1",
+          "label": "Gain",
+          "min": 0.5,
+          "max": 8,
+          "default": 2
+        },
+        {
+          "name": "uParam2",
+          "label": "Mode (0 contours, 1 superposé, 2 direction)",
+          "min": 0,
+          "max": 2,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "id": "dither-bayer",
+      "file": "dither-bayer.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Tramage de Bayer",
+      "description": "Tramage ordonné 8x8 : taille de point, nombre de niveaux, du noir et blanc à la couleur.",
+      "tags": [
+        "effet",
+        "rétro",
+        "caméra",
+        "image"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Taille du point (px)",
+          "min": 1,
+          "max": 8,
+          "default": 2
+        },
+        {
+          "name": "uParam1",
+          "label": "Niveaux par canal",
+          "min": 2,
+          "max": 8,
+          "default": 2
+        },
+        {
+          "name": "uParam2",
+          "label": "Couleur (0 gris, 1 couleur)",
+          "min": 0,
+          "max": 1,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "id": "halftone",
+      "file": "halftone.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Similigravure",
+      "description": "Trame de points (halftone) à angle réglable, noir sur blanc ou points colorés.",
+      "tags": [
+        "effet",
+        "rétro",
+        "impression",
+        "caméra",
+        "image"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Taille de cellule (px)",
+          "min": 3,
+          "max": 30,
+          "default": 10
+        },
+        {
+          "name": "uParam1",
+          "label": "Angle (rad)",
+          "min": 0,
+          "max": 1.5708,
+          "default": 0.7854
+        },
+        {
+          "name": "uParam2",
+          "label": "Points colorés (0 noir, 1 couleur)",
+          "min": 0,
+          "max": 1,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "id": "harris",
+      "file": "harris.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Coins de Harris",
+      "description": "Réponse du détecteur de coins de Harris superposée à l'image (taches rouges sur les coins). Réglages non calibrés sur une vraie caméra : ajuster gain et seuil.",
+      "tags": [
+        "vision",
+        "coins",
+        "caméra"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Échelle (texels)",
+          "min": 1,
+          "max": 3,
+          "default": 1
+        },
+        {
+          "name": "uParam1",
+          "label": "Gain",
+          "min": 1,
+          "max": 400,
+          "default": 60
+        },
+        {
+          "name": "uParam2",
+          "label": "Seuil",
+          "min": 0,
+          "max": 1,
+          "default": 0.3
+        }
+      ]
+    },
+    {
+      "id": "hough-lines",
+      "file": "hough-lines.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Hough : droites",
+      "description": "Espace de Hough (theta, rho) d'une carte de contours : chaque point lumineux est une droite de l'image. Une passe, sans détection de pics.",
+      "tags": [
+        "vision",
+        "hough",
+        "droites"
+      ],
+      "channels": [
+        "iChannel0 : carte de contours (sobel mode 0, ou dessin blanc sur noir)"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Gain",
+          "min": 1,
+          "max": 20,
+          "default": 6
+        },
+        {
+          "name": "uParam1",
+          "label": "Seuil",
+          "min": 0,
+          "max": 0.95,
+          "default": 0.2
+        }
+      ]
+    },
+    {
+      "id": "hough-circles",
+      "file": "hough-circles.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Hough : cercles",
+      "description": "Accumulateur de Hough pour les cercles d'un rayon donné, sur une carte de contours : les pics sont les centres. Une passe.",
+      "tags": [
+        "vision",
+        "hough",
+        "cercles"
+      ],
+      "channels": [
+        "iChannel0 : carte de contours (sobel mode 0, ou dessin blanc sur noir)"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Rayon (hauteurs d'image)",
+          "min": 0.02,
+          "max": 0.5,
+          "default": 0.15
+        },
+        {
+          "name": "uParam1",
+          "label": "Gain",
+          "min": 1,
+          "max": 12,
+          "default": 3
+        },
+        {
+          "name": "uParam2",
+          "label": "Seuil",
+          "min": 0,
+          "max": 1,
+          "default": 0.4
+        },
+        {
+          "name": "uParam3",
+          "label": "Contours en fond (0/1)",
+          "min": 0,
+          "max": 1,
+          "default": 1
+        }
+      ]
+    }
+  ]
+}
