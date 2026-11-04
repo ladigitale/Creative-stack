@@ -1,0 +1,122 @@
+{
+  "schema": "shader-library/1",
+  "entries": [
+    {
+      "id": "plasma",
+      "file": "plasma.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Plasma",
+      "description": "Fond animé de type plasma, 3 réglages, le clic déplace le centre des ondes.",
+      "tags": [
+        "fond",
+        "génératif"
+      ],
+      "channels": [],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Vitesse",
+          "min": 0,
+          "max": 3,
+          "default": 1
+        },
+        {
+          "name": "uParam1",
+          "label": "Échelle",
+          "min": 1,
+          "max": 12,
+          "default": 4
+        },
+        {
+          "name": "uParam2",
+          "label": "Teinte",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        }
+      ]
+    },
+    {
+      "id": "kaleidoscope",
+      "file": "kaleidoscope.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Kaléidoscope",
+      "description": "Symétrie rotative de l'image du canal 0 (caméra : channel0=\"#cam\").",
+      "tags": [
+        "effet",
+        "caméra",
+        "image"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Branches",
+          "min": 2,
+          "max": 12,
+          "default": 6
+        },
+        {
+          "name": "uParam1",
+          "label": "Rotation",
+          "min": -1,
+          "max": 1,
+          "default": 0.15
+        }
+      ]
+    },
+    {
+      "id": "thermal",
+      "file": "thermal.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Thermique",
+      "description": "Palette thermique sur l'image du canal 0.",
+      "tags": [
+        "effet",
+        "caméra"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Intensité",
+          "min": 0,
+          "max": 1,
+          "default": 1
+        }
+      ]
+    },
+    {
+      "id": "pixelate",
+      "file": "pixelate.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Pixels",
+      "description": "Mosaïque de pixels avec joints sur l'image du canal 0.",
+      "tags": [
+        "effet",
+        "caméra",
+        "rétro"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Colonnes",
+          "min": 8,
+          "max": 160,
+          "default": 64
+        }
+      ]
+    }
+  ]
+}

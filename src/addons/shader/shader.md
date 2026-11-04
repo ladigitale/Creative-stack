@@ -242,3 +242,7 @@ Assigne le GLSL via `.image` (et `.bufferA`, …) depuis JS / Lit.
 - Vidéos : lecture auto muted + loop.
 - Hors scope : Sound, Cubemap, VR ; chaînage multi-instances / contexte GPU partagé.
 - Pas d’import dans le bundle `functional` core.
+
+## Bibliothèque de shaders de base
+
+`src/addons/shader/library/` : shaders prêts à l'emploi, un fichier `.glsl` par shader et un index `library.json` (`id`, `title`, `description`, `tags`, `channels` = ce qu'il attend sur `iChannel0…`, `params` = réglages `uParam0…3` avec `min` / `max` / `default`, `version`, `license`). **Les utiliser avant d'en écrire un nouveau** : copier le source dans l'attribut `image` de `sonic-shader`, relier `param0..3` à un store avec les bornes de l'index, et brancher `channel0="#cam"` pour les effets d'image. Disponibles : `plasma`, `kaleidoscope`, `thermal`, `pixelate`. Un shader ajouté doit être testé (`shader-library.spec.ts` vérifie `mainImage`, 4 réglages au plus, bornes cohérentes) ; changer son comportement incrémente `version`.
