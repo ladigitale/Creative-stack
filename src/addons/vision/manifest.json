@@ -14,7 +14,8 @@
     "examples/controle-mains-panneau.sdui.json",
     "examples/silhouette.sdui.json",
     "examples/detecteur-objets.sdui.json",
-    "examples/mes-gestes.sdui.json"
+    "examples/mes-gestes.sdui.json",
+    "examples/echange-visages.sdui.json"
   ],
   "components": [
     {
@@ -361,6 +362,51 @@
           "type": "string"
         },
         "bones": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-face-mesh",
+      "description": "Greffe un visage sur le visage suivi : dessine en WebGL le maillage de 468 points d'un sonic-face-tracker (landmarks=\"true\", source = son DataProvider) avec une texture, déformé comme le visage (pose, bouche, yeux), correction de couleur (color-match) et bords estompés (feather). Trois sources de texture : échange (défaut ; background=\"synced\" + max-faces=\"2\" côté tracker, chacun prend le visage de l'autre), portrait (texture-source=\"#img\" + texture-landmarks = DataProvider d'un second tracker qui analyse cette image), à plat (texture = image sur le modèle canonique MediaPipe, pour masques) ; background = source d'images dessinée dessous (sonic-camera, sonic-frame-sync) ; face all|0|1 ; opacity ; est lui-même une source d'images (getFrameCanvas, frameSeq) ; out-data-provider publie {ready, mode swap|portrait|canonical|none, faces, drawn, error} ; calcul local, aucun HTML injecté, URL de texture filtrées (https, blob:, data:image, relative)",
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "texture": {
+          "type": "string"
+        },
+        "texture-source": {
+          "type": "string"
+        },
+        "texture-landmarks": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "face": {
+          "type": "string"
+        },
+        "feather": {
+          "type": "number"
+        },
+        "color-match": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "out-data-provider": {
           "type": "string"
         }
       }
