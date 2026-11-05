@@ -134,6 +134,12 @@ export class Sonic2d extends LitElement {
     return html`<canvas part="canvas"></canvas>${this.status === "error" ? html`<div class="msg">${this.error}</div>` : null}`;
   }
 
+  /** Contrat `SonicFrameSource` : `sonic-shader channel0="#id"` lit la scène (sprites, calques, caméra) comme texture. Incrémenté après chaque rendu. */
+  frameSeq = 0;
+  getFrameCanvas(): HTMLCanvasElement | null {
+    return this.scene?.isReady ? this.canvas : null;
+  }
+
   protected firstUpdated(): void {
     this.canvas = this.renderRoot.querySelector("canvas");
     this.addEventListener("pointerdown", this.onDown);
@@ -392,6 +398,7 @@ export class Sonic2d extends LitElement {
     if (this.dirty || busy) {
       this.dirty = false;
       scene.render();
+      this.frameSeq++;
     }
   }
 

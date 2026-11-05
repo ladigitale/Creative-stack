@@ -364,6 +364,51 @@
           "default": 1
         }
       ]
+    },
+    {
+      "id": "smoke",
+      "kind": "shader",
+      "file": "smoke.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Fumée",
+      "description": "Fumée de scène grise sur noir, à poser en fusion « screen » (CSS mix-blend-mode) derrière ou devant un sujet ; plus dense en bas.",
+      "tags": [
+        "fond",
+        "générative",
+        "ambiance"
+      ],
+      "channels": [],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Densité",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        },
+        {
+          "name": "uParam1",
+          "label": "Vitesse",
+          "min": 0,
+          "max": 2,
+          "default": 0.5
+        },
+        {
+          "name": "uParam2",
+          "label": "Échelle",
+          "min": 1,
+          "max": 8,
+          "default": 3
+        },
+        {
+          "name": "uParam3",
+          "label": "Chaleur",
+          "min": 0,
+          "max": 1,
+          "default": 0.2
+        }
+      ]
     }
   ]
 }
