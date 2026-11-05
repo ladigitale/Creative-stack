@@ -43,6 +43,16 @@ describe("features", () => {
     expect(blendFeatures({ a: 1, b: "x", c: 1, d: 1, e: 1 })).toBeNull();
   });
 
+  it("extractFeatures embed : le vecteur tel quel (auto le reconnaît) ; absent ou invalide : null", () => {
+    const o = { present: 1, vector: [0.6, 0.8], dim: 2 };
+    expect(extractFeatures(o, "embed")).toEqual([0.6, 0.8]);
+    expect(extractFeatures(o, "auto")).toEqual([0.6, 0.8]);
+    expect(extractFeatures(o, "embed")).not.toBe(o.vector); // copie
+    expect(extractFeatures({ present: 0, vector: [] }, "embed")).toBeNull();
+    expect(extractFeatures({ present: 1, vector: [1, Number.NaN] }, "embed")).toBeNull();
+    expect(extractFeatures({ present: 1 }, "embed")).toBeNull();
+  });
+
   it("extractFeatures : auto, main demandée, rien de visible", () => {
     const out = { hands: [{ role: "left", landmarks: hand(0.3, 0.6) }, { role: "right", landmarks: hand(0.7, 0.6) }] };
     expect(extractFeatures(out, "auto")).toHaveLength(42);

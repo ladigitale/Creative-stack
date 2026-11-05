@@ -46,18 +46,19 @@ export function blendFeatures(blend: unknown): number[] | null {
   return out;
 }
 
-export type FeatureSource = "auto" | "hand" | "pose" | "face";
+export type FeatureSource = "auto" | "hand" | "pose" | "face" | "embed";
 
 export type HandPick = "any" | "left" | "right";
 
 /**
- * Extrait un vecteur de la sortie d'un tracker. `auto` : d'après les clés (`hands`, `poses`, `blend`).
+ * Extrait un vecteur de la sortie d'un tracker. `auto` : d'après les clés (`hands`, `poses`, `vector`, `blend`).
  * `hand` : la main demandée (`any` : la première vue). Retourne `null` quand rien n'est visible.
  */
 export function extractFeatures(data: unknown, source: FeatureSource = "auto", hand: HandPick = "any"): number[] | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Record<string, unknown>;
-  const kind = source !== "auto" ? source : Array.isArray(d.poses) ? "pose" : Array.isArray(d.hands) ? "hand" : d.blend ? "face" : null;
+  const kind =
+    source !== "auto" ? source : Array.isArray(d.poses) ? "pose" : Array.isArray(d.hands) ? "hand" : Array.isArray(d.vector) ? "embed" : d.blend ? "face" : null;
   if (kind === "hand") {
     const hands = Array.isArray(d.hands) ? (d.hands as Array<{ role?: string; landmarks?: unknown }>) : [];
     const pick = hand === "any" ? hands[0] : hands.find((h) => h?.role === hand);
@@ -68,5 +69,10 @@ export function extractFeatures(data: unknown, source: FeatureSource = "auto", h
     return poses[0] ? poseFeatures(poses[0].landmarks) : null;
   }
   if (kind === "face") return d.present === 0 ? null : blendFeatures(d.blend);
+  if (kind === "embed") {
+    // Empreinte d'image (sonic-image-embedder) : le vecteur tel quel.
+    if (d.present === 0 || !Array.isArray(d.vector) || d.vector.length === 0) return null;
+    return d.vector.every((v) => typeof v === "number" && Number.isFinite(v)) ? (d.vector as number[]).slice() : null;
+  }
   return null;
 }

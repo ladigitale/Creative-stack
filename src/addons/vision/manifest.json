@@ -18,7 +18,8 @@
     "examples/echange-visages.sdui.json",
     "examples/fond-virtuel.sdui.json",
     "examples/masquer-objet.sdui.json",
-    "examples/recomposition.sdui.json"
+    "examples/recomposition.sdui.json",
+    "examples/mes-objets.sdui.json"
   ],
   "components": [
     {
@@ -325,6 +326,88 @@
       }
     },
     {
+      "name": "sonic-image-embedder",
+      "description": "Empreinte numérique d'une image (MobileNet V3 par défaut, ~1 024 nombres : des images qui se ressemblent ont des vecteurs proches) pour une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, dim, vector (unitaire, 4 décimales), norm (norme brute), similarity (cosinus avec reference, 0 sans référence) + frameSeq/frameTime/capturedAt/latencyMs ; crop=<DP d'un sonic-object-detector> (crop-labels, crop-min-score, crop-pad) analyse seulement l'objet détecté, region=\"x,y,w,h\" une zone fixe ; smooth (0.3) lisse le vecteur, hold-ms (300) ; fps 5 par défaut ; map = clés dérivées ; sonic-example-classifier features=\"embed\" apprend des classes d'objets à partir de ces vecteurs ; statut dans status-provider (défaut <id>State) ; inférence locale, mêmes règles de modèle, consentement et téléchargement que les autres trackers",
+      "props": {
+        "for": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "delegate": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "smooth": {
+          "type": "number"
+        },
+        "hold-ms": {
+          "type": "number"
+        },
+        "min-score": {
+          "type": "number"
+        },
+        "map": {
+          "type": "string"
+        },
+        "outputProvider": {
+          "type": "string"
+        },
+        "statusProvider": {
+          "type": "string"
+        },
+        "consentProvider": {
+          "type": "string"
+        },
+        "load": {
+          "type": "string"
+        },
+        "model-sha256": {
+          "type": "string"
+        },
+        "thread": {
+          "type": "string"
+        },
+        "reference": {
+          "type": "string",
+          "description": "DataProvider d'un vecteur de comparaison (tableau, ou sortie d'un autre embedder) : similarity = cosinus"
+        },
+        "head": {
+          "type": "number",
+          "description": "Tête du modèle dont on lit le vecteur (0)"
+        },
+        "crop": {
+          "type": "string",
+          "description": "DataProvider de la sortie d'un sonic-object-detector : seule la meilleure boîte retenue est analysée (rien sans boîte)"
+        },
+        "crop-labels": {
+          "type": "string",
+          "description": "Étiquettes de crop retenues (virgules) ; vide : toutes"
+        },
+        "crop-min-score": {
+          "type": "number",
+          "description": "Score minimal d'une boîte de crop (0.4)"
+        },
+        "crop-pad": {
+          "type": "number",
+          "description": "Marge autour de la boîte, part de sa taille (0.1)"
+        },
+        "region": {
+          "type": "string",
+          "description": "Zone fixe analysée « x,y,w,h » (0..1 de l'image, repère écran) ; ignorée si crop est renseigné"
+        }
+      }
+    },
+    {
       "name": "sonic-landmarks-overlay",
       "description": "Dessine sur un canvas la sortie d'un tracker (source=\"hand\" : DataProvider de sortie) : points et squelette des mains, contours du visage (le tracker doit publier landmarks=\"true\"), squelette du corps, boîtes étiquetées d'objets ; kind auto|hands|face|pose|objects ; background=\"cam\" redessine l'image de la caméra (ou d'un sonic-segmenter) dessous ; pensé comme panneau séparé : ne rien superposer à la vue caméra ; color, color2, line-width, point-radius, points, bones, fill, width, height, mirror ; aucun HTML injecté",
       "props": {
@@ -489,13 +572,14 @@
     },
     {
       "name": "sonic-example-classifier",
-      "description": "Apprend à reconnaître des poses de main / de corps ou des expressions de visage à partir d'EXEMPLES enregistrés par l'utilisateur (k plus proches voisins, sans modèle ni réseau), à partir de la sortie d'un tracker (source=\"hand\" ; invariant à la position et à l'échelle) ; pilotage par le DataProvider control {label, record, clear, clearAll} (compteurs : une hausse enregistre `samples` exemples sous `label`, efface `label` ou tout) ; sortie dans output-provider (défaut = id) : present, label (stable, vote des `window` dernières images), raw, confidence, scores.<étiquette>, match.<étiquette> 0|1, counts, total, recording, recordingLabel, samplesLeft ; features auto|hand|pose|face, hand any|left|right, k, sample-ms, min-confidence, max-distance (0 = sans limite), storage = clé de mémoire locale des exemples",
+      "description": "Apprend à reconnaître des poses de main / de corps ou des expressions de visage à partir d'EXEMPLES enregistrés par l'utilisateur (k plus proches voisins, sans modèle ni réseau), à partir de la sortie d'un tracker (source=\"hand\" ; invariant à la position et à l'échelle) ; pilotage par le DataProvider control {label, record, clear, clearAll} (compteurs : une hausse enregistre `samples` exemples sous `label`, efface `label` ou tout) ; sortie dans output-provider (défaut = id) : present, label (stable, vote des `window` dernières images), raw, confidence, scores.<étiquette>, match.<étiquette> 0|1, counts, total, recording, recordingLabel, samplesLeft ; features auto|hand|pose|face|embed (embed : le vecteur d'un sonic-image-embedder, pour reconnaître des objets ou des scènes), hand any|left|right, k, sample-ms, min-confidence, max-distance (0 = sans limite), storage = clé de mémoire locale des exemples",
       "props": {
         "source": {
           "type": "string"
         },
         "features": {
-          "type": "string"
+          "type": "string",
+          "description": "embed = vecteur d'un sonic-image-embedder"
         },
         "hand": {
           "type": "string"

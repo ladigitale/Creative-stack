@@ -35,6 +35,7 @@ export const DEFAULT_POLICY: MlPolicy = {
     "pose-landmarker-full": `${DEFAULT_MEDIAPIPE_MODELS}pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task`,
     "object-detector": `${DEFAULT_MEDIAPIPE_MODELS}object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`,
     "selfie-segmenter": `${DEFAULT_MEDIAPIPE_MODELS}image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite`,
+    "image-embedder": `${DEFAULT_MEDIAPIPE_MODELS}image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite`,
     "pose-landmarker-heavy": `${DEFAULT_MEDIAPIPE_MODELS}pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task`,
   },
   origins: [DEFAULT_MEDIAPIPE_MODELS, "https://huggingface.co/", "https://cdn.jsdelivr.net/"],
