@@ -102,3 +102,82 @@ describe("sonic-trigger", () => {
     expect(dp("tg8State").get()).toMatchObject({ active: false, armed: true, count: 1 });
   });
 });
+
+describe("sonic-trigger : sortie MIDI directe", () => {
+  const seen = (id: string) => {
+    const log: unknown[] = [];
+    dp(id).onAssign((v: unknown) => void log.push(JSON.parse(JSON.stringify(v))));
+    return log;
+  };
+
+  it("note : événement dans emit-provider puis compteur dans emit-trigger (ordre événements → déclencheur)", async () => {
+    const order: string[] = [];
+    dp("m1ev").onAssign(() => void order.push("events"));
+    dp("m1go").onAssign(() => void order.push("go"));
+    await mount({ source: "m1", key: "hit", emit: "note", "emit-provider": "m1ev", "emit-trigger": "m1go", note: "C4", "vel-min": "0.5", "dur-s": "0.4", "cooldown-ms": "0" });
+    const evs = seen("m1ev");
+    const go = seen("m1go");
+    order.length = 0;
+    set("m1", { hit: true });
+    expect(evs.at(-1)).toEqual([{ type: "note", note: "C4", vel: 0.5, durS: 0.4 }]);
+    expect(go.at(-1)).toBe(1);
+    expect(order).toEqual(["events", "go"]);
+  });
+
+  it("le compteur est initialisé à 0 (sonic-midi avale sa première valeur)", async () => {
+    await mount({ source: "m2", key: "hit", emit: "note", "emit-provider": "m2ev", "emit-trigger": "m2go" });
+    let v: unknown;
+    dp("m2go").onAssign((x: unknown) => void (v = x));
+    expect(v).toBe(0);
+  });
+
+  it("noteOn tenue jusqu'au retour à faux, puis noteOff de la même note", async () => {
+    await mount({ source: "m3", key: "on", emit: "noteOn", "emit-provider": "m3ev", "emit-trigger": "m3go", note: "64", "cooldown-ms": "0" });
+    const evs = seen("m3ev");
+    set("m3", { on: true });
+    expect(evs.at(-1)).toEqual([{ type: "noteOn", note: 64, vel: 0.3 }]);
+    set("m3", { on: false });
+    expect(evs.at(-1)).toEqual([{ type: "noteOff", note: 64 }]);
+  });
+
+  it("hauteur lue dans la source (note-key) et calée sur la gamme", async () => {
+    await mount({ source: "m4", key: "go", emit: "noteOn", "emit-provider": "m4ev", "note-key": "pos", "note-range": "48,72", scale: "0,2,4,7,9", "cooldown-ms": "0" });
+    const evs = seen("m4ev");
+    set("m4", { go: true, pos: 0.5 });
+    const n = (evs.at(-1) as Array<{ note: number }>)[0].note;
+    expect([0, 2, 4, 7, 9]).toContain((n - 48) % 12);
+    expect(n).toBeGreaterThanOrEqual(55);
+    expect(n).toBeLessThanOrEqual(65);
+  });
+
+  it("vélocité lue dans vel-source au moment du déclenchement, entre vel-min et 1", async () => {
+    await mount({ source: "m5", key: "go", emit: "note", "emit-provider": "m5ev", "vel-source": "m5v", "vel-key": "peakVel", "vel-min": "0.2", "cooldown-ms": "0" });
+    const evs = seen("m5ev");
+    set("m5v", { peakVel: 1 });
+    set("m5", { go: true });
+    expect((evs.at(-1) as Array<{ vel: number }>)[0].vel).toBe(1);
+    set("m5", { go: false });
+    set("m5v", { peakVel: 0 });
+    set("m5", { go: true });
+    expect((evs.at(-1) as Array<{ vel: number }>)[0].vel).toBe(0.2);
+  });
+
+  it("canal MIDI transmis ; sans emit rien n'est publié", async () => {
+    await mount({ source: "m6", key: "go", emit: "note", "emit-provider": "m6ev", ch: "3", "cooldown-ms": "0" });
+    await mount({ source: "m6b", key: "go", "emit-provider": "m6bev", "cooldown-ms": "0" });
+    const evs = seen("m6ev");
+    const none = seen("m6bev");
+    set("m6", { go: true });
+    set("m6b", { go: true });
+    expect((evs.at(-1) as Array<{ ch: number }>)[0].ch).toBe(3);
+    expect(none.some((x) => Array.isArray(x))).toBe(false);
+  });
+
+  it("noteOn relâchée quand le composant est retiré (pas de note bloquée)", async () => {
+    const el = await mount({ source: "m7", key: "go", emit: "noteOn", "emit-provider": "m7ev", note: "60", "cooldown-ms": "0" });
+    const evs = seen("m7ev");
+    set("m7", { go: true });
+    el.remove();
+    expect(evs.at(-1)).toEqual([{ type: "noteOff", note: 60 }]);
+  });
+});
