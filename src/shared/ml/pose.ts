@@ -73,7 +73,44 @@ export function jointsByName(lm: PosePoint[], swap: boolean): Record<JointName, 
   return out;
 }
 
-export type BodyMetrics = {
+export type AngleMetrics = {
+  /** Extension de l'articulation : 0 = très fléchie (≤ 45°), 1 = tendue (180°). Côtés écran. */
+  elbowLeft: number;
+  elbowRight: number;
+  kneeLeft: number;
+  kneeRight: number;
+  /** 0 = debout jambes tendues, 1 = très fléchi : moyenne de la flexion des deux genoux. */
+  squat: number;
+};
+
+export const ANGLE_KEYS = ["elbowLeft", "elbowRight", "kneeLeft", "kneeRight", "squat"] as const;
+
+/** Angle (degrés) en `b` entre b→a et b→c, en 3D ; 180 = aligné. */
+function angleAt(a: Point, b: Point, c: Point): number {
+  const ux = a.x - b.x, uy = a.y - b.y, uz = a.z - b.z;
+  const vx = c.x - b.x, vy = c.y - b.y, vz = c.z - b.z;
+  const n = Math.hypot(ux, uy, uz) * Math.hypot(vx, vy, vz);
+  if (n < 1e-12) return 180;
+  const cos = (ux * vx + uy * vy + uz * vz) / n;
+  return (Math.acos(cos < -1 ? -1 : cos > 1 ? 1 : cos) * 180) / Math.PI;
+}
+
+/** Articulations en extension 0..1 (45° → 0, 180° → 1). Plus fidèle avec des points en mètres (`world`) qu'en image. */
+export function jointAngles(j: Record<JointName, Point>): AngleMetrics {
+  const ext = (a: Point | undefined, b: Point | undefined, c: Point | undefined) =>
+    a && b && c ? clamp((angleAt(a, b, c) - 45) / 135, 0, 1) : 1;
+  const kneeLeft = ext(j.leftHip, j.leftKnee, j.leftAnkle);
+  const kneeRight = ext(j.rightHip, j.rightKnee, j.rightAnkle);
+  return {
+    elbowLeft: ext(j.leftShoulder, j.leftElbow, j.leftWrist),
+    elbowRight: ext(j.rightShoulder, j.rightElbow, j.rightWrist),
+    kneeLeft,
+    kneeRight,
+    squat: 1 - (kneeLeft + kneeRight) / 2,
+  };
+}
+
+export type BodyMetrics = AngleMetrics & {
   /** Centre des hanches. */
   x: number;
   y: number;
@@ -99,5 +136,6 @@ export function bodyMetrics(j: Record<JointName, PosePoint>): BodyMetrics {
     raiseRight: raise(j.rightWrist, j.rightShoulder),
     span: dist(j.leftWrist, j.rightWrist) / shoulderWidth,
     lean: clamp((shoulders.x - hips.x) / torso, -1, 1),
+    ...jointAngles(j),
   };
 }

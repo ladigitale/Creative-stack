@@ -2,12 +2,14 @@
  * Cœur sans DOM de `sonic-hand-tracker` : miroir, rôles gauche/droite, lissage One Euro, maintien
  * (`hold-ms`), clés de sortie plates et attribut `map`. Testé seul, avec des mains synthétiques.
  */
-import { assignRoles, metricsOf, mirrorPoints, type HandMetrics, type Point, type RawHand, type Role, type RoleMemory } from "../../shared/ml/hands";
+import { FINE_KEYS, assignRoles, countFingers, fineMetrics, metricsOf, mirrorPoints, type FineMetrics, type HandMetrics, type Point, type RawHand, type Role, type RoleMemory } from "../../shared/ml/hands";
 import { assignPath, evalMap, type CompiledMap } from "../../shared/ml/map-expr";
 import { OneEuro, oneEuroFor } from "../../shared/ml/one-euro";
 
-export type RoleOutput = HandMetrics & {
+export type RoleOutput = HandMetrics & FineMetrics & {
   present: 0 | 1;
+  /** Doigts tendus, 0..5. */
+  fingerCount: number;
   gesture: string;
   gestureScore: number;
 };
@@ -39,7 +41,7 @@ export type CoreOptions = {
   map?: CompiledMap | null;
 };
 
-const METRIC_KEYS = ["x", "y", "z", "tipX", "tipY", "pinch", "openness", "roll"] as const;
+const METRIC_KEYS = ["x", "y", "z", "tipX", "tipY", "pinch", "openness", "roll", ...FINE_KEYS] as const;
 
 const EMPTY: RoleOutput = {
   present: 0,
@@ -51,6 +53,16 @@ const EMPTY: RoleOutput = {
   pinch: 0,
   openness: 0,
   roll: 0.5,
+  thumb: 0,
+  index: 0,
+  middle: 0,
+  ring: 0,
+  pinky: 0,
+  pinchMiddle: 0,
+  pinchRing: 0,
+  pinchPinky: 0,
+  spread: 0,
+  fingerCount: 0,
   gesture: "",
   gestureScore: 0,
 };
@@ -100,7 +112,7 @@ export class HandTrackerCore {
     const hands = raw.map((h) => {
       const landmarks = this.opts.mirror ? mirrorPoints(h.landmarks) : h.landmarks;
       const world = h.world && this.opts.mirror ? h.world.map((p) => ({ x: -p.x, y: p.y, z: p.z })) : h.world;
-      return { raw: h, landmarks, world, m: metricsOf(landmarks) };
+      return { raw: h, landmarks, world, m: { ...metricsOf(landmarks), ...fineMetrics(landmarks, world) } };
     });
     const roles = assignRoles(
       hands.map((h) => ({ x: h.m.x, y: h.m.y, label: h.raw.label })),
@@ -116,6 +128,7 @@ export class HandTrackerCore {
       const st = this.roles[role];
       const out: RoleOutput = { ...EMPTY, present: 1, gesture: h.raw.gesture ?? "", gestureScore: h.raw.gestureScore ?? 0 };
       for (const k of METRIC_KEYS) out[k] = this.smoothed(st, k, h.m[k], now);
+      out.fingerCount = countFingers(out);
       st.last = out;
       st.lastSeen = now;
       this.memory[role] = { x: h.m.x, y: h.m.y };

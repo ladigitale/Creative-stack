@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compileMap } from "../../shared/ml/map-expr";
 import { HandTrackerCore } from "./hand-state";
-import { fakeHand } from "./test-hands";
+import { fakeHand, fakeJointedHand } from "./test-hands";
 
 const core = (o: Partial<ConstructorParameters<typeof HandTrackerCore>[0]> = {}) =>
   new HandTrackerCore({ smooth: 0, holdMs: 150, mirror: false, ...o });
@@ -80,5 +80,25 @@ describe("HandTrackerCore", () => {
     const c2 = core({ map });
     const right = c2.update([fakeHand(0.75, 0.5)], 0);
     expect(right.gain).toBe(0);
+  });
+
+  it("doigts : ouverture par doigt, nombre de doigts tendus, écartement", () => {
+    const three = core().update([fakeJointedHand({ thumb: 1, pinky: 1 })], 0);
+    expect(three.right.index).toBeGreaterThan(0.9);
+    expect(three.right.pinky).toBeLessThan(0.15);
+    expect(three.right.fingerCount).toBe(3);
+    const fist = core().update([fakeJointedHand({ thumb: 1, index: 1, middle: 1, ring: 1, pinky: 1 })], 0);
+    expect(fist.right.fingerCount).toBe(0);
+    for (const k of ["thumb", "index", "middle", "ring", "pinky", "pinchMiddle", "pinchRing", "pinchPinky", "spread"] as const) {
+      expect(three.right[k]).toBeGreaterThanOrEqual(0);
+      expect(three.right[k]).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("doigts accessibles dans map (chiffre montré)", () => {
+    const map = compileMap("n=right.fingerCount; ok=right.index>0.5 && right.pinky<0.5");
+    const out = core({ map }).update([fakeJointedHand({ pinky: 1 })], 0);
+    expect(out.n).toBe(4);
+    expect(out.ok).toBe(1);
   });
 });

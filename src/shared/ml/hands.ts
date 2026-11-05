@@ -97,6 +97,80 @@ export function metricsOf(lm: Point[]): HandMetrics {
   };
 }
 
+/* ---------------- mesures fines : doigts ---------------- */
+
+export const FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"] as const;
+export type FingerName = (typeof FINGER_NAMES)[number];
+
+export type FineMetrics = Record<FingerName, number> & {
+  /** Comme `pinch`, entre le bout du pouce et le bout du majeur / de l'annulaire / de l'auriculaire. */
+  pinchMiddle: number;
+  pinchRing: number;
+  pinchPinky: number;
+  /** 0 = doigts serrés, 1 = écartés. */
+  spread: number;
+};
+
+export const FINE_KEYS = ["thumb", "index", "middle", "ring", "pinky", "pinchMiddle", "pinchRing", "pinchPinky", "spread"] as const;
+
+/** Indices des 4 points de chaque doigt : base, 1re articulation, 2e articulation, bout. */
+const FINGER_CHAINS: Record<FingerName, [number, number, number, number]> = {
+  thumb: [1, 2, 3, 4],
+  index: [5, 6, 7, 8],
+  middle: [9, 10, 11, 12],
+  ring: [13, 14, 15, 16],
+  pinky: [17, 18, 19, 20],
+};
+
+/** Angle (degrés) au point `b` entre les segments b→a et b→c, en 3D ; 180 = aligné. */
+function angleAt(a: Point, b: Point, c: Point): number {
+  const ux = a.x - b.x, uy = a.y - b.y, uz = a.z - b.z;
+  const vx = c.x - b.x, vy = c.y - b.y, vz = c.z - b.z;
+  const n = Math.hypot(ux, uy, uz) * Math.hypot(vx, vy, vz);
+  if (n < 1e-12) return 180;
+  const cos = (ux * vx + uy * vy + uz * vz) / n;
+  return (Math.acos(cos < -1 ? -1 : cos > 1 ? 1 : cos) * 180) / Math.PI;
+}
+
+/**
+ * Extension d'un doigt : 0 = replié, 1 = tendu. Moyenne des angles des deux articulations (180° = droit) ramenée
+ * entre une borne « replié » et une borne « tendu » (valeurs empiriques : doigts ≈ 95°→165°, pouce ≈ 130°→165°).
+ * Indépendante de la position et de la rotation de la main ; mesurée en 3D (utiliser `world` quand il existe).
+ */
+export function fingerExtension(pts: Point[], finger: FingerName): number {
+  const [a, b, c, d] = FINGER_CHAINS[finger];
+  const mean = (angleAt(pts[a], pts[b], pts[c]) + angleAt(pts[b], pts[c], pts[d])) / 2;
+  const [lo, hi] = finger === "thumb" ? [130, 165] : [95, 165];
+  return clamp01((mean - lo) / (hi - lo));
+}
+
+/**
+ * Doigts, pinces supplémentaires et écartement. `lm` : points image (pour les distances normalisées par la paume) ;
+ * `world` : mêmes points en mètres si disponibles (angles plus fidèles : pas de déformation par le format d'image).
+ */
+export function fineMetrics(lm: Point[], world?: Point[]): FineMetrics {
+  const pts = world && world.length >= 21 ? world : lm;
+  const palm = palmSize(lm);
+  const pinchTo = (tip: number) => clamp01(1 - dist(lm[4], lm[tip]) / (0.8 * palm));
+  const gaps = (dist(lm[8], lm[12]) + dist(lm[12], lm[16]) + dist(lm[16], lm[20])) / 3 / palm;
+  return {
+    thumb: fingerExtension(pts, "thumb"),
+    index: fingerExtension(pts, "index"),
+    middle: fingerExtension(pts, "middle"),
+    ring: fingerExtension(pts, "ring"),
+    pinky: fingerExtension(pts, "pinky"),
+    pinchMiddle: pinchTo(12),
+    pinchRing: pinchTo(16),
+    pinchPinky: pinchTo(20),
+    spread: clamp01((gaps - 0.2) / 0.45),
+  };
+}
+
+/** Nombre de doigts tendus (0..5) : extension > 0,55. */
+export function countFingers(f: Record<FingerName, number>): number {
+  return FINGER_NAMES.reduce((n, k) => n + (f[k] > 0.55 ? 1 : 0), 0);
+}
+
 /* ---------------- rôles ---------------- */
 
 export type Role = "left" | "right";
