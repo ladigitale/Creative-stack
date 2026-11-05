@@ -164,7 +164,7 @@
     },
     {
       "name": "sonic-trigger",
-      "description": "Relie un capteur à une action : surveille une valeur d'un DataProvider (source + key en chemin pointé : labels.person, right.gesture, db, faces.0.blend.jawOpen) et envoie une action au sonic-store target quand la condition tient (equals, not, gt, gte, lt, lte, truthy ; plusieurs opérateurs = ET) pendant hold-ms ; un seul déclenchement par franchissement (mode edge, réarmé au retour à faux) ou à chaque repos (mode repeat), cooldown-ms entre deux ; action {type, payload = payload JSON + value (valeur lue) + count} ; end-type = action au retour à faux ; disabled suspend ; state-provider publie {active, armed, count, value} ; pas d'évaluation de code",
+      "description": "Relie un capteur à une action : surveille une valeur d'un DataProvider (source + key en chemin pointé : labels.person, right.gesture, db, faces.0.blend.jawOpen) et envoie une action au sonic-store target quand la condition tient (equals, not, gt, gte, lt, lte, truthy ; plusieurs opérateurs = ET) pendant hold-ms ; un seul déclenchement par franchissement (mode edge, réarmé au retour à faux) ou à chaque repos (mode repeat), cooldown-ms entre deux ; action {type, payload = payload JSON + value (valeur lue) + count} ; end-type = action au retour à faux ; disabled suspend ; state-provider publie {active, armed, count, value, note, vel} ; pas d'évaluation de code ; sortie MIDI directe : emit=note|noteOn (tenue jusqu'au retour à faux puis noteOff) avec emit-provider (→ events de sonic-midi) et emit-trigger (→ trigger de sonic-midi) ; hauteur fixe (note) ou lue dans la source (note-key 0..1, note-range bas,haut, scale en demi-tons) ; vélocité depuis vel-source/vel-key (ex. sonic-motion vel), plancher vel-min ; dur-s, ch",
       "props": {
         "source": {
           "type": "string"
@@ -218,6 +218,69 @@
           "type": "boolean"
         },
         "state-provider": {
+          "type": "string"
+        },
+        "emit": {
+          "type": "string"
+        },
+        "emit-provider": {
+          "type": "string"
+        },
+        "emit-trigger": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "note-key": {
+          "type": "string"
+        },
+        "note-range": {
+          "type": "string"
+        },
+        "scale": {
+          "type": "string"
+        },
+        "vel-source": {
+          "type": "string"
+        },
+        "vel-key": {
+          "type": "string"
+        },
+        "vel-min": {
+          "type": "number"
+        },
+        "dur-s": {
+          "type": "number"
+        },
+        "ch": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "name": "sonic-motion",
+      "description": "Vitesse d'un capteur : suit une ou plusieurs valeurs d'un DataProvider (source + keys en chemins pointés séparés par des virgules ; plusieurs = norme du déplacement) et publie dans out-data-provider {value, values, speed (unités/s, signée avec une seule valeur), accel, vel (|speed|/speed-max, 0..1 : vélocité MIDI), peak (plus grande vitesse des peak-ms dernières ms), peakVel, moving} ; smooth-ms lisse, idle-ms : sans nouvelle valeur la vitesse retombe vers 0 ; pas d'évaluation de code",
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "keys": {
+          "type": "string"
+        },
+        "smooth-ms": {
+          "type": "number"
+        },
+        "speed-max": {
+          "type": "number"
+        },
+        "idle-ms": {
+          "type": "number"
+        },
+        "peak-ms": {
+          "type": "number"
+        },
+        "out-data-provider": {
           "type": "string"
         }
       }

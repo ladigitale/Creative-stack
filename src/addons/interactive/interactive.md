@@ -12,7 +12,8 @@ Addon opt-in `@supersoniks/creative-stack/interactive` for **declarative** playa
 | `sonic-gesture` | Tap / swipe / long-press, drag, pan, pinch (multipoint), wheel — see below |
 | `sonic-action` | `pointerdown` (default: games, touch d-pads, `hold-repeat`) or `trigger="click"` (UI buttons: tabs, details, filters) → action |
 | `sonic-ticker` | Clock `tick` with `dt` |
-| `sonic-trigger` | Sensor → action: watches a DataProvider value and dispatches an action to a store — see below |
+| `sonic-trigger` | Sensor → action: watches a DataProvider value and dispatches an action to a store, or plays a MIDI note — see below |
+| `sonic-motion` | Speed / acceleration / peak speed of a sensor value (velocity for MIDI) — see below |
 | `sonic-matrix` | 2D grid canvas from DataProvider |
 
 Also: `sonic-if` accepts `dataProvider` + `key` + `equals`/`not`/`truthy`/`gt`/`lt` for SDUI. `sonic-value` accepts `format="00000"` or `format="intl:fr-FR"`.
@@ -44,11 +45,57 @@ Watches one value of a DataProvider (tracker output, microphone, another store�
 | `payload` | Fixed JSON object merged into the payload; the component adds `value` (value read) and `count` (rank of the firing) | — |
 | `end-type` | Action type sent when the condition goes false after a firing (payload `{value}`); empty: none | — |
 | `disabled` | Suspends watching | `false` |
-| `state-provider` | DataProvider `{active, armed, count, value}` for the UI | — |
+| `state-provider` | DataProvider `{active, armed, count, value, note, vel}` for the UI | — |
 
 The hold and cooldown are confirmed by a 100 ms loop, so timings are accurate to about 0.1 s. No code is evaluated: only the fixed operators above.
 
 Typical sources: `sonic-object-detector` (`labels.person`, `count`), `sonic-face-tracker` (`present`, `smile`, `mouthOpen`), `sonic-hand-tracker` (`right.gesture`), `sonic-mic` (`db`), `sonic-audio-analyser` (`onset`, `rms`).
+
+### Direct MIDI output (`emit`)
+
+Besides (or instead of) the store action, a firing can play a note through a `sonic-midi` (or any instrument fed by an events DataProvider), with no store in between:
+
+```json
+{ "tagName": "sonic-motion", "attributes": { "source": "hands", "keys": "right.x,right.y", "speed-max": "2", "out-data-provider": "hand-speed" } }
+{ "tagName": "sonic-trigger", "attributes": {
+  "source": "hand-speed", "key": "moving", "emit": "noteOn",
+  "emit-provider": "midi-ev", "emit-trigger": "midi-go",
+  "note-key": "value", "note-range": "48,72", "scale": "0,2,4,7,9",
+  "vel-source": "hand-speed", "vel-key": "peakVel", "vel-min": "0.2" } }
+{ "tagName": "sonic-midi", "attributes": { "events": "midi-ev", "trigger": "midi-go", "out-channel": "1" } }
+```
+
+| Attribute | Role | Default |
+|---|---|---|
+| `emit` | `note` (duration `dur-s`) or `noteOn` (held until the condition goes false, then `noteOff`; also released when disabled or removed). Empty: no MIDI | — |
+| `emit-provider` | DataProvider receiving the event list → `events` of `sonic-midi` | — |
+| `emit-trigger` | DataProvider counter bumped after each emission → `trigger` of `sonic-midi` (starts at 0 so the first message is not swallowed) | — |
+| `note` | Fixed note (`C4` or MIDI number) when `note-key` is empty | `60` |
+| `note-key` | Path of a 0..1 value in `source` choosing the pitch | — |
+| `note-range` | `low,high` MIDI notes for `note-key` | `48,72` |
+| `scale` | Semitone offsets from the low note (`0,2,4,7,9`); empty: chromatic | — |
+| `vel-source`, `vel-key` | DataProvider and path (0..1) giving the velocity (e.g. `sonic-motion` `vel` or `peakVel`) | `vel` |
+| `vel-min` | Velocity floor (and the velocity without `vel-source`) | `0.3` |
+| `dur-s`, `ch` | Note duration (`note` only), MIDI channel 1..16 (0: sonic-midi's) | `0.25`, `0` |
+
+The velocity is read **at the instant of firing**: use `peakVel` (strongest speed of the last `peak-ms`) to play "how hard the gesture was" rather than the instantaneous speed.
+
+**Latency.** Camera-driven MIDI cannot be tighter than the camera frame period plus inference and the worker transfer (tens of ms, see `latencyMs` on the trackers). The hold/cooldown loop adds up to 100 ms only when `hold-ms` is used; a firing triggered by a new value is immediate.
+
+## `sonic-motion`
+
+Publishes the speed of one or several values of a DataProvider (`keys="x"` or `keys="x,y"`: with several, the norm of the displacement).
+
+| Attribute | Role | Default |
+|---|---|---|
+| `source`, `keys` | DataProvider and dotted paths (comma-separated) | required |
+| `smooth-ms` | Time constant of the speed smoothing (0: raw) | `60` |
+| `speed-max` | Speed (units/s) giving `vel = 1`; normalized positions typically need 1–4 | `2` |
+| `idle-ms` | Without a new value for this long, the speed decays toward 0 | `120` |
+| `peak-ms` | Window of the peak speed | `150` |
+| `out-data-provider` | `{value, values, speed, accel, vel, peak, peakVel, moving}` | — |
+
+A gap longer than 0.5 s between two values restarts the measure with a speed of 0 (no spike when a hand reappears).
 
 ## `sonic-gesture`
 
