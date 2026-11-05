@@ -232,6 +232,19 @@ describe("sonic-skeleton : preset humain", () => {
     expect(el.getState().errors).toEqual([]);
   });
 
+  it("rest : pose de repos à la racine fixe, inchangée quand la racine suit une pose", async () => {
+    const el = await mount({ "nodes-out": "rigR", preset: "humain", x: "100", y: "50", source: "poseR", width: "800", height: "450" });
+    const rest = () => dp("rigR.rest").get() as Record<string, { x: number; y: number; angle: number; length: number }>;
+    const first = JSON.parse(JSON.stringify(rest()));
+    expect(Object.keys(first)).toHaveLength(HUMAN_PRESET.length);
+    expect(first.bassin).toMatchObject({ x: 100, y: 50 });
+    set("poseR", pose({ leftHip: [0.5, 0.6], rightHip: [0.5, 0.6] }));
+    await flush();
+    el.solveAt(performance.now());
+    expect(bonesOf("rigR").bassin).toMatchObject({ x: 400, y: 270 });
+    expect(rest()).toEqual(first);
+  });
+
   it("scale : tout le squelette, décalages compris", async () => {
     await mount({ "nodes-out": "rigH5", preset: "humain", x: "0", y: "0", scale: "2" });
     expect(bonesOf("rigH5").torse.length).toBe(220);
@@ -260,5 +273,27 @@ describe("exemple marionnette", () => {
     expect(scene.dataProvider).toBe(skeleton["nodes-out"]);
     expect(skeleton.source).toBe(all.find((n) => n.tagName === "sonic-pose-tracker")!.attributes!.id);
     for (const sp of all.filter((n) => n.tagName === "sonic-sprite")) expect(sp.attributes!.pivot, sp.attributes!.name).toMatch(/^[\d.]+,[\d.]+$/);
+  });
+});
+
+describe("exemple bras souple", () => {
+  type N = { tagName: string; attributes?: Record<string, string>; nodes?: N[] };
+  it("un maillage lié aux os déclarés : le squelette écrit rest et bones là où sonic-2d lit", async () => {
+    const doc = (await import("./examples/bras-souple.sdui.json")).default as unknown as { nodes: N[] };
+    const all: N[] = [];
+    const walk = (x: { nodes?: N[] }) => (x.nodes ?? []).forEach((c) => (all.push(c), walk(c)));
+    walk(doc);
+    const skeleton = all.find((n) => n.tagName === "sonic-skeleton")!;
+    const scene = all.find((n) => n.tagName === "sonic-2d")!.attributes!;
+    expect(scene.dataProvider).toBe(skeleton.attributes!["nodes-out"]);
+    const mesh = all.find((n) => n.tagName === "sonic-sprite")!.attributes!;
+    expect(mesh.shape).toBe("mesh");
+    expect(mesh.src).toMatch(/^data:image\/svg\+xml;base64,/);
+    const el = await mount(skeleton.attributes!, (skeleton.nodes ?? []).map((b) => b.attributes!));
+    expect(el.getState().errors).toEqual([]);
+    expect(Object.keys(dp("rig.rest").get() as object)).toEqual(["epaule", "coude"]);
+    // les sliders écrivent là où angle-from lit
+    for (const b of skeleton.nodes!) expect(b.attributes!["angle-from"]).toMatch(/^bras\./);
+    for (const i of all.filter((n) => n.tagName === "sonic-input")) expect(i.attributes!.formDataProvider).toBe("bras");
   });
 });

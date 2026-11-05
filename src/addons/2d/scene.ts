@@ -5,9 +5,10 @@
  */
 // Sans ce module, Pixi compile ses shaders avec `new Function` : refusé par une CSP sans unsafe-eval (viewer Artefacts).
 import "pixi.js/unsafe-eval";
-import { Application, CanvasSource, Container, Graphics, Sprite, Text, Texture, type ContainerChild } from "pixi.js";
+import { Application, CanvasSource, Container, Graphics, Mesh, MeshGeometry, Sprite, Text, Texture, type ContainerChild } from "pixi.js";
 import { isFrameSource } from "../../shared/mediaRef";
 import { NodeStates } from "../../shared/node-state";
+import { buildSkin, skinVertices, type BoneFrame, type Skin } from "../../shared/skin";
 import {
   DEFAULT_LAYER,
   hitShape,
@@ -28,8 +29,22 @@ type Entry = {
   art: ContainerChild | null;
   layer: string;
   /** Sprite image alimenté par une source d'images vivante (`source="#id"`). */
-  live?: { sp: Sprite; seq: number; canvas: HTMLCanvasElement | null; w: number; h: number };
+  live?: { sp: Sprite | Mesh; seq: number; canvas: HTMLCanvasElement | null; w: number; h: number };
+  /** Sprite `mesh` : image déformée par les os (positions des sommets recalculées à chaque pose). */
+  mesh?: { m: Mesh; geom: MeshGeometry; skin: Skin | null; frames: BoneFrame[]; names: string[]; sig: string };
 };
+
+const QUAD_UVS = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
+const QUAD_INDICES = new Uint32Array([0, 1, 2, 1, 3, 2]);
+const quadPositions = (s: SpriteSpec): Float32Array => new Float32Array([-s.w / 2, -s.h / 2, s.w / 2, -s.h / 2, -s.w / 2, s.h / 2, s.w / 2, s.h / 2]);
+
+/** Os publié par sonic-skeleton (`rest` / `bones`) : null si incomplet ou non fini. */
+function boneFrame(v: unknown): BoneFrame | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const f = { x: Number(o.x), y: Number(o.y), x2: Number(o.x2), y2: Number(o.y2), angle: Number(o.angle) };
+  return Object.values(f).every(Number.isFinite) ? f : null;
+}
 
 const RAD = Math.PI / 180;
 
@@ -55,6 +70,11 @@ export class Scene2D {
   private camera: Camera;
   private ready = false;
   private destroyed = false;
+  /** Squelette publié (`rest` : pose de repos, `bones` : pose courante) pour les sprites `mesh`. */
+  private restRef: unknown = undefined;
+  private restSig = "";
+  private rest: Record<string, unknown> | null = null;
+  private bones: Record<string, unknown> | null = null;
   width: number;
   height: number;
 
@@ -302,9 +322,11 @@ export class Scene2D {
         live.h = canvas.height;
       } else live.sp.texture.source.update();
       // l'image tient dans la boîte w × h du sprite, proportions conservées
-      const k = Math.min(e.spec.w / canvas.width, e.spec.h / canvas.height);
-      live.sp.width = canvas.width * k;
-      live.sp.height = canvas.height * k;
+      if (live.sp instanceof Sprite) {
+        const k = Math.min(e.spec.w / canvas.width, e.spec.h / canvas.height);
+        live.sp.width = canvas.width * k;
+        live.sp.height = canvas.height * k;
+      }
       this.applyPivot(e);
       changed = true;
     }
@@ -315,6 +337,7 @@ export class Scene2D {
     const s = e.spec;
     const fill = color ?? s.fill;
     e.live = undefined;
+    e.mesh = undefined;
     if (e.art) {
       e.holder.removeChild(e.art);
       e.art.destroy();
@@ -350,6 +373,23 @@ export class Scene2D {
         img.src = s.src;
       }
       art = sp;
+    } else if (s.shape === "mesh") {
+      const geom = new MeshGeometry({ positions: quadPositions(s), uvs: QUAD_UVS, indices: QUAD_INDICES });
+      const m = new Mesh({ geometry: geom, texture: Texture.EMPTY });
+      e.mesh = { m, geom, skin: null, frames: [], names: [], sig: "" };
+      if (s.source && !s.src) e.live = { sp: m, seq: -1, canvas: null, w: 0, h: 0 };
+      if (s.src) {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.decoding = "async";
+        img.onload = () => {
+          if (m.destroyed) return;
+          m.texture = Texture.from(img);
+          this.opts.invalidate();
+        };
+        img.src = s.src;
+      }
+      art = m;
     } else {
       const g = new Graphics();
       if (s.shape === "circle") g.circle(0, 0, s.r);
@@ -364,6 +404,61 @@ export class Scene2D {
     e.art = art;
     e.holder.addChild(art);
     this.applyPivot(e);
+    this.skinMesh(e);
+    this.opts.invalidate();
+  }
+
+  /* ------------------------------------------------------------ maillage déformable */
+
+  /** Reçoit le squelette publié par `sonic-skeleton` ; les maillages se redéforment. */
+  setSkeleton(rest: unknown, bones: unknown): void {
+    const obj = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : null);
+    if (rest !== this.restRef) {
+      this.restRef = rest;
+      this.rest = obj(rest);
+      this.restSig = this.rest ? JSON.stringify(this.rest) : "";
+    }
+    this.bones = obj(bones);
+    for (const e of this.entries.values()) this.skinMesh(e);
+  }
+
+  /** (Re)construit la grille et les poids si le repos ou le sprite a changé, puis place les sommets pour la pose courante. */
+  private skinMesh(e: Entry): void {
+    const mesh = e.mesh;
+    if (!mesh) return;
+    const s = e.spec;
+    const restBones = this.rest;
+    const names = restBones ? (s.skinBones.length ? s.skinBones : Object.keys(restBones)).filter((n) => boneFrame(restBones[n])) : [];
+    const sig = `${this.restSig}|${names.join(",")}|${s.x},${s.y}`;
+    if (mesh.sig !== sig) {
+      mesh.sig = sig;
+      const frames = names.map((n) => boneFrame(restBones?.[n])!);
+      const skin = frames.length ? buildSkin({ x: s.x, y: s.y, w: s.w, h: s.h, cols: s.cols, rows: s.rows, rest: frames, falloff: s.falloff, influences: s.influences }) : null;
+      mesh.skin = skin;
+      mesh.frames = frames;
+      mesh.names = names;
+      if (skin) {
+        mesh.geom.indices = skin.indices;
+        mesh.geom.uvs = skin.uvs;
+        mesh.geom.positions = new Float32Array(skin.count * 2);
+      } else {
+        mesh.geom.indices = QUAD_INDICES;
+        mesh.geom.uvs = QUAD_UVS;
+        mesh.geom.positions = quadPositions(s);
+      }
+    }
+    const skin = mesh.skin;
+    if (!skin) return;
+    // un os absent de la pose courante garde son repos (skinVertices)
+    const current = mesh.names.map((n) => boneFrame(this.bones?.[n])) as BoneFrame[];
+    const pos = mesh.geom.positions;
+    skinVertices(skin, mesh.frames, current, pos);
+    // les sommets sont dans le repère du porteur, dont l'origine est la position de départ du sprite
+    for (let i = 0; i < skin.count; i++) {
+      pos[i * 2] -= s.x;
+      pos[i * 2 + 1] -= s.y;
+    }
+    mesh.geom.buffers[0].update();
     this.opts.invalidate();
   }
 
@@ -372,7 +467,7 @@ export class Scene2D {
     const art = e.art;
     if (!art) return;
     const s = e.spec;
-    const [w, h] = s.shape === "text" || s.shape === "image" ? [art.width, art.height] : s.shape === "circle" ? [2 * s.r, 2 * s.r] : [s.w, s.h];
+    const [w, h] = s.shape === "text" || s.shape === "image" || s.shape === "mesh" ? [art.width, art.height] : s.shape === "circle" ? [2 * s.r, 2 * s.r] : [s.w, s.h];
     const [ox, oy] = pivotOffset(s, w, h);
     art.position.set(ox, oy);
   }

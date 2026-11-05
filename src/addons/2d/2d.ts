@@ -310,6 +310,7 @@ export class Sonic2d extends LitElement {
     const animate = !reducedMotion() && document.visibilityState !== "hidden";
     const now = performance.now();
     if (data.nodes !== undefined) scene.nodes.apply(data.nodes, now, animate);
+    if (data.rest !== undefined || data.bones !== undefined) scene.setSkeleton(data.rest, data.bones);
     if (data.camera !== undefined && !this.camera.trim()) this.applyCameraSpec(data.camera, now, animate);
     this.publishOut();
     this.invalidate();

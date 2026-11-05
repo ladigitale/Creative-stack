@@ -202,6 +202,7 @@ export class SonicSkeleton extends LitElement {
   private lastRoot: { x: number; y: number; t: number } | null = null;
   private driven = new Set<string>();
   private lastSig = "";
+  private lastRestSig = "";
   private queued = false;
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
   private states: BoneState[] = [];
@@ -290,6 +291,7 @@ export class SonicSkeleton extends LitElement {
     this.lastWorld.clear();
     this.driven.clear();
     this.lastSig = "";
+    this.lastRestSig = "";
     this.listen();
     this.schedule();
   }
@@ -431,6 +433,26 @@ export class SonicSkeleton extends LitElement {
     return this.publish(states, eased);
   }
 
+  /**
+   * Pose de repos (`<nodes-out>.rest`) : les os sans pilotage, racine à sa position fixe `x`,`y`. C'est la pose pour
+   * laquelle l'image d'un maillage déformable est dessinée. Publiée seulement quand elle change.
+   */
+  private publishRest(out: string): void {
+    const rig = this.rig;
+    if (!rig) return;
+    const width = Number(this.width) || 800;
+    const height = Number(this.height) || 450;
+    const root = { x: Number.isFinite(this.x) ? this.x : width / 2, y: Number.isFinite(this.y) ? this.y : height * 0.55 };
+    const rest: Record<string, Record<string, number>> = {};
+    for (const s of rig.solve(root, {})) {
+      rest[s.name] = { x: r2(s.x), y: r2(s.y), x2: r2(s.x2), y2: r2(s.y2), angle: r2(s.angle), length: r2(s.length) };
+    }
+    const sig = JSON.stringify(rest);
+    if (sig === this.lastRestSig) return;
+    this.lastRestSig = sig;
+    set(`${out}.rest`, rest);
+  }
+
   private publish(states: BoneState[], eased: boolean): boolean {
     const out = (this.nodesOut ?? "").trim();
     if (!out) return false;
@@ -442,6 +464,7 @@ export class SonicSkeleton extends LitElement {
       for (const n of names.get(s.name) ?? [s.name]) nodes[n] = { ...patch };
       bones[s.name] = { x: r2(s.x), y: r2(s.y), x2: r2(s.x2), y2: r2(s.y2), angle: r2(s.angle), rz: r4(s.rz), length: r2(s.length) };
     }
+    this.publishRest(out);
     const sig = JSON.stringify([nodes, this.present]);
     if (sig === this.lastSig) return false;
     this.lastSig = sig;

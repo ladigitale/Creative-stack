@@ -6,7 +6,7 @@
  * une même liste de DataProvider peut décrire les corps d'un `sonic-physics` et leurs sprites.
  */
 
-export type SpriteShape = "box" | "circle" | "polygon" | "text" | "image";
+export type SpriteShape = "box" | "circle" | "polygon" | "text" | "image" | "mesh";
 
 export type SpriteSpec = {
   name: string;
@@ -37,6 +37,16 @@ export type SpriteSpec = {
   pivotY: number;
   /** Image d'un sprite `image` prise sur une source d'images vivante (`#id` : caméra, `sonic-mask-replace`…). */
   source: string;
+  /**
+   * `mesh` : image qui se déforme entre les os d'un `sonic-skeleton` (`rest` et `bones` du DataProvider). Grille de
+   * `cols × rows` mailles (2 à 40), `influences` os par sommet (1 à 4), `falloff` (exposant des poids), `skinBones`
+   * (os liés ; vide = tous).
+   */
+  cols: number;
+  rows: number;
+  falloff: number;
+  influences: number;
+  skinBones: string[];
   angle: number;
   opacity: number;
   layer: string;
@@ -44,7 +54,7 @@ export type SpriteSpec = {
   hidden: boolean;
 };
 
-export const SHAPES: SpriteShape[] = ["box", "circle", "polygon", "text", "image"];
+export const SHAPES: SpriteShape[] = ["box", "circle", "polygon", "text", "image", "mesh"];
 export const MAX_SPRITES = 500;
 
 const num = (v: unknown, d: number): number => {
@@ -96,7 +106,11 @@ export function parseSprite(raw: Record<string, unknown>, fallbackName: string):
   const sourceRaw = String(o.source ?? "").trim();
   const source = /^#[A-Za-z_][\w-]*$/.test(sourceRaw) ? sourceRaw : "";
   if (sourceRaw && !source) errors.push(`${name} : source doit être un #id (ex. "#personne")`);
-  if (shape === "image" && !src && !source) errors.push(`${name} : src (image data:image/… ou https://) ou source (#id) est requis`);
+  if ((shape === "image" || shape === "mesh") && !src && !source) errors.push(`${name} : src (image data:image/… ou https://) ou source (#id) est requis`);
+  const grid = o.grid === undefined || o.grid === "" ? [8, 8] : pair(o.grid);
+  if (!grid) errors.push(`${name} : grid doit être « colonnes,lignes » (ex. "8,12")`);
+  const gridVal = grid ?? [8, 8];
+  const skinBones = (Array.isArray(o.skinbones) ? o.skinbones.map(String) : String(o.skinbones ?? "").split(/[\s,]+/)).map((n) => n.trim()).filter(Boolean);
   return {
     spec: {
       name,
@@ -116,6 +130,11 @@ export function parseSprite(raw: Record<string, unknown>, fallbackName: string):
       font: o.font == null ? "" : String(o.font), // vide : police de la page (scene.ts)
       src,
       source,
+      cols: Math.max(2, Math.min(40, Math.round(gridVal[0]))),
+      rows: Math.max(2, Math.min(40, Math.round(gridVal[1]))),
+      falloff: Math.max(0.1, num(o.falloff, 2)),
+      influences: Math.max(1, Math.min(4, Math.round(num(o.influences, 3)))),
+      skinBones,
       pivotX: pivot ? pivot[0] : 0.5,
       pivotY: pivot ? pivot[1] : 0.5,
       angle: num(o.angle, 0),
@@ -200,10 +219,10 @@ export function screenToLayer(sx: number, sy: number, p: number, cam: Camera, w:
 
 /**
  * Décalage (unités) du dessin par rapport à la position du nœud pour que le pivot du sprite (`pivotX`, `pivotY`)
- * y soit placé. `w`, `h` : taille du dessin. Nul pour `polygon`.
+ * y soit placé. `w`, `h` : taille du dessin. Nul pour `polygon` et `mesh` (dessiné à sa position).
  */
 export function pivotOffset(s: SpriteSpec, w: number, h: number): [number, number] {
-  if (s.shape === "polygon") return [0, 0];
+  if (s.shape === "polygon" || s.shape === "mesh") return [0, 0];
   return [(0.5 - s.pivotX) * w, (0.5 - s.pivotY) * h];
 }
 
