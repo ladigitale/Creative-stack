@@ -239,6 +239,20 @@ describe("sonic-mask-replace", () => {
     expect((dp("mr2") as { get?: () => unknown }).get?.()).toMatchObject({ regions: 1, mask: false, target: "subject" });
   });
 
+  it("object-id : seul l'objet de cette identité est masqué", async () => {
+    addCanvasSource("cam", 1000, 500);
+    const { el } = await mount({ source: "cam", detections: "dets9", "object-id": "8", target: "subject", effect: "color", pad: "0", feather: "0", smooth: "0", "out-data-provider": "mr9" });
+    set("dets9", {
+      objects: [
+        { label: "cup", score: 0.9, x: 0.1, y: 0.2, w: 0.2, h: 0.4, id: 7 },
+        { label: "cup", score: 0.8, x: 0.5, y: 0.1, w: 0.2, h: 0.4, id: 8 },
+      ],
+    });
+    el.draw();
+    expect([...log.values()].flat().filter((c) => c[0] === "ellipse")).toHaveLength(1);
+    expect((dp("mr9") as { get?: () => unknown }).get?.()).toMatchObject({ regions: 1 });
+  });
+
   it("forme rect, marge et plafond d'objets", async () => {
     addCanvasSource("cam", 1000, 1000);
     const { el } = await mount({ source: "cam", detections: "dets2", shape: "rect", pad: "0.5", "max-objects": "1", feather: "0", smooth: "0" });
@@ -314,6 +328,6 @@ describe("sonic-mask-replace", () => {
       expect(target?.attributes).toMatchObject({ effect: "cutout", target: "background" });
     }
     const listed = (manifest as unknown as { examples: string[] }).examples;
-    for (const e of ["fond-virtuel", "masquer-objet", "recomposition"]) expect(listed).toContain(`examples/${e}.sdui.json`);
+    for (const e of ["fond-virtuel", "masquer-objet", "recomposition", "suivre-objet", "mes-objets"]) expect(listed).toContain(`examples/${e}.sdui.json`);
   });
 });

@@ -11,7 +11,7 @@ const tagName = "sonic-object-detector";
  * Détecte des objets (80 classes COCO par défaut : personne, tasse, téléphone, chaise…) dans un flux d'images
  * (`for="cam"`) et publie en DataProvider le meilleur objet, les comptes par étiquette et la liste des boîtes
  * (0..1, repère écran). Inférence locale ; mêmes règles de modèle, de confiance et de consentement que les
- * autres trackers. `smooth` ne s'applique pas (pas d'identité entre images).
+ * autres trackers. Sans `track`, `smooth` ne s'applique pas (pas d'identité entre images) ; avec `track="true"`, chaque objet a un `id` stable et sa boîte est lissée.
  */
 @customElement(tagName)
 export class SonicObjectDetector extends SonicMlTracker<RawDetection[], ObjectsOutput> {
@@ -22,7 +22,20 @@ export class SonicObjectDetector extends SonicMlTracker<RawDetection[], ObjectsO
   @property({ type: String })
   categories = "";
 
+  /** `"true"` : chaque objet reçoit un `id` stable d'une image à l'autre (`objects.N.id`, `ids`, `id`), et `smooth` lisse sa boîte. */
+  @property({ type: String })
+  track: "true" | "false" = "false";
+
+  /** Recouvrement minimal (0..1) pour reconnaître un objet d'une image à l'autre. */
+  @property({ type: Number, attribute: "track-iou" })
+  trackIou = 0.3;
+
+  /** Un objet disparu garde son `id` pendant cette durée (ms) : il le retrouve s'il revient au même endroit. */
+  @property({ type: Number, attribute: "track-max-age-ms" })
+  trackMaxAgeMs = 500;
+
   private core = new DetectorCore({ holdMs: 150, mirror: true });
+  private smoothValue = 0;
 
   protected defaultModel(): string {
     return "object-detector";
@@ -60,12 +73,19 @@ export class SonicObjectDetector extends SonicMlTracker<RawDetection[], ObjectsO
   }
 
   protected toOutput(raw: RawDetection[], now: number, mirror: boolean): ObjectsOutput {
-    this.core.configure({ mirror });
+    this.core.configure({
+      mirror,
+      track: this.track === "true",
+      trackIou: Number(this.trackIou) || 0.3,
+      trackMaxAgeMs: Number(this.trackMaxAgeMs) || 500,
+      smooth: this.smoothValue,
+    });
     return this.core.update(raw, now);
   }
 
   protected configureCore(opts: { smooth: number; holdMs: number; map: CompiledMap | null }): void {
-    this.core.configure({ holdMs: opts.holdMs, map: opts.map });
+    this.smoothValue = opts.smooth;
+    this.core.configure({ holdMs: opts.holdMs, map: opts.map, smooth: opts.smooth });
   }
 
   protected resetCore(): void {

@@ -180,6 +180,28 @@ describe("sonic-object-detector", () => {
     expect(d.labels.cup).toBe(1);
   });
 
+  it("track : ids stables entre images et boîte lissée ; sans track : aucun id", async () => {
+    const cam = mountSource();
+    let x = 64;
+    const mp = fakeMp(() => ({ size: { width: 640, height: 480 }, detections: [{ boundingBox: { originX: x, originY: 48, width: 128, height: 96 }, categories: [{ categoryName: "cup", score: 0.8 }] }] }));
+    configureVision({ createMpEngine: mp.create });
+    const el = await mount("sonic-object-detector", { id: "d3", for: "cam", load: "auto", mirror: "false", track: "true", smooth: "0.8", "track-max-age-ms": "1000" });
+    await flush();
+    const a = (await el.processFrame(0)) as { id: number; ageMs: number; ids: number[]; x: number };
+    expect(a).toMatchObject({ id: 1, ageMs: 0, ids: [1] });
+    x = 96;
+    cam.t = 2; // nouvelle image
+    const b = (await el.processFrame(40)) as { id: number; ageMs: number; x: number };
+    expect(b).toMatchObject({ id: 1, ageMs: 40 });
+    expect(b.x).toBeGreaterThan(0.1);
+    expect(b.x).toBeLessThan(0.15);
+    expect(dp("d3").get()).toMatchObject({ id: 1 });
+    mountSource("cam2");
+    const plain = await mount("sonic-object-detector", { id: "d4", for: "cam2", load: "auto", mirror: "false" });
+    await flush();
+    expect(await plain.processFrame(0)).not.toHaveProperty("id");
+  });
+
   it("sans catégories : pas de liste blanche", async () => {
     mountSource();
     const mp = fakeMp(() => ({ size: { width: 1, height: 1 } }));

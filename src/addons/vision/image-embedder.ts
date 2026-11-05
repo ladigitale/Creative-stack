@@ -53,6 +53,10 @@ export class SonicImageEmbedder extends SonicMlTracker<number[] | null, EmbedOut
   @property({ type: String, attribute: "crop-labels" })
   cropLabels = "";
 
+  /** Identité (`id` d'un détecteur en `track="true"`) de l'objet à analyser ; 0 : la meilleure boîte retenue. */
+  @property({ type: Number, attribute: "crop-id" })
+  cropId = 0;
+
   /** Score minimal d'une boîte de `crop`. */
   @property({ type: Number, attribute: "crop-min-score" })
   cropMinScore = 0.4;
@@ -134,7 +138,7 @@ export class SonicImageEmbedder extends SonicMlTracker<number[] | null, EmbedOut
    */
   private zoneFor(mirror: boolean): { x: number; y: number; w: number; h: number } | null | undefined {
     if (text(this.crop)) {
-      const kept = selectBoxes(this.boxes, text(this.cropLabels), Number(this.cropMinScore) || 0, 1);
+      const kept = selectBoxes(this.boxes, text(this.cropLabels), Number(this.cropMinScore) || 0, 1, Number(this.cropId) || 0);
       if (kept.length === 0) return null;
       return cropBox(kept[0], Number(this.cropPad) || 0, mirror);
     }

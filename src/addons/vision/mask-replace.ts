@@ -96,6 +96,10 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
   @property({ type: Number, attribute: "max-objects" })
   maxObjects = 5;
 
+  /** Identité (`id` d'un `sonic-object-detector track="true"`) : seul cet objet est retenu ; 0 : tous. */
+  @property({ type: Number, attribute: "object-id" })
+  objectId = 0;
+
   /** Forme du masque d'un objet : `ellipse` ou `rect`. */
   @property({ type: String })
   shape: "ellipse" | "rect" = "ellipse";
@@ -345,7 +349,7 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
         return null;
       }
     }
-    const kept = this.detections.trim() ? selectBoxes(this.boxes, this.labels, Number(this.minScore) || 0, Number(this.maxObjects) || 0) : [];
+    const kept = this.detections.trim() ? selectBoxes(this.boxes, this.labels, Number(this.minScore) || 0, Number(this.maxObjects) || 0, Number(this.objectId) || 0) : [];
     if (kept.length) {
       rc.fillStyle = "#fff";
       for (const s of shapesOf(kept, w, h, this.shape === "rect" ? "rect" : "ellipse", Number(this.pad) || 0)) {

@@ -45,3 +45,51 @@ describe("DetectorCore", () => {
     expect(labelKey("")).toBe("objet");
   });
 });
+
+describe("DetectorCore : suivi d'identité (track)", () => {
+  it("sans track : aucun id", () => {
+    const out = core().update([det("cup", 0.9, 0.1)], 0);
+    expect(out.ids).toBeUndefined();
+    expect(out.objects[0].id).toBeUndefined();
+    expect(out.id).toBeUndefined();
+  });
+
+  it("id stable, âge, ids dans l'ordre des objets, meilleur objet", () => {
+    const c = core({ track: true });
+    const a = c.update([det("cup", 0.9, 0.1), det("cup", 0.7, 0.6)], 0);
+    expect(a.ids).toEqual([1, 2]);
+    expect(a).toMatchObject({ id: 1, ageMs: 0 });
+    const b = c.update([det("cup", 0.95, 0.62), det("cup", 0.8, 0.11)], 200);
+    expect(b.ids).toEqual([2, 1]); // le meilleur est maintenant l'objet 2
+    expect(b).toMatchObject({ id: 2, ageMs: 200 });
+    expect(b.objects.map((o) => o.ageMs)).toEqual([200, 200]);
+  });
+
+  it("smooth lisse la boîte d'un objet suivi (pas sans track)", () => {
+    const c = core({ track: true, smooth: 0.8 });
+    c.update([det("cup", 0.9, 0.1)], 0);
+    const o = c.update([det("cup", 0.9, 0.2)], 33).objects[0];
+    expect(o.x).toBeGreaterThan(0.1);
+    expect(o.x).toBeLessThan(0.2);
+    expect(o.cx).toBeCloseTo(o.x + o.w / 2, 6);
+    const raw = core({ track: false, smooth: 0.8 });
+    raw.update([det("cup", 0.9, 0.1)], 0);
+    expect(raw.update([det("cup", 0.9, 0.2)], 33).objects[0].x).toBeCloseTo(0.2, 6);
+  });
+
+  it("seuils : track-iou, track-max-age-ms ; reset repart de 1", () => {
+    const c = core({ track: true, trackIou: 0.9, trackMaxAgeMs: 100 });
+    c.update([det("cup", 0.9, 0.1)], 0);
+    expect(c.update([det("cup", 0.9, 0.15)], 20).ids).toEqual([2]); // pas assez recouvert
+    expect(c.update([det("bottle", 0.9, 0.5)], 400).ids).toEqual([3]);
+    c.reset();
+    expect(c.update([det("cup", 0.9, 0.1)], 500).ids).toEqual([1]);
+  });
+
+  it("hold-ms : sortie gardée sans consommer d'identité", () => {
+    const c = core({ track: true, holdMs: 100 });
+    c.update([det("cup", 0.9, 0.1)], 0);
+    expect(c.update([], 50)).toMatchObject({ present: 1, ids: [1] });
+  });
+});
+

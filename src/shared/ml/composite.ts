@@ -3,7 +3,7 @@
  * pixels, recadrage « cover », échelles de flou et de pixellisation, couleur CSS sûre. Aucun accès au DOM.
  */
 
-export type Box = { label: string; score: number; x: number; y: number; w: number; h: number };
+export type Box = { label: string; score: number; x: number; y: number; w: number; h: number; /** Identité (`sonic-object-detector track="true"`). */ id?: number };
 
 export type Shape = { kind: "rect" | "ellipse"; x: number; y: number; w: number; h: number };
 
@@ -18,7 +18,7 @@ export function boxesOf(output: unknown): Box[] {
   for (const o of list) {
     const b = o as Partial<Box> | null;
     if (!b || !finite(b.x) || !finite(b.y) || !finite(b.w) || !finite(b.h) || b.w <= 0 || b.h <= 0) continue;
-    out.push({ label: String(b.label ?? ""), score: finite(b.score) ? b.score : 0, x: b.x, y: b.y, w: b.w, h: b.h });
+    out.push({ label: String(b.label ?? ""), score: finite(b.score) ? b.score : 0, x: b.x, y: b.y, w: b.w, h: b.h, ...(finite(b.id) ? { id: b.id } : {}) });
   }
   return out;
 }
@@ -28,14 +28,17 @@ export function labelKey(label: string): string {
   return label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-/** Boîtes retenues : étiquettes (liste séparée par des virgules, vide = toutes), score minimal, au plus `max` (les meilleures). */
-export function selectBoxes(boxes: Box[], labels: string, minScore: number, max: number): Box[] {
+/**
+ * Boîtes retenues : étiquettes (liste séparée par des virgules, vide = toutes), score minimal, au plus `max` (les meilleures).
+ * `id` (> 0) : seulement l'objet de cette identité (les boîtes sans `id` sont alors écartées).
+ */
+export function selectBoxes(boxes: Box[], labels: string, minScore: number, max: number, id = 0): Box[] {
   const wanted = labels
     .split(",")
     .map((s) => labelKey(s))
     .filter(Boolean);
   return boxes
-    .filter((b) => b.score >= minScore && (wanted.length === 0 || wanted.includes(labelKey(b.label))))
+    .filter((b) => b.score >= minScore && (wanted.length === 0 || wanted.includes(labelKey(b.label))) && (!(id > 0) || b.id === id))
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(0, Math.floor(max)));
 }
