@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "interactive",
   "label": "Interactivité",
-  "description": "Store déclaratif à reducer JSONata, entrées clavier/manette/gestes, horloge et grille canvas.",
+  "description": "Store déclaratif à reducer JSONata, entrées clavier/manette/gestes, horloge, déclencheur capteur → action et grille canvas.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -132,7 +132,10 @@
         },
         "trigger": {
           "type": "string",
-          "values": ["pointerdown", "click"],
+          "values": [
+            "pointerdown",
+            "click"
+          ],
           "default": "pointerdown",
           "description": "pointerdown : jeux et manettes tactiles ; click : interfaces (comme un bouton Concorde)"
         }
@@ -155,6 +158,66 @@
           "type": "string"
         },
         "mode": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-trigger",
+      "description": "Relie un capteur à une action : surveille une valeur d'un DataProvider (source + key en chemin pointé : labels.person, right.gesture, db, faces.0.blend.jawOpen) et envoie une action au sonic-store target quand la condition tient (equals, not, gt, gte, lt, lte, truthy ; plusieurs opérateurs = ET) pendant hold-ms ; un seul déclenchement par franchissement (mode edge, réarmé au retour à faux) ou à chaque repos (mode repeat), cooldown-ms entre deux ; action {type, payload = payload JSON + value (valeur lue) + count} ; end-type = action au retour à faux ; disabled suspend ; state-provider publie {active, armed, count, value} ; pas d'évaluation de code",
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "equals": {
+          "type": "string"
+        },
+        "not": {
+          "type": "string"
+        },
+        "gt": {
+          "type": "string"
+        },
+        "gte": {
+          "type": "string"
+        },
+        "lt": {
+          "type": "string"
+        },
+        "lte": {
+          "type": "string"
+        },
+        "truthy": {
+          "type": "boolean"
+        },
+        "hold-ms": {
+          "type": "number"
+        },
+        "cooldown-ms": {
+          "type": "number"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "end-type": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "state-provider": {
           "type": "string"
         }
       }
