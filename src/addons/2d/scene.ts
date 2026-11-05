@@ -121,6 +121,8 @@ export class Scene2D {
       backgroundAlpha: bg && bg !== "transparent" ? 1 : 0,
       ...(bg && bg !== "transparent" ? { background: bg } : {}),
       preference: "webgl",
+      // Le canvas doit rester lisible après le rendu : un `sonic-shader` peut le prendre comme texture.
+      preserveDrawingBuffer: true,
     });
     if (this.destroyed) {
       this.app.destroy();
@@ -255,6 +257,7 @@ export class Scene2D {
       this.redraw(e, this.nodes.state(spec.name)?.color);
       if (this.nodes.state(spec.name)?.visible === undefined) e.holder.visible = !spec.hidden;
       if (this.nodes.state(spec.name)?.opacity === undefined) e.holder.alpha = spec.opacity;
+      e.holder.blendMode = spec.blend;
       if (this.nodes.state(spec.name)?.z === undefined) e.holder.zIndex = spec.z;
     }
     if (layerChanged) this.attach(e);
@@ -275,6 +278,7 @@ export class Scene2D {
     e.holder.rotation = s.angle * RAD;
     e.holder.scale.set(1);
     e.holder.alpha = s.opacity;
+    e.holder.blendMode = s.blend;
     e.holder.visible = !s.hidden;
     e.holder.zIndex = s.z;
     this.sortIfY(e);

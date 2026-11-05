@@ -49,11 +49,15 @@ export type SpriteSpec = {
   skinBones: string[];
   angle: number;
   opacity: number;
+  /** Fusion avec ce qui est dessous : `normal` (défaut), `add`, `screen` (fumée, lumière), `multiply` (ombre). */
+  blend: SpriteBlend;
   layer: string;
   z: number;
   hidden: boolean;
 };
 
+export type SpriteBlend = "normal" | "add" | "screen" | "multiply";
+export const BLENDS: SpriteBlend[] = ["normal", "add", "screen", "multiply"];
 export const SHAPES: SpriteShape[] = ["box", "circle", "polygon", "text", "image", "mesh"];
 export const MAX_SPRITES = 500;
 
@@ -139,6 +143,7 @@ export function parseSprite(raw: Record<string, unknown>, fallbackName: string):
       pivotY: pivot ? pivot[1] : 0.5,
       angle: num(o.angle, 0),
       opacity: Math.max(0, Math.min(1, num(o.opacity, 1))),
+      blend: BLENDS.includes(String(o.blend) as SpriteBlend) ? (String(o.blend) as SpriteBlend) : "normal",
       layer: String(o.layer ?? "").trim(),
       z: num(o.z, 0),
       hidden: bool(o.hidden),

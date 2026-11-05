@@ -14,6 +14,12 @@ describe("parseSprite", () => {
     expect(parseSprite({ shape: "polygon", points: "0,0 10,0" }, "p").errors[0]).toContain("3 points");
   });
 
+  it("blend : normal par défaut, valeurs connues seulement", () => {
+    expect(parseSprite({ r: 5 }, "a").spec.blend).toBe("normal");
+    expect(parseSprite({ r: 5, blend: "screen" }, "a").spec.blend).toBe("screen");
+    expect(parseSprite({ r: 5, blend: "xor" }, "a").spec.blend).toBe("normal");
+  });
+
   it("images : data:image/… ou https:// seulement", () => {
     expect(safeImageSrc("https://exemple.org/a.png")).toBe("https://exemple.org/a.png");
     expect(safeImageSrc("data:image/png;base64,iVBORw0KGgo=")).toBe("data:image/png;base64,iVBORw0KGgo=");
@@ -140,5 +146,13 @@ describe("manifeste et exemple", () => {
     for (const b of all.filter((x) => x.tagName === "sonic-body")) expect(sprites.has(b.attributes!.name)).toBe(true);
     const layers = new Set(parseLayers(scene.layers).layers.map((l) => l.name));
     for (const s of all.filter((x) => x.tagName === "sonic-sprite")) expect(layers.has(s.attributes!.layer)).toBe(true);
+  });
+});
+
+describe("blend", () => {
+  it("normal par défaut ; add, screen, multiply acceptés ; valeur inconnue : normal", () => {
+    expect(parseSprite({ name: "a" }, "a").spec.blend).toBe("normal");
+    for (const b of ["add", "screen", "multiply"]) expect(parseSprite({ name: "a", blend: b }, "a").spec.blend).toBe(b);
+    expect(parseSprite({ name: "a", blend: "difference" }, "a").spec.blend).toBe("normal");
   });
 });

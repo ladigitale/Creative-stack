@@ -171,6 +171,14 @@
           "type": "number",
           "description": "Opacité 0..1"
         },
+        "blend": {
+          "type": "string",
+          "description": "Fusion avec ce qui est dessous : normal (défaut), add, screen (fumée, lumière : un sprite source=\"#shader\" noir devient transparent), multiply (ombre)"
+        },
+        "blend": {
+          "type": "string",
+          "description": "Fusion avec le dessous : normal (défaut), add, screen (fumée, lumière : un fond noir disparaît), multiply (ombre)"
+        },
         "layer": {
           "type": "string",
           "description": "Calque (défaut monde)"
