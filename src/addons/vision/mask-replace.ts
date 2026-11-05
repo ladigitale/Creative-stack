@@ -4,6 +4,7 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { safeMediaUrl } from "../../shared/media/urls";
 import type { SonicFrameSource } from "../../shared/mediaRef";
+import { dilateHoles, fillHoles, holesFromMask } from "../../shared/ml/inpaint";
 import {
   blurDivisor,
   boxesOf,
@@ -409,9 +410,42 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
     return { canvas: current, regions: kept.length, fromSource };
   }
 
-  private drawEffect(ctx: CanvasRenderingContext2D, src: Frame, w: number, h: number): void {
+  /**
+   * `effect="fill"` : la zone remplacée est reconstruite depuis les couleurs qui l'entourent (diffusion, voir
+   * `shared/ml/inpaint`). Fait à petite taille ; retourne faux si le canvas d'analyse n'est pas disponible.
+   */
+  private drawFill(ctx: CanvasRenderingContext2D, src: Frame, w: number, h: number, mask: HTMLCanvasElement, target: MaskTarget): boolean {
+    const sw = Math.max(8, Math.min(80, w));
+    const sh = Math.max(6, Math.round((sw * h) / w));
+    const img = this.layer("fillsrc", sw, sh);
+    const msk = this.layer("fillmask", sw, sh);
+    if (!img || !msk) return false;
+    img.ctx.globalCompositeOperation = "source-over";
+    img.ctx.clearRect(0, 0, sw, sh);
+    this.drawFlipped(img.ctx, src, sw, sh);
+    msk.ctx.globalCompositeOperation = "source-over";
+    msk.ctx.clearRect(0, 0, sw, sh);
+    msk.ctx.drawImage(mask, 0, 0, sw, sh);
+    let pixels: ImageData;
+    let m: ImageData;
+    try {
+      pixels = img.ctx.getImageData(0, 0, sw, sh);
+      m = msk.ctx.getImageData(0, 0, sw, sh);
+    } catch {
+      return false;
+    }
+    const hole = dilateHoles(holesFromMask(m.data, sw, sh, target === "background"), sw, sh);
+    fillHoles(pixels.data, hole, sw, sh);
+    img.ctx.putImageData(pixels, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(img.canvas, 0, 0, w, h);
+    return true;
+  }
+
+  private drawEffect(ctx: CanvasRenderingContext2D, src: Frame, w: number, h: number, mask?: HTMLCanvasElement, target: MaskTarget = "background"): void {
     const effect = effectOf(this.effect);
     if (effect === "cutout") return;
+    if (effect === "fill" && mask && this.drawFill(ctx, src, w, h, mask, target)) return;
     if (effect === "color") {
       ctx.fillStyle = safeColor(this.color) || "#101820";
       ctx.fillRect(0, 0, w, h);
@@ -506,7 +540,7 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
       full.ctx.globalCompositeOperation = "source-over";
       full.ctx.clearRect(0, 0, w, h);
     }
-    this.drawEffect(dctx, src, w, h);
+    this.drawEffect(dctx, src, w, h, mask.canvas, target);
     dctx.drawImage(keep.canvas, 0, 0);
     if (full) {
       const b = this.box;

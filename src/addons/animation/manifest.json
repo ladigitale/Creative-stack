@@ -143,7 +143,7 @@
     },
     {
       "name": "sonic-skeleton",
-      "description": "Squelette 2D à os rigides (marionnette, bras articulé, pendules) : écrit des nodes (format partagé : un nœud par os, x y de l'articulation, rz radians par rapport au repos) dans <nodes-out>.nodes, l'état des os dans <nodes-out>.bones, present et la pose de repos dans <nodes-out>.rest (lue par un sprite sonic-2d shape=\"mesh\" qui déforme une image entre les os) ; ne dessine rien, un élément de même nom que l'os le suit (sprite sonic-2d avec pivot, nœud glTF sonic-3d, élément sonic-stage). Os en enfants sonic-bone ou preset=\"humain\" (13 os branchés sur les articulations de sonic-pose-tracker via source) ; os pilotés par aim (direction mesurée entre deux articulations) ou angle-from (n'importe quelle valeur de DataProvider). Angles en degrés, 0 = vers le bas, positif = sens horaire.",
+      "description": "Squelette 2D à os rigides (marionnette, bras articulé, pendules) : écrit des nodes (format partagé : un nœud par os, x y de l'articulation, rz radians par rapport au repos) dans <nodes-out>.nodes, l'état des os dans <nodes-out>.bones, present et la pose de repos dans <nodes-out>.rest (lue par un sprite sonic-2d shape=\"mesh\" qui déforme une image entre les os) ; ne dessine rien, un élément de même nom que l'os le suit (sprite sonic-2d avec pivot, nœud glTF sonic-3d, élément sonic-stage). Os en enfants sonic-bone ou preset=\"humain\" (13 os branchés sur les articulations de sonic-pose-tracker via source) ; os pilotés par aim (direction mesurée entre deux articulations) ou angle-from (n'importe quelle valeur de DataProvider) ; angle-add-from ajoute une rotation par-dessus la pose mesurée ; rest=\"pose\" + fit font de la pose mesurée le repos d'un maillage (photo posable). Angles en degrés, 0 = vers le bas, positif = sens horaire.",
       "props": {
         "nodes-out": {
           "type": "string",
@@ -184,6 +184,14 @@
         "scale": {
           "type": "number",
           "description": "Échelle de tout le squelette, longueurs et décalages (1)"
+        },
+        "rest": {
+          "type": "string",
+          "description": "pose : la pose de repos publiée (rest) est la pose mesurée, sans les ajouts angle-add-from ; un maillage dessiné sur la photo de la personne prend sa pose comme repos"
+        },
+        "fit": {
+          "type": "string",
+          "description": "Nom d'un os (true = torse) dont la longueur mesurée règle l'échelle du squelette : les os prennent la taille de la personne"
         },
         "min-visibility": {
           "type": "number",
@@ -247,9 +255,13 @@
           "type": "string",
           "description": "Chemin DataProvider d'un nombre en degrés : rotation ajoutée au repos (aim l'emporte)"
         },
+        "angle-add-from": {
+          "type": "string",
+          "description": "Chemin DataProvider d'un nombre en degrés AJOUTÉ à l'angle de l'os (mesuré ou de repos) ; les enfants suivent. Valeur × angle-scale"
+        },
         "angle-scale": {
           "type": "number",
-          "description": "Facteur appliqué à angle-from (1)"
+          "description": "Facteur appliqué à angle-from et angle-add-from (1)"
         },
         "angle-offset": {
           "type": "number",

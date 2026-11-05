@@ -212,6 +212,8 @@ Le shader lit `#synced` (pas `#cam`) et les valeurs du tracker (`param0..3` via 
 | `history` | Images gardées (2–120). Au moins `latence × fps + 2` : 150 ms à 30 fps → 7 | `12` |
 | `max-width` | Largeur max des copies (mémoire) ; 0 = taille de la source | `0` |
 | `stale-ms` | Silence du tracker toléré en mode `sync` | `600` |
+| `hold` | `true` : fige l'image affichée (la plus récente au moment du gel) et `frameSeq` | `false` |
+| `control` | DP de commande `{ hold: boolean }` (un store) ; prime sur `hold` | – |
 | `out-data-provider` | DP d'état | – |
 
 État publié : `{ mode, matched, seq, delayMs, trackerSeq, filled }`. `mode` = mode réellement utilisé (peut passer de `sync` à `delay`/`live` en repli), `matched` = l'image montrée est exactement celle du tracker, `delayMs` = âge de l'image montrée par rapport à la plus récente.
@@ -224,6 +226,7 @@ Le shader lit `#synced` (pas `#cam`) et les valeurs du tracker (`param0..3` via 
 - **Précision.** `frameSeq` est le compteur de la source au moment où le tracker lit l'image : au pire un écart d'une image si la source en présente une nouvelle pile à cet instant.
 - **Plusieurs trackers.** Une instance de `sonic-frame-sync` par tracker ; un seul sert de référence à un même shader.
 - **Diagnostic.** `matched: false` en mode `sync` = l'image du tracker n'est plus dans le tampon (augmenter `history`) ou la source de `for` n'est pas celle du tracker.
+- **Une photo (figer image et résultats)** : `sonic-frame-sync id="held" for="cam" mode="live" control="app"`, puis les trackers et les remplacements de masque lisent `held` (`for="held"`). Quand le store publie `{ hold: true }`, l'image et `frameSeq` se figent : les trackers n'ont plus de nouvelle image et gardent leur dernier résultat (pose, masque). La caméra reste active ; lever le gel reprend le direct. Les copies de `held` sont des canvas : un tracker les lit sans retourner x (si la caméra est en miroir, l'image l'est déjà : `mirror="false"` sur le tracker).
 - **Pas de frameSeq ?** (source qui n'est pas un composant Media) → `delay-ms` avec la `latencyMs` du tracker (`statusProvider` ou sortie).
 
 ## `sonic-media-start`

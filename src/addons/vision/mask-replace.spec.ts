@@ -198,6 +198,17 @@ describe("sonic-mask-replace", () => {
     expect(callsOf(pix.canvas, "set:imageSmoothingEnabled").map((c) => c[1])[0]).toBe(false);
   });
 
+  it("fill : la zone remplacée est reconstruite à petite taille (80 × 60), remise en place avec lissage", async () => {
+    addCanvasSource("cam");
+    addCanvasSource("seg", 256, 256, { mode: "alpha" });
+    const { el, canvas } = await mount({ source: "cam", mask: "seg", target: "subject", effect: "fill", feather: "0", smooth: "0", "out-data-provider": "mrf" });
+    expect(el.draw()).toBe(true);
+    const small = [...log.entries()].find(([c]) => sizeOf(c) === "80x60" && callsOf(c, "putImageData").length > 0);
+    expect(small).toBeTruthy(); // pixels remplis réécrits dans la copie réduite
+    expect(callsOf(canvas, "drawImage").some((c) => c[1] === "canvas:80x60")).toBe(true);
+    expect((dp("mrf") as { get?: () => unknown }).get?.()).toMatchObject({ ready: true, effect: "fill", target: "subject" });
+  });
+
   it("cutout : aucun effet dessiné, seul l'objet gardé", async () => {
     addCanvasSource("cam");
     addCanvasSource("seg", 64, 64, { mode: "alpha" });

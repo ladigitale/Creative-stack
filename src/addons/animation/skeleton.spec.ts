@@ -257,6 +257,82 @@ describe("sonic-skeleton : preset humain", () => {
   });
 });
 
+describe("sonic-skeleton : photo posable (fit, rest=pose, angle-add-from)", () => {
+  const body = {
+    leftHip: [0.45, 0.6],
+    rightHip: [0.55, 0.6],
+    leftShoulder: [0.43, 0.35],
+    rightShoulder: [0.57, 0.35],
+    leftElbow: [0.40, 0.5], // bras légèrement écarté, vers le bas
+    leftWrist: [0.38, 0.62],
+  } as Record<string, J>;
+  const attrs = (id: string, extra: Record<string, string> = {}) => ({
+    "nodes-out": id, preset: "humain", source: `pose_${id}`, aspect: "1", width: "800", height: "450", smooth: "0", ...extra,
+  });
+  const restOf = (id: string) => dp(`${id}.rest`).get() as Record<string, { x: number; y: number; x2: number; y2: number; angle: number; length: number }>;
+
+  it("fit : l'échelle suit la longueur mesurée du torse (hanches → épaules)", async () => {
+    await mount(attrs("rigF1", { fit: "true" }));
+    set("pose_rigF1", pose(body));
+    await flush();
+    const torso = Math.hypot(0, (0.6 - 0.35) * 450); // 112.5 unités
+    expect(bonesOf("rigF1").torse.length).toBeCloseTo(torso, 1);
+    expect(bonesOf("rigF1")["bras-gauche"].length).toBeCloseTo((65 * torso) / 110, 1); // les autres os suivent
+  });
+
+  it("rest=pose : le repos publié est la pose mesurée, pas le repos du preset", async () => {
+    await mount(attrs("rigF2", { rest: "pose", fit: "true" }));
+    set("pose_rigF2", pose(body));
+    await flush();
+    const r = restOf("rigF2");
+    expect(r.bassin).toMatchObject({ x: 400, y: 270 });
+    expect(r["bras-gauche"].angle).not.toBeCloseTo(180, 0); // le bras mesuré n'est pas vertical
+    expect(r["bras-gauche"].angle).toBeCloseTo(bonesOf("rigF2")["bras-gauche"].angle, 1); // = pose courante (aucun ajout)
+  });
+
+  it("angle-add-from : rotation ajoutée par-dessus la pose mesurée ; le rest reste la pose mesurée", async () => {
+    set("ajout", 0);
+    await mount(attrs("rigF3", { rest: "pose", fit: "true" }), [{ name: "bras-gauche", "angle-add-from": "ajout" }]);
+    set("pose_rigF3", pose(body));
+    await flush();
+    const before = bonesOf("rigF3")["bras-gauche"].angle;
+    const restBefore = JSON.parse(JSON.stringify(restOf("rigF3")));
+    set("ajout", 30);
+    await flush();
+    const after = bonesOf("rigF3")["bras-gauche"].angle;
+    let diff = after - before;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    expect(diff).toBeCloseTo(30, 0);
+    expect(restOf("rigF3")).toEqual(restBefore);
+  });
+
+  it("angle-add-from : les enfants suivent le parent qui tourne", async () => {
+    set("ajout2", 0);
+    await mount(attrs("rigF4", { rest: "pose", fit: "true" }), [{ name: "bras-gauche", "angle-add-from": "ajout2" }]);
+    set("pose_rigF4", pose(body));
+    await flush();
+    const f0 = bonesOf("rigF4")["avant-bras-gauche"];
+    set("ajout2", 25);
+    await flush();
+    const f1 = bonesOf("rigF4")["avant-bras-gauche"];
+    expect(f1.x).not.toBeCloseTo(f0.x, 0); // l'origine de l'avant-bras (coude) a bougé avec le bras
+    const bras = bonesOf("rigF4")["bras-gauche"];
+    expect(f1.x).toBeCloseTo(bras.x2, 1); // il reste attaché au bout du bras
+    expect(f1.y).toBeCloseTo(bras.y2, 1);
+  });
+
+  it("pose figée : le repos et l'échelle restent ceux de la dernière mesure", async () => {
+    await mount(attrs("rigF5", { rest: "pose", fit: "true", "hold-ms": "0" }));
+    set("pose_rigF5", pose(body));
+    await flush();
+    const rest = JSON.parse(JSON.stringify(restOf("rigF5")));
+    set("pose_rigF5", pose({}, 0)); // plus de mesure
+    await flush();
+    expect(restOf("rigF5")).toEqual(rest);
+  });
+});
+
 describe("exemple marionnette", () => {
   type N = { tagName: string; attributes?: Record<string, string>; nodes?: N[] };
   it("chaque sprite porte le nom d'un os du preset ; le squelette écrit là où sonic-2d lit", async () => {

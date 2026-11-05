@@ -148,7 +148,7 @@
     },
     {
       "name": "sonic-frame-sync",
-      "description": "Resynchronise image et effet : garde les dernières images d'une source (#id) et montre celle que le tracker a réellement analysée (sync=<out-data-provider du tracker>, exact via frameSeq), ou une image retardée (delay-ms), ou le direct. Source d'images (#id) pour sonic-shader ; état {mode, matched, seq, delayMs, trackerSeq, filled}",
+      "description": "Resynchronise image et effet : garde les dernières images d'une source (#id) et montre celle que le tracker a réellement analysée (sync=<out-data-provider du tracker>, exact via frameSeq), ou une image retardée (delay-ms), ou le direct ; hold=\"true\" (ou control={hold}) fige l'image : placé entre une caméra et ses trackers (for=\"<ce composant>\"), il fige la photo, les trackers gardent leur dernier résultat. Source d'images (#id) pour sonic-shader ; état {mode, matched, seq, delayMs, trackerSeq, filled}",
       "props": {
         "for": {
           "type": "string"
@@ -170,6 +170,14 @@
         },
         "stale-ms": {
           "type": "number"
+        },
+        "hold": {
+          "type": "string",
+          "description": "true : fige l'image affichée (la plus récente au moment du gel) et frameSeq ; entre une caméra et ses trackers, fige aussi leurs résultats (une photo) ; false (défaut)"
+        },
+        "control": {
+          "type": "string",
+          "description": "DataProvider de commande { hold: boolean } (un store) : prime sur hold quand il publie un booléen"
         },
         "out-data-provider": {
           "type": "string"

@@ -135,8 +135,12 @@ export class Rig {
     return this.byName.has(name);
   }
 
-  /** Résout la pose : `root` = origine de la racine ; `drives` = pilotes par os (absents : repos). */
-  solve(root: { x: number; y: number }, drives: Record<string, BoneDrive | undefined> = {}): BoneState[] {
+  /**
+   * Résout la pose : `root` = origine de la racine ; `drives` = pilotes par os (absents : repos) ;
+   * `scale` remplace l'échelle du squelette pour cet appel (ajustement à une personne mesurée).
+   */
+  solve(root: { x: number; y: number }, drives: Record<string, BoneDrive | undefined> = {}, scale?: number): BoneState[] {
+    const k = Number.isFinite(scale) && (scale as number) > 0 ? (scale as number) : this.scale;
     const out = new Map<string, BoneState>();
     const result: BoneState[] = [];
     for (const s of this.specs) {
@@ -154,11 +158,11 @@ export class Rig {
         const along = parent.length * s.at;
         const pd = dir(parentWorld);
         const pp = perp(parentWorld);
-        const off = s.offset * this.scale;
+        const off = s.offset * k;
         x = parent.x + pd.x * along + pp.x * off;
         y = parent.y + pd.y * along + pp.y * off;
       }
-      const length = s.length * this.scale;
+      const length = s.length * k;
       const dd = dir(angle);
       const state: BoneState = {
         name: s.name,

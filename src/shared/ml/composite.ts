@@ -116,9 +116,9 @@ export function grayToAlpha(data: Uint8ClampedArray | Uint8Array): void {
 }
 
 export type MaskTarget = "background" | "subject";
-export type ReplaceEffect = "blur" | "pixelate" | "color" | "image" | "source" | "cutout";
+export type ReplaceEffect = "blur" | "pixelate" | "color" | "image" | "source" | "cutout" | "fill";
 
-export const EFFECTS: readonly ReplaceEffect[] = ["blur", "pixelate", "color", "image", "source", "cutout"];
+export const EFFECTS: readonly ReplaceEffect[] = ["blur", "pixelate", "color", "image", "source", "cutout", "fill"];
 
 export function effectOf(v: string): ReplaceEffect {
   return (EFFECTS as readonly string[]).includes(v) ? (v as ReplaceEffect) : "blur";
