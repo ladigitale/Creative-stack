@@ -2,6 +2,7 @@ import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
+import { bool } from "../../shared/media/control";
 import { FrameRing, type RingSlot } from "../../shared/media/frame-ring";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
 
@@ -79,6 +80,21 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
   @property({ type: String, attribute: "out-data-provider" })
   outDataProvider = "";
 
+  /**
+   * `"true"` : fige l'image affichée (la plus récente de la source au moment du gel) ; `frameSeq` ne bouge plus.
+   * Placé entre une caméra et ses trackers (`for="<ce composant>"`), il fige aussi leurs résultats : une photo.
+   */
+  @property({ type: String })
+  hold: "true" | "false" | "" = "";
+
+  /** DataProvider de commande `{ hold: boolean }` (un store) : prime sur l'attribut `hold` quand il publie un booléen. */
+  @property({ type: String })
+  control = "";
+
+  private controlHold: boolean | undefined;
+  private controlUnsub: (() => void) | null = null;
+  private frozen = false;
+
   private ring = new FrameRing<HTMLCanvasElement>(12);
   private shown: RingSlot<HTMLCanvasElement> | null = null;
   private outSeq = 0;
@@ -108,8 +124,24 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
     this.consumers.delete(token);
   }
 
+  /** Vrai quand l'image est figée (commande `control` si elle publie, sinon attribut `hold`). */
+  get held(): boolean {
+    return this.controlHold !== undefined ? this.controlHold : this.hold === "true";
+  }
+
+  private listenControl(): void {
+    this.controlUnsub?.();
+    this.controlUnsub = null;
+    this.controlHold = undefined;
+    if (!this.control.trim()) return;
+    this.controlUnsub = listenDp(this.control, (v) => {
+      this.controlHold = v && typeof v === "object" ? bool((v as Record<string, unknown>).hold) : undefined;
+    });
+  }
+
   connectedCallback(): void {
     super.connectedCallback();
+    this.listenControl();
     this.listen();
     this.raf = requestAnimationFrame(this.loop);
   }
@@ -119,6 +151,8 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
     this.raf = 0;
     this.unsub?.();
     this.unsub = null;
+    this.controlUnsub?.();
+    this.controlUnsub = null;
     this.registeredOn?.unregisterFrameConsumer?.(this.token);
     this.registeredOn = null;
     this.ring.clear();
@@ -128,6 +162,7 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
     if (changed.has("sync")) this.listen();
+    if (changed.has("control")) this.listenControl();
     if (changed.has("history")) this.ring.capacity = Math.max(2, Math.min(120, Math.round(this.history) || 12));
   }
 
@@ -180,6 +215,7 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
       this.lastSrcSeq = -1;
     }
     if (!src || typeof src.getFrameCanvas !== "function") return;
+    if (this.frozen && this.held) return;
     const seq = typeof src.frameSeq === "number" ? src.frameSeq : 0;
     if (seq !== this.lastSrcSeq) {
       const canvas = src.getFrameCanvas();
@@ -188,6 +224,20 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
         this.capture(canvas, seq, now);
       }
     }
+    if (this.held) {
+      // Gel : la plus récente image captée devient définitive jusqu'à la levée du gel.
+      const newest = this.ring.newest();
+      if (newest) {
+        this.frozen = true;
+        if (newest !== this.shown) {
+          this.shown = newest;
+          this.outSeq++;
+        }
+        this.publish(this.resolveMode(), false, newest);
+      }
+      return;
+    }
+    this.frozen = false;
     this.choose(now);
   }
 

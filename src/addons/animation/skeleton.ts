@@ -3,7 +3,7 @@ import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { Smoother } from "../../shared/ml/one-euro";
-import { MAX_BONES, Rig, aimAngle, type BoneDrive, type BoneSpec, type BoneState } from "../../shared/skeleton";
+import { MAX_BONES, Rig, aimAngle, wrap180, type BoneDrive, type BoneSpec, type BoneState } from "../../shared/skeleton";
 
 const tagName = "sonic-skeleton";
 // `+ 0` : -0 devient 0
@@ -33,6 +33,8 @@ type BoneConfig = {
   /** Alternatives `A>B`, chacune un couple de groupes d'articulations (moyenne des membres d'un groupe `a+b`). */
   aim: Array<[string[], string[]]>;
   angleFrom: string;
+  /** Chemin d'une valeur (degrés × `angle-scale`) AJOUTÉE à l'angle de l'os (mesuré ou de repos), sans casser la chaîne. */
+  angleAddFrom: string;
   angleScale: number;
   angleOffset: number;
   /** Noms de nœuds du format `nodes` alimentés par cet os (le nom de l'os en premier). */
@@ -78,6 +80,7 @@ export function parseBone(attrs: BoneAttrs): { config: BoneConfig | null; error?
       },
       aim: parseAim(attrs.aim),
       angleFrom: (attrs["angle-from"] ?? "").trim(),
+      angleAddFrom: (attrs["angle-add-from"] ?? "").trim(),
       angleScale: num(attrs["angle-scale"], 1),
       angleOffset: num(attrs["angle-offset"], 0),
       nodes: [name, ...extra.filter((n) => n !== name)],
@@ -174,6 +177,20 @@ export class SonicSkeleton extends LitElement {
   @property({ type: Number })
   y = Number.NaN;
 
+  /**
+   * `pose` : la pose de repos publiée (`<nodes-out>.rest`) est la pose MESURÉE (sans les ajouts `angle-add-from`).
+   * Un maillage dessiné sur la photo de la personne prend alors sa pose comme repos : seuls les ajouts le déforment.
+   */
+  @property({ type: String })
+  rest = "";
+
+  /**
+   * Nom d'un os (`true` = `torse`) dont la longueur mesurée règle l'échelle du squelette : les os prennent la taille de
+   * la personne. Sans mesure, on garde la dernière échelle trouvée, puis `scale`.
+   */
+  @property({ type: String })
+  fit = "";
+
   /** Visibilité minimale d'une articulation (0..1) pour être utilisée. */
   @property({ type: Number, attribute: "min-visibility" })
   minVisibility = 0.5;
@@ -203,6 +220,8 @@ export class SonicSkeleton extends LitElement {
   private driven = new Set<string>();
   private lastSig = "";
   private lastRestSig = "";
+  private lastFit: number | null = null;
+  private measuredRest: BoneState[] | null = null;
   private queued = false;
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
   private states: BoneState[] = [];
@@ -225,7 +244,7 @@ export class SonicSkeleton extends LitElement {
   }
 
   protected updated(changed: Map<string, unknown>): void {
-    if (changed.has("source") || changed.has("preset") || changed.has("scale")) this.rebuild();
+    if (changed.has("source") || changed.has("preset") || changed.has("scale") || changed.has("fit")) this.rebuild();
     else if (changed.size) this.schedule();
   }
 
@@ -292,6 +311,8 @@ export class SonicSkeleton extends LitElement {
     this.driven.clear();
     this.lastSig = "";
     this.lastRestSig = "";
+    this.lastFit = null;
+    this.measuredRest = null;
     this.listen();
     this.schedule();
   }
@@ -316,7 +337,7 @@ export class SonicSkeleton extends LitElement {
         }),
       );
     }
-    for (const path of new Set(this.configs.map((c) => c.angleFrom).filter(Boolean))) {
+    for (const path of new Set(this.configs.flatMap((c) => [c.angleFrom, c.angleAddFrom]).filter(Boolean))) {
       this.unsubs.push(
         listenDp(path, (v) => {
           const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : Number.NaN;
@@ -363,6 +384,25 @@ export class SonicSkeleton extends LitElement {
     return { x: x / names.length, y: y / names.length };
   }
 
+  /** Échelle donnée par la longueur mesurée de l'os `fit` ; `null` sans mesure exploitable. */
+  private fitScale(now: number): number | null {
+    const name = (this.fit ?? "").trim() === "true" ? "torse" : (this.fit ?? "").trim();
+    if (!name) return null;
+    const c = this.configs.find((b) => b.spec.name === name);
+    if (!c || c.spec.length <= 0) return null;
+    const width = Number(this.width) || 800;
+    const height = Number(this.height) || 450;
+    for (const [a, b] of c.aim) {
+      const p = this.group(a, now);
+      const q = p ? this.group(b, now) : null;
+      if (p && q) {
+        const d = Math.hypot((q.x - p.x) * width, (q.y - p.y) * height);
+        if (d > 1) return Math.max(0.05, Math.min(20, d / c.spec.length));
+      }
+    }
+    return null;
+  }
+
   /**
    * Recalcule la pose et publie si elle a changé. `now` en ms. Public pour les tests.
    * Retourne `true` si une écriture a eu lieu.
@@ -374,6 +414,7 @@ export class SonicSkeleton extends LitElement {
     const aspect = Number(this.aspect) > 0 ? Number(this.aspect) : 4 / 3;
     const drives: Record<string, BoneDrive> = {};
     const nowDriven = new Set<string>();
+    const measuredNames = new Set<string>();
     let held = false;
     for (const c of this.configs) {
       const name = c.spec.name;
@@ -390,12 +431,14 @@ export class SonicSkeleton extends LitElement {
         this.lastWorld.set(name, { angle, t: now });
         drives[name] = { world: angle };
         nowDriven.add(name);
+        measuredNames.add(name);
         continue;
       }
       const last = this.lastWorld.get(name);
       if (last && now - last.t <= hold) {
         drives[name] = { world: last.angle };
         nowDriven.add(name);
+        measuredNames.add(name);
         held = true;
         continue;
       }
@@ -424,27 +467,53 @@ export class SonicSkeleton extends LitElement {
       } else if (this.lastRoot && now - this.lastRoot.t <= hold) root = { x: this.lastRoot.x, y: this.lastRoot.y };
     }
 
-    const states = rig.solve(root, drives);
+    let scale: number | undefined;
+    if ((this.fit ?? "").trim()) {
+      const f = this.fitScale(now);
+      if (f !== null) this.lastFit = f;
+      if (this.lastFit !== null) scale = this.lastFit;
+    }
+    let states = rig.solve(root, drives, scale);
+    // Ajouts `angle-add-from` : rotations locales par-dessus la pose (mesurée ou de repos) ; un os qui tourne entraîne ses enfants.
+    const adds = new Map<string, number>();
+    for (const c of this.configs) {
+      const v = c.angleAddFrom ? this.values.get(c.angleAddFrom) : undefined;
+      if (v !== undefined) adds.set(c.spec.name, v * c.angleScale);
+    }
+    if (measuredNames.size > 0) this.measuredRest = states;
+    if (adds.size > 0) {
+      const base = new Map(states.map((st) => [st.name, st]));
+      const drives2: Record<string, BoneDrive> = {};
+      for (const spec of rig.specs) {
+        const m = base.get(spec.name);
+        if (!m) continue;
+        const parent = spec.parent ? base.get(spec.parent) : null;
+        const rel = wrap180(m.angle - (parent ? parent.angle : 0) - spec.angle);
+        drives2[spec.name] = { delta: rel + (adds.get(spec.name) ?? 0) };
+      }
+      states = rig.solve(root, drives2, scale);
+    }
     this.states = states;
     this.present = nowDriven.size > 0 ? 1 : 0;
     // Retour au repos d'un os qui n'est plus piloté : le rendu interpole
     const eased = [...this.driven].some((n) => !nowDriven.has(n));
     this.driven = nowDriven;
-    return this.publish(states, eased);
+    return this.publish(states, eased, scale);
   }
 
   /**
    * Pose de repos (`<nodes-out>.rest`) : les os sans pilotage, racine à sa position fixe `x`,`y`. C'est la pose pour
    * laquelle l'image d'un maillage déformable est dessinée. Publiée seulement quand elle change.
    */
-  private publishRest(out: string): void {
+  private publishRest(out: string, scale?: number): void {
     const rig = this.rig;
     if (!rig) return;
     const width = Number(this.width) || 800;
     const height = Number(this.height) || 450;
     const root = { x: Number.isFinite(this.x) ? this.x : width / 2, y: Number.isFinite(this.y) ? this.y : height * 0.55 };
     const rest: Record<string, Record<string, number>> = {};
-    for (const s of rig.solve(root, {})) {
+    const fromPose = (this.rest ?? "").trim() === "pose" && this.measuredRest ? this.measuredRest : null;
+    for (const s of fromPose ?? rig.solve(root, {}, scale)) {
       rest[s.name] = { x: r2(s.x), y: r2(s.y), x2: r2(s.x2), y2: r2(s.y2), angle: r2(s.angle), length: r2(s.length) };
     }
     const sig = JSON.stringify(rest);
@@ -453,7 +522,7 @@ export class SonicSkeleton extends LitElement {
     set(`${out}.rest`, rest);
   }
 
-  private publish(states: BoneState[], eased: boolean): boolean {
+  private publish(states: BoneState[], eased: boolean, scale?: number): boolean {
     const out = (this.nodesOut ?? "").trim();
     if (!out) return false;
     const nodes: Record<string, Record<string, unknown>> = {};
@@ -464,7 +533,7 @@ export class SonicSkeleton extends LitElement {
       for (const n of names.get(s.name) ?? [s.name]) nodes[n] = { ...patch };
       bones[s.name] = { x: r2(s.x), y: r2(s.y), x2: r2(s.x2), y2: r2(s.y2), angle: r2(s.angle), rz: r4(s.rz), length: r2(s.length) };
     }
-    this.publishRest(out);
+    this.publishRest(out, scale);
     const sig = JSON.stringify([nodes, this.present]);
     if (sig === this.lastSig) return false;
     this.lastSig = sig;

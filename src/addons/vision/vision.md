@@ -262,7 +262,7 @@ Remplace une zone de l'image avec un masque, sans écrire de shader : le **fond 
 | `labels`, `min-score`, `max-objects` | Objets retenus : étiquettes (virgules, `cell phone` ou `cell_phone`), score minimal, nombre maximal (les meilleurs) | toutes, `0.4`, `5` |
 | `shape`, `pad` | Forme du masque d'un objet (`ellipse` ou `rect`) et marge autour de sa boîte (part de sa taille) | `ellipse`, `0.05` |
 | `target` | `background` : garde la zone masquée, remplace le reste (fond virtuel) ; `subject` : remplace la zone masquée | `background` |
-| `effect` | `blur`, `pixelate`, `color`, `image`, `source` (autre source d'images), `cutout` (zone remplacée transparente) | `blur` |
+| `effect` | `blur`, `pixelate`, `color`, `image`, `source` (autre source d'images), `cutout` (zone remplacée transparente), `fill` (zone remplacée reconstruite depuis les couleurs autour : diffusion « push-pull » à petite taille, sans modèle) | `blur` |
 | `amount` | Force du flou ou de la pixellisation, 0..1 | `0.5` |
 | `color` | Couleur CSS de `effect="color"` (hexadécimal, `rgb()`, `hsl()` ou nom) | `#101820` |
 | `image` | URL de `effect="image"` (https, `blob:`, `data:image`, relative) ; recadrée pour remplir | aucune |
@@ -275,6 +275,8 @@ Remplace une zone de l'image avec un masque, sans écrire de shader : le **fond 
 | `out-data-provider` | `{ready, effect, target, mask, regions, box, error}` ; `box` = `{x, y, w, h, cx, cy}` de la zone gardée (0..1 de l'image, lissée, `null` si rien) | — |
 
 **Récupérer la personne (ou un objet) pour la recomposer** : `effect="cutout"` + `target="background"` donne la personne sur fond transparent (un objet détecté seul : `detections` sans `mask`). Le résultat se place ensuite avec l'existant, sans composant de plus : `sonic-sprite shape="image" source="#personne"` dans un `sonic-2d` (calques, parallaxe, `nodes`, caméra, physique) ; la copie, le reflet, l'échelle ou la rotation sont d'autres sprites ou des `nodes`. Sans `crop`, le sprite garde la position de la personne dans l'image (stable) ; avec `crop`, il est serré sur sa boîte (la taille de l'image change donc d'une image à l'autre : le sprite tient dans `w` × `h`, à placer avec `box.cx`/`box.cy`). `box` sert aussi à faire suivre la personne par un autre élément (store, reducer). Voir `examples/recomposition.sdui.json`.
+
+**Retirer la personne d'une photo** : `target="subject"` + `effect="fill"` remplit la zone du masque avec le décor qui l'entoure (sans trace de la silhouette). Posé sous la personne découpée (`cutout`) et déformée par un maillage (voir `animation.md`), il cache le vide laissé quand elle bouge.
 
 Avec `sonic-frame-sync` (`sync` = le segmenteur ou le détecteur), l'image est celle qui a été analysée : le masque colle au corps même quand il bouge (sans cela il retarde d'une inférence). Si la source de masque n'a encore rien produit, l'image passe telle quelle (pas de clignotement) ; sans personne dans l'image, `target="background"` remplace tout le fond. Les bords du masque sont fondus et lissés en canvas 2D : c'est un effet de présentation, pas une découpe nette au pixel. Le calcul reste sur l'appareil.
 

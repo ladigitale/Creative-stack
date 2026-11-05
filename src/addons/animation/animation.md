@@ -185,6 +185,8 @@ Une hiérarchie d'**os rigides** (marionnette articulée, bras mécanique, plant
 | `smooth` | Lissage One Euro des articulations, 0 à 1 | `0.4` |
 | `hold-ms` | Une mesure perdue garde la dernière direction cette durée, puis l'os retourne au repos | `600` |
 | `ease-ms` | Durée de l'interpolation du retour au repos demandée au rendu (`ease`) | `300` |
+| `rest` | `pose` : la pose de repos publiée (`<nodes-out>.rest`) est la pose **mesurée** (sans les ajouts `angle-add-from`) | – |
+| `fit` | Nom d'un os (`true` = `torse`) dont la longueur mesurée règle l'échelle : les os prennent la taille de la personne ; sans mesure, dernière échelle trouvée | – |
 
 ### `sonic-bone`
 
@@ -201,12 +203,15 @@ Enfant de `sonic-skeleton`. Avec un `preset`, un `sonic-bone` **de même nom** e
 | `min`, `max` | Limites de rotation (°) par rapport au repos, locales (un coude ne plie que dans un sens) | `-180`, `180` |
 | `aim` | Direction mesurée : `leftShoulder>leftElbow` (de l'articulation A vers B ; `a+b` moyenne ; une barre verticale sépare des alternatives, la première disponible) | aucun |
 | `angle-from` | Chemin DataProvider d'un nombre (°) : rotation ajoutée au repos (slider, audio, horloge, store, main) | aucun |
-| `angle-scale`, `angle-offset` | Facteur et décalage appliqués à `angle-from` (`valeur × scale + offset`) | `1`, `0` |
+| `angle-add-from` | Chemin DataProvider d'un nombre (°) **ajouté** à l'angle de l'os, mesuré (`aim`) ou de repos : une danse par-dessus la pose. Les enfants suivent leur parent qui tourne | aucun |
+| `angle-scale`, `angle-offset` | Facteur (`angle-from` et `angle-add-from`) et décalage (`angle-from`) : `valeur × scale + offset` | `1`, `0` |
 | `attach` | Autres noms de nœuds alimentés par cet os (séparés par des espaces ou des virgules) | aucun |
 
 `aim` l'emporte sur `angle-from`. Une articulation absente ou sous `min-visibility` rend `aim` indisponible : l'os garde sa dernière direction `hold-ms`, puis revient au repos. Les noms d'articulations sont ceux de `sonic-pose-tracker` (`left*` = côté gauche de l'écran).
 
 **Preset `humain`** (corps de face d'environ 300 unités, tête en haut ; dessiner bras et jambes pendants) : `bassin` (racine, milieu des hanches), `torse`, `tete`, `bras-gauche`, `avant-bras-gauche`, `main-gauche`, `bras-droit`, `avant-bras-droit`, `main-droite`, `cuisse-gauche`, `mollet-gauche`, `cuisse-droite`, `mollet-droit`. Voir `examples/marionnette.sdui.json`.
+
+**Photo posable** : `fit="true" rest="pose"` sur un `preset="humain"` branché sur une pose figée (`sonic-frame-sync hold`, voir `media.md`) : le squelette prend la taille et la pose de la personne photographiée, et c'est cette pose que publie `rest`. Un maillage (`sonic-sprite shape="mesh"`) dessiné sur le découpage de la photo, à l'échelle de l'image, ne se déforme alors que par les `angle-add-from` (rotations d'une chorégraphie `sonic-timeline` : `nodes-out`, puis `angle-add-from="anim.nodes.<nom>.rz"` avec `angle-scale="57.29578"`). Quelques degrés suffisent pour un balancement discret.
 
 **Sans caméra** : `angle-from` suffit (un `sonic-store` piloté par des curseurs, un `sonic-clock`, un analyseur audio) pour un bras articulé ou une chaîne de pendules.
 

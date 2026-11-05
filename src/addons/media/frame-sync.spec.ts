@@ -132,4 +132,52 @@ describe("sonic-frame-sync", () => {
     el.tick(210);
     expect(PublisherManager.get("fs4").get()).toMatchObject({ filled: 4, matched: false });
   });
+
+  it("hold : fige la dernière image et frameSeq ; le gel se lève", async () => {
+    restore = patchCanvas();
+    const src = mountSource();
+    const el = await mountSync({ for: "src" });
+    for (let s = 1; s <= 3; s++) {
+      src.frameSeq = s;
+      el.tick(s * 40);
+    }
+    expect(mark(el)).toBe(3);
+    el.setAttribute("hold", "true");
+    await el.updateComplete;
+    src.frameSeq = 4;
+    el.tick(200); // l'image 4 est captée puis figée
+    const seq = el.frameSeq;
+    expect(mark(el)).toBe(4);
+    for (let s = 5; s <= 9; s++) {
+      src.frameSeq = s;
+      el.tick(200 + s * 40);
+    }
+    expect(mark(el)).toBe(4);
+    expect(el.frameSeq).toBe(seq);
+    el.setAttribute("hold", "false");
+    await el.updateComplete;
+    src.frameSeq = 10;
+    el.tick(900);
+    expect(mark(el)).toBe(10);
+  });
+
+  it("hold par commande : { hold: true } d'un DataProvider prime sur l'attribut", async () => {
+    restore = patchCanvas();
+    const src = mountSource();
+    const el = await mountSync({ for: "src", control: "photoCtl" });
+    src.frameSeq = 1;
+    el.tick(40);
+    PublisherManager.get("photoCtl").set({ hold: true });
+    src.frameSeq = 2;
+    el.tick(80);
+    src.frameSeq = 3;
+    el.tick(120);
+    expect(el.held).toBe(true);
+    expect(mark(el)).toBe(2);
+    PublisherManager.get("photoCtl").set({ hold: false });
+    src.frameSeq = 4;
+    el.tick(160);
+    expect(el.held).toBe(false);
+    expect(mark(el)).toBe(4);
+  });
 });
