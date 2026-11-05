@@ -155,6 +155,63 @@ Dans le navigateur, un descripteur invalide rend la timeline **muette** (aucun s
 <script src="creative-stack-animation.bundle.js"></script>
 ```
 
+## `sonic-skeleton` et `sonic-bone` : un squelette 2D pour n'importe quel élément graphique
+
+```json
+[ { "tagName": "sonic-camera", "attributes": { "id": "cam", "hidden-preview": "" } },
+  { "tagName": "sonic-pose-tracker", "attributes": { "id": "pose", "for": "cam" } },
+  { "tagName": "sonic-skeleton", "attributes": { "preset": "humain", "source": "pose", "nodes-out": "rig" } },
+  { "tagName": "sonic-2d", "attributes": { "dataProvider": "rig" },
+    "nodes": [ { "tagName": "sonic-sprite", "attributes": { "name": "bras-gauche", "shape": "box", "w": "22", "h": "65", "pivot": "0.5,0" } } ] } ]
+```
+
+Une hiérarchie d'**os rigides** (marionnette articulée, bras mécanique, plante, chaîne de pendules) qui **écrit des `nodes`** : le format partagé que lisent `sonic-2d` (sprites), `sonic-3d` (nœuds glTF) et `sonic-stage` (éléments HTML / SVG). Un élément de même nom que l'os le suit : le squelette ne dessine rien. À l'écriture, `<nodes-out>.nodes` reçoit un nœud par os (`x`, `y` de l'articulation, `rz` en radians par rapport au repos), `<nodes-out>.bones` l'état des os (`x`, `y`, `x2`, `y2` de l'extrémité, `angle`, `rz`, `length`) et `<nodes-out>.present`.
+
+**Conventions.** Angles en **degrés** : `0` = l'os pointe vers le bas, positif = sens horaire à l'écran (bas, gauche, haut, droite). `angle` est l'angle de **repos**, relatif au parent. Au repos tous les `rz` valent 0 : on dessine donc chaque élément **dans la pose de repos**, avec son `pivot` (sprite de `sonic-2d`) sur l'articulation ; il suit ensuite l'os sans autre calcul. Pour un bras pendant : `pivot="0.5,0"` (haut du sprite = épaule).
+
+### `sonic-skeleton`
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `nodes-out` | DataProvider qui reçoit `nodes`, `bones`, `present` ; c'est celui que lit `sonic-2d dataProvider` | aucun (rien n'est écrit) |
+| `preset` | `humain` : 13 os (bassin, torse, tête, bras, avant-bras, mains, cuisses, mollets) branchés sur les articulations d'un `sonic-pose-tracker` | aucun |
+| `source` | DataProvider de la sortie d'un `sonic-pose-tracker` (clé `joints`) | aucun |
+| `root` | Articulations dont la moyenne place la racine (`leftHip+rightHip`) ; avec le preset humain et `source`, c'est le défaut | position fixe |
+| `x`, `y` | Position fixe de la racine (unités de la scène) | bas-centre |
+| `width`, `height` | Taille de la scène : l'image de la pose y est étirée pour placer la racine | `800`, `450` |
+| `aspect` | Largeur / hauteur de l'image analysée (angles justes sur une image non carrée) | `1.333` |
+| `scale` | Échelle de tout le squelette (longueurs et décalages) | `1` |
+| `min-visibility` | Visibilité minimale d'une articulation (0..1) pour servir | `0.5` |
+| `smooth` | Lissage One Euro des articulations, 0 à 1 | `0.4` |
+| `hold-ms` | Une mesure perdue garde la dernière direction cette durée, puis l'os retourne au repos | `600` |
+| `ease-ms` | Durée de l'interpolation du retour au repos demandée au rendu (`ease`) | `300` |
+
+### `sonic-bone`
+
+Enfant de `sonic-skeleton`. Avec un `preset`, un `sonic-bone` **de même nom** en modifie les attributs (la longueur du torse, une limite de coude) ; un nom nouveau ajoute un os.
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `name` | Nom de l'os et du nœud écrit (l'élément de même nom le suit) | requis |
+| `parent` | Nom de l'os parent ; vide : racine | racine |
+| `length` | Longueur (unités) ; `0` pour une articulation sans segment (bassin) | `100` |
+| `angle` | Angle de repos (°), relatif au parent (absolu pour la racine) | `0` |
+| `at` | Où l'os s'attache sur son parent : `0` à l'origine, `1` à l'extrémité | `1` |
+| `offset` | Décalage latéral (unités) perpendiculaire au parent : épaule, hanche. Positif = à droite d'un parent qui pointe vers le bas | `0` |
+| `min`, `max` | Limites de rotation (°) par rapport au repos, locales (un coude ne plie que dans un sens) | `-180`, `180` |
+| `aim` | Direction mesurée : `leftShoulder>leftElbow` (de l'articulation A vers B ; `a+b` moyenne ; une barre verticale sépare des alternatives, la première disponible) | aucun |
+| `angle-from` | Chemin DataProvider d'un nombre (°) : rotation ajoutée au repos (slider, audio, horloge, store, main) | aucun |
+| `angle-scale`, `angle-offset` | Facteur et décalage appliqués à `angle-from` (`valeur × scale + offset`) | `1`, `0` |
+| `attach` | Autres noms de nœuds alimentés par cet os (séparés par des espaces ou des virgules) | aucun |
+
+`aim` l'emporte sur `angle-from`. Une articulation absente ou sous `min-visibility` rend `aim` indisponible : l'os garde sa dernière direction `hold-ms`, puis revient au repos. Les noms d'articulations sont ceux de `sonic-pose-tracker` (`left*` = côté gauche de l'écran).
+
+**Preset `humain`** (corps de face d'environ 300 unités, tête en haut ; dessiner bras et jambes pendants) : `bassin` (racine, milieu des hanches), `torse`, `tete`, `bras-gauche`, `avant-bras-gauche`, `main-gauche`, `bras-droit`, `avant-bras-droit`, `main-droite`, `cuisse-gauche`, `mollet-gauche`, `cuisse-droite`, `mollet-droit`. Voir `examples/marionnette.sdui.json`.
+
+**Sans caméra** : `angle-from` suffit (un `sonic-store` piloté par des curseurs, un `sonic-clock`, un analyseur audio) pour un bras articulé ou une chaîne de pendules.
+
+Limites : os **rigides** (une image qui se plie entre deux os demande un maillage déformable, hors de cette version) ; cinématique directe seulement (pas de cinématique inverse : on donne les directions, pas la position d'un bout) ; pose de face (un os de longueur fixe ne se raccourcit pas quand le segment se tourne vers la caméra) ; un seul sujet.
+
 ## Hors périmètre (v1)
 
 Ressorts et physique, `flip` / `draw-path` / `pulse`, transitions de vues (View Transitions), animation de la mise en page, synchronisation de l'horloge interne par p2p (le pilotage p2p passe par `time-source`).

@@ -1,0 +1,280 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:44rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Marionnette"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Une marionnette de formes simples suit tes bras, ta tête et tes jambes. Place-toi de face, assez loin pour qu'on te voie en entier. Chaque forme porte le nom d'un os du preset « humain » (sonic-skeleton) : remplace-les par tes propres images (sonic-sprite shape=\"image\"), dessinées bras et jambes pendants, avec le pivot sur l'articulation."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "fps": "30",
+      "mirror": "true",
+      "hidden-preview": ""
+     }
+    },
+    {
+     "tagName": "sonic-pose-tracker",
+     "attributes": {
+      "id": "pose",
+      "for": "cam",
+      "fps": "30",
+      "smooth": "0.3",
+      "mirror": "true"
+     }
+    },
+    {
+     "tagName": "sonic-skeleton",
+     "attributes": {
+      "preset": "humain",
+      "source": "pose",
+      "nodes-out": "rig",
+      "width": "800",
+      "height": "450",
+      "aspect": "1.333",
+      "smooth": "0.4",
+      "hold-ms": "600"
+     }
+    },
+    {
+     "tagName": "sonic-2d",
+     "attributes": {
+      "dataProvider": "rig",
+      "width": "800",
+      "height": "450",
+      "background": "#0b1220",
+      "style": "border-radius:.8rem;overflow:hidden"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "bassin",
+        "shape": "box",
+        "fill": "#1e293b",
+        "pivot": "0.5,0.5",
+        "z": "1",
+        "w": "64",
+        "h": "30",
+        "radius": "8"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "torse",
+        "shape": "box",
+        "fill": "#3b82f6",
+        "pivot": "0.5,1",
+        "z": "2",
+        "w": "74",
+        "h": "110",
+        "radius": "16"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "tete",
+        "shape": "circle",
+        "fill": "#f2c9a0",
+        "pivot": "0.5,1",
+        "z": "4",
+        "r": "25"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "bras-gauche",
+        "shape": "box",
+        "fill": "#3b82f6",
+        "pivot": "0.5,0",
+        "z": "0",
+        "w": "24",
+        "h": "65",
+        "radius": "11"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "avant-bras-gauche",
+        "shape": "box",
+        "fill": "#f2c9a0",
+        "pivot": "0.5,0",
+        "z": "0",
+        "w": "20",
+        "h": "60",
+        "radius": "9"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "main-gauche",
+        "shape": "circle",
+        "fill": "#f2c9a0",
+        "pivot": "0.5,0",
+        "z": "0",
+        "r": "12"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "bras-droit",
+        "shape": "box",
+        "fill": "#3b82f6",
+        "pivot": "0.5,0",
+        "z": "0",
+        "w": "24",
+        "h": "65",
+        "radius": "11"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "avant-bras-droit",
+        "shape": "box",
+        "fill": "#f2c9a0",
+        "pivot": "0.5,0",
+        "z": "0",
+        "w": "20",
+        "h": "60",
+        "radius": "9"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "main-droite",
+        "shape": "circle",
+        "fill": "#f2c9a0",
+        "pivot": "0.5,0",
+        "z": "0",
+        "r": "12"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "cuisse-gauche",
+        "shape": "box",
+        "fill": "#1e293b",
+        "pivot": "0.5,0",
+        "z": "1",
+        "w": "32",
+        "h": "85",
+        "radius": "12"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "mollet-gauche",
+        "shape": "box",
+        "fill": "#1e293b",
+        "pivot": "0.5,0",
+        "z": "1",
+        "w": "26",
+        "h": "80",
+        "radius": "10"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "cuisse-droite",
+        "shape": "box",
+        "fill": "#1e293b",
+        "pivot": "0.5,0",
+        "z": "1",
+        "w": "32",
+        "h": "85",
+        "radius": "12"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "mollet-droit",
+        "shape": "box",
+        "fill": "#1e293b",
+        "pivot": "0.5,0",
+        "z": "1",
+        "w": "26",
+        "h": "80",
+        "radius": "10"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "pose détectée : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "rig",
+        "key": "present"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

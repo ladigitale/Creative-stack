@@ -28,6 +28,13 @@ export type SpriteSpec = {
   font: string;
   /** Image d'un sprite `image` : `data:image/…` ou `https://…`. */
   src: string;
+  /**
+   * Point du sprite (part de sa largeur et de sa hauteur depuis le coin haut-gauche) placé sur la position du nœud
+   * et autour duquel il tourne : `0.5, 0.5` (centre, défaut), `0.5, 0` (haut-centre : épaule, bras pendant).
+   * Sans effet sur `polygon`.
+   */
+  pivotX: number;
+  pivotY: number;
   /** Image d'un sprite `image` prise sur une source d'images vivante (`#id` : caméra, `sonic-mask-replace`…). */
   source: string;
   angle: number;
@@ -84,6 +91,8 @@ export function parseSprite(raw: Record<string, unknown>, fallbackName: string):
   const pts = points(o.points);
   if (shape === "polygon" && pts.length < 3) errors.push(`${name} : un polygon demande au moins 3 points`);
   const src = safeImageSrc(o.src);
+  const pivot = pair(o.pivot);
+  if (o.pivot !== undefined && o.pivot !== "" && !pivot) errors.push(`${name} : pivot doit être « x,y » (ex. "0.5,0")`);
   const sourceRaw = String(o.source ?? "").trim();
   const source = /^#[A-Za-z_][\w-]*$/.test(sourceRaw) ? sourceRaw : "";
   if (sourceRaw && !source) errors.push(`${name} : source doit être un #id (ex. "#personne")`);
@@ -107,6 +116,8 @@ export function parseSprite(raw: Record<string, unknown>, fallbackName: string):
       font: o.font == null ? "" : String(o.font), // vide : police de la page (scene.ts)
       src,
       source,
+      pivotX: pivot ? pivot[0] : 0.5,
+      pivotY: pivot ? pivot[1] : 0.5,
       angle: num(o.angle, 0),
       opacity: Math.max(0, Math.min(1, num(o.opacity, 1))),
       layer: String(o.layer ?? "").trim(),
@@ -187,8 +198,21 @@ export function screenToLayer(sx: number, sy: number, p: number, cam: Camera, w:
   return [(sx - t.x) / t.scale, (sy - t.y) / t.scale];
 }
 
-/** Le point local (repère du sprite, centré) est-il dans sa forme ? */
-export function hitShape(s: SpriteSpec, lx: number, ly: number, textSize?: [number, number]): boolean {
+/**
+ * Décalage (unités) du dessin par rapport à la position du nœud pour que le pivot du sprite (`pivotX`, `pivotY`)
+ * y soit placé. `w`, `h` : taille du dessin. Nul pour `polygon`.
+ */
+export function pivotOffset(s: SpriteSpec, w: number, h: number): [number, number] {
+  if (s.shape === "polygon") return [0, 0];
+  return [(0.5 - s.pivotX) * w, (0.5 - s.pivotY) * h];
+}
+
+/** Le point local (repère du sprite, origine = position du nœud, pivot compris) est-il dans sa forme ? */
+export function hitShape(s: SpriteSpec, px: number, py: number, textSize?: [number, number]): boolean {
+  const size: [number, number] = s.shape === "circle" ? [2 * s.r, 2 * s.r] : s.shape === "text" ? (textSize ?? [s.w, s.h]) : [s.w, s.h];
+  const [ox, oy] = pivotOffset(s, size[0], size[1]);
+  const lx = px - ox;
+  const ly = py - oy;
   switch (s.shape) {
     case "circle":
       return lx * lx + ly * ly <= s.r * s.r;
