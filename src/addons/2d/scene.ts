@@ -11,6 +11,7 @@ import { NodeStates } from "../../shared/node-state";
 import {
   DEFAULT_LAYER,
   hitShape,
+  pivotOffset,
   layerTransform,
   screenToLayer,
   visualKey,
@@ -304,6 +305,7 @@ export class Scene2D {
       const k = Math.min(e.spec.w / canvas.width, e.spec.h / canvas.height);
       live.sp.width = canvas.width * k;
       live.sp.height = canvas.height * k;
+      this.applyPivot(e);
       changed = true;
     }
     return changed;
@@ -342,6 +344,7 @@ export class Scene2D {
           sp.texture = Texture.from(img);
           sp.width = s.w;
           sp.height = s.h;
+          this.applyPivot(e);
           this.opts.invalidate();
         };
         img.src = s.src;
@@ -360,7 +363,18 @@ export class Scene2D {
     }
     e.art = art;
     e.holder.addChild(art);
+    this.applyPivot(e);
     this.opts.invalidate();
+  }
+
+  /** Place le dessin pour que le pivot du sprite soit sur la position du nœud (la rotation se fait autour de lui). */
+  private applyPivot(e: Entry): void {
+    const art = e.art;
+    if (!art) return;
+    const s = e.spec;
+    const [w, h] = s.shape === "text" || s.shape === "image" ? [art.width, art.height] : s.shape === "circle" ? [2 * s.r, 2 * s.r] : [s.w, s.h];
+    const [ox, oy] = pivotOffset(s, w, h);
+    art.position.set(ox, oy);
   }
 
   /* ------------------------------------------------------------ toucher */

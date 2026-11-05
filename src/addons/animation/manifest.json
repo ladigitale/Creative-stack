@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "animation",
   "label": "Animation",
-  "description": "Le temps est une valeur de DataProvider : sonic-clock le produit, sonic-timeline anime des éléments en le lisant, sonic-animate applique des recettes (reveal, fade, slide-up, count-up, typewriter).",
+  "description": "Le temps est une valeur de DataProvider : sonic-clock le produit, sonic-timeline anime des éléments en le lisant, sonic-animate applique des recettes (reveal, fade, slide-up, count-up, typewriter); sonic-skeleton / sonic-bone : squelette 2D à os rigides qui écrit des nodes (marionnette pilotée par sonic-pose-tracker, bras articulé).",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -10,7 +10,8 @@
   "examples": [
     "examples/reveal-liste.sdui.json",
     "examples/horloge-timeline.sdui.json",
-    "examples/scrub.sdui.json"
+    "examples/scrub.sdui.json",
+    "examples/marionnette.sdui.json"
   ],
   "components": [
     {
@@ -136,6 +137,126 @@
         "out-data-provider": {
           "type": "string",
           "description": "DataProvider où publier status, progress, time, duration, currentLabel, issues."
+        }
+      }
+    },
+    {
+      "name": "sonic-skeleton",
+      "description": "Squelette 2D à os rigides (marionnette, bras articulé, pendules) : écrit des nodes (format partagé : un nœud par os, x y de l'articulation, rz radians par rapport au repos) dans <nodes-out>.nodes, l'état des os dans <nodes-out>.bones et present ; ne dessine rien, un élément de même nom que l'os le suit (sprite sonic-2d avec pivot, nœud glTF sonic-3d, élément sonic-stage). Os en enfants sonic-bone ou preset=\"humain\" (13 os branchés sur les articulations de sonic-pose-tracker via source) ; os pilotés par aim (direction mesurée entre deux articulations) ou angle-from (n'importe quelle valeur de DataProvider). Angles en degrés, 0 = vers le bas, positif = sens horaire.",
+      "props": {
+        "nodes-out": {
+          "type": "string",
+          "description": "DataProvider qui reçoit nodes, bones, present ; celui que lit sonic-2d dataProvider (obligatoire pour écrire)"
+        },
+        "preset": {
+          "type": "string",
+          "description": "humain : 13 os (bassin, torse, tete, bras, avant-bras, mains, cuisses, mollets) ; vide : seulement les sonic-bone"
+        },
+        "source": {
+          "type": "string",
+          "description": "DataProvider de la sortie d'un sonic-pose-tracker (clé joints)"
+        },
+        "root": {
+          "type": "string",
+          "description": "Articulations dont la moyenne place la racine (leftHip+rightHip) ; défaut avec preset humain et source ; sinon position fixe x, y"
+        },
+        "x": {
+          "type": "number",
+          "description": "Position fixe de la racine (unités de la scène ; défaut : centre)"
+        },
+        "y": {
+          "type": "number",
+          "description": "Position fixe de la racine (défaut : 55 % de la hauteur)"
+        },
+        "width": {
+          "type": "number",
+          "description": "Largeur de la scène (800) : l'image de la pose y est étirée pour placer la racine"
+        },
+        "height": {
+          "type": "number",
+          "description": "Hauteur de la scène (450)"
+        },
+        "aspect": {
+          "type": "number",
+          "description": "Largeur / hauteur de l'image analysée (1.333) : angles justes sur une image non carrée"
+        },
+        "scale": {
+          "type": "number",
+          "description": "Échelle de tout le squelette, longueurs et décalages (1)"
+        },
+        "min-visibility": {
+          "type": "number",
+          "description": "Visibilité minimale d'une articulation, 0..1 (0.5)"
+        },
+        "smooth": {
+          "type": "number",
+          "description": "Lissage One Euro des articulations, 0 à 1 (0.4)"
+        },
+        "hold-ms": {
+          "type": "number",
+          "description": "Une mesure perdue garde la dernière direction cette durée en ms, puis l'os retourne au repos (600)"
+        },
+        "ease-ms": {
+          "type": "number",
+          "description": "Durée en ms de l'interpolation du retour au repos, demandée au rendu par ease (300)"
+        }
+      }
+    },
+    {
+      "name": "sonic-bone",
+      "description": "Os d'un sonic-skeleton (aucun rendu) : name, parent, length, angle de repos (° relatif au parent ; 0 = vers le bas), at (0..1 le long du parent), offset (décalage latéral : épaule, hanche), min / max (limites par rapport au repos), aim (\"leftShoulder>leftElbow\", a+b moyenne, | alternatives), angle-from (DataProvider d'un nombre en °) avec angle-scale et angle-offset, attach (autres noms de nœuds). Même nom qu'un os du preset : modifie ses attributs.",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Nom de l'os et du nœud écrit (obligatoire)"
+        },
+        "parent": {
+          "type": "string",
+          "description": "Nom de l'os parent ; vide : racine"
+        },
+        "length": {
+          "type": "number",
+          "description": "Longueur en unités ; 0 : articulation sans segment (100)"
+        },
+        "angle": {
+          "type": "number",
+          "description": "Angle de repos en degrés, relatif au parent (0 = vers le bas)"
+        },
+        "at": {
+          "type": "number",
+          "description": "Position d'attache sur le parent, 0 à l'origine, 1 à l'extrémité (1)"
+        },
+        "offset": {
+          "type": "number",
+          "description": "Décalage latéral perpendiculaire au parent, en unités : épaule, hanche (0)"
+        },
+        "min": {
+          "type": "number",
+          "description": "Limite basse de rotation par rapport au repos, en degrés (-180)"
+        },
+        "max": {
+          "type": "number",
+          "description": "Limite haute de rotation par rapport au repos, en degrés (180)"
+        },
+        "aim": {
+          "type": "string",
+          "description": "Direction mesurée : \"leftShoulder>leftElbow\" ; a+b = moyenne ; | = alternatives (la première disponible)"
+        },
+        "angle-from": {
+          "type": "string",
+          "description": "Chemin DataProvider d'un nombre en degrés : rotation ajoutée au repos (aim l'emporte)"
+        },
+        "angle-scale": {
+          "type": "number",
+          "description": "Facteur appliqué à angle-from (1)"
+        },
+        "angle-offset": {
+          "type": "number",
+          "description": "Décalage en degrés appliqué à angle-from (0)"
+        },
+        "attach": {
+          "type": "string",
+          "description": "Autres noms de nœuds alimentés par cet os, séparés par des espaces ou des virgules"
         }
       }
     }

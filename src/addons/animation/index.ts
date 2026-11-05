@@ -6,6 +6,7 @@
 export { SonicClock } from "./clock";
 export { SonicTimeline } from "./timeline";
 export { SonicAnimate } from "./animate";
+export { SonicSkeleton, SonicBone, HUMAN_PRESET, PRESETS, parseAim, parseBone } from "./skeleton";
 export { ClockCore } from "./clock-core";
 export { TimelineRunner, type RunnerOptions, type RunnerState } from "./runner";
 export { RECIPES, RECIPE_NAMES, buildRecipe, isRecipe, type RecipeName, type RecipeOptions } from "./recipes";
@@ -26,3 +27,4 @@ export type * from "./types";
 import "./clock";
 import "./timeline";
 import "./animate";
+import "./skeleton";

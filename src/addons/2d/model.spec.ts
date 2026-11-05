@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hitShape, layerTransform, parseLayers, parseSprite, safeImageSrc, screenToLayer, visualKey } from "./model";
+import { hitShape, layerTransform, parseLayers, parseSprite, pivotOffset, safeImageSrc, screenToLayer, visualKey } from "./model";
 import manifestJson from "./manifest.json";
 import parallaxe from "./examples/parallaxe.sdui.json";
 
@@ -32,6 +32,37 @@ describe("parseSprite", () => {
     expect(parseSprite({ shape: "image" }, "p").errors[0]).toContain("source");
     // changer de source redessine
     expect(visualKey(ok.spec)).not.toBe(visualKey({ ...ok.spec, source: "#autre" }));
+  });
+
+  it("pivot : « x,y » en part de la taille ; invalide : centre + erreur ; compte dans l'apparence", () => {
+    const a = parseSprite({ shape: "box", w: "20", h: "100", pivot: "0.5,0" }, "p");
+    expect(a.errors).toEqual([]);
+    expect(a.spec).toMatchObject({ pivotX: 0.5, pivotY: 0 });
+    expect(parseSprite({ shape: "box" }, "p").spec).toMatchObject({ pivotX: 0.5, pivotY: 0.5 });
+    const bad = parseSprite({ shape: "box", pivot: "haut" }, "p");
+    expect(bad.errors[0]).toContain("pivot");
+    expect(bad.spec).toMatchObject({ pivotX: 0.5, pivotY: 0.5 });
+    expect(parseSprite({ pivot: [0.2, 0.9] }, "p").spec).toMatchObject({ pivotX: 0.2, pivotY: 0.9 });
+    expect(visualKey(a.spec)).not.toBe(visualKey({ ...a.spec, pivotY: 0.5 }));
+  });
+
+  it("pivotOffset : le dessin est décalé pour que le pivot soit sur la position du nœud ; polygon : aucun", () => {
+    const box = parseSprite({ shape: "box", w: "20", h: "100", pivot: "0.5,0" }, "p").spec;
+    expect(pivotOffset(box, 20, 100)).toEqual([0, 50]); // le haut du sprite est à l'origine : le dessin descend de h/2
+    const side = parseSprite({ shape: "box", pivot: "1,0.5" }, "p").spec;
+    expect(pivotOffset(side, 40, 10)).toEqual([-20, 0]);
+    expect(pivotOffset(parseSprite({ shape: "polygon", points: "0,0 1,0 0,1", pivot: "0,0" }, "p").spec, 10, 10)).toEqual([0, 0]);
+  });
+
+  it("toucher avec pivot : la zone suit le dessin décalé", () => {
+    const box = parseSprite({ shape: "box", w: "20", h: "100", pivot: "0.5,0" }, "p").spec;
+    expect(hitShape(box, 0, 10)).toBe(true); // sous le pivot
+    expect(hitShape(box, 0, -10)).toBe(false); // au-dessus : hors du sprite
+    expect(hitShape(box, 0, 99)).toBe(true);
+    expect(hitShape(box, 0, 101)).toBe(false);
+    const circle = parseSprite({ shape: "circle", r: "10", pivot: "0.5,0" }, "p").spec;
+    expect(hitShape(circle, 0, 10)).toBe(true); // centre à y = 10
+    expect(hitShape(circle, 0, -5)).toBe(false);
   });
 
   it("la position n'entre pas dans la clé d'apparence (un sprite déplacé n'est pas redessiné)", () => {
