@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { JOINT_NAMES } from "../../shared/ml/pose";
 import { compileMap } from "../../shared/ml/map-expr";
 import { PoseTrackerCore } from "./pose-state";
 import { fakePose } from "./test-bodies";
@@ -54,5 +55,25 @@ describe("PoseTrackerCore", () => {
     const out = core({ map: compileMap("pitch=raiseLeft*3600; vol=present*raiseRight") }).update([fakePose(0, 0)], 0);
     expect(out.pitch).toBeCloseTo(out.raiseLeft * 3600);
     expect(out.vol).toBeCloseTo(out.raiseRight);
+  });
+
+  it("angles : calculés sur les points en mètres (world) quand ils existent, côtés écran", () => {
+    const raw = fakePose();
+    const world = JOINT_NAMES.map(() => ({ x: 0, y: 0, z: 0 }));
+    const w = (n: (typeof JOINT_NAMES)[number], x: number, y: number) => (world[JOINT_NAMES.indexOf(n)] = { x, y, z: 0 });
+    // genou « gauche du sujet » plié à angle droit (hanche, genou, cheville)
+    w("leftHip", 0, 0);
+    w("leftKnee", 0, 0.4);
+    w("leftAnkle", 0.4, 0.4);
+    // jambe droite du sujet tendue
+    w("rightHip", 0.2, 0);
+    w("rightKnee", 0.2, 0.4);
+    w("rightAnkle", 0.2, 0.8);
+    raw.world = world;
+    const flipped = new PoseTrackerCore({ smooth: 0, holdMs: 100, mirror: true }).update([raw], 0);
+    expect(flipped.kneeLeft).toBeCloseTo((90 - 45) / 135, 2);
+    expect(flipped.kneeRight).toBeCloseTo(1, 2);
+    const plain = new PoseTrackerCore({ smooth: 0, holdMs: 100, mirror: false }).update([raw], 0);
+    expect(plain.kneeRight).toBeCloseTo((90 - 45) / 135, 2); // côtés échangés sans miroir
   });
 });

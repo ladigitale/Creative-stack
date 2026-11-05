@@ -5,7 +5,7 @@
 import type { Point } from "../../shared/ml/hands";
 import { assignPath, evalMap, type CompiledMap } from "../../shared/ml/map-expr";
 import { Smoother } from "../../shared/ml/one-euro";
-import { JOINT_NAMES, bodyMetrics, jointsByName, mirrorPose, type BodyMetrics, type JointName, type RawPose } from "../../shared/ml/pose";
+import { ANGLE_KEYS, JOINT_NAMES, bodyMetrics, jointAngles, jointsByName, mirrorPose, type BodyMetrics, type JointName, type RawPose } from "../../shared/ml/pose";
 
 export type JointOutput = { x: number; y: number; z: number; v: number };
 
@@ -25,7 +25,7 @@ export type PoseCoreOptions = {
   map?: CompiledMap | null;
 };
 
-const METRIC_KEYS = ["x", "y", "raiseLeft", "raiseRight", "span", "lean"] as const;
+const METRIC_KEYS = ["x", "y", "raiseLeft", "raiseRight", "span", "lean", ...ANGLE_KEYS] as const;
 
 const emptyJoints = (): Record<JointName, JointOutput> => {
   const out = {} as Record<JointName, JointOutput>;
@@ -33,7 +33,7 @@ const emptyJoints = (): Record<JointName, JointOutput> => {
   return out;
 };
 
-const EMPTY_METRICS: BodyMetrics = { x: 0.5, y: 0.5, raiseLeft: 0.5, raiseRight: 0.5, span: 0, lean: 0 };
+const EMPTY_METRICS: BodyMetrics = { x: 0.5, y: 0.5, raiseLeft: 0.5, raiseRight: 0.5, span: 0, lean: 0, elbowLeft: 1, elbowRight: 1, kneeLeft: 1, kneeRight: 1, squat: 0 };
 
 export class PoseTrackerCore {
   private opts: PoseCoreOptions;
@@ -80,6 +80,14 @@ export class PoseTrackerCore {
       }
       this.joints = joints;
       const m = bodyMetrics(named);
+      // Angles : points en mètres (world) quand ils existent, sinon points image.
+      if (primary.world && primary.world.length >= 33) {
+        const w = jointsByName(
+          primary.world.map((p) => ({ ...p, visibility: 1 })),
+          !this.opts.mirror,
+        );
+        Object.assign(m, jointAngles(w));
+      }
       const next = { ...EMPTY_METRICS };
       for (const k of METRIC_KEYS) next[k] = this.smoother.apply(k, m[k], now);
       this.metrics = next;

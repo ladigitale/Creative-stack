@@ -65,10 +65,16 @@ Repère **écran** (après miroir) : `left` est la main qui apparaît à gauche 
 | `left.pinch` | 0 écartés, 1 pouce et index qui se touchent |
 | `left.openness` | 0 poing, 1 doigts tendus |
 | `left.roll` | 0,5 main verticale ; 0 / 1 penchée à gauche / à droite |
+| `left.thumb`, `.index`, `.middle`, `.ring`, `.pinky` | Ouverture de **chaque doigt** : 0 replié, 1 tendu (moyenne des angles de ses deux articulations ; indépendante de la position, de la rotation et de la distance) |
+| `left.fingerCount` | Nombre de doigts tendus, 0 à 5 (un doigt compte au-dessus de 0,55) : les chiffres montrés avec les doigts |
+| `left.pinchMiddle`, `.pinchRing`, `.pinchPinky` | Comme `pinch`, entre le pouce et le majeur / l'annulaire / l'auriculaire (0 écartés, 1 bouts qui se touchent) |
+| `left.spread` | 0 doigts serrés, 1 doigts écartés |
 | `left.gesture`, `left.gestureScore` | `Closed_Fist`, `Open_Palm`, `Pointing_Up`, `Thumb_Down`, `Thumb_Up`, `Victory`, `ILoveYou` (vide sinon) |
 | `hands.N.role`, `.score`, `.label`, `.gesture` | Chaque main vue |
 | `hands.N.landmarks.I.x/y/z` | 21 points, miroir appliqué, non lissés |
 | `hands.N.world.I.x/y/z` | 21 points en mètres centrés sur la main |
+
+Les mesures de doigts sont calculées sur les points en mètres (`world`) quand le modèle les fournit, sinon sur les points image. Les bornes (doigts : 95° replié → 165° tendu ; pouce : 130° → 165° ; écartement : 0,2 → 0,65 de la taille de la paume) sont **empiriques** : elles n'ont été vérifiées que sur des mains synthétiques, pas sur du matériel réel. Mesure en 3D mais fiabilité moindre quand la main est vue de profil, et le pouce est le doigt le plus difficile.
 
 Une main seule garde son rôle quand elle traverse le centre ; deux mains : la plus à gauche est `left`. Quand une main disparaît plus longtemps que `hold-ms`, `present` passe à 0 et les autres valeurs gardent leur dernière valeur (utile pour tenir une note).
 
@@ -164,6 +170,8 @@ Attributs communs, plus `max-poses` (1 à 4, défaut `1`). Modèle par défaut :
 | `raiseLeft`, `raiseRight` | Hauteur du poignet : hanche ≈ 0, épaule 0,5, une longueur de buste au-dessus de l'épaule 1 |
 | `span` | Écart entre les poignets / largeur d'épaules (bras écartés ≈ 3 à 4) |
 | `lean` | Inclinaison du buste, -1..1 (> 0 : épaules vers la droite de l'écran) |
+| `elbowLeft`, `elbowRight`, `kneeLeft`, `kneeRight` | Extension de l'articulation : 0 très fléchie (≤ 45°), 1 tendue (180°). Calculée sur les points en mètres (`world`) quand ils existent |
+| `squat` | 0 jambes tendues, 1 très fléchi (moyenne de la flexion des genoux) |
 | `joints.<nom>.x/y/z/v` | 33 points (`nose`, `leftShoulder`, `rightWrist`, `leftFootIndex`…) ; `v` = visibilité 0..1 |
 | `poses.N.landmarks.I.x/y/z` | Les 33 points de chaque corps |
 
