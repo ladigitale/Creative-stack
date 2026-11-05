@@ -78,6 +78,8 @@ export class Sonic2d extends LitElement {
   @property({ type: Boolean, attribute: "pick-empty" }) pickEmpty = false;
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
   @property({ type: Number, attribute: "max-dpr" }) maxDpr = 2;
+  /** Contrôle visuel des maillages : `bones` (os de repos et courants), `mesh` (quadrillage déformé, sommets colorés par l'os dominant), `all`. */
+  @property({ type: String }) debug = "";
 
   private scene: Scene2D | null = null;
   private canvas: HTMLCanvasElement | null = null;
@@ -157,6 +159,7 @@ export class Sonic2d extends LitElement {
       return;
     }
     if (changed.has("layers")) this.applyLayers();
+    if (changed.has("debug")) this.scene.setDebug(this.debug);
     if (changed.has("dataProvider")) this.bind();
     if (changed.has("sprites") || changed.has("camera")) this.listen();
   }
@@ -206,6 +209,7 @@ export class Sonic2d extends LitElement {
     this.cam = defaultCamera(this.width, this.height);
     this.camSig = "";
     this.applyLayers();
+    scene.setDebug(this.debug);
     this.syncSize();
     this.resync();
     this.listen();

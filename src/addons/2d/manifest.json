@@ -65,6 +65,10 @@
           "type": "string",
           "description": "DataProvider où publier {status, error, count, missing, errors}"
         },
+        "debug": {
+          "type": "string",
+          "description": "Contrôle visuel des maillages : bones (os de repos en gris, os courants colorés), mesh (quadrillage déformé, sommets colorés par l'os qui pèse le plus), all"
+        },
         "max-dpr": {
           "type": "number",
           "description": "Densité de pixels maximale (défaut 2)"

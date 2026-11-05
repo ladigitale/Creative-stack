@@ -31,7 +31,7 @@ type Entry = {
   /** Sprite image alimenté par une source d'images vivante (`source="#id"`). */
   live?: { sp: Sprite | Mesh; seq: number; canvas: HTMLCanvasElement | null; w: number; h: number };
   /** Sprite `mesh` : image déformée par les os (positions des sommets recalculées à chaque pose). */
-  mesh?: { m: Mesh; geom: MeshGeometry; skin: Skin | null; frames: BoneFrame[]; names: string[]; sig: string };
+  mesh?: { m: Mesh; geom: MeshGeometry; skin: Skin | null; frames: BoneFrame[]; names: string[]; sig: string; dbg?: Graphics };
 };
 
 const QUAD_UVS = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
@@ -39,6 +39,14 @@ const QUAD_INDICES = new Uint32Array([0, 1, 2, 1, 3, 2]);
 const quadPositions = (s: SpriteSpec): Float32Array => new Float32Array([-s.w / 2, -s.h / 2, s.w / 2, -s.h / 2, -s.w / 2, s.h / 2, s.w / 2, s.h / 2]);
 
 /** Os publié par sonic-skeleton (`rest` / `bones`) : null si incomplet ou non fini. */
+/** Teinte distincte par indice (os) : repérer quel os pèse sur un sommet. */
+function hueColor(i: number, n: number): number {
+  const h = (i / Math.max(1, n)) * 360;
+  const k = (m: number) => (m + h / 30) % 12;
+  const f = (m: number) => 0.5 - 0.5 * Math.max(-1, Math.min(k(m) - 3, 9 - k(m), 1));
+  return (Math.round(255 * f(0)) << 16) | (Math.round(255 * f(8)) << 8) | Math.round(255 * f(4));
+}
+
 function boneFrame(v: unknown): BoneFrame | null {
   if (!v || typeof v !== "object") return null;
   const o = v as Record<string, unknown>;
@@ -77,6 +85,7 @@ export class Scene2D {
   private restSig = "";
   private rest: Record<string, unknown> | null = null;
   private bones: Record<string, unknown> | null = null;
+  private debug = "";
   width: number;
   height: number;
 
@@ -466,7 +475,69 @@ export class Scene2D {
       pos[i * 2 + 1] -= s.y;
     }
     mesh.geom.buffers[0].update();
+    this.drawDebug(e);
     this.opts.invalidate();
+  }
+
+  /** Mode de contrôle visuel : `""` (rien), `bones`, `mesh` ou `all`. */
+  setDebug(mode: string): void {
+    this.debug = mode.trim();
+    for (const e of this.entries.values()) this.skinMesh(e);
+  }
+
+  /**
+   * Contrôle visuel d'un maillage, dans le repère du sprite (il suit donc le même calque et la même caméra) :
+   * os de repos (gris) et os courants (jaune), quadrillage déformé, sommets colorés par l'os qui pèse le plus.
+   */
+  private drawDebug(e: Entry): void {
+    const mesh = e.mesh;
+    if (!mesh) return;
+    const mode = this.debug;
+    const bonesOn = mode === "bones" || mode === "all" || mode === "true";
+    const meshOn = mode === "mesh" || mode === "all" || mode === "true";
+    if (!bonesOn && !meshOn) {
+      if (mesh.dbg) {
+        mesh.dbg.destroy();
+        mesh.dbg = undefined;
+      }
+      return;
+    }
+    const skin = mesh.skin;
+    if (!skin) return;
+    if (!mesh.dbg) {
+      mesh.dbg = new Graphics();
+      e.holder.addChild(mesh.dbg);
+    }
+    const g = mesh.dbg;
+    g.clear();
+    const ox = e.spec.x;
+    const oy = e.spec.y;
+    const pos = mesh.geom.positions;
+    if (meshOn) {
+      const cols = skin.cols + 1;
+      for (let r = 0; r <= skin.rows; r++) {
+        for (let c = 0; c <= skin.cols; c++) {
+          const i = r * cols + c;
+          if (c < skin.cols) g.moveTo(pos[i * 2], pos[i * 2 + 1]).lineTo(pos[(i + 1) * 2], pos[(i + 1) * 2 + 1]);
+          if (r < skin.rows) g.moveTo(pos[i * 2], pos[i * 2 + 1]).lineTo(pos[(i + cols) * 2], pos[(i + cols) * 2 + 1]);
+        }
+      }
+      g.stroke({ color: 0xffffff, width: 0.6, alpha: 0.35 });
+      for (let i = 0; i < skin.count; i++) {
+        const b = skin.bone[i * skin.influences];
+        g.circle(pos[i * 2], pos[i * 2 + 1], 1.8).fill({ color: hueColor(b, mesh.names.length) });
+      }
+    }
+    if (bonesOn) {
+      for (const f of mesh.frames) g.moveTo(f.x - ox, f.y - oy).lineTo(f.x2 - ox, f.y2 - oy);
+      g.stroke({ color: 0x94a3b8, width: 2, alpha: 0.8 });
+      mesh.names.forEach((n, k) => {
+        const f = boneFrame(this.bones?.[n]);
+        if (!f) return;
+        g.moveTo(f.x - ox, f.y - oy).lineTo(f.x2 - ox, f.y2 - oy).stroke({ color: hueColor(k, mesh.names.length), width: 3 });
+        g.circle(f.x - ox, f.y - oy, 4).fill({ color: 0xfacc15 });
+      });
+    }
   }
 
   /** Place le dessin pour que le pivot du sprite soit sur la position du nœud (la rotation se fait autour de lui). */
