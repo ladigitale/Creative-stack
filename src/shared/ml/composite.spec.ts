@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alphaBounds, blurDivisor, boxesOf, coverRect, effectOf, featherDivisor, grayToAlpha, labelKey, mixBounds, padBounds, pixelDivisor, safeColor, selectBoxes, shapesOf, spriteSize } from "./composite";
+import { alphaBounds, blurDivisor, boxesOf, coverRect, cropBox, effectOf, featherDivisor, grayToAlpha, labelKey, mixBounds, padBounds, pixelDivisor, safeColor, selectBoxes, shapesOf, spriteSize } from "./composite";
 
 const out = {
   objects: [
@@ -107,5 +107,21 @@ describe("boîtes de pixels et sprites", () => {
     expect(spriteSize(100, 200, 480, 0.5)).toEqual({ w: 120, h: 240 });
     expect(spriteSize(0, 200, 480, 0.5)).toEqual({ w: 0, h: 0 });
     expect(spriteSize(100, 200, 480, -1).h).toBe(0);
+  });
+});
+
+describe("cropBox", () => {
+  const box = { label: "a", score: 1, x: 0.2, y: 0.3, w: 0.2, h: 0.4 };
+  it("marge, bornes et retournement du repère écran", () => {
+    const plain = cropBox(box, 0.5, false);
+    expect(plain.x).toBeCloseTo(0.1, 5);
+    expect(plain.w).toBeCloseTo(0.4, 5);
+    expect(plain.y).toBeCloseTo(0.1, 5);
+    expect(plain.h).toBeCloseTo(0.8, 5);
+    const flipped = cropBox(box, 0.5, true);
+    expect(flipped.x).toBeCloseTo(1 - 0.5, 5); // 1 - (0,1 + 0,4)
+    expect(flipped.w).toBeCloseTo(0.4, 5);
+    const edge = cropBox({ ...box, x: 0.9, w: 0.2 }, 1, false);
+    expect(edge.x + edge.w).toBeLessThanOrEqual(1 + 1e-9);
   });
 });

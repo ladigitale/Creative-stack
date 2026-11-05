@@ -6,7 +6,7 @@
  * Le modèle arrive déjà téléchargé et vérifié (`shared/ml/model-fetch`) sous forme de buffer.
  */
 
-export type MpTask = "hand" | "gesture" | "face" | "pose" | "detect" | "segment";
+export type MpTask = "hand" | "gesture" | "face" | "pose" | "detect" | "segment" | "embed";
 
 export type MpEngineOptions = {
   task: MpTask;
@@ -36,6 +36,8 @@ export type MpResult = {
   detections?: Array<{ boundingBox?: { originX: number; originY: number; width: number; height: number }; categories?: MpCategory[] }>;
   /** Segmenteur : masques de confiance 0..255 (un par catégorie du modèle). */
   masks?: Array<{ width: number; height: number; data: Uint8ClampedArray }>;
+  /** Embedder d'images : un vecteur par tête du modèle. */
+  embeddings?: Array<{ floatEmbedding?: number[]; headIndex?: number }>;
   /** Taille de l'image analysée (pixels) : sert à normaliser les boîtes. */
   size?: { width: number; height: number };
 };
@@ -102,6 +104,7 @@ const TASK_CLASS: Record<MpTask, string> = {
   pose: "PoseLandmarker",
   detect: "ObjectDetector",
   segment: "ImageSegmenter",
+  embed: "ImageEmbedder",
 };
 
 /* ---------------- fil principal ---------------- */
@@ -109,6 +112,7 @@ const TASK_CLASS: Record<MpTask, string> = {
 type MpTaskInstance = {
   detectForVideo?(frame: CanvasImageSource, tsMs: number): unknown;
   segmentForVideo?(frame: CanvasImageSource, tsMs: number): unknown;
+  embedForVideo?(frame: CanvasImageSource, tsMs: number): unknown;
   close(): void;
 };
 type MpModule = {
@@ -161,6 +165,7 @@ export async function createMainThreadMpEngine(opts: MpEngineOptions): Promise<M
     detect: async (frame, tsMs) => {
       const size = frameSize(frame);
       if (opts.task === "segment") return { masks: readMasks(task.segmentForVideo!(frame, tsMs)), size };
+      if (opts.task === "embed") return { embeddings: readEmbeddings(task.embedForVideo!(frame, tsMs)), size };
       return { ...(plainResult(task.detectForVideo!(frame, tsMs)) as MpResult), size };
     },
     close: () => task.close(),
@@ -190,6 +195,18 @@ export function readMasks(result: unknown): NonNullable<MpResult["masks"]> {
   return out;
 }
 
+/** Vecteurs flottants d'un résultat d'embedder (copiés en tableaux), puis résultat libéré. */
+export function readEmbeddings(result: unknown): NonNullable<MpResult["embeddings"]> {
+  const r = result as { embeddings?: Array<{ floatEmbedding?: ArrayLike<number>; headIndex?: number }>; close?: () => void } | undefined;
+  const out: NonNullable<MpResult["embeddings"]> = [];
+  for (const e of r?.embeddings ?? []) {
+    if (!e.floatEmbedding) continue;
+    out.push({ floatEmbedding: Array.from(e.floatEmbedding), headIndex: e.headIndex ?? 0 });
+  }
+  r?.close?.();
+  return out;
+}
+
 /* ---------------- worker ---------------- */
 
 /**
@@ -198,7 +215,7 @@ export function readMasks(result: unknown): NonNullable<MpResult["masks"]> {
  */
 export const WORKER_SOURCE = `"use strict";
 let task = null;
-const CLASSES = { hand: "HandLandmarker", gesture: "GestureRecognizer", face: "FaceLandmarker", pose: "PoseLandmarker", detect: "ObjectDetector", segment: "ImageSegmenter" };
+const CLASSES = { hand: "HandLandmarker", gesture: "GestureRecognizer", face: "FaceLandmarker", pose: "PoseLandmarker", detect: "ObjectDetector", segment: "ImageSegmenter", embed: "ImageEmbedder" };
 let kind = "hand";
 const readMasks = (r) => {
   const out = [];
@@ -209,6 +226,12 @@ const readMasks = (r) => {
     out.push({ width: mk.width, height: mk.height, data });
     mk.close();
   }
+  if (r && r.close) r.close();
+  return out;
+};
+const readEmbeddings = (r) => {
+  const out = [];
+  for (const e of (r && r.embeddings) || []) if (e.floatEmbedding) out.push({ floatEmbedding: Array.from(e.floatEmbedding), headIndex: e.headIndex || 0 });
   if (r && r.close) r.close();
   return out;
 };
@@ -250,7 +273,7 @@ self.onmessage = async (e) => {
     } else if (m.type === "detect") {
       try {
         const size = { width: m.bitmap.width, height: m.bitmap.height };
-        const out = kind === "segment" ? { masks: readMasks(task.segmentForVideo(m.bitmap, m.ts)) } : plain(task.detectForVideo(m.bitmap, m.ts));
+        const out = kind === "segment" ? { masks: readMasks(task.segmentForVideo(m.bitmap, m.ts)) } : kind === "embed" ? { embeddings: readEmbeddings(task.embedForVideo(m.bitmap, m.ts)) } : plain(task.detectForVideo(m.bitmap, m.ts));
         out.size = size;
         self.postMessage({ type: "result", id: m.id, result: out });
       } finally {

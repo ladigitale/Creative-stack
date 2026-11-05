@@ -2,7 +2,7 @@
 
 Addon `@supersoniks/creative-stack/vision` : suivi temps réel par des modèles ML qui **tournent sur l'appareil** (aucune image n'est envoyée). Les résultats sont publiés en DataProvider, avec des clés plates et stables, directement lisibles par `sonic-param`, `sonic-if`, `sonic-value`, `sonic-stage`, `sonic-shader` et `sonic-jsonata`.
 
-Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps), `sonic-object-detector` (objets), `sonic-segmenter` (silhouette), `sonic-example-classifier` (gestes appris par l'utilisateur), `sonic-landmarks-overlay` pour dessiner leurs sorties, `sonic-face-mesh` pour greffer un visage sur le visage suivi, et `sonic-mask-replace` pour remplacer le fond ou un objet détecté. Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
+Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps), `sonic-object-detector` (objets), `sonic-segmenter` (silhouette), `sonic-example-classifier` (gestes appris par l'utilisateur), `sonic-landmarks-overlay` pour dessiner leurs sorties, `sonic-face-mesh` pour greffer un visage sur le visage suivi, et `sonic-mask-replace` pour remplacer le fond ou un objet détecté, `sonic-image-embedder` pour l'empreinte numérique d'une image ou d'un objet. Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
 
 ## Règles communes
 
@@ -246,6 +246,33 @@ Remplace une zone de l'image avec un masque, sans écrire de shader : le **fond 
 
 Avec `sonic-frame-sync` (`sync` = le segmenteur ou le détecteur), l'image est celle qui a été analysée : le masque colle au corps même quand il bouge (sans cela il retarde d'une inférence). Si la source de masque n'a encore rien produit, l'image passe telle quelle (pas de clignotement) ; sans personne dans l'image, `target="background"` remplace tout le fond. Les bords du masque sont fondus et lissés en canvas 2D : c'est un effet de présentation, pas une découpe nette au pixel. Le calcul reste sur l'appareil.
 
+## `sonic-image-embedder`
+
+```json
+[ { "tagName": "sonic-object-detector", "attributes": { "id": "obj", "for": "cam" } },
+  { "tagName": "sonic-image-embedder", "attributes": { "id": "emb", "for": "cam", "crop": "obj", "reference": "refEmb" } } ]
+```
+
+Calcule l'**empreinte numérique** d'une image (MobileNet V3 par défaut, un vecteur d'environ 1 024 nombres) : deux images qui se ressemblent donnent des vecteurs proches. On s'en sert pour reconnaître « ce qui est dans l'image » sans l'avoir nommé à l'avance : comparer à une référence (`similarity`), ou apprendre des classes d'objets avec `sonic-example-classifier features="embed"`. Attributs communs ; cadence par défaut **5 images / s** (`fps`), `smooth` `0.3`, `hold-ms` `300`.
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `reference` | DataProvider d'un vecteur de comparaison : un tableau, ou la sortie d'un autre embedder (`{vector}`) → `similarity` | aucun |
+| `crop` | DataProvider de la sortie d'un `sonic-object-detector` : seule la meilleure boîte retenue est analysée ; sans boîte, rien n'est analysé (`present` 0) | image entière |
+| `crop-labels`, `crop-min-score`, `crop-pad` | Étiquettes retenues (virgules), score minimal, marge autour de la boîte (part de sa taille) | toutes, `0.4`, `0.1` |
+| `region` | Zone fixe `x,y,w,h` (0..1 de l'image, repère écran) ; ignorée si `crop` est renseigné | aucune |
+| `head` | Tête du modèle dont on lit le vecteur | `0` |
+| `mirror` | Comme le détecteur de `crop` : mettre la même valeur aux deux (une zone en repère écran est retournée vers l'image brute) | `auto` |
+
+| Clé | Contenu |
+|---|---|
+| `present`, `dim` | `1` si une empreinte existe (ou maintenue par `hold-ms`) ; nombre de valeurs |
+| `vector` | Vecteur unitaire (norme 2 = 1), 4 décimales, lissé par `smooth` |
+| `norm` | Norme du vecteur brut du modèle |
+| `similarity` | Cosinus (-1..1) avec `reference` ; `0` sans référence ou si les dimensions diffèrent |
+
+Limites : le modèle par défaut est petit et généraliste (ImageNet) : il distingue bien des objets courants, mal des différences fines (deux visages, deux tasses semblables). Un objet recadré trop petit (moins de 8 pixels) n'est pas analysé. `similarity` est relative à une référence et à un modèle donnés : ne pas comparer des vecteurs de modèles différents. Voir `examples/mes-objets.sdui.json` : apprendre ses propres objets (détecteur → embedder → classifieur).
+
 ## `sonic-example-classifier`
 
 ```json
@@ -260,7 +287,7 @@ Pilotage par le DataProvider `control` (typiquement un `sonic-store`) : `label` 
 | Attribut | Rôle | Défaut |
 |---|---|---|
 | `source` | DataProvider de sortie d'un tracker | requis |
-| `features` | `auto` (d'après les clés), `hand`, `pose`, `face` (blendshapes) | `auto` |
+| `features` | `auto` (d'après les clés), `hand`, `pose`, `face` (blendshapes), `embed` (vecteur d'un `sonic-image-embedder` : objets, scènes) | `auto` |
 | `hand` | `any`, `left`, `right` (côté écran) | `any` |
 | `control` | DataProvider de pilotage | aucun |
 | `outputProvider` | DataProvider de sortie | l'id |
@@ -340,4 +367,5 @@ Le composant est lui-même une source d'images (`getFrameCanvas`, `frameSeq`) : 
 - `examples/fond-virtuel.sdui.json` : fond flouté derrière la personne.
 - `examples/masquer-objet.sdui.json` : téléphone, tasse et livre pixellisés dans l'image.
 - `examples/recomposition.sdui.json` : la personne découpée, replacée en sprite (et son reflet) dans une scène `sonic-2d`.
+- `examples/mes-objets.sdui.json` : apprendre ses propres objets (détecteur, empreinte de la boîte, classifieur).
 - `examples/echange-visages.sdui.json` : à deux devant la caméra, chacun porte le visage de l'autre.

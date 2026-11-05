@@ -1,0 +1,297 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "learn",
+      "initial": "{\"label\": \"Tasse\", \"record\": 0, \"clear\": 0, \"clearAll\": 0}",
+      "reducer": "$action.type = \"label\" ? $merge([$state, {\"label\": $action.payload.l}]) : $action.type = \"rec\" ? $merge([$state, {\"record\": $state.record + 1}]) : $action.type = \"clear\" ? $merge([$state, {\"clear\": $state.clear + 1}]) : $action.type = \"clearAll\" ? $merge([$state, {\"clearAll\": $state.clearAll + 1}]) : $state"
+     }
+    },
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Mes objets"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Place un objet devant la caméra, choisis son nom, appuie sur « Enregistrer » plusieurs fois en le tournant un peu. Il est ensuite reconnu : le détecteur le trouve dans l'image, l'embedder en prend l'empreinte, le classifieur la compare à tes exemples."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "style": "border-radius:.8rem;overflow:hidden"
+     }
+    },
+    {
+     "tagName": "sonic-object-detector",
+     "attributes": {
+      "id": "obj",
+      "for": "cam",
+      "min-score": "0.3",
+      "max-results": "3",
+      "hold-ms": "300",
+      "fps": "10"
+     }
+    },
+    {
+     "tagName": "sonic-image-embedder",
+     "attributes": {
+      "id": "emb",
+      "for": "cam",
+      "crop": "obj",
+      "crop-pad": "0.1",
+      "fps": "8",
+      "smooth": "0.3"
+     }
+    },
+    {
+     "tagName": "sonic-example-classifier",
+     "attributes": {
+      "id": "gesture",
+      "source": "emb",
+      "control": "learn",
+      "features": "embed",
+      "storage": "mes-objets",
+      "samples": "15",
+      "window": "4",
+      "min-confidence": "0.7"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "learn",
+        "type": "label",
+        "payload": "{\"l\": \"Tasse\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "span",
+           "textContent": "Tasse"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "learn",
+        "type": "label",
+        "payload": "{\"l\": \"Clés\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "span",
+           "textContent": "Clés"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "learn",
+        "type": "label",
+        "payload": "{\"l\": \"Autre\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "span",
+           "textContent": "Autre"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "learn",
+        "type": "rec",
+        "payload": "{}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "type": "primary"
+         },
+         "nodes": [
+          {
+           "tagName": "span",
+           "textContent": "Enregistrer"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "learn",
+        "type": "clear",
+        "payload": "{}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "span",
+           "textContent": "Effacer cet objet"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "learn",
+        "type": "clearAll",
+        "payload": "{}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {},
+         "nodes": [
+          {
+           "tagName": "span",
+           "textContent": "Tout effacer"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:14px ui-monospace,monospace"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "lettre à enregistrer : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "learn",
+        "key": "label"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · reconnu : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "gesture",
+        "key": "label"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · confiance "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "gesture",
+        "key": "confidence"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · exemples "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "gesture",
+        "key": "total"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · restants "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "gesture",
+        "key": "samplesLeft"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

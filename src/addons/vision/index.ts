@@ -9,6 +9,8 @@ export { SonicObjectDetector } from "./object-detector";
 export { SonicSegmenter, type SegmentOutput } from "./segmenter";
 export { SonicLandmarksOverlay } from "./landmarks-overlay";
 export { SonicFaceMesh, type FaceMeshMode, type FaceMeshState } from "./face-mesh";
+export { SonicImageEmbedder, parseRegion } from "./image-embedder";
+export { EmbedderCore, type EmbedOutput } from "./embed-state";
 export { SonicMaskReplace, type MaskReplaceState } from "./mask-replace";
 export { SonicExampleClassifier, type ClassifierOutput } from "./example-classifier";
 export { DetectorCore, labelKey, type ObjectsOutput } from "./detector-state";

@@ -43,6 +43,19 @@ describe("sonic-example-classifier", () => {
     expect(dp("c1").get()).toMatchObject({ label: "poing" });
   });
 
+  it("empreintes d'image (features=embed) : apprend et reconnaît des objets par leur vecteur", async () => {
+    const el = await mount({ id: "c1e", "sample-ms": "0", samples: "4", window: "1", features: "embed" });
+    const vec = (a: number, b: number) => ({ present: 1, dim: 3, vector: [a, b, 0.1] });
+    el.record("tasse");
+    for (let i = 0; i < 4; i++) el.ingest(vec(0.95 + i * 0.01, 0.05), i);
+    el.record("clés");
+    for (let i = 0; i < 4; i++) el.ingest(vec(0.05, 0.95 + i * 0.01), 10 + i);
+    expect(el.getOutput().counts).toEqual({ tasse: 4, "clés": 4 });
+    expect(el.ingest(vec(0.9, 0.1), 100)).toMatchObject({ present: 1, label: "tasse" });
+    expect(el.ingest(vec(0.1, 0.9), 101)).toMatchObject({ label: "clés" });
+    expect(el.ingest({ present: 0, vector: [], dim: 0 }, 102)).toMatchObject({ present: 0, label: "" });
+  });
+
   it("rien de visible : present 0, étiquette vide, mais les comptes restent", async () => {
     const el = await mount({ id: "c2", "sample-ms": "0", samples: "3" });
     el.record("a");

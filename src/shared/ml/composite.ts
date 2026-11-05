@@ -54,6 +54,17 @@ export function shapesOf(boxes: Box[], width: number, height: number, kind: "rec
   });
 }
 
+/** Zone 0..1 d'une boîte agrandie de `pad` (part de sa taille de chaque côté), bornée à l'image ; `mirror` : repère écran → image brute. */
+export function cropBox(b: Box, pad: number, mirror: boolean): { x: number; y: number; w: number; h: number } {
+  const p = Math.max(0, Math.min(1, pad));
+  const x0 = clamp01(b.x - b.w * p);
+  const y0 = clamp01(b.y - b.h * p);
+  const x1 = clamp01(b.x + b.w + b.w * p);
+  const y1 = clamp01(b.y + b.h + b.h * p);
+  const w = x1 - x0;
+  return { x: mirror ? 1 - x1 : x0, y: y0, w, h: y1 - y0 };
+}
+
 /** Zone de la source à dessiner pour remplir `dw × dh` sans déformer (recadrage centré). */
 export function coverRect(sw: number, sh: number, dw: number, dh: number): { sx: number; sy: number; sw: number; sh: number } {
   if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return { sx: 0, sy: 0, sw: Math.max(sw, 0), sh: Math.max(sh, 0) };
