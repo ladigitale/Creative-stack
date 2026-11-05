@@ -368,7 +368,8 @@ export class Sonic2d extends LitElement {
     } finally {
       this.inFrame = false;
     }
-    if (this.dirty || scene.nodes.active || this.camTween) this.raf = requestAnimationFrame(this.frame);
+    // Une source d'images vivante (sprite `source`) demande une image par rafraîchissement ; sinon : rendu à la demande.
+    if (this.dirty || scene.nodes.active || this.camTween || scene.hasLive) this.raf = requestAnimationFrame(this.frame);
   };
 
   private drawFrame(scene: Scene2D, now: number): void {
@@ -386,6 +387,7 @@ export class Sonic2d extends LitElement {
       if (k >= 1) this.camTween = null;
       else busy = true;
     }
+    if (scene.hasLive && scene.refreshLive()) this.dirty = true;
     if (this.dirty || busy) {
       this.dirty = false;
       scene.render();

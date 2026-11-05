@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { SonicMaskReplace } from "./mask-replace";
+import recomposition from "./examples/recomposition.sdui.json";
+import manifest from "./manifest.json";
 
 void SonicMaskReplace;
 
 type Call = [string, ...unknown[]];
 const log = new Map<HTMLCanvasElement, Call[]>();
 const sizeOf = (c: HTMLCanvasElement) => `${c.width}x${c.height}`;
+/** Simule l'alpha de la copie réduite (64 × 48) servant à mesurer la boîte du masque. */
+let probeAlpha: ((x: number, y: number) => boolean) | null = null;
 
 function fakeCtx(canvas: HTMLCanvasElement) {
   const calls: Call[] = [];
@@ -20,6 +24,7 @@ function fakeCtx(canvas: HTMLCanvasElement) {
           calls.push(["getImageData", w, h]);
           const data = new Uint8ClampedArray(w * h * 4);
           for (let i = 0; i < data.length; i += 4) data[i] = data[i + 1] = data[i + 2] = 100, (data[i + 3] = 255);
+          if (probeAlpha && w === 64 && h === 48) for (let i = 0; i < w * h; i++) data[i * 4 + 3] = probeAlpha(i % w, Math.floor(i / w)) ? 255 : 0;
           return { data, width: w, height: h };
         };
       return (...a: unknown[]) => void calls.push([key, ...a.map((v) => (v instanceof HTMLCanvasElement ? `canvas:${sizeOf(v)}` : v))]);
@@ -34,6 +39,7 @@ function fakeCtx(canvas: HTMLCanvasElement) {
 
 const ctxs = new Map<HTMLCanvasElement, CanvasRenderingContext2D>();
 beforeEach(() => {
+  probeAlpha = null;
   log.clear();
   ctxs.clear();
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (this: HTMLCanvasElement) {
@@ -133,13 +139,46 @@ describe("sonic-mask-replace", () => {
     addCanvasSource("segGray", 64, 64, { mode: "gray" });
     const a = await mount({ source: "cam", mask: "segGray", feather: "0", smooth: "0" });
     a.el.draw();
-    expect([...log.values()].flat().filter((c) => c[0] === "getImageData")).toHaveLength(1);
+    const reads = () => [...log.values()].flat().filter((c) => c[0] === "getImageData" && c[2] !== 48); // hors mesure de boîte (64 × 48)
+    expect(reads()).toHaveLength(1);
     expect([...log.values()].flat().filter((c) => c[0] === "putImageData")).toHaveLength(1);
     log.clear();
     addCanvasSource("segAlpha", 64, 64, { mode: "alpha" });
     const b = await mount({ source: "cam", mask: "segAlpha", feather: "0", smooth: "0" });
     b.el.draw();
-    expect([...log.values()].flat().filter((c) => c[0] === "getImageData")).toHaveLength(0);
+    expect(reads()).toHaveLength(0);
+  });
+
+  it("boîte de la zone masquée : publiée (centre compris), lissée ; null quand le masque est vide", async () => {
+    addCanvasSource("cam");
+    addCanvasSource("seg", 64, 64, { mode: "alpha" });
+    probeAlpha = (x, y) => x >= 16 && x < 32 && y >= 12 && y < 36;
+    const { el } = await mount({ source: "cam", mask: "seg", feather: "0", smooth: "0", "out-data-provider": "mrb" });
+    el.draw();
+    const box = ((dp("mrb") as { get?: () => unknown }).get?.() as { box: Record<string, number> }).box;
+    expect(box.w).toBeCloseTo(0.26, 2); // 0,25 de large + 2 % de sa taille de marge de chaque côté
+    expect(box.h).toBeCloseTo(0.52, 2);
+    expect(box.cx).toBeCloseTo(0.375, 2);
+    expect(box.cy).toBeCloseTo(0.5, 2);
+    probeAlpha = () => false;
+    el.draw();
+    expect(((dp("mrb") as { get?: () => unknown }).get?.() as { box: unknown }).box).toBeNull();
+  });
+
+  it("crop : l'image produite est recadrée sur la personne (sprite à recomposer), uniquement avec target=background", async () => {
+    addCanvasSource("cam");
+    addCanvasSource("seg", 64, 64, { mode: "alpha" });
+    probeAlpha = (x, y) => x >= 16 && x < 32 && y >= 12 && y < 36;
+    const { el, canvas } = await mount({ source: "cam", mask: "seg", effect: "cutout", crop: "true", feather: "0", smooth: "0" });
+    el.draw();
+    expect(canvas.width).toBe(166); // 0,26 × 640
+    expect(canvas.height).toBe(250); // 0,52 × 480
+    const crop = callsOf(canvas, "drawImage").at(-1)!;
+    expect(crop.slice(2, 6)).toEqual([157, 115, 166, 250]); // zone source recopiée (x, y, largeur, hauteur)
+    // sans crop (ou avec target=subject) : taille d'origine
+    const b = await mount({ source: "cam", mask: "seg", effect: "cutout", crop: "true", target: "subject", feather: "0", smooth: "0" });
+    b.el.draw();
+    expect(b.canvas.width).toBe(640);
   });
 
   it("flou : copie réduite par le diviseur de `amount`, agrandie avec lissage ; pixellisation : sans lissage", async () => {
@@ -260,5 +299,21 @@ describe("sonic-mask-replace", () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     expect(el.draw()).toBe(false);
     expect((dp("mr4") as { get?: () => unknown }).get?.()).toMatchObject({ ready: false, error: "Canvas 2D indisponible" });
+  });
+
+  it("exemple de recomposition : les sprites `source` pointent vers un sonic-mask-replace en cutout ; exemples listés au manifeste", () => {
+    type N = { tagName: string; attributes?: Record<string, string>; nodes?: N[] };
+    const all: N[] = [];
+    const walk = (x: { nodes?: N[] }) => (x.nodes ?? []).forEach((c) => (all.push(c), walk(c)));
+    walk(recomposition as unknown as { nodes: N[] });
+    const sprites = all.filter((n) => n.tagName === "sonic-sprite" && n.attributes?.source);
+    expect(sprites.length).toBeGreaterThan(1);
+    for (const sp of sprites) {
+      const target = all.find((n) => `#${n.attributes?.id}` === sp.attributes!.source);
+      expect(target?.tagName).toBe("sonic-mask-replace");
+      expect(target?.attributes).toMatchObject({ effect: "cutout", target: "background" });
+    }
+    const listed = (manifest as unknown as { examples: string[] }).examples;
+    for (const e of ["fond-virtuel", "masquer-objet", "recomposition"]) expect(listed).toContain(`examples/${e}.sdui.json`);
   });
 });

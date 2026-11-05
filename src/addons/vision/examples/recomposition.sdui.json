@@ -1,0 +1,216 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:44rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Recomposition : toi, ailleurs"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "La personne est découpée (sonic-mask-replace, effect=cutout) puis placée comme un sprite dans une scène 2D, avec un décor en parallaxe. Une copie fantôme sert de reflet. Déplace-toi : la silhouette suit ; la caméra de la scène peut être pilotée par un sonic-store."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "fps": "30",
+      "mirror": "false",
+      "hidden-preview": ""
+     }
+    },
+    {
+     "tagName": "sonic-segmenter",
+     "attributes": {
+      "id": "seg",
+      "for": "cam",
+      "mode": "alpha",
+      "fps": "30",
+      "smooth": "0.2",
+      "mirror": "false"
+     }
+    },
+    {
+     "tagName": "sonic-frame-sync",
+     "attributes": {
+      "id": "synced",
+      "for": "cam",
+      "sync": "seg"
+     }
+    },
+    {
+     "tagName": "sonic-mask-replace",
+     "attributes": {
+      "id": "personne",
+      "source": "synced",
+      "mask": "seg",
+      "mirror": "true",
+      "target": "background",
+      "effect": "cutout",
+      "feather": "0.25",
+      "smooth": "0.3",
+      "out-data-provider": "personneState",
+      "style": "display:none"
+     }
+    },
+    {
+     "tagName": "sonic-2d",
+     "attributes": {
+      "width": "800",
+      "height": "450",
+      "background": "#0b1220",
+      "layers": "ciel:0 montagnes:0.3 scene:1",
+      "style": "border-radius:.8rem;overflow:hidden"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "ciel",
+        "layer": "ciel",
+        "w": "800",
+        "h": "450",
+        "x": "400",
+        "y": "225",
+        "fill": "#1e3a8a"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "lune",
+        "layer": "ciel",
+        "r": "46",
+        "x": "650",
+        "y": "90",
+        "fill": "#fde68a"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "montagne",
+        "layer": "montagnes",
+        "shape": "polygon",
+        "points": "-400,150 -150,-120 100,150 330,-60 560,150",
+        "x": "400",
+        "y": "300",
+        "fill": "#334155"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "sol",
+        "layer": "scene",
+        "w": "800",
+        "h": "90",
+        "x": "400",
+        "y": "405",
+        "fill": "#14532d",
+        "z": "0"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "reflet",
+        "layer": "scene",
+        "shape": "image",
+        "source": "#personne",
+        "w": "260",
+        "h": "260",
+        "x": "640",
+        "y": "330",
+        "opacity": "0.3",
+        "z": "1"
+       }
+      },
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "moi",
+        "layer": "scene",
+        "shape": "image",
+        "source": "#personne",
+        "w": "420",
+        "h": "420",
+        "x": "300",
+        "y": "250",
+        "z": "2"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "centre de la personne (0..1) : x "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "personneState",
+        "key": "box.cx"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · y "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "personneState",
+        "key": "box.cy"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

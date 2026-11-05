@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blurDivisor, boxesOf, coverRect, effectOf, featherDivisor, grayToAlpha, labelKey, pixelDivisor, safeColor, selectBoxes, shapesOf } from "./composite";
+import { alphaBounds, blurDivisor, boxesOf, coverRect, effectOf, featherDivisor, grayToAlpha, labelKey, mixBounds, padBounds, pixelDivisor, safeColor, selectBoxes, shapesOf, spriteSize } from "./composite";
 
 const out = {
   objects: [
@@ -78,5 +78,34 @@ describe("couleur et masque", () => {
     const d = new Uint8ClampedArray([10, 10, 10, 255, 200, 200, 200, 255]);
     grayToAlpha(d);
     expect(Array.from(d)).toEqual([255, 255, 255, 10, 255, 255, 255, 200]);
+  });
+});
+
+describe("boîtes de pixels et sprites", () => {
+  it("alphaBounds : boîte des pixels au-dessus du seuil", () => {
+    const w = 4;
+    const h = 3;
+    const d = new Uint8ClampedArray(w * h * 4);
+    d[(1 * w + 1) * 4 + 3] = 255;
+    d[(2 * w + 2) * 4 + 3] = 200;
+    d[(0 * w + 3) * 4 + 3] = 10; // sous le seuil
+    expect(alphaBounds(d, w, h)).toEqual({ x0: 0.25, y0: 1 / 3, x1: 0.75, y1: 1 });
+    expect(alphaBounds(new Uint8ClampedArray(w * h * 4), w, h)).toBeNull();
+    expect(alphaBounds([], 0, 0)).toBeNull();
+  });
+  it("padBounds : marge bornée ; mixBounds : lissage", () => {
+    const b = padBounds({ x0: 0.4, y0: 0.4, x1: 0.6, y1: 0.8 }, 0.5);
+    expect(b.x0).toBeCloseTo(0.3, 5);
+    expect(b.y1).toBeCloseTo(1, 5);
+    expect(padBounds({ x0: 0, y0: 0, x1: 1, y1: 1 }, 1)).toEqual({ x0: 0, y0: 0, x1: 1, y1: 1 });
+    const next = { x0: 0.5, y0: 0.5, x1: 0.9, y1: 0.9 };
+    expect(mixBounds(null, next, 0.5)).toBe(next);
+    expect(mixBounds({ x0: 0, y0: 0, x1: 1, y1: 1 }, next, 0).x0).toBe(0.5);
+    expect(mixBounds({ x0: 0, y0: 0, x1: 1, y1: 1 }, next, 0.5).x0).toBeCloseTo(0.25, 5);
+  });
+  it("spriteSize : hauteur = scale × scène, proportions conservées", () => {
+    expect(spriteSize(100, 200, 480, 0.5)).toEqual({ w: 120, h: 240 });
+    expect(spriteSize(0, 200, 480, 0.5)).toEqual({ w: 0, h: 0 });
+    expect(spriteSize(100, 200, 480, -1).h).toBe(0);
   });
 });

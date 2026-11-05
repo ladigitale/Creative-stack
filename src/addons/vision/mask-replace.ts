@@ -10,17 +10,23 @@ import {
   coverRect,
   effectOf,
   featherDivisor,
+  alphaBounds,
   grayToAlpha,
+  mixBounds,
+  padBounds,
   pixelDivisor,
   safeColor,
   selectBoxes,
   shapesOf,
+  type Bounds,
   type Box,
   type MaskTarget,
   type ReplaceEffect,
 } from "../../shared/ml/composite";
 
 const tagName = "sonic-mask-replace";
+
+const r4 = (n: number) => Math.round(n * 10000) / 10000;
 
 export type MaskReplaceState = {
   ready: boolean;
@@ -30,6 +36,8 @@ export type MaskReplaceState = {
   mask: boolean;
   /** Objets détectés retenus pour le masque. */
   regions: number;
+  /** Boîte (0..1, repère écran) de la zone masquée, lissée ; `null` sans zone. `cx`, `cy` : son centre. */
+  box: { x: number; y: number; w: number; h: number; cx: number; cy: number } | null;
   error?: string;
 };
 
@@ -123,6 +131,13 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
   @property({ type: Number })
   feather = 0.3;
 
+  /**
+   * `"true"` (avec `target="background"`) : l'image produite est recadrée sur la zone masquée (la personne), avec
+   * un fond transparent si `effect="cutout"` : un « sprite » à placer ailleurs (`sonic-compose`).
+   */
+  @property({ type: String })
+  crop: "true" | "false" = "false";
+
   /** Lissage du masque dans le temps, 0 (aucun) à 0,9. */
   @property({ type: Number })
   smooth = 0.4;
@@ -159,6 +174,7 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
   private imageError = "";
   private layers: Record<string, Layer | null> = {};
   private acc: Layer | null = null;
+  private box: Bounds | null = null;
 
   get frameSeq(): number {
     return this.seq;
@@ -429,7 +445,7 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
     const effect = effectOf(this.effect);
     const target: MaskTarget = this.target === "subject" ? "subject" : "background";
     if (!src) {
-      this.publish({ ready: false, effect, target, mask: false, regions: 0 });
+      this.publish({ ready: false, effect, target, mask: false, regions: 0, box: null });
       return false;
     }
     const w = src.width;
@@ -438,7 +454,7 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
     if (canvas.height !== h) canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      this.publish({ ready: false, effect, target, mask: false, regions: 0, error: "Canvas 2D indisponible" });
+      this.publish({ ready: false, effect, target, mask: false, regions: 0, box: null, error: "Canvas 2D indisponible" });
       return false;
     }
     ctx.globalCompositeOperation = "source-over";
@@ -450,7 +466,7 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
       // Pas encore de masque : l'image passe telle quelle (pas de clignotement).
       this.drawFlipped(ctx, src, w, h);
       this.seq++;
-      this.publish({ ready: true, effect, target, mask: false, regions: 0, ...(this.imageError ? { error: this.imageError } : {}) });
+      this.publish({ ready: true, effect, target, mask: false, regions: 0, box: null, ...(this.imageError ? { error: this.imageError } : {}) });
       return true;
     }
 
@@ -467,10 +483,52 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
     keep.ctx.drawImage(mask.canvas, 0, 0, w, h);
     keep.ctx.globalCompositeOperation = "source-over";
 
-    this.drawEffect(ctx, src, w, h);
-    ctx.drawImage(keep.canvas, 0, 0);
+    // Boîte de la zone masquée (copie réduite du masque : peu coûteux)
+    const bh = Math.max(1, Math.round((64 * h) / w));
+    const probe = this.layer("bounds", 64, bh);
+    if (probe) {
+      probe.ctx.globalCompositeOperation = "source-over";
+      probe.ctx.clearRect(0, 0, 64, bh);
+      probe.ctx.drawImage(mask.canvas, 0, 0, 64, bh);
+      const raw = alphaBounds(probe.ctx.getImageData(0, 0, 64, bh).data, 64, bh, 48);
+      if (raw) this.box = mixBounds(this.box, padBounds(raw, 0.02), Math.max(0, Math.min(0.9, Number(this.smooth) || 0)));
+      else this.box = null;
+    }
+
+    const crop = this.crop === "true" && target === "background";
+    const full = crop ? this.layer("full", w, h) : null;
+    const dctx = full ? full.ctx : ctx;
+    if (full) {
+      full.ctx.globalCompositeOperation = "source-over";
+      full.ctx.clearRect(0, 0, w, h);
+    }
+    this.drawEffect(dctx, src, w, h);
+    dctx.drawImage(keep.canvas, 0, 0);
+    if (full) {
+      const b = this.box;
+      const sx = b ? Math.round(b.x0 * w) : 0;
+      const sy = b ? Math.round(b.y0 * h) : 0;
+      const sw = b ? Math.max(1, Math.round((b.x1 - b.x0) * w)) : 1;
+      const sh = b ? Math.max(1, Math.round((b.y1 - b.y0) * h)) : 1;
+      if (canvas.width !== sw) canvas.width = sw;
+      if (canvas.height !== sh) canvas.height = sh;
+      const out = canvas.getContext("2d");
+      if (out) {
+        out.clearRect(0, 0, sw, sh);
+        if (b) out.drawImage(full.canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      }
+    }
     this.seq++;
-    this.publish({ ready: true, effect, target, mask: mask.fromSource, regions: mask.regions, ...(this.imageError ? { error: this.imageError } : {}) });
+    const bx = this.box;
+    this.publish({
+      ready: true,
+      effect,
+      target,
+      mask: mask.fromSource,
+      regions: mask.regions,
+      box: bx ? { x: r4(bx.x0), y: r4(bx.y0), w: r4(bx.x1 - bx.x0), h: r4(bx.y1 - bx.y0), cx: r4((bx.x0 + bx.x1) / 2), cy: r4((bx.y0 + bx.y1) / 2) } : null,
+      ...(this.imageError ? { error: this.imageError } : {}),
+    });
     return true;
   }
 

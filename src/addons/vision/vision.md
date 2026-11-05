@@ -239,7 +239,10 @@ Remplace une zone de l'image avec un masque, sans écrire de shader : le **fond 
 | `smooth` | Lissage du masque dans le temps, 0 à 0,9 | `0.4` |
 | `mirror` | `auto` (retourne une vidéo native, pas un canvas déjà dessiné), `true`, `false` | `auto` |
 | `fps`, `width`, `height` | Images par seconde au plus ; taille du canvas quand il n'y a pas de source | `30`, 640 × 480 |
-| `out-data-provider` | `{ready, effect, target, mask, regions, error}` | — |
+| `crop` | `true` (avec `target="background"`) : l'image produite est recadrée sur la zone gardée, avec `effect="cutout"` un sprite à fond transparent | `false` |
+| `out-data-provider` | `{ready, effect, target, mask, regions, box, error}` ; `box` = `{x, y, w, h, cx, cy}` de la zone gardée (0..1 de l'image, lissée, `null` si rien) | — |
+
+**Récupérer la personne (ou un objet) pour la recomposer** : `effect="cutout"` + `target="background"` donne la personne sur fond transparent (un objet détecté seul : `detections` sans `mask`). Le résultat se place ensuite avec l'existant, sans composant de plus : `sonic-sprite shape="image" source="#personne"` dans un `sonic-2d` (calques, parallaxe, `nodes`, caméra, physique) ; la copie, le reflet, l'échelle ou la rotation sont d'autres sprites ou des `nodes`. Sans `crop`, le sprite garde la position de la personne dans l'image (stable) ; avec `crop`, il est serré sur sa boîte (la taille de l'image change donc d'une image à l'autre : le sprite tient dans `w` × `h`, à placer avec `box.cx`/`box.cy`). `box` sert aussi à faire suivre la personne par un autre élément (store, reducer). Voir `examples/recomposition.sdui.json`.
 
 Avec `sonic-frame-sync` (`sync` = le segmenteur ou le détecteur), l'image est celle qui a été analysée : le masque colle au corps même quand il bouge (sans cela il retarde d'une inférence). Si la source de masque n'a encore rien produit, l'image passe telle quelle (pas de clignotement) ; sans personne dans l'image, `target="background"` remplace tout le fond. Les bords du masque sont fondus et lissés en canvas 2D : c'est un effet de présentation, pas une découpe nette au pixel. Le calcul reste sur l'appareil.
 
@@ -336,4 +339,5 @@ Le composant est lui-même une source d'images (`getFrameCanvas`, `frameSeq`) : 
 - `examples/mes-gestes.sdui.json` : apprendre ses propres gestes (A, B, C) et les reconnaître.
 - `examples/fond-virtuel.sdui.json` : fond flouté derrière la personne.
 - `examples/masquer-objet.sdui.json` : téléphone, tasse et livre pixellisés dans l'image.
+- `examples/recomposition.sdui.json` : la personne découpée, replacée en sprite (et son reflet) dans une scène `sonic-2d`.
 - `examples/echange-visages.sdui.json` : à deux devant la caméra, chacun porte le visage de l'autre.

@@ -109,3 +109,57 @@ export const EFFECTS: readonly ReplaceEffect[] = ["blur", "pixelate", "color", "
 export function effectOf(v: string): ReplaceEffect {
   return (EFFECTS as readonly string[]).includes(v) ? (v as ReplaceEffect) : "blur";
 }
+
+export type Bounds = { x0: number; y0: number; x1: number; y1: number };
+
+/** Boîte englobante (0..1) des pixels RGBA dont l'alpha dépasse `threshold` (0..255) ; `null` s'il n'y en a aucun. */
+export function alphaBounds(data: ArrayLike<number>, width: number, height: number, threshold = 32): Bounds | null {
+  let x0 = width;
+  let y0 = height;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] > threshold) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x1 < 0 || width === 0 || height === 0) return null;
+  return { x0: x0 / width, y0: y0 / height, x1: (x1 + 1) / width, y1: (y1 + 1) / height };
+}
+
+/** Boîte agrandie de `pad` (part de sa taille, de chaque côté) et bornée à l'image. */
+export function padBounds(b: Bounds, pad: number): Bounds {
+  const px = (b.x1 - b.x0) * pad;
+  const py = (b.y1 - b.y0) * pad;
+  return { x0: clamp01(b.x0 - px), y0: clamp01(b.y0 - py), x1: clamp01(b.x1 + px), y1: clamp01(b.y1 + py) };
+}
+
+/** Lissage exponentiel d'une boîte (`keep` 0 = pas de lissage). */
+export function mixBounds(prev: Bounds | null, next: Bounds, keep: number): Bounds {
+  if (!prev || keep <= 0) return next;
+  const k = Math.min(0.95, keep);
+  const m = (a: number, b: number) => a * k + b * (1 - k);
+  return { x0: m(prev.x0, next.x0), y0: m(prev.y0, next.y0), x1: m(prev.x1, next.x1), y1: m(prev.y1, next.y1) };
+}
+
+export type Placement = {
+  /** Centre du sprite, 0..1 de la scène. */
+  x: number;
+  y: number;
+  /** Hauteur du sprite en part de la hauteur de la scène. */
+  scale: number;
+  /** Degrés, sens horaire. */
+  rotation: number;
+};
+
+/** Taille du sprite dessiné pour une scène `sceneW × sceneH` : hauteur = `scale` × hauteur de la scène, proportions conservées. */
+export function spriteSize(spriteW: number, spriteH: number, sceneH: number, scale: number): { w: number; h: number } {
+  if (spriteW <= 0 || spriteH <= 0) return { w: 0, h: 0 };
+  const h = Math.max(0, scale) * sceneH;
+  return { w: (h * spriteW) / spriteH, h };
+}

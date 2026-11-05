@@ -23,6 +23,17 @@ describe("parseSprite", () => {
     expect(parseSprite({ shape: "image", src: "javascript:x" }, "i").errors[0]).toContain("src");
   });
 
+  it("image vivante : source=#id (sans src) ; autre valeur refusée", () => {
+    const ok = parseSprite({ source: "#personne", w: "300", h: "200" }, "p");
+    expect(ok.errors).toEqual([]);
+    expect(ok.spec).toMatchObject({ shape: "image", source: "#personne", src: "", w: 300, h: 200 });
+    expect(parseSprite({ shape: "image", source: "personne" }, "p").errors.join()).toContain("#id");
+    expect(parseSprite({ shape: "image", source: "#a b" }, "p").spec.source).toBe("");
+    expect(parseSprite({ shape: "image" }, "p").errors[0]).toContain("source");
+    // changer de source redessine
+    expect(visualKey(ok.spec)).not.toBe(visualKey({ ...ok.spec, source: "#autre" }));
+  });
+
   it("la position n'entre pas dans la clé d'apparence (un sprite déplacé n'est pas redessiné)", () => {
     const a = parseSprite({ name: "a", r: 5, x: 1, y: 2, angle: 10 }, "a").spec;
     const b = parseSprite({ name: "a", r: 5, x: 99, y: 7, angle: 0 }, "a").spec;
