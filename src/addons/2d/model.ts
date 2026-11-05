@@ -28,6 +28,8 @@ export type SpriteSpec = {
   font: string;
   /** Image d'un sprite `image` : `data:image/…` ou `https://…`. */
   src: string;
+  /** Image d'un sprite `image` prise sur une source d'images vivante (`#id` : caméra, `sonic-mask-replace`…). */
+  source: string;
   angle: number;
   opacity: number;
   layer: string;
@@ -76,13 +78,16 @@ export function parseSprite(raw: Record<string, unknown>, fallbackName: string):
   const o = norm(raw);
   const errors: string[] = [];
   const name = String(o.name ?? o.id ?? "").trim() || fallbackName;
-  const shapeRaw = String(o.shape ?? (o.src !== undefined ? "image" : o.text !== undefined ? "text" : o.r !== undefined ? "circle" : "box"));
+  const shapeRaw = String(o.shape ?? (o.src !== undefined || o.source !== undefined ? "image" : o.text !== undefined ? "text" : o.r !== undefined ? "circle" : "box"));
   const shape = (SHAPES.includes(shapeRaw as SpriteShape) ? shapeRaw : "box") as SpriteShape;
   if (shapeRaw !== shape) errors.push(`${name} : forme "${shapeRaw}" inconnue (${SHAPES.join(", ")})`);
   const pts = points(o.points);
   if (shape === "polygon" && pts.length < 3) errors.push(`${name} : un polygon demande au moins 3 points`);
   const src = safeImageSrc(o.src);
-  if (shape === "image" && !src) errors.push(`${name} : src doit être une image data:image/… ou une URL https://`);
+  const sourceRaw = String(o.source ?? "").trim();
+  const source = /^#[A-Za-z_][\w-]*$/.test(sourceRaw) ? sourceRaw : "";
+  if (sourceRaw && !source) errors.push(`${name} : source doit être un #id (ex. "#personne")`);
+  if (shape === "image" && !src && !source) errors.push(`${name} : src (image data:image/… ou https://) ou source (#id) est requis`);
   return {
     spec: {
       name,
@@ -101,6 +106,7 @@ export function parseSprite(raw: Record<string, unknown>, fallbackName: string):
       fontSize: Math.max(4, num(o.fontsize, 24)),
       font: o.font == null ? "" : String(o.font), // vide : police de la page (scene.ts)
       src,
+      source,
       angle: num(o.angle, 0),
       opacity: Math.max(0, Math.min(1, num(o.opacity, 1))),
       layer: String(o.layer ?? "").trim(),

@@ -5,7 +5,8 @@
  */
 // Sans ce module, Pixi compile ses shaders avec `new Function` : refusé par une CSP sans unsafe-eval (viewer Artefacts).
 import "pixi.js/unsafe-eval";
-import { Application, Container, Graphics, Sprite, Text, Texture, type ContainerChild } from "pixi.js";
+import { Application, CanvasSource, Container, Graphics, Sprite, Text, Texture, type ContainerChild } from "pixi.js";
+import { isFrameSource } from "../../shared/mediaRef";
 import { NodeStates } from "../../shared/node-state";
 import {
   DEFAULT_LAYER,
@@ -25,6 +26,8 @@ type Entry = {
   holder: Container;
   art: ContainerChild | null;
   layer: string;
+  /** Sprite image alimenté par une source d'images vivante (`source="#id"`). */
+  live?: { sp: Sprite; seq: number; canvas: HTMLCanvasElement | null; w: number; h: number };
 };
 
 const RAD = Math.PI / 180;
@@ -269,9 +272,47 @@ export class Scene2D {
     if (l?.layer.sortY) e.holder.zIndex = e.holder.y + (this.nodes.state(e.spec.name)?.z ?? e.spec.z) * 1e4;
   }
 
+  /** Sprites alimentés par une source d'images : vrai tant qu'il en existe (la scène doit alors redessiner). */
+  get hasLive(): boolean {
+    for (const e of this.entries.values()) if (e.live) return true;
+    return false;
+  }
+
+  /**
+   * Met à jour les textures des sprites `source` quand leur source a produit une nouvelle image.
+   * Vrai si au moins une a changé (la scène doit être redessinée).
+   */
+  refreshLive(): boolean {
+    let changed = false;
+    for (const e of this.entries.values()) {
+      const live = e.live;
+      if (!live || live.sp.destroyed) continue;
+      const el = document.getElementById(e.spec.source.slice(1));
+      if (!isFrameSource(el) || el.frameSeq === live.seq) continue;
+      live.seq = el.frameSeq;
+      const canvas = el.getFrameCanvas();
+      if (!canvas || canvas.width < 1 || canvas.height < 1) continue;
+      if (live.canvas !== canvas || live.w !== canvas.width || live.h !== canvas.height) {
+        const old = live.sp.texture;
+        live.sp.texture = new Texture({ source: new CanvasSource({ resource: canvas, width: canvas.width, height: canvas.height, resolution: 1 }) });
+        if (old !== Texture.EMPTY) old.destroy(true);
+        live.canvas = canvas;
+        live.w = canvas.width;
+        live.h = canvas.height;
+      } else live.sp.texture.source.update();
+      // l'image tient dans la boîte w × h du sprite, proportions conservées
+      const k = Math.min(e.spec.w / canvas.width, e.spec.h / canvas.height);
+      live.sp.width = canvas.width * k;
+      live.sp.height = canvas.height * k;
+      changed = true;
+    }
+    return changed;
+  }
+
   private redraw(e: Entry, color?: string): void {
     const s = e.spec;
     const fill = color ?? s.fill;
+    e.live = undefined;
     if (e.art) {
       e.holder.removeChild(e.art);
       e.art.destroy();
@@ -291,6 +332,7 @@ export class Scene2D {
       sp.anchor.set(0.5);
       sp.width = s.w;
       sp.height = s.h;
+      if (s.source && !s.src) e.live = { sp, seq: -1, canvas: null, w: 0, h: 0 };
       if (s.src) {
         const img = new Image();
         img.crossOrigin = "anonymous";

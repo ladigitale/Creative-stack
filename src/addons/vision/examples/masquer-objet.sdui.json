@@ -1,0 +1,121 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Masquer un objet"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Les objets détectés (ici : téléphone, tasse, livre) sont pixellisés dans l'image."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "fps": "30",
+      "mirror": "true",
+      "hidden-preview": ""
+     }
+    },
+    {
+     "tagName": "sonic-object-detector",
+     "attributes": {
+      "id": "det",
+      "for": "cam",
+      "fps": "15",
+      "categories": "cell phone,cup,book",
+      "min-score": "0.4",
+      "hold-ms": "300",
+      "mirror": "true",
+      "outputProvider": "objs"
+     }
+    },
+    {
+     "tagName": "sonic-frame-sync",
+     "attributes": {
+      "id": "synced",
+      "for": "cam",
+      "sync": "det"
+     }
+    },
+    {
+     "tagName": "sonic-mask-replace",
+     "attributes": {
+      "source": "synced",
+      "detections": "objs",
+      "labels": "cell phone,cup,book",
+      "mirror": "false",
+      "target": "subject",
+      "effect": "pixelate",
+      "amount": "0.5",
+      "shape": "rect",
+      "pad": "0.1",
+      "feather": "0.2",
+      "smooth": "0.3",
+      "out-data-provider": "replaceState",
+      "style": "border-radius:.8rem;overflow:hidden;background:#0b0d14"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "zones : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "replaceState",
+        "key": "regions"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -73,7 +73,7 @@
     },
     {
       "name": "sonic-sprite",
-      "description": "Sprite déclaratif d'un sonic-2d (aucun rendu propre) : shape box (w h radius) | circle (r) | polygon (points \"x,y …\") | text (text font-size font) | image (src data:image/… ou https://, w h) ; fill stroke line ; x y angle (°) de départ ; opacity layer z hidden. Le nom relie le sprite à son nœud (et au corps de même nom).",
+      "description": "Sprite déclaratif d'un sonic-2d (aucun rendu propre) : shape box (w h radius) | circle (r) | polygon (points \"x,y …\") | text (text font-size font) | image (src data:image/… ou https://, ou source=\"#id\" : image vivante d'une source d'images, ex. la personne découpée par sonic-mask-replace effect=\"cutout\" ; w h = boîte où l'image tient, proportions conservées) ; fill stroke line ; x y angle (°) de départ ; opacity layer z hidden. Le nom relie le sprite à son nœud (et au corps de même nom).",
       "props": {
         "name": {
           "type": "string",
@@ -142,6 +142,10 @@
         "src": {
           "type": "string",
           "description": "Image : data:image/… (base64) ou URL https://"
+        },
+        "source": {
+          "type": "string",
+          "description": "Image vivante : #id d'une source d'images (sonic-camera, sonic-mask-replace…), redessinée à chaque nouvelle image ; la scène redessine alors en continu"
         },
         "opacity": {
           "type": "number",
