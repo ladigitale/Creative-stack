@@ -16,6 +16,8 @@ export { SonicAction } from "./action";
 export { SonicTicker } from "./ticker";
 export { SonicTrigger, type TriggerState } from "./trigger";
 export { TriggerMachine, matchesRule, readPath, type TriggerEvent, type TriggerOptions, type TriggerRule } from "./trigger-core";
+export { SonicMotion } from "./motion";
+export { MotionTracker, quantizeNote, parseRange, parseScale, type MotionOptions, type MotionOutput } from "./motion-core";
 export { SonicMatrix } from "./matrix";
 
 /** `sonic-if` (mode attributs) et `sonic-value` (`format`) sur Concorde classique. */
@@ -27,4 +29,5 @@ import "./gesture";
 import "./action";
 import "./ticker";
 import "./trigger";
+import "./motion";
 import "./matrix";
