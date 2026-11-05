@@ -2,7 +2,7 @@
 
 Addon `@supersoniks/creative-stack/vision` : suivi temps réel par des modèles ML qui **tournent sur l'appareil** (aucune image n'est envoyée). Les résultats sont publiés en DataProvider, avec des clés plates et stables, directement lisibles par `sonic-param`, `sonic-if`, `sonic-value`, `sonic-stage`, `sonic-shader` et `sonic-jsonata`.
 
-Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps), `sonic-object-detector` (objets), `sonic-segmenter` (silhouette), `sonic-example-classifier` (gestes appris par l'utilisateur), `sonic-landmarks-overlay` pour dessiner leurs sorties, et `sonic-face-mesh` pour greffer un visage sur le visage suivi. Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
+Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps), `sonic-object-detector` (objets), `sonic-segmenter` (silhouette), `sonic-example-classifier` (gestes appris par l'utilisateur), `sonic-landmarks-overlay` pour dessiner leurs sorties, `sonic-face-mesh` pour greffer un visage sur le visage suivi, et `sonic-mask-replace` pour remplacer le fond ou un objet détecté. Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
 
 ## Règles communes
 
@@ -211,6 +211,38 @@ Segmente la personne (modèle `selfie-segmenter` par défaut). Le masque est une
 
 Le masque est dessiné en repère écran (miroir appliqué comme pour les autres trackers) ; l'image de la caméra lue par le shader, elle, n'est pas retournée si elle vient de la vidéo native : retourner `x` dans le shader (`1.-uv.x`) avec `mirror="false"` sur la caméra. Sortie : `present`, `coverage` (part de l'image), `cx`, `cy`, `x0`, `y0`, `x1`, `y1` (centre et boîte, lissés).
 
+## `sonic-mask-replace`
+
+```json
+[ { "tagName": "sonic-segmenter", "attributes": { "id": "seg", "for": "cam", "mode": "alpha" } },
+  { "tagName": "sonic-frame-sync", "attributes": { "id": "synced", "for": "cam", "sync": "seg" } },
+  { "tagName": "sonic-mask-replace", "attributes": {
+    "source": "synced", "mask": "seg", "mirror": "false", "effect": "blur", "amount": "0.6" } } ]
+```
+
+Remplace une zone de l'image avec un masque, sans écrire de shader : le **fond derrière la personne** (`mask` = un `sonic-segmenter`) ou les **objets détectés** (`detections` = la sortie d'un `sonic-object-detector`). Les deux se combinent (la zone est leur réunion). Le composant est lui-même une source d'images (`getFrameCanvas`) : un `sonic-shader` ou un autre `sonic-mask-replace` peut le lire.
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `source` | Id de l'image à modifier (`sonic-camera`, `sonic-frame-sync`) | requis |
+| `mask` | Id d'un `sonic-segmenter` (masque `alpha` ou `gray`) | aucun |
+| `detections` | DataProvider de la sortie d'un `sonic-object-detector` | aucun |
+| `labels`, `min-score`, `max-objects` | Objets retenus : étiquettes (virgules, `cell phone` ou `cell_phone`), score minimal, nombre maximal (les meilleurs) | toutes, `0.4`, `5` |
+| `shape`, `pad` | Forme du masque d'un objet (`ellipse` ou `rect`) et marge autour de sa boîte (part de sa taille) | `ellipse`, `0.05` |
+| `target` | `background` : garde la zone masquée, remplace le reste (fond virtuel) ; `subject` : remplace la zone masquée | `background` |
+| `effect` | `blur`, `pixelate`, `color`, `image`, `source` (autre source d'images), `cutout` (zone remplacée transparente) | `blur` |
+| `amount` | Force du flou ou de la pixellisation, 0..1 | `0.5` |
+| `color` | Couleur CSS de `effect="color"` (hexadécimal, `rgb()`, `hsl()` ou nom) | `#101820` |
+| `image` | URL de `effect="image"` (https, `blob:`, `data:image`, relative) ; recadrée pour remplir | aucune |
+| `with-source` | Id de la source d'images de `effect="source"` (vidéo, shader, canvas) ; absente : repli en flou | aucune |
+| `feather` | Adoucissement des bords du masque, 0 (net) à 1 | `0.3` |
+| `smooth` | Lissage du masque dans le temps, 0 à 0,9 | `0.4` |
+| `mirror` | `auto` (retourne une vidéo native, pas un canvas déjà dessiné), `true`, `false` | `auto` |
+| `fps`, `width`, `height` | Images par seconde au plus ; taille du canvas quand il n'y a pas de source | `30`, 640 × 480 |
+| `out-data-provider` | `{ready, effect, target, mask, regions, error}` | — |
+
+Avec `sonic-frame-sync` (`sync` = le segmenteur ou le détecteur), l'image est celle qui a été analysée : le masque colle au corps même quand il bouge (sans cela il retarde d'une inférence). Si la source de masque n'a encore rien produit, l'image passe telle quelle (pas de clignotement) ; sans personne dans l'image, `target="background"` remplace tout le fond. Les bords du masque sont fondus et lissés en canvas 2D : c'est un effet de présentation, pas une découpe nette au pixel. Le calcul reste sur l'appareil.
+
 ## `sonic-example-classifier`
 
 ```json
@@ -302,4 +334,6 @@ Le composant est lui-même une source d'images (`getFrameCanvas`, `frameSeq`) : 
 - `examples/silhouette.sdui.json` : silhouette lue par un shader.
 - `examples/detecteur-objets.sdui.json` : boîtes d'objets dans un panneau séparé.
 - `examples/mes-gestes.sdui.json` : apprendre ses propres gestes (A, B, C) et les reconnaître.
+- `examples/fond-virtuel.sdui.json` : fond flouté derrière la personne.
+- `examples/masquer-objet.sdui.json` : téléphone, tasse et livre pixellisés dans l'image.
 - `examples/echange-visages.sdui.json` : à deux devant la caméra, chacun porte le visage de l'autre.

@@ -1,0 +1,127 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Fond virtuel"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Tu restes net, le fond est flouté. Change `effect` (blur, pixelate, color, image, source) ou `target`."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "fps": "30",
+      "mirror": "true",
+      "hidden-preview": ""
+     }
+    },
+    {
+     "tagName": "sonic-segmenter",
+     "attributes": {
+      "id": "seg",
+      "for": "cam",
+      "mode": "alpha",
+      "fps": "30",
+      "smooth": "0.2",
+      "mirror": "true"
+     }
+    },
+    {
+     "tagName": "sonic-frame-sync",
+     "attributes": {
+      "id": "synced",
+      "for": "cam",
+      "sync": "seg"
+     }
+    },
+    {
+     "tagName": "sonic-mask-replace",
+     "attributes": {
+      "source": "synced",
+      "mask": "seg",
+      "mirror": "false",
+      "target": "background",
+      "effect": "blur",
+      "amount": "0.6",
+      "feather": "0.3",
+      "smooth": "0.4",
+      "out-data-provider": "replaceState",
+      "style": "border-radius:.8rem;overflow:hidden;background:#0b0d14"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "effet : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "replaceState",
+        "key": "effect"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · masque : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "replaceState",
+        "key": "mask"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

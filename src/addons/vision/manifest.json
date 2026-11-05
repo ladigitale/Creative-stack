@@ -412,6 +412,75 @@
       }
     },
     {
+      "name": "sonic-mask-replace",
+      "description": "Remplace une zone d'une image avec un masque : le fond derrière la personne (mask=\"#seg\", un sonic-segmenter ; mode alpha ou gray) ou les objets détectés (detections = DataProvider d'un sonic-object-detector, labels = étiquettes, min-score, max-objects, shape ellipse|rect, pad). source = source d'images à modifier (sonic-camera, sonic-frame-sync) ; target background (garde la zone masquée, remplace le reste) | subject (remplace la zone masquée) ; effect blur | pixelate (amount 0..1) | color (color CSS) | image (image = URL https, blob:, data:image, relative) | source (with-source = autre source d'images : vidéo, shader, canvas) | cutout (zone transparente) ; feather adoucit les bords, smooth lisse le masque dans le temps, mirror auto|true|false, fps ; est lui-même une source d'images (getFrameCanvas, frameSeq) ; out-data-provider publie {ready, effect, target, mask, regions, error} ; canvas 2D local, aucun HTML injecté",
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "mask": {
+          "type": "string"
+        },
+        "detections": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "string"
+        },
+        "min-score": {
+          "type": "number"
+        },
+        "max-objects": {
+          "type": "number"
+        },
+        "shape": {
+          "type": "string"
+        },
+        "pad": {
+          "type": "number"
+        },
+        "target": {
+          "type": "string"
+        },
+        "effect": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "color": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "with-source": {
+          "type": "string"
+        },
+        "feather": {
+          "type": "number"
+        },
+        "smooth": {
+          "type": "number"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
       "name": "sonic-example-classifier",
       "description": "Apprend à reconnaître des poses de main / de corps ou des expressions de visage à partir d'EXEMPLES enregistrés par l'utilisateur (k plus proches voisins, sans modèle ni réseau), à partir de la sortie d'un tracker (source=\"hand\" ; invariant à la position et à l'échelle) ; pilotage par le DataProvider control {label, record, clear, clearAll} (compteurs : une hausse enregistre `samples` exemples sous `label`, efface `label` ou tout) ; sortie dans output-provider (défaut = id) : present, label (stable, vote des `window` dernières images), raw, confidence, scores.<étiquette>, match.<étiquette> 0|1, counts, total, recording, recordingLabel, samplesLeft ; features auto|hand|pose|face, hand any|left|right, k, sample-ms, min-confidence, max-distance (0 = sans limite), storage = clé de mémoire locale des exemples",
       "props": {
