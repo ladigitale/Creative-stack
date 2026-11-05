@@ -12,7 +12,7 @@ Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic
 
   | Niveau | Source | Consentement |
   |---|---|---|
-  | alias | `hand-landmarker`, `gesture-recognizer`, `face-landmarker`, `pose-landmarker` (léger), `pose-landmarker-full`, `pose-landmarker-heavy`, `object-detector`, `selfie-segmenter`, ou alias ajoutés par l'hôte | aucun |
+  | alias | `hand-landmarker`, `gesture-recognizer`, `face-landmarker`, `pose-landmarker` (léger), `pose-landmarker-full`, `pose-landmarker-heavy`, `object-detector`, `selfie-segmenter`, `selfie-multiclass`, `hair-segmenter`, `deeplab-v3`, `interactive-segmenter`, ou alias ajoutés par l'hôte | aucun |
   | `origins` (défaut) | URL dans une origine approuvée (`storage.googleapis.com/mediapipe-models/`, `huggingface.co`, `cdn.jsdelivr.net` par défaut, plus `capabilities.ml` de l'artefact) | par origine, mémorisé |
   | `open` | toute URL https | par modèle, mémorisé |
 
@@ -120,6 +120,8 @@ Par défaut l'inférence tourne dans un **worker classique** (blob) : le fil pri
 - Le chargement réel de MediaPipe depuis le CDN et le suivi sur une vraie caméra n'ont pas été testés (les tests couvrent le protocole du worker, le repli, le téléchargement, les contrôles de confiance et la logique de suivi avec des mains synthétiques).
 - Attribution gauche/droite d'une main **seule** à l'apparition : d'après l'étiquette du modèle puis la moitié d'écran ; non vérifiée sur matériel réel.
 - Seuils de `openness` et `pinch` empiriques ; `yaw` / `pitch` / `roll` du visage et `lean` / `raise*` du corps sont des estimations géométriques, pas des mesures 3D.
+- Segmentation interactive : `InteractiveSegmenter` de MediaPipe appelé comme `segment(image, { keypoint }, rappel)` (API 0.10.x documentée) avec le modèle `ptm_512_hdt_ptm_woid` ; Google documente aussi une v2 (`magic_touch`, `setImage` + traits) dont l'API diffère : **non vérifié sur le vrai runtime**, à tester avant tout usage réel.
+- Segmentation multi-classes : noms de classes issus de la documentation MediaPipe (ordre des masques supposé identique), non vérifiés sur le vrai modèle.
 - Segmentation et détection : API `ImageSegmenter` / `ObjectDetector` de MediaPipe 0.10.21 utilisée d'après sa documentation, non exécutée ici ; le choix du masque « personne » quand le modèle en fournit deux (`mask-index=auto` prend le dernier) est à vérifier sur le vrai modèle.
 - Côtés gauche/droite du visage (clignements) et du corps : convention « écran » déduite de l'image miroir ; non vérifiée sur matériel réel.
 - Le modèle est téléchargé par le composant : un hôte dont la CSP interdit `connect-src` vers l'origine du modèle doit l'autoriser (ou servir le modèle lui-même).
@@ -212,7 +214,33 @@ Segmente la personne (modèle `selfie-segmenter` par défaut). Le masque est une
 | `threshold` | Seuil 0..1 des statistiques | `0.5` |
 | `mask-index` | Masque à utiliser si le modèle en fournit plusieurs : `auto` (le dernier si plusieurs) ou un indice | `auto` |
 
+| `classes` | Modèle multi-classes : classes qui forment le masque, par **noms ou indices** (`hair,clothes`) ; vide : tout sauf l'arrière-plan pour un modèle multi-classes | aucun |
+| `labels` | Noms des classes d'un modèle perso (autant que de masques, dans l'ordre) ; vide : ceux de l'alias | aucun |
+| `class-stats` | `"true"` : publie `classes.<nom>` = `{ coverage, cx, cy }` pour chaque classe | `false` |
+
+**Multi-classes.** `model="selfie-multiclass"` (256 × 256) segmente `background`, `hair`, `body-skin`, `face-skin`, `clothes`, `others` ; `deeplab-v3` : 21 catégories de Pascal VOC (`person`, `cat`, `chair`, `tv`…) ; `hair-segmenter` : les cheveux seuls. `classes` forme le masque par **réunion** (confiance maximale pixel par pixel) : un `sonic-mask-replace mask="#seg"` ou un `sonic-shader channel1="#seg"` ne voit que ces classes (recolorer les cheveux, flouter les vêtements, isoler la peau). Un nom inconnu est listé dans `unknownClasses` de la sortie. Exemple : `examples/couleur-cheveux.sdui.json`. Plus un modèle est riche, plus il est lent (le multi-classes est de l'ordre de plusieurs fois le segmenteur de personne) : baisser `fps`.
+
 Le masque est dessiné en repère écran (miroir appliqué comme pour les autres trackers) ; l'image de la caméra lue par le shader, elle, n'est pas retournée si elle vient de la vidéo native : retourner `x` dans le shader (`1.-uv.x`) avec `mirror="false"` sur la caméra. Sortie : `present`, `coverage` (part de l'image), `cx`, `cy`, `x0`, `y0`, `x1`, `y1` (centre et boîte, lissés).
+
+## `sonic-click-segmenter`
+
+```json
+[ { "tagName": "sonic-click-segmenter", "attributes": { "id": "pick", "for": "cam", "click-on": "#vue", "mode": "alpha" } },
+  { "tagName": "sonic-frame-sync", "attributes": { "id": "synced", "for": "cam", "sync": "pick" } },
+  { "tagName": "sonic-mask-replace", "attributes": { "id": "vue", "source": "synced", "mask": "pick", "mirror": "false", "target": "background", "effect": "blur" } } ]
+```
+
+Segmente l'**objet qui se trouve au point désigné** (modèle interactif de MediaPipe, alias `interactive-segmenter`), sans liste de catégories : un chat, une tasse, une personne, ce que l'utilisateur touche. Même sortie et même contrat que `sonic-segmenter` (source d'images lue par `sonic-mask-replace`, `sonic-shader`…, `mode`, `invert`, `threshold`, `coverage`, `cx`, `cy`, boîte, statut, consentement), plus `point` (`{ x, y }` ou `null`). Attributs, en plus des attributs communs :
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `point` | Point `x,y`, 0..1, **repère écran** (ce que voit l'utilisateur, miroir compris) | aucun |
+| `point-from` | Chemin DataProvider du point (`{ x, y }` ou `"x,y"`) ; prime sur `point` | aucun |
+| `click-on` | Id d'un élément dont un clic ou un toucher désigne le point (position relative à sa boîte) | aucun |
+| `live` | `true` : re-segmente ce qui est sous le point à chaque image ; `false` : une seule fois par point (masque figé) | `true` |
+| `fps` | Cadence maximale (le modèle est lourd) | `8` |
+
+Sans point : aucun masque et aucun calcul. `live="true"` n'est **pas un suivi d'objet** : l'objet qui bouge quitte le point, il faut le re-désigner (pour un suivi, voir `sonic-object-detector track="true"`). Un point peut aussi venir d'un tap de `sonic-2d` ou d'un autre composant via `point-from`. `setPoint(p | null)` (méthode) désigne ou efface le point. Exemple : `examples/clic-objet.sdui.json`.
 
 ## `sonic-mask-replace`
 

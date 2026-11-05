@@ -1,0 +1,130 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Couleur des cheveux"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Le modèle multi-classes sépare cheveux, peau du corps, peau du visage, vêtements et accessoires. Ici seuls les cheveux (classes=\"hair\") sont recolorés ; essaie classes=\"clothes\" ou \"hair,clothes\", ou un autre effect (blur, pixelate). Le calcul reste sur l'appareil."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "fps": "30",
+      "mirror": "true",
+      "hidden-preview": ""
+     }
+    },
+    {
+     "tagName": "sonic-segmenter",
+     "attributes": {
+      "id": "seg",
+      "for": "cam",
+      "model": "selfie-multiclass",
+      "classes": "hair",
+      "mode": "alpha",
+      "fps": "20",
+      "smooth": "0.3",
+      "mirror": "true",
+      "class-stats": "true"
+     }
+    },
+    {
+     "tagName": "sonic-frame-sync",
+     "attributes": {
+      "id": "synced",
+      "for": "cam",
+      "sync": "seg"
+     }
+    },
+    {
+     "tagName": "sonic-mask-replace",
+     "attributes": {
+      "source": "synced",
+      "mask": "seg",
+      "mirror": "false",
+      "target": "subject",
+      "effect": "color",
+      "color": "#ff2d95",
+      "feather": "0.2",
+      "smooth": "0.4",
+      "out-data-provider": "replaceState",
+      "style": "border-radius:.8rem;overflow:hidden;background:#0b0d14"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "cheveux : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "seg",
+        "key": "classes.hair.coverage"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · vêtements : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "seg",
+        "key": "classes.clothes.coverage"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

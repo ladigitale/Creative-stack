@@ -20,7 +20,9 @@
     "examples/masquer-objet.sdui.json",
     "examples/recomposition.sdui.json",
     "examples/mes-objets.sdui.json",
-    "examples/suivre-objet.sdui.json"
+    "examples/suivre-objet.sdui.json",
+    "examples/couleur-cheveux.sdui.json",
+    "examples/clic-objet.sdui.json"
   ],
   "components": [
     {
@@ -274,7 +276,7 @@
     },
     {
       "name": "sonic-segmenter",
-      "description": "Segmente la personne dans une source d'images (for=\"cam\") : le masque est une SOURCE D'IMAGES lue par sonic-shader (channel1=\"#seg\", mode gray : r=g=b=masque, ou alpha : blanc + alpha = masque ; invert) ; sortie dans output-provider (défaut = id) : present, coverage 0..1, cx, cy, x0, y0, x1, y1 (repère écran, lissés) ; threshold des statistiques ; mask-index si le modèle fournit plusieurs masques (auto : le dernier) ; map = clés dérivées ; modèle par défaut selfie-segmenter ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync)",
+      "description": "Segmente la personne dans une source d'images (for=\"cam\") : le masque est une SOURCE D'IMAGES lue par sonic-shader (channel1=\"#seg\", mode gray : r=g=b=masque, ou alpha : blanc + alpha = masque ; invert) ; sortie dans output-provider (défaut = id) : present, coverage 0..1, cx, cy, x0, y0, x1, y1 (repère écran, lissés) ; threshold des statistiques ; mask-index si le modèle fournit plusieurs masques (auto : le dernier) ; MULTI-CLASSES (model=\"selfie-multiclass\" : background, hair, body-skin, face-skin, clothes, others ; \"deeplab-v3\" : 21 catégories ; \"hair-segmenter\") : classes=\"hair,clothes\" (noms ou indices) forme le masque par réunion, sans classes : tout sauf l'arrière-plan ; class-stats=\"true\" publie classes.<nom>.{coverage,cx,cy} ; labels pour un modèle perso ; unknownClasses signale un nom inconnu ; map = clés dérivées ; modèle par défaut selfie-segmenter ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync)",
       "props": {
         "for": {
           "type": "string"
@@ -335,6 +337,88 @@
         },
         "mask-index": {
           "type": "string"
+        },
+        "classes": {
+          "type": "string",
+          "description": "Modèle multi-classes : classes qui forment le masque (noms ou indices, séparés par virgules ou espaces ; ex. \"hair,clothes\"). Vide : tout sauf l'arrière-plan"
+        },
+        "labels": {
+          "type": "string",
+          "description": "Noms des classes d'un modèle perso (autant que de masques, dans l'ordre) ; vide : ceux de l'alias de modèle"
+        },
+        "class-stats": {
+          "type": "string",
+          "description": "\"true\" : publie classes.<nom> = {coverage, cx, cy} pour chaque classe d'un modèle multi-classes"
+        }
+      }
+    },
+    {
+      "name": "sonic-click-segmenter",
+      "description": "Segmente l'objet qui se trouve au point désigné (clic, toucher, DataProvider) : modèle interactif MediaPipe (alias interactive-segmenter), pas de liste de catégories. Même sortie et même contrat que sonic-segmenter (le masque est une SOURCE D'IMAGES : sonic-mask-replace mask=\"#id\", sonic-shader channel1=\"#id\" ; mode gray|alpha, invert, threshold ; present, coverage, cx, cy, x0, y0, x1, y1 ; statut, consentement, worker), plus point {x,y}|null dans la sortie. Le point est en coordonnées d'écran 0..1 (miroir compris) : point=\"0.5,0.4\", point-from=\"chemin\" (DataProvider {x,y} ou \"x,y\"), ou click-on=\"#id\" (un clic / toucher sur cet élément, ex. sonic-mask-replace ou la caméra) ; sans point, aucun masque et aucun calcul. live=\"true\" (défaut) re-segmente ce qui est sous le point à chaque image (pas un suivi d'objet) ; live=\"false\" fige le masque par point. fps 8 par défaut (modèle lourd). Inférence locale, aucune image envoyée",
+      "props": {
+        "for": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "delegate": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "string"
+        },
+        "smooth": {
+          "type": "number"
+        },
+        "hold-ms": {
+          "type": "number"
+        },
+        "min-score": {
+          "type": "number"
+        },
+        "map": {
+          "type": "string"
+        },
+        "load": {
+          "type": "string"
+        },
+        "model-sha256": {
+          "type": "string"
+        },
+        "thread": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "invert": {
+          "type": "string"
+        },
+        "threshold": {
+          "type": "number"
+        },
+        "point": {
+          "type": "string",
+          "description": "Point d'intérêt \"x,y\" (0..1, repère écran)"
+        },
+        "point-from": {
+          "type": "string",
+          "description": "Chemin DataProvider du point ({x, y} ou \"x,y\", 0..1) ; prime sur point"
+        },
+        "click-on": {
+          "type": "string",
+          "description": "Id d'un élément dont un clic ou toucher désigne le point (position relative à sa boîte)"
+        },
+        "live": {
+          "type": "string",
+          "description": "\"true\" (défaut) : segmente à chaque image ; \"false\" : une seule fois par point"
         }
       }
     },

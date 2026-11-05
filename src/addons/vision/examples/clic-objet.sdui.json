@@ -1,0 +1,140 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Clique sur un objet"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Touche (ou clique) un objet ou une personne dans l'image : le modèle interactif en trace le contour, le reste est flouté. Sans point, aucun masque ; le masque suit ce qui se trouve sous le point (il ne suit pas l'objet s'il bouge : retouche pour le re-désigner)."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "fps": "30",
+      "mirror": "true",
+      "hidden-preview": ""
+     }
+    },
+    {
+     "tagName": "sonic-click-segmenter",
+     "attributes": {
+      "id": "pick",
+      "for": "cam",
+      "click-on": "#vue",
+      "mode": "alpha",
+      "fps": "8",
+      "smooth": "0.3",
+      "mirror": "true"
+     }
+    },
+    {
+     "tagName": "sonic-frame-sync",
+     "attributes": {
+      "id": "synced",
+      "for": "cam",
+      "sync": "pick"
+     }
+    },
+    {
+     "tagName": "sonic-mask-replace",
+     "attributes": {
+      "id": "vue",
+      "source": "synced",
+      "mask": "pick",
+      "mirror": "false",
+      "target": "background",
+      "effect": "blur",
+      "amount": "0.7",
+      "feather": "0.25",
+      "smooth": "0.4",
+      "out-data-provider": "replaceState",
+      "style": "border-radius:.8rem;overflow:hidden;background:#0b0d14;cursor:crosshair;touch-action:manipulation"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "point : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "pick",
+        "key": "point.x"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " , "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "pick",
+        "key": "point.y"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · couverture : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "pick",
+        "key": "coverage"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

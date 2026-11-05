@@ -7,6 +7,7 @@ export { SonicFaceTracker } from "./face-tracker";
 export { SonicPoseTracker } from "./pose-tracker";
 export { SonicObjectDetector } from "./object-detector";
 export { SonicSegmenter, type SegmentOutput } from "./segmenter";
+export { SonicClickSegmenter, parsePoint } from "./click-segmenter";
 export { SonicLandmarksOverlay } from "./landmarks-overlay";
 export { SonicFaceMesh, type FaceMeshMode, type FaceMeshState } from "./face-mesh";
 export { SonicImageEmbedder, parseRegion } from "./image-embedder";
