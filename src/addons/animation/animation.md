@@ -165,7 +165,7 @@ Dans le navigateur, un descripteur invalide rend la timeline **muette** (aucun s
     "nodes": [ { "tagName": "sonic-sprite", "attributes": { "name": "bras-gauche", "shape": "box", "w": "22", "h": "65", "pivot": "0.5,0" } } ] } ]
 ```
 
-Une hiérarchie d'**os rigides** (marionnette articulée, bras mécanique, plante, chaîne de pendules) qui **écrit des `nodes`** : le format partagé que lisent `sonic-2d` (sprites), `sonic-3d` (nœuds glTF) et `sonic-stage` (éléments HTML / SVG). Un élément de même nom que l'os le suit : le squelette ne dessine rien. À l'écriture, `<nodes-out>.nodes` reçoit un nœud par os (`x`, `y` de l'articulation, `rz` en radians par rapport au repos), `<nodes-out>.bones` l'état des os (`x`, `y`, `x2`, `y2` de l'extrémité, `angle`, `rz`, `length`) et `<nodes-out>.present`.
+Une hiérarchie d'**os rigides** (marionnette articulée, bras mécanique, plante, chaîne de pendules) qui **écrit des `nodes`** : le format partagé que lisent `sonic-2d` (sprites), `sonic-3d` (nœuds glTF) et `sonic-stage` (éléments HTML / SVG). Un élément de même nom que l'os le suit : le squelette ne dessine rien. À l'écriture, `<nodes-out>.nodes` reçoit un nœud par os (`x`, `y` de l'articulation, `rz` en radians par rapport au repos), `<nodes-out>.bones` l'état des os (`x`, `y`, `x2`, `y2` de l'extrémité, `angle`, `rz`, `length`) `<nodes-out>.present` et `<nodes-out>.rest` (pose de repos : mêmes champs sans `rz`, racine à sa position fixe `x`,`y` ; publiée quand elle change) que lit un maillage déformable.
 
 **Conventions.** Angles en **degrés** : `0` = l'os pointe vers le bas, positif = sens horaire à l'écran (bas, gauche, haut, droite). `angle` est l'angle de **repos**, relatif au parent. Au repos tous les `rz` valent 0 : on dessine donc chaque élément **dans la pose de repos**, avec son `pivot` (sprite de `sonic-2d`) sur l'articulation ; il suit ensuite l'os sans autre calcul. Pour un bras pendant : `pivot="0.5,0"` (haut du sprite = épaule).
 
@@ -210,7 +210,9 @@ Enfant de `sonic-skeleton`. Avec un `preset`, un `sonic-bone` **de même nom** e
 
 **Sans caméra** : `angle-from` suffit (un `sonic-store` piloté par des curseurs, un `sonic-clock`, un analyseur audio) pour un bras articulé ou une chaîne de pendules.
 
-Limites : os **rigides** (une image qui se plie entre deux os demande un maillage déformable, hors de cette version) ; cinématique directe seulement (pas de cinématique inverse : on donne les directions, pas la position d'un bout) ; pose de face (un os de longueur fixe ne se raccourcit pas quand le segment se tourne vers la caméra) ; un seul sujet.
+**Image qui se plie.** Des sprites `shape="mesh"` de `sonic-2d` (voir 2d.md) lisent `rest` et `bones` et déforment une image entre les os (exemple : `examples/bras-souple.sdui.json`) ; les os restent rigides, c'est l'image qui est souple. Dessiner l'image dans la pose de repos, à la position de la racine `x`,`y` du squelette.
+
+Limites : os **rigides** (le pli est calculé par le maillage du rendu, pas par les os) ; cinématique directe seulement (pas de cinématique inverse : on donne les directions, pas la position d'un bout) ; pose de face (un os de longueur fixe ne se raccourcit pas quand le segment se tourne vers la caméra) ; un seul sujet.
 
 ## Hors périmètre (v1)
 

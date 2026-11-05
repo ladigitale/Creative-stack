@@ -73,7 +73,7 @@
     },
     {
       "name": "sonic-sprite",
-      "description": "Sprite déclaratif d'un sonic-2d (aucun rendu propre) : shape box (w h radius) | circle (r) | polygon (points \"x,y …\") | text (text font-size font) | image (src data:image/… ou https://, ou source=\"#id\" : image vivante d'une source d'images, ex. la personne découpée par sonic-mask-replace effect=\"cutout\" ; w h = boîte où l'image tient, proportions conservées) ; fill stroke line ; x y angle (°) de départ ; pivot \"x,y\" (point de rotation, \"0.5,0\" = haut-centre ; pour sonic-skeleton) ; opacity layer z hidden. Le nom relie le sprite à son nœud (et au corps de même nom).",
+      "description": "Sprite déclaratif d'un sonic-2d (aucun rendu propre) : shape box (w h radius) | circle (r) | polygon (points \"x,y …\") | text (text font-size font) | image (src data:image/… ou https://, ou source=\"#id\" : image vivante d'une source d'images, ex. la personne découpée par sonic-mask-replace effect=\"cutout\" ; w h = boîte où l'image tient, proportions conservées) | mesh (image déformable entre les os d'un sonic-skeleton, dessinée dans la pose de repos : src ou source, w h étirée, grid \"cols,rows\" influences falloff skin-bones) ; fill stroke line ; x y angle (°) de départ ; pivot \"x,y\" (point de rotation, \"0.5,0\" = haut-centre ; pour sonic-skeleton) ; opacity layer z hidden. Le nom relie le sprite à son nœud (et au corps de même nom).",
       "props": {
         "name": {
           "type": "string",
@@ -81,7 +81,7 @@
         },
         "shape": {
           "type": "string",
-          "description": "box (défaut) | circle | polygon | text | image"
+          "description": "box (défaut) | circle | polygon | text | image | mesh (image déformable par sonic-skeleton)"
         },
         "x": {
           "type": "number",
@@ -150,6 +150,22 @@
         "pivot": {
           "type": "string",
           "description": "Point du sprite « x,y » (part de la largeur et de la hauteur depuis le coin haut-gauche) placé sur la position du nœud et centre de sa rotation : \"0.5,0.5\" (centre, défaut), \"0.5,0\" (haut-centre : épaule d'un bras pendant) ; sans effet sur polygon. Utile avec sonic-skeleton"
+        },
+        "grid": {
+          "type": "string",
+          "description": "mesh : maille \"colonnes,lignes\" (2 à 40, défaut \"8,8\")"
+        },
+        "influences": {
+          "type": "number",
+          "description": "mesh : nombre d'os qui influencent un sommet (1 à 4, défaut 3)"
+        },
+        "falloff": {
+          "type": "number",
+          "description": "mesh : exposant de la décroissance des poids avec la distance à l'os (défaut 2 ; grand = jonctions plus nettes)"
+        },
+        "skin-bones": {
+          "type": "string",
+          "description": "mesh : noms des os qui déforment l'image, séparés par des virgules (vide = tous les os du squelette)"
         },
         "opacity": {
           "type": "number",

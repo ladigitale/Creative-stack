@@ -23,6 +23,18 @@ describe("parseSprite", () => {
     expect(parseSprite({ shape: "image", src: "javascript:x" }, "i").errors[0]).toContain("src");
   });
 
+  it("mesh : grille, influences, falloff, skin-bones ; bornes et erreurs", () => {
+    const m = parseSprite({ shape: "mesh", src: "https://exemple.org/a.png", w: "100", h: "200", grid: "6,12", influences: "2", falloff: "3", "skin-bones": "bras, avant-bras" }, "m");
+    expect(m.errors).toEqual([]);
+    expect(m.spec).toMatchObject({ shape: "mesh", cols: 6, rows: 12, influences: 2, falloff: 3, skinBones: ["bras", "avant-bras"] });
+    const d = parseSprite({ shape: "mesh", source: "#p" }, "d").spec;
+    expect(d).toMatchObject({ cols: 8, rows: 8, influences: 3, falloff: 2, skinBones: [] });
+    expect(parseSprite({ shape: "mesh", src: "https://e.org/a.png", grid: "999,1", influences: "9" }, "b").spec).toMatchObject({ cols: 40, rows: 2, influences: 4 });
+    expect(parseSprite({ shape: "mesh" }, "n").errors[0]).toContain("src");
+    expect(parseSprite({ shape: "mesh", source: "#p", grid: "x" }, "g").errors[0]).toContain("grid");
+    expect(pivotOffset(m.spec, 100, 200)).toEqual([0, 0]);
+  });
+
   it("image vivante : source=#id (sans src) ; autre valeur refusée", () => {
     const ok = parseSprite({ source: "#personne", w: "300", h: "200" }, "p");
     expect(ok.errors).toEqual([]);

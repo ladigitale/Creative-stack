@@ -9,6 +9,7 @@ import reveal from "./examples/reveal-liste.sdui.json";
 import horloge from "./examples/horloge-timeline.sdui.json";
 import scrub from "./examples/scrub.sdui.json";
 import marionnette from "./examples/marionnette.sdui.json";
+import brasSouple from "./examples/bras-souple.sdui.json";
 
 /** Le manifeste est un JSON hétérogène : on le lit par une forme minimale. */
 const manifest = manifestJson as unknown as {
@@ -25,6 +26,7 @@ describe("exemples SDUI", () => {
     ["horloge-timeline", horloge],
     ["scrub", scrub],
     ["marionnette", marionnette],
+    ["bras-souple", brasSouple],
   ])("%s passe le validateur sans problème", (_name, doc) => {
     expect(validateSduiAnimation(doc)).toEqual([]);
   });

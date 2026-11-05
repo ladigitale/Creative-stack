@@ -1,0 +1,148 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:44rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Bras souple"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Une seule image (sonic-sprite shape=\"mesh\") se plie entre deux os de sonic-skeleton : l'épaule et le coude tournent, l'image s'étire à la jonction au lieu de se couper. Dessine-la dans la pose de repos (bras pendant) ; grid, influences et falloff règlent la souplesse, skin-bones limite les os qui la déforment."
+      }
+     ]
+    },
+    {
+     "tagName": "label",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Épaule"
+      },
+      {
+       "tagName": "sonic-input",
+       "attributes": {
+        "type": "range",
+        "min": "-90",
+        "max": "90",
+        "step": "1",
+        "value": "0",
+        "name": "epaule",
+        "formDataProvider": "bras",
+        "ariaLabel": "Rotation de l'épaule (degrés)",
+        "style": "flex:1"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "label",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Coude"
+      },
+      {
+       "tagName": "sonic-input",
+       "attributes": {
+        "type": "range",
+        "min": "0",
+        "max": "150",
+        "step": "1",
+        "value": "0",
+        "name": "coude",
+        "formDataProvider": "bras",
+        "ariaLabel": "Pliure du coude (degrés)",
+        "style": "flex:1"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-skeleton",
+     "attributes": {
+      "nodes-out": "rig",
+      "x": "400",
+      "y": "60",
+      "width": "800",
+      "height": "450"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-bone",
+       "attributes": {
+        "name": "epaule",
+        "length": "150",
+        "angle-from": "bras.epaule",
+        "min": "-90",
+        "max": "90"
+       }
+      },
+      {
+       "tagName": "sonic-bone",
+       "attributes": {
+        "name": "coude",
+        "parent": "epaule",
+        "length": "150",
+        "angle-from": "bras.coude",
+        "min": "0",
+        "max": "150"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-2d",
+     "attributes": {
+      "dataProvider": "rig",
+      "width": "800",
+      "height": "450",
+      "background": "#0b1220",
+      "style": "border-radius:.8rem;overflow:hidden"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-sprite",
+       "attributes": {
+        "name": "bras",
+        "shape": "mesh",
+        "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNjAiIGhlaWdodD0iNDgwIiB2aWV3Qm94PSIwIDAgMTYwIDQ4MCI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJtIiB4MT0iMCIgeDI9IjEiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzFkNGVkOCIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzYwYTVmYSIvPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJwIiB4MT0iMCIgeDI9IjEiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2U4Yjg4YSIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2Y2ZDNiMCIvPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxyZWN0IHg9IjEwIiB5PSIwIiB3aWR0aD0iMTQwIiBoZWlnaHQ9IjIzNSIgcng9IjYyIiBmaWxsPSJ1cmwoI20pIi8+PHJlY3QgeD0iMjIiIHk9IjIyNSIgd2lkdGg9IjExNiIgaGVpZ2h0PSIxNzAiIHJ4PSI1NCIgZmlsbD0idXJsKCNwKSIvPjxyZWN0IHg9IjE0IiB5PSIyMDUiIHdpZHRoPSIxMzIiIGhlaWdodD0iMzQiIHJ4PSIxNCIgZmlsbD0iIzFlM2E4YSIvPjxjaXJjbGUgY3g9IjgwIiBjeT0iNDEwIiByPSI2MiIgZmlsbD0idXJsKCNwKSIvPjxwYXRoIGQ9Ik00MCAzOTJxNDAtMjYgODAgMCIgc3Ryb2tlPSIjYzI4ZjYzIiBzdHJva2Utd2lkdGg9IjUiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==",
+        "x": "400",
+        "y": "210",
+        "w": "130",
+        "h": "300",
+        "grid": "8,24",
+        "influences": "2",
+        "falloff": "4"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

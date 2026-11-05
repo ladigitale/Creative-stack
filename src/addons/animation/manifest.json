@@ -11,7 +11,8 @@
     "examples/reveal-liste.sdui.json",
     "examples/horloge-timeline.sdui.json",
     "examples/scrub.sdui.json",
-    "examples/marionnette.sdui.json"
+    "examples/marionnette.sdui.json",
+    "examples/bras-souple.sdui.json"
   ],
   "components": [
     {
@@ -142,11 +143,11 @@
     },
     {
       "name": "sonic-skeleton",
-      "description": "Squelette 2D à os rigides (marionnette, bras articulé, pendules) : écrit des nodes (format partagé : un nœud par os, x y de l'articulation, rz radians par rapport au repos) dans <nodes-out>.nodes, l'état des os dans <nodes-out>.bones et present ; ne dessine rien, un élément de même nom que l'os le suit (sprite sonic-2d avec pivot, nœud glTF sonic-3d, élément sonic-stage). Os en enfants sonic-bone ou preset=\"humain\" (13 os branchés sur les articulations de sonic-pose-tracker via source) ; os pilotés par aim (direction mesurée entre deux articulations) ou angle-from (n'importe quelle valeur de DataProvider). Angles en degrés, 0 = vers le bas, positif = sens horaire.",
+      "description": "Squelette 2D à os rigides (marionnette, bras articulé, pendules) : écrit des nodes (format partagé : un nœud par os, x y de l'articulation, rz radians par rapport au repos) dans <nodes-out>.nodes, l'état des os dans <nodes-out>.bones, present et la pose de repos dans <nodes-out>.rest (lue par un sprite sonic-2d shape=\"mesh\" qui déforme une image entre les os) ; ne dessine rien, un élément de même nom que l'os le suit (sprite sonic-2d avec pivot, nœud glTF sonic-3d, élément sonic-stage). Os en enfants sonic-bone ou preset=\"humain\" (13 os branchés sur les articulations de sonic-pose-tracker via source) ; os pilotés par aim (direction mesurée entre deux articulations) ou angle-from (n'importe quelle valeur de DataProvider). Angles en degrés, 0 = vers le bas, positif = sens horaire.",
       "props": {
         "nodes-out": {
           "type": "string",
-          "description": "DataProvider qui reçoit nodes, bones, present ; celui que lit sonic-2d dataProvider (obligatoire pour écrire)"
+          "description": "DataProvider qui reçoit nodes, bones, rest, present ; celui que lit sonic-2d dataProvider (obligatoire pour écrire)"
         },
         "preset": {
           "type": "string",
