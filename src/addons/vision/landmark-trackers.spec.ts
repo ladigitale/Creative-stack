@@ -264,6 +264,47 @@ describe("sonic-segmenter", () => {
     expect([...puts[0].slice(0, 4)]).toEqual([255, 255, 255, 0]); // alpha = 255 - 255
   });
 
+  const multiclass = () => ({
+    masks: [
+      { width: 4, height: 1, data: new Uint8ClampedArray([255, 0, 0, 0]) }, // background
+      { width: 4, height: 1, data: new Uint8ClampedArray([0, 255, 0, 0]) }, // hair
+      { width: 4, height: 1, data: new Uint8ClampedArray([0, 0, 255, 0]) }, // body-skin
+      { width: 4, height: 1, data: new Uint8ClampedArray([0, 0, 0, 0]) }, // face-skin
+      { width: 4, height: 1, data: new Uint8ClampedArray([0, 0, 0, 255]) }, // clothes
+      { width: 4, height: 1, data: new Uint8ClampedArray([0, 0, 0, 0]) }, // others
+    ],
+  });
+
+  it("multi-classes : réunion des classes demandées (noms), stats par classe, classe inconnue signalée", async () => {
+    mountSource();
+    const puts = stubCanvas();
+    configureVision({ createMpEngine: fakeMp(multiclass).create });
+    const el = (await mount("sonic-segmenter", { id: "m1", for: "cam", load: "auto", mirror: "false", smooth: "0", model: "selfie-multiclass", classes: "hair, clothes chapeau", "class-stats": "true" })) as unknown as { processFrame(n: number): Promise<Record<string, unknown> | null> };
+    await flush();
+    const out = (await el.processFrame(100)) as { coverage: number; cx: number; unknownClasses: string[]; classes: Record<string, { coverage: number; cx: number }> };
+    expect(out.coverage).toBeCloseTo(0.5); // cheveux (pixel 1) + vêtements (pixel 3)
+    expect(out.unknownClasses).toEqual(["chapeau"]);
+    expect(Object.keys(out.classes)).toEqual(["background", "hair", "body-skin", "face-skin", "clothes", "others"]);
+    expect(out.classes.hair.coverage).toBeCloseTo(0.25);
+    expect(out.classes.hair.cx).toBeCloseTo(0.375);
+    expect(out.classes["face-skin"].coverage).toBe(0);
+    expect([0, 1, 2, 3].map((px) => puts[0][px * 4])).toEqual([0, 255, 0, 255]); // gray : cheveux et vêtements
+  });
+
+  it("multi-classes sans `classes` : tout sauf l'arrière-plan ; modèle perso avec labels", async () => {
+    mountSource();
+    stubCanvas();
+    configureVision({ createMpEngine: fakeMp(multiclass).create });
+    const el = (await mount("sonic-segmenter", { id: "m2", for: "cam", load: "auto", mirror: "false", smooth: "0", model: "selfie-multiclass" })) as unknown as { processFrame(n: number): Promise<Record<string, unknown> | null> };
+    await flush();
+    expect(((await el.processFrame(100)) as { coverage: number }).coverage).toBeCloseTo(0.75);
+    const custom = (await mount("sonic-segmenter", { id: "m3", for: "cam", load: "auto", mirror: "false", smooth: "0", model: "selfie-multiclass", labels: "a,b,c,d,e,f", classes: "e", "class-stats": "true" })) as unknown as { processFrame(n: number): Promise<Record<string, unknown> | null> };
+    await flush();
+    const out = (await custom.processFrame(100)) as { coverage: number; classes: Record<string, unknown> };
+    expect(out.coverage).toBeCloseTo(0.25);
+    expect(Object.keys(out.classes)).toEqual(["a", "b", "c", "d", "e", "f"]);
+  });
+
   it("personne absente : present 0 après le maintien", async () => {
     mountSource();
     stubCanvas();

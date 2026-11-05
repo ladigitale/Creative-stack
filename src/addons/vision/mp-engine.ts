@@ -6,7 +6,7 @@
  * Le modèle arrive déjà téléchargé et vérifié (`shared/ml/model-fetch`) sous forme de buffer.
  */
 
-export type MpTask = "hand" | "gesture" | "face" | "pose" | "detect" | "segment" | "embed";
+export type MpTask = "hand" | "gesture" | "face" | "pose" | "detect" | "segment" | "interactive" | "embed";
 
 export type MpEngineOptions = {
   task: MpTask;
@@ -42,9 +42,12 @@ export type MpResult = {
   size?: { width: number; height: number };
 };
 
+/** Point d'intérêt (0..1, repère de l'image analysée) d'une segmentation interactive. */
+export type MpPointOfInterest = { x: number; y: number };
+
 export type MpEngine = {
-  /** `tsMs` strictement croissant. Une seule détection à la fois (le composant l'impose). */
-  detect(frame: CanvasImageSource, tsMs: number): Promise<MpResult>;
+  /** `tsMs` strictement croissant. Une seule détection à la fois (le composant l'impose). `point` : tâche `interactive`. */
+  detect(frame: CanvasImageSource, tsMs: number, point?: MpPointOfInterest): Promise<MpResult>;
   readonly backend: "gpu" | "cpu";
   readonly thread: "worker" | "main";
   close(): void;
@@ -104,6 +107,7 @@ const TASK_CLASS: Record<MpTask, string> = {
   pose: "PoseLandmarker",
   detect: "ObjectDetector",
   segment: "ImageSegmenter",
+  interactive: "InteractiveSegmenter",
   embed: "ImageEmbedder",
 };
 
@@ -112,6 +116,7 @@ const TASK_CLASS: Record<MpTask, string> = {
 type MpTaskInstance = {
   detectForVideo?(frame: CanvasImageSource, tsMs: number): unknown;
   segmentForVideo?(frame: CanvasImageSource, tsMs: number): unknown;
+  segment?(frame: CanvasImageSource, roi: { keypoint: MpPointOfInterest }, callback?: (r: unknown) => void): unknown;
   embedForVideo?(frame: CanvasImageSource, tsMs: number): unknown;
   close(): void;
 };
@@ -147,7 +152,7 @@ export async function createMainThreadMpEngine(opts: MpEngineOptions): Promise<M
   const make = (delegate: "GPU" | "CPU") =>
     Task.createFromOptions(fileset, {
       baseOptions: { modelAssetBuffer: opts.model.slice(), delegate },
-      runningMode: "VIDEO",
+      ...(opts.task === "interactive" ? {} : { runningMode: "VIDEO" }),
       ...opts.options,
     });
   let backend: "gpu" | "cpu" = opts.delegate === "cpu" ? "cpu" : "gpu";
@@ -162,8 +167,9 @@ export async function createMainThreadMpEngine(opts: MpEngineOptions): Promise<M
   return {
     backend,
     thread: "main",
-    detect: async (frame, tsMs) => {
+    detect: async (frame, tsMs, point) => {
       const size = frameSize(frame);
+      if (opts.task === "interactive") return { masks: readInteractive(task, frame, point), size };
       if (opts.task === "segment") return { masks: readMasks(task.segmentForVideo!(frame, tsMs)), size };
       if (opts.task === "embed") return { embeddings: readEmbeddings(task.embedForVideo!(frame, tsMs)), size };
       return { ...(plainResult(task.detectForVideo!(frame, tsMs)) as MpResult), size };
@@ -195,6 +201,20 @@ export function readMasks(result: unknown): NonNullable<MpResult["masks"]> {
   return out;
 }
 
+/**
+ * Segmentation interactive d'une image au point `point` (0..1). API `InteractiveSegmenter` de tasks-vision 0.10.x
+ * (`segment(image, { keypoint }, callback)`), d'après sa documentation : le résultat vient du rappel ou de la valeur
+ * retournée ; sans point : aucun masque.
+ */
+export function readInteractive(task: MpTaskInstance, frame: CanvasImageSource, point?: MpPointOfInterest): NonNullable<MpResult["masks"]> {
+  if (!point || !task.segment) return [];
+  let result: unknown;
+  const returned = task.segment(frame, { keypoint: { x: point.x, y: point.y } }, (r) => {
+    result = r;
+  });
+  return readMasks(result ?? returned);
+}
+
 /** Vecteurs flottants d'un résultat d'embedder (copiés en tableaux), puis résultat libéré. */
 export function readEmbeddings(result: unknown): NonNullable<MpResult["embeddings"]> {
   const r = result as { embeddings?: Array<{ floatEmbedding?: ArrayLike<number>; headIndex?: number }>; close?: () => void } | undefined;
@@ -215,7 +235,7 @@ export function readEmbeddings(result: unknown): NonNullable<MpResult["embedding
  */
 export const WORKER_SOURCE = `"use strict";
 let task = null;
-const CLASSES = { hand: "HandLandmarker", gesture: "GestureRecognizer", face: "FaceLandmarker", pose: "PoseLandmarker", detect: "ObjectDetector", segment: "ImageSegmenter", embed: "ImageEmbedder" };
+const CLASSES = { hand: "HandLandmarker", gesture: "GestureRecognizer", face: "FaceLandmarker", pose: "PoseLandmarker", detect: "ObjectDetector", segment: "ImageSegmenter", interactive: "InteractiveSegmenter", embed: "ImageEmbedder" };
 let kind = "hand";
 const readMasks = (r) => {
   const out = [];
@@ -228,6 +248,12 @@ const readMasks = (r) => {
   }
   if (r && r.close) r.close();
   return out;
+};
+const readInteractive = (t, frame, point) => {
+  if (!point || !t.segment) return [];
+  let res;
+  const returned = t.segment(frame, { keypoint: { x: point.x, y: point.y } }, (r) => { res = r; });
+  return readMasks(res || returned);
 };
 const readEmbeddings = (r) => {
   const out = [];
@@ -260,7 +286,7 @@ self.onmessage = async (e) => {
       if (!Task) throw new Error("Tâche MediaPipe inconnue : " + m.task);
       kind = m.task;
       const make = (delegate) =>
-        Task.createFromOptions(fileset, Object.assign({ baseOptions: { modelAssetBuffer: m.model.slice(), delegate }, runningMode: "VIDEO" }, m.options));
+        Task.createFromOptions(fileset, Object.assign({ baseOptions: { modelAssetBuffer: m.model.slice(), delegate } }, m.task === "interactive" ? {} : { runningMode: "VIDEO" }, m.options));
       let backend = m.delegate === "cpu" ? "cpu" : "gpu";
       try {
         task = await make(backend === "gpu" ? "GPU" : "CPU");
@@ -273,7 +299,7 @@ self.onmessage = async (e) => {
     } else if (m.type === "detect") {
       try {
         const size = { width: m.bitmap.width, height: m.bitmap.height };
-        const out = kind === "segment" ? { masks: readMasks(task.segmentForVideo(m.bitmap, m.ts)) } : kind === "embed" ? { embeddings: readEmbeddings(task.embedForVideo(m.bitmap, m.ts)) } : plain(task.detectForVideo(m.bitmap, m.ts));
+        const out = kind === "interactive" ? { masks: readInteractive(task, m.bitmap, m.point) } : kind === "segment" ? { masks: readMasks(task.segmentForVideo(m.bitmap, m.ts)) } : kind === "embed" ? { embeddings: readEmbeddings(task.embedForVideo(m.bitmap, m.ts)) } : plain(task.detectForVideo(m.bitmap, m.ts));
         out.size = size;
         self.postMessage({ type: "result", id: m.id, result: out });
       } finally {
@@ -389,7 +415,7 @@ export async function createWorkerMpEngine(opts: MpEngineOptions): Promise<MpEng
   return {
     backend,
     thread: "worker",
-    async detect(frame, tsMs) {
+    async detect(frame, tsMs, point) {
       if (closed) throw new Error("moteur fermé");
       const bitmap = await createImageBitmap(frame as ImageBitmapSource);
       const id = nextId++;
@@ -399,7 +425,7 @@ export async function createWorkerMpEngine(opts: MpEngineOptions): Promise<MpEng
           reject(new Error("détection trop longue"));
         }, cfg.detectTimeoutMs);
         pending.set(id, { resolve, reject, timer });
-        worker.postMessage({ type: "detect", id, ts: tsMs, bitmap }, [bitmap]);
+        worker.postMessage({ type: "detect", id, ts: tsMs, bitmap, point }, [bitmap]);
       });
     },
     close: dispose,

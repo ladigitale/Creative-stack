@@ -3,6 +3,7 @@ import {
   WORKER_SOURCE,
   configureVision,
   frameSize,
+  readInteractive,
   readMasks,
   createMediaPipeMpEngine,
   createWorkerMpEngine,
@@ -288,5 +289,23 @@ describe("WORKER_SOURCE (script du worker)", () => {
     await self.onmessage!({ data: { type: "detect", id: 3, ts: 1, bitmap } });
     expect(posted[0]).toMatchObject({ type: "error", id: 3 });
     expect(bitmap.close).toHaveBeenCalled();
+  });
+});
+
+describe("readInteractive", () => {
+  const mask = { width: 1, height: 1, getAsFloat32Array: () => new Float32Array([1]), close: vi.fn() };
+  it("point transmis, résultat du rappel ou de la valeur retournée ; sans point : rien", () => {
+    const seen: unknown[] = [];
+    const viaCallback = { close: () => undefined, segment: (_f: unknown, roi: unknown, cb?: (r: unknown) => void) => (seen.push(roi), cb?.({ confidenceMasks: [mask] })) };
+    expect(Array.from(readInteractive(viaCallback as never, {} as never, { x: 0.2, y: 0.8 })[0].data)).toEqual([255]);
+    expect(seen).toEqual([{ keypoint: { x: 0.2, y: 0.8 } }]);
+    const viaReturn = { close: () => undefined, segment: () => ({ confidenceMasks: [mask] }) };
+    expect(readInteractive(viaReturn as never, {} as never, { x: 0, y: 0 })).toHaveLength(1);
+    expect(readInteractive(viaCallback as never, {} as never)).toEqual([]);
+    expect(readInteractive({ close: () => undefined } as never, {} as never, { x: 0, y: 0 })).toEqual([]);
+  });
+  it("le worker connaît la tâche interactive", () => {
+    expect(WORKER_SOURCE).toContain("InteractiveSegmenter");
+    expect(WORKER_SOURCE).toContain("readInteractive");
   });
 });
