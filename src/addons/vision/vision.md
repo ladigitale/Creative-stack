@@ -2,7 +2,7 @@
 
 Addon `@supersoniks/creative-stack/vision` : suivi temps réel par des modèles ML qui **tournent sur l'appareil** (aucune image n'est envoyée). Les résultats sont publiés en DataProvider, avec des clés plates et stables, directement lisibles par `sonic-param`, `sonic-if`, `sonic-value`, `sonic-stage`, `sonic-shader` et `sonic-jsonata`.
 
-Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps), `sonic-object-detector` (objets), `sonic-segmenter` (silhouette), `sonic-example-classifier` (gestes appris par l'utilisateur), et `sonic-landmarks-overlay` pour dessiner leurs sorties. Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
+Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic-pose-tracker` (corps), `sonic-object-detector` (objets), `sonic-segmenter` (silhouette), `sonic-example-classifier` (gestes appris par l'utilisateur), `sonic-landmarks-overlay` pour dessiner leurs sorties, et `sonic-face-mesh` pour greffer un visage sur le visage suivi. Ils partagent le même contrat (source `for`, modèle, confiance, consentement, worker, statut, `map`) via `SonicMlTracker` ; les suivants (segmentation, détection…) s'y brancheront de la même façon.
 
 ## Règles communes
 
@@ -252,6 +252,39 @@ Dessine sur un canvas la sortie d'un tracker : points et squelette des mains, sq
 | `line-width`, `point-radius` | Trait et points | 3, 4 |
 | `points`, `bones` | `"false"` les masque | `true` |
 
+## `sonic-face-mesh`
+
+```json
+{ "tagName": "sonic-face-tracker", "attributes": { "id": "face", "for": "cam", "max-faces": "2", "landmarks": "true", "mirror": "true", "smooth": "0" } },
+{ "tagName": "sonic-frame-sync", "attributes": { "id": "synced", "for": "cam", "sync": "face" } },
+{ "tagName": "sonic-face-mesh", "attributes": { "source": "face", "background": "synced", "mirror": "false" } }
+```
+
+Greffe un visage sur le visage suivi : les 468 points du tracker forment un maillage de 880 triangles, dessiné en WebGL avec une texture et déformé comme le visage (pose, bouche, yeux). La couleur de la texture est ramenée vers celle de la peau cible (`color-match`) et les bords sont estompés (`feather`) pour que la greffe se fonde dans l'image. Le tracker doit publier `landmarks="true"` ; pour une greffe synchrone avec l'image, afficher `sonic-frame-sync` (`sync` = DataProvider du tracker) en `background`.
+
+Trois façons de fournir la texture :
+
+| Mode | Réglage | Effet |
+|---|---|---|
+| échange (défaut) | `background` + `max-faces="2"` côté tracker | avec deux visages, chacun prend le visage de l'autre, lu dans la même image ; avec un seul, rien n'est greffé |
+| portrait | `texture-source="#img"` (source d'images) + `texture-landmarks` (DataProvider d'un second `sonic-face-tracker` qui analyse cette image, `landmarks="true"`) | le premier visage de l'image de référence est plaqué sur le visage suivi |
+| à plat | `texture="https://…"` | l'image est dessinée à plat sur le modèle canonique de visage MediaPipe (masques, peintures) : même disposition que la texture UV de MediaPipe Face Mesh |
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `source` | DataProvider de sortie du tracker (son `outputProvider`, ou son id) | requis |
+| `background` | Id d'une source d'images (`sonic-camera`, `sonic-frame-sync`) dessinée dessous ; vide : seul le visage greffé est dessiné, fond transparent | aucun |
+| `texture`, `texture-source`, `texture-landmarks` | Voir les modes | aucun |
+| `mirror` | Retournement des images : `auto` (retourne une vidéo native, pas un canvas déjà dessiné), `true`, `false`. Avec une caméra `mirror="true"` et `sonic-frame-sync`, mettre `false` | `auto` |
+| `face` | `all`, `0` ou `1` : quels visages reçoivent la greffe | `all` |
+| `feather` | Largeur du fondu des bords en anneaux de triangles (0 = bords nets) | 6 |
+| `color-match` | Correction de couleur vers la peau cible, 0 à 1 | 0,8 |
+| `opacity` | Opacité de la greffe, 0 à 1 | 1 |
+| `width`, `height` | Taille du canvas sans image de fond | 640 × 480 |
+| `out-data-provider` | Publie `{ready, mode, faces, drawn, error}` (`mode` : `swap`, `portrait`, `canonical`, `none`) | aucun |
+
+Le composant est lui-même une source d'images (`getFrameCanvas`, `frameSeq`) : on peut le brancher dans `sonic-shader channel0="#id"`. La correction de couleur est ignorée si l'image vient d'une autre origine (canvas « teinté »). Les textures passent par le même filtre d'URL que les autres médias (https, `blob:`, `data:image`, relatif). Aucun HTML n'est injecté et tout se calcule sur l'appareil. Limites : maillage 2D appliqué à plat (pas de relief ni d'éclairage, donc de profil la greffe se déforme), pas de réglage des yeux ni de la bouche à l'intérieur de la texture, et la ressemblance vient de la texture, pas d'un modèle neuronal. À n'utiliser qu'avec des visages dont les personnes sont d'accord.
+
 ## Exemples
 
 - `examples/theremin-deux-mains.sdui.json` : main droite = hauteur, main gauche = volume.
@@ -261,3 +294,4 @@ Dessine sur un canvas la sortie d'un tracker : points et squelette des mains, sq
 - `examples/silhouette.sdui.json` : silhouette lue par un shader.
 - `examples/detecteur-objets.sdui.json` : boîtes d'objets dans un panneau séparé.
 - `examples/mes-gestes.sdui.json` : apprendre ses propres gestes (A, B, C) et les reconnaître.
+- `examples/echange-visages.sdui.json` : à deux devant la caméra, chacun porte le visage de l'autre.

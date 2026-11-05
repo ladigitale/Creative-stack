@@ -1,0 +1,137 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Échange de visages"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "À deux devant la caméra, chacun porte le visage de l'autre. Le calcul reste sur l'appareil, rien n'est envoyé. N'échange que des visages de personnes qui sont d'accord."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "fps": "30",
+      "mirror": "true",
+      "hidden-preview": ""
+     }
+    },
+    {
+     "tagName": "sonic-face-tracker",
+     "attributes": {
+      "id": "face",
+      "for": "cam",
+      "max-faces": "2",
+      "landmarks": "true",
+      "mirror": "true",
+      "smooth": "0",
+      "hold-ms": "200",
+      "fps": "30"
+     }
+    },
+    {
+     "tagName": "sonic-frame-sync",
+     "attributes": {
+      "id": "synced",
+      "for": "cam",
+      "sync": "face"
+     }
+    },
+    {
+     "tagName": "sonic-face-mesh",
+     "attributes": {
+      "source": "face",
+      "background": "synced",
+      "mirror": "false",
+      "feather": "6",
+      "color-match": "0.8",
+      "out-data-provider": "meshState",
+      "style": "border-radius:.8rem;overflow:hidden;background:#0b0d14"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "visages "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "meshState",
+        "key": "faces"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · greffés "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "meshState",
+        "key": "drawn"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · mode "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "meshState",
+        "key": "mode"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
