@@ -182,6 +182,11 @@ export class Sonic2d extends LitElement {
       // Police du conteneur : l'hôte impose system-ui à ses propres libellés.
       font: this.parentElement ? getComputedStyle(this.parentElement).fontFamily || undefined : undefined,
       invalidate: () => this.invalidate(),
+      lookup: (id) => {
+        const root = this.getRootNode();
+        const inRoot = root instanceof Document || root instanceof ShadowRoot ? root.getElementById(id) : null;
+        return inRoot ?? document.getElementById(id);
+      },
     });
     this.scene = scene;
     this.status = "loading";

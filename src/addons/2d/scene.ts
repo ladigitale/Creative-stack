@@ -58,6 +58,8 @@ export type SceneOptions = {
   font?: string;
   /** Demande un rendu (coalescé par l'élément). */
   invalidate: () => void;
+  /** Résout l'id d'une source d'images dans la racine de l'élément (shadow DOM compris), puis le document. */
+  lookup?: (id: string) => Element | null;
 };
 
 export class Scene2D {
@@ -312,7 +314,8 @@ export class Scene2D {
     for (const e of this.entries.values()) {
       const live = e.live;
       if (!live || live.sp.destroyed) continue;
-      const el = document.getElementById(e.spec.source.slice(1));
+      const id = e.spec.source.slice(1);
+      const el = this.opts.lookup?.(id) ?? document.getElementById(id);
       if (!isFrameSource(el) || el.frameSeq === live.seq) continue;
       live.seq = el.frameSeq;
       const canvas = el.getFrameCanvas();
