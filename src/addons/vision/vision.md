@@ -184,7 +184,7 @@ Aucun des deux ne demande de calibration. Les côtés gauche/droite ne sont pas 
   "id": "obj", "for": "cam", "categories": "person,cup", "min-score": "0.45", "hold-ms": "300" } }
 ```
 
-Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…). Attributs communs, plus `max-results` (1 à 20, défaut `5`) et `categories` (liste blanche d'étiquettes séparées par des virgules). `smooth` est sans effet (pas d'identité entre images). Modèle par défaut : `object-detector` (EfficientDet-Lite0). Sortie, repère écran, boîtes 0..1 :
+Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…). Attributs communs, plus `max-results` (1 à 20, défaut `5`) et `categories` (liste blanche d'étiquettes séparées par des virgules). `smooth` est sans effet sans `track` (pas d'identité entre images). Modèle par défaut : `object-detector` (EfficientDet-Lite0). Sortie, repère écran, boîtes 0..1 :
 
 | Clé | Contenu |
 |---|---|
@@ -192,6 +192,9 @@ Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…).
 | `label`, `score`, `x`, `y`, `w`, `h`, `cx`, `cy` | Meilleur objet (score le plus haut) |
 | `labels.<étiquette>` | Nombre d'objets par étiquette (minuscules, `_` pour les séparateurs : `labels.cell_phone`) |
 | `objects.N.label/score/x/y/w/h/cx/cy` | Tous les objets, du meilleur au moins bon |
+| `id`, `ageMs`, `ids`, `objects.N.id/ageMs` | Seulement avec `track="true"` : identité de l'objet entre images (1, 2, 3…, jamais réutilisée), durée depuis son apparition, `id` des objets dans l'ordre de `objects` |
+
+**Identité entre images (`track="true"`)** : chaque boîte reçoit l'`id` de la boîte de même étiquette qui la recouvre le plus à l'image précédente (`track-iou`, `0.3` par défaut) ; un objet qui disparaît garde son `id` `track-max-age-ms` (`500`) et le retrouve s'il revient au même endroit. `smooth` lisse alors la boîte de chaque objet. Appariement simple par recouvrement : fiable pour quelques objets qui bougent peu entre deux images, il confond deux objets de même étiquette qui se croisent et ne réidentifie pas un objet revenu ailleurs. Un autre composant suit un objet précis avec son `id` : `sonic-mask-replace object-id`, `sonic-image-embedder crop-id`. Voir `examples/suivre-objet.sdui.json`.
 
 ## `sonic-segmenter`
 
@@ -227,6 +230,7 @@ Remplace une zone de l'image avec un masque, sans écrire de shader : le **fond 
 | `source` | Id de l'image à modifier (`sonic-camera`, `sonic-frame-sync`) | requis |
 | `mask` | Id d'un `sonic-segmenter` (masque `alpha` ou `gray`) | aucun |
 | `detections` | DataProvider de la sortie d'un `sonic-object-detector` | aucun |
+| `object-id` | `id` d'un `sonic-object-detector track="true"` : seul cet objet est retenu ; `0` : tous | `0` |
 | `labels`, `min-score`, `max-objects` | Objets retenus : étiquettes (virgules, `cell phone` ou `cell_phone`), score minimal, nombre maximal (les meilleurs) | toutes, `0.4`, `5` |
 | `shape`, `pad` | Forme du masque d'un objet (`ellipse` ou `rect`) et marge autour de sa boîte (part de sa taille) | `ellipse`, `0.05` |
 | `target` | `background` : garde la zone masquée, remplace le reste (fond virtuel) ; `subject` : remplace la zone masquée | `background` |
@@ -260,6 +264,7 @@ Calcule l'**empreinte numérique** d'une image (MobileNet V3 par défaut, un vec
 | `reference` | DataProvider d'un vecteur de comparaison : un tableau, ou la sortie d'un autre embedder (`{vector}`) → `similarity` | aucun |
 | `crop` | DataProvider de la sortie d'un `sonic-object-detector` : seule la meilleure boîte retenue est analysée ; sans boîte, rien n'est analysé (`present` 0) | image entière |
 | `crop-labels`, `crop-min-score`, `crop-pad` | Étiquettes retenues (virgules), score minimal, marge autour de la boîte (part de sa taille) | toutes, `0.4`, `0.1` |
+| `crop-id` | `id` d'un détecteur en `track="true"` : analyse cet objet précis, pas le meilleur ; absent : rien n'est analysé | `0` (meilleure boîte) |
 | `region` | Zone fixe `x,y,w,h` (0..1 de l'image, repère écran) ; ignorée si `crop` est renseigné | aucune |
 | `head` | Tête du modèle dont on lit le vecteur | `0` |
 | `mirror` | Comme le détecteur de `crop` : mettre la même valeur aux deux (une zone en repère écran est retournée vers l'image brute) | `auto` |
@@ -368,4 +373,5 @@ Le composant est lui-même une source d'images (`getFrameCanvas`, `frameSeq`) : 
 - `examples/masquer-objet.sdui.json` : téléphone, tasse et livre pixellisés dans l'image.
 - `examples/recomposition.sdui.json` : la personne découpée, replacée en sprite (et son reflet) dans une scène `sonic-2d`.
 - `examples/mes-objets.sdui.json` : apprendre ses propres objets (détecteur, empreinte de la boîte, classifieur).
+- `examples/suivre-objet.sdui.json` : chaque objet garde son numéro ; celui qu'on choisit est pixellisé.
 - `examples/echange-visages.sdui.json` : à deux devant la caméra, chacun porte le visage de l'autre.

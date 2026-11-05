@@ -1,0 +1,144 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:36rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "h1",
+     "attributes": {
+      "class": "text-xl font-bold m-0"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Suivre un objet"
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;opacity:.8"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Montre une tasse ou un téléphone : chaque objet garde son numéro d'une image à l'autre, même quand tu en as plusieurs. Le numéro suivi est flouté ; change `object-id` pour suivre un autre objet."
+      }
+     ]
+    },
+    {
+     "tagName": "sonic-camera",
+     "attributes": {
+      "id": "cam",
+      "facing": "user",
+      "width": "640",
+      "height": "480",
+      "fps": "30",
+      "mirror": "true",
+      "hidden-preview": ""
+     }
+    },
+    {
+     "tagName": "sonic-object-detector",
+     "attributes": {
+      "id": "obj",
+      "for": "cam",
+      "categories": "cup,cell phone,book",
+      "min-score": "0.35",
+      "max-results": "4",
+      "track": "true",
+      "smooth": "0.4",
+      "fps": "15",
+      "mirror": "true"
+     }
+    },
+    {
+     "tagName": "sonic-frame-sync",
+     "attributes": {
+      "id": "synced",
+      "for": "cam",
+      "sync": "obj"
+     }
+    },
+    {
+     "tagName": "sonic-mask-replace",
+     "attributes": {
+      "source": "synced",
+      "detections": "obj",
+      "object-id": "1",
+      "target": "subject",
+      "effect": "pixelate",
+      "amount": "0.7",
+      "mirror": "false",
+      "pad": "0.08",
+      "style": "border-radius:.8rem;overflow:hidden;background:#0b0d14"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-media-start",
+       "attributes": {
+        "for": "cam",
+        "label": "Activer la caméra"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font:12px ui-monospace,monospace;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "objets : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "obj",
+        "key": "count"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " · meilleur : n° "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "obj",
+        "key": "id"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": " ("
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "obj",
+        "key": "label"
+       }
+      },
+      {
+       "tagName": "span",
+       "textContent": ")"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

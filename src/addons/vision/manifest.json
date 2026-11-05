@@ -19,7 +19,8 @@
     "examples/fond-virtuel.sdui.json",
     "examples/masquer-objet.sdui.json",
     "examples/recomposition.sdui.json",
-    "examples/mes-objets.sdui.json"
+    "examples/mes-objets.sdui.json",
+    "examples/suivre-objet.sdui.json"
   ],
   "components": [
     {
@@ -201,7 +202,7 @@
     },
     {
       "name": "sonic-object-detector",
-      "description": "Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…) dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, label/score/x/y/w/h/cx/cy du meilleur objet, labels.<étiquette> = nombre d'objets (étiquette en minuscules, _ pour les séparateurs), objects[] {label, score, x, y, w, h, cx, cy} en 0..1 repère écran ; categories=\"person,cup\" filtre ; max-results ; min-score ; hold-ms ; map = clés dérivées sans latence ; smooth sans effet ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync)",
+      "description": "Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…) dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, label/score/x/y/w/h/cx/cy du meilleur objet, labels.<étiquette> = nombre d'objets (étiquette en minuscules, _ pour les séparateurs), objects[] {label, score, x, y, w, h, cx, cy} en 0..1 repère écran ; categories=\"person,cup\" filtre ; max-results ; min-score ; hold-ms ; map = clés dérivées sans latence ; track=\"true\" donne à chaque objet un id stable entre images (objects[].id, ageMs, ids = ids dans l'ordre, id/ageMs du meilleur ; track-iou 0.3 = recouvrement minimal, track-max-age-ms 500 = un objet disparu garde son id) et lisse sa boîte avec smooth (sans track, smooth sans effet) ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync)",
       "props": {
         "for": {
           "type": "string"
@@ -256,6 +257,18 @@
         },
         "categories": {
           "type": "string"
+        },
+        "track": {
+          "type": "string",
+          "description": "true : id stable par objet entre images, boîte lissée par smooth ; false (défaut)"
+        },
+        "track-iou": {
+          "type": "number",
+          "description": "Recouvrement (IoU) minimal pour reconnaître un objet d'une image à l'autre (0.3)"
+        },
+        "track-max-age-ms": {
+          "type": "number",
+          "description": "Un objet disparu garde son id pendant cette durée en ms (500)"
         }
       }
     },
@@ -327,7 +340,7 @@
     },
     {
       "name": "sonic-image-embedder",
-      "description": "Empreinte numérique d'une image (MobileNet V3 par défaut, ~1 024 nombres : des images qui se ressemblent ont des vecteurs proches) pour une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, dim, vector (unitaire, 4 décimales), norm (norme brute), similarity (cosinus avec reference, 0 sans référence) + frameSeq/frameTime/capturedAt/latencyMs ; crop=<DP d'un sonic-object-detector> (crop-labels, crop-min-score, crop-pad) analyse seulement l'objet détecté, region=\"x,y,w,h\" une zone fixe ; smooth (0.3) lisse le vecteur, hold-ms (300) ; fps 5 par défaut ; map = clés dérivées ; sonic-example-classifier features=\"embed\" apprend des classes d'objets à partir de ces vecteurs ; statut dans status-provider (défaut <id>State) ; inférence locale, mêmes règles de modèle, consentement et téléchargement que les autres trackers",
+      "description": "Empreinte numérique d'une image (MobileNet V3 par défaut, ~1 024 nombres : des images qui se ressemblent ont des vecteurs proches) pour une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, dim, vector (unitaire, 4 décimales), norm (norme brute), similarity (cosinus avec reference, 0 sans référence) + frameSeq/frameTime/capturedAt/latencyMs ; crop=<DP d'un sonic-object-detector> (crop-labels, crop-min-score, crop-pad, crop-id = id d'un détecteur en track=\"true\" : suit cet objet précis) analyse seulement l'objet détecté, region=\"x,y,w,h\" une zone fixe ; smooth (0.3) lisse le vecteur, hold-ms (300) ; fps 5 par défaut ; map = clés dérivées ; sonic-example-classifier features=\"embed\" apprend des classes d'objets à partir de ces vecteurs ; statut dans status-provider (défaut <id>State) ; inférence locale, mêmes règles de modèle, consentement et téléchargement que les autres trackers",
       "props": {
         "for": {
           "type": "string"
@@ -404,6 +417,10 @@
         "region": {
           "type": "string",
           "description": "Zone fixe analysée « x,y,w,h » (0..1 de l'image, repère écran) ; ignorée si crop est renseigné"
+        },
+        "crop-id": {
+          "type": "number",
+          "description": "id (sonic-object-detector track=\"true\") de l'objet à analyser ; 0 : la meilleure boîte retenue"
         }
       }
     },
@@ -499,7 +516,7 @@
     },
     {
       "name": "sonic-mask-replace",
-      "description": "Remplace une zone d'une image avec un masque : le fond derrière la personne (mask=\"#seg\", un sonic-segmenter ; mode alpha ou gray) ou les objets détectés (detections = DataProvider d'un sonic-object-detector, labels = étiquettes, min-score, max-objects, shape ellipse|rect, pad). source = source d'images à modifier (sonic-camera, sonic-frame-sync) ; target background (garde la zone masquée, remplace le reste) | subject (remplace la zone masquée) ; effect blur | pixelate (amount 0..1) | color (color CSS) | image (image = URL https, blob:, data:image, relative) | source (with-source = autre source d'images : vidéo, shader, canvas) | cutout (zone transparente) ; feather adoucit les bords, smooth lisse le masque dans le temps, mirror auto|true|false, fps ; est lui-même une source d'images (getFrameCanvas, frameSeq) ; crop=\"true\" (avec target background) recadre l'image sur la zone gardée : un sprite (la personne, un objet) à recomposer dans sonic-2d via sonic-sprite source=\"#id\" ; out-data-provider publie {ready, effect, target, mask, regions, box {x, y, w, h, cx, cy} (zone gardée, 0..1, lissée), error} ; canvas 2D local, aucun HTML injecté",
+      "description": "Remplace une zone d'une image avec un masque : le fond derrière la personne (mask=\"#seg\", un sonic-segmenter ; mode alpha ou gray) ou les objets détectés (detections = DataProvider d'un sonic-object-detector, labels = étiquettes, min-score, max-objects, object-id (id d'un détecteur en track=\"true\" : seul cet objet), shape ellipse|rect, pad). source = source d'images à modifier (sonic-camera, sonic-frame-sync) ; target background (garde la zone masquée, remplace le reste) | subject (remplace la zone masquée) ; effect blur | pixelate (amount 0..1) | color (color CSS) | image (image = URL https, blob:, data:image, relative) | source (with-source = autre source d'images : vidéo, shader, canvas) | cutout (zone transparente) ; feather adoucit les bords, smooth lisse le masque dans le temps, mirror auto|true|false, fps ; est lui-même une source d'images (getFrameCanvas, frameSeq) ; crop=\"true\" (avec target background) recadre l'image sur la zone gardée : un sprite (la personne, un objet) à recomposer dans sonic-2d via sonic-sprite source=\"#id\" ; out-data-provider publie {ready, effect, target, mask, regions, box {x, y, w, h, cx, cy} (zone gardée, 0..1, lissée), error} ; canvas 2D local, aucun HTML injecté",
       "props": {
         "source": {
           "type": "string"
@@ -567,6 +584,10 @@
         "crop": {
           "type": "string",
           "description": "true : image recadrée sur la zone gardée (avec target background, effect cutout pour un fond transparent) ; false (défaut)"
+        },
+        "object-id": {
+          "type": "number",
+          "description": "id (sonic-object-detector track=\"true\") : seul cet objet est retenu ; 0 : tous"
         }
       }
     },

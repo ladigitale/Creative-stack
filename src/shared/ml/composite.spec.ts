@@ -18,6 +18,14 @@ describe("boîtes", () => {
     expect(boxesOf(null)).toEqual([]);
     expect(boxesOf({ objects: "x" })).toEqual([]);
   });
+  it("id : boxesOf le lit, selectBoxes ne garde que cet objet (0 : tous)", () => {
+    const list = boxesOf({ objects: [{ label: "cup", score: 0.9, x: 0, y: 0, w: 0.2, h: 0.2, id: 7 }, { label: "cup", score: 0.8, x: 0.5, y: 0, w: 0.2, h: 0.2, id: 8 }, { label: "cup", score: 0.7, x: 0.1, y: 0.5, w: 0.2, h: 0.2 }] });
+    expect(list.map((b) => b.id)).toEqual([7, 8, undefined]);
+    expect(selectBoxes(list, "", 0, 10, 8).map((b) => b.id)).toEqual([8]);
+    expect(selectBoxes(list, "", 0, 10, 0)).toHaveLength(3);
+    expect(selectBoxes(list, "", 0, 10, 99)).toEqual([]);
+  });
+
   it("selectBoxes : étiquettes, score minimal, maximum, meilleurs d'abord", () => {
     const all = boxesOf(out);
     expect(selectBoxes(all, "", 0, 10).map((b) => b.label)).toEqual(["cell phone", "Person", "cup"]);

@@ -175,6 +175,22 @@ describe("sonic-image-embedder", () => {
     expect(mp.frames).toHaveLength(1);
   });
 
+  it("crop-id : suit l'objet d'une identité précise, pas le meilleur ; absent : rien n'est analysé", async () => {
+    const { el: cam, canvas } = mountSource();
+    const mp = fakeMp(() => emb([1, 0]));
+    configureVision({ createMpEngine: mp.create });
+    set("dets10", { objects: [{ label: "cup", score: 0.9, x: 0, y: 0, w: 0.25, h: 0.25, id: 1 }, { label: "cup", score: 0.6, x: 0.5, y: 0.5, w: 0.25, h: 0.25, id: 2 }] });
+    const el = await mount({ id: "e10", for: "cam", load: "auto", smooth: "0", crop: "dets10", "crop-id": "2", "crop-pad": "0" });
+    await flush();
+    await el.processFrame(0);
+    expect(draws.at(-1)).toEqual([canvas, 320, 240, 160, 120, 0, 0, 160, 120]);
+    el.setAttribute("crop-id", "5");
+    await el.updateComplete;
+    cam.frameSeq++;
+    await el.processFrame(100);
+    expect(mp.frames).toHaveLength(1);
+  });
+
   it("crop en miroir : la boîte (repère écran) est retournée vers l'image brute ; zone minuscule ignorée", async () => {
     const { el: cam, canvas } = mountSource();
     const mp = fakeMp(() => emb([1, 0]));
