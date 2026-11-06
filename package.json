@@ -34,6 +34,7 @@
     "./sketch": "./src/addons/sketch/index.ts",
     "./predict": "./src/addons/predict/index.ts",
     "./scroll": "./src/addons/scroll/index.ts",
+    "./cursor": "./src/addons/cursor/index.ts",
     "./map": "./src/addons/map/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",
