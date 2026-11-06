@@ -5,7 +5,8 @@ import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import { safeMediaUrl } from "../../shared/media/urls";
 import type { SonicFrameConsumerHost, SonicFrameSource, SonicMediaRef } from "../../shared/mediaRef";
-import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, dabSize, sanitizeBrush, type BrushSettings, type Pt } from "./brush";
+import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, place, rng, sanitizeBrush, type BrushSettings, type Pt } from "./brush";
+import { drawTip, tipFromValue, tipGeometry } from "./tip";
 
 const MAX_SIDE = 4096;
 const MAX_PIXELS = 16_000_000;
@@ -55,6 +56,16 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   @property({ type: Number }) smoothing = BRUSH_DEFAULTS.smoothing;
   @property({ type: String }) tool = BRUSH_DEFAULTS.tool;
   @property({ type: Boolean }) pressure = true;
+  /** Pointe personnalisée : chemin SVG `d`. Vide : disque doux. */
+  @property({ type: String }) tip = "";
+  @property({ type: Number }) angle = 0;
+  @property({ type: Boolean, attribute: "angle-follow" }) angleFollow = false;
+  @property({ type: Number, attribute: "angle-jitter" }) angleJitter = 0;
+  @property({ type: Number, attribute: "size-jitter" }) sizeJitter = 0;
+  @property({ type: Number }) scatter = 0;
+  @property({ type: Number }) roundness = 1;
+  /** DP d'une forme (chaîne `d`, `{ d }` ou forme de `sonic-vector-library`) utilisée comme pointe. */
+  @property({ type: String, attribute: "tip-from" }) tipFrom = "";
   /** DP de réglages en direct. */
   @property({ type: String, attribute: "brush-from" }) brushFrom = "";
   @property({ type: String }) control = "";
@@ -74,6 +85,8 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   private live: Record<string, unknown> = {};
   private stab = new Stabilizer();
   private walker = new StampWalker();
+  private draw = rng(1);
+  private tipPaths = new Map<string, Path2D>();
   private history = new History<ImageData>(20);
   private dabs = new Map<string, HTMLCanvasElement>();
   private triggers = new Map<string, CounterTrigger>();
@@ -89,7 +102,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
 
   /** Réglages effectifs : attributs puis réglages en direct. */
   brush(): BrushSettings {
-    const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, tool: this.tool, pressure: this.pressure });
+    const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, tool: this.tool, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness });
     return sanitizeBrush(base, this.live);
   }
 
@@ -132,7 +145,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
       if (this.canvasEl && (c.has("width") || c.has("height")) && !c.has("background")) this.fillBackground();
       else if (c.has("background") && this.strokes === 0) this.fillBackground();
     }
-    if (c.has("control") || c.has("brushFrom") || c.has("inDataProvider")) this.listen();
+    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("inDataProvider")) this.listen();
     if (c.has("tool") || c.has("color") || c.has("size")) this.publish();
     if (c.has("undoLevels")) this.history = new History<ImageData>(Math.max(0, Math.min(100, this.undoLevels)));
   }
@@ -149,7 +162,8 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.triggers.clear();
-    if (this.brushFrom) this.unsubs.push(listenDp(this.brushFrom, (v) => { this.live = v && typeof v === "object" ? (v as Record<string, unknown>) : {}; this.publish(); }));
+    if (this.brushFrom) this.unsubs.push(listenDp(this.brushFrom, (v) => { this.live = { ...(v && typeof v === "object" ? (v as Record<string, unknown>) : {}), ...(this.live.tip !== undefined && this.tipFrom ? { tip: this.live.tip } : {}) }; this.publish(); }));
+    if (this.tipFrom) this.unsubs.push(listenDp(this.tipFrom, (v) => { this.live = { ...this.live, tip: tipFromValue(v) }; this.publish(); }));
     if (this.control) {
       this.unsubs.push(listenDp(this.control, (v) => {
         if (!v || typeof v !== "object") return;
@@ -238,11 +252,27 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   private stamp(pt: Pt, b: BrushSettings): void {
     const ctx = this.ctx();
     if (!ctx) return;
-    const s = dabSize(b, pt.p);
-    const dab = this.dab(s, b.hardness, b.tool === "erase" ? "#000000" : b.color);
-    ctx.globalCompositeOperation = b.tool === "erase" ? "destination-out" : "source-over";
+    const pl = place(pt, b, this.draw);
+    const erase = b.tool === "erase";
+    ctx.globalCompositeOperation = erase ? "destination-out" : "source-over";
     ctx.globalAlpha = b.opacity;
-    ctx.drawImage(dab, pt.x - s / 2, pt.y - s / 2, s, s);
+    const geo = b.tip ? tipGeometry(b.tip) : null;
+    if (geo) {
+      let path = this.tipPaths.get(b.tip);
+      if (!path) {
+        if (this.tipPaths.size > 16) this.tipPaths.clear();
+        this.tipPaths.set(b.tip, (path = new Path2D(b.tip)));
+      }
+      ctx.fillStyle = erase ? "#000000" : b.color;
+      drawTip(ctx, path, geo, pl.x, pl.y, pl.size, pl.rot, pl.squash);
+    } else {
+      const dab = this.dab(pl.size, b.hardness, erase ? "#000000" : b.color);
+      ctx.save();
+      ctx.translate(pl.x, pl.y);
+      if (pl.rot) ctx.rotate(pl.rot);
+      ctx.drawImage(dab, (-pl.size * pl.squash) / 2, -pl.size / 2, pl.size * pl.squash, pl.size);
+      ctx.restore();
+    }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
   }
@@ -270,6 +300,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.drawing = true;
     this.stab.reset();
     this.walker.reset();
+    this.draw = rng((Math.random() * 4294967296) >>> 0);
     const b = this.brush();
     const pt = this.stab.feed(this.toCanvas(e), b.smoothing);
     for (const s of this.walker.walk(pt, b)) this.stamp(s, b);
