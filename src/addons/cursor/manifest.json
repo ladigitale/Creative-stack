@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "cursor",
+  "label": "Curseur et effet magnétique",
+  "description": "Publie la position, la vitesse et l'appui du pointeur ainsi que l'élément survolé qui porte data-cursor ; suiveur visuel optionnel (point ou anneau), curseur natif masquable à la souris, éléments attirés par le pointeur (effet magnétique) ; respecte prefers-reduced-motion",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "cursor.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-cursor",
+      "description": "Source de pointeur : état {x, y, nx, ny, smoothX, smoothY, vx, vy, speed, down, inside, touch, hover {name, id}} ; follower=\"dot|ring\" dessine un suiveur lissé (size, color, blend=\"difference\", smooth 0,05..1, hover-scale sur les éléments data-cursor=\"nom\") ; hide-native masque le curseur natif à la souris seulement ; magnetic=\"[data-magnetic]\" attire les éléments du sélecteur vers le pointeur (magnetic-strength, magnetic-radius, magnetic-max) via translate et les variables --mx/--my",
+      "props": {
+        "follower": { "type": "string" },
+        "size": { "type": "number" },
+        "color": { "type": "string" },
+        "blend": { "type": "string" },
+        "smooth": { "type": "number" },
+        "hover-scale": { "type": "number" },
+        "hide-native": { "type": "boolean" },
+        "magnetic": { "type": "string" },
+        "magnetic-strength": { "type": "number" },
+        "magnetic-radius": { "type": "number" },
+        "magnetic-max": { "type": "number" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
