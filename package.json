@@ -30,6 +30,7 @@
     "./vector": "./src/addons/vector/index.ts",
     "./vectorize": "./src/addons/vectorize/index.ts",
     "./ocr": "./src/addons/ocr/index.ts",
+    "./paint": "./src/addons/paint/index.ts",
     "./map": "./src/addons/map/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",

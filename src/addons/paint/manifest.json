@@ -1,0 +1,37 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "paint",
+  "label": "Peinture temps réel",
+  "description": "Toile de peinture : pinceau doux, gomme, pression du stylet, lissage, annuler / rétablir ; la toile est une source d'images lue en direct par les shaders",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "paint.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-paint",
+      "description": "Toile de peinture (width, height, background) : réglages color, size, hardness, opacity, spacing, smoothing, tool paint|erase, pressure, ou en direct brush-from {color, size, …} ; control {undo, redo, clear, save} compteurs ; in-data-provider image de départ ; source d'images #id pour sonic-shader ; état {strokes, canUndo, canRedo, drawing, last}",
+      "props": {
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "background": { "type": "string" },
+        "color": { "type": "string" },
+        "size": { "type": "number" },
+        "hardness": { "type": "number" },
+        "opacity": { "type": "number" },
+        "spacing": { "type": "number" },
+        "smoothing": { "type": "number" },
+        "tool": { "type": "string" },
+        "pressure": { "type": "boolean" },
+        "brush-from": { "type": "string" },
+        "control": { "type": "string" },
+        "in-data-provider": { "type": "string" },
+        "out-data-provider": { "type": "string" },
+        "undo-levels": { "type": "number" },
+        "readonly": { "type": "boolean" },
+        "hidden-preview": { "type": "boolean" }
+      }
+    }
+  ]
+}
