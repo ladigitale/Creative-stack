@@ -6,6 +6,7 @@ import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/medi
 import { CounterTrigger } from "../../shared/media/control";
 import { parseBody, parseJoint, PhysicsWorld, type BodySpec, type BodyState, type Drive, type JointSpec, type PhysicsEvent, type WorldOptions } from "./core";
 import { parseNodesMap, toNodes } from "./nodes";
+import { parseRagdollOptions, planRagdoll, ragdollBones, ragdollPose, type RagdollPlan } from "./ragdoll";
 import type { NodePatch } from "../../shared/nodes";
 import "./elements";
 
@@ -116,6 +117,9 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
   private childOwned = new Set<string>();
   private listOwned = new Set<string>();
   private listSpecs: BodySpec[] = [];
+  /** Pantins déclarés (`sonic-ragdoll`) et sortie de pose de chacun. */
+  private ragdolls: Array<{ plan: RagdollPlan; out: string; lastSig: string }> = [];
+  private jointSig = "";
   private latestInput: Record<string, Drive> | null = null;
   private unsubs: (() => void)[] = [];
   private observer: MutationObserver | null = null;
@@ -248,6 +252,7 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
     });
     this.childOwned = new Set();
     this.listOwned = new Set();
+    this.jointSig = "";
     this.resync();
     if (this.listSpecs.length) this.listOwned = this.sim.syncSet(this.listOwned, this.listSpecs);
     this.listen();
@@ -291,6 +296,20 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
       errors.push(...e);
       if (spec) joints.push(spec);
     }
+    const plans: Array<{ plan: RagdollPlan; out: string; lastSig: string }> = [];
+    let r = 0;
+    for (const el of this.querySelectorAll("sonic-ragdoll")) {
+      const attrs = Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]));
+      const overrides = [...el.querySelectorAll("sonic-bone")].map((b) => Object.fromEntries([...b.attributes].map((a) => [a.name, a.value])));
+      const { bones, errors: be } = ragdollBones((attrs.preset ?? "").trim(), overrides);
+      const plan = planRagdoll(bones, parseRagdollOptions(attrs, `ragdoll${++r}`));
+      errors.push(...be, ...plan.errors);
+      bodies.push(...plan.bodies);
+      joints.push(...plan.joints);
+      const previous = this.ragdolls.find((x) => x.plan.name === plan.name);
+      plans.push({ plan, out: (attrs["nodes-out"] ?? "").trim(), lastSig: previous?.lastSig ?? "" });
+    }
+    this.ragdolls = plans;
     const names = new Set<string>();
     for (const b of bodies) {
       if (names.has(b.name)) errors.push(`corps "${b.name}" déclaré deux fois`);
@@ -299,7 +318,12 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
     this.specErrors = errors;
     sim.errors = [];
     this.childOwned = sim.syncSet(this.childOwned, bodies);
-    sim.setJoints(joints);
+    // Les pivots ne sont recréés que s'ils changent : un pantin en mouvement ne doit pas être ressoudé en l'état.
+    const sig = JSON.stringify([joints, bodies.map((b) => [b.name, b.type, b.shape, b.w, b.h, b.r])]);
+    if (sig !== this.jointSig) {
+      this.jointSig = sig;
+      sim.setJoints(joints);
+    }
     this.publishState(true);
   }
 
@@ -481,6 +505,31 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
     this.lastPublish = now;
     const out = (this.outDataProvider || (this.id ? `${this.id}State` : "")).trim();
     if (out) set(out, this.getState());
+    this.publishRagdolls();
+  }
+
+  /** Pose des pantins au format de `sonic-skeleton` : `<nodes-out>.nodes`, `.bones`, `.present`. */
+  private publishRagdolls(): void {
+    const sim = this.sim;
+    if (!sim) return;
+    for (const rd of this.ragdolls) {
+      if (!rd.out) continue;
+      const pose = ragdollPose(rd.plan, (n) => sim.bodyState(n));
+      const nodes: Record<string, Record<string, number>> = {};
+      const bones: Record<string, Record<string, number>> = {};
+      const r2 = (n: number) => Math.round(n * 100) / 100 + 0;
+      const r4 = (n: number) => Math.round(n * 10000) / 10000 + 0;
+      for (const b of pose) {
+        nodes[b.name] = { x: r2(b.x), y: r2(b.y), rz: r4(b.rz) };
+        bones[b.name] = { x: r2(b.x), y: r2(b.y), x2: r2(b.x2), y2: r2(b.y2), angle: r2(b.angle), rz: r4(b.rz), length: r2(b.length) };
+      }
+      const sig = JSON.stringify(nodes);
+      if (sig === rd.lastSig) continue;
+      rd.lastSig = sig;
+      set(`${rd.out}.nodes`, nodes);
+      set(`${rd.out}.bones`, bones);
+      set(`${rd.out}.present`, 1);
+    }
   }
 
   /* --- pointeur --- */

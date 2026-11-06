@@ -254,6 +254,57 @@
           "type": "boolean"
         }
       }
+    },
+    {
+      "name": "sonic-ragdoll",
+      "description": "Pantin articulé dans sonic-physics : squelette d'os rigides (preset=\"humain\" ou enfants sonic-bone name/parent/length/angle/offset/min/max) devenu corps physiques reliés par des pivots à limites ; corps nommés <name>.<os> (pilotables par input, glissables) ; pose publiée au format sonic-skeleton dans nodes-out (.nodes, .bones, .present) pour les mêmes sprites ; x/y racine, scale, angle, limit (° de débattement par défaut), thickness, self-collide",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "preset": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "scale": {
+          "type": "number"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "thickness": {
+          "type": "number"
+        },
+        "density": {
+          "type": "number"
+        },
+        "friction": {
+          "type": "number"
+        },
+        "restitution": {
+          "type": "number"
+        },
+        "damping": {
+          "type": "number"
+        },
+        "angular-damping": {
+          "type": "number"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "self-collide": {
+          "type": "boolean"
+        },
+        "nodes-out": {
+          "type": "string"
+        }
+      }
     }
   ]
 }
