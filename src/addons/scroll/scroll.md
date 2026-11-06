@@ -11,7 +11,7 @@
 
 | Attribut | Rôle |
 |---|---|
-| `target` | `#id` d'un conteneur défilant ; vide : la page |
+| `target` | `#id` d'un conteneur défilant ; vide : le plus proche ancêtre qui défile (la visionneuse d'artefacts défile dans son propre conteneur, pas dans la page), sinon la page |
 | `sections` | Sélecteur CSS des sections à suivre (`section`, `[data-etape]`) ; 100 au plus. Un élément sans `id` est nommé `section-1`, `section-2`… |
 | `smooth` | Inertie des valeurs lissées : 1 sans retard, 0,05 très doux (défaut 0,1). Sans effet si l'utilisateur demande moins d'animations (`prefers-reduced-motion`) |
 | `control` | DP de commande `{ to: "#id" \| px, n: compteur }` : fait défiler jusqu'à l'élément ou la position quand `n` augmente (animation douce, sauf `prefers-reduced-motion`) |

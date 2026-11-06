@@ -40,7 +40,7 @@ const EMPTY: ScrollState = {
  */
 @customElement("sonic-scroll")
 export class SonicScroll extends LitElement {
-  /** `#id` d'un conteneur défilant ; vide : la page. */
+  /** `#id` d'un conteneur défilant ; vide : le plus proche ancêtre qui défile (en traversant les shadow DOM), sinon la page. */
   @property({ type: String }) target = "";
   /** Sélecteur CSS des sections suivies (par exemple `section` ou `[data-section]`) ; vide : aucune. */
   @property({ type: String }) sections = "";
@@ -60,6 +60,7 @@ export class SonicScroll extends LitElement {
   private trigger = new CounterTrigger();
   private unsubs: (() => void)[] = [];
   private ro: ResizeObserver | null = null;
+  private mo: MutationObserver | null = null;
 
   createRenderRoot(): HTMLElement | ShadowRoot { return this; }
 
@@ -96,9 +97,28 @@ export class SonicScroll extends LitElement {
     }
   }
 
+  /** Arbre où vit le composant (document ou shadow root) : c'est là que se trouvent ses sections et ses cibles. */
+  private tree(): Document | ShadowRoot {
+    const r = this.getRootNode();
+    return r instanceof Document || r instanceof ShadowRoot ? r : document;
+  }
+
+  private query(sel: string): Element | null {
+    try { return this.tree().querySelector(sel) ?? document.querySelector(sel); } catch { return null; }
+  }
+
+  /** Conteneur défilant : `target`, sinon l'ancêtre le plus proche en `overflow-y: auto | scroll | overlay` (visionneuse, panneau). */
   private element(): Element | null {
     const id = this.target.trim().replace(/^#/, "");
-    return id ? document.getElementById(id) : null;
+    if (id) return this.tree().getElementById?.(id) ?? document.getElementById(id);
+    let n: Node | null = this.parentElement ?? (this.getRootNode() as ShadowRoot).host ?? null;
+    while (n instanceof Element) {
+      const oy = getComputedStyle(n).overflowY;
+      if (oy === "auto" || oy === "scroll" || oy === "overlay") return n;
+      if (n === document.documentElement) break;
+      n = n.parentElement ?? ((n.getRootNode() as ShadowRoot).host ?? null);
+    }
+    return null;
   }
 
   private attach(): void {
@@ -113,6 +133,11 @@ export class SonicScroll extends LitElement {
       this.ro = new ResizeObserver(this.wake);
       this.ro.observe(el ?? document.documentElement);
     }
+    // Les sections peuvent arriver après le composant (rendu progressif) : on remesure quand l'arbre change.
+    if (typeof MutationObserver !== "undefined") {
+      this.mo = new MutationObserver(this.wake);
+      this.mo.observe(this.tree() instanceof Document ? document.body : this.tree(), { childList: true, subtree: true });
+    }
     this.frame(this.lastT, true);
   }
 
@@ -121,6 +146,8 @@ export class SonicScroll extends LitElement {
     window.removeEventListener("resize", this.wake);
     this.ro?.disconnect();
     this.ro = null;
+    this.mo?.disconnect();
+    this.mo = null;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.scroller = null;
@@ -154,8 +181,7 @@ export class SonicScroll extends LitElement {
       const n = Number(t);
       if (Number.isFinite(n) && /^-?[\d.]+$/.test(t)) y = n;
       else {
-        let el: Element | null = null;
-        try { el = document.querySelector(t.startsWith("#") || /[.[\s>:]/.test(t) ? t : `#${t}`); } catch { el = null; }
+        const el = this.query(t.startsWith("#") || /[.[\s>:]/.test(t) ? t : `#${t}`);
         if (el) y = this.position() + el.getBoundingClientRect().top - this.metrics().top;
       }
     }
@@ -185,7 +211,7 @@ export class SonicScroll extends LitElement {
     const ids: string[] = [];
     if (this.sections.trim()) {
       let list: Element[] = [];
-      try { list = [...document.querySelectorAll(this.sections)].slice(0, MAX_SECTIONS); } catch { list = []; }
+      try { list = [...this.tree().querySelectorAll(this.sections)].slice(0, MAX_SECTIONS); } catch { list = []; }
       list.forEach((el, i) => {
         const r = el.getBoundingClientRect();
         rects.push({ top: r.top - top, bottom: r.bottom - top, height: r.height });

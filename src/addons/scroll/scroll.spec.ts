@@ -125,6 +125,41 @@ describe("sonic-scroll", () => {
     expect(window.scrollY).toBe(300);
   });
 
+  it("défile dans le plus proche ancêtre qui défile (visionneuse), même dans un shadow DOM", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const box = document.createElement("div");
+    box.style.overflowY = "auto";
+    shadow.appendChild(box);
+    let top = 0;
+    Object.defineProperty(box, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
+    Object.defineProperty(box, "scrollHeight", { configurable: true, value: 2400 });
+    Object.defineProperty(box, "clientHeight", { configurable: true, value: 800 });
+    box.getBoundingClientRect = () => ({ top: 0, bottom: 800, height: 800, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    const scroll = document.createElement("sonic-scroll");
+    scroll.setAttribute("sections", "[data-e]");
+    scroll.setAttribute("out-data-provider", "sc5");
+    scroll.setAttribute("smooth", "1");
+    box.appendChild(scroll);
+    await wait(40);
+    // une section qui arrive après le composant est prise en compte
+    const sec = document.createElement("div");
+    sec.id = "tard";
+    sec.setAttribute("data-e", "");
+    sec.getBoundingClientRect = () => ({ top: 1200 - top, bottom: 2000 - top, height: 800, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    box.appendChild(sec);
+    await wait(60);
+    expect(state("sc5")).toMatchObject({ max: 1600, y: 0 });
+    expect(state("sc5").sections.map((x: { id: string }) => x.id)).toEqual(["tard"]);
+    top = 800;
+    box.dispatchEvent(new Event("scroll"));
+    await wait(80);
+    expect(state("sc5")).toMatchObject({ y: 800, progress: 0.5 });
+    expect(state("sc5").sections[0].progress).toBeCloseTo(0.25, 2);
+    host.remove();
+  });
+
   it("ignore les sélecteurs invalides sans planter", async () => {
     setupPage();
     mount({ sections: "section[", "out-data-provider": "sc4" });
