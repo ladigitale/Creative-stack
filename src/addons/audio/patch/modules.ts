@@ -172,7 +172,12 @@ export const MODULES: Record<string, ModuleSpec> = {
       "freq-hz": { default: "voice.pitch", min: 20, max: 12000, audio: true },
       detune: { default: 0, min: -4800, max: 4800, audio: true },
       q: { default: 40, min: 1, max: 1000 },
+      /** Rapports de fréquence des partiels ; modifiables pendant le jeu (sonic-param) sans recompiler. */
       partials: { default: "", list: true },
+      /** Niveaux des partiels (défaut 1/√rang). */
+      gains: { default: "", list: true },
+      /** Désaccord aléatoire de chaque partiel, tiré à chaque note (cents). */
+      jitter: { default: 0, min: 0, max: 1200 },
       level: { default: 1, min: 0, max: 8, audio: true },
     },
   },
@@ -203,7 +208,13 @@ export const MODULES: Record<string, ModuleSpec> = {
 };
 
 /** Modules qui utilisent un processeur AudioWorklet (chargé avant le premier son). */
-export const WORKLET_TYPES = ["sonic-ladder", "sonic-fold", "sonic-karplus"];
+export const WORKLET_TYPES = ["sonic-ladder", "sonic-fold", "sonic-karplus", "sonic-resonator"];
+
+/** Paramètre commun à tous les modules : 0 = module retiré des notes suivantes (avec la branche qui ne nourrit que lui). */
+export const ACTIVE_PARAM = "active";
+
+/** Paramètres d'un câble de modulation nommé (`sonic-mod name="…"`). */
+export const MOD_PARAMS = ["amount", "depth"] as const;
 
 /** Balises de structure (pas des modules). */
 export const STRUCTURE_TAGS = ["sonic-voice", "sonic-mod", "sonic-param"];

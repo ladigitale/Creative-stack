@@ -7,7 +7,8 @@ import { toMidi } from "../../shared/audio/notes";
 import { listenDp, plain } from "../../shared/audio/dp";
 import { compilePatch, domToPatchNodes, type CompiledPatch, type PatchNode } from "./patch/compile";
 import { PATCH_LIBRARY } from "./patch/library";
-import { PatchRuntime } from "./patch/runtime";
+import { PatchRuntime, seededRandom } from "./patch/runtime";
+import { MODULES } from "./patch/modules";
 import { fallbackWarning } from "./patch/nodes";
 import { SampleBank } from "../../shared/audio/samples";
 import "./modules-elements";
@@ -100,6 +101,17 @@ export class SonicPatch extends LitElement implements SonicInstrument {
   @property({ type: Object, attribute: "notes-map" })
   notesMap: Record<string, string | number> | null = null;
 
+  /**
+   * Élagage par note : les branches muettes (volume à 0 sans modulation, câble nommé de profondeur 0,
+   * module `active="false"`) ne sont pas construites. Recommandé pour les gros patches pilotés par DataProvider.
+   */
+  @property({ type: Boolean })
+  prune = false;
+
+  /** Graine des tirages aléatoires (`random`, `voice.rand`, `jitter`) : même graine, même suite de notes. */
+  @property({ type: Number })
+  seed: number | null = null;
+
   /** DataProvider de l'état (défaut : `<id>State`). */
   @property({ type: String, attribute: "out-data-provider" })
   outDataProvider = "";
@@ -148,7 +160,7 @@ export class SonicPatch extends LitElement implements SonicInstrument {
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
-    const structural = ["preset", "poly", "steal", "velSense", "gain", "bpm", "out", "output"];
+    const structural = ["preset", "poly", "steal", "velSense", "gain", "bpm", "out", "output", "prune", "seed"];
     if (structural.some((k) => changed.has(k)) && changed.size && this.isConnected && this.compiled) this.queueRecompile();
     if (changed.has("params") && this.runtime) this.applyParams();
     if (changed.has("events") || changed.has("trigger")) this.listenEvents();
@@ -310,6 +322,8 @@ export class SonicPatch extends LitElement implements SonicInstrument {
       gain: Math.max(0, this.gain),
       onVoices: () => this.publish(),
       worklet,
+      prune: this.prune,
+      random: typeof this.seed === "number" && Number.isFinite(this.seed) ? seededRandom(this.seed) : undefined,
     });
     const dest = this.resolveOutput(engine.master);
     if (dest) this.runtime.output.connect(dest);
@@ -384,12 +398,25 @@ export class SonicPatch extends LitElement implements SonicInstrument {
   private listenParams(): void {
     for (const u of this.paramUnsubs) u();
     this.paramUnsubs = [];
+    const modules = new Map([...(this.compiled?.voice ?? []), ...(this.compiled?.global ?? [])].map((m) => [m.name, m]));
     for (const p of this.compiled?.params ?? []) {
       if (!p.source) continue;
+      const mod = p.kind === "module" ? modules.get(p.module) : undefined;
+      const list = !!(mod && MODULES[mod.type].params[p.param]?.list);
       this.paramUnsubs.push(
         listenDp(p.source, (v) => {
+          if (v === null || v === undefined || v === "") return;
+          if (list) {
+            // partiels, niveaux : liste (tableau ou "1 2.76 5.4")
+            if (Array.isArray(v) || typeof v === "string") this.runtime?.setParam(p.module, p.param, Array.isArray(v) ? v.map(Number) : v, p.rampS);
+            return;
+          }
+          if (p.param === "active" && typeof v === "boolean") {
+            this.runtime?.setParam(p.module, p.param, v, 0);
+            return;
+          }
           const n = Number(v);
-          if (v === null || v === undefined || v === "" || !Number.isFinite(n)) return;
+          if (!Number.isFinite(n)) return;
           this.runtime?.setParam(p.module, p.param, clamp(n, p.min, p.max), p.rampS);
         }),
       );

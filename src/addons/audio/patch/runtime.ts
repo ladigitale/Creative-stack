@@ -3,9 +3,9 @@
  * un graphe WebAudio par note (voix), polyphonie et vol de voix.
  */
 import { midiToFreq } from "../../../shared/audio/notes";
-import { MODULES, type VoiceExpression } from "./modules";
+import { ACTIVE_PARAM, MODULES, type VoiceExpression } from "./modules";
 import { baseValue, buildModule, type Built } from "./nodes";
-import type { CompiledModule, CompiledPatch } from "./compile";
+import { parseActive, type CompiledMod, type CompiledModule, type CompiledPatch } from "./compile";
 
 export type RuntimeOptions = {
   bpm: number;
@@ -19,7 +19,29 @@ export type RuntimeOptions = {
   onVoices?: (count: number) => void;
   /** Processeurs AudioWorklet disponibles (sinon : modules en repli natif). */
   worklet?: boolean;
+  /**
+   * Élagage par note : un module dont le volume (`gain` d'un sonic-vca, `level` d'une source…) vaut 0
+   * sans modulation, ou un câble nommé de profondeur nulle, n'est pas construit, ni ce qui ne nourrit que lui.
+   * Une valeur remontée pendant une note tenue vaut pour les notes suivantes.
+   */
+  prune?: boolean;
 };
+
+export type ParamValue = number | string | number[];
+
+/** Tirage aléatoire reproductible (mulberry32). */
+export function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+type Jitter = { rel: number; abs: number };
 
 type Voice = {
   midi: number | null;
@@ -34,6 +56,10 @@ type Voice = {
   expr: { bend: ConstantSourceNode; pressure: ConstantSourceNode; timbre: ConstantSourceNode };
   out: GainNode;
   clock: ConstantSourceNode;
+  /** Câbles nommés de la voix (amount / depth pilotables pendant la note). */
+  modGains: { mod: CompiledMod; gain: GainNode }[];
+  /** Aléa tiré pour cette note, par `module.param`. */
+  jit: Map<string, Jitter>;
   disposed: boolean;
 };
 
@@ -47,15 +73,23 @@ export class PatchRuntime {
   private global = new Map<string, Built>();
   private voicesBus: GainNode;
   private voices: Voice[] = [];
-  private overrides = new Map<string, number | string>();
+  private overrides = new Map<string, ParamValue>();
   private random: () => number;
   private disposed = false;
+  private globalModGains: { mod: CompiledMod; gain: GainNode }[] = [];
+  private modNames: Set<string>;
+  /** Aléa déclaré par sonic-param (random / random-abs), par `module.param`. */
+  private jitterSpecs = new Map<string, Jitter>();
 
   constructor(ac: BaseAudioContext, patch: CompiledPatch, opts: RuntimeOptions) {
     this.ac = ac;
     this.patch = patch;
     this.opts = opts;
     this.random = opts.random ?? Math.random;
+    this.modNames = new Set(patch.mods.map((m) => m.name).filter((n): n is string => !!n));
+    for (const p of patch.params) {
+      if (p.kind === "module" && (p.random > 0 || p.randomAbs > 0)) this.jitterSpecs.set(`${p.module}.${p.param}`, { rel: p.random, abs: p.randomAbs });
+    }
     this.voicesBus = ac.createGain();
     this.output = ac.createGain();
     this.output.gain.value = opts.gain;
@@ -64,6 +98,82 @@ export class PatchRuntime {
 
   get voiceCount(): number {
     return this.voices.filter((v) => !v.disposed).length;
+  }
+
+  /** Gain effectif d'un câble : amount (piloté ou compilé) × depth. */
+  private modGain(m: CompiledMod): number {
+    let amount = m.amount;
+    let depth = 1;
+    if (m.name) {
+      const a = this.overrides.get(`${m.name}.amount`);
+      if (typeof a === "number") amount = m.exp ? a * 100 : a;
+      const d = this.overrides.get(`${m.name}.depth`);
+      if (typeof d === "number") depth = d;
+    }
+    return amount * depth;
+  }
+
+  private activeOf(mod: CompiledModule): number {
+    const o = this.overrides.get(`${mod.name}.${ACTIVE_PARAM}`);
+    return typeof o === "number" ? o : mod.active;
+  }
+
+  private numberOf(mod: CompiledModule, param: string): number | null {
+    const o = this.overrides.get(`${mod.name}.${param}`);
+    if (typeof o === "number") return o;
+    const v = mod.params[param];
+    return typeof v === "number" ? v : null;
+  }
+
+  /**
+   * Modules à construire pour une note : remontée depuis la sortie de la voix
+   * (entrées audio et sources de modulation), sans les modules inactifs ni,
+   * avec `prune`, les branches muettes.
+   */
+  plan(modules: CompiledModule[], out: string | null): Set<string> {
+    const prune = !!this.opts.prune;
+    const byName = new Map(modules.map((m) => [m.name, m]));
+    const modsTo = new Map<string, CompiledMod[]>();
+    for (const m of this.patch.mods) {
+      if (!byName.has(m.module)) continue;
+      if (prune && this.modGain(m) === 0) continue;
+      const list = modsTo.get(m.module) ?? [];
+      list.push(m);
+      modsTo.set(m.module, list);
+    }
+    const silent = (mod: CompiledModule): boolean => {
+      if (!this.activeOf(mod)) return true;
+      if (!prune) return false;
+      for (const p of ["gain", "level"]) {
+        if (!MODULES[mod.type].params[p]?.audio) continue;
+        if (this.numberOf(mod, p) === 0 && !(modsTo.get(mod.name) ?? []).some((m) => m.param === p)) return true;
+      }
+      return false;
+    };
+    const need = new Set<string>();
+    const stack = out ? [out] : [];
+    while (stack.length) {
+      const name = stack.pop()!;
+      if (need.has(name)) continue;
+      const mod = byName.get(name);
+      if (!mod || silent(mod)) continue;
+      need.add(name);
+      for (const i of mod.inputs) stack.push(i);
+      for (const m of modsTo.get(name) ?? []) if (byName.has(m.from)) stack.push(m.from);
+      // la synchro dure lit le maître
+      if (mod.type === "sonic-osc" && mod.params.sync) stack.push(String(mod.params.sync));
+    }
+    return need;
+  }
+
+  /** Valeur avec l'aléa de la note, bornée par le paramètre. */
+  private jittered(mod: CompiledModule, param: string, v: number, jit: Jitter | undefined): number {
+    if (!jit) return v;
+    const spec = MODULES[mod.type].params[param];
+    let n = v * (1 + jit.rel) + jit.abs;
+    if (spec?.min !== undefined) n = Math.max(spec.min, n);
+    if (spec?.max !== undefined) n = Math.min(spec.max, n);
+    return n;
   }
 
   /* ---------------------------------------------------------------- */
@@ -89,9 +199,10 @@ export class PatchRuntime {
       const param = target.params[m.param];
       if (!src || !param) continue;
       const g = this.ac.createGain();
-      g.gain.value = m.amount;
+      g.gain.value = this.modGain(m);
       src.output.connect(g).connect(param);
       target.nodes.push(g);
+      if (m.name) this.globalModGains.push({ mod: m, gain: g });
     }
     for (const b of this.global.values()) {
       b.start(t);
@@ -111,7 +222,8 @@ export class PatchRuntime {
   }
 
   private wireInputs(mod: CompiledModule, built: Map<string, Built>): void {
-    const target = built.get(mod.name)!;
+    const target = built.get(mod.name);
+    if (!target) return;
     mod.inputs.forEach((name, i) => {
       const dest = target.inputAt ? target.inputAt(i) : target.input;
       if (!dest) return;
@@ -120,7 +232,7 @@ export class PatchRuntime {
     });
   }
 
-  private writeBases(mod: CompiledModule, b: Built, t: number, freq: number, staticMods: Record<string, number> = {}): void {
+  private writeBases(mod: CompiledModule, b: Built, t: number, freq: number, staticMods: Record<string, number> = {}, jit?: Map<string, Jitter>): void {
     for (const [param, ap] of Object.entries(b.params)) {
       const key = `${mod.name}.${param}`;
       const override = this.overrides.get(key);
@@ -128,7 +240,7 @@ export class PatchRuntime {
         typeof override === "number"
           ? override
           : baseValue(mod, param, { bpm: this.opts.bpm, freq });
-      ap.setValueAtTime(v + (staticMods[param] ?? 0), t);
+      ap.setValueAtTime(this.jittered(mod, param, v, jit?.get(key)) + (staticMods[param] ?? 0), t);
     }
   }
 
@@ -157,8 +269,26 @@ export class PatchRuntime {
 
     // Une voix réservée à une note garde sa hauteur propre (kit : le pad ne transpose pas).
     const pitch = desc.note !== null || desc.sample !== null ? 261.63 : freq;
-    for (const mod of desc.modules) {
-      built.set(mod.name, buildModule(ac, mod, { bpm: this.opts.bpm, worklet: this.opts.worklet, freq: pitch }));
+    // Graphe de la note : seulement ce qui atteint la sortie (modules actifs, branches non muettes).
+    const need = this.plan(desc.modules, desc.out);
+    const modules = desc.modules.filter((m) => need.has(m.name));
+    // Aléa de la note (sonic-param random / random-abs).
+    const jit = new Map<string, Jitter>();
+    for (const [key, spec] of this.jitterSpecs) {
+      if (!need.has(key.slice(0, key.lastIndexOf(".")))) continue;
+      jit.set(key, { rel: (this.random() * 2 - 1) * spec.rel, abs: (this.random() * 2 - 1) * spec.abs });
+    }
+    for (const mod of modules) {
+      // paramètres non temps réel (enveloppe, q…) : l'aléa s'applique à la construction
+      let m = mod;
+      for (const [param, ps] of Object.entries(MODULES[mod.type].params)) {
+        const j = jit.get(`${mod.name}.${param}`);
+        const v = mod.params[param];
+        if (!j || ps.audio || typeof v !== "number") continue;
+        if (m === mod) m = { ...mod, params: { ...mod.params } };
+        m.params[param] = this.jittered(mod, param, v, j);
+      }
+      built.set(mod.name, buildModule(ac, m, { bpm: this.opts.bpm, worklet: this.opts.worklet, freq: pitch, random: this.random }));
     }
     // Modulations statiques (vélocité, note, aléa) ajoutées aux valeurs de base.
     const statics = new Map<string, Record<string, number>>();
@@ -167,12 +297,12 @@ export class PatchRuntime {
       const value = m.from === "voice.vel" ? vel : m.from === "voice.note" ? (midi ?? 60) : m.from === "voice.rand" ? rand : null;
       if (value === null) continue;
       const rec = statics.get(m.module) ?? {};
-      rec[m.param] = (rec[m.param] ?? 0) + value * m.amount;
+      rec[m.param] = (rec[m.param] ?? 0) + value * this.modGain(m);
       statics.set(m.module, rec);
     }
-    for (const mod of desc.modules) this.writeBases(mod, built.get(mod.name)!, when, pitch, statics.get(mod.name));
-    for (const mod of desc.modules) this.wireInputs(mod, built);
-    this.applySync(desc.modules, built, when, pitch);
+    for (const mod of modules) this.writeBases(mod, built.get(mod.name)!, when, pitch, statics.get(mod.name), jit);
+    for (const mod of modules) this.wireInputs(mod, built);
+    this.applySync(modules, built, when, pitch);
 
     // Gate (0/1) disponible comme source de modulation.
     const gate = ac.createConstantSource();
@@ -193,7 +323,7 @@ export class PatchRuntime {
       pressure: exprNode(clampNum(initial.pressure ?? 0, 0, 1)),
       timbre: exprNode(clampNum(initial.timbre ?? 0, 0, 1)),
     };
-    for (const mod of desc.modules) {
+    for (const mod of modules) {
       // tout module qui suit la note (oscillateur, corde, résonateur) suit aussi le bend
       if (mod.params["freq-hz"] === "voice.pitch") {
         const detune = built.get(mod.name)?.params.detune;
@@ -202,6 +332,7 @@ export class PatchRuntime {
     }
 
     // Modulations dynamiques (enveloppes, LFO, audio, gate).
+    const modGains: Voice["modGains"] = [];
     for (const m of this.patch.mods) {
       const target = built.get(m.module);
       const param = target?.params[m.param];
@@ -225,10 +356,13 @@ export class PatchRuntime {
         src = c;
       } else if (!m.from.startsWith("voice.")) src = built.get(m.from)?.output ?? this.global.get(m.from)?.output ?? null;
       if (!src) continue;
+      const amount = this.modGain(m);
+      if (amount === 0 && this.opts.prune) continue;
       const g = ac.createGain();
-      g.gain.value = m.amount;
+      g.gain.value = amount;
       src.connect(g).connect(param);
       extra.push(g);
+      if (m.name) modGains.push({ mod: m, gain: g });
     }
 
     // Sortie de voix : vélocité + anti-clic.
@@ -255,7 +389,7 @@ export class PatchRuntime {
     clock.start(when);
     for (const c of Object.values(expr)) c.start(when);
 
-    const voice: Voice = { midi, vel, start: when, releasedAt: null, end: Infinity, built, extra, gate, expr, out, clock, disposed: false };
+    const voice: Voice = { midi, vel, start: when, releasedAt: null, end: Infinity, built, extra, gate, expr, out, clock, modGains, jit, disposed: false };
     clock.onended = () => this.disposeVoice(voice);
     this.voices.push(voice);
     if (durS !== null) this.release(voice, when + Math.max(0.005, durS));
@@ -350,28 +484,50 @@ export class PatchRuntime {
   /* Paramètres                                                        */
   /* ---------------------------------------------------------------- */
 
-  /** Change un paramètre (rampe si AudioParam). Vaut pour la chaîne globale, les voix actives et les suivantes. */
-  setParam(module: string, param: string, value: number | string, rampS = 0.02, when = this.ac.currentTime): boolean {
+  /**
+   * Change un paramètre (rampe si AudioParam). Vaut pour la chaîne globale, les voix actives et les suivantes.
+   * `module` peut aussi être un câble nommé (`amount`, `depth`) ; `active` (0/1) vaut pour les notes suivantes.
+   */
+  setParam(module: string, param: string, value: ParamValue | boolean, rampS = 0.02, when = this.ac.currentTime): boolean {
+    if (this.modNames.has(module)) {
+      if ((param !== "amount" && param !== "depth") || typeof value !== "number" || !Number.isFinite(value)) return false;
+      this.overrides.set(`${module}.${param}`, value);
+      const retarget = (list: { mod: CompiledMod; gain: GainNode }[]) => {
+        for (const { mod, gain } of list) if (mod.name === module) ramp(gain.gain, this.modGain(mod), when, rampS);
+      };
+      retarget(this.globalModGains);
+      for (const v of this.voices) if (!v.disposed) retarget(v.modGains);
+      return true;
+    }
     const mod = [...this.patch.voice, ...this.patch.global].find((m) => m.name === module);
-    if (!mod || !MODULES[mod.type].params[param]) return false;
-    this.overrides.set(`${module}.${param}`, value);
-    const apply = (b: Built | undefined) => {
+    if (!mod) return false;
+    if (param === ACTIVE_PARAM) {
+      const a = parseActive(value);
+      if (a === null) return false;
+      this.overrides.set(`${module}.${param}`, a);
+      return true;
+    }
+    const spec = MODULES[mod.type].params[param];
+    if (!spec || typeof value === "boolean") return false;
+    let v: ParamValue = value;
+    if (spec.list) {
+      const list = Array.isArray(value) ? value.map(Number) : String(value).split(/[\s,]+/).filter(Boolean).map(Number);
+      if (list.some((x) => !Number.isFinite(x))) return false;
+      v = list.slice(0, 64);
+    }
+    this.overrides.set(`${module}.${param}`, v);
+    const apply = (b: Built | undefined, jit?: Map<string, Jitter>) => {
       if (!b) return;
       const ap = b.params[param];
-      if (ap && typeof value === "number") {
-        ap.cancelScheduledValues(when);
-        ap.setValueAtTime(ap.value, when);
-        if (rampS > 0) ap.linearRampToValueAtTime(value, when + rampS);
-        else ap.setValueAtTime(value, when);
-      } else {
-        b.setters[param]?.(value, when, rampS);
-      }
+      if (ap && typeof v === "number") ramp(ap, this.jittered(mod, param, v, jit?.get(`${module}.${param}`)), when, rampS);
+      else b.setters[param]?.(v, when, rampS);
     };
     if (mod.scope === "global") apply(this.global.get(module));
-    else for (const v of this.voices) if (!v.disposed) apply(v.built.get(module));
-    // Paramètres non temps réel (enveloppe, forme…) : pris en compte aux notes suivantes.
-    if (!MODULES[mod.type].params[param].audio && typeof value === "number") mod.params[param] = value;
-    else if (typeof value === "string" && MODULES[mod.type].params[param].values?.includes(value)) mod.params[param] = value;
+    else for (const voice of this.voices) if (!voice.disposed) apply(voice.built.get(module), voice.jit);
+    // Paramètres non temps réel (enveloppe, forme, partiels…) : pris en compte aux notes suivantes.
+    if (!spec.audio && typeof v === "number") mod.params[param] = v;
+    else if (Array.isArray(v)) mod.params[param] = v;
+    else if (typeof v === "string" && spec.values?.includes(v)) mod.params[param] = v;
     return true;
   }
 
@@ -436,6 +592,13 @@ export class PatchRuntime {
       safeDisconnect(this.output);
     }, (fadeS + 0.2) * 1000);
   }
+}
+
+function ramp(p: AudioParam, v: number, when: number, rampS: number): void {
+  p.cancelScheduledValues(when);
+  p.setValueAtTime(p.value, when);
+  if (rampS > 0) p.linearRampToValueAtTime(v, when + rampS);
+  else p.setValueAtTime(v, when);
 }
 
 function clampNum(v: number, min: number, max: number): number {

@@ -16,7 +16,7 @@ export type Built = {
   /** AudioParam modulables, par nom de paramètre. */
   params: Record<string, AudioParam>;
   /** Réglages non portés par un AudioParam (mix, type, forme…), appliqués en direct si possible. */
-  setters: Record<string, (value: number | string, time: number, rampS: number) => void>;
+  setters: Record<string, (value: number | string | number[], time: number, rampS: number) => void>;
   /** Démarrage / arrêt des sources internes. */
   start(time: number): void;
   stop(time: number): void;
@@ -34,7 +34,21 @@ export type BuildContext = {
   worklet?: boolean;
   /** Fréquence de la note (voix) : hauteur relative des grains. */
   freq?: number;
+  /** Tirage aléatoire de la voix (désaccord des partiels…). */
+  random?: () => number;
 };
+
+/** Partiels d'un résonateur : rapports, niveaux (défaut 1/√rang), désaccord aléatoire (cents). */
+export function resonatorPartials(p: CompiledModule["params"], random: () => number = Math.random): { ratios: number[]; gains: number[]; cents: number[] } {
+  const ratios = (Array.isArray(p.partials) && p.partials.length ? p.partials : [1, 2, 3, 4, 5, 6]).slice(0, 32);
+  const g = Array.isArray(p.gains) ? p.gains : [];
+  const jitter = Number(p.jitter) || 0;
+  return {
+    ratios,
+    gains: ratios.map((_, i) => (Number.isFinite(g[i]) ? g[i] : 1 / Math.sqrt(i + 1))),
+    cents: ratios.map(() => (jitter ? (random() * 2 - 1) * jitter : 0)),
+  };
+}
 
 /** Modules dont la version native (sans AudioWorklet) perd quelque chose : message pour l'état du patch. */
 export function fallbackWarning(mod: CompiledModule): string | null {
@@ -42,6 +56,7 @@ export function fallbackWarning(mod: CompiledModule): string | null {
   if (mod.type === "sonic-ladder") return `${mod.name} : ladder remplacé par deux filtres natifs (sans AudioWorklet)`;
   if (mod.type === "sonic-fold") return `${mod.name} : fold natif, amount et bias non modulables (sans AudioWorklet)`;
   if (mod.type === "sonic-karplus") return `${mod.name} : corde approchée par un filtre résonant (sans AudioWorklet)`;
+  if (mod.type === "sonic-resonator") return `${mod.name} : résonateur en filtres natifs, plus coûteux (sans AudioWorklet)`;
   return null;
 }
 
@@ -606,35 +621,88 @@ export function buildModule(ac: BaseAudioContext, mod: CompiledModule, ctx: Buil
       };
     }
     case "sonic-resonator": {
+      const rnd = ctx.random ?? Math.random;
+      let bank = resonatorPartials(p, rnd);
+      const level = track(ac.createGain());
+      const b = base();
+      if (ctx.worklet) {
+        // banc modal en un seul processeur : coefficients recalculés par bloc (k-rate), pas par échantillon
+        const node = track(
+          workletNode(ac, "cs-modal", {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            channelCount: 1,
+            channelCountMode: "explicit",
+            processorOptions: { ...bank },
+          }),
+        );
+        const pm = node.parameters as unknown as Map<string, AudioParam>;
+        pm.get("q")!.value = Number(p.q);
+        node.connect(level);
+        b.setters.q = (v, t) => pm.get("q")!.setValueAtTime(Number(v), t);
+        const send = () => node.port.postMessage({ ...bank });
+        b.setters.partials = (v) => {
+          bank = resonatorPartials({ ...p, partials: v as number[] }, rnd);
+          send();
+        };
+        b.setters.gains = (v) => {
+          bank = resonatorPartials({ ...p, gains: v as number[], partials: bank.ratios }, rnd);
+          send();
+        };
+        b.setters.jitter = (v) => {
+          bank = resonatorPartials({ ...p, jitter: Number(v), partials: bank.ratios }, rnd);
+          send();
+        };
+        return {
+          ...b,
+          stop: (t) => stopWorklet(ac, node, t),
+          input: node,
+          output: level,
+          params: { "freq-hz": pm.get("frequency")!, detune: pm.get("detune")!, level: level.gain },
+        };
+      }
+      // repli natif : un passe-bande par partiel (fréquence pilotée, donc recalculée à chaque échantillon : plus coûteux)
       const input = track(ac.createGain());
       const sum = track(ac.createGain());
       const freq = track(ac.createConstantSource());
       const det = track(ac.createConstantSource());
       sources.push(freq, det);
-      const ratios = (p.partials as number[])?.length ? (p.partials as number[]).slice(0, 16) : [1, 2, 3, 4, 5, 6];
       const filters: BiquadFilterNode[] = [];
-      ratios.forEach((r, i) => {
+      const scales: GainNode[] = [];
+      const levels: GainNode[] = [];
+      bank.ratios.forEach((r, i) => {
         const f = track(ac.createBiquadFilter());
         f.type = "bandpass";
         f.frequency.value = 0;
+        f.detune.value = bank.cents[i];
         f.Q.value = Number(p.q);
         const scale = track(ac.createGain());
         scale.gain.value = r;
         freq.connect(scale).connect(f.frequency);
         det.connect(f.detune);
         const g = track(ac.createGain());
-        g.gain.value = 1 / Math.sqrt(i + 1);
+        g.gain.value = bank.gains[i];
         input.connect(f).connect(g).connect(sum);
         filters.push(f);
+        scales.push(scale);
+        levels.push(g);
       });
-      const level = track(ac.createGain());
       const makeup = track(ac.createGain());
       makeup.gain.value = Math.sqrt(Number(p.q)) * 0.5;
       sum.connect(makeup).connect(level);
-      const b = base();
       b.setters.q = (v, t) => {
         for (const f of filters) f.Q.setValueAtTime(Number(v), t);
         makeup.gain.setValueAtTime(Math.sqrt(Number(v)) * 0.5, t);
+      };
+      // en natif, le nombre de partiels est fixé à la note : on met à jour ceux qui existent
+      b.setters.partials = (v, t) => {
+        bank = resonatorPartials({ ...p, partials: v as number[] }, rnd);
+        scales.forEach((s, i) => s.gain.setValueAtTime(bank.ratios[i] ?? 0, t));
+        levels.forEach((g, i) => g.gain.setValueAtTime(i < bank.ratios.length ? bank.gains[i] : 0, t));
+      };
+      b.setters.gains = (v, t) => {
+        bank = resonatorPartials({ ...p, gains: v as number[], partials: bank.ratios }, rnd);
+        levels.forEach((g, i) => g.gain.setValueAtTime(bank.gains[i] ?? 0, t));
       };
       return { ...b, input, output: level, params: { "freq-hz": freq.offset, detune: det.offset, level: level.gain } };
     }
