@@ -111,8 +111,10 @@ export class SonicTrain extends LitElement {
   }
 
   private load(v: unknown): void {
-    this.stop(false);
+    // De nouvelles données (ou la même, republiée) abandonnent l'entraînement en cours.
+    clearTimeout(this.timer);
     this.trainer = null;
+    if (this.state.status === "training") this.state = { ...this.state, status: "ready" };
     try {
       const { rows, columns } = rowsOf(v);
       this.rows = rows;

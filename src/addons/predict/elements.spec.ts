@@ -100,6 +100,19 @@ describe("sonic-train / sonic-predict", () => {
     expect(get("t4p")).toMatchObject({ status: "error", error: "format de modèle inconnu" });
   });
 
+  it("des données republiées pendant l'entraînement le relancent au lieu de le bloquer", async () => {
+    mount<SonicTrain>("sonic-train", { "data-provider": "t6d", "out-data-provider": "t6s", epochs: "60", "auto-train": "", "hidden-units": "32" });
+    await tick();
+    const text = csv(400);
+    set("t6d", text);
+    await tick(5);
+    expect(get("t6s").status).toBe("training");
+    set("t6d", text + "\n");
+    await until(() => get("t6s")?.status === "done");
+    expect(get("t6s").status).toBe("done");
+    expect(get("t6s").curve).toHaveLength(60);
+  });
+
   it("arrêter garde le modèle à l'époque atteinte", async () => {
     mount<SonicTrain>("sonic-train", { "data-provider": "t5d", control: "t5c", "out-data-provider": "t5s", epochs: "2000", "hidden-units": "64" });
     await tick();
