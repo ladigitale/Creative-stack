@@ -193,4 +193,14 @@ describe("sonic-tape", () => {
     const el = document.createElement("sonic-tape") as HTMLElement & { getState(): { status: string; rate: number } };
     expect(el.getState()).toMatchObject({ status: "idle", rate: 0 });
   });
+
+  it("le son est désigné par l'attribut source (URL refusée -> erreur lisible)", async () => {
+    const el = document.createElement("sonic-tape") as HTMLElement & { getState(): { status: string; error: string | null } };
+    el.setAttribute("source", "javascript:alert(1)");
+    document.body.append(el);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(el.getState().status).toBe("error");
+    expect(el.getState().error).toMatch(/refusée/);
+    el.remove();
+  });
 });

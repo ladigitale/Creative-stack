@@ -3,12 +3,12 @@
 `sonic-tape` lit un son à une **vitesse signée et continue** : 1 = normal, 2 = double vitesse, 0 = arrêt, −1 = à l'envers. La vitesse vient d'un DataProvider, donc d'un capteur, d'un curseur ou d'une valeur calculée. Prises d'un enregistreur (`sonic-audio-recorder`) ou fichiers ouverts (`sonic-file-open`) se jouent directement.
 
 ```json
-{ "tagName": "sonic-tape", "attributes": { "id": "bande", "src": "prise", "loop": true, "rate-from": "orientationState.rg", "rate-mode": "omega", "control": "tapeCtl" } }
+{ "tagName": "sonic-tape", "attributes": { "id": "bande", "source": "prise", "loop": true, "rate-from": "orientationState.rg", "rate-mode": "omega", "control": "tapeCtl" } }
 ```
 
 | Attribut | Rôle |
 |---|---|
-| `src` | URL (https, `blob:`, `data:audio`, relative) ou chemin DP portant `{ url }` |
+| `source` | URL (https, `blob:`, `data:audio`, relative) ou chemin DP portant `{ url }` |
 | `loop`, `loop-start`, `loop-end` | Boucle (secondes ; fin 0 = fin du son) |
 | `gain`, `pitch` | Volume ; multiplicateur de toutes les vitesses |
 | `output` | `master` (défaut), `none`, ou `#id` d'un effet / analyseur |

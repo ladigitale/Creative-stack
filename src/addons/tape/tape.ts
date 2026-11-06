@@ -31,14 +31,14 @@ export type TapeState = {
  * avec `rate-mode="omega"` pour la rotation, `"accel"` pour une secousse), ou la position
  * visée (`control.position` 0..1 : la bande rattrape la cible en avant ou en arrière).
  *
- * Le son vient de `src` : URL ou chemin DP d'un SonicMediaRef (prise d'un enregistreur,
+ * Le son vient de `source` : URL ou chemin DP d'un SonicMediaRef (prise d'un enregistreur,
  * fichier ouvert par `sonic-file-open`, …). Sortie : `output` = `master` (défaut), `none` ou `#id`.
  */
 @customElement(tagName)
 export class SonicTape extends LitElement implements SonicAudioSource {
   /** URL (https, blob:, data:audio, relative) ou chemin DP portant `{ url }`. */
   @property({ type: String })
-  src = "";
+  source = "";
 
   @property({ type: Boolean })
   loop = false;
@@ -160,7 +160,7 @@ export class SonicTape extends LitElement implements SonicAudioSource {
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
-    if (changed.has("src")) this.loadSource();
+    if (changed.has("source")) this.loadSource();
     if (changed.has("control") || changed.has("rateFrom") || changed.has("rateMode") || changed.has("rateScale") || changed.has("rateDeadzone") || changed.has("rateSmooth")) {
       this.listen();
     }
@@ -186,7 +186,7 @@ export class SonicTape extends LitElement implements SonicAudioSource {
     this.voice?.stop();
     this.voice = null;
     this.buffer = null;
-    const spec = this.src.trim();
+    const spec = this.source.trim();
     if (!spec) {
       this.patch({ status: "idle", error: null, duration: 0 });
       return;
