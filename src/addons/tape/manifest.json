@@ -13,7 +13,7 @@
       "name": "sonic-tape",
       "description": "Lecture à vitesse signée d'un son (URL ou SonicMediaRef d'un DataProvider) : control {rate, position 0..1, play, hold}, rate-from (capteur) avec rate-mode rate|omega|accel ; sortie master / none / #id ; état {status, duration, position, rate, playing, reversed}",
       "props": {
-        "src": { "type": "string" },
+        "source": { "type": "string" },
         "loop": { "type": "boolean" },
         "loop-start": { "type": "number" },
         "loop-end": { "type": "number" },
