@@ -26,6 +26,7 @@
     "./stage": "./src/addons/stage/index.ts",
     "./procgen": "./src/addons/procgen/index.ts",
     "./tape": "./src/addons/tape/index.ts",
+    "./plot": "./src/addons/plot/index.ts",
     "./map": "./src/addons/map/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",
