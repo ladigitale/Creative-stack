@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "vectorize",
+  "label": "Image vers vecteurs",
+  "description": "Vectorise une image (fichier, photo, caméra) en chemins SVG par quantification des couleurs et suivi de contours ; courbes de Bézier en option, résultat publié en DataProvider",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "vectorize.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-vectorize",
+      "description": "Image → SVG : source (#id d'une source d'images), control {n} ou auto, colors, tolerance, min-area, denoise, curves, flat, max-size ; état {status, svg, layers, palette, width, height, ms, error}",
+      "props": {
+        "source": { "type": "string" },
+        "control": { "type": "string" },
+        "auto": { "type": "boolean" },
+        "colors": { "type": "number" },
+        "tolerance": { "type": "number" },
+        "min-area": { "type": "number" },
+        "denoise": { "type": "number" },
+        "curves": { "type": "boolean" },
+        "flat": { "type": "boolean" },
+        "max-size": { "type": "number" },
+        "hidden-preview": { "type": "boolean" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
