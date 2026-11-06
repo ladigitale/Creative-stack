@@ -8,7 +8,7 @@ class SonicPhysicsPart extends HTMLElement {
   }
 }
 
-export const PHYSICS_PART_TAGS = ["sonic-body", "sonic-joint"];
+export const PHYSICS_PART_TAGS = ["sonic-body", "sonic-joint", "sonic-ragdoll"];
 
 for (const tag of PHYSICS_PART_TAGS) {
   if (!customElements.get(tag)) customElements.define(tag, class extends SonicPhysicsPart {});

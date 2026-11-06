@@ -6,3 +6,4 @@
 export { SonicPhysics, type PhysicsState } from "./world";
 export { PHYSICS_PART_TAGS } from "./elements";
 export { PhysicsWorld, parseBody, parseJoint, type BodySpec, type JointSpec, type PhysicsEvent, type Drive, type BodyState } from "./core";
+export { planRagdoll, ragdollBones, ragdollPose, parseRagdollOptions, RAGDOLL_DEFAULTS, type RagdollPlan, type RagdollOptions } from "./ragdoll";

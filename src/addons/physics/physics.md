@@ -73,6 +73,31 @@ Simulation à pas fixe (1/60 s), suspendue quand l'onglet est caché.
 
 `collide` : les deux corps reliés se cognent quand même.
 
+## `sonic-ragdoll`
+
+Un pantin articulé : un squelette d'os rigides (le même que `sonic-skeleton`) devient des corps physiques reliés par des pivots à limites d'angle. Il tombe, rebondit, se laisse tirer à la souris ; sa pose est publiée comme celle d'un `sonic-skeleton`, donc les mêmes sprites le suivent. À poser en enfant de `sonic-physics`.
+
+```json
+{ "tagName": "sonic-physics", "attributes": { "id": "world", "drag": "" }, "nodes": [
+  { "tagName": "sonic-ragdoll", "attributes": { "name": "pantin", "preset": "humain", "x": "400", "y": "120", "nodes-out": "pantinPose" } }
+] }
+```
+
+| Attribut | Rôle |
+|---|---|
+| `preset` | `humain` : 13 os (bassin, torse, tête, bras, avant-bras, mains, cuisses, mollets) ; vide : seulement les enfants `sonic-bone` |
+| `sonic-bone` (enfants) | Ajoute ou modifie un os (`name`, `parent`, `length`, `angle`, `at`, `offset`, `min`, `max`) : `min` / `max` (°) deviennent les limites du pivot |
+| `x` `y` `scale` `angle` | Racine (px), échelle du squelette, rotation initiale (°) autour de la racine |
+| `limit` | Débattement (°, 120 par défaut) des os dont `min` / `max` ne sont pas fixés |
+| `thickness` | Épaisseur des os (px) ; sinon proportionnelle à leur longueur |
+| `density` `friction` `restitution` `damping` `angular-damping` | Matière |
+| `self-collide` | Les membres se cognent entre eux (non par défaut) |
+| `nodes-out` | Chemin DP de la pose : `.nodes` (un nœud par os : `x` `y` de l'articulation, `rz` par rapport au repos), `.bones` (origine, extrémité, angle, longueur), `.present` |
+
+Chaque os est un corps nommé `<name>.<os>` (`pantin.torse`) : `input` le pousse (`"pantin.bassin": { "impulse": … }`), `publish` le suit, les événements `collide` l'indiquent (tags `ragdoll`, le nom du pantin et celui de l'os). Les membres d'un même pantin ne se heurtent pas ; ils heurtent le décor et les corps sans groupe.
+
+Le pantin est construit au démarrage du monde ; `control.reset` le replace à sa pose initiale.
+
 ## Piloter (`input`)
 
 ```json

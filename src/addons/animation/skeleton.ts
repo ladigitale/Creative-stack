@@ -4,6 +4,9 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { Smoother } from "../../shared/ml/one-euro";
 import { MAX_BONES, Rig, aimAngle, wrap180, type BoneDrive, type BoneSpec, type BoneState } from "../../shared/skeleton";
+import { HUMAN_PRESET, boneSpecFromAttrs, type BoneAttrs } from "../../shared/skeleton-presets";
+
+export { HUMAN_PRESET, type BoneAttrs };
 
 const tagName = "sonic-skeleton";
 // `+ 0` : -0 devient 0
@@ -25,8 +28,6 @@ export class SonicBone extends LitElement {
 
 /* ------------------------------------------------------------------ déclaration des os */
 
-/** Attributs d'un os, tels qu'écrits en SDUI (chaînes). */
-export type BoneAttrs = Record<string, string>;
 
 type BoneConfig = {
   spec: BoneSpec;
@@ -68,16 +69,7 @@ export function parseBone(attrs: BoneAttrs): { config: BoneConfig | null; error?
   const extra = (attrs.attach ?? "").split(/[\s,]+/).filter(Boolean);
   return {
     config: {
-      spec: {
-        name,
-        parent: parent || null,
-        length: Math.max(0, num(attrs.length, 100)),
-        angle: num(attrs.angle, 0),
-        at: Math.max(0, Math.min(1, num(attrs.at, 1))),
-        offset: num(attrs.offset, 0),
-        min: num(attrs.min, -180),
-        max: num(attrs.max, 180),
-      },
+      spec: boneSpecFromAttrs(attrs) as BoneSpec,
       aim: parseAim(attrs.aim),
       angleFrom: (attrs["angle-from"] ?? "").trim(),
       angleAddFrom: (attrs["angle-add-from"] ?? "").trim(),
@@ -87,27 +79,6 @@ export function parseBone(attrs: BoneAttrs): { config: BoneConfig | null; error?
     },
   };
 }
-
-/**
- * Corps humain de face, hauteur d'environ 300 unités, tête en haut. Les noms d'articulations sont ceux de
- * `sonic-pose-tracker` (`left*` = côté gauche de l'écran). L'os `bassin` est la racine (milieu des hanches).
- * Les bras et les jambes sont dessinés pendants au repos.
- */
-export const HUMAN_PRESET: BoneAttrs[] = [
-  { name: "bassin", length: "0" },
-  { name: "torse", parent: "bassin", angle: "180", length: "110", aim: "leftHip+rightHip>leftShoulder+rightShoulder" },
-  { name: "tete", parent: "torse", angle: "0", length: "50", aim: "leftShoulder+rightShoulder>leftEar+rightEar | leftShoulder+rightShoulder>nose" },
-  { name: "bras-gauche", parent: "torse", angle: "180", length: "65", offset: "42", aim: "leftShoulder>leftElbow" },
-  { name: "avant-bras-gauche", parent: "bras-gauche", length: "60", aim: "leftElbow>leftWrist" },
-  { name: "main-gauche", parent: "avant-bras-gauche", length: "28", aim: "leftWrist>leftIndex | leftWrist>leftPinky" },
-  { name: "bras-droit", parent: "torse", angle: "180", length: "65", offset: "-42", aim: "rightShoulder>rightElbow" },
-  { name: "avant-bras-droit", parent: "bras-droit", length: "60", aim: "rightElbow>rightWrist" },
-  { name: "main-droite", parent: "avant-bras-droit", length: "28", aim: "rightWrist>rightIndex | rightWrist>rightPinky" },
-  { name: "cuisse-gauche", parent: "bassin", offset: "-24", length: "85", aim: "leftHip>leftKnee" },
-  { name: "mollet-gauche", parent: "cuisse-gauche", length: "80", aim: "leftKnee>leftAnkle" },
-  { name: "cuisse-droite", parent: "bassin", offset: "24", length: "85", aim: "rightHip>rightKnee" },
-  { name: "mollet-droit", parent: "cuisse-droite", length: "80", aim: "rightKnee>rightAnkle" },
-];
 
 export const PRESETS: Record<string, BoneAttrs[]> = { humain: HUMAN_PRESET };
 
