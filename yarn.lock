@@ -727,10 +727,10 @@
   resolved "https://registry.yarnpkg.com/@sinclair/typebox/-/typebox-0.34.52.tgz#62f8a686e4ab28a8944902e2ad2d648312ef11cb"
   integrity sha512-XiMQh7qqVlxZzcVD+kkGMNGMzcTrDMLWI7S4x7z1MkCkbDPrekpZXEUK0eZqZFMuHQg2a2DZOcDIh9o5v3Gonw==
 
-"@supersoniks/concorde@^5.0.5":
-  version "5.0.5"
-  resolved "https://registry.yarnpkg.com/@supersoniks/concorde/-/concorde-5.0.5.tgz#a05c346a04aef679b72c44a488fdaa67e2adcf20"
-  integrity sha512-B58Ln000vEJjo9ASe8ulFnzQaKhzhUKH/1bGkjrtyDJbqErJ6jyMs5WUhKr/Tz51x7ZdEYK442REajFhxr1qgg==
+"@supersoniks/concorde@^6.0.0":
+  version "6.0.0"
+  resolved "https://registry.yarnpkg.com/@supersoniks/concorde/-/concorde-6.0.0.tgz#ab6d47941e9fb863f2162cca30c48f4f2378862c"
+  integrity sha512-ojmzPDzKqeKhrNShpo0EKUAhLEa44VMqEiOBlv12QS0Xd+2Dsg4KTPdeKPVCoA+cOEeTsJGDdnAaHb252Kf+FA==
   dependencies:
     "@lit-labs/motion" "^1.0.7"
     "@lit-labs/observers" "^2.0.2"
