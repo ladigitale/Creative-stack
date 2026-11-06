@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "vector",
+  "label": "Outils vectoriels",
+  "description": "Opérations sur chemins SVG : union / intersection / différence, décalage, simplification, coins arrondis, ajustement de courbes, découpe à la vue (culling), bibliothèque de formes",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "vector.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-vector-op",
+      "description": "Opération vectorielle (union, intersect, difference, xor, offset, simplify, round, fit, clip) sur des chemins SVG a et b ; résultat {d, polygons, bbox, area, error} publié en DataProvider",
+      "props": {
+        "op": { "type": "string" },
+        "a": { "type": "string" },
+        "b": { "type": "string" },
+        "a-d": { "type": "string" },
+        "b-d": { "type": "string" },
+        "delta": { "type": "number" },
+        "tolerance": { "type": "number" },
+        "radius": { "type": "number" },
+        "segments": { "type": "number" },
+        "view": { "type": "string" },
+        "out-data-provider": { "type": "string" }
+      }
+    },
+    {
+      "name": "sonic-vector-library",
+      "description": "Bibliothèque de formes vectorielles nommées et étiquetées, pilotée par commandes (add, remove, rename, clear, load) à compteur n ; état {shapes, count, error} publié en DataProvider",
+      "props": {
+        "control": { "type": "string" },
+        "filter": { "type": "string" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
