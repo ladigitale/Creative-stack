@@ -6,6 +6,7 @@
  * - cs-ladder  : filtre « ladder » 4 pôles non linéaire (24 dB/oct, auto-oscillation)
  * - cs-fold    : wavefolder sinusoïdal suréchantillonné ×2, quantité modulable
  * - cs-karplus : corde pincée Karplus-Strong (excitation au front montant de `gate`)
+ * - cs-modal   : banc de résonateurs 2 pôles (partiels modifiables à chaud, coefficients par bloc)
  */
 
 const TAU = Math.PI * 2;
@@ -295,7 +296,134 @@ class CsKarplus extends AudioWorkletProcessor {
   }
 }
 
+/**
+ * Banc modal : N résonateurs à 2 pôles (zéros en ±1, gain ≈ 1 au pic) sommés.
+ * Fréquence, désaccord et Q sont k-rate : les coefficients ne sont recalculés
+ * que lorsqu'ils changent (au plus une fois par bloc de 128 échantillons).
+ * Message `{ ratios, gains, cents }` : nouveaux partiels sans recréer le nœud.
+ * Entrée muette et résonance éteinte : le bloc n'est pas calculé.
+ */
+class CsModal extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [
+      { name: "frequency", defaultValue: 220, minValue: 0, maxValue: 22000, automationRate: "k-rate" },
+      { name: "detune", defaultValue: 0, minValue: -9600, maxValue: 9600, automationRate: "k-rate" },
+      { name: "q", defaultValue: 40, minValue: 1, maxValue: 1000, automationRate: "k-rate" },
+    ];
+  }
+
+  constructor(options) {
+    super();
+    this.n = 0;
+    this.lastF = -1;
+    this.lastQ = -1;
+    this.idle = false;
+    this.alive = true;
+    this.configure((options && options.processorOptions) || {});
+    this.port.onmessage = (e) => {
+      if (e.data === "stop") this.alive = false;
+      else if (e.data && typeof e.data === "object") this.configure(e.data);
+    };
+  }
+
+  configure(o) {
+    const ratios = Array.isArray(o.ratios) && o.ratios.length ? o.ratios.slice(0, 32) : [1, 2, 3, 4, 5, 6];
+    const n = ratios.length;
+    const old = { y1: this.y1, y2: this.y2, n: this.n };
+    this.ratios = Float64Array.from(ratios, Number);
+    this.gains = Float64Array.from(ratios, (_, i) => {
+      const g = Array.isArray(o.gains) ? Number(o.gains[i]) : NaN;
+      return Number.isFinite(g) ? g : 1 / Math.sqrt(i + 1);
+    });
+    this.mul = Float64Array.from(ratios, (_, i) => {
+      const c = Array.isArray(o.cents) ? Number(o.cents[i]) : 0;
+      return Math.pow(2, (Number.isFinite(c) ? c : 0) / 1200);
+    });
+    this.a1 = new Float64Array(n);
+    this.a2 = new Float64Array(n);
+    this.b = new Float64Array(n);
+    this.y1 = new Float64Array(n);
+    this.y2 = new Float64Array(n);
+    // garde la résonance en cours des partiels conservés (pas de clic au changement)
+    if (old.y1) for (let k = 0; k < Math.min(n, old.n); k++) {
+      this.y1[k] = old.y1[k];
+      this.y2[k] = old.y2[k];
+    }
+    this.x1 = this.x1 || 0;
+    this.x2 = this.x2 || 0;
+    this.n = n;
+    this.lastF = -1;
+  }
+
+  coefficients(f, q) {
+    const nyq = sampleRate * 0.49;
+    for (let k = 0; k < this.n; k++) {
+      const fk = f * this.ratios[k] * this.mul[k];
+      if (!(fk > 0) || fk >= nyq) {
+        this.a1[k] = this.a2[k] = this.b[k] = 0;
+        continue;
+      }
+      const r = Math.exp((-Math.PI * (fk / q)) / sampleRate);
+      this.a1[k] = 2 * r * Math.cos((TAU * fk) / sampleRate);
+      this.a2[k] = r * r;
+      this.b[k] = (1 - r * r) * 0.5;
+    }
+    this.lastF = f;
+    this.lastQ = q;
+  }
+
+  process(inputs, outputs, params) {
+    const out = outputs[0][0];
+    if (!out) return this.alive;
+    const input = inputs[0] && inputs[0][0];
+    const n = this.n;
+    let peakIn = 0;
+    if (input) for (let i = 0; i < input.length; i++) {
+      const a = input[i] < 0 ? -input[i] : input[i];
+      if (a > peakIn) peakIn = a;
+    }
+    if (peakIn < 1e-7 && this.idle) {
+      out.fill(0);
+      return this.alive;
+    }
+    const f = params.frequency[0] * Math.pow(2, params.detune[0] / 1200);
+    const q = params.q[0];
+    if (f !== this.lastF || q !== this.lastQ) this.coefficients(f, q);
+    const { a1, a2, b, gains, y1, y2 } = this;
+    const makeup = Math.sqrt(q) * 0.5;
+    let x1 = this.x1, x2 = this.x2;
+    let energy = 0;
+    for (let i = 0; i < out.length; i++) {
+      const x = input ? input[i] : 0;
+      const dx = x - x2;
+      let sum = 0;
+      for (let k = 0; k < n; k++) {
+        const y = b[k] * dx + a1[k] * y1[k] - a2[k] * y2[k];
+        y2[k] = y1[k];
+        y1[k] = y;
+        sum += gains[k] * y;
+      }
+      x2 = x1;
+      x1 = x;
+      const o = sum * makeup;
+      out[i] = o;
+      energy += o * o;
+    }
+    this.x1 = x1;
+    this.x2 = x2;
+    // résonance éteinte : états remis à zéro (évite les nombres dénormalisés) et blocs suivants sautés
+    this.idle = peakIn < 1e-7 && energy < 1e-12;
+    if (this.idle) {
+      y1.fill(0);
+      y2.fill(0);
+      this.x1 = this.x2 = 0;
+    }
+    return this.alive;
+  }
+}
+
 registerProcessor("cs-osc", CsOsc);
 registerProcessor("cs-ladder", CsLadder);
 registerProcessor("cs-fold", CsFold);
 registerProcessor("cs-karplus", CsKarplus);
+registerProcessor("cs-modal", CsModal);

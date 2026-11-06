@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "audio",
   "label": "Audio (synthèse modulaire)",
-  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, dont ladder, fold, Karplus, résonateur et granulaire ; bibliothèque), séquenceur à mini-notation, sampler, micro, MIDI (entrée MPE, sortie, horloge), enregistreur et analyseur (DP + texture shader), tout piloté par DataProvider.",
+  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, dont ladder, fold, Karplus, résonateur et granulaire ; bibliothèque), séquenceur à mini-notation, sampler, micro, MIDI (entrée MPE, sortie, horloge), enregistreur, analyseur et charge audio (DP + texture shader), tout piloté par DataProvider.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -65,6 +65,14 @@
         },
         "out-data-provider": {
           "type": "string"
+        },
+        "prune": {
+          "type": "boolean",
+          "description": "Élagage par note : branches muettes (volume 0 sans modulation, câble de profondeur 0, module active=false) non construites"
+        },
+        "seed": {
+          "type": "number",
+          "description": "Graine des tirages aléatoires (random, voice.rand, jitter) : même graine, même suite"
         }
       }
     },
@@ -426,7 +434,7 @@
     },
     {
       "name": "sonic-resonator",
-      "description": "Résonateur (banque de passe-bandes natifs) : excité par l'entrée (bruit, micro…), freq-hz = voice.pitch, q, partials \"1 2 3 4.2\", level",
+      "description": "Résonateur modal (banc AudioWorklet, repli natif) : excité par l'entrée (bruit, micro…), freq-hz = voice.pitch, q, partials \"1 2 3 4.2\" et gains modifiables pendant le jeu, jitter (cents aléatoires par partiel et par note), level",
       "props": {
         "name": {
           "type": "string"
@@ -447,6 +455,12 @@
           "type": "string"
         },
         "level": {
+          "type": "number"
+        },
+        "gains": {
+          "type": "string"
+        },
+        "jitter": {
           "type": "number"
         }
       }
@@ -513,8 +527,11 @@
     },
     {
       "name": "sonic-mod",
-      "description": "Câble de modulation : from (module ou voice.pitch|gate|vel|note|rand) → to (module.param), amount, curve=exp",
+      "description": "Câble de modulation : from (module ou voice.pitch|gate|vel|note|rand) → to (module.param), amount, curve=exp ; name : câble pilotable (sonic-param to=\"nom.amount\" ou \"nom.depth\"), plusieurs câbles peuvent partager un nom",
       "props": {
+        "name": {
+          "type": "string"
+        },
         "from": {
           "type": "string"
         },
@@ -531,7 +548,7 @@
     },
     {
       "name": "sonic-param",
-      "description": "Paramètre piloté : to (module.param), source (DP), expose, value, ramp-s, min, max",
+      "description": "Paramètre piloté : to (module.param, module.active, ou câble.amount / câble.depth), source (DP), expose, value, ramp-s, min, max ; random (part relative) / random-abs (écart absolu) tirés à chaque note",
       "props": {
         "to": {
           "type": "string"
@@ -553,6 +570,14 @@
         },
         "max": {
           "type": "number"
+        },
+        "random": {
+          "type": "number",
+          "description": "Aléa par note, part relative (0.1 = ±10 %) ; modules de sonic-voice"
+        },
+        "random-abs": {
+          "type": "number",
+          "description": "Aléa par note, écart absolu dans les unités du paramètre"
         }
       }
     },
@@ -837,6 +862,20 @@
         },
         "control": {
           "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-audio-load",
+      "description": "Charge du moteur audio (Render Capacity, Chrome) en DataProvider : { status, average, peak, underrun, updates } ; status unsupported ailleurs",
+      "props": {
+        "interval": {
+          "type": "number",
+          "description": "Intervalle de mesure en s (1)"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP de l'état (défaut <id>State, sinon audioLoad)"
         }
       }
     }

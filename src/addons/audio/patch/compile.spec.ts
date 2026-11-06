@@ -14,7 +14,7 @@ describe("compilePatch", () => {
     expect(p.needsWorklet).toBe(true);
     const g = compilePatch([voice(n("sonic-grain", { sample: "takes.voix" }), n("sonic-noise"), n("sonic-resonator", { in: "noise2", partials: "1 2.76" }), n("sonic-mixer"))]);
     expect(g.errors).toEqual([]);
-    expect(g.needsWorklet).toBe(false);
+    expect(g.needsWorklet).toBe(true); // résonateur : banc modal en AudioWorklet
     expect(g.samples).toEqual(["takes.voix"]);
     const bad = [
       [[voice(n("sonic-osc", { name: "s", sync: "s" }))], "lui-même"],
@@ -72,10 +72,10 @@ describe("compilePatch", () => {
     expect(p.voice.find((m) => m.name === "amp")!.params.gain).toBe(0); // piloté par aenv
     expect(p.global.find((m) => m.name === "dly")!.params.time).toBe("3/16");
     expect(p.mods).toEqual([
-      { from: "aenv", module: "amp", param: "gain", amount: 1, exp: false },
-      { from: "fenv", module: "flt", param: "freq-hz", amount: 3000, exp: false },
-      { from: "voice.vel", module: "flt", param: "freq-hz", amount: 1500, exp: false },
-      { from: "lfo1", module: "o1", param: "detune", amount: 12, exp: false },
+      { name: null, from: "aenv", module: "amp", param: "gain", amount: 1, exp: false },
+      { name: null, from: "fenv", module: "flt", param: "freq-hz", amount: 3000, exp: false },
+      { name: null, from: "voice.vel", module: "flt", param: "freq-hz", amount: 1500, exp: false },
+      { name: null, from: "lfo1", module: "o1", param: "detune", amount: 12, exp: false },
     ]);
   });
 
@@ -119,8 +119,8 @@ describe("compilePatch", () => {
     expect(p.errors).toEqual([]);
     expect(p.mods).toEqual(
       expect.arrayContaining([
-        { from: "mod", module: "car", param: "freq-hz", amount: 400, exp: false },
-        { from: "e", module: "car", param: "detune", amount: 1200, exp: true },
+        { name: null, from: "mod", module: "car", param: "freq-hz", amount: 400, exp: false },
+        { name: null, from: "e", module: "car", param: "detune", amount: 1200, exp: true },
       ]),
     );
   });
@@ -133,8 +133,8 @@ describe("compilePatch", () => {
     ]);
     expect(p.errors).toEqual([]);
     expect(p.params).toEqual([
-      { module: "f", param: "freq-hz", source: "game.cutoff", expose: null, value: null, rampS: 0.05, min: 100, max: 8000 },
-      { module: "f", param: "q", source: null, expose: "reso", value: 4, rampS: 0.02, min: null, max: null },
+      { kind: "module", module: "f", param: "freq-hz", source: "game.cutoff", expose: null, value: null, rampS: 0.05, min: 100, max: 8000, random: 0, randomAbs: 0 },
+      { kind: "module", module: "f", param: "q", source: null, expose: "reso", value: 4, rampS: 0.02, min: null, max: null, random: 0, randomAbs: 0 },
     ]);
   });
 

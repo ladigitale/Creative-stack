@@ -26,6 +26,7 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 | `sonic-audio-recorder` | Enregistre une source en prise (SonicMediaRef) rejouable par le sampler, téléchargeable |
 | `sonic-audio-unlock` | Bouton « Activer le son » (caché une fois actif) ; `start="mic"` démarre aussi le micro |
 | `sonic-audio-master` | Volume / muet du master |
+| `sonic-audio-load` | Charge du moteur audio (Render Capacity) en DataProvider |
 
 ## Le plus court : un preset
 
@@ -137,7 +138,7 @@ La note jouée au moment même où l'utilisateur active le son n'est pas perdue 
 | `sonic-ladder` ¹ | *`freq-hz`* (1000), *`res`* (0.3 ; auto-oscillation vers 1), *`drive`* (1), *`detune`* |
 | `sonic-fold` ¹ | *`amount`* (2, 0..12), *`bias`* (0), `mix` (1) |
 | `sonic-karplus` ¹ | *`freq-hz`* (voice.pitch), *`detune`*, `decay` (1.5 s), `damp` (0.4), *`level`* |
-| `sonic-resonator` | *`freq-hz`* (voice.pitch), *`detune`*, `q` (40), `partials` (`"1 2 3 4 5 6"`), *`level`* — à exciter : bruit, `sonic-audio-input`… |
+| `sonic-resonator` ¹ | *`freq-hz`* (voice.pitch), *`detune`*, `q` (40), `partials` (`"1 2 3 4 5 6"`, jusqu'à 32), `gains` (défaut 1/√rang), `jitter` (0 cent : désaccord aléatoire de chaque partiel, tiré à chaque note), *`level`* — à exciter : bruit, `sonic-audio-input`… `partials`, `gains` et `q` se changent **pendant le jeu** (`sonic-param source="…"` avec une liste ou une chaîne `"1 2.76 5.4"`) sans recompiler : changer de corps (corde → cloche) ne reconstruit pas le patch |
 | `sonic-grain` | `sample` (URL ou chemin DP d'une prise), `position` (0.5), `spread` (0.05), `size-s` (0.08), `density` (24 grains/s), `pitch` (0), `jitter` (0 demi-ton), *`level`* |
 
 ¹ Processeur **AudioWorklet**, chargé une fois par page avant le premier son (le patch reste `idle` le temps du chargement). S'il est indisponible (navigateur, CSP), le module passe sur une version native approchée et l'état du patch le dit (`warnings`). Les modules qui suivent la note (`freq-hz="voice.pitch"`) suivent aussi le bend MPE.
@@ -171,6 +172,8 @@ Micro + `output` autre que `none` = risque de Larsen sans casque : préférer `o
 | `dur-s` (0.3) | Durée d'une note sans `durS` |
 | `output` | `master` (défaut), `#id` d'un élément qui reçoit du son, `none` |
 | `notes-map` | `{"kick": 36}` : noms → notes pour les événements `sample` |
+| `prune` | Élagage par note des branches muettes (voir « Gros patches ») |
+| `seed` | Graine des tirages aléatoires (`random`, `voice.rand`, `jitter`) |
 | `out-data-provider` | État publié (défaut `<id>State`) |
 
 **État publié** : `{ status: "idle" | "ready" | "error" | "unsupported", preset, voices, played, inputs, errors, warnings }`. `idle` = en attente du premier geste. Les erreurs (module inconnu, paramètre inexistant, boucle sans délai…) rendent le patch muet ; les avertissements (valeur invalide, attribut inconnu) sont ignorés et le patch joue.
@@ -178,6 +181,26 @@ Micro + `output` autre que `none` = risque de Larsen sans casque : préférer `o
 ### `sonic-param`
 
 `to="flt.freq-hz"` + au choix `source="game.cutoff"` (DP, rampe `ramp-s`, bornes `min` / `max`), `expose="cutoff"` (réglable par `params` du patch), `value="900"`. Un paramètre non modulable (`a`, `d`, `wave`…) s'applique aux notes suivantes.
+
+Cibles particulières :
+- `to="vib.amount"` / `to="vib.depth"` : un **câble nommé** (`sonic-mod name="vib"`). `amount` remplace la quantité (mêmes unités, demi-tons en `curve="exp"`), `depth` la multiplie (défaut 1). Plusieurs câbles peuvent porter le même nom : un seul `depth` règle tout le groupe (matrice d'expression : une case = un nom). Suivi pendant les notes tenues, sans nœud supplémentaire.
+- `to="flt.active"` : `false` / `0` retire le module **et tout ce qui ne nourrit que lui** des notes suivantes (aucun calcul). Aussi en attribut : `<sonic-filter active="false">`. Modules de `sonic-voice`.
+
+**Aléa par note** : `random="0.1"` (±10 % de la valeur) et/ou `random-abs="15"` (± 15 unités : cents, Hz…), tirés à chaque note, pour chaque voix, et gardés pendant la note (un réglage changé pendant la note garde l'écart de la voix). Marche sur les paramètres modulables comme sur les autres (`a`, `d`, `q`…). Avec `seed` sur le patch, la suite de tirages est reproductible. Sans `source` ni `value`, la valeur de base reste celle du module :
+
+```json
+{ "tagName": "sonic-param", "attributes": { "to": "env.d", "random": "0.2" } }
+```
+
+## Gros patches : graphe construit à la note
+
+Une voix est un graphe WebAudio **créé à chaque note** : son coût (temps de création, calcul audio) est celui des modules qui atteignent la sortie de la voix. Les modules débranchés ne sont jamais construits. Pour un patch très paramétrable (sources au choix, matrice de modulation, plusieurs corps) :
+
+- `sonic-patch prune` : un `sonic-vca` dont le `gain`, ou une source dont le `level`, vaut 0 sans modulation, et un câble nommé de `depth` (ou `amount`) 0 ne sont pas construits, ni ce qui ne nourrit qu'eux. Une valeur remontée pendant une note tenue vaut pour la note suivante.
+- Choisir une branche avec `active` plutôt qu'avec un gain à 0 quand elle doit disparaître même sans `prune`.
+- Matrice de modulation : `sonic-mod name="pz"` + `sonic-param to="pz.depth"` au lieu d'un `sonic-vca` par case.
+- Changer de corps par `partials` / `gains` du résonateur plutôt que par des gabarits de patch.
+- `sonic-audio-load` pour mesurer le résultat.
 
 ## Séquenceur (`sonic-sequencer`)
 
@@ -295,6 +318,14 @@ Accès demandé **sur geste** seulement (`sonic-media-start for="midi"`, `sonic-
 - `max-takes` (8) : prises gardées en mémoire, les plus anciennes sont libérées.
 - État (`<id>State`) : `{ status: idle | waiting-source | ready | recording | error | unsupported, error, recording, elapsedS, last, takes }`.
 - Avec un store qui inverse `recording` à chaque clic : si `max-s` a coupé la prise, le clic suivant remet `false` (sans effet) ; prévoir un `max-s` confortable.
+
+## Charge audio (`sonic-audio-load`)
+
+```json
+{ "tagName": "sonic-audio-load", "attributes": { "id": "load", "interval": "1" } }
+```
+
+Publie dans `<id>State` (défaut `audioLoad`) `{ status, average, peak, underrun, updates }` : charge moyenne et maximale du rendu audio (0..1 ; vers 1 le son craque), part des blocs rendus en retard. Mesure du navigateur (Render Capacity, Chrome) ; `status: "unsupported"` ailleurs. Démarre avec le moteur audio (premier geste).
 
 ## Démo
 

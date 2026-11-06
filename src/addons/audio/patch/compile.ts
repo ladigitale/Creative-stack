@@ -5,7 +5,7 @@
  * Erreurs : le patch est muet (graphe invalide). Avertissements : le patch
  * joue, l'attribut fautif est ignoré.
  */
-import { MODULES, STRUCTURE_TAGS, VOICE_SOURCES, WORKLET_TYPES, type ModuleKind, type ParamSpec } from "./modules";
+import { ACTIVE_PARAM, MODULES, MOD_PARAMS, STRUCTURE_TAGS, VOICE_SOURCES, WORKLET_TYPES, type ModuleKind, type ParamSpec } from "./modules";
 import { toMidi } from "../../../shared/audio/notes";
 
 export type PatchNode = {
@@ -29,9 +29,13 @@ export type CompiledModule = {
   levels: number[];
   /** Valeurs statiques résolues (défauts compris). `voice.pitch` reste une chaîne. */
   params: Record<string, number | string | number[]>;
+  /** 0 : module absent des notes (attribut / paramètre `active`). */
+  active: number;
 };
 
 export type CompiledMod = {
+  /** Nom du câble (`sonic-mod name`) : `amount` / `depth` pilotables par sonic-param. Plusieurs câbles peuvent partager un nom. */
+  name: string | null;
   /** Nom de module, ou `voice.pitch|gate|vel|note|rand`. */
   from: string;
   module: string;
@@ -42,6 +46,9 @@ export type CompiledMod = {
 };
 
 export type CompiledParam = {
+  /** `module` : paramètre d'un module ; `mod` : amount / depth d'un câble nommé. */
+  kind: "module" | "mod";
+  /** Nom du module (ou du câble). */
   module: string;
   param: string;
   /** Chemin DataProvider (notation pointée). */
@@ -52,6 +59,9 @@ export type CompiledParam = {
   rampS: number;
   min: number | null;
   max: number | null;
+  /** Aléa par note : part relative (0.1 = ±10 %) et écart absolu (unités du paramètre). Modules de voix seulement. */
+  random: number;
+  randomAbs: number;
 };
 
 /** Un sonic-voice : graphe joué par note, éventuellement réservé à un nom ou une note. */
@@ -146,12 +156,19 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
       errors.push(`${where} : sonic-audio-input se place hors de sonic-voice (entrée globale du patch)`);
       return;
     }
-    const mod: CompiledModule = { name, type: node.tag, kind: spec.kind, scope, voice: scope === "voice" ? currentVoice : -1, inputs: [], levels: [], params: {} };
+    const mod: CompiledModule = { name, type: node.tag, kind: spec.kind, scope, voice: scope === "voice" ? currentVoice : -1, inputs: [], levels: [], params: {}, active: 1 };
     for (const [p, ps] of Object.entries(spec.params)) {
       mod.params[p] = ps.list ? [] : ps.default;
     }
     for (const [attr, raw] of Object.entries(node.attrs)) {
       if (COMMON_ATTRS.has(attr)) continue;
+      if (attr === ACTIVE_PARAM) {
+        const a = parseActive(raw);
+        if (a === null) warnings.push(`${name}.active : valeur "${raw}" invalide (true/false, 1/0)`);
+        else mod.active = a;
+        if (scope === "global") warnings.push(`${name}.active : sans effet sur un module hors sonic-voice`);
+        continue;
+      }
       const ps = spec.params[attr];
       if (!ps) {
         warnings.push(`${name} : attribut "${attr}" inconnu pour ${node.tag} (ignoré)`);
@@ -332,7 +349,7 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
     }
     return { module, param };
   };
-  const addMod = (from: string, to: string, amount: number, exp: boolean, where: string) => {
+  const addMod = (from: string, to: string, amount: number, exp: boolean, where: string, name: string | null = null) => {
     const target = checkTarget(to, where, true);
     if (!target) return;
     if (from.startsWith("voice.")) {
@@ -365,7 +382,7 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
       errors.push(`${where} : curve="exp" seulement vers freq-hz de ${EXP_TYPES().join(", ")}`);
       return;
     }
-    mods.push({ from, module: target.module.name, param: exp ? "detune" : target.param, amount, exp });
+    mods.push({ name, from, module: target.module.name, param: exp ? "detune" : target.param, amount, exp });
   };
   for (const { module, param, ref, where } of pendingRefs) {
     module.params[param] = 0;
@@ -384,23 +401,51 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
       continue;
     }
     const exp = (node.attrs.curve ?? "").trim() === "exp";
+    const name = (node.attrs.name ?? "").trim() || null;
+    if (name && (modules.has(name) || RESERVED.has(name) || name.startsWith("voice."))) {
+      errors.push(`${where} : nom "${name}" déjà pris par un module (ou réservé)`);
+      continue;
+    }
     // en exp, amount en demi-tons appliqué au detune (cents)
-    addMod(from, to, exp ? amount * 100 : amount, exp, where);
+    addMod(from, to, exp ? amount * 100 : amount, exp, where, name);
   }
+  const modNames = new Set(mods.map((m) => m.name).filter((n): n is string => !!n));
 
   // Paramètres pilotés.
   for (const { node, where } of pendingParams) {
     const to = (node.attrs.to ?? "").trim();
-    const target = checkTarget(to, where, false);
-    if (!target) continue;
     const n = (v: string | undefined) => (v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+    const dot = to.lastIndexOf(".");
+    const head = dot > 0 ? to.slice(0, dot) : "";
+    const tail = dot > 0 ? to.slice(dot + 1) : "";
+    let target: { module: CompiledModule | null; param: string; kind: "module" | "mod" } | null = null;
+    if (modNames.has(head)) {
+      if (!(MOD_PARAMS as readonly string[]).includes(tail)) {
+        errors.push(`${where} : un câble nommé n'a que ${MOD_PARAMS.join(" et ")} (reçu "${tail}")`);
+        continue;
+      }
+      target = { module: null, param: tail, kind: "mod" };
+    } else if (tail === ACTIVE_PARAM && modules.has(head)) {
+      target = { module: modules.get(head)!, param: ACTIVE_PARAM, kind: "module" };
+    } else {
+      const t = checkTarget(to, where, false);
+      if (!t) continue;
+      target = { ...t, kind: "module" };
+    }
+    const random = Math.max(0, n(node.attrs.random) ?? 0);
+    const randomAbs = Math.max(0, n(node.attrs["random-abs"]) ?? 0);
+    if ((random || randomAbs) && (target.kind === "mod" || target.module?.scope !== "voice" || target.param === ACTIVE_PARAM)) {
+      warnings.push(`${where} : random ne s'applique qu'aux paramètres des modules de sonic-voice (ignoré)`);
+    }
     const source = (node.attrs.source ?? "").trim() || null;
     const expose = (node.attrs.expose ?? "").trim() || null;
     if (!source && !expose && n(node.attrs.value) === null) {
       warnings.push(`${where} : ni source, ni expose, ni value : sans effet`);
     }
+    const voiceTarget = target.kind === "module" && target.module?.scope === "voice" && target.param !== ACTIVE_PARAM;
     params.push({
-      module: target.module.name,
+      kind: target.kind,
+      module: target.kind === "mod" ? head : target.module!.name,
       param: target.param,
       source,
       expose,
@@ -408,6 +453,8 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
       rampS: Math.max(0, n(node.attrs["ramp-s"]) ?? 0.02),
       min: n(node.attrs.min),
       max: n(node.attrs.max),
+      random: voiceTarget ? random : 0,
+      randomAbs: voiceTarget ? randomAbs : 0,
     });
   }
 
@@ -431,6 +478,17 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
   }
 
   return { voices, voice: lists.voice, global: lists.global, voiceOut, out, mods, params, needsWorklet, samples: samples.filter(Boolean), errors, warnings };
+}
+
+/** `active` : true/false, 1/0, vide = actif. */
+export function parseActive(raw: unknown): number | null {
+  if (typeof raw === "boolean") return raw ? 1 : 0;
+  if (typeof raw === "number") return Number.isFinite(raw) ? (raw > 0.5 ? 1 : 0) : null;
+  const v = String(raw ?? "").trim().toLowerCase();
+  if (v === "" || v === "true" || v === "on") return 1;
+  if (v === "false" || v === "off") return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? (n > 0.5 ? 1 : 0) : null;
 }
 
 function parseParam(ps: ParamSpec, raw: string, where: string, warnings: string[]): number | string | number[] | undefined {
