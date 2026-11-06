@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "ocr",
+  "label": "Reconnaissance de texte (OCR)",
+  "description": "Lit le texte d'une image, d'une photo ou de la caméra, localement (Tesseract.js, WebAssembly) : texte, lignes, mots et positions publiés en DataProvider",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "ocr.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-ocr",
+      "description": "OCR d'une source d'images (#id) : lang (eng, fra, fra+eng…), control {n} ou auto, max-size, min-confidence ; état {status, text, confidence, lines[{text, x, y, w, h, words[]}], words, step, progress, ms, error}",
+      "props": {
+        "source": { "type": "string" },
+        "lang": { "type": "string" },
+        "control": { "type": "string" },
+        "auto": { "type": "boolean" },
+        "max-size": { "type": "number" },
+        "min-confidence": { "type": "number" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
