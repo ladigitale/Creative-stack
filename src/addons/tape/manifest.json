@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "tape",
+  "label": "Bande et platine (lecture à vitesse signée)",
+  "description": "Lit un son enregistré ou ouvert à vitesse variable, y compris à l'envers, pilotée en temps réel par DataProvider : rotation ou secousse de l'appareil (sonic-orientation), curseur, position visée (scrub)",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "tape.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-tape",
+      "description": "Lecture à vitesse signée d'un son (URL ou SonicMediaRef d'un DataProvider) : control {rate, position 0..1, play, hold}, rate-from (capteur) avec rate-mode rate|omega|accel ; sortie master / none / #id ; état {status, duration, position, rate, playing, reversed}",
+      "props": {
+        "src": { "type": "string" },
+        "loop": { "type": "boolean" },
+        "loop-start": { "type": "number" },
+        "loop-end": { "type": "number" },
+        "gain": { "type": "number" },
+        "pitch": { "type": "number" },
+        "output": { "type": "string" },
+        "rate-from": { "type": "string" },
+        "rate-mode": { "type": "string" },
+        "rate-scale": { "type": "number" },
+        "rate-deadzone": { "type": "number" },
+        "rate-smooth": { "type": "number" },
+        "control": { "type": "string" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
