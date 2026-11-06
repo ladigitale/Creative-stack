@@ -6,6 +6,8 @@ export { SonicScreen, type ScreenState } from "./screen";
 export { SonicCamera, type CameraState } from "./camera";
 export { SonicVideo, type VideoState, type VideoStatus } from "./video";
 export { SonicFrameSync, type FrameSyncMode, type FrameSyncState } from "./frame-sync";
+export { SonicStill, type StillState, type StillStatus } from "./still";
+export { SonicFileOpen, fileKind, type FileOpenState, type FileKind } from "./file-open";
 export { SonicMediaStart } from "./start";
 export { SonicMediaRecorder, type MediaRecorderState } from "./recorder";
 export { SonicMediaDownload } from "./download";

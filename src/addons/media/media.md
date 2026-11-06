@@ -263,6 +263,22 @@ Export = SonicMediaRef `{ url, mime, durS, size, width, height }` (WebM VP9/Opus
 
 Lien `<a download>` vers le SonicMediaRef lu dans `source` (`exportState.last`, `recState.last`, `camState.snapshot`…). Seules les URL `blob:` créées dans la page sont acceptées. Caché tant qu'il n'y a rien ; contenu libre en slot (sinon `label`) ; extension déduite du format (`.webm`, `.mp4`, `.m4a`, `.jpg`…).
 
+## `sonic-still` (image fixe)
+
+```json
+{ "tagName": "sonic-still", "attributes": { "id": "photo", "src": "/img/portrait.jpg", "drop": true, "max-size": 2048 } }
+```
+
+Image fixe vue comme une source d'images : `sonic-shader channel0="#photo"`, trackers de vision (`for="#photo"`), vectorisation, OCR. Sources : `src` (https, `blob:`, `data:image`, chemin relatif), dépôt d'un fichier (`drop`), ou `in-data-provider` portant un SonicMediaRef / une URL. Une image https doit autoriser CORS pour rester analysable. `ref-provider` reçoit le SonicMediaRef de l'image chargée. État : `{ status: idle | loading | ready | error, error, src, width, height, mime }`.
+
+## `sonic-file-open`
+
+```json
+{ "tagName": "sonic-file-open", "attributes": { "accept": "image/*", "ref-provider": "fichier", "label": "Choisir une image" } }
+```
+
+Ouvre un fichier du disque (clic, ou dépôt avec `drop`) et le publie en SonicMediaRef `{ url (blob:), blob, mime, width, height }` dans `ref-provider` : à brancher sur `sonic-still in-data-provider`, un lecteur audio, etc. Les fichiers texte (CSV, JSON) exposent leur contenu dans l'état (`text`, limité par `max-text`). État : `{ name, size, mime, kind: image | audio | video | text | other, text, files, error }`.
+
 ## Démos
 
 - `examples/miroir.sdui.json` : caméra (au clic) → shader à 4 effets choisis par le store ; photo par compteur, affichée encadrée dans un second shader via `snapshot-provider`.

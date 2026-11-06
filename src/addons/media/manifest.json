@@ -296,6 +296,63 @@
           "type": "string"
         }
       }
+    },
+    {
+      "name": "sonic-still",
+      "description": "Image fixe comme source d'images (#id) pour sonic-shader, vision, vectorisation, OCR : URL (https, blob:, data:image), fichier déposé, ou SonicMediaRef d'un DataProvider ; état {status, error, width, height, mime}",
+      "props": {
+        "src": {
+          "type": "string"
+        },
+        "in-data-provider": {
+          "type": "string"
+        },
+        "drop": {
+          "type": "boolean"
+        },
+        "max-size": {
+          "type": "number"
+        },
+        "fit": {
+          "type": "string"
+        },
+        "hidden-preview": {
+          "type": "boolean"
+        },
+        "out-data-provider": {
+          "type": "string"
+        },
+        "ref-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-file-open",
+      "description": "Ouvre un fichier du disque (clic ou dépôt : image, audio, vidéo, CSV/JSON) et le publie en SonicMediaRef dans ref-provider ; texte exposé dans l'état",
+      "props": {
+        "accept": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "drop": {
+          "type": "boolean"
+        },
+        "max-bytes": {
+          "type": "number"
+        },
+        "max-text": {
+          "type": "number"
+        },
+        "ref-provider": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
     }
   ]
 }
