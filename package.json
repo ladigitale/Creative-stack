@@ -27,6 +27,7 @@
     "./procgen": "./src/addons/procgen/index.ts",
     "./tape": "./src/addons/tape/index.ts",
     "./plot": "./src/addons/plot/index.ts",
+    "./vector": "./src/addons/vector/index.ts",
     "./map": "./src/addons/map/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",
@@ -74,7 +75,8 @@
   },
   "dependencies": {
     "jsonata": "^2.2.2",
-    "planck": "1.4.2"
+    "planck": "1.4.2",
+    "polygon-clipping": "0.15.7"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.0",
