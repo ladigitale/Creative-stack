@@ -11,26 +11,86 @@
   "components": [
     {
       "name": "sonic-paint",
-      "description": "Toile de peinture (width, height, background) : réglages color, size, hardness, opacity, spacing, smoothing, tool paint|erase, pressure, ou en direct brush-from {color, size, …} ; control {undo, redo, clear, save} compteurs ; in-data-provider image de départ ; source d'images #id pour sonic-shader ; état {strokes, canUndo, canRedo, drawing, last}",
+      "description": "Toile de peinture (width, height, background) : réglages color, size, hardness, opacity, spacing, smoothing, tool paint|erase, pressure, pointe personnalisée tip / tip-from (chemin SVG ou forme de sonic-vector-library) avec angle, angle-follow, angle-jitter, size-jitter, scatter, roundness, ou en direct brush-from {color, size, …} ; control {undo, redo, clear, save} compteurs ; in-data-provider image de départ ; source d'images #id pour sonic-shader ; état {strokes, canUndo, canRedo, drawing, last}",
       "props": {
-        "width": { "type": "number" },
-        "height": { "type": "number" },
-        "background": { "type": "string" },
-        "color": { "type": "string" },
-        "size": { "type": "number" },
-        "hardness": { "type": "number" },
-        "opacity": { "type": "number" },
-        "spacing": { "type": "number" },
-        "smoothing": { "type": "number" },
-        "tool": { "type": "string" },
-        "pressure": { "type": "boolean" },
-        "brush-from": { "type": "string" },
-        "control": { "type": "string" },
-        "in-data-provider": { "type": "string" },
-        "out-data-provider": { "type": "string" },
-        "undo-levels": { "type": "number" },
-        "readonly": { "type": "boolean" },
-        "hidden-preview": { "type": "boolean" }
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "background": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        },
+        "hardness": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "spacing": {
+          "type": "number"
+        },
+        "smoothing": {
+          "type": "number"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "pressure": {
+          "type": "boolean"
+        },
+        "tip": {
+          "type": "string"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "angle-follow": {
+          "type": "boolean"
+        },
+        "angle-jitter": {
+          "type": "number"
+        },
+        "size-jitter": {
+          "type": "number"
+        },
+        "scatter": {
+          "type": "number"
+        },
+        "roundness": {
+          "type": "number"
+        },
+        "tip-from": {
+          "type": "string"
+        },
+        "brush-from": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "in-data-provider": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        },
+        "undo-levels": {
+          "type": "number"
+        },
+        "readonly": {
+          "type": "boolean"
+        },
+        "hidden-preview": {
+          "type": "boolean"
+        }
       }
     }
   ]

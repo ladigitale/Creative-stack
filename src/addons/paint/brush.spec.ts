@@ -112,3 +112,54 @@ describe("historique", () => {
     expect(g.canUndo).toBe(false);
   });
 });
+
+import { place, rng, MAX_TIP_CHARS } from "./brush";
+import { tipFromValue, tipGeometry, tipTransform } from "./tip";
+
+describe("pointes personnalisées", () => {
+  it("valide la pointe et borne les variations", () => {
+    expect(sanitizeBrush(BRUSH_DEFAULTS, { tip: "M0 0L10 0L5 9Z" }).tip).toBe("M0 0L10 0L5 9Z");
+    expect(sanitizeBrush(BRUSH_DEFAULTS, { tip: "not a path" }).tip).toBe("");
+    expect(sanitizeBrush({ ...BRUSH_DEFAULTS, tip: "M0 0L1 1" }, { tip: "not a path" }).tip).toBe("M0 0L1 1");
+    expect(sanitizeBrush(BRUSH_DEFAULTS, { tip: "M0 0" + "L1 1".repeat(MAX_TIP_CHARS) }).tip).toBe("");
+    const b = sanitizeBrush(BRUSH_DEFAULTS, { angle: 999, sizeJitter: 5, scatter: -1, roundness: 0, angleJitter: 500, angleFollow: true });
+    expect([b.angle, b.sizeJitter, b.scatter, b.roundness, b.angleJitter, b.angleFollow]).toEqual([360, 1, 0, 0.05, 180, true]);
+  });
+  it("place les empreintes de façon reproductible", () => {
+    const b = sanitizeBrush(BRUSH_DEFAULTS, { sizeJitter: 0.5, scatter: 1, angleJitter: 40 });
+    const run = (seed: number) => { const r = rng(seed); return [1, 2, 3].map((i) => place({ x: i * 10, y: 0, p: 1, a: 0 }, b, r)); };
+    expect(run(5)).toEqual(run(5));
+    expect(run(5)).not.toEqual(run(6));
+  });
+  it("sans variation, l'empreinte est exactement au point", () => {
+    const pl = place({ x: 7, y: 9, p: 1, a: 1 }, { ...BRUSH_DEFAULTS, pressure: false, size: 20 }, rng(1));
+    expect(pl).toEqual({ x: 7, y: 9, size: 20, rot: 0, squash: 1 });
+  });
+  it("angle-follow ajoute la direction du tracé", () => {
+    const pl = place({ x: 0, y: 0, p: 1, a: Math.PI / 2 }, { ...BRUSH_DEFAULTS, angleFollow: true, angle: 90 }, rng(1));
+    expect(pl.rot).toBeCloseTo(Math.PI);
+  });
+  it("le marcheur donne la direction", () => {
+    const w = new StampWalker();
+    const b = { ...BRUSH_DEFAULTS, pressure: false, size: 10 };
+    w.walk({ x: 0, y: 0, p: 1 }, b);
+    const out = w.walk({ x: 0, y: 100, p: 1 }, b);
+    expect(out.length).toBeGreaterThan(10);
+    expect(out[0].a).toBeCloseTo(Math.PI / 2);
+  });
+  it("géométrie de pointe : boîte unité centrée", () => {
+    const g = tipGeometry("M10 10L30 10L30 20L10 20Z")!;
+    expect(g.cx).toBe(20);
+    expect(g.cy).toBe(15);
+    expect(g.k).toBeCloseTo(1 / 20);
+    expect(tipGeometry("M5 5L5 5Z")).toBeNull();
+    expect(tipGeometry("rien")).toBeNull();
+    expect(tipTransform(g, 100, 50, 40, 0)).toBe("translate(100 50) scale(2 2) translate(-20 -15)");
+  });
+  it("lit une forme depuis un DataProvider", () => {
+    expect(tipFromValue("M0 0L1 1")).toBe("M0 0L1 1");
+    expect(tipFromValue({ d: "M0 0L2 2" })).toBe("M0 0L2 2");
+    expect(tipFromValue({ shape: { d: "M0 0L3 3" } })).toBe("M0 0L3 3");
+    expect(tipFromValue(42)).toBe("");
+  });
+});

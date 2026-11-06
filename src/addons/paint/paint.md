@@ -16,7 +16,12 @@
 | `smoothing` | Lissage du tracé, 0 à 0,95 : plus haut, plus stable et plus en retard |
 | `tool` | `paint` ou `erase` (gomme : rend transparent) |
 | `pressure` | La pression du stylet module le diamètre (par défaut oui) |
-| `brush-from` | DP de réglages en direct `{ color, size, hardness, opacity, spacing, smoothing, tool, pressure }` : une palette en SDUI écrit dedans |
+| `tip` | Pointe personnalisée : un chemin SVG `d` (étoile, feuille, tampon…), dessinée à la taille du pinceau et nette à toute taille. Vide : disque doux |
+| `tip-from` | DP d'une forme utilisée comme pointe : chaîne `d`, `{ d }` ou une forme de `sonic-vector-library` (choisir une forme change le pinceau) |
+| `angle` `angle-follow` | Rotation de la pointe en degrés ; `angle-follow` y ajoute la direction du tracé (pointe qui suit le geste) |
+| `angle-jitter` `size-jitter` `scatter` | Variation aléatoire de l'angle (± degrés), de la taille (0 à 1) et dispersion autour du tracé (fraction du diamètre) |
+| `roundness` | Aplatissement de la pointe, 1 intacte à 0,05 très plate (pinceau plat, calligraphie avec `angle`) |
+| `brush-from` | DP de réglages en direct `{ color, size, hardness, opacity, spacing, smoothing, tool, pressure, tip, angle… }` : une palette en SDUI écrit dedans |
 | `control` | DP de commandes à compteur : `{ undo: n, redo: n, clear: n, save: n }` (la commande part quand `n` augmente) |
 | `in-data-provider` | Image de départ (`SonicMediaRef`, par exemple une photo de `sonic-file-open`) : dessinée à la place de la toile |
 | `undo-levels` | Étapes d'annulation gardées (20 par défaut, 0 pour aucune) |
@@ -24,6 +29,8 @@
 | `hidden-preview` | Toile invisible : elle ne sert que de source d'images |
 
 État : `{ status, error, width, height, strokes, drawing, canUndo, canRedo, tool, color, size, last }`. `save` enregistre un PNG dans `last` (`{ url blob:, mime, width, height, size }`) : brancher `sonic-media-download source="peintureState.last"`.
+
+Les variations aléatoires sont tirées d'une graine par trait : un trait se dessine de la même façon à chaque fois.
 
 ## Limites
 

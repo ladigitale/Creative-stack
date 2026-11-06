@@ -1,0 +1,97 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "sketch",
+  "label": "Dessin vectoriel à zoom infini",
+  "description": "Toile vectorielle à zoom et déplacement infinis : pinceau à pointes personnalisées, gomme de traits, annuler / rétablir, export SVG ; la toile est une source d'images pour les shaders",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "sketch.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-sketch",
+      "description": "Dessin vectoriel à zoom infini (width, height, background) : molette = zoom, Espace / bouton du milieu / tool hand = déplacer, deux doigts = pincer ; pinceau color, size, size-space screen|world, hardness, opacity, spacing, smoothing, pressure, tip / tip-from (forme de sonic-vector-library), angle, angle-follow, angle-jitter, size-jitter, scatter, roundness ; tool paint|erase|hand ; brush-from, view-from {x, y, zoom} ; control {undo, redo, clear, save (SVG), savePng, fit, reset, zoomIn, zoomOut} compteurs ; état {zoom, x, y, strokes, canUndo, canRedo, bbox, last}",
+      "props": {
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "background": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        },
+        "size-space": {
+          "type": "string"
+        },
+        "hardness": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "spacing": {
+          "type": "number"
+        },
+        "smoothing": {
+          "type": "number"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "pressure": {
+          "type": "boolean"
+        },
+        "tip": {
+          "type": "string"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "angle-follow": {
+          "type": "boolean"
+        },
+        "angle-jitter": {
+          "type": "number"
+        },
+        "size-jitter": {
+          "type": "number"
+        },
+        "scatter": {
+          "type": "number"
+        },
+        "roundness": {
+          "type": "number"
+        },
+        "tip-from": {
+          "type": "string"
+        },
+        "brush-from": {
+          "type": "string"
+        },
+        "view-from": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        },
+        "readonly": {
+          "type": "boolean"
+        },
+        "hidden-preview": {
+          "type": "boolean"
+        }
+      }
+    }
+  ]
+}
