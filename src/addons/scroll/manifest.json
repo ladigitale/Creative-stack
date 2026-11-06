@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "scroll",
+  "label": "Source de défilement",
+  "description": "Publie la position de défilement, l'avancement (0..1), la vitesse, le sens et l'avancement de chaque section dans un DataProvider, avec une version lissée pour des animations douces ; commande de défilement vers une ancre. Ne détourne pas le défilement natif",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "scroll.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-scroll",
+      "description": "Source de défilement (page, ou conteneur target=\"#id\") : sections=\"section\" (sélecteur CSS), smooth (inertie 0,05..1, défaut 0,1) ; control {to: \"#id\"|px, n: compteur} fait défiler ; état {y, max, progress, smoothY, smoothProgress, velocity, direction, atTop, atEnd, active {index, id, progress, pin}, sections [{id, index, progress, pin, visible, inView}]} ; smoothProgress pilote sonic-timeline time-source, pin = avancement d'une section sticky plus haute que l'écran",
+      "props": {
+        "target": {
+          "type": "string"
+        },
+        "sections": {
+          "type": "string"
+        },
+        "smooth": {
+          "type": "number"
+        },
+        "control": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}
