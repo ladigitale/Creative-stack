@@ -101,6 +101,19 @@ describe("simulation", () => {
     expect(worst).toBeLessThan(30);
   });
 
+  it("s'endort au sol en quelques secondes (pas de frétillement)", () => {
+    const w = world();
+    const plan = human();
+    load(w, plan);
+    let sleepAt = -1;
+    for (let i = 0; i < 60 * 14 && sleepAt < 0; i++) {
+      w.step(1 / 60);
+      if (plan.bodies.every((b) => !w.bodyState(b.name)!.awake)) sleepAt = (i + 1) / 60;
+    }
+    expect(sleepAt).toBeGreaterThan(0);
+    expect(sleepAt).toBeLessThan(14);
+  });
+
   it("pas d'auto-collision : un pantin ne se bloque pas sur lui-même", () => {
     const w = world();
     const plan = human();
