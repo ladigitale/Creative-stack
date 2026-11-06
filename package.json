@@ -32,6 +32,7 @@
     "./ocr": "./src/addons/ocr/index.ts",
     "./paint": "./src/addons/paint/index.ts",
     "./sketch": "./src/addons/sketch/index.ts",
+    "./predict": "./src/addons/predict/index.ts",
     "./map": "./src/addons/map/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",

@@ -1,0 +1,76 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "predict",
+  "label": "Création guidée de modèles de prédiction",
+  "description": "Entraîne dans le navigateur un modèle de prédiction (régression ou classification) à partir d'un CSV ou de lignes d'un DataProvider : courbe d'apprentissage, métriques comparées à une ligne de base, importance des variables, matrice de confusion ; puis prédit à partir de formulaires ou de tableaux. Rien ne quitte le navigateur",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "predict.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-train",
+      "description": "Entraîne un modèle (data-provider : tableau de lignes ou texte CSV, par exemple sonic-file-open…text) : target (défaut : dernière colonne), task auto|regression|classification, features, kind mlp|linear, hidden-units, epochs, learning-rate, test-split, seed, auto-train ; control {train, stop} compteurs ; modèle JSON dans model-data-provider ; état {status, rows, columns, target, task, epoch, progress, curve [{epoch, train, test}], metrics, importance, confusion [{reel, predit, n}], ignored, model}",
+      "props": {
+        "data-provider": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        },
+        "features": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "hidden-units": {
+          "type": "number"
+        },
+        "epochs": {
+          "type": "number"
+        },
+        "learning-rate": {
+          "type": "number"
+        },
+        "test-split": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "number"
+        },
+        "auto-train": {
+          "type": "boolean"
+        },
+        "control": {
+          "type": "string"
+        },
+        "model-data-provider": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-predict",
+      "description": "Prédit avec un modèle de sonic-train : model-from (DP du modèle), input-from (objet {colonne: valeur} ou tableau de lignes) ; état {status, task, target, inputs [{name, kind, values}], metrics, prediction {value | label, confidence, probabilities, missing}, predictions}",
+      "props": {
+        "model-from": {
+          "type": "string"
+        },
+        "input-from": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}
