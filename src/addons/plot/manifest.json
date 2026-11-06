@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "plot",
+  "label": "Graphiques statistiques",
+  "description": "Graphiques déclaratifs en SVG aux design tokens Concorde, alimentés par DataProvider : courbes, aires, barres, nuage de points, secteurs, histogramme, carte de chaleur, sparkline ; survol et sélection publiés en DataProvider",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "plot.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-plot",
+      "description": "Graphique (line, area, bar, barh, scatter, pie, donut, histogram, heatmap, sparkline) : data-provider (lignes), attributs type/x/y/series/value ou spec JSON ; formats nommés (compact, percent, currency:EUR, date…) ; état {hover, selected, count, error}",
+      "props": {
+        "spec": { "type": "string" },
+        "spec-data-provider": { "type": "string" },
+        "data-provider": { "type": "string" },
+        "type": { "type": "string" },
+        "x": { "type": "string" },
+        "y": { "type": "string" },
+        "series": { "type": "string" },
+        "value": { "type": "string" },
+        "size": { "type": "string" },
+        "heading": { "type": "string" },
+        "x-label": { "type": "string" },
+        "y-label": { "type": "string" },
+        "curve": { "type": "string" },
+        "aggregate": { "type": "string" },
+        "stack": { "type": "boolean" },
+        "points": { "type": "boolean" },
+        "bins": { "type": "number" },
+        "height": { "type": "number" },
+        "format-x": { "type": "string" },
+        "format-y": { "type": "string" },
+        "format-value": { "type": "string" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
