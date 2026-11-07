@@ -8,7 +8,8 @@
 import * as THREE from "three";
 import { type V3, clamp, m4Point, sub } from "../core/math";
 import type { ActorModel, ObjectInfo, SceneModel, Zone } from "../scene/compose";
-import { ACTIONS, type Action, type MotionState, type RigInfo, humanoidPose, rigInfo, stepLength } from "../rig/locomotion";
+import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
+import { type Motion, motionFor } from "../rig/motion";
 import { dualQuat } from "../rig/skeleton";
 import { type StyleTokens, resolveColors } from "../style/style";
 import { type CameraMode, DEFAULT_VIEW, type ViewState, applyView, parseView } from "./camera";
@@ -22,7 +23,8 @@ type ActorRT = {
   model: ActorModel;
   mesh: THREE.Mesh;
   mats: MaterialPair;
-  info: RigInfo;
+  /** Animation (humanoïde ou animal) : pose, longueur de pas, longueur de jambe. */
+  mo: Motion;
   pos: V3;
   yaw: number;
   speed: number;
@@ -173,7 +175,7 @@ export class ProcgenView {
     this.scene.add(mesh);
     const sk = a.asset.skeleton!;
     const rt: ActorRT = {
-      model: a, mesh, mats, info: rigInfo(sk), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: Math.random(), action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
+      model: a, mesh, mats, mo: motionFor(a.asset), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: Math.random(), action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
       mood: String(a.params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), turn: 0, zones: new Set(), hidden: false, lastIntent: "",
     };
     this.actors.set(a.id, rt);
@@ -319,7 +321,7 @@ export class ProcgenView {
         }
       } else if (it.action === "idle") a.action = "idle";
       const run = it.run || it.action === "run";
-      a.wantSpeed = Number.isFinite(it.speed) ? Number(it.speed) : run ? 3.6 * (a.info.thigh + a.info.shin) / 0.85 : 1.35 * (a.info.thigh + a.info.shin) / 0.85;
+      a.wantSpeed = Number.isFinite(it.speed) ? Number(it.speed) : run ? 3.6 * a.mo.legLength / 0.85 : 1.35 * a.mo.legLength / 0.85;
       if (Number.isFinite(it.vx) || Number.isFinite(it.vz)) {
         a.drive = { vx: Number(it.vx) || 0, vz: Number(it.vz) || 0 };
         a.goal = null;
@@ -445,7 +447,7 @@ export class ProcgenView {
 
   private updateActor(a: ActorRT, dt: number) {
     const m = this.model!;
-    const leg = a.info.thigh + a.info.shin;
+    const leg = a.mo.legLength;
     let vx = 0, vz = 0;
     let want = 0;
     if (a.drive) {
@@ -514,7 +516,7 @@ export class ProcgenView {
         a.pos[0] = nx;
         a.pos[2] = nz;
       } else this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
-      a.phase += step / (2 * stepLength(a.info, Math.max(a.speed, 0.2)));
+      a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
     a.pos[1] = m.terrain ? m.terrain.height(a.pos[0], a.pos[2]) : a.pos[1];
     // actions
@@ -549,7 +551,7 @@ export class ProcgenView {
   private poseActor(a: ActorRT, _dt: number) {
     const sk = a.model.asset.skeleton!;
     const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed };
-    const { pose } = humanoidPose(sk, a.info, st);
+    const { pose } = a.mo.pose(st);
     const W = sk.world(pose);
     a.mesh.userData.world = W;
     const S = sk.skinMatrices(W);

@@ -14,6 +14,8 @@ import type { M4 } from "../core/math";
 import type { ObjectInfo, SceneModel } from "../scene/compose";
 import { drawBuilding } from "./draw/building";
 import { drawCharacter } from "./draw/character";
+import { drawAnimal } from "./draw/animal";
+import { AnimalSkeleton } from "../rig/quadruped";
 import { bandsOf, drawGround, drawSky } from "./draw/ground";
 import { Emitter, Frame, Kit, lightDir } from "./draw/kit";
 import { drawBush, drawFlowers, drawGrass, drawRock, drawTree, natureShadow } from "./draw/nature";
@@ -188,7 +190,8 @@ export class VectorScene {
       if (a.hidden) continue;
       const em = new Emitter(out, this.pr.depth(a.pos) + 0.05, this.layerOf(a.pos[2]), a.obj, this.pr.far(a.pos[2]), "ink", a.colors);
       try {
-        drawCharacter(this.pr, em, { sk: a.sk, W: a.W, pos: a.pos, yaw: a.yaw, params: a.params, blink: a.blink, time, speed: a.speed }, shadows, env.ground);
+        if (a.sk instanceof AnimalSkeleton) drawAnimal(this.pr, em, { sk: a.sk, W: a.W, pos: a.pos, yaw: a.yaw, params: a.params, blink: a.blink });
+        else drawCharacter(this.pr, em, { sk: a.sk, W: a.W, pos: a.pos, yaw: a.yaw, params: a.params, blink: a.blink, time, speed: a.speed }, shadows, env.ground);
       } catch {
         /* pose dégénérée : personnage ignoré pour cette image */
       }

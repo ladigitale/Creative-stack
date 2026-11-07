@@ -7,7 +7,8 @@ import { type M4, type V3, clamp } from "../core/math";
 import { GENERATORS } from "../gen/index";
 import { Rng } from "../core/rng";
 import { Issues, resolveParams } from "../core/schema";
-import { ACTIONS, type Action, type MotionState, type RigInfo, humanoidPose, rigInfo, stepLength } from "../rig/locomotion";
+import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
+import { type Motion, motionFor } from "../rig/motion";
 import type { ActorModel, SceneModel } from "../scene/compose";
 import type { ActorPose } from "./scene";
 
@@ -17,7 +18,8 @@ export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "ente
 export type ActorRT = {
   model: ActorModel;
   params: Record<string, unknown>;
-  info: RigInfo;
+  /** Animation (humanoïde ou animal) : pose, longueur de pas, longueur de jambe. */
+  mo: Motion;
   pos: V3;
   yaw: number;
   speed: number;
@@ -57,7 +59,7 @@ export class ActorSim {
       if (!sk) continue;
       const params = resolveParams(GENERATORS.character?.schema ?? {}, a.params, { rng: new Rng(a.id), vars: {} }, issues) as Record<string, unknown>;
       const rt: ActorRT = {
-        model: a, params, info: rigInfo(sk), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: (a.seed * 0.618) % 1, action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
+        model: a, params, mo: motionFor(a.asset), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: (a.seed * 0.618) % 1, action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
         mood: String(a.params.mood ?? params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), blink: 0, turn: 0, zones: new Set(), hidden: false, lastIntent: "", W: [],
       };
       this.actors.set(a.id, rt);
@@ -84,7 +86,7 @@ export class ActorSim {
         }
       } else if (it.action === "idle") a.action = "idle";
       const run = it.run || it.action === "run";
-      const leg = a.info.thigh + a.info.shin;
+      const leg = a.mo.legLength;
       a.wantSpeed = Number.isFinite(it.speed) ? Number(it.speed) : run ? (3.6 * leg) / 0.85 : (1.35 * leg) / 0.85;
       if (Number.isFinite(it.vx) || Number.isFinite(it.vz)) {
         a.drive = { vx: Number(it.vx) || 0, vz: Number(it.vz) || 0 };
@@ -128,7 +130,7 @@ export class ActorSim {
 
   private updateActor(a: ActorRT, dt: number) {
     const m = this.model!;
-    const leg = a.info.thigh + a.info.shin;
+    const leg = a.mo.legLength;
     let vx = 0, vz = 0;
     let want = 0;
     if (a.drive) {
@@ -196,7 +198,7 @@ export class ActorSim {
         a.pos[0] = nx;
         a.pos[2] = nz;
       } else this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
-      a.phase += step / (2 * stepLength(a.info, Math.max(a.speed, 0.2)));
+      a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
     a.pos[1] = m.terrain ? m.terrain.height(a.pos[0], a.pos[2]) : a.pos[1];
     const transient = a.action === "wave" || a.action === "cheer" || a.action === "jump" || a.action === "bow" || a.action === "point";
@@ -227,7 +229,7 @@ export class ActorSim {
   pose(a: ActorRT) {
     const sk = a.model.asset.skeleton!;
     const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed };
-    const { pose } = humanoidPose(sk, a.info, st);
+    const { pose } = a.mo.pose(st);
     a.W = sk.world(pose);
   }
 
