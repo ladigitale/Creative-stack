@@ -9,6 +9,7 @@
  *
  * Le nombre de passes règle la largeur de la zone de pliure (≈ racine du nombre de passes × arête moyenne).
  */
+import { adjacencyCSR } from "../geom/adjacency";
 import type { Mesh } from "../geom/mesh";
 import type { Skeleton } from "./skeleton";
 
@@ -60,36 +61,45 @@ export function computeWeights(mesh: Mesh, owner: ArrayLike<number>, skel: Skele
     });
   };
   let W = new Float32Array(nV * nB);
+  // os autorisés par sommet, calculés une fois (et non à chaque passe)
+  const allowedV: number[][] = new Array(nV);
+  const ownerV = new Int32Array(nV);
   for (let v = 0; v < nV; v++) {
     const o = owner[v];
+    ownerV[v] = o >= 0 && o < nB ? o : 0;
+    allowedV[v] = allowedFor(v, ownerV[v]);
     if (o >= 0 && o < nB) W[v * nB + o] = 1;
     else W[v * nB] = 1;
   }
-  const adj = mesh.adjacency();
+  const { off, nbr } = adjacencyCSR(mesh);
   const passesFor = (b: number) => Math.round(passes * (opts.sharp?.[skel.bones[b].name] ?? 1));
+  const passesB = Array.from({ length: nB }, (_, b) => passesFor(b));
   const maxPass = passes;
+  // seules les entrées autorisées d'un sommet sont jamais écrites : pas besoin de remettre à zéro le reste
   let next = new Float32Array(nV * nB);
   for (let it = 0; it < maxPass; it++) {
     for (let v = 0; v < nV; v++) {
-      const o = owner[v] >= 0 ? owner[v] : 0;
-      const al = allowedFor(v, o);
-      const nb = adj[v];
-      const active = it < passesFor(o);
-      for (let b = 0; b < nB; b++) next[v * nB + b] = 0;
-      if (!active || !nb.length) {
-        for (const b of al) next[v * nB + b] = W[v * nB + b];
+      const o = ownerV[v];
+      const al = allowedV[v];
+      const n0 = off[v], n1 = off[v + 1];
+      const base = v * nB;
+      if (it >= passesB[o] || n1 === n0) {
+        for (const b of al) next[base + b] = W[base + b];
         continue;
       }
       let total = 0;
+      const k = 1 / (n1 - n0 + 1);
       for (const b of al) {
-        let s = W[v * nB + b];
-        for (const u of nb) s += W[u * nB + b];
-        const val = s / (nb.length + 1);
-        next[v * nB + b] = val;
+        let s = W[base + b];
+        for (let q = n0; q < n1; q++) s += W[nbr[q] * nB + b];
+        const val = s * k;
+        next[base + b] = val;
         total += val;
       }
-      if (total > 0) for (const b of al) next[v * nB + b] /= total;
-      else next[v * nB + o] = 1;
+      if (total > 0) {
+        const it2 = 1 / total;
+        for (const b of al) next[base + b] *= it2;
+      } else next[base + o] = 1;
     }
     [W, next] = [next, W];
   }
@@ -101,7 +111,7 @@ export function computeWeights(mesh: Mesh, owner: ArrayLike<number>, skel: Skele
     if (ov) {
       for (const [name, w] of Object.entries(ov)) if (skel.has(name) && w > 0) pairs.push([skel.index[name], w]);
     } else {
-      for (let b = 0; b < nB; b++) {
+      for (const b of allowedV[v]) {
         const w = W[v * nB + b];
         if (w > 1e-4) pairs.push([b, w]);
       }
