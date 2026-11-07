@@ -9,6 +9,7 @@
  * maillage (os dominant pour le skinning, rôle de couleur).
  */
 import { type V3, add, clamp, dot, len, madd, mix, norm, scale, sub } from "../core/math";
+import { adjacencyCSR } from "./adjacency";
 import { Mesh } from "./mesh";
 
 export type Prim =
@@ -28,6 +29,11 @@ export type FieldPrim = Prim & {
   tag: number;
   /** Bosses : amplitude et fréquence d'un bruit ajouté (feuillage, roche). */
   bump?: { amp: number; freq: number; seed: number };
+  /**
+   * Demi-espaces de découpe : la primitive est coupée où `dot(p, n) > d` (intersection, arête adoucie de `k`).
+   * Sert aux lignes nettes : implantation des cheveux, bord d'une capuche, encolure.
+   */
+  clip?: { n: V3; d: number; k?: number }[];
 };
 
 export type Blend = { a: number; b: number; k: number };
@@ -128,7 +134,18 @@ export function primDist(px: number, py: number, pz: number, f: FieldPrim): numb
     }
   }
   if (f.bump) d += f.bump.amp * noise3(px * f.bump.freq + f.bump.seed, py * f.bump.freq, pz * f.bump.freq - f.bump.seed);
+  if (f.clip)
+    for (const c of f.clip) {
+      const e = px * c.n[0] + py * c.n[1] + pz * c.n[2] - c.d;
+      d = c.k ? smax(d, e, c.k) : Math.max(d, e);
+    }
   return d;
+}
+
+/** Intersection douce (max adouci). */
+function smax(a: number, b: number, k: number): number {
+  const h = clamp(0.5 - (0.5 * (b - a)) / k, 0, 1);
+  return mix(b, a, h) + k * h * (1 - h);
 }
 
 function primBounds(f: FieldPrim): { min: V3; max: V3 } {
@@ -191,7 +208,24 @@ export class Field {
     const key = (i + 512) * 1048576 + (j + 512) * 1024 + (k + 512);
     let c = this.blockCache.get(key);
     if (!c) {
-      const prims = this.candidates([i * B, j * B, k * B], [(i + 1) * B, (j + 1) * B, (k + 1) * B], B * 0.75);
+      let prims = this.candidates([i * B, j * B, k * B], [(i + 1) * B, (j + 1) * B, (k + 1) * B], B * 0.75);
+      // élagage par la distance au centre du bloc (champ 1-lipschitzien) : seules restent les primitives qui peuvent
+      // dominer ou peser dans une soudure quelque part dans le bloc élargi
+      if (prims.length > 4) {
+        const cx = (i + 0.5) * B, cy = (j + 0.5) * B, cz = (k + 0.5) * B;
+        const R = Math.sqrt(3) * B * 1.25 * 1.3;
+        let dmin = Infinity, bump = 0, maxK = 0;
+        const ds = prims.map((q) => {
+          const f = this.prims[q];
+          if (f.bump) bump = Math.max(bump, Math.abs(f.bump.amp));
+          const d = primDist(cx, cy, cz, f);
+          if (d < dmin) dmin = d;
+          return d;
+        });
+        for (const b of this.blends) maxK = Math.max(maxK, b.k);
+        const lim = dmin + 2 * R + 1.5 * maxK + 2 * bump;
+        prims = prims.filter((_, n) => ds[n] <= lim);
+      }
       const set = new Set(prims);
       c = { prims, blends: this.blends.filter((b) => set.has(b.a) && set.has(b.b)) };
       this.blockCache.set(key, c);
@@ -230,9 +264,35 @@ export class Field {
     return this.evalXYZ(p[0], p[1], p[2]).d;
   }
   gradient(p: V3, h = 1e-3): V3 {
+    // différences tétraédriques : 4 évaluations au lieu de 6
     const c = this.local(p);
-    const f = (x: number, y: number, z: number) => this.evalXYZ(x, y, z, c).d;
-    return norm([f(p[0] + h, p[1], p[2]) - f(p[0] - h, p[1], p[2]), f(p[0], p[1] + h, p[2]) - f(p[0], p[1] - h, p[2]), f(p[0], p[1], p[2] + h) - f(p[0], p[1], p[2] - h)]);
+    const a = this.evalXYZ(p[0] + h, p[1] - h, p[2] - h, c).d;
+    const b = this.evalXYZ(p[0] - h, p[1] - h, p[2] + h, c).d;
+    const d = this.evalXYZ(p[0] - h, p[1] + h, p[2] - h, c).d;
+    const e = this.evalXYZ(p[0] + h, p[1] + h, p[2] + h, c).d;
+    return norm([a - b - d + e, -a - b + d + e, -a + b - d + e]);
+  }
+  /** Ramène un point sur la surface (pas de Newton le long du gradient). */
+  project(p: V3, iters = 2, h = 1e-3): V3 {
+    let q = p;
+    for (let i = 0; i < iters; i++) {
+      const d = this.distance(q);
+      if (Math.abs(d) < 1e-5) break;
+      q = madd(q, this.gradient(q, h), -d);
+    }
+    return q;
+  }
+  /** Lancer de rayon (pas de sphère) : premier point de surface depuis `o` dans la direction `dir`, ou null. */
+  raycast(o: V3, dir: V3, maxT: number, eps = 1e-4): V3 | null {
+    const d0 = norm(dir);
+    let t = 0;
+    for (let i = 0; i < 160 && t < maxT; i++) {
+      const p = madd(o, d0, t);
+      const d = this.distance(p);
+      if (d < eps) return p;
+      t += Math.max(d * 0.9, eps);
+    }
+    return null;
   }
   /** Primitives susceptibles d'influencer une boîte (avec marge). */
   candidates(min: V3, max: V3, margin: number): number[] {
@@ -262,6 +322,10 @@ export type PolygonizeOptions = {
   margin?: number;
   /** Plafond de cellules (sécurité). */
   maxCells?: number;
+  /** Propriétaire recalculé à la position finale du sommet (après lissage) : frontières de rôles exactes. */
+  exactOwner?: boolean;
+  /** Échantillons d'occlusion le long de la normale (défaut 5). */
+  aoSteps?: number;
 };
 
 export type Polygonized = { mesh: Mesh; owner: Int32Array; cells: number };
@@ -281,9 +345,15 @@ export function polygonize(field: Field, opts: PolygonizeOptions): Polygonized {
   const id = (i: number, j: number, k: number) => i + nx * (j + ny * k);
   // évaluation par blocs de 8³ avec liste de candidates
   const B = 8;
+  const S = 4;
+  // rayon de garde d'un sous-bloc : demi-diagonale + marge (les ellipsoïdes approchés ne sont pas exactement lipschitziens)
+  const subR = Math.sqrt(3) * ((S - 1) / 2) * cell * 1.3;
+  const skipR2 = (Math.sqrt(3) * 0.5 * cell + cell * 1.5) * 1.35;
+  const skipR = (Math.sqrt(3) * ((S - 1) / 2) * cell + cell * 1.5) * 1.35;
   const scratch = new Float64Array(field.prims.length);
+  const mark = new Uint8Array(field.prims.length);
   const far = cell * 3;
-  field.setBlock(cell * 6);
+  field.setBlock(cell * 3);
   for (let bk = 0; bk < nz; bk += B)
     for (let bj = 0; bj < ny; bj += B)
       for (let bi = 0; bi < nx; bi += B) {
@@ -292,18 +362,72 @@ export function polygonize(field: Field, opts: PolygonizeOptions): Polygonized {
         const cp = field.candidates(mn, mx, far);
         const cs = new Set(cp);
         const cand = { prims: cp, blends: field.blends.filter((bl) => cs.has(bl.a) && cs.has(bl.b)) };
-        for (let k = bk; k < Math.min(nz, bk + B); k++)
-          for (let j = bj; j < Math.min(ny, bj + B); j++)
-            for (let i = bi; i < Math.min(nx, bi + B); i++) {
-              const n = id(i, j, k);
-              if (!cp.length) {
-                val[n] = far;
-                own[n] = -1;
+        if (!cp.length) {
+          for (let k = bk; k < Math.min(nz, bk + B); k++)
+            for (let j = bj; j < Math.min(ny, bj + B); j++)
+              for (let i = bi; i < Math.min(nx, bi + B); i++) {
+                val[id(i, j, k)] = far;
+                own[id(i, j, k)] = -1;
+              }
+          continue;
+        }
+        let bumpPad = 0, maxK = 0;
+        for (const q of cp) if (field.prims[q].bump) bumpPad = Math.max(bumpPad, Math.abs(field.prims[q].bump!.amp));
+        for (const bl of cand.blends) maxK = Math.max(maxK, bl.k);
+        // sous-blocs de 4³ : si le centre est loin de la surface (champ 1-lipschitzien), aucun nœud n'est traversé
+        for (let sk = bk; sk < Math.min(nz, bk + B); sk += S)
+          for (let sj = bj; sj < Math.min(ny, bj + B); sj += S)
+            for (let si = bi; si < Math.min(nx, bi + B); si += S) {
+              const ek = Math.min(nz, sk + S), ej = Math.min(ny, sj + S), ei = Math.min(nx, si + S);
+              const cx = org[0] + ((si + ei - 1) / 2) * cell, cy = org[1] + ((sj + ej - 1) / 2) * cell, cz = org[2] + ((sk + ek - 1) / 2) * cell;
+              const rc = field.evalXYZ(cx, cy, cz, cand, scratch);
+              if (Number.isFinite(rc.d) && Math.abs(rc.d) > skipR + bumpPad) {
+                for (let k = sk; k < ek; k++)
+                  for (let j = sj; j < ej; j++)
+                    for (let i = si; i < ei; i++) {
+                      val[id(i, j, k)] = rc.d;
+                      own[id(i, j, k)] = rc.owner;
+                    }
                 continue;
               }
-              const r = field.evalXYZ(org[0] + i * cell, org[1] + j * cell, org[2] + k * cell, cand, scratch);
-              val[n] = Number.isFinite(r.d) ? r.d : far;
-              own[n] = r.owner;
+              // élagage : une primitive trop loin du centre ne peut ni dominer ni peser dans une soudure du sous-bloc
+              let dmin = Infinity;
+              for (const q of cp) if (scratch[q] < dmin) dmin = scratch[q];
+              const lim = dmin + 2 * subR + 1.5 * maxK + 2 * bumpPad;
+              const sp: number[] = [];
+              for (const q of cp) if (scratch[q] <= lim) sp.push(q);
+              let sub = cand;
+              if (sp.length < cp.length) {
+                for (const q of sp) mark[q] = 1;
+                sub = { prims: sp, blends: cand.blends.filter((bl) => mark[bl.a] === 1 && mark[bl.b] === 1) };
+                for (const q of sp) mark[q] = 0;
+              }
+              // second niveau : cubes de 2³ nœuds, sautés s'ils sont loin de la surface
+              for (let tk = sk; tk < ek; tk += 2)
+                for (let tj = sj; tj < ej; tj += 2)
+                  for (let ti = si; ti < ei; ti += 2) {
+                    const fk = Math.min(ek, tk + 2), fj = Math.min(ej, tj + 2), fi = Math.min(ei, ti + 2);
+                    if (fk - tk === 2 && fj - tj === 2 && fi - ti === 2) {
+                      const r0 = field.evalXYZ(org[0] + (ti + 0.5) * cell, org[1] + (tj + 0.5) * cell, org[2] + (tk + 0.5) * cell, sub, scratch);
+                      if (Number.isFinite(r0.d) && Math.abs(r0.d) > skipR2 + bumpPad) {
+                        for (let k = tk; k < fk; k++)
+                          for (let j = tj; j < fj; j++)
+                            for (let i = ti; i < fi; i++) {
+                              val[id(i, j, k)] = r0.d;
+                              own[id(i, j, k)] = r0.owner;
+                            }
+                        continue;
+                      }
+                    }
+                    for (let k = tk; k < fk; k++)
+                      for (let j = tj; j < fj; j++)
+                        for (let i = ti; i < fi; i++) {
+                          const n = id(i, j, k);
+                          const r = field.evalXYZ(org[0] + i * cell, org[1] + j * cell, org[2] + k * cell, sub, scratch);
+                          val[n] = Number.isFinite(r.d) ? r.d : far;
+                          own[n] = r.owner;
+                        }
+                  }
             }
       }
   // un sommet par cellule traversée
@@ -375,50 +499,64 @@ export function polygonize(field: Field, opts: PolygonizeOptions): Polygonized {
     const p = mesh.getPos(v);
     const n = field.gradient(p, cell * 0.5);
     mesh.setNrm(v, n);
-    if (opts.ao) mesh.ao[v] = fieldAO(field, p, n, cell);
+    if (opts.ao) mesh.ao[v] = fieldAO(field, p, n, cell, opts.aoSteps);
+    if (opts.exactOwner) {
+      const o = field.evalXYZ(p[0], p[1], p[2]).owner;
+      if (o >= 0) {
+        owner[v] = o;
+        mesh.role[v] = field.prims[o].role;
+      }
+    }
   }
   return { mesh, owner, cells: nx * ny * nz };
 }
 
 /** Occlusion ambiante dans un champ : on remonte la normale et on mesure ce qui « manque » de distance. */
-export function fieldAO(field: Field, p: V3, n: V3, cell: number): number {
+export function fieldAO(field: Field, p: V3, n: V3, cell: number, steps = 5): number {
   let occ = 0;
   let w = 1;
-  for (let i = 1; i <= 5; i++) {
-    const h = cell * 1.5 * i;
+  // moins d'échantillons : pas plus longs, même portée
+  const st = 1.5 * (5 / steps);
+  let norm0 = 0;
+  for (let i = 1; i <= steps; i++) {
+    const h = cell * st * i;
     const d = field.distance(madd(p, n, h));
     occ += w * Math.max(0, h - d);
+    norm0 += w;
     w *= 0.6;
   }
-  return clamp(1 - (occ / (cell * 3)) * 0.9, 0.15, 1);
+  const ref = 2.306; // somme des poids pour 5 échantillons
+  return clamp(1 - ((occ * (ref / norm0)) / (cell * 3)) * 0.9, 0.15, 1);
 }
 
 /** Lissage de Taubin (λ / μ) : lisse sans rétrécir. */
 export function taubin(mesh: Mesh, iterations: number, lambda = 0.5, mu = -0.53, fixed?: (i: number) => boolean) {
-  const adj = mesh.adjacency();
+  const { off, nbr } = adjacencyCSR(mesh);
   const n = mesh.vertexCount;
   const tmp = new Float64Array(n * 3);
+  const pos = mesh.pos;
   const step = (f: number) => {
     for (let v = 0; v < n; v++) {
-      const nb = adj[v];
-      if (!nb.length || fixed?.(v)) {
-        tmp[v * 3] = mesh.pos[v * 3];
-        tmp[v * 3 + 1] = mesh.pos[v * 3 + 1];
-        tmp[v * 3 + 2] = mesh.pos[v * 3 + 2];
+      const n0 = off[v], n1 = off[v + 1];
+      if (n1 === n0 || fixed?.(v)) {
+        tmp[v * 3] = pos[v * 3];
+        tmp[v * 3 + 1] = pos[v * 3 + 1];
+        tmp[v * 3 + 2] = pos[v * 3 + 2];
         continue;
       }
       let x = 0, y = 0, z = 0;
-      for (const u of nb) {
-        x += mesh.pos[u * 3];
-        y += mesh.pos[u * 3 + 1];
-        z += mesh.pos[u * 3 + 2];
+      for (let q = n0; q < n1; q++) {
+        const u = nbr[q];
+        x += pos[u * 3];
+        y += pos[u * 3 + 1];
+        z += pos[u * 3 + 2];
       }
-      const k = 1 / nb.length;
-      tmp[v * 3] = mesh.pos[v * 3] + f * (x * k - mesh.pos[v * 3]);
-      tmp[v * 3 + 1] = mesh.pos[v * 3 + 1] + f * (y * k - mesh.pos[v * 3 + 1]);
-      tmp[v * 3 + 2] = mesh.pos[v * 3 + 2] + f * (z * k - mesh.pos[v * 3 + 2]);
+      const k = 1 / (n1 - n0);
+      tmp[v * 3] = pos[v * 3] + f * (x * k - pos[v * 3]);
+      tmp[v * 3 + 1] = pos[v * 3 + 1] + f * (y * k - pos[v * 3 + 1]);
+      tmp[v * 3 + 2] = pos[v * 3 + 2] + f * (z * k - pos[v * 3 + 2]);
     }
-    for (let i = 0; i < n * 3; i++) mesh.pos[i] = tmp[i];
+    for (let i = 0; i < n * 3; i++) pos[i] = tmp[i];
   };
   for (let it = 0; it < iterations; it++) {
     step(lambda);
