@@ -397,28 +397,13 @@ function place(m: Mesh, base: V3, yDir: V3, zDir: V3): Mesh {
   return m.transform(m4Compose(base, qFromBasis([0, 1, 0], [0, 0, 1], y, norm(z))));
 }
 
-/** Perpendiculaire à `d` dans le plan sagittal (y, z). */
-const perpSag = (d: V3): V3 => norm([0, d[2], -d[1]]);
-
-/** Contour ovale/pointu (n points) : largeur w, longueur h, pointe `tip` (0 rond … 1 pointu), base en y = 0. */
-function leaf(w: number, h: number, tip = 0.5, n = 8): [number, number][] {
-  const out: [number, number][] = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const y = (Math.sin(a - Math.PI / 2) * 0.5 + 0.5) * h;
-    const taper = 1 - tip * smoothstep(0.3, 1, y / h);
-    out.push([Math.cos(a - Math.PI / 2) * w * 0.5 * taper * -1, y]);
-  }
-  return out.reverse();
-}
-
 function buildAnimalMesh(species: Species, p: Params, coat: string, pal: Palette, v: Rng): Built {
   const young = clamp((0.75 - p.size) / 0.45, 0, 1);
   const sk = buildAnimal(species, { size: p.size, build: p.build, neck: v.vary(1, 0.04), head: v.vary(1, 0.03) * (1 + young * 0.3), leg: v.vary(1, 0.02) * (1 + young * 0.06) });
   const props = sk.meta.props;
   const W = sk.meta.W;
   const crowd = p.detail === "crowd";
-  const cellK = props.kind === "bird" ? 0.024 : ({ horse: 0.02, cow: 0.021, deer: 0.019, bear: 0.022, sheep: 0.024, pig: 0.024, goat: 0.021, dog: 0.021, fox: 0.02, cat: 0.024, rabbit: 0.03 }[species as string] ?? 0.022);
+  const cellK = props.kind === "bird" ? 0.024 : ({ horse: 0.02, cow: 0.021, deer: 0.019, bear: 0.022, sheep: 0.027, pig: 0.024, goat: 0.021, dog: 0.021, fox: 0.02, cat: 0.024, rabbit: 0.03 }[species as string] ?? 0.022);
   const cell = W * cellK * (crowd ? 1.85 : 1);
   // dalles (oreilles, crinière, plumes) : au moins deux cellules d'épaisseur, sinon la grille les rate
   const c = makeCtx(sk, W, cell * 2.1);
@@ -583,16 +568,16 @@ type HeadSpec = {
 };
 
 const HEADS: Record<string, HeadSpec> = {
-  dog: { cr: [0.3, 0.28, 0.3], cz: 0.22, m0: 0.17, m1: 0.13, my: -0.08, tall: 0.25, jaw: 0.08, nose: "pad", eye: [0.38, 0.62, 0.055] },
-  cat: { cr: [0.36, 0.33, 0.34], cz: 0.3, m0: 0.15, m1: 0.12, my: -0.12, tall: 0.1, jaw: 0.07, nose: "pad", eye: [0.48, 0.5, 0.075] },
+  dog: { cr: [0.32, 0.3, 0.3], cz: 0.22, m0: 0.19, m1: 0.14, my: -0.08, tall: 0.25, jaw: 0.08, nose: "pad", eye: [0.38, 0.62, 0.055] },
+  cat: { cr: [0.4, 0.36, 0.36], cz: 0.3, m0: 0.15, m1: 0.12, my: -0.12, tall: 0.1, jaw: 0.07, nose: "pad", eye: [0.48, 0.5, 0.075] },
   fox: { cr: [0.27, 0.25, 0.28], cz: 0.2, m0: 0.12, m1: 0.06, my: -0.06, tall: 0.1, jaw: 0.06, nose: "pad", eye: [0.36, 0.55, 0.055] },
   horse: { cr: [0.2, 0.2, 0.22], cz: 0.16, m0: 0.15, m1: 0.12, my: -0.04, tall: 0.5, jaw: 0.1, nose: "muzzle", eye: [0.24, 0.85, 0.045] },
   cow: { cr: [0.3, 0.26, 0.26], cz: 0.2, m0: 0.2, m1: 0.18, my: -0.03, tall: 0.35, jaw: 0.1, nose: "muzzle", eye: [0.26, 0.85, 0.05] },
   sheep: { cr: [0.24, 0.24, 0.26], cz: 0.22, m0: 0.15, m1: 0.11, my: -0.05, tall: 0.35, jaw: 0.08, nose: "muzzle", eye: [0.32, 0.8, 0.055] },
   goat: { cr: [0.22, 0.22, 0.25], cz: 0.2, m0: 0.13, m1: 0.1, my: -0.04, tall: 0.35, jaw: 0.08, nose: "muzzle", eye: [0.3, 0.82, 0.055] },
   deer: { cr: [0.24, 0.23, 0.25], cz: 0.2, m0: 0.13, m1: 0.08, my: -0.04, tall: 0.3, jaw: 0.07, nose: "pad", eye: [0.32, 0.82, 0.06] },
-  pig: { cr: [0.34, 0.32, 0.32], cz: 0.25, m0: 0.24, m1: 0.19, my: -0.04, tall: 0.0, jaw: 0.1, nose: "snout", eye: [0.38, 0.62, 0.04] },
-  bear: { cr: [0.34, 0.3, 0.3], cz: 0.25, m0: 0.17, m1: 0.12, my: -0.08, tall: 0.15, jaw: 0.1, nose: "pad", eye: [0.38, 0.55, 0.04] },
+  pig: { cr: [0.46, 0.42, 0.4], cz: 0.3, m0: 0.3, m1: 0.2, my: -0.06, tall: 0.0, jaw: 0.12, nose: "snout", eye: [0.42, 0.6, 0.04] },
+  bear: { cr: [0.5, 0.44, 0.42], cz: 0.3, m0: 0.24, m1: 0.17, my: -0.1, tall: 0.15, jaw: 0.11, nose: "pad", eye: [0.42, 0.5, 0.045] },
   rabbit: { cr: [0.32, 0.32, 0.34], cz: 0.32, m0: 0.2, m1: 0.15, my: -0.1, tall: 0.1, jaw: 0.08, nose: "pad", eye: [0.45, 0.85, 0.08] },
 };
 
@@ -605,10 +590,11 @@ function quadBody(c: Ctx, species: Species, P_: QuadProps, p: Params, W: number,
   const bw = mix(0.9, 1.15, p.build);
   const sheep = species === "sheep";
   const wool = sheep ? W * 0.025 : 0;
-  const coatR = sheep ? S : S;
+  const coatR = S;
 
   /* ---------- tronc ---------- */
   const pel = B("pelvis"), spi = B("spine"), che = B("chest");
+  const yBelly = () => spi.head[1] - D * 0.12;
   const K = {
     hind: { dog: 0.9, cat: 0.95, fox: 0.9, horse: 1.05, cow: 1.02, sheep: 1.05, pig: 1.02, deer: 0.95, goat: 0.95, bear: 0.95, rabbit: 1.25 }[species as string] ?? 1,
     chest: { dog: 1.08, cat: 0.95, fox: 0.95, horse: 1.05, cow: 1.0, sheep: 1.05, pig: 1.0, deer: 1.0, goat: 0.95, bear: 1.12, rabbit: 0.85 }[species as string] ?? 1,
@@ -621,9 +607,17 @@ function quadBody(c: Ctx, species: Species, P_: QuadProps, p: Params, W: number,
   ell("spine", add(lerp3(spi.head, spi.tail, 0.5), [0, -D * 0.04 * K.belly, 0]), [half * 1.02 * K.belly * bw, D * 0.5 * Math.max(0.85, K.belly), (spi.tail[2] - spi.head[2]) * 0.62 + D * 0.05], coatR, wool);
   // poitrine et garrot
   ell("chest", add(lerp3(che.head, che.tail, 0.4), [0, -D * 0.03, -D * 0.1]), [half * 0.97 * K.chest * bw, D * 0.5 * K.chest, D * 0.62], coatR, wool);
+  // ligne de dos continue (rein) et, pour les espèces lourdes, ventre plein entre coude et grasset
+  c.push({ kind: "capsule", a: add(lerp3(pel.head, pel.tail, 0.9), [0, D * 0.12, 0]), b: add(lerp3(che.head, che.tail, 0.3), [0, D * 0.1, 0]), ra: Math.min(half * K.hind, D * 0.38) * bw, rb: Math.min(half * K.chest, D * 0.38) * bw, role: coatR, tag: 0, ...(wool ? { bump: { amp: wool, freq: 1 / (W * 0.045), seed: 6 } } : {}) }, "spine");
+  if (K.belly >= 1) {
+    const zE = B("forearm.l").head[2] - D * 0.22, zK = B("shin.l").head[2] + D * 0.22;
+    const rB = half * 0.7 * bw;
+    const yb = Math.max(yBelly(), B("forearm.l").head[1] + rB * 0.95);
+    if (zE - rB > zK + rB) c.push({ kind: "capsule", a: [0, yb, zK + rB], b: [0, yb, zE - rB], ra: rB, rb: rB, role: coatR, tag: 0, ...(wool ? { bump: { amp: wool, freq: 1 / (W * 0.045), seed: 7 } } : {}) }, "spine");
+  }
   // pointe de l'épaule et poitrail (sans dépasser l'avant-bras)
   for (const sx of [1, -1]) c.push({ kind: "ellipsoid", c: add(che.tail, [sx * half * 0.45, -D * 0.42, -D * 0.12]), r: [half * 0.45, D * 0.24, D * 0.2], role: coatR, tag: 0 }, "chest");
-  if (species === "bear") c.push({ kind: "ellipsoid", c: add(che.tail, [0, D * 0.02, -D * 0.4]), r: [half * 0.7, D * 0.32, D * 0.45], role: S, tag: 0 }, "chest");
+  if (species === "bear") c.push({ kind: "ellipsoid", c: add(che.tail, [0, D * 0.1, -D * 0.42]), r: [half * 0.75, D * 0.36, D * 0.5], role: S, tag: 0 }, "chest"); // bosse
   if (species === "horse" || species === "deer") // garrot marqué
     c.push({ kind: "capsule", a: add(che.tail, [0, D * 0.05, -D * 0.55]), b: add(che.tail, [0, D * 0.08, -D * 0.05]), ra: half * 0.45, rb: half * 0.45, role: S, tag: 0 }, "chest");
 
@@ -688,7 +682,7 @@ function quadBody(c: Ctx, species: Species, P_: QuadProps, p: Params, W: number,
       case "horse": wE = 0.5; dE = 0.3; inner = S; break;
       case "deer": type = "oval"; wE = 0.6; break;
       case "cow": case "sheep": case "goat": type = "oval"; wE = 0.5; inner = species === "sheep" ? HR : PK; break;
-      case "pig": wE = 0.8; type = flop ? "oval" : "pointy"; inner = S; break;
+      case "pig": wE = 0.75; type = "pointy"; inner = PK; break;
       case "bear": type = "round"; wE = 0.95; dE = 0.45; inner = S; break;
       case "rabbit": type = "oval"; wE = 0.4; dE = 0.14; break;
     }
@@ -699,14 +693,20 @@ function quadBody(c: Ctx, species: Species, P_: QuadProps, p: Params, W: number,
     let base = madd(add(crC, scale(toward, kk)), ed, -el * 0.12);
     if (flop) {
       // oreille tombante : part du haut du crâne, pend sur la joue
-      ed = norm([sx * (species === "pig" ? 0.25 : 0.32), -1, species === "pig" ? 0.9 : 0.12]);
-      face = [sx, 0, 0];
-      base = add(eb.head, [sx * hl * 0.02, el * 0.05, 0]);
+      if (species === "pig") {
+        // oreilles de cochon rabattues vers l'avant, sur les yeux
+        ed = norm([sx * 0.6, 0.15, 0.8]);
+        face = norm([0, 1, 0.3]);
+      } else {
+        ed = norm([sx * 0.32, -1, 0.12]);
+        face = [sx, 0, 0];
+        base = add(eb.head, [sx * hl * 0.02, el * 0.05, 0]);
+      }
     }
     const prof = type === "pointy" ? EAR_POINTY : type === "oval" ? EAR_OVAL : EAR_ROUND;
     const ear = shaped(prof, el * wE, el * (type === "round" ? 0.8 : 1), el * wE * dE, sheep ? HR : S);
     c.tpl(place(ear, base, ed, face), [`ear.${s}`]);
-    if (inner !== S && !flop) {
+    if (inner !== S && (!flop || species === "pig")) {
       const inn = shaped(prof, el * wE * 0.62, el * 0.82, el * wE * dE * 0.6, inner);
       c.tpl(place(inn, madd(madd(base, face, el * wE * dE * 0.3), ed, el * 0.08), ed, face), [`ear.${s}`]);
     }
@@ -799,7 +799,7 @@ function quadBody(c: Ctx, species: Species, P_: QuadProps, p: Params, W: number,
   }
 
   /* ---------- pattes ---------- */
-  const legT = { dog: 1.15, cat: 1.25, fox: 0.85, horse: 1.0, cow: 1.15, sheep: 1.0, pig: 1.25, deer: 0.85, goat: 1.0, bear: 1.6, rabbit: 1.0 }[species as string] ?? 1;
+  const legT = { dog: 1.35, cat: 1.4, fox: 0.95, horse: 1.0, cow: 1.15, sheep: 1.0, pig: 1.7, deer: 0.85, goat: 1.0, bear: 1.9, rabbit: 1.1 }[species as string] ?? 1;
   const lr = (k: number) => W * k * legT * mix(0.9, 1.12, p.build);
   for (const s of ["l", "r"] as const) {
     const sx = s === "l" ? 1 : -1;
@@ -933,7 +933,7 @@ function birdBody(c: Ctx, species: Species, P_: BirdProps, p: Params, W: number)
     const sx = s === "l" ? 1 : -1;
     const wd = norm(sub(wb.tail, wb.head));
     const L = len(sub(wb.tail, wb.head));
-    c.slab(`wing.${s}`, lerp3(wb.head, wb.tail, 0.45), wd, [0, 1, 0], [[-L * 0.5, -bh * 0.18], [L * 0.2, -bh * 0.22], [L * 0.62, -bh * 0.02], [L * 0.3, bh * 0.2], [-L * 0.45, bh * 0.22]], bw * 0.16, duck ? S : S);
+    c.slab(`wing.${s}`, lerp3(wb.head, wb.tail, 0.45), wd, [0, 1, 0], [[-L * 0.5, -bh * 0.18], [L * 0.2, -bh * 0.22], [L * 0.62, -bh * 0.02], [L * 0.3, bh * 0.2], [-L * 0.45, bh * 0.22]], bw * 0.16, S);
   }
   // queue
   const tb = B("tail.1");

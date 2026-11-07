@@ -39,7 +39,7 @@ entries.forEach((e, i) => {
   const vary = q.get("vary") ? { seedKey: i } : {};
   actors[`a${i}`] = { gen: "animal", params: { species: e.s, detail: "high", ...params, ...vary }, at: [xs[i] - total / 2, rows > 1 ? (i % rows) * 2 - rows : 0], facing: Number(q.get("facing") ?? 90) };
 });
-const recipe = { size: [Math.max(12, total + 4), 8], ground: q.get("ground") === "1" ? { surface: "grass" } : false, actors, view: { camera: q.get("camera") ?? "side" } };
+const recipe = q.get("recipe") ? JSON.parse(q.get("recipe")!) : { size: [Math.max(12, total + 4), 8], ground: q.get("ground") === "1" ? { surface: "grass" } : false, actors, view: { camera: q.get("camera") ?? "side" } };
 const t0 = performance.now();
 const model = composeScene({ recipe: recipe as never, seed: q.get("seed") ?? 1 });
 const ms = performance.now() - t0;
@@ -49,16 +49,19 @@ view.maxDpr = 1;
 // pose d'acteur remplacée : adaptateur humanoïde / animal
 const V = view as unknown as { poseActor: (a: any, dt: number) => void; time: number };
 const speeds: Record<string, number> = {};
-V.poseActor = function (this: any, a: any) {
+V.poseActor = function (this: any, a: any, dt: number) {
   const asset = a.model.asset;
   const mo = motionFor(asset);
   const i = Number(String(a.model.id).slice(1));
   const L = mo.legLength;
   const fr = { idle: 0, walk: 0.15, trot: 0.9, gallop: 3.2 }[mode] ?? 0;
-  const sp = q.get("speed") ? Number(q.get("speed")) : Math.sqrt(fr * 9.81 * L);
+  const scene = !!q.get("recipe");
+  const sp = scene ? a.speed : q.get("speed") ? Number(q.get("speed")) : Math.sqrt(fr * 9.81 * L);
+  // recette : phase intégrée par la distance parcourue, avec le pas propre au squelette (adaptateur)
+  a._ph = (a._ph ?? Math.random()) + (scene ? (sp * dt) / (2 * mo.stepLength(Math.max(sp, 0.05))) : 0);
   speeds[a.model.id] = sp;
   const time = (this.time ?? 0) + Number(q.get("t0") ?? 0);
-  const phase = seq ? i / seq + Number(q.get("phase") ?? 0) : q.get("phase") ? Number(q.get("phase")) : sp > 0 ? (time * sp) / (2 * mo.stepLength(sp)) : 0;
+  const phase = scene ? a._ph : seq ? i / seq + Number(q.get("phase") ?? 0) : q.get("phase") ? Number(q.get("phase")) : sp > 0 ? (time * sp) / (2 * mo.stepLength(sp)) : 0;
   const st = { speed: sp, phase, time: time + (seq ? 0 : a.model.seed), action: "idle", actionTime: 0, actionWeight: 0, mood: String(a.model.params.mood ?? "calm"), turn: 0, seed: a.model.seed };
   const { pose } = q.get("rest") ? { pose: { rot: {}, root: [0, 0, 0] as [number, number, number] } } : mo.pose(st as never);
   const sk = asset.skeleton;
@@ -75,9 +78,11 @@ V.poseActor = function (this: any, a: any) {
   a.mesh.rotation.set(0, a.yaw, 0);
   a.mesh.updateMatrix();
 };
+const scene0 = !!q.get("recipe");
 view.setModel(model);
 view.setStyle(resolveStyle(q.get("style") ?? "gouache"));
-const v: Record<string, unknown> = { camera: q.get("camera") ?? "side", cy: Number(q.get("cy") ?? 0.6) };
+const v: Record<string, unknown> = scene0 ? { ...(model.view ?? {}) } : { camera: q.get("camera") ?? "side", cy: Number(q.get("cy") ?? 0.6) };
+if (scene0 && q.get("camera")) v.camera = q.get("camera");
 for (const k of ["yaw", "pitch", "zoom", "cx", "cy", "cz"]) if (q.get(k) !== null) v[k] = Number(q.get(k));
 view.setView(v);
 view.setAnim({ play: q.get("play") !== "0" });
