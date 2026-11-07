@@ -17,8 +17,14 @@ import { HfEngineError, HfWorkerEngine, type HfEngine } from "./hf-engine";
 import type {
   HfErrorCode,
   HfModelRef,
+  HfLoadResult,
   HfProgress,
   HfRunRequest,
+  HfSamBox,
+  HfSamDecodeResult,
+  HfSamEncodeResult,
+  HfSamImage,
+  HfSamPoint,
 } from "./hf-protocol";
 import type { HfDevice } from "./types";
 
@@ -148,6 +154,7 @@ export class HuggingFaceRegistry {
 
   model(alias: string): HfModelRef & {
     devices: readonly HfDevice[];
+    engine: "pipeline" | "sam";
     sizeBytes?: number;
     label?: string;
     description?: string;
@@ -169,6 +176,7 @@ export class HuggingFaceRegistry {
       revision: def.revision,
       options: def.options ?? {},
       devices: def.devices ?? ["webgpu", "wasm"],
+      engine: def.engine ?? "pipeline",
       sizeBytes: def.sizeBytes,
       label: def.label,
       description: def.description,
@@ -364,9 +372,15 @@ export class HuggingFaceRegistry {
     });
     try {
       const engine = await this.ready();
-      const result = await engine.load(model, devices, (progress) =>
-        this.update(alias, { phase: "downloading", progress }),
-      );
+      const onProgress = (progress: HfProgress) => this.update(alias, { phase: "downloading", progress });
+      const ref: HfModelRef = { alias: model.alias, task: model.task, repo: model.repo, revision: model.revision, options: model.options };
+      let result: HfLoadResult;
+      if (model.engine === "sam") {
+        if (!engine.samLoad) throw new HfEngineError("unsupported", "Ce moteur ne gère pas la segmentation interactive.");
+        result = await engine.samLoad(ref, devices, onProgress);
+      } else {
+        result = await engine.load(model, devices, onProgress);
+      }
       let persisted: boolean | undefined;
       if (defaults.persist && !cached) {
         persisted = await globalThis.navigator?.storage
@@ -415,6 +429,39 @@ export class HuggingFaceRegistry {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /* ---------------- segmentation interactive ---------------- */
+
+  private async samCall<R>(alias: string, timeoutMs: number, fn: (engine: HfEngine) => Promise<R> | undefined): Promise<R> {
+    if (this.model(alias).engine !== "sam") throw new HfError("not-allowed", `Le modèle "${alias}" n'est pas un modèle de segmentation interactive.`);
+    if (this.state(alias).phase !== "ready") throw new HfError("runtime", `Modèle "${alias}" non chargé.`);
+    const engine = await this.ready();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new HfError("timeout", `Calcul trop long (> ${timeoutMs} ms), abandonné.`)), timeoutMs);
+    });
+    try {
+      const p = fn(engine);
+      if (!p) throw new HfError("unsupported", "Ce moteur ne gère pas la segmentation interactive.");
+      return await Promise.race([p, timeout]);
+    } catch (err) {
+      if (err instanceof HfError) throw err;
+      if (err instanceof HfEngineError) throw new HfError(err.code, err.message);
+      throw new HfError("runtime", err instanceof Error ? err.message : String(err));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Encode l'image (remplace la précédente pour ce modèle). */
+  samEncode(alias: string, image: HfSamImage, timeoutMs: number): Promise<HfSamEncodeResult> {
+    return this.samCall(alias, timeoutMs, (e) => e.samEncode?.(alias, image));
+  }
+
+  /** Masque pour des invites sur l'image encodée (px de cette image). */
+  samDecode(alias: string, points: HfSamPoint[], box: HfSamBox | null, timeoutMs: number): Promise<HfSamDecodeResult | null> {
+    return this.samCall(alias, timeoutMs, (e) => e.samDecode?.(alias, points, box));
   }
 
   /* ---------------- nettoyage ---------------- */

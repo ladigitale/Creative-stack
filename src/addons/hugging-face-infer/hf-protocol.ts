@@ -66,7 +66,29 @@ export type HfWorkerRequest =
   | { id: number; type: "inspect"; model: HfModelRef }
   | { id: number; type: "load"; model: HfModelRef; devices: HfDevice[] }
   | { id: number; type: "run"; request: HfRunRequest }
-  | { id: number; type: "clear"; model?: HfModelRef };
+  | { id: number; type: "clear"; model?: HfModelRef }
+  | { id: number; type: "sam-load"; model: HfModelRef; devices: HfDevice[] }
+  | { id: number; type: "sam-encode"; alias: string; image: HfSamImage }
+  | { id: number; type: "sam-decode"; alias: string; points: HfSamPoint[]; box: HfSamBox | null }
+  | { id: number; type: "sam-dispose"; alias: string };
+
+/** Image RGBA envoyée au worker (au plus 1024 px de côté, le modèle travaille à cette taille). */
+export type HfSamImage = { width: number; height: number; data: Uint8ClampedArray };
+/** Invite : point en px de l'image encodée ; `label` 1 = sur l'objet, 0 = hors de l'objet. */
+export type HfSamPoint = { x: number; y: number; label: 0 | 1 };
+export type HfSamBox = { x0: number; y0: number; x1: number; y1: number };
+export type HfSamEncodeResult = { width: number; height: number; encodeMs: number };
+export type HfSamDecodeResult = {
+  width: number;
+  height: number;
+  /** 0/1 par pixel, ligne par ligne. */
+  mask: Uint8Array;
+  /** Score IoU estimé du masque retenu, et de chaque proposition. */
+  score: number;
+  scores: number[];
+  index: number;
+  decodeMs: number;
+};
 
 export type HfWorkerResponse =
   | { id: number; ok: true; result: unknown }

@@ -12,6 +12,11 @@ import type {
   HfModelRef,
   HfProgress,
   HfRunRequest,
+  HfSamBox,
+  HfSamDecodeResult,
+  HfSamEncodeResult,
+  HfSamImage,
+  HfSamPoint,
   HfWorkerEnv,
   HfWorkerRequest,
   HfWorkerResponse,
@@ -30,6 +35,11 @@ export interface HfEngine {
   run(request: HfRunRequest): Promise<unknown[]>;
   clear(model?: HfModelRef): Promise<void>;
   dispose(): void;
+  /** Segmentation interactive (facultatif : un moteur sans ces méthodes ne gère pas `engine: "sam"`). */
+  samLoad?(model: HfModelRef, devices: HfDevice[], onProgress: (progress: HfProgress) => void): Promise<HfLoadResult>;
+  samEncode?(alias: string, image: HfSamImage): Promise<HfSamEncodeResult>;
+  samDecode?(alias: string, points: HfSamPoint[], box: HfSamBox | null): Promise<HfSamDecodeResult | null>;
+  samDispose?(alias: string): Promise<void>;
 }
 
 export class HfEngineError extends Error {
@@ -168,6 +178,27 @@ export class HfWorkerEngine implements HfEngine {
 
   async clear(model?: HfModelRef): Promise<void> {
     await this.request({ type: "clear", model });
+  }
+
+  async samLoad(model: HfModelRef, devices: HfDevice[], onProgress: (progress: HfProgress) => void): Promise<HfLoadResult> {
+    this.progressListeners.set(model.alias, onProgress);
+    try {
+      return await this.request({ type: "sam-load", model, devices });
+    } finally {
+      this.progressListeners.delete(model.alias);
+    }
+  }
+
+  samEncode(alias: string, image: HfSamImage): Promise<HfSamEncodeResult> {
+    return this.request({ type: "sam-encode", alias, image });
+  }
+
+  samDecode(alias: string, points: HfSamPoint[], box: HfSamBox | null): Promise<HfSamDecodeResult | null> {
+    return this.request({ type: "sam-decode", alias, points, box });
+  }
+
+  async samDispose(alias: string): Promise<void> {
+    await this.request({ type: "sam-dispose", alias });
   }
 
   dispose(): void {
