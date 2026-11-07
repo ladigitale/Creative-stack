@@ -1,51 +1,137 @@
 # sonic-procgen
 
-Scène 2D procédurale rendue sur GPU (WebGL2) : rues avec sol et trottoirs, ports, bivouacs, forêts, donjons, personnages,
-signalétique, motifs, insignes. Animée sans recomposition (balancement, flammes, eau, nuages, foule…). Aucun JS dans
-l'artefact : tout passe par un DataProvider.
+Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : un même monde (sol, routes, bâtiments, végétation, objets, personnages animés) se voit de profil comme un jeu de plateforme, en isométrique, en cavalière, de dessus ou en perspective libre. Tout passe par un DataProvider : aucun JS dans l'artefact. Le cahier des charges (architecture, décisions de revue, feuille de route) est dans `SPEC.md`.
 
-## Attributs
+## Le plus court
 
-| Attribut | Rôle |
+```json
+{ "tagName": "sonic-procgen", "attributes": { "dataProvider": "monde", "scene": "village", "style": "height:420px" } }
+```
+
+## Clés lues dans `dataProvider`
+
+| Clé | Rôle |
 |---|---|
-| `dataProvider` | Chemin lu et écrit (voir ci-dessous). Sans lui, seuls `scene`, `seed`, `scene-style` s'appliquent. |
-| `scene`, `seed`, `scene-style` | Valeurs initiales, utilisées si le DataProvider ne les a pas. |
-| `interactive="false"` | Désactive pan, zoom et sélection. |
-| `target` | Id d'un `sonic-store` : reçoit `{type: "select", payload: {objectId, pointer, copy, type, def}}` à chaque sélection (`objectId: null` si rien). |
-| `select-action-type` | Remplace le type `select`. |
+| `scene` | Scène de la bibliothèque : `village`, `rue`, `port`, `foret`, `bivouac`, `personnages`, `marche`, `montagne`, `vapeur`, `neon`, `blasons`, `jardin`, `ferme`, `bord-de-mer`, `place-medievale`, `jardin-japonais` |
+| `render` | `3d` (défaut) ou `vector` (illustration vectorielle 2D, voir plus bas) |
+| `exportSvg` | Compteur : chaque changement publie le SVG de la vue dans `state-out.svg` (mode vectoriel) |
+| `recipe` | Recette complète (prioritaire sur `scene`, voir plus bas) |
+| `seed` | Graine. Même graine = même monde ; chaque objet a sa sous-graine, donc modifier un objet ne bouge pas les autres |
+| `params` | Paramètres exposés par la recette (ex. `village` : `maisons`, `habitants`) |
+| `style` | Préréglage (`gouache`, `doux`, `encre`, `bd`, `pixel`, `lowpoly`, `brume`, `nuit`, `neon`, `crepuscule`, `automne`, `printemps`, `desert`, `neige`, `papier`, `abysses`, `aquarelle`) ou jetons (voir Styles) |
+| `view` | `{camera, yaw, pitch, zoom, cx, cy, cz, actor}` ; `camera` : `side`, `front`, `iso`, `oblique`, `top`, `perspective`, `follow` (suit `actor`) |
+| `anim` | `{play, speed}` |
+| `actors` | Intentions par acteur (voir Jeu) |
+| `select` | Id d'objet à surligner (`maisons.3`) |
+| `edit` | `{id: "maisons.3", params: {floors: 4}}` ou `{layer: "maisons", params: {...}}` : modifie sans réécrire la recette |
+| `hidden` | Ids cachés (objet ramassé, personnage parti) |
+| `anchors` | Ancres à suivre à l'écran : `["heros@head.top", "maisons.2@door"]` |
 
-Donner une hauteur à l'élément (`style="height:380px"`). Deux scènes au plus par document (contextes WebGL).
+## Clés écrites dans `state-out` (défaut `<dataProvider>State`)
 
-## Clés du DataProvider
+Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le publie ne peut donc rien effacer.
 
-Lues : `scene` (nom), `seed`, `params` (paramètres du def racine), `style` (jetons : palette, nuit, lumière, contour… en direct),
-`view` `{zoom, cx, cy}`, `select` (pointeur JSON d'un nœud), `anim` `{play, speed, time}`, `patch` (scène complète : `{root, canvas, defs, seed}`).
-Écrites : `selection` (objet cliqué ; modifier `selection.params.*` ou `selection.place.*` l'édite et recompose),
-`status` `{composing, items, issues, ms, fps, gpuMs, scale, skip, animated, error}`, `view`.
+| Clé | Contenu |
+|---|---|
+| `status` | `{phase: idle\|composing\|ready\|error, progress, error, ms, objects, actors, triangles, drawCalls, fps, scale, issues}` |
+| `selection` | `{id, generator, layer, params, x, y, z}` de l'objet touché |
+| `ids` | Liste des objets placés `{id, generator, layer}` : ce qui existe et peut être visé |
+| `actors` | Position, cap, vitesse, action de chaque acteur (5 fois par seconde au plus) |
+| `anchors` / `nodes` | Positions écran des ancres demandées ; `nodes` est au format de `sonic-stage` (bulles de dialogue en HTML par-dessus la scène) |
+| `view` | Vue courante (après pan / zoom de l'utilisateur) |
 
-Un `sonic-store` qui publie dans le même DataProvider réécrit tout son état à chaque action : `selection` et `status`
-disparaissent alors. Pour garder la sélection, passer par `target`, ou donner à la scène un DataProvider que ce store ne publie pas.
+`issues` : `{path, code: unknown|clamped|type|expr|missing|limit|info, message, got, used, hint, didYouMean}`. Une erreur n'arrête jamais le rendu : la scène s'affiche avec ce qui est valide.
 
-## Scènes
+## Jeu
 
-port vivant (animé), bivouac de nuit (animé), rue vivante (animé), rue (scène déclarative), allée forestière, plaine des montgolfières,
-personnages, rue à vapeur, espace profond, fond marin, port au phare, désert, donjon (vu du dessus), inventaire de jeu,
-insignes et blasons, signalétique, foule et robots, motifs et matières, bestiaire, bourg isométrique, bourg oblique, carte,
-forêt de nuit, ruines, marais, paysage, ville néon, ville à vapeur (ancienne).
+Événements envoyés au store `target` (`type` préfixé par `action-prefix` s'il est donné) :
 
-Styles (`style` = nom ou jetons) : laiton, gravure sépia, nuit vapeur, nocturne, braise, brume, papier, encre, néon, aquarelle,
-brutaliste, crypte, réverbères, bivouac, cosmos, abysses, bande dessinée, trame, gouache, pixel art.
+| Type | Charge utile |
+|---|---|
+| `pick` | `{objectId, generator, layer, x, y, z, actor, zone}` : position au sol comprise (point-and-click) |
+| `select` | `{objectId, generator, layer, params}` |
+| `arrive` | `{actor, x, z, target}` : l'acteur est arrivé |
+| `blocked` | `{actor, reason: no-path\|wall}` |
+| `enter` / `leave` | `{zone, actor}` |
+| `actionEnd` | `{actor, action}` (après `wave`, `cheer`, `jump`, `bow`, `point`) |
+
+Intentions d'acteur (`actors.<id>`), écrites par le reducer, **jamais à chaque image** (le composant interpole) :
+
+- `{x, z}` ou `{target: "maisons.2"}` (ancre `door` par défaut, ou `"maisons.2.door"`) : marche jusque-là par la grille de navigation, contourne les bâtiments, puis `arrive` ; `run: true` pour courir, `speed` en m/s ;
+- `{vx, vz}` : déplacement direct (manette à 30 Hz), sans chemin ;
+- `{action}` : `idle`, `walk`, `run`, `wave`, `point`, `cheer`, `talk`, `carry`, `sit`, `jump`, `think`, `bow` ; `{mood}` : `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy` ; `{facing}` (°).
+
+Exemple de reducer (voir `examples/village-vivant.sdui.json`) : sur `pick`, écrire `actors.heros = {x, z}` ; sur `arrive`, passer à la suite du dialogue.
+
+## Recette
+
+```json
+{
+  "params": { "maisons": { "default": 6, "min": 0, "max": 14 } },
+  "size": [60, 40],
+  "ground": { "relief": 0.8, "scale": 20, "water": -0.5, "coast": "south", "surface": "grass" },
+  "paths": [{ "id": "rue", "points": [[-30, 0], [30, 2]], "width": 5, "kind": "street", "sidewalk": 2 }],
+  "layers": [
+    { "id": "maisons", "gen": "building", "count": "= maisons", "place": { "along": "rue", "side": "right", "spacing": 10 },
+      "params": { "style": "= pick('bourg', 'colombages')", "floors": "= randint(1, 3)" } },
+    { "id": "arbres", "gen": "tree", "count": 20, "place": { "poisson": true, "minDist": 4 }, "params": { "species": "oak", "height": "= rand(5, 8)" } },
+    { "id": "lampes", "gen": "prop.lamp", "count": 6, "place": { "along": "rue", "side": "left", "spacing": 10, "offset": -1.5 } }
+  ],
+  "zones": [{ "id": "porte", "at": "maisons.2.door", "r": 1.2 }],
+  "actors": { "heros": { "params": { "archetype": "cartoon", "hat": "straw" }, "at": [0, 3] } },
+  "view": { "camera": "iso", "yaw": 30 },
+  "style": "gouache"
+}
+```
+
+- **Unités : mètres.** Un personnage adulte mesure 1,7 m, une maison 3 m par étage.
+- Un nombre peut être une **expression** `"= …"` : `+ - * / % ^`, comparaisons, `cond ? a : b`, `min max clamp mix abs floor round sqrt pow sin cos`, `rand(a, b)`, `randint(a, b)`, `pick(…)`, `chance(p)`, `noise(x, y)`. Variables : paramètres de la recette, et dans une couche `i` (rang), `n`, `t` (0…1), `x`, `z`. Aucun code n'est exécuté.
+- `ground` : `relief`, `scale` (taille des collines, m), `mountains`, `water` (niveau), `coast` (`north|south|east|west`, avec `coastAt`, `coastDepth`), `surface` (`grass|sand|snow|dirt|paved|seabed`) ; `false` : pas de sol.
+- `paths[].kind` : `street` (chaussée, trottoirs, bordures), `road`, `path` (terre battue, chemin usé), `river`, `plaza`.
+- Placement (`place`) : `at` (points ou `{x, z, yaw}`), `grid` (`[nx, nz]`, `spacing`), `poisson` (`true` ou boîte `[x0, z0, x1, z1]`, `minDist`), `along` (route, `side` `left|right|both|center`, `spacing`, `offset`, `jitter`, `start`, `end`), `cluster` (centre, `radius`), `ring` (centre, `radius`, `jitter`), `edges` (`buildings|paths|all` : touffes au pied des murs et en bord de route).
+- Options de couche : `yaw` (`path`, `random`, `center`, `away` ou degrés), `scale`, `spacing`, `onPath`, `onWater` (bateaux), `walkable`, `behavior` (`idle|wander|patrol`, personnages), `action`.
+- Les ids sont `<couche>.<rang>` et ne changent pas quand on modifie un autre objet.
+
+## Générateurs
+
+Table générée depuis les schémas (`generatorCatalog()`). Raccourcis : `prop.lamp`, `animal.horse`, `tree.oak`, `plant.fern`, `vehicle.sailboat`…
+
+| `gen` | Description et paramètres (`auto` = tiré de la graine) |
+|---|---|
+| `character` | Humanoïde skinné (quaternions duaux) : proportions par archétype et silhouette variée, tête et mains fines (4 doigts + pouce, prise refermée sur l'objet), visage paramétrique (yeux, iris, sourcils, nez, lèvres, oreilles, barbe, moustache, lunettes, rides, taches de rousseur), garde-robe en couches (cols, gilets, vestes, tablier, salopette, robe, plastron, ceinture, boutons, poches, gants, bottes, motifs), 16 coiffures, 15 couvre-chefs, rôles sociaux qui biaisent les tirages. Bords de couleur nets. Animé par la scène. Paramètres : `role` (auto\|villager\|merchant\|guard\|noble\|sailor\|farmer\|wizard\|worker\|child\|traveler\|scholar\|cook), `figure` (auto\|feminine\|masculine\|androgynous), `height`, `archetype` (chibi\|cartoon\|stylized\|heroic), `age` (auto\|child\|teen\|adult\|elder), `build`, `shape`, `headSize`, `belly`, `body`, `variation`, `skin`, `hair` (auto\|none\|shaved\|crop\|short\|sidepart\|bob\|wavy\|long\|ponytail\|lowtail\|bun\|topknot\|pigtails\|braids\|curly\|afro\|mohawk), `hairColor`, `headShape` (auto\|round\|oval\|square\|long), `eyes` (auto\|round\|almond\|narrow\|sleepy\|big), `eyeColor`, `brows` (auto\|none\|thin\|straight\|arched\|thick\|bushy), `nose` (auto\|button\|long\|aquiline\|wide\|upturned), `lips` (auto\|thin\|medium\|full), `ears` (auto\|small\|round\|large\|pointed), `beard` (auto\|none\|stubble\|short\|full\|goatee\|long\|chinstrap), `mustache` (auto\|none\|thin\|pencil\|walrus\|handlebar), `glasses` (auto\|none\|round\|square\|half), `freckles` (auto\|none\|light\|strong), `blush` (auto\|none\|light\|strong), `wrinkles` (auto\|none\|light\|strong), `top` (auto\|none\|tee\|long\|tank\|sweater\|shirt\|tunic\|coat\|robe\|dress), `bottom` (auto\|trousers\|shorts\|skirt\|longskirt\|overalls), `over` (auto\|none\|vest\|jacket\|apron\|armor), `collar` (auto\|none\|round\|shirt\|turtle), `belt` (auto\|none\|belt\|sash), `details` (auto\|none\|buttons\|pockets\|full), `gloves` (auto\|none\|gloves), `pattern` (auto\|plain\|stripes\|vstripes\|checks), `shoes` (auto\|shoes\|boots\|tallboots\|sandals\|barefoot), `hat` (auto\|none\|cap\|beret\|tophat\|wizard\|straw\|helmet\|crown\|beanie\|bandana\|turban\|cowboy\|flowers\|tricorn\|toque\|hood), `bag` (auto\|none\|backpack\|satchel\|cape\|scarf\|pouch), `item` (auto\|none\|staff\|sword\|lantern\|book\|umbrella\|torch\|flower\|mug\|spear\|hammer\|pitchfork\|wand), `mood` (neutral\|happy\|sad\|angry\|surprised\|sleepy), `outfit`, `colors`, `detail` (auto\|high\|crowd) |
+| `animal` | Quadrupèdes et oiseaux d'une seule peau, skinnés (quaternions duaux) : 13 espèces, robes par graine (uni, tacheté, pie, rayé), cornes, bois, crinière, laine, yeux avec clignement. Animés par la scène (repos, marche, trot, galop, hochement des oiseaux). Paramètres : `species` (dog\|cat\|horse\|cow\|sheep\|pig\|fox\|rabbit\|deer\|goat\|bear\|duck\|chicken), `size`, `build`, `coat` (auto\|solid\|spotted\|pie\|striped), `palette`, `variant`, `mood` (calm\|alert\|happy\|tired\|grazing), `colors`, `detail` (auto\|high\|crowd) |
+| `tree` | Arbre ramifié (tronc et branches soudés, canopée en grappes ajourées à contour dentelé, branches visibles entre les masses). Espèces : oak (chêne), beech (hêtre), maple (érable), birch (bouleau), willow (saule), poplar (peuplier), cypress (cyprès), stonepine (pin parasol), olive (olivier), cherry (cerisier en fleurs), fruit (fruitier), pine, fir (sapin), palm (palmier), dead (arbre mort). Saisons : spring, summer, autumn (teintes mêlées), winter (branches nues, neige sur les conifères). Paramètres : `species` (oak\|beech\|maple\|birch\|willow\|poplar\|cypress\|stonepine\|olive\|cherry\|fruit\|pine\|fir\|palm\|dead), `height`, `density`, `season` (spring\|summer\|autumn\|winter), `variant` |
+| `bush` | Buisson en masses implicites, fleuri ou non, ou arbuste taillé : shape = round (libre), ball (boule), cone (topiaire), box (cube de buis), cloud (nuages taillés à la japonaise), spiral (topiaire en spirale). Paramètres : `size`, `flowers`, `shape` (round\|ball\|cone\|box\|cloud\|spiral), `variant` |
+| `grass` | Touffe de brins (lames effilées), souple au vent. À semer en nombre aux raccords (pied des murs, bords de route). Paramètres : `size`, `blades`, `flowers`, `variant` |
+| `flowers` | Parterre de fleurs sur tiges, souples. kind = mixed, round (pompons), daisy (marguerites), tulip (tulipes), spike (épis : lupins, lavande), bell (clochettes). Paramètres : `size`, `count`, `kind` (mixed\|round\|daisy\|tulip\|spike\|bell) |
+| `rock` | Minéral : kind = boulder (rocher taillé par plans, en groupe, enfoui), pebbles (galets roulés), cliff (falaise à strates), slab (dalle plate), steps (pas japonais en file), scree (éboulis). Paramètres : `kind` (boulder\|pebbles\|cliff\|slab\|steps\|scree), `size`, `pieces`, `sharpness`, `flat`, `moss`, `variant` |
+| `plant` | Plantes et débris naturels instanciables : fern (fougère), tallgrass (herbes hautes à épis), reeds (roseaux et massettes, bord d'eau), waterlily (nénuphars, onWater), mushrooms (champignons), stump (souche), log (tronc couché moussu), cactus, bamboo (bosquet de bambous), ivy (lierre plaqué contre un mur en −z ; placement edges + yaw path), lavender (touffe de lavande). Paramètres : `species` (fern\|tallgrass\|reeds\|waterlily\|mushrooms\|stump\|log\|cactus\|bamboo\|ivy\|lavender), `size`, `variant` |
+| `building` | Maison ou édifice par grammaire de découpe : corps, ailes, appentis, tourelles, porches, perrons ; fenêtres (rectangulaires, plein cintre, segmentaires, à meneaux, ogives, œils-de-bœuf), volets pleins ou persiennes, petits bois, jardinières, balcons en ferronnerie, corniches à modillons, gouttières ; toits à deux pans (coyaux), pignon sur rue, croupe, mansarde, monopente, terrasse, pavillon. Matériaux : enduit, pierre appareillée, brique, bardage, colombages ; tuile, ardoise, chaume, zinc, lauze. Styles : bourg, colombages, vapeur, moderne, neon, chaumiere, pierre, ferme, chalet, mediterraneen, japonais, chateau, tour, moulin, chapelle, phare, boutique. Chaque graine donne une maison distincte. Paramètres : `style` (bourg\|colombages\|vapeur\|moderne\|neon\|chaumiere\|pierre\|ferme\|chalet\|mediterraneen\|japonais\|chateau\|tour\|moulin\|chapelle\|phare\|boutique), `floors`, `bays`, `depth`, `roof` (auto\|gable\|pignon\|hip\|mansard\|flat\|shed), `walls` (auto\|enduit\|pierre\|brique\|bardage\|colombages), `roofing` (auto\|tuile\|ardoise\|chaume\|zinc\|lauze), `shop`, `balconies`, `shutters`, `ornament`, `annexes`, `decay`, `chimneys` |
+| `prop` | Objet de décor instanciable : lamp, bench, crate, barrel, well, campfire, tent, cart, stall, signpost, lantern, fence, haystack, bollard, planter, statue, mailbox, boat, fountain, kiosk, busstop, billboard, pillar, bin, lamp2, clock, hydrant, awningstall, baskets, fruitcrates, sacks, wheelbarrow, wateringcan, beehive, scarecrow, birdhouse, pergola, greenhouse, table, chair, parasol, hanginglantern, garland, hangingsign, milestone, puddle. Paramètres : `kind` (lamp\|bench\|crate\|barrel\|well\|campfire\|tent\|cart\|stall\|signpost\|lantern\|fence\|haystack\|bollard\|planter\|statue\|mailbox\|boat\|fountain\|kiosk\|busstop\|billboard\|pillar\|bin\|lamp2\|clock\|hydrant\|awningstall\|baskets\|fruitcrates\|sacks\|wheelbarrow\|wateringcan\|beehive\|scarecrow\|birdhouse\|pergola\|greenhouse\|table\|chair\|parasol\|hanginglantern\|garland\|hangingsign\|milestone\|puddle), `size`, `variant` |
+| `vehicle` | Véhicule instanciable : carriage (carrosse), bicycle (vélo), car (voiture ancienne), rowboat (barque), sailboat (voilier), balloon (montgolfière), handcart (charrette à bras). Barque et voilier : couche `onWater`. Couleur de caisse : paint (auto = selon la variante). Paramètres : `kind` (carriage\|bicycle\|car\|rowboat\|sailboat\|balloon\|handcart), `paint` (auto\|accent\|cloth1\|cloth2\|leaf2\|water\|wood\|paper\|ink), `size`, `variant` |
+| `wall` | Clôture continue le long de `points` (coordonnées de scène ; placer la couche à l'origine : place {at: [[0,0]]}). kind = drystone (muret de pierre sèche à couronnement), coping (muret maçonné à chaperon), fence (piquets et lisses), picket (palissade à lattes), hedge (haie taillée), railing (grille de fer forgé sur mur bahut), bamboo (clôture japonaise). Drapé sur le relief, brèches et portillons selon `gaps`. Paramètres : `kind` (drystone\|coping\|fence\|picket\|hedge\|railing\|bamboo), `points`, `height`, `gaps`, `closed` |
+| `emblem` | Écu en relief (heater, round, kite, banner, square) : partition, bordure, meuble. Se pose sur un mur ou se présente de face (vue `front`). Paramètres : `shape` (heater\|round\|kite\|banner\|square), `division` (plain\|per-pale\|per-fess\|per-bend\|quarterly\|chief), `charge` (none\|star\|circle\|cross\|chevron\|tower\|tree\|crescent), `field`, `tincture`, `metal`, `size` |
+
+Ancres : personnages `head.top`, `head.center`, `hand.r.grip`, `hand.l.grip`, `back`, `chest.front`, `hip.l`, `hip.r`, `feet` ; animaux `head.top`, `back`, `mouth`, `feet` ; bâtiments `door`, `roof` ; lampes et feux `light`.
+
+## Vrai 2D : illustration vectorielle
+
+`render: "vector"` (clé du DataProvider ou attribut), ou un style vectoriel, bascule sur un rendu **Canvas 2D en courbes de Bézier** : aplats, traits à épaisseur variable, net à tout zoom. Même recette, mêmes ids, mêmes acteurs, mêmes événements ; la composition est bien plus rapide (pas de maillage). Personnages et animaux sont des traits continus suivant le même squelette animé (aucune jointure possible).
+
+- Styles : `ligne-claire` (contour noir, aplats), `flat` (aplats et ombres portées en aplat), `gravure` (hachures et trames), `affiche` (palette réduite, grandes masses), `papier-decoupe` (calques à ombre douce). Variante d'ambiance : `"flat/nuit"`, `"ligne-claire/automne"`… (préréglage 3D après la barre), ou `{vector: "gravure", …jetons}`.
+- Caméras : `side` (élévation, défaut) et `oblique` (cavalière) ; `front` donne `side`, `iso` / `perspective` / `top` donnent `oblique`, `follow` suit un acteur.
+- Export : changer `exportSvg` (compteur) publie le SVG de la vue dans `state-out.svg` (sans script).
+
+## Styles
+
+Jetons (tous facultatifs, par-dessus `preset`) : `palette` (`gouache`, `brume`, `automne`, `printemps`, `desert`, `neige`, `crepuscule`, `nuit`, `neon`, `papier`, `abysses`), `hue` (°), `chroma`, `contrast`, `shading` (`flat|toon|soft|lit`), `bands` (2–4), `bandSoftness`, `brush`, `outline` (px), `outlineStrength`, `lightAzimuth`, `lightElevation`, `lightIntensity`, `shadows`, `shadowStrength`, `ao`, `texture`, `fog`, `fogHeight`, `night`, `lamps`, `rim`, `grain`, `paper`, `vignette`, `pixel` (taille du pixel), `saturation`, `sky`, `detail` (relief de surface et usure des arêtes, 0 = lisse), `roles` (`{"wall": "#e8d8c0"}`).
+
+Rôles de couleur : `ground grass path road stone wall trim roof wood bark leaf leaf2 flower water metal glass lamp cloth1 cloth2 cloth3 leather skin hair eye eyeWhite mouth accent ink paper snow fire`. La peau, les yeux et la bouche gardent la couleur du personnage quel que soit le thème.
 
 ## Fluidité
 
-Les couches statiques sont mises en cache, la résolution et la cadence s'adaptent à la charge, le rendu s'arrête hors écran.
-`prefers-reduced-motion` n'est pas encore lu : pour figer, écrire `anim: {play: false}`.
-
-## Exemple
-
-`examples/port-vivant.sdui.json` : store + scène + boutons (scène, graine, lecture) + objet touché.
+La composition se fait par tranches (la page reste fluide ; `status.phase = composing`, `status.progress`). Bâtiments fusionnés par tuile, objets répétés instanciés, personnages en un seul maillage chacun. Rendu à la demande, densité de pixels adaptée à la charge, arrêt hors écran, `prefers-reduced-motion` respecté (animation en pause). Une scène de village (≈ 230 objets, 6 personnages) tient en une cinquantaine d'appels de dessin.
 
 ## CSP
 
-Le worker de composition est lancé depuis un `Blob` (`worker-src blob:`) ; sans lui la composition retombe sur le fil principal.
-Pas d'`eval`, pas de `new Function`.
+Pas d'`eval`, pas de `new Function`, pas de worker. Les recettes et expressions sont analysées par procgen lui-même.

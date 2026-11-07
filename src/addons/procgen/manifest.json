@@ -1,47 +1,61 @@
 {
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "procgen",
-  "label": "Scènes procédurales (GPU 2D)",
-  "description": "sonic-procgen : scène 2D procédurale rendue sur GPU (WebGL2), animée, avec sol et rues, personnages, signalétique, motifs et jeux ; scène, graine, paramètres, style, vue et animation lus dans un DataProvider, sélection et état publiés.",
+  "label": "Générateur procédural 2D/3D",
+  "description": "sonic-procgen : scènes, personnages et animaux skinnés, végétation, bâtiments, véhicules, terrain et routes générés en 3D et rendus en 3D (profil, iso, cavalière, perspective) ou en vraie illustration vectorielle 2D (export SVG), pilotés et observés par DataProvider, jouables.",
   "status": "experimental",
   "enabledByDefault": true,
-  "requires": [],
+  "requires": [
+    "three"
+  ],
   "docs": "procgen.md",
   "examples": [
-    "examples/port-vivant.sdui.json"
+    "examples/village-vivant.sdui.json"
   ],
   "components": [
     {
       "name": "sonic-procgen",
-      "description": "Scène procédurale GPU. Attributs : dataProvider (chemin lu/écrit : scene, seed, params, style, view, select, anim ; écrit : selection, status, view), scene (nom, valeur initiale), seed, scene-style (nom de style initial), interactive=\"false\" (pas de pan/zoom/clic), target (id d'un sonic-store qui reçoit {type:select, payload:{objectId, pointer, copy, type, def}}), select-action-type. Scènes : port vivant (animé), bivouac de nuit (animé), rue vivante (animé), rue (scène déclarative), allée forestière, plaine des montgolfières, personnages, rue à vapeur, espace profond, fond marin, port au phare, désert, donjon (vu du dessus), inventaire de jeu, insignes et blasons, signalétique, foule et robots, motifs et matières, bestiaire, bourg isométrique, bourg oblique, carte, forêt de nuit, ruines, marais, paysage, ville néon, ville à vapeur (ancienne). Styles : laiton, gravure sépia, nuit vapeur, nocturne, braise, brume, papier, encre, néon, aquarelle, brutaliste, crypte, réverbères, bivouac, cosmos, abysses, bande dessinée, trame, gouache, pixel art. Donner une hauteur (style height ou conteneur) ; 2 par document au maximum.",
+      "description": "Scène procédurale 3D (rendu 2D ou 3D selon caméra et style) pilotée par DataProvider, sans JS. Lit dataProvider : scene (bibliothèque : village, rue, port, foret, bivouac, personnages, marche, montagne, vapeur, neon, blasons, jardin, ferme, bord-de-mer, place-medievale, jardin-japonais) ou recipe (recette JSON : size, ground, paths, layers, zones, actors, view ; générateurs : character, animal (animal.dog, animal.horse…), tree, bush, grass, flowers, plant, rock, building, prop (prop.lamp, prop.bench…), vehicle, wall, emblem), seed, params, render (3d par défaut, ou vector : illustration vectorielle 2D, nette à tout zoom), style (préréglages vectoriels : ligne-claire, flat, gravure, affiche, papier-decoupe, ex. flat/nuit ; préréglages 3D : gouache, doux, encre, bd, pixel, lowpoly, brume, nuit, neon, crepuscule, automne, printemps, desert, neige, papier, abysses, aquarelle ; ou jetons {preset, palette, shading, outline, fog, night…}), view {camera: side|front|iso|oblique|top|perspective|follow, yaw, pitch, zoom, cx, cy, cz, actor}, anim {play, speed}, actors {id: {x, z | target: objet, vx, vz, run, action: idle|walk|run|wave|point|cheer|talk|carry|sit|jump|think|bow, mood}} (intentions, pas 60 Hz), select (id), edit {id, params}, hidden [ids], anchors ['id@ancre'], exportSvg (compteur : publie svg en mode vectoriel). Écrit dans state-out (défaut <dataProvider>State) : status {mode, phase, progress, error, objects, triangles, drawCalls, fps, issues}, selection, view, actors, anchors, nodes, ids, svg. Événements vers target : pick {objectId, layer, x, y, z, actor, zone}, select, arrive {actor, target}, blocked, enter/leave {zone, actor}, actionEnd. Unités : mètres. Donner une hauteur ; 2 scènes au plus par document.",
       "props": {
         "dataProvider": {
           "type": "string",
-          "description": "Chemin DataProvider lu et écrit (scene, patch, seed, params, style, view, select, anim / selection, status, view)"
+          "description": "Chemin DataProvider lu (scene, recipe, seed, params, style, view, anim, actors, select, edit, hidden, anchors)"
+        },
+        "state-out": {
+          "type": "string",
+          "description": "DataProvider écrit (status, selection, view, actors, anchors, nodes, ids) ; défaut <dataProvider>State"
         },
         "scene": {
           "type": "string",
-          "description": "Nom d'une scène de la bibliothèque (valeur initiale si le DataProvider n'a pas de scene)"
+          "description": "Scène de bibliothèque (si le DataProvider n'a ni scene ni recipe)"
         },
         "seed": {
           "type": "string",
-          "description": "Graine (valeur initiale)"
+          "description": "Graine initiale"
         },
         "scene-style": {
           "type": "string",
-          "description": "Nom d'un style de la bibliothèque (valeur initiale)"
+          "description": "Préréglage de style initial"
+        },
+        "camera": {
+          "type": "string",
+          "description": "Caméra initiale : side, front, iso, oblique, top, perspective, follow"
         },
         "interactive": {
           "type": "boolean",
-          "description": "false : pas de pan, zoom ni sélection (défaut true)"
+          "description": "false : pas de pan, zoom, rotation ni sélection (défaut true)"
         },
         "target": {
           "type": "string",
-          "description": "Id du sonic-store qui reçoit la sélection"
+          "description": "Id du sonic-store qui reçoit les événements (pick, select, arrive, blocked, enter, leave, actionEnd)"
         },
-        "select-action-type": {
+        "action-prefix": {
           "type": "string",
-          "description": "Type d'action envoyé à target (défaut select)"
+          "description": "Préfixe des types d'action envoyés au store (ex. scene_)"
+        },
+        "render": {
+          "type": "string",
+          "description": "Mode de rendu initial : 3d (défaut) ou vector (illustration vectorielle 2D) ; un style vectoriel l'impose aussi"
         }
       }
     }

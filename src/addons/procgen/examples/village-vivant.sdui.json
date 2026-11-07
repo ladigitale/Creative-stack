@@ -1,0 +1,251 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.7rem;max-width:56rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "monde",
+      "initial": "{\"recipe\": {\"size\": [56, 40], \"ground\": {\"relief\": 0.6, \"scale\": 20}, \"paths\": [{\"id\": \"rue\", \"points\": [[-28, 3], [-8, 0], [10, 2], [28, -1]], \"width\": 4.5, \"kind\": \"path\"}], \"layers\": [{\"id\": \"maisons\", \"gen\": \"building\", \"count\": 10, \"place\": {\"along\": \"rue\", \"spacing\": 10, \"offset\": 1.2, \"jitter\": 1}, \"params\": {\"style\": \"= pick('bourg', 'colombages', 'chaumiere')\", \"floors\": \"= randint(1, 3)\", \"bays\": \"= randint(2, 3)\", \"depth\": 7}}, {\"id\": \"arbres\", \"gen\": \"tree\", \"count\": 18, \"place\": {\"poisson\": true, \"minDist\": 4}, \"params\": {\"species\": \"= pick('oak', 'birch', 'fruit')\", \"height\": \"= rand(4, 8)\"}}, {\"id\": \"herbes\", \"gen\": \"grass\", \"count\": 120, \"place\": {\"edges\": \"all\"}, \"walkable\": true}, {\"id\": \"puits\", \"gen\": \"prop.well\", \"place\": {\"at\": [[0, 6]]}}, {\"id\": \"villageois\", \"gen\": \"character\", \"count\": 5, \"place\": {\"poisson\": [-20, -5, 20, 5], \"minDist\": 3}, \"behavior\": \"wander\", \"params\": {\"archetype\": \"cartoon\"}}], \"zones\": [{\"id\": \"puits\", \"at\": [0, 6], \"r\": 2.5}], \"actors\": {\"heros\": {\"params\": {\"archetype\": \"cartoon\", \"top\": \"coat\", \"bag\": \"backpack\", \"hat\": \"straw\", \"outfit\": \"forest\"}, \"at\": [-4, 1]}}, \"view\": {\"camera\": \"iso\", \"yaw\": 30, \"zoom\": 1.2}}, \"seed\": \"1\", \"style\": \"gouache\", \"anim\": {\"play\": true}, \"run\": false, \"msg\": \"Touchez le sol pour marcher, un personnage pour le saluer.\"}",
+      "reducer": "(\n  $a := $action.type; $p := $action.payload;\n  $a = \"scene\" ? $merge([$state, {\"scene\": $p.scene, \"msg\": \"Scène : \" & $p.scene}]) :\n  $a = \"seed\" ? $merge([$state, {\"seed\": $string($number($state.seed) + 1)}]) :\n  $a = \"style\" ? $merge([$state, {\"style\": $p.style}]) :\n  $a = \"camera\" ? $merge([$state, {\"view\": {\"camera\": $p.camera}}]) :\n  $a = \"play\" ? $merge([$state, {\"anim\": {\"play\": $not($state.anim.play)}}]) :\n  $a = \"pick\" and $p.actor ? $merge([$state, {\"actors\": {\"heros\": {\"action\": \"wave\"}}, \"msg\": \"Bonjour, \" & $p.actor & \" !\"}]) :\n  $a = \"pick\" ? $merge([$state, {\"actors\": {\"heros\": {\"x\": $p.x, \"z\": $p.z, \"run\": $state.run}}, \"msg\": $p.objectId ? \"En route vers \" & $p.objectId : \"En route\"}]) :\n  $a = \"run\" ? $merge([$state, {\"run\": $not($state.run)}]) :\n  $a = \"arrive\" ? $merge([$state, {\"actors\": {\"heros\": {\"action\": \"idle\"}}, \"msg\": \"Arrivé\" & ($p.target ? \" : \" & $p.target : \"\")}]) :\n  $a = \"blocked\" ? $merge([$state, {\"msg\": \"Chemin impossible\"}]) :\n  $a = \"enter\" ? $merge([$state, {\"msg\": \"Zone : \" & $p.zone}]) :\n  $state\n)"
+     }
+    },
+    {
+     "tagName": "sonic-procgen",
+     "attributes": {
+      "dataProvider": "monde",
+      "target": "monde",
+      "style": "height:440px;border-radius:.75rem;overflow:hidden"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;flex-wrap:wrap;gap:.5rem;align-items:center"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "camera",
+        "payload": "{\"camera\": \"iso\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Iso"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "camera",
+        "payload": "{\"camera\": \"side\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Profil"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "camera",
+        "payload": "{\"camera\": \"oblique\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Cavalière"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "camera",
+        "payload": "{\"camera\": \"perspective\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "3D"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "style",
+        "payload": "{\"style\": \"gouache\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Gouache"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "style",
+        "payload": "{\"style\": \"encre\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Encre"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "style",
+        "payload": "{\"style\": \"nuit\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Nuit"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "style",
+        "payload": "{\"style\": \"pixel\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Pixel"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "seed"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Autre graine"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "run"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Courir / marcher"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "monde",
+        "type": "play"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Pause"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "nodes": [
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "monde",
+        "key": "msg"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "font-size:.8rem;opacity:.7"
+     },
+     "nodes": [
+      {
+       "tagName": "span",
+       "textContent": "Images/s : "
+      },
+      {
+       "tagName": "sonic-value",
+       "attributes": {
+        "dataProvider": "mondeState",
+        "key": "status.fps"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
