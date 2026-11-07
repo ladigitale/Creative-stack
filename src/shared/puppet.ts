@@ -447,3 +447,36 @@ export class PuppetRig {
 }
 
 export type BoneFrameOut = { x: number; y: number; x2: number; y2: number; angle: number; rz: number; length: number };
+
+export type Box = { x0: number; y0: number; x1: number; y1: number };
+
+/** Boîte englobante des os avec image (capsules comprises), dans le repère des os. `null` sans os. */
+export function bonesBox(bones: MeasuredBone[]): Box | null {
+  let b: Box | null = null;
+  for (const o of bones) {
+    if (!o.sprite) continue;
+    for (const p of [o.start, o.end]) {
+      const r = o.radius;
+      b = b
+        ? { x0: Math.min(b.x0, p.x - r), y0: Math.min(b.y0, p.y - r), x1: Math.max(b.x1, p.x + r), y1: Math.max(b.y1, p.y + r) }
+        : { x0: p.x - r, y0: p.y - r, x1: p.x + r, y1: p.y + r };
+    }
+  }
+  return b;
+}
+
+/**
+ * Caméra cadrée sur `box` (unités de la scène `w × h`) : `zoom` = nombre (fixe) ou `"auto"` (le corps remplit la vue avec
+ * une marge, de 1 à `max`). Centre sur le corps, borné pour que la vue ne sorte pas de la scène.
+ */
+export function framingCamera(box: Box, w: number, h: number, zoom: number | "auto", max = 2.5): { x: number; y: number; zoom: number } {
+  const bw = Math.max(1, box.x1 - box.x0);
+  const bh = Math.max(1, box.y1 - box.y0);
+  let z = zoom === "auto" ? Math.min(w / (bw * 1.15), h / (bh * 1.1)) : zoom;
+  z = Math.max(1, Math.min(max, Number.isFinite(z) ? z : 1));
+  const hw = w / (2 * z);
+  const hh = h / (2 * z);
+  const clamp = (v: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : Math.max(lo, Math.min(hi, v)));
+  return { x: clamp((box.x0 + box.x1) / 2, hw, w - hw), y: clamp((box.y0 + box.y1) / 2, hh, h - hh), zoom: z };
+}
+
