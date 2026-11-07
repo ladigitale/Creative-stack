@@ -219,7 +219,7 @@ Enfant de `sonic-skeleton`. Avec un `preset`, un `sonic-bone` **de même nom** e
 
 Limites : os **rigides** (le pli est calculé par le maillage du rendu, pas par les os) ; cinématique directe seulement (pas de cinématique inverse : on donne les directions, pas la position d'un bout) ; pose de face (un os de longueur fixe ne se raccourcit pas quand le segment se tourne vers la caméra) ; un seul sujet.
 
-## `sonic-puppet` : un pantin découpé dans une photo
+## `sonic-puppet` : une photo articulée sur ses vraies articulations
 
 ```json
 [ { "tagName": "sonic-frame-sync", "attributes": { "id": "held", "for": "cam", "mode": "live", "control": "app" } },
@@ -228,14 +228,20 @@ Limites : os **rigides** (le pli est calculé par le maillage du rendu, pas par 
   { "tagName": "sonic-mask-replace", "attributes": { "id": "personne", "source": "held", "mask": "seg", "mirror": "false", "target": "background", "effect": "cutout", "style": "display:none" } },
   { "tagName": "sonic-timeline", "attributes": { "nodes-out": "anim", "time-source": "clock.t", "descriptor": "…" } },
   { "tagName": "sonic-puppet", "attributes": { "source": "#personne", "pose": "pose", "frame": "#held", "capture": "app.hold", "nodes-out": "rig", "drive": "anim.nodes", "drive-prefix": "d_", "width": "800", "height": "600" } },
-  { "tagName": "sonic-2d", "attributes": { "dataProvider": "rig", "sprites": "rig.sprites", "width": "800", "height": "600" } } ]
+  { "tagName": "sonic-2d", "attributes": { "dataProvider": "rig", "width": "800", "height": "600" },
+    "nodes": [ { "tagName": "sonic-sprite", "attributes": { "shape": "mesh", "source": "#personne", "x": "400", "y": "300", "w": "800", "h": "600", "grid": "32,24", "falloff": "3", "influences": "3" } } ] } ]
 ```
 
-Le pantin remplace le maillage déformable quand on veut des **articulations nettes** : chaque membre est une pièce rigide qui pivote sur l'articulation que le modèle de pose a **mesurée sur la photo** (aucune proportion préréglée, aucun squelette générique à caler). Seules les parties vues existent : une photo en buste donne tête, tronc, bras et mains ; les jambes apparaissent si les hanches, genoux et chevilles sont visibles, et le bassin est déduit sous les épaules quand il est hors cadre.
+`sonic-puppet` donne à une personne photographiée un **squelette mesuré sur elle** : les os sont les segments entre les articulations que le modèle de pose a détectées (aucune proportion préréglée, aucun squelette générique à caler). Seules les parties vues existent : une photo en buste donne tête, tronc, bras et mains ; les jambes apparaissent si les hanches, genoux et chevilles sont visibles, et le bassin est déduit sous les épaules quand il est hors cadre.
 
-**Découpe.** À la prise (`capture` passe à vrai), `sonic-puppet` attend que la pose corresponde à l'image figée (`frame`, au plus `timeout-ms`), mesure les os, répartit chaque pixel de la silhouette sur l'os le plus proche (capsule dont la largeur suit la largeur d'épaules), puis extrait une image par pièce **dans la pose de la photo** (rien n'est pivoté). Aux jonctions (épaule, coude, poignet, cou, hanche, genou, cheville) chaque pièce garde un peu des pixels du voisin autour de l'articulation, et le voisin un peu des siens : quand un bras tourne, aucun trou ne s'ouvre. Dessin : jambes derrière le tronc, bras devant. Pour la photo, `sonic-mask-replace` en `effect="fill"` fournit le fond sans la personne.
+Deux modes (`mode`) :
 
-**Sorties** (dans `nodes-out`) : `sprites` (liste que lit `sonic-2d sprites="rig.sprites"`, image et `pivot` sur l'articulation), `nodes` (format partagé : `x`, `y` de l'articulation en unités de scène, `rz` en radians par rapport au repos, donc 0 sur la photo) et `status` (`{ phase: idle | waiting | ready | error, error, parts, missing, body }` ; `error` : `source`, `pose`, `corps` ou `silhouette`).
+- **`skin` (défaut) : l'image se déforme, sans coupure.** Le composant publie la pose de repos mesurée (`<nodes-out>.rest`, avec la demi-largeur `radius` de chaque os) et la pose courante (`.bones`, `.present`) au format de `sonic-skeleton`. Un `sonic-sprite shape="mesh"` dont `source` est la personne découpée se déforme alors par poids entre les os : près d'une articulation un sommet suit les deux os, loin d'elle un seul. L'image reste continue, donc aucun trou quand un bras tourne. Grâce à `radius`, les poids viennent de la distance à la **surface** de chaque os et non à son axe : un os large (le tronc) revendique tout son intérieur, et un bras le long du corps ne tire pas le flanc. `falloff` règle la douceur des jonctions (grand = plus net).
+- **`pieces` : pièces rigides.** À la prise (`capture` passe à vrai), chaque pixel de la silhouette est attribué à l'os le plus proche et une image par pièce est extraite dans la pose de la photo (`<nodes-out>.sprites`, à lire par `sonic-2d sprites="rig.sprites"`). Chaque pièce garde un peu des pixels du voisin autour des jonctions, mais un grand angle finit par ouvrir un jour : réserver ce mode aux articulations nettes (pantin, marionnette) et aux petits mouvements.
+
+Dans les deux modes, à la prise le composant attend que la pose corresponde à l'image figée (`frame`, au plus `timeout-ms`) puis mesure. Pour la photo, `sonic-mask-replace` en `effect="fill"` fournit le fond sans la personne.
+
+**Sorties** (dans `nodes-out`) : `rest`, `bones`, `present` (mode `skin`, voir plus haut) ; `sprites` (mode `pieces`, liste que lit `sonic-2d sprites="rig.sprites"`, image et `pivot` sur l'articulation), `nodes` (format partagé : `x`, `y` de l'articulation en unités de scène, `rz` en radians par rapport au repos, donc 0 sur la photo) et `status` (`{ phase: idle | waiting | ready | error, error, parts, missing, body }` ; `error` : `source`, `pose`, `corps` ou `silhouette`).
 
 **Animation.** `drive` désigne les nœuds d'une `sonic-timeline` : la clé `<drive-prefix><os>` (les `-` du nom d'os deviennent `_` : `d_bras_gauche`) porte `rz` en radians, **ajouté** à la pose de la personne ; un os qui tourne entraîne ses enfants. La clé du bassin (`d_bassin`) peut porter `x`, `y` (unités de scène) pour déplacer tout le corps.
 
@@ -243,7 +249,8 @@ Os : `bassin` (racine, sans image), `torse`, `tete`, `bras-gauche|droit`, `avant
 
 | Attribut | Rôle | Défaut |
 |---|---|---|
-| `source` | `#id` de la personne découpée (`sonic-mask-replace effect="cutout"`) à la taille de l'image analysée | aucun |
+| `mode` | `skin` (image déformée par poids) ou `pieces` (pièces rigides découpées) | `skin` |
+| `source` | `#id` de la personne découpée (`sonic-mask-replace effect="cutout"`) à la taille de l'image analysée ; lu pour sa taille en `skin`, découpé en `pieces` | aucun |
 | `pose` | DataProvider de la sortie du `sonic-pose-tracker` (`joints`, `present`, `frameSeq`) | aucun |
 | `frame` | `#id` de la source figée (`sonic-frame-sync`) : sa `frameSeq` doit égaler celle de la pose avant la mesure | aucun |
 | `capture` | Chemin d'un booléen : vrai = mesurer et découper, faux = effacer | aucun |
@@ -277,7 +284,7 @@ Os : `bassin` (racine, sans image), `torse`, `tete`, `bras-gauche|droit`, `avant
 
 `unit` est requis avec `armature` : `"pointA,pointB"` (leur distance) ou un nombre de pixels. Un os dont un point manque (ou peu visible), ou dont le parent manque, n'existe pas ; `status.error` vaut `armature` si le JSON est invalide (64 os au plus) et `corps` si l'unité n'est pas mesurable. Quand les pièces sont déjà dessinées (personnage généré), inutile de découper : un `sonic-skeleton` avec ses `sonic-bone` suffit.
 
-Limites : une partie cachée derrière le corps (bras croisé devant le tronc) n'a pas de fond propre ; le recouvrement n'invente pas ce qui était caché. Vue de face de préférence.
+Limites : en mode `pieces`, une partie cachée derrière le corps (bras croisé devant le tronc) n'a pas de fond propre ; le recouvrement n'invente pas ce qui était caché. Vue de face de préférence.
 
 ## Hors périmètre (v1)
 

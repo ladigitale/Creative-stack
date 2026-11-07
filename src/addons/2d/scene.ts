@@ -51,7 +51,9 @@ function boneFrame(v: unknown): BoneFrame | null {
   if (!v || typeof v !== "object") return null;
   const o = v as Record<string, unknown>;
   const f = { x: Number(o.x), y: Number(o.y), x2: Number(o.x2), y2: Number(o.y2), angle: Number(o.angle) };
-  return Object.values(f).every(Number.isFinite) ? f : null;
+  if (!Object.values(f).every(Number.isFinite)) return null;
+  const radius = Number(o.radius);
+  return Number.isFinite(radius) && radius > 0 ? { ...f, radius } : f;
 }
 
 const RAD = Math.PI / 180;

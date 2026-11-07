@@ -127,3 +127,56 @@ describe("skinVertices", () => {
     for (let i = 0; i < out.length; i++) expect(out[i]).toBeCloseTo(skin.restPositions[i], 3);
   });
 });
+
+describe("buildSkin : os à capsules (radius)", () => {
+  // Tronc large (axe vertical x=100, rayon 40) et bras mince (axe vertical x=150, rayon 8), côte à côte.
+  const torso: BoneFrame = { ...down(100, 0, 200), radius: 40 };
+  const arm: BoneFrame = { ...down(150, 20, 150), radius: 8 };
+  const opts = { x: 100, y: 100, w: 200, h: 200, cols: 20, rows: 20, falloff: 4, influences: 2 };
+
+  it("un sommet à l'intérieur du tronc lui appartient presque entièrement, même près du bras", () => {
+    const skin = buildSkin({ ...opts, rest: [torso, arm] })!;
+    // sommet le plus proche de (128, 100) : à 28 de l'axe du tronc (dedans), 22 de l'axe du bras mais 14 de sa surface
+    let best = 0;
+    let bd = Infinity;
+    for (let i = 0; i < skin.count; i++) {
+      const d = Math.hypot(skin.restPositions[i * 2] - 128, skin.restPositions[i * 2 + 1] - 100);
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    const k = skin.influences;
+    const wTorso = [...Array(k).keys()].filter((j) => skin.bone[best * k + j] === 0).reduce((a, j) => a + skin.weight[best * k + j], 0);
+    expect(wTorso).toBeGreaterThan(0.8);
+  });
+
+  it("sans radius, la distance à l'axe donne ici l'avantage au bras (comportement historique inchangé)", () => {
+    const skin = buildSkin({ ...opts, rest: [{ ...torso, radius: undefined }, { ...arm, radius: undefined }] })!;
+    let best = 0;
+    let bd = Infinity;
+    for (let i = 0; i < skin.count; i++) {
+      const d = Math.hypot(skin.restPositions[i * 2] - 128, skin.restPositions[i * 2 + 1] - 100);
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    const k = skin.influences;
+    const wTorso = [...Array(k).keys()].filter((j) => skin.bone[best * k + j] === 0).reduce((a, j) => a + skin.weight[best * k + j], 0);
+    expect(wTorso).toBeLessThan(0.5);
+  });
+
+  it("les poids somment à 1 et la pose de repos reproduit les positions de repos", () => {
+    const rest = [torso, arm];
+    const skin = buildSkin({ ...opts, rest })!;
+    for (let i = 0; i < skin.count; i++) {
+      let sum = 0;
+      for (let j = 0; j < skin.influences; j++) sum += skin.weight[i * skin.influences + j];
+      expect(sum).toBeCloseTo(1, 5);
+    }
+    const out = new Float32Array(skin.count * 2);
+    skinVertices(skin, rest, rest, out);
+    for (let i = 0; i < skin.count * 2; i++) expect(out[i]).toBeCloseTo(skin.restPositions[i], 3);
+  });
+});
