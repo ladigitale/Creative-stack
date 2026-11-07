@@ -70,7 +70,7 @@
     },
     {
       "name": "sonic-gesture",
-      "description": "Gestes tactiles multipoints -> actions vers target. Toujours : tap / double-tap / long-press {x, y (px dans la zone), u, v (fraction)}, swipe-up|down|left|right. drag : drag {dx, dy} cumulés en fraction de la zone + drag-end. pan : pan {dx, dy, x, y} en px depuis l'action précédente + pan-end {dx, dy, vx, vy}, sans swipe. pinch : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end. wheel : molette -> pinch {source:\"wheel\"}. Continues regroupées par image.",
+      "description": "Gestes tactiles multipoints -> actions vers target. Toujours : tap / double-tap / long-press {x, y (px dans la zone), u, v (fraction)}, swipe-up|down|left|right. drag : drag {dx, dy} cumulés en fraction de la zone + drag-end. pan : pan {dx, dy, x, y} en px depuis l'action précédente + pan-end {dx, dy, vx, vy}, sans swipe. pinch : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end. wheel : molette -> pinch {source:\"wheel\"}. Continues regroupées par image. press : press {id, x, y, u, v} au contact de chaque doigt, release au lever (jeu instrumental).",
       "props": {
         "target": {
           "type": "string",
@@ -111,6 +111,10 @@
         "dispatch-event": {
           "type": "boolean",
           "description": "Émet aussi l'événement DOM sonic-action"
+        },
+        "press": {
+          "type": "boolean",
+          "description": "press / release par doigt (pointerdown / pointerup)"
         }
       }
     },
