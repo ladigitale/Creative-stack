@@ -297,3 +297,13 @@ describe("sonic-puppet : mode skin (déformation pondérée)", () => {
   });
 });
 
+
+describe("sonic-puppet : visage", () => {
+  it("sans face, ce n'est pas une source d'images", async () => {
+    const el = await mount({ mode: "skin" });
+    set("app.hold", true);
+    el.poll(performance.now() + 1000);
+    expect(el.getFrameCanvas()).toBeNull();
+    expect(el.frameSeq).toBe(0);
+  });
+});

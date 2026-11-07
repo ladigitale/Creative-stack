@@ -91,7 +91,17 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
   @property({ type: String })
   control = "";
 
+  /**
+   * DataProvider où publier l'image figée, à chaque gel : `{ url (blob:, PNG), width, height, mime }` ; `null` quand le gel
+   * se lève. Se branche sur l'entrée d'un modèle (`sonic-hugging-face-infer inputProvider="<chemin>.url"`, carte de
+   * profondeur) ou sur `sonic-still in-data-provider`.
+   */
+  @property({ type: String, attribute: "snapshot-provider" })
+  snapshotProvider = "";
+
   private controlHold: boolean | undefined;
+  /** Source imposée par `control.source` (`#id`), prioritaire sur `for`. */
+  private controlSource: string | undefined;
   private controlUnsub: (() => void) | null = null;
   private frozen = false;
 
@@ -133,9 +143,13 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
     this.controlUnsub?.();
     this.controlUnsub = null;
     this.controlHold = undefined;
+    this.controlSource = undefined;
     if (!this.control.trim()) return;
     this.controlUnsub = listenDp(this.control, (v) => {
-      this.controlHold = v && typeof v === "object" ? bool((v as Record<string, unknown>).hold) : undefined;
+      const o = v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+      this.controlHold = o ? bool(o.hold) : undefined;
+      const src = o && typeof o.source === "string" ? o.source.trim() : "";
+      this.controlSource = /^#?[A-Za-z][\w-]{0,63}$/.test(src) ? src : undefined;
     });
   }
 
@@ -147,6 +161,9 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
   }
 
   disconnectedCallback(): void {
+    if (this.snapshotUrl) URL.revokeObjectURL(this.snapshotUrl);
+    this.snapshotUrl = null;
+    this.snapshotToken++;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.unsub?.();
@@ -192,7 +209,7 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
   }
 
   private source(): CanvasSource | null {
-    const id = this.for.trim().replace(/^#/, "");
+    const id = (this.controlSource ?? this.for).trim().replace(/^#/, "");
     if (!id) return null;
     const root = this.getRootNode() as Document | ShadowRoot;
     return (root.getElementById?.(id) ?? document.getElementById(id)) as CanvasSource | null;
@@ -232,13 +249,39 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
         if (newest !== this.shown) {
           this.shown = newest;
           this.outSeq++;
+          this.publishSnapshot(newest.value);
         }
         this.publish(this.resolveMode(), false, newest);
       }
       return;
     }
+    if (this.frozen) this.clearSnapshot();
     this.frozen = false;
     this.choose(now);
+  }
+
+  private snapshotUrl: string | null = null;
+  private snapshotToken = 0;
+
+  private publishSnapshot(canvas: HTMLCanvasElement): void {
+    const path = (this.snapshotProvider ?? "").trim();
+    if (!path || typeof canvas.toBlob !== "function") return;
+    const token = ++this.snapshotToken;
+    const { width, height } = canvas;
+    canvas.toBlob((blob) => {
+      if (!blob || token !== this.snapshotToken || !this.isConnected) return;
+      if (this.snapshotUrl) URL.revokeObjectURL(this.snapshotUrl);
+      this.snapshotUrl = URL.createObjectURL(blob);
+      set(path, { url: this.snapshotUrl, width, height, mime: "image/png" });
+    }, "image/png");
+  }
+
+  private clearSnapshot(): void {
+    this.snapshotToken++;
+    const path = (this.snapshotProvider ?? "").trim();
+    if (path) set(path, null);
+    if (this.snapshotUrl) URL.revokeObjectURL(this.snapshotUrl);
+    this.snapshotUrl = null;
   }
 
   private capture(canvas: HTMLCanvasElement, seq: number, now: number): void {
