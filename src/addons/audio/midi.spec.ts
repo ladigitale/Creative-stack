@@ -52,4 +52,36 @@ describe("sonic-midi (sans Web MIDI)", () => {
     const st = get("m3State") as ReturnType<SonicMidi["getState"]>;
     expect(st).toMatchObject({ notes: 1, cc: { "1": 0.504 }, last: { kind: "noteOff", name: "C5" } });
   });
+
+  it("in-map : note jouée, harmonie, note ignorée ; noteOff et expressions suivent la note retenue", async () => {
+    const { set } = await import("@supersoniks/concorde/core/utils/PublisherProxy");
+    const got: SonicNoteEvent[] = [];
+    customElements.define("fake-instr2", class extends HTMLElement {
+      schedule(ev: SonicNoteEvent[]) { got.push(...ev); }
+      allNotesOff() {}
+    });
+    const map: unknown[] = Array.from({ length: 128 }, (_, i) => i);
+    map[60] = 62; // aimantée
+    map[64] = [64, 67]; // + harmonie
+    map[40] = -1; // zone d'accords : ignorée
+    set("mapDp", { m: map });
+    document.body.innerHTML = `<sonic-midi id="m4" target="#fx2" mpe in-map="mapDp.m"></sonic-midi><fake-instr2 id="fx2"></fake-instr2>`;
+    const el = document.querySelector("sonic-midi") as SonicMidi;
+    await el.updateComplete;
+    el.onMessage([0x92, 60, 100]);
+    el.onMessage([0x93, 64, 100]);
+    el.onMessage([0x94, 40, 100]);
+    el.onMessage([0x95, 50, 100]); // identité
+    // la carte change pendant que les notes sont tenues
+    set("mapDp", { m: [] });
+    el.onMessage([0xd3, 90]); // pression canal 4 → les deux notes jouées
+    el.onMessage([0x82, 60, 0]);
+    el.onMessage([0x83, 64, 0]);
+    el.onMessage([0x84, 40, 0]);
+    await tick();
+    const seq = got.map((e) => [e.type, e.note]);
+    expect(seq.filter(([t]) => t === "noteOn")).toEqual([["noteOn", 62], ["noteOn", 64], ["noteOn", 67], ["noteOn", 50]]);
+    expect(seq.filter(([t]) => t === "expr")).toEqual([["expr", 64], ["expr", 67]]);
+    expect(seq.filter(([t]) => t === "noteOff")).toEqual([["noteOff", 62], ["noteOff", 64], ["noteOff", 67]]);
+  });
 });

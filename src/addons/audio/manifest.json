@@ -527,13 +527,14 @@
     },
     {
       "name": "sonic-mod",
-      "description": "Câble de modulation : from (module ou voice.pitch|gate|vel|note|rand) → to (module.param), amount, curve=exp ; name : câble pilotable (sonic-param to=\"nom.amount\" ou \"nom.depth\"), plusieurs câbles peuvent partager un nom",
+      "description": "Câble de modulation : from (module ou voice.pitch|gate|vel|note|rand) → to (module.param), amount, curve=exp ; name : câble pilotable (sonic-param to=\"nom.amount\" ou \"nom.depth\"), plusieurs câbles peuvent partager un nom ; from=\"a b c\" : un câble par source, depth en liste [da, db, dc] dose chaque source",
       "props": {
         "name": {
           "type": "string"
         },
         "from": {
-          "type": "string"
+          "type": "string",
+          "description": "source, ou plusieurs séparées par des espaces (câble multi-source : depth en liste)"
         },
         "to": {
           "type": "string"
@@ -790,6 +791,10 @@
         },
         "transpose": {
           "type": "number"
+        },
+        "in-map": {
+          "type": "string",
+          "description": "DP : tableau de 128 entrées note reçue → note jouée (numéro, liste [note, harmonie] ou -1/null = ignorée) ; noteOff et expressions MPE suivent la note retenue"
         },
         "target": {
           "type": "string",

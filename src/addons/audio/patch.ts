@@ -405,15 +405,17 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     for (const p of this.compiled?.params ?? []) {
       if (!p.source) continue;
       const mod = p.kind === "module" ? modules.get(p.module) : undefined;
-      const list = !!(mod && MODULES[mod.type].params[p.param]?.list);
+      // liste : paramètre liste d'un module, ou profondeur par source d'un câble multi-source
+      const list = !!(mod && MODULES[mod.type].params[p.param]?.list) || (p.kind === "mod" && p.param === "depth");
       this.paramUnsubs.push(
         listenDp(p.source, (v) => {
           if (v === null || v === undefined || v === "") return;
-          if (list) {
-            // partiels, niveaux : liste (tableau ou "1 2.76 5.4")
-            if (Array.isArray(v) || typeof v === "string") this.runtime?.setParam(p.module, p.param, Array.isArray(v) ? v.map(Number) : v, p.rampS);
+          if (list && (Array.isArray(v) || (typeof v === "string" && p.kind === "module"))) {
+            // partiels, niveaux, profondeurs par source : liste (tableau ou "1 2.76 5.4")
+            this.runtime?.setParam(p.module, p.param, Array.isArray(v) ? v.map(Number) : v, p.rampS);
             return;
           }
+          if (list && p.kind === "module") return;
           if (p.param === "active" && typeof v === "boolean") {
             this.runtime?.setParam(p.module, p.param, v, 0);
             return;

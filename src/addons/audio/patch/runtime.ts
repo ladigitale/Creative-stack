@@ -124,6 +124,11 @@ export class PatchRuntime {
       if (typeof a === "number") amount = m.exp ? a * 100 : a;
       const d = this.overrides.get(`${m.name}.depth`);
       if (typeof d === "number") depth = d;
+      else if (Array.isArray(d)) {
+        // profondeur par source (câble multi-source) ; rang absent = 0
+        const v = d[m.index ?? 0];
+        depth = typeof v === "number" && Number.isFinite(v) ? v : 0;
+      }
     }
     return amount * depth;
   }
@@ -537,7 +542,8 @@ export class PatchRuntime {
    */
   setParam(module: string, param: string, value: ParamValue | boolean, rampS = 0.02, when = this.ac.currentTime): boolean {
     if (this.modNames.has(module)) {
-      if ((param !== "amount" && param !== "depth") || typeof value !== "number" || !Number.isFinite(value)) return false;
+      const okList = param === "depth" && Array.isArray(value) && value.every((x) => Number.isFinite(x));
+      if ((param !== "amount" && param !== "depth") || (!okList && (typeof value !== "number" || !Number.isFinite(value)))) return false;
       this.overrides.set(`${module}.${param}`, value);
       const retarget = (list: { mod: CompiledMod; gain: GainNode }[]) => {
         for (const { mod, gain } of list) if (mod.name === module) ramp(gain.gain, this.modGain(mod), when, rampS);
