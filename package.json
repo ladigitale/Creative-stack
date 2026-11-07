@@ -29,6 +29,7 @@
     "./plot": "./src/addons/plot/index.ts",
     "./vector": "./src/addons/vector/index.ts",
     "./vectorize": "./src/addons/vectorize/index.ts",
+    "./blobs": "./src/addons/blobs/index.ts",
     "./ocr": "./src/addons/ocr/index.ts",
     "./paint": "./src/addons/paint/index.ts",
     "./sketch": "./src/addons/sketch/index.ts",
