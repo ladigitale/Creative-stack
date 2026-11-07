@@ -219,6 +219,43 @@ Enfant de `sonic-skeleton`. Avec un `preset`, un `sonic-bone` **de même nom** e
 
 Limites : os **rigides** (le pli est calculé par le maillage du rendu, pas par les os) ; cinématique directe seulement (pas de cinématique inverse : on donne les directions, pas la position d'un bout) ; pose de face (un os de longueur fixe ne se raccourcit pas quand le segment se tourne vers la caméra) ; un seul sujet.
 
+## `sonic-puppet` : un pantin découpé dans une photo
+
+```json
+[ { "tagName": "sonic-frame-sync", "attributes": { "id": "held", "for": "cam", "mode": "live", "control": "app" } },
+  { "tagName": "sonic-segmenter", "attributes": { "id": "seg", "for": "held", "mode": "alpha", "mirror": "false" } },
+  { "tagName": "sonic-pose-tracker", "attributes": { "id": "pose", "for": "held", "mirror": "false" } },
+  { "tagName": "sonic-mask-replace", "attributes": { "id": "personne", "source": "held", "mask": "seg", "mirror": "false", "target": "background", "effect": "cutout", "style": "display:none" } },
+  { "tagName": "sonic-timeline", "attributes": { "nodes-out": "anim", "time-source": "clock.t", "descriptor": "…" } },
+  { "tagName": "sonic-puppet", "attributes": { "source": "#personne", "pose": "pose", "frame": "#held", "capture": "app.hold", "nodes-out": "rig", "drive": "anim.nodes", "drive-prefix": "d_", "width": "800", "height": "600" } },
+  { "tagName": "sonic-2d", "attributes": { "dataProvider": "rig", "sprites": "rig.sprites", "width": "800", "height": "600" } } ]
+```
+
+Le pantin remplace le maillage déformable quand on veut des **articulations nettes** : chaque membre est une pièce rigide qui pivote sur l'articulation que le modèle de pose a **mesurée sur la photo** (aucune proportion préréglée, aucun squelette générique à caler). Seules les parties vues existent : une photo en buste donne tête, tronc, bras et mains ; les jambes apparaissent si les hanches, genoux et chevilles sont visibles, et le bassin est déduit sous les épaules quand il est hors cadre.
+
+**Découpe.** À la prise (`capture` passe à vrai), `sonic-puppet` attend que la pose corresponde à l'image figée (`frame`, au plus `timeout-ms`), mesure les os, répartit chaque pixel de la silhouette sur l'os le plus proche (capsule dont la largeur suit la largeur d'épaules), puis extrait une image par pièce **dans la pose de la photo** (rien n'est pivoté). Aux jonctions (épaule, coude, poignet, cou, hanche, genou, cheville) chaque pièce garde un peu des pixels du voisin autour de l'articulation, et le voisin un peu des siens : quand un bras tourne, aucun trou ne s'ouvre. Dessin : jambes derrière le tronc, bras devant. Pour la photo, `sonic-mask-replace` en `effect="fill"` fournit le fond sans la personne.
+
+**Sorties** (dans `nodes-out`) : `sprites` (liste que lit `sonic-2d sprites="rig.sprites"`, image et `pivot` sur l'articulation), `nodes` (format partagé : `x`, `y` de l'articulation en unités de scène, `rz` en radians par rapport au repos, donc 0 sur la photo) et `status` (`{ phase: idle | waiting | ready | error, error, parts, missing, body }` ; `error` : `source`, `pose`, `corps` ou `silhouette`).
+
+**Animation.** `drive` désigne les nœuds d'une `sonic-timeline` : la clé `<drive-prefix><os>` (les `-` du nom d'os deviennent `_` : `d_bras_gauche`) porte `rz` en radians, **ajouté** à la pose de la personne ; un os qui tourne entraîne ses enfants. La clé du bassin (`d_bassin`) peut porter `x`, `y` (unités de scène) pour déplacer tout le corps.
+
+Os : `bassin` (racine, sans image), `torse`, `tete`, `bras-gauche|droit`, `avant-bras-gauche|droit`, `main-gauche|droite`, `cuisse-gauche|droite`, `mollet-gauche|droit`, `pied-gauche|droit` (`gauche` = côté gauche de l'écran, comme `left*` du tracker).
+
+| Attribut | Rôle | Défaut |
+|---|---|---|
+| `source` | `#id` de la personne découpée (`sonic-mask-replace effect="cutout"`) à la taille de l'image analysée | aucun |
+| `pose` | DataProvider de la sortie du `sonic-pose-tracker` (`joints`, `present`, `frameSeq`) | aucun |
+| `frame` | `#id` de la source figée (`sonic-frame-sync`) : sa `frameSeq` doit égaler celle de la pose avant la mesure | aucun |
+| `capture` | Chemin d'un booléen : vrai = mesurer et découper, faux = effacer | aucun |
+| `nodes-out` | DataProvider qui reçoit `sprites`, `nodes`, `status` | aucun (rien n'est écrit) |
+| `drive`, `drive-prefix` | Nœuds d'animation lus (`<drive>.<prefix><os>.rz`) | aucun |
+| `width`, `height` | Taille de la scène : l'image y est centrée, proportions gardées | 800 × 600 |
+| `layer` | Calque `sonic-2d` des sprites | calque par défaut |
+| `min-visibility` | Visibilité minimale d'une articulation | 0,5 |
+| `settle-ms`, `timeout-ms` | Attente minimale / maximale d'une pose alignée sur l'image figée | 350 / 2 500 |
+
+Limites : une partie cachée derrière le corps (bras croisé devant le tronc) n'a pas de fond propre ; le recouvrement n'invente pas ce qui était caché. Vue de face de préférence.
+
 ## Hors périmètre (v1)
 
 Ressorts et physique, `flip` / `draw-path` / `pulse`, transitions de vues (View Transitions), animation de la mise en page, synchronisation de l'horloge interne par p2p (le pilotage p2p passe par `time-source`).
