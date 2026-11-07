@@ -15,6 +15,8 @@ const tagName = "sonic-gesture";
  * `pinch` : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end (deux doigts).
  * `wheel` : la molette envoie pinch {source: "wheel", dScale…}.
  * Les actions continues (drag, pan, pinch) sont regroupées : au plus une de chaque par image.
+ * `press` : press {id, x, y, u, v} dès qu'un doigt touche, release {id, x, y, u, v} quand il se lève
+ *   (ou que le geste est annulé), pour chaque doigt : jeu instrumental (note tenue tant que le doigt reste).
  * `state-provider` : DataProvider qui reçoit {active, pointers, scale, rotation, panX, panY, x, y}.
  */
 @customElement(tagName)
@@ -50,6 +52,10 @@ export class SonicGesture extends LitElement {
 
   @property({ type: Boolean })
   wheel = false;
+
+  /** Émet press / release par doigt (pointerdown / pointerup), en plus des gestes. */
+  @property({ type: Boolean })
+  press = false;
 
   @property({ type: String, attribute: "state-provider" })
   stateProvider = "";
@@ -88,11 +94,43 @@ export class SonicGesture extends LitElement {
     }
   }
 
+  /** Doigts posés (press émis, release pas encore). */
+  private pressed = new Set<number>();
+
+  private pressAction(type: "press" | "release", e: PointerEvent): SonicActionMessage {
+    const r = this.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const clamp = (v: number) => Math.min(1, Math.max(0, v));
+    return {
+      type,
+      payload: {
+        id: e.pointerId,
+        x: Math.round(x * 10) / 10,
+        y: Math.round(y * 10) / 10,
+        u: r.width ? Math.round(clamp(x / r.width) * 10000) / 10000 : 0,
+        v: r.height ? Math.round(clamp(y / r.height) * 10000) / 10000 : 0,
+      },
+    };
+  }
+
+  private releasePointer(e: PointerEvent): void {
+    if (!this.pressed.delete(e.pointerId)) return;
+    this.flush();
+    this.emit(this.pressAction("release", e));
+  }
+
   private onDown = (e: PointerEvent) => {
     try {
       this.setPointerCapture(e.pointerId);
     } catch {
       /* pointeur déjà relâché */
+    }
+    if (this.press) {
+      // tout de suite, avant toute analyse de geste : la note part au contact
+      this.pressed.add(e.pointerId);
+      this.flush();
+      this.emit(this.pressAction("press", e));
     }
     this.handle(this.tracker.down(this.point(e), this.options()));
     this.clearLong();
@@ -112,11 +150,13 @@ export class SonicGesture extends LitElement {
 
   private onUp = (e: PointerEvent) => {
     this.clearLong();
+    this.releasePointer(e);
     this.handle(this.tracker.up(this.point(e), this.options()));
   };
 
   private onCancel = (e: PointerEvent) => {
     this.clearLong();
+    this.releasePointer(e);
     // Un pointeur annulé (geste système) termine le geste sans tap ni swipe.
     if (this.tracker.size <= 1) this.handle(this.tracker.cancel());
     else this.handle(this.tracker.up(this.point(e), { ...this.options(), swipeThreshold: Infinity, longPressMs: 0 }));
