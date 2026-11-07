@@ -29,7 +29,9 @@ export type ActorRT = {
   actionWeight: number;
   mood: string;
   path: [number, number][] | null;
-  goal: { x: number; z: number; target?: string } | null;
+  goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number } } | null;
+  /** Hauteur de l'assise occupée (m) : le bassin s'y pose quand l'acteur est assis. */
+  seatY?: number;
   drive: { vx: number; vz: number } | null;
   wantSpeed: number;
   wanderT: number;
@@ -97,15 +99,21 @@ export class ActorSim {
         a.path = null;
       } else if (it.target || Number.isFinite(it.x) || Number.isFinite(it.z)) {
         let x = Number(it.x ?? a.pos[0]), z = Number(it.z ?? a.pos[2]);
+        let seat: { x: number; y: number; z: number; yaw: number } | undefined;
         if (it.target) {
           const o = this.model?.objects.find((ob) => ob.id === it.target || it.target!.startsWith(ob.id + "."));
           if (o) {
             const an = it.target.slice(o.id.length + 1);
-            const p = (an && o.anchors[an]) || o.anchors.door || o.pos;
+            // place assise : on marche jusqu'à l'ancre « approach.N » (devant), puis on s'assied sur « sit.N »
+            const sm = /^sit\.(\d+)$/.exec(an);
+            const sp = sm ? o.anchors[an] : undefined;
+            if (sp) seat = { x: sp[0], y: sp[1] - o.pos[1], z: sp[2], yaw: o.yaw };
+            const p = (sm && o.anchors[`approach.${sm[1]}`]) || (an && o.anchors[an]) || o.anchors.door || o.pos;
             [x, z] = [p[0], p[2]];
           }
         }
         this.goto(a, x, z, it.target);
+        if (a.goal && seat) a.goal.seat = seat;
       }
       if (Number.isFinite(it.facing) && !a.goal && !a.drive) a.yaw = (Number(it.facing) * Math.PI) / 180;
     }
@@ -123,6 +131,7 @@ export class ActorSim {
     }
     a.path = p.slice(1);
     a.goal = { x, z, target };
+    a.seatY = 0;
   }
 
   /** Avance la simulation de `dt` secondes. */
@@ -154,6 +163,17 @@ export class ActorSim {
           const g = a.goal;
           a.path = null;
           a.goal = null;
+          if (g?.seat) {
+            a.pos[0] = g.seat.x;
+            a.pos[2] = g.seat.z;
+            a.yaw = g.seat.yaw;
+            a.seatY = g.seat.y;
+            a.speed = 0;
+            if (a.action !== "sit") {
+              a.action = "sit";
+              a.actionTime = 0;
+            }
+          }
           if (g) this.onEvent({ type: "arrive", payload: { actor: a.model.id, x: round(a.pos[0]), z: round(a.pos[2]), target: g.target ?? null } });
         }
       } else {
@@ -231,13 +251,13 @@ export class ActorSim {
 
   pose(a: ActorRT) {
     const sk = a.model.asset.skeleton!;
-    const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed };
+    const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" ? a.seatY : 0 };
     const { pose } = a.mo.pose(st);
     a.W = sk.world(pose);
   }
 
   poses(): ActorPose[] {
-    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, speed: a.speed, hidden: a.hidden, colors: a.model.asset.colors as Record<string, string> | undefined }));
+    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, speed: a.speed, hidden: a.hidden, seated: a.action === "sit" && (a.seatY ?? 0) > 0, colors: a.model.asset.colors as Record<string, string> | undefined }));
   }
 
   state(id: string) {

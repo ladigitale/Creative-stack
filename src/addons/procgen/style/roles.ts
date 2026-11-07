@@ -35,6 +35,15 @@ export const ROLES = [
   "snow", // 29 neige
   "fire", // 30 flamme (émissif)
   "sky", // 31 (réservé au ciel)
+  // couleurs franches d'objets (ballons, jouets, plastiques, signaux) : teintes nettes, harmonisées par le style
+  "red", // 32
+  "orange", // 33
+  "yellow", // 34
+  "green", // 35
+  "blue", // 36
+  "purple", // 37
+  "white", // 38
+  "black", // 39
 ] as const;
 
 export type Role = (typeof ROLES)[number];

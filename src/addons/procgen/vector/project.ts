@@ -50,6 +50,14 @@ export class Projector {
   depth(v: V3): number {
     return v[0] * this.dir[0] + v[1] * this.dir[1] + v[2] * this.dir[2];
   }
+  /**
+   * Clé d'ordre de dessin d'un objet posé au sol : la profondeur, mais avec l'abscisse presque neutralisée. En
+   * cavalière, la profondeur dépend de x ; les bandes de sol (infinies en x) ont une clé prise en x = 0 : sans cela,
+   * un objet loin à gauche passait derrière la bande de sol posée devant lui et se faisait couper.
+   */
+  key(v: V3): number {
+    return (v[0] * 0.04) * this.dir[0] + v[1] * this.dir[1] + v[2] * this.dir[2];
+  }
   /** Profondeur normalisée 0 (près) … 1 (loin) d'après z. */
   far(z: number): number {
     const t = (this.zMax - z) / Math.max(1e-6, this.zMax - this.zMin);

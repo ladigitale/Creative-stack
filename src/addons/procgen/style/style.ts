@@ -14,6 +14,7 @@ export const BASE_ROLES: Record<Role, string> = {
   wood: "#88603f", bark: "#5c4838", leaf: "#6c7d47", leaf2: "#879050", flower: "#d38a5c", water: "#4c7a87", metal: "#7a8188", glass: "#5f7d91",
   lamp: "#ffd18a", cloth1: "#8a6a4f", cloth2: "#4d4a44", cloth3: "#c9b48f", leather: "#4a3427", skin: "#ddaa86", hair: "#45302a", eye: "#2a2422",
   eyeWhite: "#f2ede4", mouth: "#7a3934", accent: "#bf5a40", ink: "#2c2a2f", paper: "#ece3cf", snow: "#eceff1", fire: "#ffad47", sky: "#b9cfdc",
+  red: "#c8443a", orange: "#e07a2e", yellow: "#e9c33f", green: "#4f9a4c", blue: "#3f6fb5", purple: "#7a4f9e", white: "#f1efe9", black: "#25252a",
 };
 
 export type Palette = {
@@ -165,7 +166,7 @@ function transform(c: LCH, s: StyleTokens, pal: Palette, role?: Role): LCH {
 }
 
 export type ResolvedColors = {
-  /** 32 rôles × RGB linéaire. */
+  /** Rôles (`ROLES.length`) × RGB linéaire. */
   roles: Float32Array;
   skyTop: RGB;
   skyHorizon: RGB;

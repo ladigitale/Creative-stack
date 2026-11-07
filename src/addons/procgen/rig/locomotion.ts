@@ -33,6 +33,8 @@ export type MotionState = {
   turn: number;
   /** Graine de micro-variations (posture, tics). */
   seed: number;
+  /** Assis : hauteur de l'assise (m, 0 = par terre). Le bassin s'y pose, les pieds restent au sol devant. */
+  seatY?: number;
 };
 
 export type RigInfo = {
@@ -217,7 +219,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     const r = qMul(qMul(yawQ, [p[0], p[1], p[2], 0]), qConj(yawQ));
     return [r[0] + rootPos[0], r[1] + rootPos[1], r[2] + rootPos[2]];
   };
-  let drop = crouch + jumpCrouch + sit * (info.hipY - info.thigh * 0.25 - info.ankleY * 0);
+  const seatTop = st.seatY && st.seatY > 0 ? Math.min(info.hipY * 0.95, st.seatY + info.thigh * 0.18) : info.thigh * 0.25;
+  let drop = crouch + jumpCrouch + sit * (info.hipY - seatTop);
   const pelvisOffset: V3 = [sway, bob - drop + jumpY, 0];
   const beta = mix(0.62, 0.38, run);
   const lift = leg * mix(0.075, 0.2, run) * Math.min(1, vn * 1.3) * moving;

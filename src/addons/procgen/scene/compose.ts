@@ -80,6 +80,9 @@ export type ObjectInfo = {
   obj: number;
   mode: "static" | "instance" | "actor";
   anchors: Record<string, V3>;
+  /** Ce que l'objet permet (s'asseoir, rouler, lancer…) et ses propriétés physiques, s'il les publie. */
+  affords?: string[];
+  physics?: Record<string, unknown>;
 };
 
 export type InstanceGroup = { key: string; mesh: Mesh; matrices: M4[]; objs: number[]; flex: boolean };
@@ -288,7 +291,9 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     for (const [k, a] of Object.entries(asset.anchors)) anchors[k] = m4Point(T, a.pos);
     const isActor = ACTOR_GENS.has(generator);
     const mode: ObjectInfo["mode"] = isActor ? "actor" : INSTANCEABLE.has(generator) ? "instance" : "static";
-    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors });
+    const affords = Array.isArray(asset.extra?.affords) ? (asset.extra!.affords as string[]) : undefined;
+    const physics = asset.extra?.physics && typeof asset.extra.physics === "object" ? (asset.extra.physics as Record<string, unknown>) : undefined;
+    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(affords ? { affords } : {}), ...(physics ? { physics } : {}) });
     const segs = asset.extra?.segments as [number, number, number, number, number][] | undefined;
     if (segs) {
       // clôtures le long d'un tracé : chaque tronçon bloque sa bande, de petits disques jalonnent le tracé
@@ -377,7 +382,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       const rr = Math.max(0.2, built.generator === "building" ? Math.min(built.asset.footprint.hx, built.asset.footprint.hz) * scale * 0.95 : r * 0.6);
       if (!("at" in place) && !free(pos.x, pos.z, rr, !!layer.onPath || along || !!layer.onWater, spacing, !!layer.onWater)) continue;
       let yaw = pos.yaw ?? 0;
-      const yw = layer.yaw ?? (built.generator === "building" ? "path" : built.asset.extra?.segments ? 0 : "random");
+      // cap explicite d'un point `at` respecté ; sinon : bâtiments face au chemin, tracés sans rotation, le reste au hasard
+      const yw = layer.yaw ?? (built.generator === "building" || pos.yaw !== undefined ? "path" : built.asset.extra?.segments ? 0 : "random");
       if (yw === "random") yaw = irng.range(0, Math.PI * 2);
       else if (yw === "center") yaw = Math.atan2(-pos.x, -pos.z);
       else if (yw === "away") yaw = Math.atan2(pos.x, pos.z);

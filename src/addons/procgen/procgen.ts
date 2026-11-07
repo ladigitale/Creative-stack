@@ -379,7 +379,7 @@ export class SonicProcgen extends HTMLElement {
       anchors,
       nodes,
       svg: this.svgOut,
-      ids: m ? m.objects.map((o) => ({ id: o.id, generator: o.generator, layer: o.layer })).slice(0, 400) : [],
+      ids: m ? m.objects.map((o) => ({ id: o.id, generator: o.generator, layer: o.layer, ...(o.affords ? { affords: o.affords } : {}) })).slice(0, 400) : [],
     };
     const sig = JSON.stringify(next);
     if (sig !== this.lastOut) {
@@ -393,7 +393,7 @@ export class SonicProcgen extends HTMLElement {
     const o = id ? this.model?.objects.find((x) => x.id === id) : null;
     if (out) {
       const prev = (PublisherManager.get(out) as unknown as Publisher).get() as Json | null;
-      set(out, { ...(prev && typeof prev === "object" ? prev : {}), selection: o ? { id: o.id, generator: o.generator, layer: o.layer, params: o.params, x: o.pos[0], y: o.pos[1], z: o.pos[2] } : null });
+      set(out, { ...(prev && typeof prev === "object" ? prev : {}), selection: o ? { id: o.id, generator: o.generator, layer: o.layer, params: o.params, x: o.pos[0], y: o.pos[1], z: o.pos[2], ...(o.affords ? { affords: o.affords } : {}), ...(o.physics ? { physics: o.physics } : {}), ...(Object.keys(o.anchors).some((k) => k.startsWith("sit.")) ? { seats: Object.keys(o.anchors).filter((k) => k.startsWith("sit.")) } : {}) } : null });
     }
     return o;
   }

@@ -6,6 +6,8 @@
  * les contours en post-traitement.
  */
 
+import { ROLES } from "../style/roles";
+
 export const MAX_BONES = 32;
 
 const COMMON = /* glsl */ `
@@ -127,7 +129,7 @@ in float vViewZ;
 in vec4 vShadow;
 flat in float vVar;
 in float vBlend;
-uniform vec3 uRoles[32];
+uniform vec3 uRoles[${ROLES.length}];
 uniform vec3 uSunDir;
 uniform vec3 uSun;
 uniform vec3 uAmbSky;
@@ -201,6 +203,7 @@ float roleTexture(int role, vec3 p, vec3 n) {
   }
   if (role == 10 || role == 11) return (fbm3(p * 4.5) - 0.5) * 0.3;
   if (role >= 17 && role <= 20) return (vnoise(p * 40.0) - 0.5) * 0.06;
+  if (role >= 32) return (vnoise(p * 28.0) - 0.5) * 0.03; // couleurs franches : plastique, caoutchouc, cuir peint
   return (vnoise(p * 8.0) - 0.5) * 0.06;
 }
 
