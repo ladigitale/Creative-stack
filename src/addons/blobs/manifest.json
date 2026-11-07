@@ -1,0 +1,40 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "blobs",
+  "label": "Compter des objets",
+  "description": "Compte les objets d'une image (photo, fichier, caméra) : éclairage aplati, seuil d'Otsu, composantes connexes, séparation des objets qui se touchent ; liste des objets et marqueurs numérotés publiés en DataProvider",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "blobs.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-blobs",
+      "description": "Compte les objets : source (#id d'une source d'images), control {n} ou auto (chaque nouvelle image, interval ms : en continu sur une caméra), polarity auto|dark|light, bias, flatten, open, min-area-rel, no-split, drop-border, ref-from (DP {x,y} 0..1 d'un objet type), params (réglages en direct), fit ; état {status, count, estimate, clusters, median, reference, polarity, blobs[{id, cx, cy, nx, ny, nw, nh, area, k, split, border}], overlay {url}, width, height, ms, error} ; aperçu = marqueurs numérotés à superposer à l'image",
+      "props": {
+        "source": { "type": "string" },
+        "control": { "type": "string" },
+        "auto": { "type": "boolean" },
+        "interval": { "type": "number" },
+        "max-size": { "type": "number" },
+        "polarity": { "type": "string", "values": ["auto", "dark", "light"] },
+        "flatten": { "type": "number" },
+        "bias": { "type": "number" },
+        "open": { "type": "number" },
+        "min-area-frac": { "type": "number" },
+        "min-area-rel": { "type": "number" },
+        "no-split": { "type": "boolean" },
+        "split-ratio": { "type": "number" },
+        "peak-rel": { "type": "number" },
+        "min-part-rel": { "type": "number" },
+        "drop-border": { "type": "boolean" },
+        "ref-from": { "type": "string" },
+        "params": { "type": "string" },
+        "fit": { "type": "string", "values": ["contain", "cover"] },
+        "hidden-preview": { "type": "boolean" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
