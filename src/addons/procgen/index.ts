@@ -13,3 +13,4 @@ export { ROLES } from "./style/roles";
 export { CAMERAS } from "./render/camera";
 export { ACTIONS } from "./rig/locomotion";
 import "./procgen";
+export * from "./vector/index";

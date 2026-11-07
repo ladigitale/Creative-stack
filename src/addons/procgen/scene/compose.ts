@@ -114,7 +114,14 @@ const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { nam
 const TILE = 24;
 const MAX_ITEMS = 1500;
 
-export type ComposeInput = { recipe: Recipe; seed?: string | number; params?: Record<string, unknown>; edits?: Record<string, Record<string, unknown>> };
+export type ComposeInput = {
+  recipe: Recipe;
+  seed?: string | number;
+  params?: Record<string, unknown>;
+  edits?: Record<string, Record<string, unknown>>;
+  /** Construction d'asset de remplacement (mode vectoriel : emprises et squelettes sans maillage) ; `null` = générateur réel. */
+  assetBuilder?: (generator: string, params: Record<string, unknown>, ctx: import("../gen/types").GenContext) => Asset | null;
+};
 
 /** Composition synchrone (tests, outils). */
 export function composeScene(input: ComposeInput): SceneModel {
@@ -257,7 +264,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     let asset = gen.id === "character" ? undefined : assetCache.get(key);
     if (!asset) {
       try {
-        asset = gen.build(resolved as never, { rng, issues, path });
+        asset = input.assetBuilder?.(gen.id, resolved, { rng, issues, path }) ?? gen.build(resolved as never, { rng, issues, path });
       } catch (e) {
         issues.add({ path, code: "info", message: `échec du générateur : ${(e as Error).message}` });
         return null;

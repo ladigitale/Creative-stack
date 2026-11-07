@@ -2,17 +2,14 @@
  * Composition légère pour le mode vectoriel : même recette, même placement, mêmes ids, mêmes acteurs et même grille
  * de navigation que `composeScene`, mais **sans maillages** (les dessinateurs vectoriels lisent les paramètres).
  *
- * Les générateurs coûteux (surfaces implicites : arbres, buissons, rochers, personnages ; bâtiments) sont remplacés le
- * temps d'un appel **synchrone** par des doublures qui calculent l'emprise, la hauteur, les ancres, le squelette et les
- * couleurs à partir des paramètres résolus (mêmes formules que les vrais générateurs). Les générateurs inconnus
- * (ajoutés par d'autres modules) gardent leur vraie construction.
- *
- * À terme : une option `assetBuilder` dans `ComposeInput` remplacera cette substitution (voir rapport d'intégration).
+ * Les générateurs coûteux (surfaces implicites : arbres, buissons, rochers, personnages ; bâtiments) sont remplacés,
+ * via l'option `assetBuilder` de `composeScene`, par des doublures qui calculent l'emprise, la hauteur, les ancres, le
+ * squelette et les couleurs à partir des paramètres résolus (mêmes formules que les vrais générateurs). Les autres
+ * générateurs gardent leur vraie construction.
  */
 import { clamp, qId, type V3 } from "../core/math";
 import { Mesh } from "../geom/mesh";
 import { HAIR_COLORS, OUTFITS, SKIN_TONES } from "../gen/character";
-import { GENERATORS } from "../gen/index";
 import type { Anchor, Asset, Generator } from "../gen/types";
 import { type Archetype, type Age, buildHumanoid, proportions } from "../rig/humanoid";
 import { type ComposeInput, type SceneModel, composeScene } from "../scene/compose";
@@ -116,16 +113,5 @@ const STUBS: Record<string, Stub> = {
 
 /** Composition vectorielle (synchrone, sans maillage). Le résultat est un `SceneModel` ordinaire. */
 export function composeVector(input: ComposeInput): SceneModel {
-  const saved: Record<string, Generator> = {};
-  for (const [id, stub] of Object.entries(STUBS)) {
-    const g = GENERATORS[id];
-    if (!g) continue;
-    saved[id] = g;
-    GENERATORS[id] = { ...g, build: stub as Generator["build"] };
-  }
-  try {
-    return composeScene(input);
-  } finally {
-    for (const [id, g] of Object.entries(saved)) GENERATORS[id] = g;
-  }
+  return composeScene({ ...input, assetBuilder: (id, p, ctx) => (STUBS[id] ? STUBS[id](p, ctx) : null) });
 }

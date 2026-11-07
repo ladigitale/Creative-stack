@@ -13,6 +13,15 @@ import { type Recipe, type SceneModel, composeSceneAsync } from "./scene/compose
 import { SCENES } from "./scene/library";
 import { resolveStyle } from "./style/style";
 import { type ActorIntent, type GameEvent, ProcgenView } from "./render/view";
+import { VECTOR_STYLES, VectorView, composeVector } from "./vector/index";
+
+type AnyView = ProcgenView | VectorView;
+
+/** Un style vectoriel (`ligne-claire`, `flat/nuit`, `{vector: …}`) impose le mode vectoriel. */
+function isVectorStyle(s: unknown): boolean {
+  if (typeof s === "string") return (VECTOR_STYLES as readonly string[]).includes(s.split("/")[0]);
+  return !!s && typeof s === "object" && typeof (s as Record<string, unknown>).vector === "string";
+}
 import { suggest } from "./core/schema";
 
 const tagName = "sonic-procgen";
@@ -32,11 +41,17 @@ const MAX_VIEWS = 2;
 
 export class SonicProcgen extends HTMLElement {
   static get observedAttributes() {
-    return ["dataprovider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target"];
+    return ["dataprovider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target", "render"];
   }
   private root: ShadowRoot;
   private canvas: HTMLCanvasElement;
-  private view: ProcgenView | null = null;
+
+  private view: AnyView | null = null;
+  private mode: "3d" | "vector" = "3d";
+  private inView = true;
+  private stage: HTMLDivElement;
+  private svgKey: unknown = undefined;
+  private svgOut: string | null = null;
   private publisher: Publisher | null = null;
   private model: SceneModel | null = null;
   private sceneKey = "";
@@ -64,11 +79,12 @@ export class SonicProcgen extends HTMLElement {
     super();
     this.root = this.attachShadow({ mode: "open" });
     const style = document.createElement("style");
-    style.textContent = ":host{display:block;position:relative;min-height:120px;contain:content}canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}:host([interactive=false]) canvas{touch-action:auto}";
+    style.textContent = ":host{display:block;position:relative;min-height:120px;contain:content}.stage{position:absolute;inset:0}canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}:host([interactive=false]) canvas{touch-action:auto}";
+    this.stage = document.createElement("div");
+    this.stage.className = "stage";
     this.canvas = document.createElement("canvas");
-    this.canvas.tabIndex = 0;
-    this.canvas.setAttribute("role", "img");
-    this.root.append(style, this.canvas);
+    this.stage.append(this.canvas);
+    this.root.append(style, this.stage);
   }
 
   get dataProvider(): string {
@@ -87,7 +103,7 @@ export class SonicProcgen extends HTMLElement {
     return this.getAttribute("action-prefix") ?? "";
   }
   /** Vue de rendu (tests, atelier). */
-  get procgenView(): ProcgenView | null {
+  get procgenView(): AnyView | null {
     return this.view;
   }
   get sceneModel(): SceneModel | null {
@@ -95,46 +111,26 @@ export class SonicProcgen extends HTMLElement {
   }
 
   connectedCallback() {
-    if (!this.view) {
-      if (liveViews >= MAX_VIEWS) {
-        this.glError = `au plus ${MAX_VIEWS} scènes procgen par document`;
-      } else {
-        try {
-          this.view = new ProcgenView(this.canvas);
-          liveViews++;
-        } catch (e) {
-          this.glError = `WebGL2 indisponible : ${(e as Error).message}`;
-        }
-      }
+    if (typeof ResizeObserver !== "undefined") {
+      this.ro = new ResizeObserver(() => {
+        this.view?.resize();
+        this.view?.kick();
+      });
+      this.ro.observe(this);
     }
-    if (this.view) {
-      this.view.onEvent = (e) => this.emit(e);
-      this.view.onFrame = () => this.queueOut();
-      if (typeof ResizeObserver !== "undefined") {
-        this.ro = new ResizeObserver(() => {
-          this.view?.resize();
-          this.view?.kick();
-        });
-        this.ro.observe(this);
-      }
-      if (typeof IntersectionObserver !== "undefined") {
-        this.io = new IntersectionObserver((es) => this.view?.setVisible(es.some((e) => e.isIntersecting)));
-        this.io.observe(this);
-      }
-      this.view.maxDpr = Math.min(2, window.devicePixelRatio || 1);
-      this.view.dpr = Math.min(1.5, this.view.maxDpr);
-      try {
-        if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) this.view.play = false;
-      } catch {
-        /* rien */
-      }
+    if (typeof IntersectionObserver !== "undefined") {
+      this.io = new IntersectionObserver((es) => {
+        this.inView = es.some((e) => e.isIntersecting);
+        this.view?.setVisible(this.inView);
+      });
+      this.io.observe(this);
     }
-    this.canvas.addEventListener("pointerdown", this.onDown);
-    this.canvas.addEventListener("pointermove", this.onMove);
-    this.canvas.addEventListener("pointerup", this.onUp);
-    this.canvas.addEventListener("pointercancel", this.onUp);
-    this.canvas.addEventListener("wheel", this.onWheel, { passive: false });
-    this.canvas.addEventListener("contextmenu", this.onContext);
+    this.stage.addEventListener("pointerdown", this.onDown);
+    this.stage.addEventListener("pointermove", this.onMove);
+    this.stage.addEventListener("pointerup", this.onUp);
+    this.stage.addEventListener("pointercancel", this.onUp);
+    this.stage.addEventListener("wheel", this.onWheel, { passive: false });
+    this.stage.addEventListener("contextmenu", this.onContext);
     this.bind();
   }
 
@@ -142,18 +138,61 @@ export class SonicProcgen extends HTMLElement {
     this.unbind();
     this.ro?.disconnect();
     this.io?.disconnect();
-    this.canvas.removeEventListener("pointerdown", this.onDown);
-    this.canvas.removeEventListener("pointermove", this.onMove);
-    this.canvas.removeEventListener("pointerup", this.onUp);
-    this.canvas.removeEventListener("pointercancel", this.onUp);
-    this.canvas.removeEventListener("wheel", this.onWheel);
-    this.canvas.removeEventListener("contextmenu", this.onContext);
-    if (this.view) {
-      this.view.dispose();
-      this.view = null;
-      liveViews--;
-    }
+    this.stage.removeEventListener("pointerdown", this.onDown);
+    this.stage.removeEventListener("pointermove", this.onMove);
+    this.stage.removeEventListener("pointerup", this.onUp);
+    this.stage.removeEventListener("pointercancel", this.onUp);
+    this.stage.removeEventListener("wheel", this.onWheel);
+    this.stage.removeEventListener("contextmenu", this.onContext);
+    this.dropView();
     clearTimeout(this.outTimer);
+  }
+
+  /** Libère la vue courante (et son contexte WebGL). */
+  private dropView() {
+    if (!this.view) return;
+    this.view.dispose();
+    if (this.mode === "3d") liveViews--;
+    this.view = null;
+  }
+
+  /**
+   * Vue du mode demandé : `3d` (three.js, WebGL2) ou `vector` (Canvas 2D, illustration vectorielle). Chaque mode a son
+   * propre canevas (un canevas WebGL ne peut pas devenir 2D).
+   */
+  private ensureView(mode: "3d" | "vector"): AnyView | null {
+    if (this.view && this.mode === mode) return this.view;
+    this.dropView();
+    this.mode = mode;
+    this.glError = "";
+    const canvas = document.createElement("canvas");
+    canvas.tabIndex = 0;
+    canvas.setAttribute("role", "img");
+    this.canvas.replaceWith(canvas);
+    this.canvas = canvas;
+    try {
+      if (mode === "vector") this.view = new VectorView(canvas);
+      else if (liveViews >= MAX_VIEWS) this.glError = `au plus ${MAX_VIEWS} scènes procgen 3D par document`;
+      else {
+        this.view = new ProcgenView(canvas);
+        liveViews++;
+      }
+    } catch (e) {
+      this.glError = mode === "vector" ? `Canvas 2D indisponible : ${(e as Error).message}` : `WebGL2 indisponible : ${(e as Error).message}`;
+    }
+    const v = this.view;
+    if (!v) return null;
+    v.onEvent = (e) => this.emit(e);
+    v.onFrame = () => this.queueOut();
+    v.maxDpr = Math.min(mode === "vector" ? 3 : 2, window.devicePixelRatio || 1);
+    v.dpr = mode === "vector" ? v.maxDpr : Math.min(1.5, v.maxDpr);
+    try {
+      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) v.play = false;
+    } catch {
+      /* rien */
+    }
+    v.setVisible(this.inView);
+    return v;
   }
 
   attributeChangedCallback() {
@@ -190,7 +229,15 @@ export class SonicProcgen extends HTMLElement {
     const seed = d.seed ?? this.getAttribute("seed") ?? 1;
     const params = (d.params && typeof d.params === "object" ? d.params : {}) as Json;
     const edits = normEdits(d.edit);
-    const key = JSON.stringify([recipe ?? sceneName, seed, params, edits]);
+    const styleIn0 = d.style ?? this.getAttribute("scene-style");
+    const renderIn = String(d.render ?? this.getAttribute("render") ?? "");
+    const mode: "3d" | "vector" = renderIn === "vector" || (renderIn !== "3d" && isVectorStyle(styleIn0 ?? (recipe ?? SCENES[sceneName])?.style)) ? "vector" : "3d";
+    if (mode !== this.mode || !this.view) {
+      const had = !!this.view;
+      this.ensureView(mode);
+      if (had || this.model) this.sceneKey = "";
+    }
+    const key = JSON.stringify([mode, recipe ?? sceneName, seed, params, edits]);
     const issues = new Issues();
     if (key !== this.sceneKey) {
       this.sceneKey = key;
@@ -199,8 +246,23 @@ export class SonicProcgen extends HTMLElement {
         issues.add({ path: "scene", code: "unknown", message: `scène « ${sceneName} » inconnue`, didYouMean: suggest(sceneName, Object.keys(SCENES)), hint: Object.keys(SCENES).join(", ") });
         r = SCENES.village;
       }
-      // composition par tranches : la page reste fluide ; une composition dépassée est annulée
       if (this.pending) this.pending.cancelled = true;
+      if (mode === "vector") {
+        // composition vectorielle : sans maillage, rapide, synchrone
+        const t0 = performance.now();
+        try {
+          this.model = composeVector({ recipe: r, seed: seed as string, params, edits });
+          this.composeMs = Math.round(performance.now() - t0);
+          this.issues = [...issues.list, ...this.model.issues];
+          this.error = "";
+          this.composing = false;
+          this.view?.setModel(this.model);
+          this.styleKey = this.viewKey = this.miscKey = "";
+        } catch (e) {
+          this.fail(`composition : ${(e as Error).message}`);
+        }
+      } else {
+      // composition par tranches : la page reste fluide ; une composition dépassée est annulée
       const signal = { cancelled: false };
       this.pending = signal;
       const t0 = performance.now();
@@ -225,6 +287,7 @@ export class SonicProcgen extends HTMLElement {
           this.composing = false;
           this.fail(`composition : ${(e as Error).message}`);
         });
+      }
     }
     if (!this.model || !this.view) {
       this.queueOut();
@@ -235,7 +298,8 @@ export class SonicProcgen extends HTMLElement {
     if (sk !== this.styleKey) {
       this.styleKey = sk;
       const si = new Issues();
-      this.view.setStyle(resolveStyle(styleIn, si));
+      if (this.view instanceof VectorView) this.view.setStyle(styleIn);
+      else this.view.setStyle(resolveStyle(styleIn, si));
       this.issues = [...this.issues.filter((i) => !String((i as { path: string }).path).startsWith("style")), ...si.list];
     }
     const vIn = { ...(this.model.view ?? {}), ...(this.getAttribute("camera") ? { camera: this.getAttribute("camera") } : {}), ...((d.view as Json) ?? {}) };
@@ -252,6 +316,13 @@ export class SonicProcgen extends HTMLElement {
       if (d.select !== undefined) this.writeSelection(this.view.select(d.select ? String(d.select) : null)?.id ?? null);
       this.view.setHidden(Array.isArray(d.hidden) ? d.hidden.map(String) : []);
       this.anchorList = Array.isArray(d.anchors) ? d.anchors.map(String) : [];
+    }
+    // export SVG à la demande (mode vectoriel) : changer `exportSvg` (compteur) publie `svg` dans state-out
+    if (d.exportSvg !== undefined && d.exportSvg !== this.svgKey) {
+      this.svgKey = d.exportSvg;
+      this.svgOut = this.view instanceof VectorView ? this.view.toSVG() : null;
+      if (!(this.view instanceof VectorView)) this.issues = [...this.issues, { path: "exportSvg", code: "info", message: "export SVG disponible en mode vectoriel seulement (render: vector ou style vectoriel)" }];
+      this.queueOut(true);
     }
     this.queueOut();
   };
@@ -278,6 +349,7 @@ export class SonicProcgen extends HTMLElement {
     const st = this.view?.stats();
     const m = this.model;
     const status = {
+      mode: this.mode,
       phase: this.error || this.glError ? "error" : this.composing ? "composing" : m ? "ready" : "idle",
       progress: this.composing ? Math.round(this.progress * 100) / 100 : 1,
       error: this.glError || this.error || null,
@@ -303,6 +375,7 @@ export class SonicProcgen extends HTMLElement {
       actors,
       anchors,
       nodes,
+      svg: this.svgOut,
       ids: m ? m.objects.map((o) => ({ id: o.id, generator: o.generator, layer: o.layer })).slice(0, 400) : [],
     };
     const sig = JSON.stringify(next);
