@@ -208,6 +208,41 @@ describe("PatchRuntime : graphe par note", () => {
   });
 });
 
+describe("PatchRuntime : polyphonie", () => {
+  const simple = () => [n("sonic-voice", {}, [n("sonic-osc", { name: "o" }), n("sonic-env", { name: "e", r: "2" }), n("sonic-vca", { gain: "e", in: "o" })])];
+  const live = (rt: PatchRuntime, t: number) => (rt as unknown as { sounding(t: number): { midi: number | null; releasedAt: number | null }[] }).sounding(t);
+
+  it("poly stricte : les queues de relâchement comptent, la plus ancienne relâchée part d'abord", () => {
+    const { rt } = runtime(simple());
+    const r = rt as unknown as { opts: { poly: number } };
+    r.opts.poly = 3;
+    rt.noteOn(60, 0.8, 0, null);
+    rt.noteOn(62, 0.8, 0.01, null);
+    rt.noteOn(64, 0.8, 0.02, null);
+    rt.noteOff(62, 0.1); // 62 en relâchement (2 s)
+    rt.noteOn(65, 0.8, 0.2, null);
+    expect(live(rt, 0.2).map((v) => v.midi).sort()).toEqual([60, 64, 65]);
+    // puis la plus ancienne tenue
+    rt.noteOn(67, 0.8, 0.3, null);
+    expect(live(rt, 0.3).map((v) => v.midi).sort()).toEqual([64, 65, 67]);
+  });
+
+  it("rafale (accord) : jamais plus de poly voix, même au même instant", () => {
+    const { rt } = runtime(simple());
+    (rt as unknown as { opts: { poly: number } }).opts.poly = 4;
+    for (let k = 0; k < 5; k++) for (const m of [48, 52, 55, 60]) rt.noteOn(m + k, 0.8, 1, null);
+    expect(live(rt, 1).length).toBe(4);
+  });
+
+  it("même note relancée : la voix précédente est coupée (pas de doublon)", () => {
+    const { rt } = runtime(simple());
+    rt.noteOn(60, 0.8, 0, 0.05);
+    rt.noteOn(60, 0.8, 0.02, 0.05);
+    rt.noteOn(60, 0.8, 0.04, null);
+    expect(live(rt, 0.04).filter((v) => v.midi === 60).length).toBe(1);
+  });
+});
+
 describe("compilePatch : câbles nommés, active, random", () => {
   it("valide les cibles", () => {
     const ok = compilePatch([

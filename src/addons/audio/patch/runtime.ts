@@ -48,6 +48,8 @@ type Voice = {
   vel: number;
   start: number;
   releasedAt: number | null;
+  /** Voix volée : en fondu de sortie, ne compte plus dans la polyphonie. */
+  stolen: boolean;
   end: number;
   built: Map<string, Built>;
   extra: AudioNode[];
@@ -64,6 +66,19 @@ type Voice = {
 };
 
 const MIN_RELEASE = 0.01;
+/** Fondu de sortie d'une voix volée ou relancée (s) : assez long pour éviter le clic, assez court pour rester instantané. */
+const STEAL_FADE_S = 0.012;
+
+/** Fige un AudioParam à sa valeur au temps `t` (cancelAndHoldAtTime si disponible), sans saut. */
+function holdAt(p: AudioParam, t: number): void {
+  const h = (p as AudioParam & { cancelAndHoldAtTime?: (t: number) => AudioParam }).cancelAndHoldAtTime;
+  if (typeof h === "function") {
+    h.call(p, t);
+  } else {
+    p.cancelScheduledValues(t);
+    p.setValueAtTime(p.value, t);
+  }
+}
 
 export class PatchRuntime {
   readonly output: GainNode;
@@ -258,8 +273,7 @@ export class PatchRuntime {
       (sample === null ? this.patch.voices[0] : undefined);
     if (!desc) return false;
     this.reap();
-    const active = this.voices.filter((v) => v.releasedAt === null || v.end > when);
-    if (active.length >= this.opts.poly) this.steal(midi, when);
+    this.allocate(midi, when);
 
     const ac = this.ac;
     const freq = midi === null ? 261.63 : midiToFreq(midi);
@@ -389,7 +403,7 @@ export class PatchRuntime {
     clock.start(when);
     for (const c of Object.values(expr)) c.start(when);
 
-    const voice: Voice = { midi, vel, start: when, releasedAt: null, end: Infinity, built, extra, gate, expr, out, clock, modGains, jit, disposed: false };
+    const voice: Voice = { midi, vel, start: when, releasedAt: null, stolen: false, end: Infinity, built, extra, gate, expr, out, clock, modGains, jit, disposed: false };
     clock.onended = () => this.disposeVoice(voice);
     this.voices.push(voice);
     if (durS !== null) this.release(voice, when + Math.max(0.005, durS));
@@ -439,9 +453,9 @@ export class PatchRuntime {
     }
     v.gate.offset.setValueAtTime(0, t);
     const g = v.out.gain;
-    g.cancelScheduledValues(t);
+    if (fast === undefined) g.cancelScheduledValues(t);
     if (fast !== undefined) {
-      g.setValueAtTime(g.value, t);
+      holdAt(g, t);
       g.linearRampToValueAtTime(0, t + fast);
     } else {
       // l'enveloppe fait le relâchement ; on coupe proprement à la fin
@@ -458,13 +472,46 @@ export class PatchRuntime {
     v.clock.stop(stopAt + 0.01);
   }
 
-  private steal(midi: number | null, when: number): void {
-    const candidates = this.voices.filter((v) => !v.disposed && (v.releasedAt === null || v.end > when));
-    let victim: Voice | undefined;
-    if (this.opts.steal === "same-note") victim = candidates.find((v) => v.midi === midi);
-    if (!victim && this.opts.steal === "quietest") victim = [...candidates].sort((a, b) => a.vel - b.vel)[0];
-    victim ??= candidates[0];
-    if (victim) this.release(victim, when, 0.008);
+  /** Voix qui sonnent encore à `when` (tenues ou en relâchement), hors voix volées. */
+  private sounding(when: number): Voice[] {
+    return this.voices.filter((v) => !v.disposed && !v.stolen && (v.releasedAt === null || v.end > when));
+  }
+
+  /**
+   * Place pour une nouvelle note, polyphonie stricte (les queues de relâchement comptent) :
+   * 1. la même note qui sonne encore est relancée (pas de doublon, pas de voix perdue) ;
+   * 2. sinon, au-delà de `poly`, on libère d'abord les voix déjà relâchées (la plus ancienne),
+   *    puis les voix tenues selon `steal` (plus ancienne, plus douce, même note).
+   * Les voix libérées s'éteignent en un court fondu (pas de clic).
+   */
+  private allocate(midi: number | null, when: number): void {
+    if (midi !== null) {
+      for (const v of this.sounding(when)) if (v.midi === midi) this.choke(v, when);
+    }
+    let live = this.sounding(when);
+    while (live.length >= this.opts.poly) {
+      const victim = this.pickVictim(live, midi);
+      if (!victim) break;
+      this.choke(victim, when);
+      live = this.sounding(when);
+    }
+  }
+
+  private pickVictim(live: Voice[], midi: number | null): Voice | undefined {
+    const byStart = (a: Voice, b: Voice) => a.start - b.start;
+    const released = live.filter((v) => v.releasedAt !== null).sort((a, b) => (a.releasedAt ?? 0) - (b.releasedAt ?? 0));
+    if (released.length) return released[0];
+    const held = [...live].sort(byStart);
+    if (this.opts.steal === "same-note") return held.find((v) => v.midi === midi) ?? held[0];
+    if (this.opts.steal === "quietest") return [...held].sort((a, b) => a.vel - b.vel || byStart(a, b))[0];
+    return held[0];
+  }
+
+  /** Coupe une voix en fondu court (vol de voix, relance de la même note). */
+  private choke(v: Voice, when: number): void {
+    if (v.disposed || v.stolen) return;
+    v.stolen = true;
+    this.release(v, Math.max(when, v.start), STEAL_FADE_S);
   }
 
   private disposeVoice(v: Voice): void {

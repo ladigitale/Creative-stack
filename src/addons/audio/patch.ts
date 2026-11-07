@@ -23,6 +23,8 @@ try {
 
 const tagName = "sonic-patch";
 const MAX_SEEN_IDS = 512;
+/** Retard maximal toléré pour un événement (s) : au-delà, il est ignoré (sauf les noteOff, toujours appliqués). */
+const LATE_LIMIT_S = 1;
 
 export type PatchState = {
   status: "idle" | "ready" | "error" | "unsupported";
@@ -194,7 +196,8 @@ export class SonicPatch extends LitElement implements SonicInstrument {
       }
       const type = ev.type ?? "note";
       const when = typeof ev.when === "number" && Number.isFinite(ev.when) ? ev.when : now + 0.005;
-      if (when < now - 0.05) continue;
+      // En retard (fil principal occupé) : joué tout de suite plutôt que perdu, jusqu'à LATE_LIMIT_S.
+      if (when < now - LATE_LIMIT_S && type !== "noteOff") continue;
       const t = Math.max(when, now);
       if (type === "param") {
         const [module, param] = String(ev.path ?? "").split(/\.(?=[^.]+$)/);
