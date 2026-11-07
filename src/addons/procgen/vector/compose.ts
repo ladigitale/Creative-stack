@@ -11,6 +11,8 @@ import { clamp, qId, type V3 } from "../core/math";
 import { Mesh } from "../geom/mesh";
 import { HAIR_COLORS, OUTFITS, SKIN_TONES } from "../gen/character";
 import type { Anchor, Asset, Generator } from "../gen/types";
+import { GENERATORS } from "../gen/index";
+import { type Plan, buildPlan } from "./buildplan";
 import { type Archetype, type Age, buildHumanoid, proportions } from "../rig/humanoid";
 import { type ComposeInput, type SceneModel, composeScene } from "../scene/compose";
 import type { Role } from "../style/roles";
@@ -20,43 +22,19 @@ const A = (pos: V3, scale = 1, bone?: string): Anchor => ({ pos, rot: qId(), sca
 
 type Stub = (p: Record<string, unknown>, ctx: Parameters<Generator["build"]>[1]) => Asset;
 
-/** Dimensions d'un bâtiment (mêmes formules que `gen/building.ts`). */
-export function buildingDims(p: Record<string, unknown>) {
-  const st = String(p.style ?? "bourg");
-  const bays = Number(p.bays ?? 3), floors = Number(p.floors ?? 2), D = Number(p.depth ?? 7);
-  const bayW = st === "moderne" || st === "neon" ? 3.2 : st === "chaumiere" ? 2.6 : 2.7;
-  const W = bays * bayW + (st === "moderne" ? 0 : 0.6);
-  const fh = st === "moderne" || st === "neon" ? 3.3 : st === "chaumiere" ? 2.6 : 3;
-  const plinth = st === "moderne" ? 0.25 : 0.5;
-  const top = plinth + floors * fh;
-  const over = st === "moderne" ? 0 : 0.35;
-  const roof = st === "moderne" || st === "neon" ? "flat" : String(p.roof ?? "gable");
-  let roofTop = top;
-  let rh = 0;
-  if (roof === "gable") {
-    const pitch = ((st === "chaumiere" ? 48 : 38) * Math.PI) / 180;
-    rh = Math.tan(pitch) * (D / 2 + over);
-    roofTop = top + rh;
-  } else if (roof === "hip" || roof === "mansard") {
-    rh = (roof === "hip" ? 0.42 : 0.55) * Math.min(W, D);
-    roofTop = top + rh * (roof === "hip" ? 1 : 0.72);
-  } else roofTop = top + 0.5;
-  const winW = st === "moderne" || st === "neon" ? 1.9 : st === "chaumiere" ? 0.9 : 1.05;
-  const winH = st === "moderne" || st === "neon" ? 1.9 : st === "chaumiere" ? 1.0 : 1.45;
-  const doorBay = Math.floor((bays - 1) / 2);
-  const x0 = -W / 2 + (st === "moderne" ? 0 : 0.3);
-  return { st, bays, floors, D, W, bayW, fh, plinth, top, over, roof, rh, roofTop, winW, winH, doorBay, x0 };
-}
+const PLANS_BY_PATH = new Map<string, Plan>();
+const PLANS_BY_PARAMS = new Map<string, Plan>();
+/** Données propres au dessin vectoriel d'un modèle composé par `composeVector` (graine, plans des bâtiments). */
+export const VECTOR_META = new WeakMap<SceneModel, { seed: string; plans: Map<string, Plan>; byParams: Map<string, Plan> }>();
 
 const STUBS: Record<string, Stub> = {
-  building(p) {
-    const b = buildingDims(p);
-    return {
-      generator: "building", mesh: new Mesh(),
-      anchors: { door: A([b.x0 + (b.doorBay + 0.5) * b.bayW, 0, b.D / 2 + 0.8]), roof: A([0, b.roofTop, 0], b.W / 2) },
-      footprint: { hx: b.W / 2 + b.over, hz: b.D / 2 + b.over + 0.2, r: Math.hypot(b.W / 2, b.D / 2) },
-      height: clamp(b.roofTop + 1, 0, 200), extra: { width: b.W, depth: b.D },
-    };
+  building(p, ctx) {
+    // vrai générateur (emprise, hauteur, ancres et recentrage exacts) sans garder le maillage ; plan mémorisé
+    const plan = buildPlan(p, ctx.rng);
+    PLANS_BY_PATH.set(ctx.path, plan);
+    PLANS_BY_PARAMS.set(JSON.stringify(p), plan);
+    const real = GENERATORS.building.build(p as never, ctx);
+    return { ...real, mesh: new Mesh() };
   },
   tree(p) {
     const H = Number(p.height ?? 6), sp = String(p.species);
@@ -113,5 +91,15 @@ const STUBS: Record<string, Stub> = {
 
 /** Composition vectorielle (synchrone, sans maillage). Le résultat est un `SceneModel` ordinaire. */
 export function composeVector(input: ComposeInput): SceneModel {
-  return composeScene({ ...input, assetBuilder: (id, p, ctx) => (STUBS[id] ? STUBS[id](p, ctx) : null) });
+  PLANS_BY_PATH.clear();
+  PLANS_BY_PARAMS.clear();
+  const model = composeScene({ ...input, assetBuilder: (id, p, ctx) => (STUBS[id] ? STUBS[id](p, ctx) : null) });
+  const plans = new Map<string, Plan>();
+  for (const o of model.objects) {
+    if (o.generator !== "building") continue;
+    const pl = PLANS_BY_PATH.get(o.id);
+    if (pl) plans.set(o.id, pl);
+  }
+  VECTOR_META.set(model, { seed: String(input.seed ?? 1), plans, byParams: new Map(PLANS_BY_PARAMS) });
+  return model;
 }

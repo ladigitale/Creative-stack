@@ -20,7 +20,7 @@ export type DrawEnv = {
   waterLevel: number | null;
 };
 
-export type DrawCtx = { obj: ObjectInfo; env: DrawEnv; rng: Rng; /** Dessin en miroir (variété), stable par objet. */ mirror: boolean };
+export type DrawCtx = { obj: ObjectInfo; env: DrawEnv; rng: Rng; /** Dessin en miroir (variété), stable par objet. */ mirror: boolean; /** Plan d'un bâtiment (tirages du générateur), si connu. */ plan?: import("../buildplan").Plan };
 
 /** Un dessinateur reçoit les paramètres **résolus** (schéma du générateur, valeurs par défaut comprises). */
 export type ObjectDrawer = (kit: Kit, p: Record<string, unknown>, ctx: DrawCtx) => void;
