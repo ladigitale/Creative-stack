@@ -9,7 +9,7 @@
  */
 import { clamp, qId, type V3 } from "../core/math";
 import { Mesh } from "../geom/mesh";
-import { HAIR_COLORS, OUTFITS, SKIN_TONES } from "../gen/character";
+import { resolveColors as resolveCharColors, resolveLook } from "../gen/character/look";
 import type { Anchor, Asset, Generator } from "../gen/types";
 import { GENERATORS } from "../gen/index";
 import { type Plan, buildPlan } from "./buildplan";
@@ -61,20 +61,19 @@ const STUBS: Record<string, Stub> = {
     return { generator: "rock", mesh: new Mesh(), anchors: {}, footprint: { hx, hz: hx, r: hx }, height: S * 0.5 * (1 - fl * 0.4) * 0.95 };
   },
   character(p, ctx) {
+    // même apparence que le vrai générateur : tirages « auto » par graine, couleurs, proportions
     const rng = ctx.rng;
-    const skinS = String(p.skin), hcS = String(p.hairColor);
-    const skin = HEX.test(skinS) ? skinS : SKIN_TONES[skinS] ?? rng.fork("skin").pick(Object.values(SKIN_TONES).slice(0, 8));
-    const hairC = HEX.test(hcS) ? hcS : HAIR_COLORS[hcS] ?? rng.fork("haircolor").pick(Object.values(HAIR_COLORS).slice(0, 8));
-    const outfit = OUTFITS[String(p.outfit)] ?? rng.fork("outfit").pick(Object.values(OUTFITS));
-    const cc = (p.colors ?? {}) as Record<string, unknown>;
-    const oc = (k: string, i: number) => (typeof cc[k] === "string" && HEX.test(cc[k] as string) ? (cc[k] as string) : outfit[i]);
-    const colors: Partial<Record<Role, string>> = { skin, hair: hairC, cloth1: oc("top", 0), cloth2: oc("bottom", 1), cloth3: oc("detail", 2), leather: oc("leather", 3), accent: oc("hat", 2) };
-    const v = rng.fork("var");
-    const P = proportions({ height: Number(p.height), archetype: p.archetype as Archetype, age: p.age as Age, build: Number(p.build), shape: Number(p.shape), headSize: Number(p.headSize) * v.vary(1, 0.03), belly: Number(p.belly) });
+    const pp = { ...p, colors: (p.colors ?? {}) as Record<string, unknown> };
+    const look = resolveLook(pp, rng, ctx.issues, ctx.path);
+    const colors = resolveCharColors(pp, look, rng, ctx.issues, ctx.path) as Partial<Record<Role, string>>;
+    const P = proportions({
+      height: look.height, archetype: look.archetype as Archetype, age: look.age as Age, build: look.build, shape: look.shape, headSize: look.headSize, belly: look.belly,
+      legs: look.body.legs, arms: look.body.arms, neck: look.body.neck, shoulders: look.body.shoulders, hips: look.body.hips, posture: look.body.posture, asym: look.body.asym,
+    });
     const skel = buildHumanoid(P);
     const H = P.H;
     const hh = P.headH;
-    const hat = String(p.hat);
+    const hat = look.hat;
     const anchors: Record<string, Anchor> = {
       "head.top": A([0, H + (hat === "wizard" ? hh * 1.1 : hat === "tophat" ? hh * 0.7 : hh * 0.08), 0], P.headW, "head"),
       "head.center": A([0, H - hh * 0.5, 0], P.headW, "head"),
@@ -85,7 +84,7 @@ const STUBS: Record<string, Stub> = {
       feet: A([0, 0, 0], P.shoulderHalf, "root"),
     };
     const hx = Math.max(P.shoulderHalf * 1.2, P.hipHalf * 1.4);
-    return { generator: "character", mesh: new Mesh(), skeleton: skel, anchors, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: H, colors, blink: true };
+    return { generator: "character", mesh: new Mesh(), skeleton: skel, anchors, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: H, colors, blink: true, extra: { look } };
   },
 };
 

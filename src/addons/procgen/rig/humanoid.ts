@@ -31,6 +31,16 @@ export type BodyParams = {
   headSize: number;
   /** Ventre 0 … 1. */
   belly: number;
+  /** Variations de silhouette, chacune dans [-1, 1] (0 = proportions de l'archétype). */
+  legs?: number;
+  arms?: number;
+  neck?: number;
+  shoulders?: number;
+  hips?: number;
+  /** -1 cambré, fier … +1 voûté (dos rond, tête en avant) : inscrit dans la pose de repos. */
+  posture?: number;
+  /** Asymétrie : une épaule plus basse que l'autre (signe = côté). */
+  asym?: number;
 };
 
 export type Proportions = {
@@ -56,6 +66,9 @@ export type Proportions = {
   torsoD: number;
   hand: number;
   foot: number;
+  /** Posture (-1 … 1) et asymétrie d'épaules (-1 … 1). */
+  posture: number;
+  asym: number;
 };
 
 export function proportions(p: BodyParams): Proportions {
@@ -64,22 +77,24 @@ export function proportions(p: BodyParams): Proportions {
   const heads = Math.max(2.2, a.heads + (p.archetype === "chibi" ? ageMod.heads * 0.3 : ageMod.heads));
   const H = p.height;
   const headH = (H / heads) * p.headSize * ageMod.head;
-  const crotchY = H * Math.max(0.22, a.crotch + ageMod.crotch);
+  const legs = p.legs ?? 0, arms = p.arms ?? 0;
+  const crotchY = H * Math.max(0.22, (a.crotch + ageMod.crotch) * (1 + 0.07 * legs));
   const chinY = H - headH;
-  const neckLen = H * a.neck;
+  const neckLen = H * a.neck * (1 + 0.35 * (p.neck ?? 0));
   const shoulderY = chinY - neckLen - headH * 0.12;
   const hipY = crotchY + H * 0.03;
-  const armLen = H * a.arm;
+  const armLen = H * a.arm * (1 + 0.06 * arms);
   const ankleY = H * 0.045;
   const legLen = hipY - ankleY;
-  const sh = 1 + p.shape * 0.12;
+  const sh = 1 + p.shape * 0.12 + (p.shoulders ?? 0) * 0.07;
+  const hipMul = 1 + (p.hips ?? 0) * 0.09;
   return {
     H,
     headH,
     headW: headH * a.headW,
     headD: headH * a.headD,
     shoulderHalf: H * a.shoulder * sh * (0.92 + 0.16 * p.build),
-    hipHalf: H * a.hip * (2 - sh) * (0.92 + 0.16 * p.build),
+    hipHalf: H * a.hip * (2 - (1 + p.shape * 0.12)) * hipMul * (0.92 + 0.16 * p.build),
     crotchY,
     hipY,
     shoulderY,
@@ -95,6 +110,8 @@ export function proportions(p: BodyParams): Proportions {
     torsoD: a.torsoD,
     hand: a.hand,
     foot: a.foot,
+    posture: Math.max(-1, Math.min(1, p.posture ?? 0)),
+    asym: Math.max(-1, Math.min(1, p.asym ?? 0)),
   };
 }
 
@@ -118,16 +135,19 @@ export function buildHumanoid(P: Proportions): Skeleton {
   add_({ name: "root", parent: null, head: [0, 0, 0], tail: [0, H * 0.05, 0], radius: [0, 0], deform: false });
   const pelvisTop: V3 = [0, P.hipY + H * 0.06, 0];
   add_({ name: "pelvis", parent: "root", head: [0, P.hipY, 0], tail: pelvisTop, radius: [P.hipHalf * 1.1, P.hipHalf], swing: 30, twist: [-30, 30] });
+  // posture : voûté = haut du dos et tête vers l'avant, épaules un peu tombées ; cambré = l'inverse
+  const pz = P.posture * H;
   const chestY = P.hipY + (P.shoulderY - P.hipY) * 0.55;
-  add_({ name: "spine", parent: "pelvis", head: pelvisTop, tail: [0, chestY, 0], radius: [r(0.075), r(0.08)], swing: 35, twist: [-30, 30] });
-  const chestTop: V3 = [0, P.shoulderY + H * 0.005, 0];
-  add_({ name: "chest", parent: "spine", head: [0, chestY, 0], tail: chestTop, radius: [r(0.085), P.shoulderHalf * 0.7], swing: 30, twist: [-25, 25] });
-  const neckTop: V3 = [0, P.chinY + P.headH * 0.12, -P.headD * 0.05];
+  add_({ name: "spine", parent: "pelvis", head: pelvisTop, tail: [0, chestY, pz * 0.006], radius: [r(0.075), r(0.08)], swing: 35, twist: [-30, 30] });
+  const chestTop: V3 = [0, P.shoulderY + H * 0.005 - Math.max(0, P.posture) * H * 0.006, pz * 0.022];
+  add_({ name: "chest", parent: "spine", head: [0, chestY, pz * 0.006], tail: chestTop, radius: [r(0.085), P.shoulderHalf * 0.7], swing: 30, twist: [-25, 25] });
+  const neckTop: V3 = [0, P.chinY + P.headH * 0.12 - Math.max(0, P.posture) * H * 0.008, -P.headD * 0.05 + pz * 0.04];
   add_({ name: "neck", parent: "chest", head: chestTop, tail: neckTop, radius: [r(0.032), r(0.03)], swing: 40, twist: [-60, 60] });
-  add_({ name: "head", parent: "neck", head: neckTop, tail: [0, H, -P.headD * 0.05], radius: [P.headW * 0.5, P.headW * 0.5], swing: 40, twist: [-70, 70] });
+  add_({ name: "head", parent: "neck", head: neckTop, tail: [0, H, -P.headD * 0.05 + pz * 0.04], radius: [P.headW * 0.5, P.headW * 0.5], swing: 40, twist: [-70, 70] });
   for (const [s, sx] of [["l", 1], ["r", -1]] as const) {
-    const clav0: V3 = [sx * H * 0.015, P.shoulderY - H * 0.012, H * 0.01];
-    const shoulder: V3 = [sx * P.shoulderHalf, P.shoulderY - H * 0.02, -H * 0.005];
+    const drop = P.asym * sx * H * 0.006 + Math.max(0, P.posture) * H * 0.004;
+    const clav0: V3 = [sx * H * 0.015, P.shoulderY - H * 0.012, H * 0.01 + chestTop[2]];
+    const shoulder: V3 = [sx * P.shoulderHalf, P.shoulderY - H * 0.02 - drop, -H * 0.005 + chestTop[2] * 0.9];
     add_({ name: `clavicle.${s}`, parent: "chest", head: clav0, tail: shoulder, radius: [r(0.03), r(0.035)], swing: 25, twist: [-10, 10] });
     const arm: V3 = [d.arm[0] * sx, d.arm[1], d.arm[2]];
     const fore: V3 = [d.fore[0] * sx, d.fore[1], d.fore[2]];
