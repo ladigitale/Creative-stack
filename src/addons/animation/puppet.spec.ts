@@ -307,3 +307,24 @@ describe("sonic-puppet : visage", () => {
     expect(el.frameSeq).toBe(0);
   });
 });
+
+describe("sonic-puppet : cadrage", () => {
+  it("zoom=auto : caméra centrée sur le corps, décalée par camera-drive, recentrée à l'effacement", async () => {
+    set("cam", { x: 400, y: 300 });
+    const el = await mount({ mode: "skin", zoom: "auto", "camera-drive": "cam" });
+    set("app.hold", true);
+    el.poll(performance.now() + 1000);
+    const c = dp("rig.camera").get() as { x: number; y: number; zoom: number };
+    expect(c.zoom).toBeGreaterThan(1);
+    expect(c.zoom).toBeLessThanOrEqual(2.5);
+    set("cam", { x: 410, y: 296 });
+    await Promise.resolve();
+    const c2 = dp("rig.camera").get() as { x: number; y: number };
+    expect(c2.x - c.x).toBeCloseTo(10, 3);
+    expect(c2.y - c.y).toBeCloseTo(-4, 3);
+    set("app.hold", false);
+    await Promise.resolve();
+    expect((dp("rig.camera").get() as { zoom: number }).zoom).toBe(1);
+  });
+});
+

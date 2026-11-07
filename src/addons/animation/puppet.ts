@@ -3,7 +3,7 @@ import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { autoBlink, drawFace, measureFace, type Face } from "../../shared/face-anim";
-import { PuppetRig, assignOwners, type BoneFrameOut, extractParts, measureArmature, measureBones, type ArmatureBone, type Joints, type Part } from "../../shared/puppet";
+import { PuppetRig, assignOwners, bonesBox, framingCamera, type Box, type BoneFrameOut, extractParts, measureArmature, measureBones, type ArmatureBone, type Joints, type Part } from "../../shared/puppet";
 
 const tagName = "sonic-puppet";
 const r2 = (n: number) => Math.round(n * 100) / 100 + 0;
@@ -100,6 +100,20 @@ export class SonicPuppet extends LitElement {
   @property({ type: String })
   face = "";
 
+  /**
+   * Cadrage : publie `<nodes-out>.camera` (`{x, y, zoom}`, lu par `sonic-2d` quand il n'a pas d'attribut `camera`) centré sur
+   * le corps mesuré. `auto` : le corps remplit la vue (zoom 1 à 2,5) ; un nombre : zoom fixe ; vide : pas de caméra.
+   */
+  @property({ type: String })
+  zoom = "";
+
+  /**
+   * Chemin d'un nœud `{x, y}` (par exemple `anim.nodes.cam` d'une timeline, autour du centre de la scène) ajouté au cadrage
+   * comme décalage : balancement de caméra.
+   */
+  @property({ type: String, attribute: "camera-drive" })
+  cameraDrive = "";
+
   /** Clignements automatiques quand `face` est actif : `true` (défaut) ou `false`. */
   @property({ type: String })
   blink = "true";
@@ -129,6 +143,8 @@ export class SonicPuppet extends LitElement {
   private queued = false;
   private phase: PuppetPhase = "idle";
   private partNames: string[] = [];
+  private body: Box | null = null;
+  private camValue: Record<string, unknown> | null = null;
   private faceInfo: Face | null = null;
   private base: HTMLCanvasElement | null = null;
   private out: HTMLCanvasElement | null = null;
@@ -160,7 +176,7 @@ export class SonicPuppet extends LitElement {
   }
 
   protected updated(changed: Map<string, unknown>): void {
-    if (changed.has("pose") || changed.has("capture") || changed.has("drive")) this.listen();
+    if (changed.has("pose") || changed.has("capture") || changed.has("drive") || changed.has("cameraDrive")) this.listen();
     else if (changed.size) this.scheduleNodes();
   }
 
@@ -192,6 +208,15 @@ export class SonicPuppet extends LitElement {
         listenDp(drive, (v) => {
           this.driveValue = v && typeof v === "object" ? (v as Record<string, Record<string, unknown>>) : null;
           this.scheduleNodes();
+        }),
+      );
+    }
+    const cam = (this.cameraDrive ?? "").trim();
+    if (cam) {
+      this.unsubs.push(
+        listenDp(cam, (v) => {
+          this.camValue = v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+          this.publishCamera();
         }),
       );
     }
@@ -330,6 +355,10 @@ export class SonicPuppet extends LitElement {
     this.fitScale = s;
     this.offset = { x: (W - px.width * s) / 2, y: (H - px.height * s) / 2 };
     this.rig = new PuppetRig(m.bones);
+    const bb = bonesBox(m.bones);
+    this.body = bb
+      ? { x0: this.offset.x + bb.x0 * s, y0: this.offset.y + bb.y0 * s, x1: this.offset.x + bb.x1 * s, y1: this.offset.y + bb.y1 * s }
+      : null;
     this.radii = new Map(m.bones.map((b) => [b.name, b.radius * s]));
     if (this.skinMode()) {
       this.partNames = m.bones.filter((b) => b.sprite).map((b) => b.name);
@@ -392,9 +421,29 @@ export class SonicPuppet extends LitElement {
     return out;
   }
 
+  /** Caméra cadrée sur le corps (attribut `zoom`), plus le décalage de `camera-drive`. */
+  private publishCamera(): void {
+    const out = (this.nodesOut ?? "").trim();
+    const spec = (this.zoom ?? "").trim();
+    if (!out || !spec) return;
+    const W = Number(this.width) || 800;
+    const H = Number(this.height) || 600;
+    const z = spec === "auto" ? "auto" : Number(spec);
+    const cam = this.body && this.rig ? framingCamera(this.body, W, H, z === "auto" ? "auto" : Number.isFinite(z) ? z : 1) : { x: W / 2, y: H / 2, zoom: 1 };
+    const dx = Number(this.camValue?.x);
+    const dy = Number(this.camValue?.y);
+    set(`${out}.camera`, {
+      x: r2(cam.x + (Number.isFinite(dx) ? dx - W / 2 : 0)),
+      y: r2(cam.y + (Number.isFinite(dy) ? dy - H / 2 : 0)),
+      zoom: r4(cam.zoom),
+    });
+  }
+
   private clear(): void {
     this.stopTimer();
     this.rig = null;
+    this.body = null;
+    this.publishCamera();
     this.partNames = [];
     const out = (this.nodesOut ?? "").trim();
     if (out) {
@@ -545,6 +594,7 @@ export class SonicPuppet extends LitElement {
       if (n) nodes[name] = { x: r2(this.offset.x + n.x * this.fitScale), y: r2(this.offset.y + n.y * this.fitScale), rz: r4(n.rz) };
     }
     set(`${out}.nodes`, nodes);
+    this.publishCamera();
     if (this.skinMode()) {
       set(`${out}.bones`, this.sceneFrames(frames, false));
       set(`${out}.present`, 1);

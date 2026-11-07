@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PuppetRig, assignOwners, capRadius, extractParts, measureArmature, measureBones, type Joints, type MeasuredBone } from "./puppet";
+import { PuppetRig, assignOwners, capRadius, extractParts, bonesBox, framingCamera, measureArmature, measureBones, type Joints, type MeasuredBone } from "./puppet";
 import { dir } from "./skeleton";
 
 const W = 200;
@@ -257,6 +257,31 @@ describe("measureArmature", () => {
     const b = m.bones[0];
     expect(b.end.x).toBeCloseTo(0.2 * W + (0.4 * W - 0.2 * W) * 2, 5);
     expect(measureArmature(spec, J, W, H, { unit: ["a", "zzz"] })).toBeNull();
+  });
+});
+
+describe("cadrage", () => {
+  it("bonesBox : capsules des os avec image, sans la racine", () => {
+    const m = measureBones(body(), W, H)!;
+    const b = bonesBox(m.bones)!;
+    for (const o of m.bones.filter((x) => x.sprite)) {
+      expect(b.x0).toBeLessThanOrEqual(Math.min(o.start.x, o.end.x) - o.radius + 1e-6);
+      expect(b.y1).toBeGreaterThanOrEqual(Math.max(o.start.y, o.end.y) + o.radius - 1e-6);
+    }
+    expect(bonesBox([])).toBeNull();
+  });
+
+  it("framingCamera : auto remplit la vue, borné à la scène et entre 1 et max", () => {
+    const small = framingCamera({ x0: 300, y0: 100, x1: 500, y1: 500 }, 800, 600, "auto");
+    expect(small.zoom).toBeCloseTo(Math.min(800 / 230, 600 / 440), 5);
+    expect(small.x).toBe(400);
+    expect(small.y).toBe(300);
+    const edge = framingCamera({ x0: 0, y0: 0, x1: 100, y1: 300 }, 800, 600, 2);
+    expect(edge.zoom).toBe(2);
+    expect(edge.x).toBe(200); // ne sort pas à gauche : demi-vue = 200
+    expect(edge.y).toBe(150);
+    expect(framingCamera({ x0: 0, y0: 0, x1: 800, y1: 600 }, 800, 600, "auto").zoom).toBe(1);
+    expect(framingCamera({ x0: 399, y0: 299, x1: 401, y1: 301 }, 800, 600, "auto").zoom).toBe(2.5);
   });
 });
 

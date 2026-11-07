@@ -275,7 +275,7 @@
     },
     {
       "name": "sonic-puppet",
-      "description": "Squelette MESURÉ sur une personne photographiée (articulations d'un sonic-pose-tracker ; armature libre possible) pour animer sa photo. Mode skin (défaut) : publie dans <nodes-out> rest (pose de repos avec radius des os), bones, present, nodes au format sonic-skeleton ; un sonic-sprite shape=\"mesh\" source=\"#<personne>\" (sonic-mask-replace effect=\"cutout\") se déforme alors par poids, sans coupure ni trou. Mode pieces : découpe en pièces rigides (sprites, à lire par sonic-2d sprites=\"…\") avec recouvrement aux jonctions. Prise de vue quand capture (chemin d'un booléen) passe à vrai : attend que la pose corresponde à l'image figée (frame), efface quand il repasse à faux. L'animation arrive par drive (nodes d'une sonic-timeline : <drive-prefix><os>.rz en radians, ajouté à la pose ; les enfants suivent ; le bassin peut porter x et y). Seules les parties vues existent (bassin déduit sous les épaules pour un buste). Noms d'os : bassin, torse, tete, bras-gauche|droit, avant-bras-gauche|droit, main-gauche|droite, cuisse-gauche|droite, mollet-gauche|droit, pied-gauche|droit (gauche = côté gauche de l'écran). Armature libre : armature (JSON, liste d'os {name,parent,from,to,extend,radius,z,cap,sprite} dont from/to nomment des points de pose.joints) et unit (« pointA,pointB » ou pixels) remplacent le préréglage personne. Visage : face=\"true\" fait cligner les yeux et ouvrir la bouche sur la photo (points du visage de la pose) ; le sprite mesh lit alors source=\"#<id du puppet>\" ; timeline : d_paupieres.y, d_bouche.y (0..1).",
+      "description": "Squelette MESURÉ sur une personne photographiée (articulations d'un sonic-pose-tracker ; armature libre possible) pour animer sa photo. Mode skin (défaut) : publie dans <nodes-out> rest (pose de repos avec radius des os), bones, present, nodes au format sonic-skeleton ; un sonic-sprite shape=\"mesh\" source=\"#<personne>\" (sonic-mask-replace effect=\"cutout\") se déforme alors par poids, sans coupure ni trou. Mode pieces : découpe en pièces rigides (sprites, à lire par sonic-2d sprites=\"…\") avec recouvrement aux jonctions. Prise de vue quand capture (chemin d'un booléen) passe à vrai : attend que la pose corresponde à l'image figée (frame), efface quand il repasse à faux. L'animation arrive par drive (nodes d'une sonic-timeline : <drive-prefix><os>.rz en radians, ajouté à la pose ; les enfants suivent ; le bassin peut porter x et y). Seules les parties vues existent (bassin déduit sous les épaules pour un buste). Noms d'os : bassin, torse, tete, bras-gauche|droit, avant-bras-gauche|droit, main-gauche|droite, cuisse-gauche|droite, mollet-gauche|droit, pied-gauche|droit (gauche = côté gauche de l'écran). Armature libre : armature (JSON, liste d'os {name,parent,from,to,extend,radius,z,cap,sprite} dont from/to nomment des points de pose.joints) et unit (« pointA,pointB » ou pixels) remplacent le préréglage personne. Visage : face=\"true\" fait cligner les yeux et ouvrir la bouche sur la photo (points du visage de la pose) ; le sprite mesh lit alors source=\"#<id du puppet>\" ; timeline : d_paupieres.y, d_bouche.y (0..1). Cadrage : zoom=\"auto\" (caméra centrée sur le corps dans <nodes-out>.camera), camera-drive pour le balancement.",
       "props": {
         "source": {
           "type": "string",
@@ -348,6 +348,14 @@
         "blink": {
           "type": "string",
           "description": "Clignements automatiques avec face : true (défaut) ou false"
+        },
+        "zoom": {
+          "type": "string",
+          "description": "auto : publie <nodes-out>.camera {x, y, zoom} centrée sur le corps, qui remplit la vue (zoom 1 à 2,5) ; nombre : zoom fixe ; lu par sonic-2d sans attribut camera"
+        },
+        "camera-drive": {
+          "type": "string",
+          "description": "Chemin d'un nœud {x, y} (ex. anim.nodes.cam d'une timeline, autour du centre de la scène) ajouté au cadrage : balancement"
         }
       }
     }

@@ -241,6 +241,8 @@ Deux modes (`mode`) :
 
 **Visage qui vit (`face="true"`).** Les yeux clignent tout seuls (toutes les 2,5 à 5,5 s, parfois deux fois ; `blink="false"` pour les couper) et la bouche s'ouvre à la demande : la peau de la paupière est étirée sur l'œil, la lèvre inférieure et le menton descendent sur une ombre de bouche, retouches fondues sur les bords. Yeux et bouche sont repérés par les points du visage de la pose (`leftEye`, `leftEyeInner`, `leftEyeOuter`, `mouthLeft`, `mouthRight`), tournés comme la tête. `sonic-puppet` devient alors une source d'images : le sprite `mesh` lit `source="#<id du puppet>"` au lieu de la personne découpée. Pilotage par la timeline (mode `nodes`, propriété `y` de 0 à 1) : `<drive-prefix>paupieres` (s'ajoute aux clignements), `<drive-prefix>bouche`. Précision limitée à celle du modèle de pose (quelques pixels sur un visage de loin) : de face, visage assez grand dans l'image.
 
+**Cadrage (`zoom`).** `zoom="auto"` publie `<nodes-out>.camera` (`{x, y, zoom}`) centré sur le corps mesuré, qui remplit alors la vue (zoom de 1 à 2,5, sans sortir de la scène) : le décor se voit moins, la personne plus. Un nombre donne un zoom fixe. `sonic-2d` lit cette caméra s'il a `dataProvider` sur le même DataProvider et pas d'attribut `camera`. `camera-drive="anim.nodes.cam"` ajoute un nœud `{x, y}` d'une timeline (autour du centre de la scène) comme balancement.
+
 Dans les deux modes, à la prise le composant attend que la pose corresponde à l'image figée (`frame`, au plus `timeout-ms`) puis mesure. Pour la photo, `sonic-mask-replace` en `effect="fill"` fournit le fond sans la personne.
 
 **Sorties** (dans `nodes-out`) : `rest`, `bones`, `present` (mode `skin`, voir plus haut) ; `sprites` (mode `pieces`, liste que lit `sonic-2d sprites="rig.sprites"`, image et `pivot` sur l'articulation), `nodes` (format partagé : `x`, `y` de l'articulation en unités de scène, `rz` en radians par rapport au repos, donc 0 sur la photo) et `status` (`{ phase: idle | waiting | ready | error, error, parts, missing, body }` ; `error` : `source`, `pose`, `corps` ou `silhouette`).
@@ -252,6 +254,7 @@ Os : `bassin` (racine, sans image), `torse`, `tete`, `bras-gauche|droit`, `avant
 | Attribut | Rôle | Défaut |
 |---|---|---|
 | `mode` | `skin` (image déformée par poids) ou `pieces` (pièces rigides découpées) | `skin` |
+| `zoom`, `camera-drive` | Caméra cadrée sur le corps (`auto` ou un nombre ; vide : rien) et balancement ajouté (nœud `{x, y}` autour du centre) | `""` |
 | `face`, `blink` | `face="true"` : yeux qui clignent et bouche pilotée, le composant devient une source d'images ; `blink="false"` coupe les clignements automatiques | `""`, `true` |
 | `source` | `#id` de la personne découpée (`sonic-mask-replace effect="cutout"`) à la taille de l'image analysée ; lu pour sa taille en `skin`, découpé en `pieces` | aucun |
 | `pose` | DataProvider de la sortie du `sonic-pose-tracker` (`joints`, `present`, `frameSeq`) | aucun |
