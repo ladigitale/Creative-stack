@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alphaBounds, blurDivisor, boxesOf, coverRect, cropBox, effectOf, featherDivisor, grayToAlpha, labelKey, mixBounds, padBounds, pixelDivisor, safeColor, selectBoxes, shapesOf, spriteSize } from "./composite";
+import { alphaBounds, blurDivisor, boxesOf, coverRect, cropBox, effectOf, featherDivisor, grayToAlpha, labelKey, morphAlpha, mixBounds, padBounds, pixelDivisor, safeColor, selectBoxes, shapesOf, spriteSize } from "./composite";
 
 const out = {
   objects: [
@@ -133,3 +133,58 @@ describe("cropBox", () => {
     expect(edge.x + edge.w).toBeLessThanOrEqual(1 + 1e-9);
   });
 });
+
+describe("morphAlpha", () => {
+  const W = 12;
+  const H = 8;
+  const mask = (on: (x: number, y: number) => boolean) => {
+    const d = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) d[(y * W + x) * 4 + 3] = on(x, y) ? 255 : 0;
+    return d;
+  };
+  const alpha = (d: Uint8ClampedArray, x: number, y: number) => d[(y * W + x) * 4 + 3];
+
+  it("dilate : la zone gagne r pixels de chaque côté", () => {
+    const d = mask((x, y) => x >= 5 && x <= 6 && y >= 3 && y <= 4);
+    morphAlpha(d, W, H, 2);
+    expect(alpha(d, 3, 3)).toBe(255);
+    expect(alpha(d, 8, 4)).toBe(255);
+    expect(alpha(d, 2, 3)).toBe(0);
+    expect(alpha(d, 5, 1)).toBe(255);
+    expect(alpha(d, 5, 0)).toBe(0);
+  });
+
+  it("erode : la zone perd r pixels, un trait plus fin disparaît", () => {
+    const d = mask((x) => x >= 2 && x <= 9);
+    morphAlpha(d, W, H, -2);
+    expect(alpha(d, 3, 4)).toBe(0);
+    expect(alpha(d, 4, 4)).toBe(255);
+    expect(alpha(d, 7, 4)).toBe(255);
+    expect(alpha(d, 8, 4)).toBe(0);
+    const thin = mask((x) => x === 5);
+    morphAlpha(thin, W, H, -1);
+    expect(alpha(thin, 5, 4)).toBe(0);
+  });
+
+  it("le bord de l'image est prolongé : une zone qui touche le bas ou un côté n'est pas rongée par là", () => {
+    const d = mask((x, y) => x >= 4 && x <= 8 && y >= 3);
+    morphAlpha(d, W, H, -2);
+    expect(alpha(d, 6, H - 1)).toBe(255);
+    expect(alpha(d, 6, 4)).toBe(0); // le haut est rogné
+    const side = mask((x) => x <= 5);
+    morphAlpha(side, W, H, -2);
+    expect(alpha(side, 0, 4)).toBe(255);
+    expect(alpha(side, 4, 4)).toBe(0);
+  });
+
+  it("r = 0 ne change rien ; seul l'alpha est touché", () => {
+    const d = mask((x) => x === 3);
+    d[(4 * W + 3) * 4] = 77;
+    const before = Array.from(d);
+    morphAlpha(d, W, H, 0);
+    expect(Array.from(d)).toEqual(before);
+    morphAlpha(d, W, H, 1);
+    expect(d[(4 * W + 3) * 4]).toBe(77);
+  });
+});
+

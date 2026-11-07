@@ -177,3 +177,36 @@ export function spriteSize(spriteW: number, spriteH: number, sceneH: number, sca
   const h = Math.max(0, scale) * sceneH;
   return { w: (h * spriteW) / spriteH, h };
 }
+
+/**
+ * Élargit (`r > 0`) ou rétrécit (`r < 0`) la zone du masque de `|r|` pixels : maximum (dilatation) ou minimum (érosion) de
+ * l'alpha sur un carré de côté `2|r| + 1`, en deux passes séparables. Hors de l'image, le bord est prolongé (une personne
+ * qui touche le bas du cadre n'est pas rongée par le bas). Écrit dans `data` (RGBA, seul l'alpha change).
+ */
+export function morphAlpha(data: Uint8ClampedArray, width: number, height: number, r: number): void {
+  const n = Math.min(64, Math.round(Math.abs(r)));
+  if (n === 0 || width <= 0 || height <= 0) return;
+  const grow = r > 0;
+  const tmp = new Uint8Array(width * height);
+  const pick = (a: number, b: number) => (grow ? (b > a ? b : a) : b < a ? b : a);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let v = data[(y * width + x) * 4 + 3];
+      for (let k = -n; k <= n; k++) {
+        const xx = x + k < 0 ? 0 : x + k >= width ? width - 1 : x + k;
+        v = pick(v, data[(y * width + xx) * 4 + 3]);
+      }
+      tmp[y * width + x] = v;
+    }
+  }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let v = tmp[y * width + x];
+      for (let k = -n; k <= n; k++) {
+        const yy = y + k < 0 ? 0 : y + k >= height ? height - 1 : y + k;
+        v = pick(v, tmp[yy * width + x]);
+      }
+      data[(y * width + x) * 4 + 3] = v;
+    }
+  }
+}

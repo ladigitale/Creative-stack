@@ -14,6 +14,7 @@ import {
   alphaBounds,
   grayToAlpha,
   mixBounds,
+  morphAlpha,
   padBounds,
   pixelDivisor,
   safeColor,
@@ -135,6 +136,14 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
   /** Adoucissement des bords du masque, 0 (net) à 1. */
   @property({ type: Number })
   feather = 0.3;
+
+  /**
+   * Élargit (`> 0`) ou rétrécit (`< 0`) la zone masquée, en pixels de l'image (-24 à 24), avant l'adoucissement. Une personne
+   * retirée avec `effect="fill"` : valeur positive, pour que sa frange ne reste pas dans le fond. Une personne découpée avec
+   * `effect="cutout"` : valeur négative, pour que le fond ne reste pas sur ses bords.
+   */
+  @property({ type: Number })
+  grow = 0;
 
   /**
    * `"true"` (avec `target="background"`) : l'image produite est recadrée sur la zone masquée (la personne), avec
@@ -363,6 +372,8 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
     if (!maskId && !this.detections.trim()) return null;
 
     let current = region.canvas;
+    const g = Math.max(-24, Math.min(24, Math.round(Number(this.grow) || 0)));
+    if (g !== 0) this.growRegion(region, w, h, g);
     const d = featherDivisor(Number(this.feather) || 0);
     if (d > 1) {
       const small = this.layer("feather", Math.max(1, Math.round(w / d)), Math.max(1, Math.round(h / d)));
@@ -408,6 +419,30 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
       this.acc = null;
     }
     return { canvas: current, regions: kept.length, fromSource };
+  }
+
+  /** Dilate ou érode la zone du masque de `g` pixels, à une résolution réduite (au plus 320 de large) pour rester léger. */
+  private growRegion(region: Layer, w: number, h: number, g: number): void {
+    const sw = Math.max(8, Math.min(320, w));
+    const sh = Math.max(6, Math.round((sw * h) / w));
+    const small = this.layer("grow", sw, sh);
+    if (!small) return;
+    small.ctx.globalCompositeOperation = "source-over";
+    small.ctx.imageSmoothingEnabled = true;
+    small.ctx.clearRect(0, 0, sw, sh);
+    small.ctx.drawImage(region.canvas, 0, 0, sw, sh);
+    let img: ImageData;
+    try {
+      img = small.ctx.getImageData(0, 0, sw, sh);
+    } catch {
+      return;
+    }
+    morphAlpha(img.data, sw, sh, Math.sign(g) * Math.max(1, Math.round((Math.abs(g) * sw) / w)));
+    small.ctx.putImageData(img, 0, 0);
+    region.ctx.globalCompositeOperation = "source-over";
+    region.ctx.imageSmoothingEnabled = true;
+    region.ctx.clearRect(0, 0, w, h);
+    region.ctx.drawImage(small.canvas, 0, 0, w, h);
   }
 
   /**
