@@ -213,3 +213,15 @@ Ces décisions **priment** sur les sections précédentes quand elles divergent.
 **Banc visuel** : `demo/procgen-shot.html?scene=…&style=…&camera=…&actors=…` (sans Concorde) ; captures sans écran par Chrome (`--use-angle=swiftshader`).
 
 **Plateforme (PR séparées)** : régénérer le catalogue et la règle `PROCGEN_RULE` du validateur Tadaaa (nouvelles clés, `state-out`, événements) ; migrer les artefacts qui utilisent l'ancien `sonic-procgen` (dont `gardien-du-phare`).
+
+## 14. Lot v3.1 « précision et variations » (livré)
+
+Demande : plus de précision, plus de variations, et un vrai mode 2D vectoriel. Quatre chantiers menés en parallèle puis intégrés.
+
+- **Vrai 2D vectoriel** (`vector/`) : composition sans maillage (`assetBuilder`), dessinateurs par générateur lisant les paramètres, personnages et animaux en traits continus à épaisseur variable sur le même squelette animé, `VectorView` (Canvas 2D, même interface que la vue 3D, mêmes événements), 5 styles (`ligne-claire`, `flat`, `gravure`, `affiche`, `papier-decoupe`), export SVG sûr. Bascule par `render: "vector"` ou style vectoriel.
+- **Personnages** : un rôle de couleur par triangle (découpe à la frontière : bords nets), mains à 4 doigts et pouce avec prise, tête et visage en maillage fin (formes de tête, yeux, iris, sourcils, nez, lèvres, oreilles, barbes, moustaches, lunettes, taches de rousseur, rides), silhouettes variées (`figure`, `body`), garde-robe étendue (cols, ceintures, boutons, poches, tabliers, salopettes, robes, plastrons, gants, motifs), 16 coiffures, 16 couvre-chefs, `role` qui biaise des tirages cohérents ; génération plus rapide à tenue égale.
+- **Environnement** : bâtiments réécrits (17 styles dont ferme, chalet, méditerranéen, japonais, château, tour, moulin, chapelle, phare, boutique ; volumes, ouvertures et matériaux variés), 15 espèces d'arbres, `plant` (11), `wall` (le long de points), `vehicle` (7), 26 objets de plus, pavés et dalles, 4 scènes de plus.
+- **Animaux** : `animal` (13 espèces), squelettes quadrupède et oiseau, pas / trot / galop par distance parcourue, adaptateur `rig/motion.ts` commun aux vues 3D et vectorielle.
+- **Rendu 3D** : relief de détail procédural par matériau, usure des arêtes, ombres Poisson 12 échantillons, carte d'ombre 4096 sur ordinateur.
+
+**Écarts restants** : triangles en hausse (personnage foule ≈ 16 k, héros ≈ 38 k ; village ≈ 74 appels de dessin) → décimation et LOD toujours à faire ; doigts non animés (pas d'os de doigt) ; ardoise et zinc sans rangs dans le shader ; pas de rôle rose (cerisier) ; transitions d'allure des animaux avec un léger glissement.
