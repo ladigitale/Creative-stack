@@ -1,5 +1,6 @@
 /** Registre des générateurs. `prop.lamp` est un raccourci pour `{ gen: "prop", params: { kind: "lamp" } }`. */
 import { describeSchema } from "../core/schema";
+import { animal } from "./animal";
 import { building } from "./building";
 import { character } from "./character";
 import { bush, flowers, grass, rock, tree } from "./nature";
@@ -7,7 +8,7 @@ import { emblem, prop } from "./props";
 import type { Generator } from "./types";
 
 export const GENERATORS: Record<string, Generator> = Object.fromEntries(
-  [character, tree, bush, grass, flowers, rock, building, prop, emblem].map((g) => [g.id, g as unknown as Generator]),
+  [character, animal, tree, bush, grass, flowers, rock, building, prop, emblem].map((g) => [g.id, g as unknown as Generator]),
 );
 
 export function resolveGeneratorId(id: string): { gen: Generator | undefined; preset: Record<string, unknown> } {
@@ -26,4 +27,4 @@ export function generatorCatalog() {
   return Object.values(GENERATORS).map((g) => ({ id: g.id, label: g.label, doc: g.doc, tags: g.tags, params: describeSchema(g.schema) }));
 }
 
-export { building, character, tree, bush, grass, flowers, rock, prop, emblem };
+export { animal, building, character, tree, bush, grass, flowers, rock, prop, emblem };

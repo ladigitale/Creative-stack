@@ -108,6 +108,8 @@ export type SceneModel = {
   stats: { ms: number; triangles: number; objects: number; instances: number; actors: number };
 };
 
+/** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
+const ACTOR_GENS = new Set(["character", "animal"]);
 const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
 const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 } };
@@ -254,7 +256,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       for (const [k, v] of Object.entries(resolved)) if (typeof v === "number" && k !== "variant" && gen.schema[k]?.type === "number") resolved[k] = Math.round(v * 4) / 4;
     }
     const key = `${gen.id}|${JSON.stringify(resolved)}`;
-    let asset = gen.id === "character" ? undefined : assetCache.get(key);
+    let asset = ACTOR_GENS.has(gen.id) ? undefined : assetCache.get(key);
     if (!asset) {
       try {
         asset = gen.build(resolved as never, { rng, issues, path });
@@ -262,7 +264,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
         issues.add({ path, code: "info", message: `échec du générateur : ${(e as Error).message}` });
         return null;
       }
-      if (gen.id !== "character") assetCache.set(key, asset);
+      if (!ACTOR_GENS.has(gen.id)) assetCache.set(key, asset);
     }
     return { asset, key, generator: gen.id, resolved, extraScale };
   };
@@ -277,7 +279,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     const T = m4Compose([x, y, z], qAxis([0, 1, 0], yaw), scale);
     const anchors: Record<string, V3> = {};
     for (const [k, a] of Object.entries(asset.anchors)) anchors[k] = m4Point(T, a.pos);
-    const isActor = generator === "character";
+    const isActor = ACTOR_GENS.has(generator);
     const mode: ObjectInfo["mode"] = isActor ? "actor" : INSTANCEABLE.has(generator) ? "instance" : "static";
     objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors });
     placedCircles.push({ x, z, r: Math.max(0.15, (generator === "building" ? Math.max(fp.hx, fp.hz) : fp.r * 0.6) * scale) });
@@ -338,10 +340,10 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       const vars = { i: n, n: count, t: count > 1 ? n / (count - 1) : 0, x: pos.x, z: pos.z };
       const edits = input.edits?.[id] ?? input.edits?.[lid];
       const raw = { ...(R(layer.params ?? {}, `${lp}.params`, irng, vars, 0) as Record<string, unknown>), ...(edits ?? {}) };
-      if (resolveGeneratorId(layer.gen).gen?.id === "character" && (raw.detail === undefined || raw.detail === "auto")) raw.detail = "crowd";
+      if (ACTOR_GENS.has(resolveGeneratorId(layer.gen).gen?.id ?? "") && (raw.detail === undefined || raw.detail === "auto")) raw.detail = "crowd";
       const built = buildAsset(layer.gen, raw, id, irng);
       if (!built) break;
-      if (built.generator === "character" || built.generator === "building") yield undefined;
+      if (ACTOR_GENS.has(built.generator) || built.generator === "building") yield undefined;
       const scale = clamp(num(layer.scale, `${lp}.scale`, irng, 1, vars), 0.05, 20) * built.extraScale;
       const r = built.asset.footprint.r * scale;
       const along = "along" in place && place.side !== "center";
