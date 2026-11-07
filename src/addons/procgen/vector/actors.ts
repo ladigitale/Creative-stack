@@ -57,7 +57,9 @@ export class ActorSim {
     for (const a of model.actors) {
       const sk = a.asset.skeleton;
       if (!sk) continue;
-      const params = resolveParams(GENERATORS.character?.schema ?? {}, a.params, { rng: new Rng(a.id), vars: {} }, issues) as Record<string, unknown>;
+      // apparence résolue par le générateur (valeurs « auto » tirées) ; sinon paramètres résolus par le schéma
+      const look = (a.asset.extra as { look?: Record<string, unknown> } | undefined)?.look;
+      const params = look ? { ...a.params, ...look } : (resolveParams(GENERATORS.character?.schema ?? {}, a.params, { rng: new Rng(a.id), vars: {} }, issues) as Record<string, unknown>);
       const rt: ActorRT = {
         model: a, params, mo: motionFor(a.asset), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: (a.seed * 0.618) % 1, action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
         mood: String(a.params.mood ?? params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), blink: 0, turn: 0, zones: new Set(), hidden: false, lastIntent: "", W: [],
