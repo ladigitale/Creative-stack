@@ -142,7 +142,7 @@ export class SonicStore extends LitElement {
       });
       this.compiled = expr;
     } catch (err) {
-      this.fail(err instanceof Error ? err.message : String(err));
+      this.fail(errorMessage(err));
     }
   }
 
@@ -218,7 +218,7 @@ export class SonicStore extends LitElement {
       this.lastError = null;
       this.publish();
     } catch (err) {
-      this.fail(err instanceof Error ? err.message : String(err));
+      this.fail(errorMessage(err));
     }
   }
 
@@ -279,3 +279,21 @@ export class SonicStore extends LitElement {
 }
 
 export default SonicStore;
+
+/** Message lisible d'une erreur levée par le réducteur (les erreurs JSONata sont des objets {code, message, position}). */
+export function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const e = err as { message?: unknown; code?: unknown; position?: unknown };
+    if (typeof e.message === "string") {
+      const where = typeof e.position === "number" ? ` (position ${e.position})` : "";
+      return `${typeof e.code === "string" ? e.code + " : " : ""}${e.message}${where}`;
+    }
+    try {
+      return JSON.stringify(err);
+    } catch {
+      /* objet circulaire */
+    }
+  }
+  return String(err);
+}

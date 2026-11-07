@@ -139,6 +139,8 @@ export class AudioEngine {
   /* ---------------------------------------------------------------- */
 
   private static workletUrl: string | null = null;
+  /** Délai maximal de chargement des processeurs AudioWorklet avant repli natif (ms). */
+  static workletTimeoutMs = 4000;
   private worklet: { ctx: BaseAudioContext; state: "loading" | "ready" | "failed"; promise: Promise<boolean>; error: string | null } | null = null;
 
   /** URL du fichier de processeurs (posée par l'addon audio ; surchargeable : CDN, hôte propre). */
@@ -178,13 +180,26 @@ export class AudioEngine {
       entry.state = "failed";
       entry.error = !url ? "processeurs AudioWorklet introuvables" : "AudioWorklet non disponible dans ce navigateur";
     } else {
-      entry.promise = worklet.addModule(url).then(
-        () => {
-          entry.state = "ready";
+      // Un chargement qui ne répond pas (fichier bloqué sans erreur, contexte figé…) ne doit pas
+      // laisser les instruments muets : au-delà du délai, repli natif ; un chargement tardif reste ignoré.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), AudioEngine.workletTimeoutMs);
+      });
+      entry.promise = Promise.race([worklet.addModule(url).then(() => "ok" as const), timeout]).then(
+        (r) => {
+          clearTimeout(timer);
+          if (r === "timeout") {
+            entry.state = "failed";
+            entry.error = `AudioWorklet : pas de réponse après ${AudioEngine.workletTimeoutMs} ms`;
+          } else {
+            entry.state = "ready";
+          }
           this.emit();
-          return true;
+          return entry.state === "ready";
         },
         (e: unknown) => {
+          clearTimeout(timer);
           entry.state = "failed";
           entry.error = `AudioWorklet refusé (${e instanceof Error ? e.message : String(e)})`;
           this.emit();
