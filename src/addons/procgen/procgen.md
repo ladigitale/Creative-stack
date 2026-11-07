@@ -106,7 +106,7 @@ Ancres : personnages `head.top`, `head.center`, `hand.r.grip`, `hand.l.grip`, `b
 
 ## Styles
 
-Jetons (tous facultatifs, par-dessus `preset`) : `palette` (`gouache`, `brume`, `automne`, `printemps`, `desert`, `neige`, `crepuscule`, `nuit`, `neon`, `papier`, `abysses`), `hue` (°), `chroma`, `contrast`, `shading` (`flat|toon|soft|lit`), `bands` (2–4), `bandSoftness`, `brush`, `outline` (px), `outlineStrength`, `lightAzimuth`, `lightElevation`, `lightIntensity`, `shadows`, `shadowStrength`, `ao`, `texture`, `fog`, `fogHeight`, `night`, `lamps`, `rim`, `grain`, `paper`, `vignette`, `pixel` (taille du pixel), `saturation`, `sky`, `roles` (`{"wall": "#e8d8c0"}`).
+Jetons (tous facultatifs, par-dessus `preset`) : `palette` (`gouache`, `brume`, `automne`, `printemps`, `desert`, `neige`, `crepuscule`, `nuit`, `neon`, `papier`, `abysses`), `hue` (°), `chroma`, `contrast`, `shading` (`flat|toon|soft|lit`), `bands` (2–4), `bandSoftness`, `brush`, `outline` (px), `outlineStrength`, `lightAzimuth`, `lightElevation`, `lightIntensity`, `shadows`, `shadowStrength`, `ao`, `texture`, `fog`, `fogHeight`, `night`, `lamps`, `rim`, `grain`, `paper`, `vignette`, `pixel` (taille du pixel), `saturation`, `sky`, `detail` (relief de surface et usure des arêtes, 0 = lisse), `roles` (`{"wall": "#e8d8c0"}`).
 
 Rôles de couleur : `ground grass path road stone wall trim roof wood bark leaf leaf2 flower water metal glass lamp cloth1 cloth2 cloth3 leather skin hair eye eyeWhite mouth accent ink paper snow fire`. La peau, les yeux et la bouche gardent la couleur du personnage quel que soit le thème.
 

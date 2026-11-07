@@ -93,10 +93,14 @@ export class ProcgenView {
     this.renderer.info.autoReset = false;
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.staticMats = makeMaterials(this.shared, this.roles, false);
-    const depthTex = new THREE.DepthTexture(2048, 2048);
+    // ombres : 4096 sur ordinateur, 2048 sur mobile (écran tactile ou petite fenêtre)
+    const mobile = typeof window !== "undefined" && (window.matchMedia?.("(pointer: coarse)").matches || Math.min(window.screen?.width ?? 2000, window.screen?.height ?? 2000) < 700);
+    const SM = mobile ? 2048 : 4096;
+    const depthTex = new THREE.DepthTexture(SM, SM);
     depthTex.type = THREE.UnsignedIntType;
-    this.shadowRT = new THREE.WebGLRenderTarget(2048, 2048, { depthTexture: depthTex, depthBuffer: true });
+    this.shadowRT = new THREE.WebGLRenderTarget(SM, SM, { depthTexture: depthTex, depthBuffer: true });
     this.shared.uShadowMap.value = depthTex;
+    (this.shared.uShadowTexel.value as THREE.Vector2).set(1 / SM, 1 / SM);
     const postMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       vertexShader: POST_VERTEX,
@@ -216,6 +220,7 @@ export class ProcgenView {
     this.shared.uNight.value = s.night;
     this.shared.uLamps.value = s.lamps;
     this.shared.uRim.value = s.rim;
+    this.shared.uDetail.value = s.detail;
     this.shared.uShadowStrength.value = s.shadows ? s.shadowStrength : 0;
     const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
     pu.uOutline.value = s.outline;

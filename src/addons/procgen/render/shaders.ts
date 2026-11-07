@@ -156,23 +156,27 @@ uniform float uIdBase;
 uniform float uHighlight;
 uniform float uGroundY;
 uniform float uWaterY;
+uniform float uDetail;
 uniform vec4 uLightPos[12];
 uniform vec4 uLightCol[12];
 uniform float uLightCount;
 ${COMMON}
 
+const vec2 POISSON[12] = vec2[](vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621), vec2(0.962, -0.195), vec2(0.473, -0.480),
+  vec2(0.519, 0.767), vec2(0.185, -0.893), vec2(0.507, 0.064), vec2(0.896, 0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598));
 float shadowAt(vec4 sc, float ndl) {
   if (uShadowOn < 0.5) return 1.0;
   vec3 c = sc.xyz / sc.w * 0.5 + 0.5;
   if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
-  float bias = mix(0.0025, 0.0006, clamp(ndl, 0.0, 1.0));
+  float bias = mix(0.0022, 0.0005, clamp(ndl, 0.0, 1.0));
+  float a = hash13(vec3(gl_FragCoord.xy, 1.0)) * 6.2831;
+  mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));
   float s = 0.0;
-  for (int i = -1; i <= 1; i++)
-    for (int j = -1; j <= 1; j++) {
-      float d = texture(uShadowMap, c.xy + vec2(float(i), float(j)) * uShadowTexel * 1.25).r;
-      s += c.z - bias > d ? 0.0 : 1.0;
-    }
-  return s / 9.0;
+  for (int i = 0; i < 12; i++) {
+    float d = texture(uShadowMap, c.xy + R * POISSON[i] * uShadowTexel * 1.8).r;
+    s += c.z - bias > d ? 0.0 : 1.0;
+  }
+  return s / 12.0;
 }
 
 /** Variation de valeur procédurale selon le rôle (veinage du bois, taches de pierre, macro-variation du sol). */
@@ -227,6 +231,18 @@ void main() {
   base *= 1.0 + roleTexture(role, vPosW, vNormalW) * uTexture;
   vec3 N = normalize(vNormalW);
   if (!gl_FrontFacing) N = -N;
+  // relief de détail procédural (pierre, enduit, toiture, bois, écorce, sol) : gradient d'un bruit, sans texture
+  float bumpK = (role == 4 ? 0.55 : role == 5 || role == 6 ? 0.18 : role == 7 ? 0.35 : role == 8 || role == 9 ? 0.3 : role <= 3 ? 0.25 : 0.0) * uTexture * uDetail;
+  if (bumpK > 0.0) {
+    float fs = role == 7 ? 7.0 : role <= 3 ? 2.2 : 5.0;
+    vec3 q = vPosW * fs;
+    float n0 = fbm3(q);
+    vec3 g = vec3(fbm3(q + vec3(0.05, 0.0, 0.0)) - n0, fbm3(q + vec3(0.0, 0.05, 0.0)) - n0, fbm3(q + vec3(0.0, 0.0, 0.05)) - n0) / 0.05;
+    N = normalize(N - (g - N * dot(g, N)) * bumpK * 0.12);
+  }
+  // arêtes vives (courbure écran) : légère usure claire sur les saillants, lecture des volumes à petite échelle
+  vec3 dn = fwidth(vNormalW);
+  float edgeWear = clamp((dn.x + dn.y + dn.z) * 2.2, 0.0, 1.0) * uDetail;
   float ndl = dot(N, uSunDir);
   float sh = shadowAt(vShadow, ndl);
   float light;
@@ -249,6 +265,7 @@ void main() {
   float contact = 1.0 - (1.0 - smoothstep(0.0, 0.35, vPosW.y - uGroundY)) * 0.18 * uAOStrength * step(0.2, abs(N.y - 1.0));
   vec3 amb = mix(uAmbGround, uAmbSky, N.y * 0.5 + 0.5);
   vec3 lit = base * (amb * 0.62 * ao * contact + uSun * light * shadow * mix(0.85, 1.0, ao));
+  lit *= 1.0 + edgeWear * 0.16 * (role >= 21 && role <= 25 ? 0.0 : 1.0);
   // lumières ponctuelles (feux, lampes, fenêtres) : chaudes, surtout la nuit
   vec3 pl = vec3(0.0);
   for (int i = 0; i < 12; i++) {

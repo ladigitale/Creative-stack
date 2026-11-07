@@ -38,6 +38,7 @@ export function sharedUniforms(): Shared {
     uShadowTexel: { value: new THREE.Vector2(1 / 2048, 1 / 2048) },
     uGroundY: { value: 0 },
     uWaterY: { value: -1000 },
+    uDetail: { value: 1 },
     uIdBase: { value: -1 },
     uHighlight: { value: 0 },
     uLightPos: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) },

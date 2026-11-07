@@ -79,12 +79,14 @@ export type StyleTokens = {
   saturation: number;
   roles: Partial<Record<Role, string>>;
   sky: boolean;
+  /** Détail de surface : relief procédural et usure des arêtes (0 = lisse). */
+  detail: number;
 };
 
 export const DEFAULT_STYLE: StyleTokens = {
   palette: "gouache", hue: 0, chroma: 1, contrast: 1, shading: "toon", bands: 3, bandSoftness: 0.08, brush: 0.35, outline: 1.6, outlineStrength: 0.75,
   lightAzimuth: 35, lightElevation: 48, lightIntensity: 1, shadows: true, shadowStrength: 0.75, ao: 0.8, texture: 0.6, fog: 0.5, fogHeight: 0.3,
-  night: 0, lamps: 0.6, rim: 0.25, grain: 0.15, paper: 0, vignette: 0.25, pixel: 0, saturation: 1, roles: {}, sky: true,
+  night: 0, lamps: 0.6, rim: 0.25, grain: 0.15, paper: 0, vignette: 0.25, pixel: 0, saturation: 1, roles: {}, sky: true, detail: 1,
 };
 
 export const STYLE_PRESETS: Record<string, Partial<StyleTokens>> = {
@@ -92,8 +94,8 @@ export const STYLE_PRESETS: Record<string, Partial<StyleTokens>> = {
   doux: { shading: "soft", outline: 1, outlineStrength: 0.4, brush: 0.15, grain: 0.08 },
   encre: { palette: "papier", shading: "toon", bands: 2, outline: 2.2, outlineStrength: 1, texture: 0.8, paper: 0.6, grain: 0.2, fog: 0.25, chroma: 0.3 },
   bd: { shading: "toon", bands: 2, bandSoftness: 0.02, outline: 2.4, outlineStrength: 1, brush: 0.1, grain: 0.05, chroma: 1.15, texture: 0.3 },
-  pixel: { shading: "toon", bands: 3, bandSoftness: 0, outline: 1, outlineStrength: 0.8, pixel: 4, grain: 0, vignette: 0.1, brush: 0, chroma: 1.15 },
-  lowpoly: { shading: "flat", outline: 0, outlineStrength: 0, texture: 0.2, brush: 0 },
+  pixel: { detail: 0.3, shading: "toon", bands: 3, bandSoftness: 0, outline: 1, outlineStrength: 0.8, pixel: 4, grain: 0, vignette: 0.1, brush: 0, chroma: 1.15 },
+  lowpoly: { shading: "flat", outline: 0, outlineStrength: 0, texture: 0.2, brush: 0, detail: 0 },
   brume: { palette: "brume", fog: 1.1, fogHeight: 0.6, shadowStrength: 0.45, outlineStrength: 0.5 },
   nuit: { palette: "nuit", night: 1, lamps: 1, fog: 0.7, shadowStrength: 0.5, rim: 0.4 },
   neon: { palette: "neon", night: 1, lamps: 1.4, fog: 0.8, rim: 0.6, outline: 1.4, saturation: 1.2 },
