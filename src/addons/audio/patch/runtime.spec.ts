@@ -153,6 +153,26 @@ describe("PatchRuntime : graphe par note", () => {
     expect(rt.setParam("vib", "gain", 1)).toBe(false);
   });
 
+  it("câble multi-source : un câble par source, profondeur en liste dosée par source (et élaguée à 0)", () => {
+    const patch = twoBranches([
+      n("sonic-lfo", { name: "l2", "rate-hz": "5" }),
+      n("sonic-mod", { name: "cab", from: "l l2", to: "o.detune", amount: "100" }),
+    ]);
+    const c = compilePatch(patch);
+    expect(c.errors).toEqual([]);
+    expect(c.mods.filter((m) => m.name === "cab").map((m) => [m.from, m.index])).toEqual([["l", 0], ["l2", 1]]);
+    const { ac, rt } = runtime(patch, { prune: true });
+    rt.setParam("vib", "depth", 0);
+    expect(rt.setParam("cab", "depth", [0, 0.5])).toBe(true);
+    rt.noteOn(60, 0.8, 0, null);
+    const gains = () => ac.created.filter((x) => x.kind === "gain").map((g) => (g as unknown as { gain: Param }).gain.value);
+    expect(gains()).toContain(50);
+    expect(gains()).not.toContain(100); // l (rang 0) à profondeur 0 : élagué
+    expect(rt.setParam("cab", "depth", [0.2, 1])).toBe(true);
+    expect(gains()).toContain(100); // pendant la note
+    expect(rt.setParam("cab", "depth", [Number.NaN])).toBe(false);
+  });
+
   it("active : un module inactif et ce qui ne nourrit que lui disparaissent des notes suivantes", () => {
     const { ac, rt } = runtime(twoBranches([n("sonic-param", { to: "nf.active", value: "0" })]));
     rt.setParam("ng", "gain", 1);

@@ -113,6 +113,15 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   @property({ type: Number })
   transpose = 0;
 
+  /**
+   * Carte des notes reçues (après `transpose`) vers les notes jouées par `target` : chemin DP d'un tableau
+   * de 128 entrées, chacune un numéro de note, une liste (`[60, 64]` : note + harmonie) ou -1 / null
+   * (note ignorée). Les notes jouées sont retenues au noteOn : noteOff et expressions (bend, pression,
+   * timbre) suivent la même note même si la carte change pendant qu'elle est tenue.
+   */
+  @property({ type: String, attribute: "in-map" })
+  inMap = "";
+
   /** Instruments qui jouent les notes reçues : `#synth #drums`. */
   @property({ type: String })
   target = "";
@@ -168,6 +177,10 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   private wantActive = false;
   private overrides: { input?: string; output?: string; channel?: string; outChannel?: number } = {};
   private tracker = new NoteTracker({ mpe: false, bendRange: 2, masterBendRange: 2, masterCh: 1 });
+  private map: unknown[] | null = null;
+  private mapUnsub: (() => void) | null = null;
+  /** Notes jouées par note reçue tenue (`canal:note`). */
+  private mapped = new Map<string, number[]>();
   private clockIn = new ClockFollower();
   private clockListeners = new Set<(e: MidiClockEvent) => void>();
   private state: MidiState = {
@@ -201,6 +214,8 @@ export class SonicMidi extends LitElement implements SonicInstrument {
     this.cancelGesture = null;
     if (this.idleTimer) clearInterval(this.idleTimer);
     for (const u of [...this.unsubs, ...this.outUnsubs]) u();
+    this.mapUnsub?.();
+    this.mapUnsub = null;
     this.unsubs = [];
     this.outUnsubs = [];
     this.close("idle");
@@ -223,6 +238,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
     }
     if (changed.has("input") || changed.has("output")) this.bindPorts();
     if (changed.has("control")) this.listenControl();
+    if (changed.has("inMap")) this.listenMap();
     if (changed.has("events") || changed.has("trigger") || changed.has("ccOut")) this.listenOut();
     if (changed.has("clockOut")) this.setupClockOut();
   }
@@ -409,7 +425,9 @@ export class SonicMidi extends LitElement implements SonicInstrument {
       case "noteOn": {
         const h = this.tracker.noteOn(m.ch, m.note, m.vel);
         const note = clampNote(m.note + tr);
-        this.toTargets([{ type: "noteOn", note, vel: m.vel, ch: m.ch, bend: h.bend, pressure: h.pressure, timbre: h.timbre }]);
+        const outs = this.mapNote(note);
+        this.mapped.set(`${m.ch}:${m.note}`, outs);
+        this.toTargets(outs.map((n) => ({ type: "noteOn" as const, note: n, vel: m.vel, ch: m.ch, bend: h.bend, pressure: h.pressure, timbre: h.timbre })));
         this.state.notes++;
         this.setLast({ kind: "noteOn", ch: m.ch, note, name: noteName(note), vel: round(m.vel) });
         this.publish();
@@ -418,7 +436,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
       case "noteOff": {
         this.tracker.noteOff(m.ch, m.note);
         const note = clampNote(m.note + tr);
-        this.toTargets([{ type: "noteOff", note, ch: m.ch }]);
+        this.toTargets(this.takeMapped(m.ch, m.note, note).map((n) => ({ type: "noteOff" as const, note: n, ch: m.ch })));
         this.setLast({ kind: "noteOff", ch: m.ch, note, name: noteName(note) });
         this.publish();
         return;
@@ -426,7 +444,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
       case "cc": {
         if (m.cc === 123 || m.cc === 120) {
           const gone = this.tracker.clear(m.ch);
-          this.toTargets(gone.map((h) => ({ type: "noteOff" as const, note: clampNote(h.note + tr), ch: h.ch })));
+          this.toTargets(gone.flatMap((h) => this.takeMapped(h.ch, h.note, clampNote(h.note + tr)).map((n) => ({ type: "noteOff" as const, note: n, ch: h.ch }))));
         }
         if (!this.mpe || m.cc !== 74) this.state.cc[String(m.cc)] = round(m.value);
         this.expression(m, tr);
@@ -459,7 +477,11 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   private expression(m: MidiMessage, tr: number): void {
     const changes = this.tracker.expression(m);
     if (!changes.length) return;
-    this.toTargets(changes.map((c) => ({ type: "expr" as const, note: clampNote(c.note + tr), ch: c.ch, bend: c.bend, pressure: c.pressure, timbre: c.timbre })));
+    this.toTargets(
+      changes.flatMap((c) =>
+        (this.mapped.get(`${c.ch}:${c.note}`) ?? this.mapNote(clampNote(c.note + tr))).map((n) => ({ type: "expr" as const, note: n, ch: c.ch, bend: c.bend, pressure: c.pressure, timbre: c.timbre })),
+      ),
+    );
   }
 
   private setLast(last: LastInfo): void {
@@ -481,7 +503,40 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   private releaseHeld(): void {
     const gone = this.tracker.clear();
     const tr = Math.round(this.transpose) || 0;
-    this.toTargets(gone.map((h) => ({ type: "noteOff" as const, note: clampNote(h.note + tr), ch: h.ch })));
+    this.toTargets(gone.flatMap((h) => this.takeMapped(h.ch, h.note, clampNote(h.note + tr)).map((n) => ({ type: "noteOff" as const, note: n, ch: h.ch }))));
+    this.mapped.clear();
+  }
+
+  /** Notes jouées pour une note reçue (après transpose), selon `in-map`. */
+  private mapNote(note: number): number[] {
+    if (!this.map) return [note];
+    const e = this.map[note];
+    if (e === undefined) return [note];
+    const list = Array.isArray(e) ? e : [e];
+    const out: number[] = [];
+    for (const x of list) {
+      const n = typeof x === "number" ? x : typeof x === "string" && x.trim() !== "" ? Number(x) : NaN;
+      if (Number.isFinite(n) && n >= 0 && n <= 127 && !out.includes(Math.round(n))) out.push(Math.round(n));
+    }
+    return out;
+  }
+
+  /** Notes jouées retenues au noteOn (oubliées ensuite) ; sans trace, la carte courante. */
+  private takeMapped(ch: number, raw: number, note: number): number[] {
+    const key = `${ch}:${raw}`;
+    const outs = this.mapped.get(key);
+    this.mapped.delete(key);
+    return outs ?? this.mapNote(note);
+  }
+
+  private listenMap(): void {
+    this.mapUnsub?.();
+    this.mapUnsub = null;
+    this.map = null;
+    if (!this.inMap) return;
+    this.mapUnsub = listenDp(this.inMap, (v) => {
+      this.map = Array.isArray(v) ? (plain(v) as unknown[]) : null;
+    });
   }
 
   private onClockMessage(m: MidiMessage, perf: number): void {

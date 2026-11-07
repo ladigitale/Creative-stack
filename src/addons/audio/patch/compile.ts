@@ -43,6 +43,11 @@ export type CompiledMod = {
   amount: number;
   /** Modulation exponentielle : appliquée au `detune` (amount en demi-tons). */
   exp: boolean;
+  /**
+   * Rang de la source quand `from` en liste plusieurs (`from="sV sZ sY"`) : un câble par source, tous
+   * du même nom ; une profondeur en liste (`depth` = [d0, d1, …]) dose chaque source séparément.
+   */
+  index?: number;
 };
 
 export type CompiledParam = {
@@ -349,7 +354,7 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
     }
     return { module, param };
   };
-  const addMod = (from: string, to: string, amount: number, exp: boolean, where: string, name: string | null = null) => {
+  const addMod = (from: string, to: string, amount: number, exp: boolean, where: string, name: string | null = null, index?: number) => {
     const target = checkTarget(to, where, true);
     if (!target) return;
     if (from.startsWith("voice.")) {
@@ -382,7 +387,7 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
       errors.push(`${where} : curve="exp" seulement vers freq-hz de ${EXP_TYPES().join(", ")}`);
       return;
     }
-    mods.push({ name, from, module: target.module.name, param: exp ? "detune" : target.param, amount, exp });
+    mods.push({ name, from, module: target.module.name, param: exp ? "detune" : target.param, amount, exp, ...(index === undefined ? {} : { index }) });
   };
   for (const { module, param, ref, where } of pendingRefs) {
     module.params[param] = 0;
@@ -407,7 +412,9 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
       continue;
     }
     // en exp, amount en demi-tons appliqué au detune (cents)
-    addMod(from, to, exp ? amount * 100 : amount, exp, where, name);
+    const sources = from.split(/\s+/);
+    if (sources.length === 1) addMod(from, to, exp ? amount * 100 : amount, exp, where, name);
+    else sources.forEach((src, i) => addMod(src, to, exp ? amount * 100 : amount, exp, where, name, i));
   }
   const modNames = new Set(mods.map((m) => m.name).filter((n): n is string => !!n));
 
