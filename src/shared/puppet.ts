@@ -372,6 +372,7 @@ export class PuppetRig {
   private order: MeasuredBone[];
   private local = new Map<string, { along: number; off: number; rel: number }>();
   private bind = new Map<string, number>();
+  private len = new Map<string, number>();
 
   constructor(bones: MeasuredBone[]) {
     // `measureBones` range les parents avant leurs enfants
@@ -379,6 +380,7 @@ export class PuppetRig {
     const byName = new Map(bones.map((b) => [b.name, b]));
     const angleOf = (b: MeasuredBone) => aimAngle(b.end.x - b.start.x, b.end.y - b.start.y) ?? 0;
     for (const b of bones) {
+      this.len.set(b.name, dist(b.start, b.end));
       const world = b.parent === null ? 0 : angleOf(b);
       this.bind.set(b.name, world);
       const p = b.parent ? byName.get(b.parent) : null;
@@ -425,4 +427,23 @@ export class PuppetRig {
     }
     return out;
   }
+
+  /**
+   * Os de la pose (mêmes arguments que `solve`) au format de `sonic-skeleton` : articulation, extrémité, direction absolue
+   * (° ; 0 = vers le bas, sens horaire à l'écran), en pixels. Sans animation, c'est la pose de repos mesurée.
+   */
+  frames(add: Record<string, number | undefined> = {}, shift: Pt = { x: 0, y: 0 }): Record<string, BoneFrameOut> {
+    const solved = this.solve(add, shift);
+    const out: Record<string, BoneFrameOut> = {};
+    for (const b of this.order) {
+      const n = solved[b.name];
+      const angle = wrap180((n.rz * 180) / Math.PI + (this.bind.get(b.name) as number));
+      const d = dir(angle);
+      const len = this.len.get(b.name) as number;
+      out[b.name] = { x: n.x, y: n.y, x2: n.x + d.x * len, y2: n.y + d.y * len, angle, rz: n.rz, length: len };
+    }
+    return out;
+  }
 }
+
+export type BoneFrameOut = { x: number; y: number; x2: number; y2: number; angle: number; rz: number; length: number };

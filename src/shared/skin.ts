@@ -14,7 +14,19 @@ export const MAX_GRID = 40;
 export const MAX_INFLUENCES = 4;
 
 /** Os tel que publié par `sonic-skeleton` : origine, extrémité, direction absolue (°). */
-export type BoneFrame = { x: number; y: number; x2: number; y2: number; angle: number };
+export type BoneFrame = {
+  x: number;
+  y: number;
+  x2: number;
+  y2: number;
+  angle: number;
+  /**
+   * Demi-largeur de l'os (unités de la scène) : un os large (tronc) revendique tout son intérieur. Si au moins un os de `rest`
+   * en porte une, les poids viennent de la distance à la surface de la capsule (`distance - radius`, négative à l'intérieur)
+   * et non plus de la distance à l'axe : un bras le long du corps ne tire plus le flanc du tronc.
+   */
+  radius?: number;
+};
 
 export type SkinOptions = {
   /** Centre de l'image dans la pose de repos (unités de la scène) et taille. */
@@ -92,6 +104,8 @@ export function buildSkin(opts: SkinOptions): Skin | null {
   const local = new Float32Array(count * k * 2);
   // Un sommet exactement sur un os ne divise pas par zéro et ne l'emporte pas à l'infini
   const eps = Math.max(w, h) * 0.01;
+  const capsules = rest.some((b) => (b.radius ?? 0) > 0);
+  const soft = (Math.max(w, h) * 0.08) / falloff;
   for (let r = 0; r <= rows; r++) {
     for (let c = 0; c <= cols; c++) {
       const i = r * (cols + 1) + c;
@@ -103,11 +117,12 @@ export function buildSkin(opts: SkinOptions): Skin | null {
       const py = opts.y - h / 2 + v * h;
       restPositions[i * 2] = px;
       restPositions[i * 2 + 1] = py;
-      const dist = rest.map((b, bi) => ({ bi, d: distanceToSegment(px, py, b.x, b.y, b.x2, b.y2) }));
+      const dist = rest.map((b, bi) => ({ bi, d: distanceToSegment(px, py, b.x, b.y, b.x2, b.y2) - (b.radius ?? 0) }));
       dist.sort((a, b) => a.d - b.d || a.bi - b.bi);
       let sum = 0;
       const raw = dist.slice(0, k).map((e) => {
-        const wgt = 1 / Math.pow(e.d + eps, falloff);
+        // Capsules : mélange doux (softmax) de la distance signée ; sinon décroissance en puissance de la distance à l'axe.
+        const wgt = capsules ? Math.exp(-(e.d - dist[0].d) / soft) : 1 / Math.pow(e.d + eps, falloff);
         sum += wgt;
         return { bi: e.bi, wgt };
       });

@@ -54,7 +54,7 @@ if (!customElements.get("test-puppet")) customElements.define("test-puppet", Tes
 
 async function mount(attrs: Record<string, string> = {}) {
   const el = document.createElement("test-puppet") as Testable;
-  const base = { pose: "pz", capture: "app.hold", "nodes-out": "rig", drive: "anim.nodes", "drive-prefix": "d_", width: "800", height: "600", "settle-ms": "0", "timeout-ms": "50" };
+  const base = { mode: "pieces", pose: "pz", capture: "app.hold", "nodes-out": "rig", drive: "anim.nodes", "drive-prefix": "d_", width: "800", height: "600", "settle-ms": "0", "timeout-ms": "50" };
   for (const [k, v] of Object.entries({ ...base, ...attrs })) el.setAttribute(k, v);
   document.body.appendChild(el);
   await el.updateComplete;
@@ -237,6 +237,63 @@ describe("sonic-puppet : armature libre", () => {
     set("app.hold", true);
     noUnit.poll(performance.now() + 1000);
     expect(status().error).toBe("corps");
+  });
+});
+
+describe("sonic-puppet : mode skin (déformation pondérée)", () => {
+  type Frame = { x: number; y: number; x2: number; y2: number; angle: number; length: number; radius?: number; rz?: number };
+  const rest = () => dp("rig.rest").get() as Record<string, Frame>;
+  const bones = () => dp("rig.bones").get() as Record<string, Frame>;
+
+  it("publie la pose de repos mesurée et la pose courante au format sonic-skeleton, sans pièces", async () => {
+    const el = await mount({ mode: "skin" });
+    set("app.hold", true);
+    el.poll(performance.now() + 1000);
+    expect(el.getPhase()).toBe("ready");
+    expect(sprites()).toEqual([]);
+    const s = Math.min(800 / W, 600 / H);
+    const ox = (800 - W * s) / 2;
+    const r = rest();
+    expect(Object.keys(r)).toContain("bras-gauche");
+    expect(Object.keys(r)).not.toContain("bassin"); // racine sans segment
+    expect(r["bras-gauche"].x).toBeCloseTo(ox + 70 * s, 1); // épaule gauche mesurée (70, 90)
+    expect(r["bras-gauche"].y).toBeCloseTo(90 * s, 1);
+    expect(r["bras-gauche"].x2).toBeCloseTo(ox + 60 * s, 1); // coude (60, 140)
+    expect(r["bras-gauche"].radius).toBeGreaterThan(0);
+    // l'os pointe vers le bas : angle ~ 0 (légèrement penché vers l'extérieur)
+    expect(Math.abs(r["bras-gauche"].angle)).toBeLessThan(15);
+    expect(dp("rig.present").get()).toBe(1);
+    expect(bones()["bras-gauche"].x).toBeCloseTo(r["bras-gauche"].x, 3); // pas d'animation : courant = repos
+    expect(bones()["bras-gauche"].angle).toBeCloseTo(r["bras-gauche"].angle, 1);
+  });
+
+  it("la timeline fait tourner les os : angle courant = repos + rz, les enfants suivent, le repos ne change pas", async () => {
+    const el = await mount({ mode: "skin" });
+    set("app.hold", true);
+    el.poll(performance.now() + 1000);
+    const r0 = JSON.parse(JSON.stringify(rest()));
+    set("anim.nodes", { d_bras_gauche: { rz: 0.5 } });
+    await Promise.resolve();
+    const b = bones();
+    const dAngle = ((b["bras-gauche"].angle - r0["bras-gauche"].angle + 540) % 360) - 180;
+    expect(dAngle).toBeCloseTo((0.5 * 180) / Math.PI, 1);
+    expect(b["avant-bras-gauche"].x).not.toBeCloseTo(r0["avant-bras-gauche"].x, 1);
+    expect(b["bras-gauche"].x).toBeCloseTo(r0["bras-gauche"].x, 3);
+    expect(rest()["avant-bras-gauche"].x).toBeCloseTo(r0["avant-bras-gauche"].x, 3);
+    // la longueur des os se conserve
+    expect(b["avant-bras-gauche"].length).toBeCloseTo(r0["avant-bras-gauche"].length, 3);
+    expect(Math.hypot(b["bras-gauche"].x2 - b["bras-gauche"].x, b["bras-gauche"].y2 - b["bras-gauche"].y)).toBeCloseTo(r0["bras-gauche"].length, 1);
+  });
+
+  it("refaire la photo efface repos et os", async () => {
+    const el = await mount({ mode: "skin" });
+    set("app.hold", true);
+    el.poll(performance.now() + 1000);
+    set("app.hold", false);
+    await Promise.resolve();
+    expect(rest()).toEqual({});
+    expect(bones()).toEqual({});
+    expect(dp("rig.present").get()).toBe(0);
   });
 });
 

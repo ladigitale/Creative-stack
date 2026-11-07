@@ -2,7 +2,7 @@ import { LitElement, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
-import { PuppetRig, assignOwners, extractParts, measureArmature, measureBones, type ArmatureBone, type Joints, type Part } from "../../shared/puppet";
+import { PuppetRig, assignOwners, type BoneFrameOut, extractParts, measureArmature, measureBones, type ArmatureBone, type Joints, type Part } from "../../shared/puppet";
 
 const tagName = "sonic-puppet";
 const r2 = (n: number) => Math.round(n * 100) / 100 + 0;
@@ -82,6 +82,14 @@ export class SonicPuppet extends LitElement {
   @property({ type: String })
   unit = "";
 
+  /**
+   * `skin` (défaut) : publie la pose de repos MESURÉE (`<nodes-out>.rest`) et la pose courante (`.bones`, `.present`) au format
+   * de `sonic-skeleton` ; une image `sonic-sprite shape="mesh"` (de la personne découpée) se déforme alors par poids entre
+   * les os : aucune coupure, aucun trou aux articulations. `pieces` : découpe en pièces rigides (`.sprites`).
+   */
+  @property({ type: String })
+  mode = "skin";
+
   /** Visibilité minimale d'une articulation (0..1). */
   @property({ type: Number, attribute: "min-visibility" })
   minVisibility = 0.5;
@@ -94,6 +102,7 @@ export class SonicPuppet extends LitElement {
   @property({ type: Number, attribute: "timeout-ms" })
   timeoutMs = 2500;
 
+  private radii = new Map<string, number>();
   private poseValue: Record<string, unknown> | null = null;
   private driveValue: Record<string, Record<string, unknown>> | null = null;
   private on = false;
@@ -283,18 +292,31 @@ export class SonicPuppet extends LitElement {
       this.fail("corps");
       return false;
     }
-    const owners = assignOwners(px.data, px.width, px.height, m.bones);
-    const parts = extractParts(px.data, px.width, px.height, m.bones, owners);
-    if (!parts.length) {
-      this.fail("silhouette");
-      return false;
-    }
     const W = Number(this.width) || 800;
     const H = Number(this.height) || 600;
     const s = Math.min(W / px.width, H / px.height);
     this.fitScale = s;
     this.offset = { x: (W - px.width * s) / 2, y: (H - px.height * s) / 2 };
     this.rig = new PuppetRig(m.bones);
+    this.radii = new Map(m.bones.map((b) => [b.name, b.radius * s]));
+    if (this.skinMode()) {
+      this.partNames = m.bones.filter((b) => b.sprite).map((b) => b.name);
+      const outSkin = (this.nodesOut ?? "").trim();
+      if (outSkin) {
+        set(`${outSkin}.sprites`, []);
+        set(`${outSkin}.rest`, this.sceneFrames(this.rig.frames(), true));
+      }
+      this.publishNodes();
+      this.setPhase("ready", { parts: this.partNames, missing: m.missing, body: r2(m.body) });
+      return true;
+    }
+    const owners = assignOwners(px.data, px.width, px.height, m.bones);
+    const parts = extractParts(px.data, px.width, px.height, m.bones, owners);
+    if (!parts.length) {
+      this.rig = null;
+      this.fail("silhouette");
+      return false;
+    }
     this.partNames = parts.map((p) => p.name);
     const layer = (this.layer ?? "").trim();
     const sprites = parts.map((p) => ({
@@ -314,6 +336,30 @@ export class SonicPuppet extends LitElement {
     return true;
   }
 
+  private skinMode(): boolean {
+    return (this.mode ?? "skin").trim() !== "pieces";
+  }
+
+  /** Os en unités de la scène (image contenue dans `width × height`) ; `radius` : demi-largeur d'appartenance, pour le repos. */
+  private sceneFrames(frames: Record<string, BoneFrameOut>, withRadius: boolean): Record<string, Record<string, number>> {
+    const k = this.fitScale;
+    const out: Record<string, Record<string, number>> = {};
+    for (const name of this.partNames) {
+      const f = frames[name];
+      if (!f || !(f.length > 0)) continue;
+      out[name] = {
+        x: r2(this.offset.x + f.x * k),
+        y: r2(this.offset.y + f.y * k),
+        x2: r2(this.offset.x + f.x2 * k),
+        y2: r2(this.offset.y + f.y2 * k),
+        angle: r2(f.angle),
+        length: r2(f.length * k),
+        ...(withRadius ? { radius: r2(this.radii.get(name) ?? 0) } : { rz: r4(f.rz) }),
+      };
+    }
+    return out;
+  }
+
   private clear(): void {
     this.stopTimer();
     this.rig = null;
@@ -322,6 +368,9 @@ export class SonicPuppet extends LitElement {
     if (out) {
       set(`${out}.sprites`, []);
       set(`${out}.nodes`, {});
+      set(`${out}.rest`, {});
+      set(`${out}.bones`, {});
+      set(`${out}.present`, 0);
     }
     this.setPhase("idle");
   }
@@ -363,13 +412,17 @@ export class SonicPuppet extends LitElement {
       x: (Number(base?.x) || 0) / this.fitScale,
       y: (Number(base?.y) || 0) / this.fitScale,
     };
-    const solved = this.rig.solve(add, shift);
+    const frames = this.rig.frames(add, shift);
     const nodes: Record<string, { x: number; y: number; rz: number }> = {};
     for (const name of this.partNames) {
-      const n = solved[name];
+      const n = frames[name];
       if (n) nodes[name] = { x: r2(this.offset.x + n.x * this.fitScale), y: r2(this.offset.y + n.y * this.fitScale), rz: r4(n.rz) };
     }
     set(`${out}.nodes`, nodes);
+    if (this.skinMode()) {
+      set(`${out}.bones`, this.sceneFrames(frames, false));
+      set(`${out}.present`, 1);
+    }
   }
 }
 

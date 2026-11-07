@@ -275,7 +275,7 @@
     },
     {
       "name": "sonic-puppet",
-      "description": "Pantin : découpe une personne (ou un animal, un personnage dessiné : armature libre, voir armature) d'une photo (source = sonic-mask-replace effect=\"cutout\") en pièces rigides montées sur les articulations MESURÉES par un sonic-pose-tracker (tête, tronc, bras, avant-bras, mains, cuisses, mollets, pieds ; seules les parties vues existent, le bassin est déduit sous les épaules pour une photo en buste), avec recouvrement aux jonctions (aucun trou quand un membre tourne). Ne dessine rien : écrit dans <nodes-out> la liste de sprites (sprites, à lire par sonic-2d sprites=\"…\" : image de chaque pièce, pivot sur l'articulation), les nodes (x y de l'articulation, rz radians par rapport au repos) et status. Prise de vue quand capture (chemin d'un booléen) passe à vrai : attend que la pose corresponde à l'image figée (frame), efface quand il repasse à faux. L'animation arrive par drive (nodes d'une sonic-timeline : <drive-prefix><os>.rz en radians, ajouté à la pose ; les enfants suivent ; le bassin peut porter x et y). Noms d'os : bassin, torse, tete, bras-gauche|droit, avant-bras-gauche|droit, main-gauche|droite, cuisse-gauche|droite, mollet-gauche|droit, pied-gauche|droit (gauche = côté gauche de l'écran). Armature libre : armature (JSON, liste d'os {name,parent,from,to,extend,radius,z,cap,sprite} dont from/to nomment des points de pose.joints) et unit (longueur de référence « pointA,pointB » ou pixels) remplacent le préréglage personne ; les clés de pilotage restent <drive-prefix><nom d'os avec _>.",
+      "description": "Squelette MESURÉ sur une personne photographiée (articulations d'un sonic-pose-tracker ; armature libre possible) pour animer sa photo. Mode skin (défaut) : publie dans <nodes-out> rest (pose de repos avec radius des os), bones, present, nodes au format sonic-skeleton ; un sonic-sprite shape=\"mesh\" source=\"#<personne>\" (sonic-mask-replace effect=\"cutout\") se déforme alors par poids, sans coupure ni trou. Mode pieces : découpe en pièces rigides (sprites, à lire par sonic-2d sprites=\"…\") avec recouvrement aux jonctions. Prise de vue quand capture (chemin d'un booléen) passe à vrai : attend que la pose corresponde à l'image figée (frame), efface quand il repasse à faux. L'animation arrive par drive (nodes d'une sonic-timeline : <drive-prefix><os>.rz en radians, ajouté à la pose ; les enfants suivent ; le bassin peut porter x et y). Seules les parties vues existent (bassin déduit sous les épaules pour un buste). Noms d'os : bassin, torse, tete, bras-gauche|droit, avant-bras-gauche|droit, main-gauche|droite, cuisse-gauche|droite, mollet-gauche|droit, pied-gauche|droit (gauche = côté gauche de l'écran). Armature libre : armature (JSON, liste d'os {name,parent,from,to,extend,radius,z,cap,sprite} dont from/to nomment des points de pose.joints) et unit (« pointA,pointB » ou pixels) remplacent le préréglage personne.",
       "props": {
         "source": {
           "type": "string",
@@ -336,6 +336,10 @@
         "unit": {
           "type": "string",
           "description": "Longueur de référence de l'armature libre : « pointA,pointB » (leur distance) ou un nombre de pixels"
+        },
+        "mode": {
+          "type": "string",
+          "description": "skin (défaut) : publie rest, bones, present au format sonic-skeleton pour un sonic-sprite shape=mesh qui déforme la personne découpée par poids entre les os (aucun trou) ; pieces : découpe en pièces rigides (sprites)"
         }
       }
     }
