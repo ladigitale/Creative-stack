@@ -11,6 +11,8 @@ import { clamp, qId, type V3 } from "../core/math";
 import { Mesh } from "../geom/mesh";
 import { resolveColors as resolveCharColors, resolveLook } from "../gen/character/look";
 import type { Anchor, Asset, Generator } from "../gen/types";
+import { GENERATORS } from "../gen/index";
+import { type Plan, buildPlan } from "./buildplan";
 import { type Archetype, type Age, buildHumanoid, proportions } from "../rig/humanoid";
 import { type ComposeInput, type SceneModel, composeScene } from "../scene/compose";
 import type { Role } from "../style/roles";
@@ -20,43 +22,30 @@ const A = (pos: V3, scale = 1, bone?: string): Anchor => ({ pos, rot: qId(), sca
 
 type Stub = (p: Record<string, unknown>, ctx: Parameters<Generator["build"]>[1]) => Asset;
 
-/** Dimensions d'un bâtiment (mêmes formules que `gen/building.ts`). */
-export function buildingDims(p: Record<string, unknown>) {
-  const st = String(p.style ?? "bourg");
-  const bays = Number(p.bays ?? 3), floors = Number(p.floors ?? 2), D = Number(p.depth ?? 7);
-  const bayW = st === "moderne" || st === "neon" ? 3.2 : st === "chaumiere" ? 2.6 : 2.7;
-  const W = bays * bayW + (st === "moderne" ? 0 : 0.6);
-  const fh = st === "moderne" || st === "neon" ? 3.3 : st === "chaumiere" ? 2.6 : 3;
-  const plinth = st === "moderne" ? 0.25 : 0.5;
-  const top = plinth + floors * fh;
-  const over = st === "moderne" ? 0 : 0.35;
-  const roof = st === "moderne" || st === "neon" ? "flat" : String(p.roof ?? "gable");
-  let roofTop = top;
-  let rh = 0;
-  if (roof === "gable") {
-    const pitch = ((st === "chaumiere" ? 48 : 38) * Math.PI) / 180;
-    rh = Math.tan(pitch) * (D / 2 + over);
-    roofTop = top + rh;
-  } else if (roof === "hip" || roof === "mansard") {
-    rh = (roof === "hip" ? 0.42 : 0.55) * Math.min(W, D);
-    roofTop = top + rh * (roof === "hip" ? 1 : 0.72);
-  } else roofTop = top + 0.5;
-  const winW = st === "moderne" || st === "neon" ? 1.9 : st === "chaumiere" ? 0.9 : 1.05;
-  const winH = st === "moderne" || st === "neon" ? 1.9 : st === "chaumiere" ? 1.0 : 1.45;
-  const doorBay = Math.floor((bays - 1) / 2);
-  const x0 = -W / 2 + (st === "moderne" ? 0 : 0.3);
-  return { st, bays, floors, D, W, bayW, fh, plinth, top, over, roof, rh, roofTop, winW, winH, doorBay, x0 };
-}
+const PLANS_BY_PATH = new Map<string, Plan>();
+const PLANS_BY_PARAMS = new Map<string, Plan>();
+/** Données propres au dessin vectoriel d'un modèle composé par `composeVector` (graine, plans des bâtiments). */
+export const VECTOR_META = new WeakMap<SceneModel, { seed: string; plans: Map<string, Plan>; byParams: Map<string, Plan> }>();
 
 const STUBS: Record<string, Stub> = {
-  building(p) {
-    const b = buildingDims(p);
-    return {
-      generator: "building", mesh: new Mesh(),
-      anchors: { door: A([b.x0 + (b.doorBay + 0.5) * b.bayW, 0, b.D / 2 + 0.8]), roof: A([0, b.roofTop, 0], b.W / 2) },
-      footprint: { hx: b.W / 2 + b.over, hz: b.D / 2 + b.over + 0.2, r: Math.hypot(b.W / 2, b.D / 2) },
-      height: clamp(b.roofTop + 1, 0, 200), extra: { width: b.W, depth: b.D },
-    };
+  building(p, ctx) {
+    // vrai générateur (emprise, hauteur, ancres et recentrage exacts) sans garder le maillage ; plan mémorisé
+    const plan = buildPlan(p, ctx.rng);
+    PLANS_BY_PATH.set(ctx.path, plan);
+    PLANS_BY_PARAMS.set(JSON.stringify(p), plan);
+    const real = GENERATORS.building.build(p as never, ctx);
+    return { ...real, mesh: new Mesh() };
+  },
+  wall(p) {
+    const kind = String(p.kind ?? "drystone");
+    const H = Number(p.height ?? 0) > 0 ? Number(p.height) : ({ drystone: 0.85, coping: 1.0, fence: 1.1, picket: 1.0, hedge: 1.4, railing: 1.5, bamboo: 1.6 } as Record<string, number>)[kind] ?? 1;
+    const halfW = kind === "hedge" ? 0.45 : kind === "drystone" ? 0.28 : kind === "coping" ? 0.22 : 0.1;
+    const pts = (Array.isArray(p.points) && (p.points as unknown[]).length >= 2 ? (p.points as [number, number][]) : [[-5, 0], [5, 0]]).slice() as [number, number][];
+    if (p.closed) pts.push(pts[0]);
+    const segments: [number, number, number, number, number][] = [];
+    for (let s = 0; s < pts.length - 1; s++) if (Math.hypot(pts[s + 1][0] - pts[s][0], pts[s + 1][1] - pts[s][1]) >= 0.05) segments.push([pts[s][0], pts[s][1], pts[s + 1][0], pts[s + 1][1], halfW]);
+    const hx = Math.max(...pts.map((q) => Math.abs(q[0]))) + halfW, hz = Math.max(...pts.map((q) => Math.abs(q[1]))) + halfW;
+    return { generator: "wall", mesh: new Mesh(), anchors: {}, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: H, extra: { drape: true, segments } };
   },
   tree(p) {
     const H = Number(p.height ?? 6), sp = String(p.species);
@@ -67,7 +56,8 @@ const STUBS: Record<string, Stub> = {
   },
   bush(p) {
     const S = Number(p.size ?? 1);
-    return { generator: "bush", mesh: new Mesh(), anchors: {}, footprint: { hx: S * 0.4, hz: S * 0.4, r: S * 0.5 }, height: S * 0.75 };
+    const h = ({ round: 0.75, ball: 1.0, cone: 1.9, box: 0.8, cloud: 1.45, spiral: 1.9 } as Record<string, number>)[String(p.shape ?? "round")] ?? 0.75;
+    return { generator: "bush", mesh: new Mesh(), anchors: {}, footprint: { hx: S * 0.4, hz: S * 0.4, r: S * 0.5 }, height: S * h };
   },
   grass(p) {
     const s = Number(p.size ?? 0.35);
@@ -77,7 +67,13 @@ const STUBS: Record<string, Stub> = {
     const s = Number(p.size ?? 0.8);
     return { generator: "flowers", mesh: new Mesh(), anchors: {}, footprint: { hx: s * 0.5, hz: s * 0.5, r: s * 0.5 }, height: 0.4 };
   },
-  rock(p) {
+  rock(p, ctx) {
+    const kind = String(p.kind ?? "boulder");
+    if (kind !== "boulder" && kind !== "cliff") return GENERATORS.rock.build(p as never, ctx);
+    if (kind === "cliff") {
+      const S0 = Number(p.size ?? 1.2);
+      return { generator: "rock", mesh: new Mesh(), anchors: {}, footprint: { hx: S0 * 1.07, hz: S0 * 0.67, r: S0 * 1.07 }, height: S0 * 0.88 };
+    }
     const S = Number(p.size ?? 1.2), n = Number(p.pieces ?? 3), fl = Number(p.flat ?? 0.3);
     const hx = S * (n > 1 ? 0.95 : 0.5);
     return { generator: "rock", mesh: new Mesh(), anchors: {}, footprint: { hx, hz: hx, r: hx }, height: S * 0.5 * (1 - fl * 0.4) * 0.95 };
@@ -112,5 +108,15 @@ const STUBS: Record<string, Stub> = {
 
 /** Composition vectorielle (synchrone, sans maillage). Le résultat est un `SceneModel` ordinaire. */
 export function composeVector(input: ComposeInput): SceneModel {
-  return composeScene({ ...input, assetBuilder: (id, p, ctx) => (STUBS[id] ? STUBS[id](p, ctx) : null) });
+  PLANS_BY_PATH.clear();
+  PLANS_BY_PARAMS.clear();
+  const model = composeScene({ ...input, assetBuilder: (id, p, ctx) => (STUBS[id] ? STUBS[id](p, ctx) : null) });
+  const plans = new Map<string, Plan>();
+  for (const o of model.objects) {
+    if (o.generator !== "building") continue;
+    const pl = PLANS_BY_PATH.get(o.id);
+    if (pl) plans.set(o.id, pl);
+  }
+  VECTOR_META.set(model, { seed: String(input.seed ?? 1), plans, byParams: new Map(PLANS_BY_PARAMS) });
+  return model;
 }

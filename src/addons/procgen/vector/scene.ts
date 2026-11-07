@@ -20,15 +20,19 @@ import { bandsOf, drawGround, drawSky } from "./draw/ground";
 import { Emitter, Frame, Kit, lightDir } from "./draw/kit";
 import { drawBush, drawFlowers, drawGrass, drawRock, drawTree, natureShadow } from "./draw/nature";
 import { drawEmblem, drawGeneric, drawProp } from "./draw/props";
+import { drawVehicle, drawWall } from "./draw/fences";
+import { drawPlant } from "./draw/more";
 import type { DrawEnv, ObjectDrawer } from "./draw/types";
 import { type VectorCamera, Projector } from "./project";
 import type { Shape } from "./shape";
+import { type Plan, buildPlan } from "./buildplan";
+import { VECTOR_META } from "./compose";
 import { hash32 } from "../core/rng";
 
-export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem };
+export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem, wall: drawWall, vehicle: drawVehicle, plant: drawPlant };
 
 /** Générateurs dessinés par gabarit (même dessin pour mêmes paramètres : végétation, rochers). */
-const TEMPLATED = new Set(["tree", "bush", "grass", "rock"]);
+const TEMPLATED = new Set(["tree", "bush", "grass", "rock", "plant"]);
 const TEMPLATES = new Map<string, Shape[]>();
 
 /** Objets dont le dessin dépend du temps (redessinés à chaque image). */
@@ -94,6 +98,16 @@ export class VectorScene {
     }
   }
 
+  /** Plan d'un bâtiment : mémorisé par `composeVector`, sinon retiré de la graine de la couche (même clé que la composition). */
+  private planOf(o: ObjectInfo, p: Record<string, unknown>): Plan {
+    const meta = VECTOR_META.get(this.model);
+    const hit = meta?.plans.get(o.id) ?? meta?.byParams.get(JSON.stringify(p));
+    if (hit) return hit;
+    const dot = o.id.lastIndexOf(".");
+    const key = dot > 0 ? `${meta?.seed ?? this.seed}/${o.id.slice(0, dot)}/${o.id.slice(dot + 1)}` : `${meta?.seed ?? this.seed}/actor/${o.id}`;
+    return buildPlan(p, new Rng(key));
+  }
+
   layerOf(z: number) {
     return 2 + Math.round((1 - this.pr.far(z)) * 6);
   }
@@ -107,7 +121,7 @@ export class VectorScene {
     const p = this.params.get(o.obj) ?? o.params;
     const em = new Emitter(env.out, this.keys.get(o.obj) ?? 0, this.layerOf(o.pos[2]), o.obj, this.pr.far(o.pos[2]));
     const kit = new Kit(this.pr, new Frame(o.pos, o.yaw, o.scale), em, this.L);
-    const ctx = { obj: o, env, rng: new Rng(`${this.seed}/${o.id}`), mirror: (hash32(o.id) & 1) === 1 };
+    const ctx = { obj: o, env, rng: new Rng(`${this.seed}/${o.id}`), mirror: (hash32(o.id) & 1) === 1, plan: o.generator === "building" ? this.planOf(o, p) : undefined };
     if (TEMPLATED.has(o.generator) && DRAWERS[o.generator]) {
       // gabarit : dessiné une fois à l'origine (échelle 1), puis translaté / mis à l'échelle par instance
       const key = `${o.generator}|${JSON.stringify(p)}|${ctx.mirror}|${this.pr.ax.toFixed(3)}|${this.pr.ay.toFixed(3)}|${this.L[1].toFixed(3)}`;
