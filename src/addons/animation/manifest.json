@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "animation",
   "label": "Animation",
-  "description": "Le temps est une valeur de DataProvider : sonic-clock le produit, sonic-timeline anime des éléments en le lisant, sonic-animate applique des recettes (reveal, fade, slide-up, count-up, typewriter); sonic-skeleton / sonic-bone : squelette 2D à os rigides qui écrit des nodes (marionnette pilotée par sonic-pose-tracker, bras articulé).",
+  "description": "Le temps est une valeur de DataProvider : sonic-clock le produit, sonic-timeline anime des éléments en le lisant, sonic-animate applique des recettes (reveal, fade, slide-up, count-up, typewriter); sonic-skeleton / sonic-bone : squelette 2D à os rigides qui écrit des nodes (marionnette pilotée par sonic-pose-tracker, bras articulé) ; sonic-puppet : pantin découpé dans une photo, pièces rigides montées sur les articulations mesurées par la pose.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -270,6 +270,72 @@
         "attach": {
           "type": "string",
           "description": "Autres noms de nœuds alimentés par cet os, séparés par des espaces ou des virgules"
+        }
+      }
+    },
+    {
+      "name": "sonic-puppet",
+      "description": "Pantin : découpe une personne (ou un animal, un personnage dessiné : armature libre, voir armature) d'une photo (source = sonic-mask-replace effect=\"cutout\") en pièces rigides montées sur les articulations MESURÉES par un sonic-pose-tracker (tête, tronc, bras, avant-bras, mains, cuisses, mollets, pieds ; seules les parties vues existent, le bassin est déduit sous les épaules pour une photo en buste), avec recouvrement aux jonctions (aucun trou quand un membre tourne). Ne dessine rien : écrit dans <nodes-out> la liste de sprites (sprites, à lire par sonic-2d sprites=\"…\" : image de chaque pièce, pivot sur l'articulation), les nodes (x y de l'articulation, rz radians par rapport au repos) et status. Prise de vue quand capture (chemin d'un booléen) passe à vrai : attend que la pose corresponde à l'image figée (frame), efface quand il repasse à faux. L'animation arrive par drive (nodes d'une sonic-timeline : <drive-prefix><os>.rz en radians, ajouté à la pose ; les enfants suivent ; le bassin peut porter x et y). Noms d'os : bassin, torse, tete, bras-gauche|droit, avant-bras-gauche|droit, main-gauche|droite, cuisse-gauche|droite, mollet-gauche|droit, pied-gauche|droit (gauche = côté gauche de l'écran). Armature libre : armature (JSON, liste d'os {name,parent,from,to,extend,radius,z,cap,sprite} dont from/to nomment des points de pose.joints) et unit (longueur de référence « pointA,pointB » ou pixels) remplacent le préréglage personne ; les clés de pilotage restent <drive-prefix><nom d'os avec _>.",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "#id de la source d'images de la personne découpée (sonic-mask-replace effect=cutout), à la taille de l'image analysée par la pose"
+        },
+        "pose": {
+          "type": "string",
+          "description": "DataProvider de la sortie d'un sonic-pose-tracker (joints, present, frameSeq) qui analyse la même image"
+        },
+        "frame": {
+          "type": "string",
+          "description": "#id de la source figée lue par le tracker et le découpage (sonic-frame-sync) : sa frameSeq doit égaler celle de la pose avant la mesure"
+        },
+        "capture": {
+          "type": "string",
+          "description": "Chemin DataProvider d'un booléen : vrai = mesurer et découper, faux = effacer"
+        },
+        "nodes-out": {
+          "type": "string",
+          "description": "DataProvider qui reçoit sprites, nodes, status (obligatoire pour écrire)"
+        },
+        "drive": {
+          "type": "string",
+          "description": "Chemin DataProvider des nœuds d'animation (par ex. anim.nodes) : <drive>.<drive-prefix><os>.rz en radians"
+        },
+        "drive-prefix": {
+          "type": "string",
+          "description": "Préfixe des clés de drive ; les - du nom d'os y deviennent _ (bras-gauche : d_bras_gauche)"
+        },
+        "width": {
+          "type": "number",
+          "description": "Largeur de la scène en unités (800)"
+        },
+        "height": {
+          "type": "number",
+          "description": "Hauteur de la scène (600)"
+        },
+        "layer": {
+          "type": "string",
+          "description": "Calque des sprites publiés (sonic-2d layers) ; vide : calque par défaut"
+        },
+        "min-visibility": {
+          "type": "number",
+          "description": "Visibilité minimale d'une articulation, 0..1 (0.5)"
+        },
+        "settle-ms": {
+          "type": "number",
+          "description": "Attente minimale après la prise, en ms (350)"
+        },
+        "timeout-ms": {
+          "type": "number",
+          "description": "Attente maximale d'une pose alignée sur l'image, en ms (2500) ; ensuite la dernière pose est utilisée"
+        },
+        "armature": {
+          "type": "string",
+          "description": "Armature libre en JSON : liste d'os {name, parent, from, to, extend, radius, z, cap, sprite}. from / to nomment des points de pose.joints ({x,y,v} normalisés), to peut être une paire (milieu). radius s'exprime en unit. Sans armature : préréglage personne"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Longueur de référence de l'armature libre : « pointA,pointB » (leur distance) ou un nombre de pixels"
         }
       }
     }
