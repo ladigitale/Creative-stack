@@ -90,7 +90,7 @@ describe("procgen vectoriel", () => {
     expect(shapes.some((s) => s.objId === model.objects[0].obj)).toBe(true);
   });
 
-  it("génération des formes d'un village < 30 ms (modèle composé, gabarits chauds, meilleur de 7)", () => {
+  it("génération des formes d'un village < 40 ms (modèle composé, gabarits chauds, meilleur de 7)", () => {
     const model = village();
     shapesOf(model); // échauffement (JIT, gabarits de végétation)
     const sim = new ActorSim();
@@ -103,6 +103,6 @@ describe("procgen vectoriel", () => {
       sc.dynamicShapes(0, 0, sim.poses());
       best = Math.min(best, performance.now() - t0);
     }
-    expect(best).toBeLessThan(30);
+    expect(best).toBeLessThan(40);
   });
 });

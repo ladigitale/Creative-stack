@@ -36,6 +36,17 @@ const STUBS: Record<string, Stub> = {
     const real = GENERATORS.building.build(p as never, ctx);
     return { ...real, mesh: new Mesh() };
   },
+  wall(p) {
+    const kind = String(p.kind ?? "drystone");
+    const H = Number(p.height ?? 0) > 0 ? Number(p.height) : ({ drystone: 0.85, coping: 1.0, fence: 1.1, picket: 1.0, hedge: 1.4, railing: 1.5, bamboo: 1.6 } as Record<string, number>)[kind] ?? 1;
+    const halfW = kind === "hedge" ? 0.45 : kind === "drystone" ? 0.28 : kind === "coping" ? 0.22 : 0.1;
+    const pts = (Array.isArray(p.points) && (p.points as unknown[]).length >= 2 ? (p.points as [number, number][]) : [[-5, 0], [5, 0]]).slice() as [number, number][];
+    if (p.closed) pts.push(pts[0]);
+    const segments: [number, number, number, number, number][] = [];
+    for (let s = 0; s < pts.length - 1; s++) if (Math.hypot(pts[s + 1][0] - pts[s][0], pts[s + 1][1] - pts[s][1]) >= 0.05) segments.push([pts[s][0], pts[s][1], pts[s + 1][0], pts[s + 1][1], halfW]);
+    const hx = Math.max(...pts.map((q) => Math.abs(q[0]))) + halfW, hz = Math.max(...pts.map((q) => Math.abs(q[1]))) + halfW;
+    return { generator: "wall", mesh: new Mesh(), anchors: {}, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: H, extra: { drape: true, segments } };
+  },
   tree(p) {
     const H = Number(p.height ?? 6), sp = String(p.species);
     const conifer = sp === "pine" || sp === "fir";
@@ -45,7 +56,8 @@ const STUBS: Record<string, Stub> = {
   },
   bush(p) {
     const S = Number(p.size ?? 1);
-    return { generator: "bush", mesh: new Mesh(), anchors: {}, footprint: { hx: S * 0.4, hz: S * 0.4, r: S * 0.5 }, height: S * 0.75 };
+    const h = ({ round: 0.75, ball: 1.0, cone: 1.9, box: 0.8, cloud: 1.45, spiral: 1.9 } as Record<string, number>)[String(p.shape ?? "round")] ?? 0.75;
+    return { generator: "bush", mesh: new Mesh(), anchors: {}, footprint: { hx: S * 0.4, hz: S * 0.4, r: S * 0.5 }, height: S * h };
   },
   grass(p) {
     const s = Number(p.size ?? 0.35);
@@ -55,7 +67,13 @@ const STUBS: Record<string, Stub> = {
     const s = Number(p.size ?? 0.8);
     return { generator: "flowers", mesh: new Mesh(), anchors: {}, footprint: { hx: s * 0.5, hz: s * 0.5, r: s * 0.5 }, height: 0.4 };
   },
-  rock(p) {
+  rock(p, ctx) {
+    const kind = String(p.kind ?? "boulder");
+    if (kind !== "boulder" && kind !== "cliff") return GENERATORS.rock.build(p as never, ctx);
+    if (kind === "cliff") {
+      const S0 = Number(p.size ?? 1.2);
+      return { generator: "rock", mesh: new Mesh(), anchors: {}, footprint: { hx: S0 * 1.07, hz: S0 * 0.67, r: S0 * 1.07 }, height: S0 * 0.88 };
+    }
     const S = Number(p.size ?? 1.2), n = Number(p.pieces ?? 3), fl = Number(p.flat ?? 0.3);
     const hx = S * (n > 1 ? 0.95 : 0.5);
     return { generator: "rock", mesh: new Mesh(), anchors: {}, footprint: { hx, hz: hx, r: hx }, height: S * 0.5 * (1 - fl * 0.4) * 0.95 };

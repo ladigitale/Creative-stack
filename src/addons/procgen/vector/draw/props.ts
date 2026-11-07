@@ -6,6 +6,7 @@
 import { type P2, Pen, compose, strokeVar } from "../shape";
 import type { Kit } from "./kit";
 import type { DrawCtx, ObjectDrawer } from "./types";
+import { MORE_PROPS } from "./more";
 
 type M = [number, number, number, number, number, number];
 
@@ -22,8 +23,10 @@ export const drawProp: ObjectDrawer = (kit, p, ctx) => {
   const o = ctx.obj;
   const em = kit.em;
   const fpx = o.footprint.hx / o.scale, fpz = o.footprint.hz / o.scale;
-  if (kind !== "boat") kit.castShadow(ctx.env.shadows, fpx * 0.9, fpz * 0.9, (o.height / o.scale) * (kind === "lamp" || kind === "lantern" || kind === "signpost" ? 0.25 : 0.8), ctx.env.ground, em.z0 - 0.5, em.layer, em.depth, kind === "barrel" || kind === "well" || kind === "haystack" || kind === "campfire");
+  if (kind !== "boat") kit.castShadow(ctx.env.shadows, fpx * 0.9, fpz * 0.9, (o.height / o.scale) * (kind === "lamp" || kind === "lantern" || kind === "signpost" ? 0.25 : 0.8), ctx.env.ground, em.z0 - 0.5, em.layer, em.depth, kind === "barrel" || kind === "well" || kind === "haystack" || kind === "campfire" || kind === "fountain" || kind === "kiosk" || kind === "parasol");
+  if (kind === "puddle") { MORE_PROPS.puddle(kit, size, variant, ctx); return; }
   if (fn) fn(kit, size, variant, ctx);
+  else if (MORE_PROPS[kind]) MORE_PROPS[kind](kit, size, variant, ctx);
   else drawGeneric(kit, p, ctx);
 };
 

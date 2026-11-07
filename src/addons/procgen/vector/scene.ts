@@ -20,6 +20,8 @@ import { bandsOf, drawGround, drawSky } from "./draw/ground";
 import { Emitter, Frame, Kit, lightDir } from "./draw/kit";
 import { drawBush, drawFlowers, drawGrass, drawRock, drawTree, natureShadow } from "./draw/nature";
 import { drawEmblem, drawGeneric, drawProp } from "./draw/props";
+import { drawVehicle, drawWall } from "./draw/fences";
+import { drawPlant } from "./draw/more";
 import type { DrawEnv, ObjectDrawer } from "./draw/types";
 import { type VectorCamera, Projector } from "./project";
 import type { Shape } from "./shape";
@@ -27,10 +29,10 @@ import { type Plan, buildPlan } from "./buildplan";
 import { VECTOR_META } from "./compose";
 import { hash32 } from "../core/rng";
 
-export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem };
+export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem, wall: drawWall, vehicle: drawVehicle, plant: drawPlant };
 
 /** Générateurs dessinés par gabarit (même dessin pour mêmes paramètres : végétation, rochers). */
-const TEMPLATED = new Set(["tree", "bush", "grass", "rock"]);
+const TEMPLATED = new Set(["tree", "bush", "grass", "rock", "plant"]);
 const TEMPLATES = new Map<string, Shape[]>();
 
 /** Objets dont le dessin dépend du temps (redessinés à chaque image). */

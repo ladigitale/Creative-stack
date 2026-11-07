@@ -212,15 +212,15 @@ function texture(c: Ctx, m: Affine, x0: number, x1: number, y0: number, y1: numb
     const joints = new Pen(m), light = new Pen(m), dark = new Pen(m);
     let y = y0;
     while (y < y1 - 0.05) {
-      const h = rng.range(0.26, 0.42);
+      const h = rng.range(0.3, 0.46);
       let x = x0 + rng.range(-0.3, 0);
       while (x < x1) {
-        const w = rng.range(0.4, 0.9);
+        const w = rng.range(0.45, 1.0);
         const xa = Math.max(x0, x), xb = Math.min(x1, x + w);
         if (xb - xa > 0.08 && y + h < clipY((xa + xb) / 2)) {
           const r = rng.next();
-          if (r < 0.16) light.rrect(xa + 0.03, y + 0.03, xb - xa - 0.06, h - 0.06, 0.05);
-          else if (r < 0.3) dark.rrect(xa + 0.03, y + 0.03, xb - xa - 0.06, h - 0.06, 0.05);
+          if (r < 0.16) light.rect(xa + 0.03, y + 0.03, xb - xa - 0.06, h - 0.06);
+          else if (r < 0.3) dark.rect(xa + 0.03, y + 0.03, xb - xa - 0.06, h - 0.06);
           joints.M(xb, y).L(xb, y + h);
         }
         x += w;
@@ -857,7 +857,7 @@ function tiles(c: Ctx, m: Affine, W: number, L: number, xl: (v: number) => numbe
     em.add(hi, role, { tone: tone + 1, stroke: null, alpha: 0.6 });
     em.line(pen, role, 0.4, { tone: tone - 1 });
   } else if (mat === "tuile" || mat === "ardoise") {
-    const step = mat === "ardoise" ? 0.22 : 0.3, tw = mat === "ardoise" ? 0.3 : 0.24;
+    const step = mat === "ardoise" ? 0.26 : 0.32, tw = mat === "ardoise" ? 0.36 : 0.34;
     const lines = new Pen(m), alt = new Pen(m), sh = new Pen(m);
     let row = 0;
     for (let v = step; v < L - 0.05; v += step, row++) {

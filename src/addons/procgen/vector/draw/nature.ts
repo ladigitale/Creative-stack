@@ -12,9 +12,10 @@ import { Rng } from "../../core/rng";
 import { type P2, Pen, hull, scallop, strokeVar } from "../shape";
 import type { Kit } from "./kit";
 import type { ObjectDrawer } from "./types";
+import { drawFlowerKind, drawRockKind, drawTopiary } from "./more";
 
-const leafColor = (season: string, k: number) =>
-  season === "autumn" ? (k % 3 === 0 ? "#b5683a" : k % 3 === 1 ? "#c89443" : "#9a5a35") : k % 3 === 2 ? "leaf2" : "leaf";
+const leafColor = (season: string, k: number, sp = "") =>
+  sp === "olive" ? (k % 2 ? "#8e9c7a" : "#77866a") : season === "autumn" || (sp === "maple" && season !== "summer") ? (k % 3 === 0 ? "#b5683a" : k % 3 === 1 ? "#c89443" : "#9a5a35") : sp === "beech" ? (k % 2 ? "leaf" : "#6f8a4a") : k % 3 === 2 ? "leaf2" : "leaf";
 
 /** Masse de feuillage à trois tons + touffes de bord. */
 function foliage(kit: Kit, m: [number, number, number, number, number, number], cx: number, cy: number, r: number, seed: number, fill: string, opts: { lobes?: number; squash?: number; flat?: number } = {}) {
@@ -95,7 +96,9 @@ export const drawTree: ObjectDrawer = (kit, p, ctx) => {
   const m = kit.board(0, 0, 0, ctx.mirror);
   const bark = sp === "birch" ? "paper" : "bark";
   if (sp === "fir" || (sp === "pine" && variant % 2 === 0)) return fir(kit, m, H, rng, season, sp === "pine");
-  if (sp === "pine") return umbrellaPine(kit, m, H, rng, season);
+  if (sp === "pine" || sp === "stonepine") return umbrellaPine(kit, m, H, rng, season);
+  if (sp === "cypress") return cypress(kit, m, H, rng, season);
+  if (sp === "poplar") return poplar(kit, m, H, rng, season);
   if (sp === "palm") return palm(kit, m, H, rng);
   const trunkW = H * 0.035 * rng.range(0.9, 1.1) * (sp === "birch" ? 0.75 : 1);
   const { list, tips } = branches(rng, H, sp, trunkW);
@@ -155,7 +158,7 @@ export const drawTree: ObjectDrawer = (kit, p, ctx) => {
   // masse arrière unifiée (évite les trous), puis masses
   const back = new Pen(m);
   for (const ms of masses) scallop(back, ms.x, ms.y, ms.r * 1.05, ms.r * 0.95, ms.x * 3 + ms.y, 8, ms.r * 0.2, 0.1);
-  em.add(back, leafColor(season, 0), { tone: -2, stroke: null });
+  em.add(back, leafColor(season, 0, sp), { tone: -2, stroke: null });
   if (sp === "willow") {
     const strands = new Pen(m), strands2 = new Pen(m);
     for (let i = 0; i < 26; i++) {
@@ -166,12 +169,21 @@ export const drawTree: ObjectDrawer = (kit, p, ctx) => {
       strokeVar(i % 2 ? strands : strands2, [[x0, y0], [x0 + bend * 0.5, y0 - len * 0.5], [x0 + bend, y0 - len]], [H * 0.018, H * 0.014, H * 0.003]);
     }
     em.add(strands2, "leaf", { tone: -1, stroke: null });
-    masses.forEach((ms, i) => foliage(kit, m, ms.x, ms.y, ms.r, variant * 7 + i * 1.3, leafColor(season, i), { squash: 0.7 }));
+    masses.forEach((ms, i) => foliage(kit, m, ms.x, ms.y, ms.r, variant * 7 + i * 1.3, leafColor(season, i, sp), { squash: 0.7 }));
     em.add(strands, "leaf2", { tone: 0, width: 0.4 });
-  } else masses.forEach((ms, i) => foliage(kit, m, ms.x, ms.y, ms.r, variant * 7 + i * 1.3, leafColor(season, i)));
+  } else masses.forEach((ms, i) => foliage(kit, m, ms.x, ms.y, ms.r * (sp === "olive" ? 0.75 : 1), variant * 7 + i * 1.3, leafColor(season, i, sp), { squash: sp === "olive" ? 0.6 : 0.85 }));
   // fruits, fleurs de printemps
   const dots = new Pen(m);
-  const fruit = sp === "fruit";
+  const fruit = sp === "fruit" || sp === "olive";
+  if (sp === "cherry" && season !== "autumn") {
+    // cerisier : nuée de fleurs roses (printemps) ou cerises
+    const bl = new Pen(m);
+    for (const ms of masses) for (let i = 0; i < 9; i++) {
+      const a = rng.range(0, Math.PI * 2), d = Math.sqrt(rng.next()) * ms.r * 0.85;
+      bl.ellipse(ms.x + Math.cos(a) * d, ms.y + Math.sin(a) * d * 0.8, H * 0.018, H * 0.016);
+    }
+    em.add(bl, season === "spring" ? "#e9b3c2" : "accent", { tone: 0, width: 0.3 });
+  }
   if (fruit || season === "spring")
     for (const ms of masses)
       for (let i = 0; i < (fruit ? 4 : 6); i++) {
@@ -226,6 +238,37 @@ function fir(kit: Kit, m: [number, number, number, number, number, number], H: n
       const snow = new Pen(m).M(-w * 0.7, y0 + (y1 - y0) * 0.25).Q(0, y0 + (y1 - y0) * 0.55, w * 0.7, y0 + (y1 - y0) * 0.25).Q(w * 0.3, y0 + (y1 - y0) * 0.4, 0, y0 + (y1 - y0) * 0.5).Q(-w * 0.3, y0 + (y1 - y0) * 0.4, -w * 0.7, y0 + (y1 - y0) * 0.25).Z();
       em.add(snow, "snow", { tone: 1, width: 0.4 });
     }
+  }
+}
+
+function cypress(kit: Kit, m: [number, number, number, number, number, number], H: number, rng: Rng, season: string) {
+  const em = kit.em;
+  em.add(strokeVar(new Pen(m), [[0, 0], [0, H * 0.15]], [H * 0.025, H * 0.02]), "bark", { width: 0.5 });
+  const w = H * 0.11;
+  const pts: P2[] = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12, y = H * 0.06 + t * H * 0.94;
+    pts.push([w * Math.sin(Math.PI * Math.min(1, t * 1.6 + 0.15)) * (1 - t * 0.6) * (1 + (i % 2 ? 0.1 : -0.05)), y]);
+  }
+  const outline = [...pts, ...pts.slice(0, -1).reverse().map(([x, y]): P2 => [-x * rng.range(0.9, 1.05), y])];
+  em.add(new Pen(m).smooth(outline, true), "leaf", { tone: -1 });
+  const L = kit.L[0] < 0 ? -1 : 1;
+  em.add(new Pen(m).smooth(pts.map(([x, y]): P2 => [L * x * 0.7, y]).concat([[0, H * 0.9], [0, H * 0.1]]), true), "leaf", { tone: 0, stroke: null });
+  const tex = new Pen(m);
+  for (let i = 0; i < 16; i++) {
+    const y = rng.range(H * 0.12, H * 0.9), x = rng.range(-w * 0.6, w * 0.6) * (1 - y / H * 0.5);
+    tex.M(x, y).Q(x + w * 0.1, y + H * 0.03, x, y + H * 0.06);
+  }
+  em.line(tex, "leaf2", 0.5, { tone: season === "winter" ? 0 : 1, alpha: 0.7 });
+}
+
+function poplar(kit: Kit, m: [number, number, number, number, number, number], H: number, rng: Rng, season: string) {
+  const em = kit.em;
+  em.add(strokeVar(new Pen(m), [[0, 0], [0, H * 0.6], [0, H * 0.85]], [H * 0.022, H * 0.016, H * 0.008]), "bark", { width: 0.5 });
+  if (season === "winter") return;
+  for (let i = 0; i < 5; i++) {
+    const y = H * (0.3 + i * 0.14), r = H * (0.1 - i * 0.008);
+    foliage(kit, m, rng.range(-0.05, 0.05) * H, y, r, i * 2.3 + rng.next(), season === "autumn" ? "#c89443" : i % 2 ? "leaf2" : "leaf", { squash: 1.5, lobes: 8 });
   }
 }
 
@@ -289,6 +332,7 @@ const bez = (a: P2, b: P2, c: P2, t: number): P2 => [(1 - t) * (1 - t) * a[0] + 
 
 export const drawBush: ObjectDrawer = (kit, p, ctx) => {
   const S = Number(p.size ?? 1);
+  if (p.shape && p.shape !== "round") return drawTopiary(kit, String(p.shape), S, p, ctx);
   const rng = new Rng(`vbush/${Number(p.variant ?? 0)}`);
   const em = kit.em;
   const m = kit.board(0, 0, 0, ctx.mirror);
@@ -345,6 +389,7 @@ export const drawGrass: ObjectDrawer = (kit, p, ctx) => {
 };
 
 export const drawFlowers: ObjectDrawer = (kit, p, ctx) => {
+  if (p.kind && p.kind !== "mixed") return drawFlowerKind(kit, String(p.kind), p, ctx);
   const S = Number(p.size ?? 0.8);
   const n = Math.min(24, Number(p.count ?? 14));
   const rng = ctx.rng.fork("fl");
@@ -378,6 +423,7 @@ export const drawFlowers: ObjectDrawer = (kit, p, ctx) => {
 };
 
 export const drawRock: ObjectDrawer = (kit, p, ctx) => {
+  if (p.kind && p.kind !== "boulder" && drawRockKind(kit, String(p.kind), p, ctx)) return;
   const S = Number(p.size ?? 1.2);
   const pieces = Number(p.pieces ?? 3);
   const sharp = Number(p.sharpness ?? 0.6), flat = Number(p.flat ?? 0.3), moss = Number(p.moss ?? 0.2);
