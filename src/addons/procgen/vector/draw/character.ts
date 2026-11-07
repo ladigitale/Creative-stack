@@ -799,7 +799,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         const a = S(top0), b = S(body);
         em.line(new Pen().M(a[0], a[1]).L(b[0], b[1] + H * 0.04), "metal", 0.8);
         const w = H * 0.035, h = H * 0.06;
-        if (c.time >= 0) em.add(new Pen().ellipse(b[0], b[1], H * 0.12, H * 0.12), "lamp", { kind: "glow", stroke: null, alpha: 0.25 });
+        em.add(new Pen().ellipse(b[0], b[1], H * 0.25, H * 0.25), "lamp", { kind: "halo", stroke: null, alpha: 0.6 });
         em.add(new Pen().M(b[0] - w, b[1] + h * 0.5).L(b[0] + w, b[1] + h * 0.5).L(b[0] + w * 0.8, b[1] - h * 0.5).L(b[0] - w * 0.8, b[1] - h * 0.5).Z(), "lamp", { kind: "glow", width: 0.6 });
         em.add(new Pen().M(b[0] - w * 1.2, b[1] + h * 0.5).Q(b[0], b[1] + h * 1.1, b[0] + w * 1.2, b[1] + h * 0.5).Z(), "metal", { width: 0.5 });
         break;
@@ -827,7 +827,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         const t0 = madd(grip, iu, H * 0.2);
         em.add(strokeVar(new Pen(), [S(madd(grip, iu, -H * 0.06)), S(t0)], [H * 0.008, H * 0.012]), "wood", { tone });
         const f = S(t0), fl = Math.sin(c.time * 11) * H * 0.008;
-        em.add(new Pen().ellipse(f[0], f[1] + H * 0.03, H * 0.13, H * 0.13), "fire", { kind: "glow", stroke: null, alpha: 0.25 });
+        em.add(new Pen().ellipse(f[0], f[1] + H * 0.03, H * 0.3, H * 0.3), "fire", { kind: "halo", stroke: null, alpha: 0.6 });
         em.add(new Pen().M(f[0] - H * 0.025, f[1]).Q(f[0] - H * 0.03, f[1] + H * 0.05, f[0] + fl, f[1] + H * 0.1).Q(f[0] + H * 0.03, f[1] + H * 0.05, f[0] + H * 0.025, f[1]).Z(), "fire", { kind: "glow", stroke: null });
         em.add(new Pen().M(f[0] - H * 0.012, f[1]).Q(f[0], f[1] + H * 0.05, f[0] + H * 0.012, f[1]).Z(), "lamp", { kind: "glow", stroke: null });
         break;

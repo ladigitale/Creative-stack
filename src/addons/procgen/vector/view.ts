@@ -14,7 +14,7 @@ import { ActorSim, type ActorIntent, type GameEvent } from "./actors";
 import { Painter, strokeScale } from "./paint";
 import type { VectorCamera } from "./project";
 import { VectorScene, mergeSorted, now } from "./scene";
-import { PATH_UNIT, type Shape } from "./shape";
+import { PATH_UNIT, type Shape, pathBounds } from "./shape";
 import { fitFrame, renderSVG } from "./svg";
 import { type Inks, type VectorStyle, makeInks, resolveVectorStyle } from "./vstyle";
 
@@ -22,6 +22,8 @@ export type VectorViewState = { camera: VectorCamera; zoom: number; cx: number |
 
 const CAM_MAP: Record<string, VectorCamera> = { side: "side", front: "side", follow: "side", oblique: "oblique", iso: "oblique", top: "oblique", perspective: "oblique" };
 const round = (x: number) => Math.round(x * 100) / 100;
+/** `#rrggbb` + opacité → `rgba(…)`. */
+const hexA = (hex: string, a: number) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
 
 export class VectorView {
   readonly canvas: HTMLCanvasElement;
@@ -235,6 +237,17 @@ export class VectorView {
     if (!p) this.paths.set(s, (p = new Path2D(s.d)));
     return p;
   }
+  private boundsCache = new WeakMap<Shape, [number, number, number, number]>();
+  /** Rectangle englobant (unités du chemin). */
+  private bounds(sh: Shape) {
+    let b = this.boundsCache.get(sh);
+    if (!b) {
+      const m = pathBounds(sh.d);
+      b = [m[0] * PATH_UNIT, m[1] * PATH_UNIT, m[2] * PATH_UNIT, m[3] * PATH_UNIT];
+      this.boundsCache.set(sh, b);
+    }
+    return b;
+  }
   /** Matrice (pixels de l'appareil) d'une forme : plan, parallaxe, gabarit. */
   private shapeMatrix(sh: Shape, M: [number, number, number, number, number, number]): [number, number, number, number, number, number] {
     const d = this.dpr, q = d / PATH_UNIT;
@@ -348,7 +361,16 @@ export class VectorView {
       const path = this.path(sh);
       target.globalAlpha = p.alpha;
       target.globalCompositeOperation = p.blend === "multiply" ? "multiply" : p.blend === "screen" ? "screen" : "source-over";
-      if (p.fill) {
+      if (p.fill && p.halo) {
+        const b = this.bounds(sh);
+        const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, r = Math.max(1, (b[2] - b[0]) / 2);
+        const g2 = target.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g2.addColorStop(0, p.fill);
+        g2.addColorStop(0.35, hexA(p.fill, 0.45));
+        g2.addColorStop(1, hexA(p.fill, 0));
+        target.fillStyle = g2;
+        target.fill(path);
+      } else if (p.fill) {
         target.fillStyle = p.fill;
         target.fill(path);
       }

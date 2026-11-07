@@ -34,6 +34,7 @@ export function renderSVG(shapes: Shape[], vs: VectorStyle, inks: Inks, f: SvgFr
   out.push(`<rect width="${f.width}" height="${f.height}" fill="url(#sky)"/>`);
   out.push(`<g transform="matrix(${num(f.scale / PATH_UNIT)} 0 0 ${num(-f.scale / PATH_UNIT)} ${num(tx)} ${num(ty)})" stroke-linejoin="round" stroke-linecap="round">`);
   let layer = -1;
+  const halos = new Map<string, string>();
   for (const s of shapes) {
     if (vs.papercut > 0 && s.layer > layer) {
       if (layer >= 0) out.push("</g>");
@@ -44,7 +45,17 @@ export function renderSVG(shapes: Shape[], vs: VectorStyle, inks: Inks, f: SvgFr
     const attrs: string[] = [`d="${s.d}"`];
     const tk = s.t ? s.t[0] : 1;
     if (s.t) attrs.push(`transform="matrix(${num(s.t[0])} 0 0 ${num(s.t[0])} ${num(s.t[1] * PATH_UNIT)} ${num(s.t[2] * PATH_UNIT)})"`);
-    attrs.push(`fill="${p.fill ? col(p.fill) : p.hatch ? `url(#h${p.hatch})` : "none"}"`);
+    let fill = p.fill ? col(p.fill) : p.hatch ? `url(#h${p.hatch})` : "none";
+    if (p.halo && p.fill) {
+      let id = halos.get(p.fill);
+      if (!id) {
+        id = `g${halos.size}`;
+        halos.set(p.fill, id);
+        out.push(`<defs><radialGradient id="${id}"><stop offset="0" stop-color="${col(p.fill)}"/><stop offset="0.35" stop-color="${col(p.fill)}" stop-opacity="0.45"/><stop offset="1" stop-color="${col(p.fill)}" stop-opacity="0"/></radialGradient></defs>`);
+      }
+      fill = `url(#${id})`;
+    }
+    attrs.push(`fill="${fill}"`);
     if (p.alpha < 1) attrs.push(`opacity="${num(p.alpha)}"`);
     if (p.blend !== "normal") attrs.push(`style="mix-blend-mode:${p.blend}"`);
     if (p.stroke) attrs.push(`stroke="${col(p.stroke)}" stroke-width="${num((p.strokePx * k * PATH_UNIT) / (f.scale * tk))}"`);

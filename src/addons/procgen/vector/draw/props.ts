@@ -11,8 +11,7 @@ type M = [number, number, number, number, number, number];
 
 const glow = (kit: Kit, m: M, x: number, y: number, r: number, night: number) => {
   if (night < 0.2) return;
-  kit.em.add(new Pen(m).ellipse(x, y, r, r), "lamp", { kind: "glow", stroke: null, alpha: 0.18 + night * 0.22 });
-  kit.em.add(new Pen(m).ellipse(x, y, r * 0.45, r * 0.45), "lamp", { kind: "glow", stroke: null, alpha: 0.25 + night * 0.25 });
+  kit.em.add(new Pen(m).ellipse(x, y, r, r), "lamp", { kind: "halo", stroke: null, alpha: 0.35 + night * 0.4 });
 };
 
 export const drawProp: ObjectDrawer = (kit, p, ctx) => {
@@ -129,7 +128,7 @@ const PROPS: Record<string, (kit: Kit, size: number, variant: number, ctx: DrawC
     const em = kit.em;
     const m = kit.board();
     const t = ctx.env.time;
-    glow(kit, m, 0, 0.45, 2.6, Math.max(0.5, ctx.env.night));
+    glow(kit, m, 0, 0.45, 1.2 + ctx.env.night * 2.4, Math.max(0.25, ctx.env.night));
     const back = new Pen(m), front = new Pen(m);
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2;
@@ -257,9 +256,15 @@ const PROPS: Record<string, (kit: Kit, size: number, variant: number, ctx: DrawC
       const y = 2.05 - i * 0.36;
       const pen = new Pen(compose(m, [dir, 0, 0, 1, 0, 0])).M(-0.1, y - 0.12).L(0.62, y - 0.12).L(0.78, y).L(0.62, y + 0.12).L(-0.1, y + 0.12).Z();
       em.add(pen, "paper", { tone: 0, width: 0.6 });
+      // lettrage peint : mots de longueurs variées, capitale plus haute
       const t = new Pen(compose(m, [dir, 0, 0, 1, 0, 0]));
-      for (let k = 0; k < 4; k++) t.rect(0.02 + k * 0.13, y - 0.04, 0.08, 0.08);
-      em.add(t, "ink", { stroke: null, alpha: 0.8 });
+      let x = 0.0;
+      for (let k = 0; k < 3 && x < 0.5; k++) {
+        const w = [0.18, 0.1, 0.14, 0.22][(k + i + variant) % 4];
+        t.rrect(x, y - 0.035, 0.025, 0.08, 0.01).rrect(x + 0.03, y - 0.035, Math.min(w, 0.56 - x), 0.05, 0.02);
+        x += w + 0.07;
+      }
+      em.add(t, "ink", { stroke: null, alpha: 0.85 });
     }
   },
   fence(kit, _s, variant) {

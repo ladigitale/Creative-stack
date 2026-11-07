@@ -11,7 +11,7 @@ export type P2 = [number, number];
 /** Couleur : nom de rôle (`wall`, `leaf`…), `#rrggbb`, ou `none`. */
 export type Paint = string;
 
-export type ShapeKind = "fill" | "shadow" | "glow" | "line";
+export type ShapeKind = "fill" | "shadow" | "glow" | "halo" | "line";
 
 export type Shape = {
   d: string;

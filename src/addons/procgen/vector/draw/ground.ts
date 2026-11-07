@@ -59,7 +59,7 @@ export function drawGround(model: SceneModel, env: DrawEnv, bands: Band[], seed:
     const pen = new Pen().M(prof[0][0], bottom);
     for (const p of prof) pen.L(p[0], p[1]);
     pen.L(prof[prof.length - 1][0], bottom).Z();
-    const base: Shape = { d: pen.d, fill: surf, z: b.key, layer, objId: 0, depth, stroke: "ink", width: 0.45 };
+    const base: Shape = { d: pen.d, fill: surf, z: b.key, layer, objId: 0, depth };
     if (tone) base.tone = tone;
     out.push(base);
     // crête éclairée (filet) et texture de surface
@@ -69,6 +69,12 @@ export function drawGround(model: SceneModel, env: DrawEnv, bands: Band[], seed:
     for (let i = prof.length - 1; i >= 0; i--) rim.L(prof[i][0], prof[i][1] - 0.12);
     rim.Z();
     out.push({ d: rim.d, fill: surf, tone: tone + 1, z: b.key + 1e-6, layer, objId: 0, depth });
+    // trait de crête (un sur deux, ton sombre de la surface) : lecture du relief sans effet de papier réglé
+    if (k % 2 === 0 || Math.abs(prof[0][1] - prof[prof.length >> 1][1]) > 0.3) {
+      const crest = new Pen();
+      prof.forEach((p, i) => (i ? crest.L(p[0], p[1]) : crest.M(p[0], p[1])));
+      out.push({ d: crest.d, fill: "none", stroke: surf, tone: tone - 1, width: 0.7, kind: "line", z: b.key + 1.5e-6, layer, objId: 0, depth, alpha: 0.8 });
+    }
     const tex = new Pen();
     const nTex = surf === "grass" ? 34 : surf === "road" ? 0 : 18;
     const nextZ = bands[k + 1]?.z ?? b.z + 2;
@@ -231,7 +237,7 @@ export function drawSky(model: SceneModel, env: DrawEnv, seed: string, night: nu
   // astre
   const sx = -W * 0.3, sy = hor + W * 0.2;
   if (night > 0.5) {
-    out.push({ d: new Pen().ellipse(sx, sy, 2.6 * f, 2.6 * f).d, fill: "sun", z: -1e6, layer: 0, objId: 0, alpha: 0.12, kind: "glow" });
+    out.push({ d: new Pen().ellipse(sx, sy, 4 * f, 4 * f).d, fill: "sun", z: -1e6, layer: 0, objId: 0, alpha: 0.35, kind: "halo" });
     const r = 1.4 * f;
     out.push({ d: new Pen().M(sx, sy + r).C(sx - r * 1.35, sy + r, sx - r * 1.35, sy - r, sx, sy - r).C(sx - r * 0.65, sy - r * 0.6, sx - r * 0.65, sy + r * 0.6, sx, sy + r).Z().d, fill: "sun", tone: 1, z: -1e6 + 1, layer: 0, objId: 0, kind: "glow" });
     const st = new Pen();
@@ -242,7 +248,7 @@ export function drawSky(model: SceneModel, env: DrawEnv, seed: string, night: nu
     }
     out.push({ d: st.d, fill: "sun", z: -1e6 + 2, layer: 0, objId: 0, kind: "glow", alpha: 0.85 });
   } else {
-    for (const [r, a] of [[5.5, 0.1], [3.8, 0.16], [2.6, 0.3]] as const) out.push({ d: new Pen().ellipse(sx, sy, r * f, r * f).d, fill: "sun", z: -1e6, layer: 0, objId: 0, alpha: a, kind: "glow" });
+    out.push({ d: new Pen().ellipse(sx, sy, 7 * f, 7 * f).d, fill: "sun", z: -1e6, layer: 0, objId: 0, alpha: 0.7, kind: "halo" });
     out.push({ d: new Pen().ellipse(sx, sy, 1.8 * f, 1.8 * f).d, fill: "sun", tone: 1, z: -1e6 + 1, layer: 0, objId: 0 });
   }
   // nuages : cumulus festonnés, base plate, deux tons
@@ -262,7 +268,7 @@ export function drawSky(model: SceneModel, env: DrawEnv, seed: string, night: nu
   // lointain : deux plans de collines ou silhouette de ville
   if (!model.terrain) return;
   const city = model.terrain.spec.surface === "paved";
-  for (const [li, dz, amp] of [[0, 18, 1], [1, 7, 0.6]] as const) {
+  for (const [li, dz, amp] of [[0, 10, 1], [1, 4, 0.6]] as const) {
     const z = zFar - dz;
     const pen = new Pen();
     const n = 60;
@@ -283,7 +289,7 @@ export function drawSky(model: SceneModel, env: DrawEnv, seed: string, night: nu
       pen.M(-span / 2 - 10, base - 30);
       for (let i = 0; i <= n; i++) {
         const x = -span / 2 - 10 + ((span + 20) * i) / n;
-        const h = (Math.sin((x / f) * 0.045 * (li + 1) + rng.next() * 0.2 + li * 2) * 0.5 + 0.5) * (1.5 + W * 0.09) * amp + (Math.sin(x * 0.17 / f + li) * 1.2 + 1.5) * f;
+        const h = (Math.sin((x / f) * 0.045 * (li + 1) + rng.next() * 0.2 + li * 2) * 0.5 + 0.5) * (1 + W * 0.06) * amp + (Math.sin(x * 0.17 / f + li) * 1.2 + 1.5) * f;
         pen.L(x, base + h);
       }
       pen.L(span / 2 + 10, base - 30).Z();

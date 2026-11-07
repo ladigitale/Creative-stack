@@ -15,6 +15,8 @@ export type Painted = {
   /** Hachures : 0 aucune, 1 simples, 2 croisées (gravure) ; trame de points (affiche). */
   hatch: 0 | 1 | 2;
   dots: boolean;
+  /** Halo : dégradé radial de la couleur vers la transparence. */
+  halo?: boolean;
 };
 
 export class Painter {
@@ -43,6 +45,8 @@ export class Painter {
     } else if (s.kind === "line") {
       const base = (vs.outline || 1.2) * vs.interior * 1.5;
       out = { fill: null, alpha: (s.alpha ?? 1) * (1 - depth * 0.3), blend: "normal", stroke: inks.color(s.stroke ?? "ink", tone, depth, pal), strokePx: Math.max(0.45, base * (s.width ?? 0.5)), hatch: 0, dots: false };
+    } else if (s.kind === "halo") {
+      out = { fill: inks.color(s.fill, tone, 0, pal), alpha: s.alpha ?? 1, blend: inks.night > 0.3 ? "screen" : "normal", stroke: null, strokePx: 0, hatch: 0, dots: false, halo: true };
     } else if (s.kind === "glow") {
       out = { fill: inks.color(s.fill, tone, depth * 0.4, pal), alpha: s.alpha ?? 1, blend: inks.night > 0.3 && (s.alpha ?? 1) < 1 ? "screen" : "normal", stroke: null, strokePx: 0, hatch: 0, dots: false };
     } else {
