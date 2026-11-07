@@ -165,7 +165,7 @@ Micro + `output` autre que `none` = risque de Larsen sans casque : préférer `o
 |---|---|
 | `preset`, `params` | Patch de la bibliothèque et valeurs de ses paramètres exposés |
 | `events`, `trigger` | DataProviders d'événements (voir plus haut) |
-| `poly` (8), `steal` (oldest quietest same-note) | Polyphonie |
+| `poly` (8), `steal` (oldest quietest same-note) | Polyphonie **stricte** : les voix en relâchement comptent. Une note déjà jouée qui revient relance sa voix (pas de doublon) ; au-delà de `poly`, la voix relâchée la plus ancienne part d'abord, puis une voix tenue selon `steal`. Les voix libérées s'éteignent en 12 ms (sans clic). Un événement en retard (fil principal occupé) est joué tout de suite jusqu'à 1 s de retard ; les `noteOff` sont toujours appliqués |
 | `vel-sense` (0.6) | Part de la vélocité dans le volume |
 | `gain` (0.6) | Volume du patch |
 | `bpm` (120) | Pour `time="3/16"` et `sync="1/8"` |

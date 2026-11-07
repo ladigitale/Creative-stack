@@ -411,6 +411,14 @@ class CsModal extends AudioWorkletProcessor {
     }
     this.x1 = x1;
     this.x2 = x2;
+    // garde-fou : une valeur non finie (entrée NaN…) ne doit pas rendre la voix muette pour toujours
+    if (!Number.isFinite(energy)) {
+      out.fill(0);
+      y1.fill(0);
+      y2.fill(0);
+      this.x1 = this.x2 = 0;
+      return this.alive;
+    }
     // résonance éteinte : états remis à zéro (évite les nombres dénormalisés) et blocs suivants sautés
     this.idle = peakIn < 1e-7 && energy < 1e-12;
     if (this.idle) {
