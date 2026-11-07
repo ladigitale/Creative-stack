@@ -8,6 +8,8 @@ import { SCENES } from "./scene/library";
 import { STYLE_PRESETS } from "./style/style";
 import { CAMERAS } from "./render/camera";
 import { ACTIONS } from "./rig/locomotion";
+import { VECTOR_STYLES } from "./vector/vstyle";
+import { GENERATORS } from "./gen/index";
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -29,10 +31,10 @@ describe("addon procgen v3", () => {
   it("le manifeste déclare chaque attribut lu par l'élément et cite scènes, styles, caméras, actions", () => {
     const c = manifest.components[0];
     expect(c.name).toBe("sonic-procgen");
-    for (const k of ["dataProvider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target", "action-prefix"]) expect(Object.keys(c.props)).toContain(k);
-    // scènes ajoutées par le lot « environnement » : la description du manifeste est à compléter dans une PR dédiée
-    const pendingManifest = ["ferme", "bord-de-mer", "place-medievale", "jardin-japonais"];
-    for (const s of Object.keys(SCENES)) if (!pendingManifest.includes(s)) expect(c.description).toContain(s);
+    for (const k of ["dataProvider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target", "action-prefix", "render"]) expect(Object.keys(c.props)).toContain(k);
+    for (const s of Object.keys(SCENES)) expect(c.description).toContain(s);
+    for (const s of VECTOR_STYLES) expect(c.description).toContain(s);
+    for (const g of Object.keys(GENERATORS)) expect(c.description).toContain(g);
     for (const s of Object.keys(STYLE_PRESETS)) expect(c.description).toContain(s);
     for (const s of CAMERAS) expect(c.description).toContain(s);
     for (const a of ACTIONS) expect(c.description).toContain(a);

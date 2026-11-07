@@ -48,6 +48,7 @@ export class SonicProcgen extends HTMLElement {
 
   private view: AnyView | null = null;
   private mode: "3d" | "vector" = "3d";
+  private triedMode: string | null = null;
   private inView = true;
   private stage: HTMLDivElement;
   private svgKey: unknown = undefined;
@@ -232,10 +233,12 @@ export class SonicProcgen extends HTMLElement {
     const styleIn0 = d.style ?? this.getAttribute("scene-style");
     const renderIn = String(d.render ?? this.getAttribute("render") ?? "");
     const mode: "3d" | "vector" = renderIn === "vector" || (renderIn !== "3d" && isVectorStyle(styleIn0 ?? (recipe ?? SCENES[sceneName])?.style)) ? "vector" : "3d";
-    if (mode !== this.mode || !this.view) {
-      const had = !!this.view;
+    // une seule tentative par mode : sans WebGL, on compose quand même et on publie l'erreur, sans boucler
+    if (mode !== this.mode || (!this.view && this.triedMode !== mode)) {
+      const changed = mode !== this.mode && !!this.model;
+      this.triedMode = mode;
       this.ensureView(mode);
-      if (had || this.model) this.sceneKey = "";
+      if (changed) this.sceneKey = "";
     }
     const key = JSON.stringify([mode, recipe ?? sceneName, seed, params, edits]);
     const issues = new Issues();
