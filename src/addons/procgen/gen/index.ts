@@ -5,10 +5,13 @@ import { building } from "./building";
 import { character } from "./character";
 import { bush, flowers, grass, rock, tree } from "./nature";
 import { emblem, prop } from "./props";
+import { plant } from "./plants";
+import { vehicle } from "./vehicles";
+import { wall } from "./wall";
 import type { Generator } from "./types";
 
 export const GENERATORS: Record<string, Generator> = Object.fromEntries(
-  [character, animal, tree, bush, grass, flowers, rock, building, prop, emblem].map((g) => [g.id, g as unknown as Generator]),
+  [character, animal, tree, bush, grass, flowers, rock, plant, building, prop, vehicle, wall, emblem].map((g) => [g.id, g as unknown as Generator]),
 );
 
 export function resolveGeneratorId(id: string): { gen: Generator | undefined; preset: Record<string, unknown> } {
@@ -27,4 +30,4 @@ export function generatorCatalog() {
   return Object.values(GENERATORS).map((g) => ({ id: g.id, label: g.label, doc: g.doc, tags: g.tags, params: describeSchema(g.schema) }));
 }
 
-export { animal, building, character, tree, bush, grass, flowers, rock, prop, emblem };
+export { animal, building, character, tree, bush, grass, flowers, rock, plant, prop, vehicle, wall, emblem };

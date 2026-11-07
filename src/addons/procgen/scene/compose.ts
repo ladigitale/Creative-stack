@@ -110,9 +110,9 @@ export type SceneModel = {
 
 /** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
 const ACTOR_GENS = new Set(["character", "animal"]);
-const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem"]);
+const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
-const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 } };
+const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 } };
 const TILE = 24;
 const MAX_ITEMS = 1500;
 
@@ -289,8 +289,19 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     const isActor = ACTOR_GENS.has(generator);
     const mode: ObjectInfo["mode"] = isActor ? "actor" : INSTANCEABLE.has(generator) ? "instance" : "static";
     objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors });
-    placedCircles.push({ x, z, r: Math.max(0.15, (generator === "building" ? Math.max(fp.hx, fp.hz) : fp.r * 0.6) * scale) });
-    if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
+    const segs = asset.extra?.segments as [number, number, number, number, number][] | undefined;
+    if (segs) {
+      // clôtures le long d'un tracé : chaque tronçon bloque sa bande, de petits disques jalonnent le tracé
+      for (const [ax, az, bx, bz, hw] of segs) {
+        const [wx0, , wz0] = m4Point(T, [ax, 0, az]), [wx1, , wz1] = m4Point(T, [bx, 0, bz]);
+        const L = Math.hypot(wx1 - wx0, wz1 - wz0);
+        if (!layer?.walkable) nav.blockBox((wx0 + wx1) / 2, (wz0 + wz1) / 2, L / 2, hw * scale, Math.atan2(wz0 - wz1, wx1 - wx0), 0.15);
+        for (let s = 0; s <= L; s += 1) placedCircles.push({ x: wx0 + ((wx1 - wx0) * s) / Math.max(L, 1e-6), z: wz0 + ((wz1 - wz0) * s) / Math.max(L, 1e-6), r: Math.max(0.15, hw * scale) });
+      }
+    } else {
+      placedCircles.push({ x, z, r: Math.max(0.15, (generator === "building" ? Math.max(fp.hx, fp.hz) : fp.r * 0.6) * scale) });
+      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
+    }
     if (isActor) {
       const beh = (["idle", "wander", "patrol"] as const).includes(behavior as never) ? (behavior as ActorModel["behavior"]) : "idle";
       const act = (ACTIONS as readonly string[]).includes(action ?? "") ? (action as Action) : "idle";
@@ -311,7 +322,10 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       const tk = `${Math.floor(x / TILE)},${Math.floor(z / TILE)}`;
       let t = tiles.get(tk);
       if (!t) tiles.set(tk, (t = new Mesh()));
+      const v0 = t.vertexCount;
       t.append(asset.mesh, T, { obj });
+      // drapé sur le relief (murs, clôtures le long d'un tracé)
+      if (asset.extra?.drape && terrain) for (let i = v0; i < t.vertexCount; i++) t.pos[i * 3 + 1] += H(t.pos[i * 3], t.pos[i * 3 + 2]) - y - 0.03;
     }
   };
 
@@ -363,7 +377,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       const rr = Math.max(0.2, built.generator === "building" ? Math.min(built.asset.footprint.hx, built.asset.footprint.hz) * scale * 0.95 : r * 0.6);
       if (!("at" in place) && !free(pos.x, pos.z, rr, !!layer.onPath || along || !!layer.onWater, spacing, !!layer.onWater)) continue;
       let yaw = pos.yaw ?? 0;
-      const yw = layer.yaw ?? (built.generator === "building" ? "path" : "random");
+      const yw = layer.yaw ?? (built.generator === "building" ? "path" : built.asset.extra?.segments ? 0 : "random");
       if (yw === "random") yaw = irng.range(0, Math.PI * 2);
       else if (yw === "center") yaw = Math.atan2(-pos.x, -pos.z);
       else if (yw === "away") yaw = Math.atan2(pos.x, pos.z);
@@ -543,7 +557,8 @@ function placements(place: Placement, count: number, rng: Rng, size: [number, nu
         const u = rng.range(-1, 1), side = rng.int(0, 3);
         const lx = side < 2 ? u * b.footprint.hx : (side === 2 ? 1 : -1) * (b.footprint.hx + off);
         const lz = side < 2 ? (side === 0 ? 1 : -1) * (b.footprint.hz - 0.1 + off) : u * b.footprint.hz;
-        out.push({ x: b.pos[0] + lx * c + lz * s, z: b.pos[2] - lx * s + lz * c });
+        // lacet sortant du mur (lierre, plantes grimpantes : `yaw: "path"`)
+        out.push({ x: b.pos[0] + lx * c + lz * s, z: b.pos[2] - lx * s + lz * c, yaw: b.yaw + [0, Math.PI, Math.PI / 2, -Math.PI / 2][side] });
       }
     }
     return out;

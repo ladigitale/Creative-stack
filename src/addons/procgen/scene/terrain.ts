@@ -230,6 +230,7 @@ export class Terrain {
       const hw = p.width / 2;
       const roadRole = p.kind === "plaza" ? ROLE.stone : ROLE.road;
       strip(hw, -hw, 0.03, roadRole, false);
+      if (p.kind === "street" || p.kind === "plaza") out.append(this.pavers(p));
       if (p.kind === "street" && p.sidewalk > 0) {
         strip(hw + p.sidewalk, hw, 0.16, ROLE.stone, true);
         strip(-hw, -hw - p.sidewalk, 0.16, ROLE.stone, true);
@@ -238,6 +239,56 @@ export class Terrain {
       }
     }
     return out;
+  }
+
+  /**
+   * Pavage : rangs de pavés en quinconce (rue) ou dalles en damier décalé (place), légèrement bombés et irréguliers.
+   * Chaque pierre = dessus + deux chants (6 triangles) : le joint se lit par l'ombre et le contour, pas par la texture.
+   */
+  pavers(p: PathSpec): Mesh {
+    const m = new Mesh();
+    const plaza = p.kind === "plaza";
+    const hw = p.width / 2 - 0.05;
+    const rowStep = plaza ? 1.1 : 0.5;
+    const pts = resample(p.points, rowStep);
+    let seed = 48271 + Math.round(Math.abs(p.points[0][0] * 131 + p.points[0][1] * 17));
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let k = 0; k < pts.length - 1; k++) {
+      const a = pts[k], b = pts[k + 1];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      const t: [number, number] = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+      const n: [number, number] = [-t[1], t[0]];
+      // largeur d'une pierre ; décalage d'un demi-pavé un rang sur deux
+      const pw = plaza ? 1.1 : 0.62;
+      const off = k % 2 ? pw / 2 : 0;
+      for (let o = -hw - off; o < hw; o += pw) {
+        const o0 = Math.max(-hw, o + 0.03), o1 = Math.min(hw, o + pw - 0.03);
+        if (o1 - o0 < 0.12) continue;
+        const s0 = 0.03, s1 = Math.min(L, rowStep) - 0.03;
+        const lift = 0.045 + rnd() * (plaza ? 0.02 : 0.025);
+        const role = plaza ? (rnd() < 0.12 ? ROLE.road : ROLE.stone) : rnd() < 0.12 ? ROLE.stone : ROLE.road;
+        const P = (u: number, v: number, up: number): V3 => {
+          const x = a[0] + t[0] * u + n[0] * v, z = a[1] + t[1] * u + n[1] * v;
+          return [x, this.height(x, z) + up, z];
+        };
+        const base = m.vertexCount;
+        const c = [P(s0, o0, lift), P(s1, o0, lift), P(s1, o1, lift), P(s0, o1, lift)];
+        for (const q of c) m.vertex(q, [0, 1, 0], role, 1);
+        m.quad(base, base + 3, base + 2, base + 1);
+        // chants avant et arrière (dans le sens de la marche)
+        for (const [i0, i1, u] of [[0, 3, s0], [1, 2, s1]] as const) {
+          const bb = m.vertexCount;
+          const nn: V3 = u === s0 ? [-t[0], 0, -t[1]] : [t[0], 0, t[1]];
+          m.vertex(c[i0], nn, role, 1);
+          m.vertex(c[i1], nn, role, 1);
+          m.vertex(P(u, i1 === 3 ? o1 : o1, 0.02), nn, role, 0.5);
+          m.vertex(P(u, o0, 0.02), nn, role, 0.5);
+          if (u === s0) m.quad(bb, bb + 3, bb + 2, bb + 1);
+          else m.quad(bb, bb + 1, bb + 2, bb + 3);
+        }
+      }
+    }
+    return m;
   }
 
   /** Plan d'eau : profondeur (0..1) dans l'AO, utilisée par le shader (couleur, écume). */
