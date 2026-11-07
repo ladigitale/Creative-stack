@@ -302,3 +302,41 @@ Indicative sizes (quantized); verify with `hf-vendor.mjs` before allowlisting, i
 Produced images (cutout, depth, segmentation) come out as `{ width, height, channels, blob, url }` (PNG). `url` is an ObjectURL attached on the main thread at publish time — chainable into `sonic-shader` / `sonic-jsonata` (`$mediaUrl`) without app glue. Images are not stored in IndexedDB.
 
 End-to-end (depth + shader / Harris) : [Visual stack](#docs/_misc/visual-stack.md/visual-stack).
+
+## `sonic-segment-anything` — Segment Anything (SAM 2)
+
+Segmente l'objet désigné dans une image : on clique sur l'objet (ou on trace une boîte), le masque suit. L'image est **encodée une fois** (l'étape lourde, environ une seconde selon l'appareil), puis chaque nouvelle invite ne coûte que le décodeur (quelques dizaines de millisecondes).
+
+```ts
+// configuration de l'application : un modèle `engine: "sam"`
+configureHuggingFace({
+  runtime: { source: "cdn", url: ".../transformers.min.js", version: "4.3.0" },
+  models: defineHuggingFaceModels({
+    "sam2-tiny": { task: "image-segmentation", engine: "sam", repo: "onnx-community/sam2.1-hiera-tiny-ONNX", revision: "<sha>", options: { dtype: { vision_encoder: "q4f16", prompt_encoder_mask_decoder: "fp16" } }, sizeBytes: 40_000_000 },
+  }),
+});
+```
+
+```json
+{ "tagName": "sonic-still", "attributes": { "id": "photo", "src": "@asset:photo.jpg" } }
+{ "tagName": "sonic-segment-anything", "attributes": { "id": "objet", "for": "photo", "click-on": "photo", "out-data-provider": "objet" } }
+{ "tagName": "sonic-mask-replace", "attributes": { "for": "photo", "mask": "#objet", "effect": "blur" } }
+```
+
+| Attribut | Rôle |
+|---|---|
+| `for` | Id de l'image : `sonic-still`, `<img>`, `<canvas>`, `sonic-camera`, `sonic-video`, toute source `getFrameCanvas()` |
+| `model` | Alias de la configuration Hugging Face (`engine: "sam"`) ; défaut `sam2-tiny` |
+| `click-on` | Id de l'élément cliquable : clic = nouvelle sélection, Maj+clic = ajouter un point, Alt+clic ou clic droit = exclure une zone, glisser = boîte |
+| `points-from`, `box-from` | Chemins DataProvider : `[{x, y, label}]` (label 1 sur l'objet, 0 hors de l'objet) et `{x0, y0, x1, y1}`, en 0..1 |
+| `points` | Points fixes : `"0.5,0.4,1; 0.2,0.2,0"` |
+| `refresh` | `manual` (défaut) : encode à la première invite, puis seulement si l'image a changé ; `frames` : suit une source qui change (caméra, vidéo), au plus `fps` fois par seconde (défaut 2) |
+| `mode`, `invert` | Masque `alpha` (défaut) ou `gray`, inversé à la demande |
+| `mirror` | `auto` (miroir pour une caméra native), `true`, `false` |
+| `load`, `consent-provider` | Politique de chargement (`first-use` défaut, `auto`, `consent`, `manual`) et DataProvider de consentement |
+| `max-side` | Côté maximal envoyé au modèle (défaut 1024, la taille de travail de SAM 2) |
+| `out-data-provider` | `{ phase, progress, backend, encoded, busy, points, box, present, score, coverage, cx, cy, x0, y0, x1, y1, encodeMs, decodeMs, error }` |
+
+Méthodes : `setPrompts({points, box})`, `clear()`, `encode()`, `accept()`, `decline()`, `getState()`.
+
+Limites : 16 points ; un objet à la fois (le meilleur des trois masques proposés, selon le score du modèle) ; ce n'est pas un suivi vidéo (en `refresh="frames"`, chaque image est segmentée de nouveau aux mêmes coordonnées).

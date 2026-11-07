@@ -1,0 +1,65 @@
+// @vitest-environment node
+/**
+ * Handlers `sam-*` du worker, avec le vrai processeur SAM 2 de Transformers.js (redimensionnement, mise à l'échelle des
+ * invites, post-traitement des masques) et un modèle simulé (les poids ne sont pas téléchargés en test).
+ */
+import { createRequire } from "node:module";
+import { it, expect } from "vitest";
+import { hfWorkerMain } from "./hf-worker-runtime";
+
+const require = createRequire(import.meta.url);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const t: any = require("@huggingface/transformers");
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+it("sam-load / encode / decode / dispose avec le processeur SAM 2 réel", async () => {
+  const cfg = { image_processor_type: "Sam2ImageProcessor", do_resize: true, size: { height: 1024, width: 1024 }, resample: 2, do_rescale: true, rescale_factor: 1 / 255, do_normalize: true, image_mean: [0.485, 0.456, 0.406], image_std: [0.229, 0.224, 0.225], do_convert_rgb: true, mask_size: { height: 256, width: 256 } };
+  let seen: any = {};
+  const fakeModel = {
+    async get_image_embeddings({ pixel_values }: any) { seen.pixel = pixel_values.dims; return { "image_embeddings.0": new t.Tensor("float32", new Float32Array(4), [1, 4]) }; },
+    async dispose() { seen.disposed = true; },
+  };
+  const call = async (feed: any) => {
+    seen.feed = Object.fromEntries(Object.entries(feed).map(([k, v]: [string, any]) => [k, { dims: v.dims, data: Array.from(v.data).slice(0, 8).map(Number) }]));
+    // 3 masques 256x256 : n°1 = carré centré (logits > 0), meilleur score
+    const plane = 256 * 256, d = new Float32Array(3 * plane).fill(-5);
+    for (let y = 96; y < 160; y++) for (let x = 96; x < 160; x++) d[plane + y * 256 + x] = 5;
+    return { pred_masks: new t.Tensor("float32", d, [1, 1, 3, 256, 256]), iou_scores: new t.Tensor("float32", new Float32Array([0.2, 0.9, 0.5]), [1, 1, 3]) };
+  };
+  const model = Object.assign(call, fakeModel);
+  const lib = {
+    ...t,
+    AutoProcessor: { from_pretrained: async () => new t.Sam2Processor({}, { image_processor: new t.Sam2ImageProcessor(cfg) }, null) },
+    AutoModelForMaskGeneration: { from_pretrained: async (repo: string, o: any) => { seen.load = { repo, device: o.device, dtype: o.dtype, revision: o.revision }; return model; } },
+  };
+  const replies: any[] = [];
+  let listener: any;
+  hfWorkerMain(lib, { postMessage: (m) => replies.push(m), addEventListener: (_, l) => (listener = l) });
+  const ask = (msg: any): Promise<any> => new Promise((res: any) => { const id = Math.random(); listener({ data: { ...msg, id } }); const iv = setInterval(() => { const r = replies.find((x: any) => x.id === id); if (r) { clearInterval(iv); res(r); } }, 5); });
+
+  const ref = { alias: "sam", task: "mask-generation", repo: "onnx-community/sam2.1-hiera-tiny-ONNX", revision: "abc", options: { dtype: "fp16" } };
+  let r = await ask({ type: "sam-load", model: ref, devices: ["wasm"] });
+  expect(r.ok && r.result.backend === "wasm" && seen.load.dtype === "fp16" && seen.load.revision === "abc", "chargement").toBe(true);
+  r = await ask({ type: "sam-decode", alias: "sam", points: [{ x: 1, y: 1, label: 1 }], box: null });
+  expect(!r.ok, "décoder sans image : erreur").toBe(true);
+  const W = 640, H = 480, data = new Uint8ClampedArray(W * H * 4).fill(128);
+  r = await ask({ type: "sam-encode", alias: "sam", image: { width: W, height: H, data } });
+  expect(r.ok && JSON.stringify(seen.pixel) === "[1,3,1024,1024]", "encodage : 1024×1024").toBe(true);
+  r = await ask({ type: "sam-decode", alias: "sam", points: [{ x: 320, y: 240, label: 1 }, { x: 10, y: 10, label: 0 }], box: null });
+  expect(r.ok, "décodage : réponse").toBe(true);
+  const f = seen.feed;
+  expect(JSON.stringify(f.input_points.dims) === "[1,1,2,2]" && Math.abs(f.input_points.data[0] - 512) < 1 && Math.abs(f.input_points.data[1] - 512) < 1, "points : forme [1,1,2,2], coordonnées à l'échelle 1024").toBe(true);
+  expect(JSON.stringify(f.input_labels.dims) === "[1,1,2]" && f.input_labels.data.join() === "1,0", "étiquettes [1,0]").toBe(true);
+  expect(!!f["image_embeddings.0"], "embeddings transmis").toBe(true);
+  const res = r.result;
+  expect(res.width === W && res.height === H && res.index === 1 && Math.abs(res.score - 0.9) < 1e-6, "masque à la taille de l'image, le meilleur retenu").toBe(true);
+  const on = res.mask.reduce((a: number, b: number) => a + b, 0);
+  expect(res.mask[240 * W + 320] === 1 && res.mask[0] === 0 && Math.abs(on / (W * H) - 1 / 16) < 0.01, "masque : carré central (≈ 1/16 de l'image)").toBe(true);
+  r = await ask({ type: "sam-decode", alias: "sam", points: [], box: { x0: 100, y0: 50, x1: 300, y1: 200 } });
+  expect(r.ok && JSON.stringify(seen.feed.input_boxes.dims) === "[1,1,4]" && Math.abs(seen.feed.input_boxes.data[0] - 160) < 1 && !seen.feed.input_points, "boîte seule : forme [1,1,4], échelle 1024").toBe(true);
+  r = await ask({ type: "sam-decode", alias: "sam", points: [], box: null });
+  expect(r.ok && r.result === null, "sans invite : null").toBe(true);
+  r = await ask({ type: "sam-dispose", alias: "sam" });
+  expect(r.ok && seen.disposed, "libération").toBe(true);
+
+}, 30_000);

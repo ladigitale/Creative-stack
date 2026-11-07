@@ -32,6 +32,11 @@ export type HfModelDefinition<T extends HfTask = HfTask> = {
   /** Libellé et description montrés dans l'UI de consentement. */
   label?: string;
   description?: string;
+  /**
+   * `sam` : modèle de segmentation interactive (SAM, SAM 2) chargé hors pipeline et utilisé par
+   * `sonic-segment-anything` (encodage d'une image puis masques à la demande). Défaut : `pipeline`.
+   */
+  engine?: "pipeline" | "sam";
   /** Options d'appel par défaut, typées selon `task`. */
   defaults?: HfCallOptions<T>;
 };

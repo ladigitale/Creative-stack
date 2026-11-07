@@ -50,6 +50,10 @@ export type HfLibrary = {
     ) => Promise<unknown>;
   };
   LogLevel?: Record<string, unknown>;
+  /** Segmentation interactive (SAM, SAM 2) : chargement hors pipeline. */
+  AutoProcessor?: { from_pretrained: (model: string, options?: Record<string, unknown>) => Promise<unknown> };
+  AutoModelForMaskGeneration?: { from_pretrained: (model: string, options?: Record<string, unknown>) => Promise<unknown> };
+  RawImage?: new (data: Uint8ClampedArray | Uint8Array, width: number, height: number, channels: number) => unknown;
 };
 
 /** Portée minimale d'un worker (évite de dépendre de la lib TS « webworker »). */
@@ -129,7 +133,112 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
   const unbatch = (v: any) =>
     Array.isArray(v) && v.length === 1 && Array.isArray(v[0]) ? v[0] : v;
 
+  /** Modèles de segmentation interactive : `alias` → modèle, processeur, image encodée courante. */
+  const segmenters = new Map<string, { model: any; processor: any; backend: string; image: any | null }>();
+
   const handlers: Record<string, (msg: any) => Promise<unknown>> = {
+    /** Charge un modèle SAM / SAM 2 (`AutoModelForMaskGeneration` + `AutoProcessor`). */
+    async "sam-load"({ model, devices }) {
+      const existing = segmenters.get(model.alias);
+      if (existing) return { backend: existing.backend, loadMs: 0 };
+      if (!lib.AutoModelForMaskGeneration || !lib.AutoProcessor || !lib.RawImage) {
+        const err: any = new Error("Cette version de Transformers.js ne gère pas la segmentation interactive.");
+        err.code = "unsupported";
+        throw err;
+      }
+      const t0 = performance.now();
+      const files: Record<string, { loaded: number; total: number }> = {};
+      const progress_callback = (info: any) => {
+        if (info.status !== "progress") return;
+        files[info.file] = { loaded: info.loaded, total: info.total };
+        const all = Object.values(files);
+        const loaded = all.reduce((a, f) => a + (f.loaded || 0), 0);
+        const total = all.reduce((a, f) => a + (f.total || 0), 0);
+        post({ type: "progress", alias: model.alias, progress: { file: info.file, loadedBytes: loaded, totalBytes: total, percent: total ? Math.round((loaded / total) * 100) : 0 } });
+      };
+      const processor: any = await lib.AutoProcessor.from_pretrained(model.repo, { revision: model.revision });
+      const errors: string[] = [];
+      for (const device of devices as string[]) {
+        if (device === "webgpu" && !(await hasWebGpu())) {
+          errors.push("webgpu indisponible");
+          continue;
+        }
+        try {
+          const m: any = await lib.AutoModelForMaskGeneration.from_pretrained(model.repo, { ...loadOptions(model), device, progress_callback });
+          segmenters.set(model.alias, { model: m, processor, backend: device, image: null });
+          return { backend: device, loadMs: Math.round(performance.now() - t0) };
+        } catch (err) {
+          const code = errorCode(err);
+          if (code === "network" || code === "quota") throw err;
+          errors.push(`${device} : ${String((err as any)?.message ?? err)}`);
+        }
+      }
+      const err: any = new Error(`Aucun backend utilisable (${errors.join(" ; ") || "aucun autorisé"}).`);
+      err.code = "unsupported";
+      throw err;
+    },
+
+    /** Encode une image RGBA (une seule à la fois par modèle) : le décodage des invites réutilise l'encodage. */
+    async "sam-encode"({ alias, image }) {
+      const entry = segmenters.get(alias);
+      if (!entry) {
+        const err: any = new Error(`Modèle "${alias}" non chargé.`);
+        err.code = "runtime";
+        throw err;
+      }
+      const t0 = performance.now();
+      const raw = new (lib.RawImage as any)(image.data, image.width, image.height, 4);
+      const inputs = await entry.processor(raw);
+      const embeddings = await entry.model.get_image_embeddings(inputs);
+      entry.image = { embeddings, original_sizes: inputs.original_sizes, reshaped_input_sizes: inputs.reshaped_input_sizes, width: image.width, height: image.height };
+      return { width: image.width, height: image.height, encodeMs: Math.round(performance.now() - t0) };
+    },
+
+    /**
+     * Masque pour des invites en px de l'image encodée : points (`label` 1 objet, 0 hors objet) et/ou une boîte.
+     * Renvoie le meilleur des masques proposés (score IoU estimé) en octets 0/1, à la taille de l'image.
+     */
+    async "sam-decode"({ alias, points, box }) {
+      const entry = segmenters.get(alias);
+      if (!entry || !entry.image) {
+        const err: any = new Error("Aucune image encodée.");
+        err.code = "runtime";
+        throw err;
+      }
+      const t0 = performance.now();
+      const ip = entry.processor.image_processor ?? entry.processor;
+      const img = entry.image;
+      const feed: Record<string, unknown> = { ...img.embeddings };
+      const pts = Array.isArray(points) ? points : [];
+      if (pts.length) {
+        const input_points = ip.reshape_input_points([[pts.map((p: any) => [p.x, p.y])]], img.original_sizes, img.reshaped_input_sizes);
+        feed.input_points = input_points;
+        feed.input_labels = ip.add_input_labels([[pts.map((p: any) => (p.label === 0 ? 0 : 1))]], input_points);
+      }
+      if (box) feed.input_boxes = ip.reshape_input_points([[[box.x0, box.y0, box.x1, box.y1]]], img.original_sizes, img.reshaped_input_sizes, true);
+      if (!feed.input_points && !feed.input_boxes) return null;
+      const out = await entry.model(feed);
+      const masks = await entry.processor.post_process_masks(out.pred_masks, img.original_sizes, img.reshaped_input_sizes);
+      const m = masks[0];
+      const scores: number[] = Array.from(out.iou_scores.data as ArrayLike<number>).map(Number);
+      const count = m.dims[1];
+      let best = 0;
+      for (let i = 1; i < count; i++) if ((scores[i] ?? -Infinity) > (scores[best] ?? -Infinity)) best = i;
+      const h = m.dims[2], w = m.dims[3];
+      const plane = h * w;
+      const mask = new Uint8Array(plane);
+      const data = m.data as ArrayLike<number | boolean>;
+      for (let i = 0, o = best * plane; i < plane; i++) mask[i] = data[o + i] ? 1 : 0;
+      return { width: w, height: h, mask, score: scores[best] ?? 0, scores: scores.slice(0, count), index: best, decodeMs: Math.round(performance.now() - t0) };
+    },
+
+    async "sam-dispose"({ alias }) {
+      const entry = segmenters.get(alias);
+      segmenters.delete(alias);
+      await entry?.model?.dispose?.();
+      return true;
+    },
+
     async configure({ env }) {
       const e = lib.env as any;
       e.allowLocalModels = false;
