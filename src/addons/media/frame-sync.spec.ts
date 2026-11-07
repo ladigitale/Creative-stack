@@ -180,4 +180,67 @@ describe("sonic-frame-sync", () => {
     expect(el.held).toBe(false);
     expect(mark(el)).toBe(4);
   });
+
+  it("source par commande : { source: \"#autre\" } remplace for, puis revient à for", async () => {
+    restore = patchCanvas();
+    const cam = mountSource("cam");
+    const photo = mountSource("photo");
+    const el = await mountSync({ for: "cam", control: "srcCtl" });
+    cam.frameSeq = 1;
+    el.tick(40);
+    const fromCam = mark(el);
+    PublisherManager.get("srcCtl").set({ hold: false, source: "#photo" });
+    photo.frameSeq = 7;
+    el.tick(80);
+    const fromPhoto = mark(el);
+    expect(fromCam).toBe(1);
+    expect(fromPhoto).toBe(7);
+    PublisherManager.get("srcCtl").set({ hold: false, source: "" });
+    cam.frameSeq = 2;
+    el.tick(120);
+    expect(mark(el)).toBe(2);
+    PublisherManager.get("srcCtl").set({ source: "<script>" });
+    cam.frameSeq = 3;
+    el.tick(160);
+    expect(mark(el)).toBe(3); // valeur invalide ignorée : on reste sur for
+  });
+
+  it("snapshot-provider : publie l'image figée (url blob:) au gel, null à la levée", async () => {
+    restore = patchCanvas();
+    const proto = HTMLCanvasElement.prototype as unknown as { toBlob: (cb: (b: Blob | null) => void) => void };
+    const origToBlob = proto.toBlob;
+    proto.toBlob = function (cb: (b: Blob | null) => void) {
+      cb(new Blob(["x"], { type: "image/png" }));
+    };
+    const origCreate = URL.createObjectURL;
+    const origRevoke = URL.revokeObjectURL;
+    let n = 0;
+    URL.createObjectURL = () => `blob:test/${++n}`;
+    URL.revokeObjectURL = () => {};
+    try {
+      const src = mountSource();
+      const el = await mountSync({ for: "src", control: "snapCtl", "snapshot-provider": "snap.image" });
+      src.frameSeq = 1;
+      el.tick(40);
+      expect(PublisherManager.get("snap").get()?.image ?? null).toBeNull();
+      PublisherManager.get("snapCtl").set({ hold: true });
+      src.frameSeq = 2;
+      el.tick(80);
+      const img = PublisherManager.get("snap").get().image;
+      expect(img.url).toBe("blob:test/1");
+      expect(img.width).toBe(8);
+      expect(img.height).toBe(4);
+      el.tick(120); // toujours figé : pas de nouvelle image
+      expect(n).toBe(1);
+      PublisherManager.get("snapCtl").set({ hold: false });
+      src.frameSeq = 3;
+      el.tick(160);
+      expect(PublisherManager.get("snap").get().image).toBeNull();
+    } finally {
+      proto.toBlob = origToBlob;
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+    }
+  });
 });
+

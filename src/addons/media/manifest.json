@@ -177,10 +177,14 @@
         },
         "control": {
           "type": "string",
-          "description": "DataProvider de commande { hold: boolean } (un store) : prime sur hold quand il publie un booléen"
+          "description": "DataProvider de commande { hold: boolean, source: \"#id\" } (un store) : hold prime sur l'attribut hold, source sur for (caméra ou image envoyée, sans doubler les trackers)"
         },
         "out-data-provider": {
           "type": "string"
+        },
+        "snapshot-provider": {
+          "type": "string",
+          "description": "DataProvider où publier l'image figée à chaque gel : { url (blob:, PNG), width, height, mime } ; null à la levée. Entrée d'un modèle d'image (sonic-hugging-face-infer inputProvider=\"<chemin>.url\")"
         }
       }
     },

@@ -2,6 +2,7 @@ import { LitElement, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
+import { autoBlink, drawFace, measureFace, type Face } from "../../shared/face-anim";
 import { PuppetRig, assignOwners, type BoneFrameOut, extractParts, measureArmature, measureBones, type ArmatureBone, type Joints, type Part } from "../../shared/puppet";
 
 const tagName = "sonic-puppet";
@@ -90,6 +91,19 @@ export class SonicPuppet extends LitElement {
   @property({ type: String })
   mode = "skin";
 
+  /**
+   * `true` : le visage vit. Le composant devient une source d'images (`#id`, à donner au `sonic-sprite shape="mesh"` à la
+   * place de la personne découpée) : la photo, yeux qui clignent tout seuls et bouche pilotée. Yeux et bouche viennent
+   * des points du visage de la pose (`leftEye`, `mouthLeft`…). Pilotage : `<drive-prefix>paupieres.y` (0 ouverts, 1 fermés,
+   * en plus des clignements automatiques) et `<drive-prefix>bouche.y` (0 fermée, 1 grande ouverte).
+   */
+  @property({ type: String })
+  face = "";
+
+  /** Clignements automatiques quand `face` est actif : `true` (défaut) ou `false`. */
+  @property({ type: String })
+  blink = "true";
+
   /** Visibilité minimale d'une articulation (0..1). */
   @property({ type: Number, attribute: "min-visibility" })
   minVisibility = 0.5;
@@ -115,6 +129,23 @@ export class SonicPuppet extends LitElement {
   private queued = false;
   private phase: PuppetPhase = "idle";
   private partNames: string[] = [];
+  private faceInfo: Face | null = null;
+  private base: HTMLCanvasElement | null = null;
+  private out: HTMLCanvasElement | null = null;
+  private faceLayers: Record<string, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null> = {};
+  private faceRaf = 0;
+  private faceKey = "";
+  private seq = 0;
+  private faceT0 = 0;
+
+  /** Source d'images (mode `face`) : la photo de la personne avec le visage animé. */
+  get frameSeq(): number {
+    return this.seq;
+  }
+
+  getFrameCanvas(): HTMLCanvasElement | null {
+    return this.out && this.seq > 0 ? this.out : null;
+  }
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -124,6 +155,7 @@ export class SonicPuppet extends LitElement {
   disconnectedCallback(): void {
     this.unlisten();
     this.stopTimer();
+    this.stopFace();
     super.disconnectedCallback();
   }
 
@@ -377,8 +409,102 @@ export class SonicPuppet extends LitElement {
 
   private setPhase(phase: PuppetPhase, extra: Record<string, unknown> = {}): void {
     this.phase = phase;
+    if (phase === "ready") this.startFace();
+    else this.stopFace();
     const out = (this.nodesOut ?? "").trim();
     if (out) set(`${out}.status`, { phase, error: "", parts: [], missing: [], body: 0, ...extra });
+  }
+
+  /* ------------------------------------------------------------ visage */
+
+  private faceOn(): boolean {
+    return (this.face ?? "").trim() === "true";
+  }
+
+  /** Copie de l'image de la personne au moment de la prise (surchargeable : tests). */
+  protected captureBase(): HTMLCanvasElement | null {
+    const src = (this.source ?? "").trim() ? this.lookup(this.source) : null;
+    const canvas = src?.getFrameCanvas?.();
+    if (!canvas || canvas.width <= 0) return null;
+    const c = document.createElement("canvas");
+    c.width = canvas.width;
+    c.height = canvas.height;
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(canvas, 0, 0);
+    return c;
+  }
+
+  private faceLayer = (name: string, w: number, h: number) => {
+    let l = this.faceLayers[name];
+    if (!l) {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      l = ctx ? { canvas, ctx } : null;
+      this.faceLayers[name] = l;
+    }
+    if (l && (l.canvas.width !== w || l.canvas.height !== h)) {
+      l.canvas.width = w;
+      l.canvas.height = h;
+    }
+    return l;
+  };
+
+  private startFace(): void {
+    this.stopFace();
+    if (!this.faceOn()) return;
+    const joints = (this.poseValue?.joints ?? null) as Joints | null;
+    this.base = this.captureBase();
+    if (!this.base || !joints) return;
+    this.faceInfo = measureFace(joints, this.base.width, this.base.height, Number(this.minVisibility) || 0.5);
+    this.out = this.out ?? document.createElement("canvas");
+    this.out.width = this.base.width;
+    this.out.height = this.base.height;
+    this.faceKey = "";
+    this.faceT0 = performance.now();
+    this.renderFace(this.faceT0);
+    const loop = (now: number) => {
+      this.faceRaf = requestAnimationFrame(loop);
+      this.renderFace(now);
+    };
+    this.faceRaf = requestAnimationFrame(loop);
+  }
+
+  private stopFace(): void {
+    if (this.faceRaf) cancelAnimationFrame(this.faceRaf);
+    this.faceRaf = 0;
+    this.base = null;
+    this.faceInfo = null;
+    if (this.out) {
+      this.out.width = 0;
+      this.seq = 0;
+    }
+  }
+
+  private driveY(name: string): number {
+    const v = Number(this.driveValue?.[this.key(name)]?.y);
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
+  }
+
+  /** Redessine la photo si l'état des yeux ou de la bouche a changé ; public pour les tests. */
+  renderFace(now: number): void {
+    const base = this.base;
+    const out = this.out;
+    if (!base || !out) return;
+    const auto = (this.blink ?? "true").trim() !== "false" ? autoBlink(now - this.faceT0) : 0;
+    const k = Math.max(auto, this.driveY("paupieres"));
+    const m = this.driveY("bouche");
+    const key = `${Math.round(k * 50)}|${Math.round(m * 50)}`;
+    if (key === this.faceKey && this.seq > 0) return;
+    const ctx = out.getContext("2d");
+    if (!ctx) return;
+    this.faceKey = key;
+    if (this.faceInfo) drawFace(ctx, base, this.faceInfo, k, m, this.faceLayer);
+    else {
+      ctx.clearRect(0, 0, out.width, out.height);
+      ctx.drawImage(base, 0, 0);
+    }
+    this.seq++;
   }
 
   /* ------------------------------------------------------------ animation */
