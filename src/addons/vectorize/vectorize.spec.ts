@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./index";
-import { denoise, label, quantize, toSvg, trace, traceMask, type RGBA } from "./index";
+import { denoise, label, quantize, readSettings, ringToCurve, smoothRing, toSvg, trace, traceMask, type RGBA } from "./index";
 import { parsePath } from "../vector/svgpath";
 
 function image(w: number, h: number, paint: (x: number, y: number) => [number, number, number, number]): RGBA {
@@ -78,7 +78,7 @@ describe("vectorisation", () => {
     const img = image(60, 60, (x, y) => ((x - 30) ** 2 + (y - 30) ** 2 < 400 ? BLUE : x < 10 ? RED : WHITE));
     const r = trace(img, { colors: 3, curves: true, tolerance: 0.6 });
     expect(r.layers.length).toBe(3);
-    expect(r.layers.some((l) => l.d.includes("C"))).toBe(true);
+    expect(r.layers.some((l) => l.d.includes("Q"))).toBe(true);
     const blue = r.layers.find((l) => l.color.endsWith("dc") || l.color.startsWith("#1"))!;
     // couche empilée : bleu + rouge (le rouge est dessiné par-dessus)
     expect(Math.abs(blue.area / (Math.PI * 400 + 600) - 1)).toBeLessThan(0.1);
@@ -86,6 +86,49 @@ describe("vectorisation", () => {
   it("écarte les taches minuscules", () => {
     const img = image(40, 40, (x, y) => (x === 5 && y === 5 ? RED : WHITE));
     expect(trace(img, { colors: 2, denoise: 0, minArea: 4 }).layers.length).toBe(1);
+  });
+  it("courbes : aucun point de contrôle hors de l'image (pas de débordement)", () => {
+    const img = image(80, 60, (x, y) => ((x - 25) ** 2 + (y - 30) ** 2 < 400 ? RED : x >= 45 && x < 70 && y >= 10 && y < 50 ? BLUE : WHITE));
+    const r = trace(img, { colors: 3, curves: true });
+    for (const l of r.layers) {
+      const nums = l.d.match(/-?\d+(\.\d+)?/g)!.map(Number);
+      for (let i = 0; i < nums.length; i += 2) {
+        expect(nums[i]).toBeGreaterThanOrEqual(-1);
+        expect(nums[i]).toBeLessThanOrEqual(81);
+        expect(nums[i + 1]).toBeGreaterThanOrEqual(-1);
+        expect(nums[i + 1]).toBeLessThanOrEqual(61);
+      }
+    }
+  });
+  it("courbes : un rectangle garde ses coins vifs", () => {
+    expect(ringToCurve([[0, 0], [40, 0], [40, 30], [0, 30]], 1)).toBe("M0 0L40 0L40 30L0 30Z");
+  });
+  it("lisse l'escalier d'une diagonale et garde les vrais coins", () => {
+    const stairs: [number, number][] = [[0, 0], [1, 0], [1, 1], [2, 1], [2, 2], [3, 2], [3, 3], [0, 3]];
+    const s = smoothRing(stairs);
+    // les marches d'un pixel ne sont plus des sommets, seulement des milieux d'arêtes
+    expect(s.some((p) => p[0] === 1 && p[1] === 1)).toBe(false);
+    const rect = smoothRing([[0, 0], [10, 0], [10, 8], [0, 8]]);
+    expect(rect).toContainEqual([10, 8]);
+  });
+  it("palette : retrouve 4 aplats malgré l'anticrénelage", () => {
+    const COLS: [number, number, number, number][] = [[244, 227, 178, 255], [217, 79, 48, 255], [42, 111, 151, 255], [56, 102, 65, 255]];
+    const img = image(120, 90, (x, y) => {
+      // bords adoucis : un pixel de transition entre chaque zone
+      const zone = x < 40 ? 0 : x < 80 ? 1 : y < 45 ? 2 : 3;
+      const edge = x === 40 || x === 80 || (x > 80 && y === 45);
+      if (!edge) return COLS[zone];
+      const prev = x === 40 ? 0 : x === 80 ? 1 : 2;
+      return COLS[prev].map((v, i) => (i < 3 ? (v + COLS[zone][i]) / 2 : 255)) as [number, number, number, number];
+    });
+    const pal = quantize(img, 4);
+    for (const c of COLS) expect(pal.some((p) => Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]) < 20)).toBe(true);
+  });
+  it("le filtre efface un liseré d'un pixel", () => {
+    const lab = new Int16Array(49);
+    for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) lab[y * 7 + x] = x < 3 ? 0 : x === 3 ? 2 : 1;
+    const out = denoise(lab, 7, 7, 1, 3);
+    for (let y = 1; y < 6; y++) expect(out[y * 7 + 3]).not.toBe(2);
   });
   it("plafonne la taille du résultat", () => {
     expect(trace(square, { colors: 2, maxChars: 10 }).truncated).toBe(true);
@@ -98,6 +141,7 @@ describe("vectorisation", () => {
     const s = toSvg(trace(square, { colors: 2 }));
     expect(s.startsWith("<svg")).toBe(true);
     expect(s).toContain("viewBox=\"0 0 40 40\"");
+    expect(toSvg(trace(square, { colors: 2 }), { width: 400, height: 400 })).toContain('width="400" height="400"');
     expect(s).not.toMatch(/<script|on\w+=/);
   });
   it("grande image en temps raisonnable", () => {
@@ -130,5 +174,34 @@ describe("composant", () => {
     set("vz.ctl", { n: 1 });
     expect((dp("vz.out2").get() as { status: string }).status).toBe("error");
     el.remove();
+  });
+  it("lit les réglages dans control et params (bornés)", () => {
+    expect(readSettings({ n: 3, colors: 99, tolerance: "1.5", curves: 1, flat: false, "max-size": 800 }))
+      .toEqual({ colors: 32, tolerance: 1.5, curves: true, flat: false, maxSize: 800 });
+    expect(readSettings(null)).toEqual({});
+  });
+  it("réglages pilotés par DataProvider et sortie complète", async () => {
+    const still = document.createElement("canvas") as HTMLCanvasElement & { frameSeq: number; getFrameCanvas: () => HTMLCanvasElement };
+    still.id = "vz-src";
+    still.width = 40; still.height = 40;
+    still.frameSeq = 1;
+    still.getFrameCanvas = () => still;
+    document.body.append(still);
+    const el = document.createElement("sonic-vectorize") as HTMLElement & { run: () => boolean; settings: () => { colors: number; curves: boolean } };
+    el.setAttribute("source", "#vz-src");
+    el.setAttribute("control", "vz.ctl3");
+    el.setAttribute("params", "vz.par3");
+    el.setAttribute("out-data-provider", "vz.out3");
+    set("vz.ctl3", { n: 0, colors: 4, curves: true });
+    document.body.append(el);
+    await (el as unknown as { updateComplete: Promise<unknown> }).updateComplete;
+    expect(el.settings().colors).toBe(4);
+    expect(el.settings().curves).toBe(true);
+    set("vz.par3", { colors: 6 });
+    expect(el.settings().colors).toBe(6);
+    const out = dp("vz.out3").get() as { settings: { colors: number }; status: string };
+    expect(out.settings.colors).toBe(4);
+    el.remove();
+    still.remove();
   });
 });

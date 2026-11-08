@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "vectorize",
   "label": "Image vers vecteurs",
-  "description": "Vectorise une image (fichier, photo, caméra) en chemins SVG par quantification des couleurs et suivi de contours ; courbes de Bézier en option, résultat publié en DataProvider",
+  "description": "Vectorise une image (fichier, photo, caméra) en chemins SVG par quantification des couleurs et suivi de contours lissé ; courbes en option ; réglages et résultat complets en DataProvider",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -11,11 +11,13 @@
   "components": [
     {
       "name": "sonic-vectorize",
-      "description": "Image → SVG : source (#id d'une source d'images), control {n} ou auto, colors, tolerance, min-area, denoise, curves, flat, max-size ; état {status, svg, layers, palette, width, height, ms, error}",
+      "description": "Image → SVG : source (#id d'une source d'images) ; control {n, …réglages} ou auto (relance à chaque nouvelle image) ; réglages colors, tolerance, min-area, denoise, curves (courbes à coins vifs), flat, max-size en attributs ou en direct par DP (control / params : colors, tolerance, minArea, denoise, curves, flat, maxSize) ; état {status, error, width, height, sourceWidth, sourceHeight, layers, paths[{color, area, share}], palette, svg, file (SonicMediaRef blob: pour sonic-media-download), bytes, ms, runs, truncated, settings}",
       "props": {
         "source": { "type": "string" },
         "control": { "type": "string" },
+        "params": { "type": "string" },
         "auto": { "type": "boolean" },
+        "interval": { "type": "number" },
         "colors": { "type": "number" },
         "tolerance": { "type": "number" },
         "min-area": { "type": "number" },

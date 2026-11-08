@@ -1,28 +1,48 @@
 # Addon `vectorize` — image vers vecteurs
 
-`sonic-vectorize` transforme une image en **chemins SVG** : palette de couleurs (k-moyennes), un masque par couleur, contours suivis sur la grille de pixels, puis simplification (et courbes de Bézier en option).
+`sonic-vectorize` transforme une image en **chemins SVG** : palette de couleurs (k-moyennes), un masque par couleur, contours suivis sur la grille de pixels et débarrassés de leur escalier, simplification, puis courbes en option (coins vifs conservés).
+
+Tout se pilote par DataProvider : les réglages se lisent dans `control` (avec le compteur `n`) et dans `params` ; un changement de réglage relance le calcul sur l'image déjà lue. Avec `auto`, chaque nouvelle image de la source (fichier déposé, photo) est revectorisée.
 
 ```json
 { "tagName": "sonic-file-open", "attributes": { "accept": "image/*", "ref-provider": "photo" } }
-{ "tagName": "sonic-still", "attributes": { "id": "img", "in-data-provider": "photo" } }
-{ "tagName": "sonic-vectorize", "attributes": { "source": "#img", "colors": 8, "curves": true, "control": "vec", "out-data-provider": "vecState" } }
+{ "tagName": "sonic-still", "attributes": { "id": "img", "in-data-provider": "photo", "hidden-preview": true } }
+{ "tagName": "sonic-vectorize", "attributes": { "source": "#img", "auto": true, "control": "vec", "out-data-provider": "vecState" } }
+{ "tagName": "sonic-media-download", "attributes": { "source": "vecState.file", "filename": "image-vectorisee", "label": "Télécharger le SVG" } }
 ```
 
-| Attribut | Rôle |
-|---|---|
-| `source` | `#id` d'une source d'images (`sonic-still`, `sonic-camera`, `sonic-video`…) |
-| `control` | DP `{ n }` : une hausse de `n` lance la vectorisation |
-| `auto` | Vectorise une fois dès que l'image est prête |
-| `colors` | 2 à 32 couleurs (défaut 8) |
-| `tolerance` | Simplification en pixels (défaut 0,8) |
-| `min-area` | Taches plus petites ignorées (défaut 4 px²) |
-| `denoise` | Passes de filtre majoritaire 3×3 (0 à 3, défaut 1) |
-| `curves` | Courbes de Bézier au lieu de polygones |
-| `flat` | Sans empilement : chaque couleur seule, avec trous (peut laisser des fentes) |
-| `max-size` | Côté maximal analysé en pixels (défaut 256) |
-| `hidden-preview` | N'affiche pas le dessin |
+Store `vec` piloté par des `sonic-action` : `{ "n": 0, "colors": 8, "tolerance": 1, "denoise": 1, "curves": false, "flat": false, "maxSize": 512 }`. Le reducer modifie une clé : le résultat suit, sans incrémenter `n`.
 
-État : `{ status: idle | working | ready | error, error, width, height, layers, palette, svg, ms, truncated }`. `svg` est un document SVG autonome ; chaque couche est un `path` rempli.
+| Attribut | Clé DP (`control` / `params`) | Rôle |
+|---|---|---|
+| `source` | — | `#id` d'une source d'images (`sonic-still`, `sonic-camera`, `sonic-video`…) |
+| `control` | `n` | DP de pilotage : une hausse de `n` relit l'image et lance ; ses autres clés sont des réglages |
+| `params` | — | DP de réglages en direct (prioritaire sur `control`) |
+| `auto` | — | Vectorise dès que l'image est prête, puis à chaque nouvelle image |
+| `interval` | — | Écart minimal entre deux calculs en `auto` (défaut 500 ms) |
+| `colors` | `colors` | 2 à 32 couleurs (défaut 8) |
+| `tolerance` | `tolerance` | Simplification en pixels (défaut 1 ; plus bas = plus fidèle et plus lourd) |
+| `min-area` | `minArea` | Taches plus petites ignorées (défaut 4 px²) |
+| `denoise` | `denoise` | Passes de filtre majoritaire 3×3 (0 à 3, défaut 1) ; retire aussi les liserés d'un pixel laissés par l'anticrénelage. `0` garde les traits fins |
+| `curves` | `curves` | Courbes lisses ; les coins nets (virage fort) restent vifs |
+| `flat` | `flat` | Sans empilement : chaque couleur seule, avec trous (peut laisser des fentes) |
+| `max-size` | `maxSize` | Côté maximal analysé en pixels (16 à 1400, défaut 512) |
+| `hidden-preview` | — | N'affiche pas le dessin |
+
+État (`out-data-provider`) :
+
+| Clé | Contenu |
+|---|---|
+| `status`, `error` | `idle` \| `working` \| `ready` \| `error` |
+| `width`, `height` | Image analysée (repère du `viewBox`) |
+| `sourceWidth`, `sourceHeight` | Image d'origine (taille d'affichage du SVG) |
+| `layers` | Nombre de couches |
+| `paths` | `[{ color, area, share }]` du dessous au-dessus (`share` : part de l'image, 0..1) |
+| `palette` | Couleurs, de la plus étendue à la plus rare |
+| `svg` | Document SVG autonome (une couche = un `path` rempli) |
+| `file` | Le même SVG en SonicMediaRef `blob:` (`sonic-media-download`, `sonic-image`, `sonic-still`) |
+| `bytes`, `ms`, `runs`, `truncated` | Taille du SVG, durée du calcul, nombre de calculs, résultat plafonné |
+| `settings` | Réglages effectivement appliqués (à afficher plutôt que ceux du store) |
 
 ## Limites
 
