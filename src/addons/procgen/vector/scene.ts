@@ -23,7 +23,7 @@ import { drawEmblem, drawGeneric, drawProp } from "./draw/props";
 import { drawVehicle, drawWall } from "./draw/fences";
 import { drawPlant } from "./draw/more";
 import { drawBall } from "./draw/ball";
-import { drawAssembly, drawSeat, drawTool } from "./draw/parts";
+import { drawAssembly, drawContainer, drawSeat, drawTool } from "./draw/parts";
 import type { DrawEnv, ObjectDrawer } from "./draw/types";
 import { type VectorCamera, Projector } from "./project";
 import type { Shape } from "./shape";
@@ -31,7 +31,7 @@ import { type Plan, buildPlan } from "./buildplan";
 import { VECTOR_META } from "./compose";
 import { hash32 } from "../core/rng";
 
-export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem, wall: drawWall, vehicle: drawVehicle, plant: drawPlant, ball: drawBall, seat: drawSeat, assembly: drawAssembly, tool: drawTool };
+export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem, wall: drawWall, vehicle: drawVehicle, plant: drawPlant, ball: drawBall, seat: drawSeat, assembly: drawAssembly, tool: drawTool, container: drawContainer };
 
 /** Générateurs dessinés par gabarit (même dessin pour mêmes paramètres : végétation, rochers). */
 const TEMPLATED = new Set(["tree", "bush", "grass", "rock", "plant"]);
