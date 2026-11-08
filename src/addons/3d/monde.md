@@ -32,6 +32,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `outline` | Contour des silhouettes 2D en px (défaut 1, 0 = aucun) |
 | `view2d` | Vue 2D : `{"view": "top" \| "side" \| "front" \| "iso", "unit": 48 (px par m), "origin": [x, y] (position écran de l'origine)}` |
 | `ciel`, `brume` | Fond 3D et brume (0 à 1) |
+| `style` | Style des modèles `gen` : préréglage procgen (`gouache`, `doux`, `bd`, `encre`, `aquarelle`, `papier`, `nuit`, `crepuscule`…) ou jetons `{preset, shading, bands, outline, palette…}` ; défaut selon `look` |
 
 ## Modèle
 
@@ -98,6 +99,36 @@ retouche d'un modèle) : seuls les modèles modifiés sont reconstruits.
 `out-data-provider` (distinct du `dataProvider`) reçoit `mondeInfo : {models: {nom: {parts, clips, roles, clip}}, instances: [{name, model}], decor, issues}`.
 `issues` liste les erreurs du JSON (chemin + message) : une erreur n'empêche jamais le rendu du reste.
 Tap : `pick` avec `objectId` = instance (en 2D, `part` en plus).
+
+## Modèles `gen` : générateurs procgen (3D)
+
+`{"gen": "character", "params": {…}, "seed": 4}` confie la forme aux générateurs procgen : personnages humains en
+maillage continu skinné (visage, coiffure, garde-robe en couches), animaux (`animal.dog`, `animal.horse`, `animal.duck`…),
+`tree`, `bush`, `rock`, `plant`, `flowers`, `building` (17 styles), `prop.<objet>`, `vehicle`, `wall`, `ball.<ballon>`,
+`seat.<assise>`, `assembly`. `params` = paramètres du générateur (voir le catalogue procgen : `top`, `bottom`, `hair`,
+`archetype` `chibi|cartoon|stylized|heroic`, `height`…). Rendu `sonic-3d` avec le style procgen (`style` du monde) :
+bandes toon, AO, textures et relief par matière, contour. Généré à la demande sans figer la page (le nœud est pilotable
+tout de suite, le maillage apparaît quand il est prêt). Pas de rendu dans la projection 2D (`sonic-2d` : `monde2d`).
+
+- **Os = pièces** (sans forme) : `racine bassin dos torse cou tete epauleL/R brasL/R avantBrasL/R mainL/R cuisseL/R
+  molletL/R piedL/R orteilL/R` (animaux : `cou1 cou2 machoire oreilleL/R queue1..3 doigtL/R`, oiseaux : `aileL/R`).
+  Les pistes de clips les tournent (degrés, **ajoutés** à l'animation procédurale ; `racine` : aussi `x y z`).
+- **Clips du moteur** : `idle`, `marche`, `course` (foulée intégrée par la distance réellement parcourue : un
+  personnage déplacé par `nodes` marche ou court, pieds plantés ; immobile, `marche` / `course` le font courir sur place),
+  `joie`, `saut`, `salut`, `montre`, `parle`, `porte`, `assis`, `reflechit`, `salue`. **Gestes de jeu** (pistes d'os) :
+  `tir`, `passe`, `controle`, `tacle`, `chute`, `plongeon`. Un clip écrit au même nom remplace le geste.
+- **Couleurs** : `roles` (placement ou `nodes`) avec les noms du format (`maillot`, `short`, `chaussette`, `chaussure`,
+  `peau`, `cheveux`, `toit`, `mur`, `feuillage`…) ou procgen (`cloth1`, `skin`, `roof`…).
+- `nodes.<instance>_<os>` : `emissive` (0..1) et `emissiveColor` donnent un éclat à tout l'acteur.
+- Sans `name` : décor instancié (un appel de dessin par modèle, quel que soit le nombre de copies).
+
+```json
+{ "style": "bd",
+  "models": { "joueur": { "gen": "character", "params": { "archetype": "cartoon", "top": "tee", "bottom": "shorts", "pattern": "plain", "hat": "none" } },
+              "maison": { "gen": "building", "seed": 2 }, "chene": { "gen": "tree" } },
+  "place": [ { "model": "maison", "at": [-6, 0, -6] }, { "model": "chene", "scatter": 8, "area": [-12, -9, 12, -4] },
+             { "model": "joueur", "name": "p0", "roles": { "maillot": "#e11d48" } } ] }
+```
 
 ## Préréglages (`preset`)
 

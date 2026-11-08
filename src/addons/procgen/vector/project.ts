@@ -4,6 +4,8 @@
  * - `side` (élévation) : u = x, v = y − lift·z. `lift` (0 … 0,4) relève légèrement les plans lointains, comme une
  *   élévation d'illustrateur où le sol se lit en bandes ; la profondeur sert à l'ordre de dessin et à l'atmosphère.
  * - `oblique` (cavalière) : u = x − k·cos(a)·z, v = y − k·sin(a)·z ; flancs droits et dessus visibles.
+ * - `plongee` (vue d'en haut inclinée de `pitch` degrés, 90 = verticale) : u = x, v = cos(p)·y − sin(p)·z ; le
+ *   dessus des têtes et des toits se lit, le plan du sol s'étale (jeux vus de dessus, plateaux).
  *
  * Les deux sont affines : une face plane dessinée dans son repère local se projette par une affine 2D, donc les
  * courbes de Bézier restent des Bézier. `viewDir` est la direction (vers l'observateur) qui s'écrase sur un point :
@@ -12,39 +14,50 @@
 import type { V3 } from "../core/math";
 import { type Affine, type P2 } from "./shape";
 
-export type VectorCamera = "side" | "oblique";
+export type VectorCamera = "side" | "oblique" | "plongee";
 
 export class Projector {
   readonly camera: VectorCamera;
   readonly ax: number;
   readonly ay: number;
+  /** Facteur de la hauteur dans v (1 sauf en plongée). */
+  readonly cy: number;
   readonly dir: V3;
   zMin = -20;
   zMax = 20;
 
-  constructor(camera: VectorCamera, opts: { lift?: number; k?: number; angle?: number } = {}) {
+  constructor(camera: VectorCamera, opts: { lift?: number; k?: number; angle?: number; pitch?: number } = {}) {
     this.camera = camera;
+    let cy = 1;
     if (camera === "side") {
       this.ax = 0;
       this.ay = opts.lift ?? 0.26;
+    } else if (camera === "plongee") {
+      const p = (Math.min(90, Math.max(20, opts.pitch ?? 60)) * Math.PI) / 180;
+      this.ax = 0;
+      this.ay = Math.sin(p);
+      cy = Math.cos(p);
     } else {
       const k = opts.k ?? 0.5, a = ((opts.angle ?? 38) * Math.PI) / 180;
       this.ax = k * Math.cos(a);
       this.ay = k * Math.sin(a);
     }
-    const l = Math.hypot(this.ax, this.ay, 1);
-    this.dir = [this.ax / l, this.ay / l, 1 / l];
+    this.cy = cy;
+    // direction écrasée sur un point (vers l'observateur) : noyau de la projection
+    const d: V3 = [this.ax * cy, this.ay, cy];
+    const l = Math.hypot(d[0], d[1], d[2]);
+    this.dir = [d[0] / l, d[1] / l, d[2] / l];
   }
 
   p(x: number, y: number, z: number): P2 {
-    return [x - this.ax * z, y - this.ay * z];
+    return [x - this.ax * z, this.cy * y - this.ay * z];
   }
   pv(v: V3): P2 {
-    return [v[0] - this.ax * v[2], v[1] - this.ay * v[2]];
+    return [v[0] - this.ax * v[2], this.cy * v[1] - this.ay * v[2]];
   }
   /** Projection d'un vecteur (sans origine). */
   vec(v: V3): P2 {
-    return [v[0] - this.ax * v[2], v[1] - this.ay * v[2]];
+    return [v[0] - this.ax * v[2], this.cy * v[1] - this.ay * v[2]];
   }
   /** Profondeur vers l'observateur (plus grand = plus près). */
   depth(v: V3): number {
@@ -78,7 +91,7 @@ export class Projector {
     let x = u, z = 0;
     for (let i = 0; i < 6; i++) {
       const y = h(x, z);
-      z = (y - v) / this.ay;
+      z = (this.cy * y - v) / this.ay;
       x = u + this.ax * z;
     }
     return { x, z };

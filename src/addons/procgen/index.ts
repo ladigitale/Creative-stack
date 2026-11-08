@@ -12,5 +12,10 @@ export { STYLE_PRESETS, PALETTES, resolveStyle, resolveColors, type StyleTokens 
 export { ROLES } from "./style/roles";
 export { CAMERAS } from "./render/camera";
 export { ACTIONS } from "./rig/locomotion";
+export { GenKit, GenActor, type GenDrive } from "./bridge";
+import { GenKit as _GenKit, GenActor as _GenActor } from "./bridge";
+import { GenSprite as _GenSprite } from "./vector/sprite";
+import { registerProcgen } from "../../shared/procgen-loader";
+registerProcgen({ GenKit: _GenKit, GenActor: _GenActor, GenSprite: _GenSprite });
 import "./procgen";
 export * from "./vector/index";

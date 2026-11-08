@@ -17,7 +17,8 @@ DP `jeu` : `{ "monde2d": {…}, "nodes": { "p0": { "x": 320, "y": 400, "clip": "
 |---|---|
 | `ciel` | Fond : `"#rrggbb"` ou dégradé `["#haut", "#bas"]` |
 | `layers` | Calques du fond vers l'avant : `[{"name": "loin", "parallax": 0.3}, {"name": "monde", "parallax": 1, "ysort": true}, …]` (12 max). Appliqués si l'attribut `layers` est vide. `ysort` : tri par y (vue de dessus, 3/4) |
-| `style` | `plat` (aplats, contour fin), `doux` (relief, contour léger), `bd` (gros contour noir, relief), `encre` (contour noir, couleurs claires), `gouache` (relief, grain) |
+| `style` | `plat` (aplats, contour fin), `doux` (relief, contour léger), `bd` (gros contour noir, relief), `encre` (contour noir, couleurs claires), `gouache` (relief, grain) ; ou un style vectoriel procgen : `flat`, `ligne-claire`, `gravure`, `affiche`, `papier-decoupe` |
+| `styleGen` | Style vectoriel des modèles `gen` (sinon déduit de `style` : plat/doux → flat, bd → ligne-claire, encre → gravure, gouache → affiche) |
 | `outline` | Épaisseur du contour (px) ; `relief` : ombre et reflet internes (bool) |
 | `palette`, `textures`, `texture` | Couleurs par rôle ; motifs par rôle ou pour tout (voir `../3d/monde.md`, Textures : `scale` = motifs pour 100 px) |
 | `models`, `place` | Modèles (64 max) et placements |
@@ -63,6 +64,26 @@ et animée (ombre au sol pour les personnages et animaux). **Sans `name`** : dé
 
 Republier la même valeur ne fait rien ; le monde peut changer sans perdre l'état des instances. Tap : `{objectId: instance,
 part, x, y}`. Sortie (`out-data-provider`) : `monde2dInfo {models, instances, decor, layers, issues}`.
+
+## Modèles `gen` : illustration vectorielle procgen
+
+`{"gen": "character", "vue": "plongee", "taille": 80, "params": {…}, "seed": 4}` : l'objet est dessiné par les
+générateurs procgen en illustration vectorielle (traits continus à épaisseur variable sur le squelette posé, aplats,
+encre, hachures selon `styleGen`) : personnages humains (visage, coiffure, garde-robe), animaux (`animal.dog`,
+`animal.horse`, `animal.duck`…), `building`, `tree`, `bush`, `rock`, `plant`, `flowers`, `prop.<objet>`, `vehicle`,
+`ball.<ballon>`, `seat.<assise>`… `params` = paramètres du générateur (`top`, `bottom`, `hair`, `archetype`…).
+
+| Clé | Rôle |
+|---|---|
+| `vue` | `profil` (défaut ; `flip` tourne le regard), `face`, `dessus` (verticale), `plongee` (vue d'en haut inclinée : le plus lisible pour un jeu vu de dessus) |
+| `taille` | Hauteur à l'écran (px) d'un objet à sa taille de référence (personnage 1,7 m, animal 0,8 m, arbre 6 m, bâtiment 7 m) |
+| `pitch` | Inclinaison de la plongée (degrés, 90 = verticale ; défaut 55) |
+
+Os, clips et rôles : ceux du format monde (voir `../3d/monde.md`, Modèles `gen`) : clips `idle marche course joie saut
+salut…` (moteur procgen : un personnage déplacé par `nodes` marche ou court, pieds plantés) et gestes `tir passe
+controle tacle chute plongeon` ; `roles` `maillot short chaussette peau cheveux toit mur…`. En `dessus` / `plongee`,
+`rz` est le **cap** (le personnage est redessiné tourné, l'image ne pivote pas). Le personnage porte son ombre.
+Dessin cadencé à 24 images/s ; décor dessiné une fois. Tap : `{objectId: instance}`.
 
 ## Préréglages (`preset`)
 

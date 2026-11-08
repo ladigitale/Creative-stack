@@ -138,3 +138,38 @@ describe("monde2d : clips et pilotage", () => {
     expect(d.instances.get("p0")!.roles.maillot).toBe("#00ff00");
   });
 });
+
+describe("monde2d : modèles gen (procgen vectoriel)", () => {
+  it("os et clips du format monde, vue et échelle 2D, styles vectoriels", () => {
+    const m = readMonde2d({ style: "ligne-claire", models: { j: { gen: "character", vue: "plongee", taille: 85, params: { top: "tee" } }, a: { gen: "tree", vue: "profil" } }, place: [{ model: "j", name: "p0" }] });
+    expect(m.issues).toEqual([]);
+    expect(m.style).toBe("bd");
+    expect(m.styleGen).toBe("ligne-claire");
+    const j = m.models.get("j")!;
+    expect(j.parts).toEqual([]);
+    expect(j.gen!.view).toBe("plongee");
+    expect(j.gen!.pxPerM).toBeCloseTo(50);
+    expect(j.gen!.model3.parts.map((p) => p.name)).toContain("cuisseR");
+    for (const c of ["idle", "course", "tir", "tacle", "joie"]) expect(j.clips.has(c)).toBe(true);
+    expect(j.clips.get("tir")!.tracks).toEqual([]);
+    expect(Object.keys(j.roles)).toContain("maillot");
+    expect(m.models.get("a")!.gen!.rig).toBe("none");
+  });
+
+  it("style monde2d classique : style vectoriel déduit ; inconnus signalés", () => {
+    const m = readMonde2d({ style: "encre", styleGen: "aquarelle", models: { x: { gen: "dragon" }, j: { gen: "character", vue: "biais" } } });
+    expect(m.styleGen).toBe("gravure");
+    expect(m.issues.some((i) => i.path === "styleGen")).toBe(true);
+    expect(m.issues.some((i) => i.path === "models.x.gen")).toBe(true);
+    expect(m.issues.some((i) => i.path === "models.j.vue")).toBe(true);
+    expect(m.models.get("j")!.gen!.view).toBe("profil");
+  });
+
+  it("le pilote 2D accepte les clips du modèle gen", () => {
+    const m = readMonde2d({ models: { j: { gen: "character" } }, place: [{ model: "j", name: "p0" }] });
+    const d = new Monde2dDriver();
+    d.setMonde(m, 0);
+    d.apply("p0", { clip: "tacle", x: 10 }, 0, false);
+    expect(d.instances.get("p0")!.clip.clip).toBe("tacle");
+  });
+});
