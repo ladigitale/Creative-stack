@@ -588,7 +588,7 @@
     },
     {
       "name": "sonic-sequencer",
-      "description": "Horloge musicale : pattern {idInstrument: 'mini-notation' | {notes, scale, pad: 'x..x'}} joué sur des instruments par id ; store=id reçoit {type:step, payload:{step,beat,bar,phase,when,bpm}} ; control DP {playing,bpm,swing,seed,pattern} ; sync=\"#midi\" : suit l'horloge MIDI d'un appareil (Start/Stop, tempo, phase) ; état sync {locked, driftMs}",
+      "description": "Horloge musicale : pattern {idInstrument: 'mini-notation' | {notes, scale, pad: 'x..x'}} joué sur des instruments par id ; store=id reçoit {type:step, payload:{step,beat,bar,phase,when,bpm}} ; control DP {playing,bpm,swing,seed,pattern,beats,stepsPerBeat} ; état {status, playing, bpm, swing, seed, beats, stepsPerBeat, step, beat, bar, phase, sync, errors, warnings} ; sync=\"#midi\" : suit l'horloge MIDI d'un appareil (Start/Stop, tempo, phase) ; état sync {locked, driftMs}",
       "props": {
         "pattern": {
           "type": "object"
@@ -631,7 +631,7 @@
     },
     {
       "name": "sonic-sampler",
-      "description": "Sampler : samples {nom: url https/blob | {url|ref(DP SonicMediaRef), gain, pan, pitch, root, start, end, loop, reverse, gate}} ; événements {sample} ou {note} chromatique ; choke [[a,b]]",
+      "description": "Sampler : samples {nom: url https/blob | {url|ref(DP SonicMediaRef), gain, pan, pitch, root, start, end, loop, reverse, gate}} ; événements {sample} ou {note} chromatique ; choke [[a,b]] ; DP control {gain, choke, chromatic} prioritaire sur les attributs ; état {status, error, loaded, total, samples, empty, voices, played, errors, gain, choke, chromatic}",
       "props": {
         "samples": {
           "type": "object"
@@ -659,6 +659,10 @@
         },
         "trigger": {
           "type": "string"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP {gain (0..4, en direct), choke [[a,b]], chromatic} ; prioritaire sur les attributs, clé retirée = attribut"
         },
         "out-data-provider": {
           "type": "string"
@@ -701,7 +705,7 @@
     },
     {
       "name": "sonic-mic",
-      "description": "Micro : source audio (#id) pour analyseur / patch ; jamais vers le master sauf monitor ; démarrage sur geste ; DP control {active, monitor, gain, deviceId} ; état {status, error, rms, db, devices}",
+      "description": "Micro : source audio (#id) pour analyseur / patch ; jamais vers le master sauf monitor ; démarrage sur geste ; DP control {active, monitor, gain, deviceId, echoCancellation, noiseSuppression, autoGain, rate} (flux rouvert si le traitement ou le micro change) ; état {status, error, rms, db, devices, settings}",
       "props": {
         "active": {
           "type": "boolean"
@@ -765,7 +769,7 @@
     },
     {
       "name": "sonic-midi",
-      "description": "Web MIDI (accès sur geste, sans SysEx). Entrée : target=\"#synth\" joue les notes (MPE : bend / pression / timbre par note → voice.bend|pressure|timbre du patch), store=id reçoit {type:\"midi\", payload:{kind, note, name, vel, ch, cc, value}} ; état {status, inputs, held, last, notes, cc, bend, pressure, clock{running,bpm,beat}}. Sortie : instrument (cible d'un sonic-sequencer ou events/trigger) vers output=\"nom\", cc-out (DP {\"74\":0.5}), clock-out=\"#seq\" (horloge 24 ppq + Start/Stop)",
+      "description": "Web MIDI (accès sur geste, sans SysEx). Entrée : target=\"#synth\" joue les notes (MPE : bend / pression / timbre par note → voice.bend|pressure|timbre du patch), store=id reçoit {type:\"midi\", payload:{kind, note, name, vel, ch, cc, value}} ; état {status, inputs, held, last, notes, cc, bend, pressure, clock{running,bpm,beat}, settings{transpose,bendRange,offsetMs,durS}}. Sortie : instrument (cible d'un sonic-sequencer ou events/trigger) vers output=\"nom\", cc-out (DP {\"74\":0.5}), clock-out=\"#seq\" (horloge 24 ppq + Start/Stop)",
       "props": {
         "active": {
           "type": "boolean"
@@ -840,7 +844,7 @@
         },
         "control": {
           "type": "string",
-          "description": "DP {active, input, output, channel, outChannel, program, panic: compteur}"
+          "description": "DP {active, input, output, channel, outChannel, program, panic: compteur, transpose, bendRange, offsetMs, durS}"
         },
         "out-data-provider": {
           "type": "string"
@@ -883,7 +887,7 @@
     },
     {
       "name": "sonic-audio-load",
-      "description": "Charge du moteur audio (Render Capacity, Chrome) en DataProvider : { status, average, peak, underrun, updates } ; status unsupported ailleurs",
+      "description": "Charge du moteur audio (Render Capacity, Chrome) en DataProvider : { status, error, average, peak, underrun, updates } ; status unsupported ailleurs, error si la mesure ne démarre pas",
       "props": {
         "interval": {
           "type": "number",

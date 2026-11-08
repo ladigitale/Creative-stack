@@ -1,4 +1,6 @@
 import { customElement, property } from "lit/decorators.js";
+import { listenDp } from "../../shared/audio/dp";
+import { num } from "../../shared/media/control";
 import { DeviceElement, type CommandMap, type DeviceBaseState } from "../../shared/device/base";
 
 const tagName = "sonic-orientation";
@@ -26,6 +28,8 @@ export type OrientationState = DeviceBaseState & {
   ra: number | null;
   rb: number | null;
   rg: number | null;
+  /** Lissage effectif 0..0.95 (attribut, puis `control`). */
+  smoothing: number;
 };
 
 type PermissionApi = { requestPermission?: () => Promise<"granted" | "denied"> };
@@ -43,9 +47,10 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
  *   `for="bouton"` (clic direct) ou le compteur `control.sensors`.
  * - `smoothing` : lissage 0..0.95 des valeurs des capteurs (0 = brut).
  * - `control` (DP) : compteurs `{ lock: { n, type }, unlock: n, sensors: n, stop: n }`
- *   (`type` : `landscape`, `portrait`, `natural`, `any`…).
+ *   (`type` : `landscape`, `portrait`, `natural`, `any`…) ; clé de réglage `smoothing` (0..0.95), appliquée
+ *   en direct et prioritaire sur l'attribut tant qu'elle est présente.
  * - État `<id>State` : `{ status, error, supported, allowed, active, type, angle, locked, sensors, permission,
- *   alpha, beta, gamma, ax, ay, az, ra, rb, rg }`, plafonné à `rate` publications par seconde. Valeurs `null`
+ *   alpha, beta, gamma, ax, ay, az, ra, rb, rg, smoothing }`, plafonné à `rate` publications par seconde. Valeurs `null`
  *   tant que l'appareil n'en envoie pas (ordinateur de bureau).
  *
  * Le verrouillage d'orientation exige souvent le plein écran sur mobile (`sonic-fullscreen`). Dans une iframe,
@@ -61,8 +66,11 @@ export class SonicOrientation extends DeviceElement<OrientationState> {
   protected state: OrientationState = {
     status: "idle", error: null, supported: false, allowed: "unknown", active: false,
     type: null, angle: null, locked: false, sensors: false, permission: "n/a",
-    alpha: null, beta: null, gamma: null, ax: null, ay: null, az: null, ra: null, rb: null, rg: null,
+    alpha: null, beta: null, gamma: null, ax: null, ay: null, az: null, ra: null, rb: null, rg: null, smoothing: 0,
   };
+  /** `smoothing` lu dans `control` (clé retirée : retour à l'attribut). */
+  private controlSmoothing: number | undefined;
+  private unlistenSettings: (() => void) | null = null;
 
   private listening = false;
 
@@ -87,7 +95,36 @@ export class SonicOrientation extends DeviceElement<OrientationState> {
   disconnectedCallback(): void {
     this.screenOrientation()?.removeEventListener?.("change", this.onScreenChange);
     this.detach();
+    this.unlistenSettings?.();
+    this.unlistenSettings = null;
     super.disconnectedCallback();
+  }
+
+  protected updated(changed: Map<string | number | symbol, unknown>): void {
+    // Réglage lu avant les compteurs du socle : `{ toggle: n, <réglage> }` écrit d'un coup s'applique à cette commande.
+    if (changed.has("control")) this.listenSettings();
+    super.updated(changed);
+    if (changed.has("smoothing")) this.patch({ smoothing: this.effectiveSmoothing() });
+  }
+
+  /** Lissage effectif : `control.smoothing`, sinon l'attribut, borné 0..0.95. */
+  effectiveSmoothing(): number {
+    const s = this.controlSmoothing ?? this.smoothing;
+    return Number.isFinite(s) ? Math.min(0.95, Math.max(0, s)) : 0;
+  }
+
+  /** Réglage `smoothing` du DP `control` (les compteurs restent gérés par le socle). */
+  private listenSettings(): void {
+    this.unlistenSettings?.();
+    this.unlistenSettings = null;
+    this.controlSmoothing = undefined;
+    if (this.control) {
+      this.unlistenSettings = listenDp(this.control, (v) => {
+        this.controlSmoothing = v && typeof v === "object" ? num((v as Record<string, unknown>).smoothing, 0, 0.95) : undefined;
+        this.patch({ smoothing: this.effectiveSmoothing() });
+      });
+    }
+    this.patch({ smoothing: this.effectiveSmoothing() });
   }
 
   async lock(type = "landscape"): Promise<boolean> {
@@ -185,7 +222,7 @@ export class SonicOrientation extends DeviceElement<OrientationState> {
   private smooth(key: (typeof SENSOR_KEYS)[number], value: number | null | undefined): number | null {
     if (typeof value !== "number" || !Number.isFinite(value)) return null;
     const prev = this.state[key];
-    const s = Math.min(0.95, Math.max(0, this.smoothing));
+    const s = this.effectiveSmoothing();
     if (typeof prev !== "number" || s === 0) return r1(value);
     if (key === "alpha") {
       // Plus court chemin sur le cercle.

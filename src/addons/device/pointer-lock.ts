@@ -1,5 +1,7 @@
 import { customElement, property } from "lit/decorators.js";
-import { DeviceElement, describeElement, policyAllows, type CommandMap, type DeviceBaseState } from "../../shared/device/base";
+import { listenDp } from "../../shared/audio/dp";
+import { bool } from "../../shared/media/control";
+import { DeviceElement, describeElement, policyAllows, type CommandArg, type CommandMap, type DeviceBaseState } from "../../shared/device/base";
 
 const tagName = "sonic-pointer-lock";
 
@@ -14,6 +16,8 @@ export type PointerLockState = DeviceBaseState & {
   y: number;
   /** Mouvement brut (sans accélération du système) effectivement obtenu. */
   raw: boolean;
+  /** Mouvement brut demandé au prochain verrouillage (attribut, puis `control`). */
+  unadjustedMovement: boolean;
 };
 
 type LockOptions = { unadjustedMovement?: boolean };
@@ -25,9 +29,11 @@ type LockEl = Element & { requestPointerLock?: (opts?: LockOptions) => Promise<v
  *
  * - `target` : sélecteur CSS de l'élément verrouillé (défaut : `body`).
  * - `unadjusted-movement` : demande le mouvement brut ; repli automatique sans l'option (`raw: false`).
- * - `control` (DP) : compteurs `{ lock: n, unlock: n, toggle: n, reset: n }`.
+ * - `control` (DP) : compteurs `{ lock: n, unlock: n, toggle: n, reset: n }` ; forme objet
+ *   `{ lock: { n, unadjustedMovement: true } }` pour un verrouillage ponctuel, ou clé de réglage
+ *   `unadjustedMovement` (booléen) qui recouvre l'attribut tant qu'elle est présente.
  * - `for="bouton"` : le clic sur cet id bascule le verrou (le navigateur exige un geste).
- * - État `<id>State` : `{ status, error, supported, allowed, active, element, dx, dy, x, y, raw }`,
+ * - État `<id>State` : `{ status, error, supported, allowed, active, element, dx, dy, x, y, raw, unadjustedMovement }`,
  *   publié au plus `rate` fois par seconde (`dx` / `dy` = somme depuis la publication précédente).
  * - Événements : `sonic-pointerlock-change` (état) et `sonic-pointerlock-move` (`{ dx, dy }`, à chaque mouvement).
  *
@@ -40,12 +46,15 @@ export class SonicPointerLock extends DeviceElement<PointerLockState> {
   @property({ type: Boolean, attribute: "unadjusted-movement" }) unadjustedMovement = false;
 
   protected feature = null;
-  protected state: PointerLockState = { status: "idle", error: null, supported: false, allowed: "unknown", active: false, element: null, dx: 0, dy: 0, x: 0, y: 0, raw: false };
+  protected state: PointerLockState = { status: "idle", error: null, supported: false, allowed: "unknown", active: false, element: null, dx: 0, dy: 0, x: 0, y: 0, raw: false, unadjustedMovement: false };
+  /** `unadjustedMovement` lu dans `control` (clé retirée : retour à l'attribut). */
+  private controlRaw: boolean | undefined;
+  private unlistenSettings: (() => void) | null = null;
 
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected commands(): CommandMap {
-    return { lock: () => this.lock(), unlock: () => this.unlock(), toggle: () => this.toggle(), reset: () => this.reset() };
+    return { lock: (a) => this.lock(a), unlock: () => this.unlock(), toggle: (a) => this.toggle(a), reset: () => this.reset() };
   }
 
   connectedCallback(): void {
@@ -63,10 +72,39 @@ export class SonicPointerLock extends DeviceElement<PointerLockState> {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
     if (this.isLocked()) document.exitPointerLock?.();
+    this.unlistenSettings?.();
+    this.unlistenSettings = null;
     super.disconnectedCallback();
   }
 
-  async lock(): Promise<boolean> {
+  protected updated(changed: Map<string | number | symbol, unknown>): void {
+    // Réglage lu avant les compteurs du socle : `{ toggle: n, <réglage> }` écrit d'un coup s'applique à cette commande.
+    if (changed.has("control")) this.listenSettings();
+    super.updated(changed);
+    if (changed.has("unadjustedMovement")) this.patch({ unadjustedMovement: this.effectiveUnadjusted() });
+  }
+
+  /** Mouvement brut demandé : `control.unadjustedMovement`, sinon l'attribut. */
+  effectiveUnadjusted(): boolean {
+    return this.controlRaw ?? !!this.unadjustedMovement;
+  }
+
+  /** Réglage `unadjustedMovement` du DP `control` (les compteurs restent gérés par le socle). */
+  private listenSettings(): void {
+    this.unlistenSettings?.();
+    this.unlistenSettings = null;
+    this.controlRaw = undefined;
+    if (this.control) {
+      this.unlistenSettings = listenDp(this.control, (v) => {
+        this.controlRaw = v && typeof v === "object" ? bool((v as Record<string, unknown>).unadjustedMovement) : undefined;
+        this.patch({ unadjustedMovement: this.effectiveUnadjusted() });
+      });
+    }
+    this.patch({ unadjustedMovement: this.effectiveUnadjusted() });
+  }
+
+  /** `arg.unadjustedMovement` (argument de commande) prime pour ce verrouillage seulement. */
+  async lock(arg: CommandArg = {}): Promise<boolean> {
     const el = this.targetEl() as LockEl | null;
     if (!el) {
       this.patch({ status: "error", error: "cible du verrouillage introuvable" });
@@ -80,7 +118,7 @@ export class SonicPointerLock extends DeviceElement<PointerLockState> {
     try {
       let raw = false;
       let awaited: boolean;
-      if (this.unadjustedMovement) {
+      if (bool(arg.unadjustedMovement) ?? this.effectiveUnadjusted()) {
         try {
           awaited = await this.request(el, { unadjustedMovement: true });
           raw = true;
@@ -113,8 +151,8 @@ export class SonicPointerLock extends DeviceElement<PointerLockState> {
     }
   }
 
-  toggle(): Promise<boolean> {
-    return this.isLocked() ? this.unlock() : this.lock();
+  toggle(arg: CommandArg = {}): Promise<boolean> {
+    return this.isLocked() ? this.unlock() : this.lock(arg);
   }
 
   /** Remet la position cumulée à zéro. */

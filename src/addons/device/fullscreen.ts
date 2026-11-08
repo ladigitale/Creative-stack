@@ -1,5 +1,6 @@
 import { customElement, property } from "lit/decorators.js";
-import { DeviceElement, describeElement, policyAllows, type CommandMap, type DeviceBaseState } from "../../shared/device/base";
+import { listenDp } from "../../shared/audio/dp";
+import { DeviceElement, describeElement, policyAllows, type CommandArg, type CommandMap, type DeviceBaseState } from "../../shared/device/base";
 
 const tagName = "sonic-fullscreen";
 
@@ -8,7 +9,15 @@ export type FullscreenState = DeviceBaseState & {
   element: string | null;
   /** Plein écran possible seulement sur une `<video>` (iPhone Safari) : cibler la vidéo. */
   supportsVideoOnly: boolean;
+  /** Barres du navigateur demandées à la prochaine entrée (attribut, puis `control`). */
+  navigationUI: NavigationUI;
 };
+
+type NavigationUI = "auto" | "hide" | "show";
+
+function readNavigationUI(v: unknown): NavigationUI | undefined {
+  return v === "auto" || v === "hide" || v === "show" ? v : undefined;
+}
 
 type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => Promise<void> | void; webkitFullscreenEnabled?: boolean };
 type FsEl = Element & {
@@ -22,9 +31,10 @@ type FsEl = Element & {
  * Plein écran (Fullscreen API, préfixe WebKit en repli).
  *
  * - `target` : sélecteur CSS de l'élément à passer en plein écran (défaut : la page entière).
- * - `control` (DP) : compteurs `{ enter: n, exit: n, toggle: n }`.
+ * - `control` (DP) : compteurs `{ enter: n, exit: n, toggle: n }` ; forme objet `{ enter: { n, navigationUI: "hide" } }`
+ *   pour une entrée ponctuelle, ou clé de réglage `navigationUI` (`auto` | `hide` | `show`) qui recouvre l'attribut.
  * - `for="bouton"` : le clic sur cet id bascule le plein écran (le navigateur exige un geste).
- * - État `<id>State` : `{ status, error, supported, allowed, active, element, supportsVideoOnly }`.
+ * - État `<id>State` : `{ status, error, supported, allowed, active, element, supportsVideoOnly, navigationUI }`.
  * - Événement `sonic-fullscreen-change` (`detail` : l'état).
  *
  * La sortie par Échap ou par le système est suivie par l'événement `fullscreenchange`, jamais supposée.
@@ -36,13 +46,16 @@ export class SonicFullscreen extends DeviceElement<FullscreenState> {
   /** Sélecteur CSS de l'élément à passer en plein écran (défaut : toute la page). */
   @property({ type: String }) target = "";
   /** Barres du navigateur : `auto`, `hide`, `show`. */
-  @property({ type: String, attribute: "navigation-ui" }) navigationUI: "auto" | "hide" | "show" = "auto";
+  @property({ type: String, attribute: "navigation-ui" }) navigationUI: NavigationUI = "auto";
 
   protected feature = "fullscreen";
-  protected state: FullscreenState = { status: "idle", error: null, supported: false, allowed: "unknown", active: false, element: null, supportsVideoOnly: false };
+  protected state: FullscreenState = { status: "idle", error: null, supported: false, allowed: "unknown", active: false, element: null, supportsVideoOnly: false, navigationUI: "auto" };
+  /** `navigationUI` lu dans `control` (clé retirée : retour à l'attribut). */
+  private controlNav: NavigationUI | undefined;
+  private unlistenSettings: (() => void) | null = null;
 
   protected commands(): CommandMap {
-    return { enter: () => this.enter(), exit: () => this.exit(), toggle: () => this.toggle() };
+    return { enter: (a) => this.enter(a), exit: () => this.exit(), toggle: (a) => this.toggle(a) };
   }
 
   connectedCallback(): void {
@@ -57,15 +70,40 @@ export class SonicFullscreen extends DeviceElement<FullscreenState> {
     document.removeEventListener("fullscreenchange", this.onChange);
     document.removeEventListener("webkitfullscreenchange", this.onChange);
     document.removeEventListener("fullscreenerror", this.onError);
+    this.unlistenSettings?.();
+    this.unlistenSettings = null;
     super.disconnectedCallback();
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
+    // Réglage lu avant les compteurs du socle : `{ toggle: n, <réglage> }` écrit d'un coup s'applique à cette commande.
+    if (changed.has("control")) this.listenSettings();
     super.updated(changed);
     if (changed.has("target")) this.sync();
+    if (changed.has("navigationUI")) this.patch({ navigationUI: this.effectiveNavigationUI() });
   }
 
-  async enter(): Promise<boolean> {
+  /** Barres du navigateur effectives : `control.navigationUI`, sinon l'attribut. */
+  effectiveNavigationUI(): NavigationUI {
+    return this.controlNav ?? readNavigationUI(this.navigationUI) ?? "auto";
+  }
+
+  /** Réglage `navigationUI` du DP `control` (les compteurs restent gérés par le socle). */
+  private listenSettings(): void {
+    this.unlistenSettings?.();
+    this.unlistenSettings = null;
+    this.controlNav = undefined;
+    if (this.control) {
+      this.unlistenSettings = listenDp(this.control, (v) => {
+        this.controlNav = v && typeof v === "object" ? readNavigationUI((v as Record<string, unknown>).navigationUI) : undefined;
+        this.patch({ navigationUI: this.effectiveNavigationUI() });
+      });
+    }
+    this.patch({ navigationUI: this.effectiveNavigationUI() });
+  }
+
+  /** `arg.navigationUI` (argument de commande) prime pour cette entrée seulement. */
+  async enter(arg: CommandArg = {}): Promise<boolean> {
     const el = this.targetEl() as FsEl | null;
     if (!el) {
       this.patch({ status: "error", error: "cible du plein écran introuvable" });
@@ -77,7 +115,7 @@ export class SonicFullscreen extends DeviceElement<FullscreenState> {
     }
     if (this.isActive(el)) return true;
     try {
-      if (typeof el.requestFullscreen === "function") await el.requestFullscreen({ navigationUI: this.navigationUI });
+      if (typeof el.requestFullscreen === "function") await el.requestFullscreen({ navigationUI: readNavigationUI(arg.navigationUI) ?? this.effectiveNavigationUI() });
       else if (typeof el.webkitRequestFullscreen === "function") await el.webkitRequestFullscreen();
       else if (typeof el.webkitEnterFullscreen === "function") el.webkitEnterFullscreen();
       this.sync(true);
@@ -106,9 +144,9 @@ export class SonicFullscreen extends DeviceElement<FullscreenState> {
     }
   }
 
-  toggle(): Promise<boolean> {
+  toggle(arg: CommandArg = {}): Promise<boolean> {
     const el = this.targetEl() as FsEl | null;
-    return el && this.isActive(el) ? this.exit() : this.enter();
+    return el && this.isActive(el) ? this.exit() : this.enter(arg);
   }
 
   private targetEl(): Element | null {

@@ -2,7 +2,7 @@ import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
-import { bool } from "../../shared/media/control";
+import { bool, num } from "../../shared/media/control";
 import { FrameRing, type RingSlot } from "../../shared/media/frame-ring";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
 
@@ -41,6 +41,9 @@ type CanvasSource = Partial<SonicFrameSource> & Partial<SonicFrameConsumerHost>;
  * `auto` = sync si `sync` est renseigné, sinon delay si `delay-ms` > 0, sinon live.
  * En `sync`, si le tracker ne publie plus (aucun visage, arrêté) on retombe sur un retard égal à la
  * dernière latence mesurée, puis sur `live`.
+ *
+ * DP `control` : `{ hold, source, delayMs (0..5000), mode }` ; `delayMs` et `mode` recouvrent les attributs
+ * tant que la clé est présente (clé retirée : retour à l'attribut).
  */
 @customElement(tagName)
 export class SonicFrameSync extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
@@ -87,7 +90,10 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
   @property({ type: String })
   hold: "true" | "false" | "" = "";
 
-  /** DataProvider de commande `{ hold: boolean }` (un store) : prime sur l'attribut `hold` quand il publie un booléen. */
+  /**
+   * DataProvider de commande `{ hold, source, delayMs, mode }` (un store) : chaque clé valide prime sur l'attribut
+   * correspondant (`hold` quand il publie un booléen).
+   */
   @property({ type: String })
   control = "";
 
@@ -102,6 +108,9 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
   private controlHold: boolean | undefined;
   /** Source imposée par `control.source` (`#id`), prioritaire sur `for`. */
   private controlSource: string | undefined;
+  /** Retard et mode imposés par `control`, prioritaires sur `delay-ms` et `mode`. */
+  private controlDelay: number | undefined;
+  private controlMode: "auto" | FrameSyncMode | undefined;
   private controlUnsub: (() => void) | null = null;
   private frozen = false;
 
@@ -144,12 +153,17 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
     this.controlUnsub = null;
     this.controlHold = undefined;
     this.controlSource = undefined;
+    this.controlDelay = undefined;
+    this.controlMode = undefined;
     if (!this.control.trim()) return;
     this.controlUnsub = listenDp(this.control, (v) => {
       const o = v && typeof v === "object" ? (v as Record<string, unknown>) : null;
       this.controlHold = o ? bool(o.hold) : undefined;
       const src = o && typeof o.source === "string" ? o.source.trim() : "";
       this.controlSource = /^#?[A-Za-z][\w-]{0,63}$/.test(src) ? src : undefined;
+      this.controlDelay = o ? num(o.delayMs, 0, 5000) : undefined;
+      const m = o?.mode;
+      this.controlMode = m === "auto" || m === "sync" || m === "delay" || m === "live" ? m : undefined;
     });
   }
 
@@ -189,9 +203,16 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
 
   /** Mode demandé → mode effectif (hors repli dynamique). */
   resolveMode(): FrameSyncMode {
-    if (this.mode === "sync" || this.mode === "delay" || this.mode === "live") return this.mode;
+    const mode = this.controlMode ?? this.mode;
+    if (mode === "sync" || mode === "delay" || mode === "live") return mode;
     if (this.sync.trim()) return "sync";
-    return this.delayMs > 0 ? "delay" : "live";
+    return this.effectiveDelay() > 0 ? "delay" : "live";
+  }
+
+  /** Retard fixe effectif (ms) : `control.delayMs`, sinon l'attribut `delay-ms`. */
+  effectiveDelay(): number {
+    const d = this.controlDelay ?? this.delayMs;
+    return Number.isFinite(d) ? Math.min(5000, Math.max(0, d)) : 0;
   }
 
   private listen(): void {
@@ -324,7 +345,7 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
         slot = this.lastLatency > 0 ? this.ring.byTime(now - this.lastLatency) : newest;
       }
     } else if (wanted === "delay") {
-      slot = this.ring.byTime(now - Math.max(0, this.delayMs));
+      slot = this.ring.byTime(now - this.effectiveDelay());
     }
 
     if (slot && slot !== this.shown) {

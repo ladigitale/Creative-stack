@@ -6,7 +6,9 @@ import { AudioEngine } from "../../shared/audio/engine";
 const tagName = "sonic-audio-load";
 
 export type AudioLoadState = {
-  status: "idle" | "ready" | "unsupported";
+  status: "idle" | "ready" | "unsupported" | "error";
+  /** Raison lisible de `unsupported` / `error`, `null` sinon. */
+  error: string | null;
   /** Charge moyenne du rendu audio sur l'intervalle (0..1 ; 1 = le moteur n'a plus de marge). */
   average: number;
   /** Charge maximale sur l'intervalle (0..1+). */
@@ -43,7 +45,7 @@ export class SonicAudioLoad extends LitElement {
 
   private capacity: RenderCapacity | null = null;
   private unsubscribe: (() => void) | null = null;
-  private state: AudioLoadState = { status: "idle", average: 0, peak: 0, underrun: 0, updates: 0 };
+  private state: AudioLoadState = { status: "idle", error: null, average: 0, peak: 0, underrun: 0, updates: 0 };
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -69,6 +71,7 @@ export class SonicAudioLoad extends LitElement {
     const ev = e as CapacityEvent;
     this.state = {
       status: "ready",
+      error: null,
       average: round(ev.averageLoad),
       peak: round(ev.peakLoad),
       underrun: round(ev.underrunRatio),
@@ -82,7 +85,8 @@ export class SonicAudioLoad extends LitElement {
     const engine = AudioEngine.get();
     const ac = engine.context as (BaseAudioContext & { renderCapacity?: RenderCapacity }) | null;
     if (!engine.supported || (ac && !ac.renderCapacity)) {
-      this.state = { ...this.state, status: "unsupported" };
+      const error = !engine.supported ? "WebAudio indisponible dans ce navigateur" : "mesure de charge audio (renderCapacity) non disponible dans ce navigateur";
+      this.state = { ...this.state, status: "unsupported", error };
       this.publish();
       return;
     }
@@ -94,9 +98,9 @@ export class SonicAudioLoad extends LitElement {
     this.capacity.addEventListener("update", this.onUpdate);
     try {
       this.capacity.start({ updateInterval: Math.min(10, Math.max(0.5, this.interval || 1)) });
-    } catch {
+    } catch (e) {
       this.stop();
-      this.state = { ...this.state, status: "unsupported" };
+      this.state = { ...this.state, status: "error", error: e instanceof Error && e.message ? e.message : "mesure de charge audio impossible à démarrer" };
     }
     this.publish();
   }

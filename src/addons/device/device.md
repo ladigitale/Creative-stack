@@ -4,10 +4,10 @@ Addon `@supersoniks/creative-stack/device` : les API « appareil » du navigateu
 
 | Composant | Rôle | Commandes (`control`) |
 |---|---|---|
-| `sonic-fullscreen` | Plein écran de la page ou d'un élément | `enter`, `exit`, `toggle` |
-| `sonic-pointer-lock` | Souris verrouillée, déplacements relatifs | `lock`, `unlock`, `toggle`, `reset` |
+| `sonic-fullscreen` | Plein écran de la page ou d'un élément | `enter {navigationUI}`, `exit`, `toggle {navigationUI}` ; réglage `navigationUI` |
+| `sonic-pointer-lock` | Souris verrouillée, déplacements relatifs | `lock {unadjustedMovement}`, `unlock`, `toggle {unadjustedMovement}`, `reset` ; réglage `unadjustedMovement` |
 | `sonic-wake-lock` | Écran toujours allumé | `acquire`, `release`, `toggle` |
-| `sonic-orientation` | Orientation de l'écran, capteurs de mouvement | `lock {type}`, `unlock`, `sensors`, `stop` |
+| `sonic-orientation` | Orientation de l'écran, capteurs de mouvement | `lock {type}`, `unlock`, `sensors`, `stop` ; réglage `smoothing` |
 | `sonic-clipboard` | Copier, lire le presse-papiers (texte) | `copy {text}`, `read` |
 | `sonic-share` | Partage natif, repli par copie | `share {title, text, url}` |
 | `sonic-vibrate` | Vibration (Android) | `vibrate {pattern}`, `stop` |
@@ -118,13 +118,13 @@ Clés : `fullscreen`, `pointerLock`, `wakeLock`, `gamepad`, `midi`, `orientation
 
 ## Détails par composant
 
-**`sonic-fullscreen`** — `target` : sélecteur CSS (défaut : la page). `navigation-ui` : `auto`, `hide`, `show`. L'état suit toujours l'événement `fullscreenchange` (sortie par Échap comprise). iPhone Safari : plein écran seulement sur une `<video>` (`target="#ma-video"`), `supportsVideoOnly` l'indique. Événement `sonic-fullscreen-change`.
+**`sonic-fullscreen`** — `target` : sélecteur CSS (défaut : la page). `navigation-ui` : `auto`, `hide`, `show` ; aussi en clé de réglage de `control` (`{ navigationUI: "hide" }`, prioritaire sur l'attribut tant qu'elle est présente) ou en argument d'une seule entrée (`{ enter: { n: 3, navigationUI: "hide" } }`). L'état publie `navigationUI` (valeur effective). L'état suit toujours l'événement `fullscreenchange` (sortie par Échap comprise). iPhone Safari : plein écran seulement sur une `<video>` (`target="#ma-video"`), `supportsVideoOnly` l'indique. Événement `sonic-fullscreen-change`.
 
-**`sonic-pointer-lock`** — `unadjusted-movement` demande le mouvement brut ; si le navigateur ne le connaît pas, repli automatique (`raw: false`). Échap rend toujours la souris ; un nouveau verrouillage est parfois refusé environ une seconde après. Retiré de la page, le composant libère la souris.
+**`sonic-pointer-lock`** — `unadjusted-movement` demande le mouvement brut ; si le navigateur ne le connaît pas, repli automatique (`raw: false`). Aussi en clé de réglage de `control` (`{ unadjustedMovement: true }`, prioritaire sur l'attribut tant qu'elle est présente) ou en argument d'un seul verrouillage (`{ lock: { n: 2, unadjustedMovement: true } }`) ; l'état publie `unadjustedMovement` (demandé) à côté de `raw` (obtenu). Échap rend toujours la souris ; un nouveau verrouillage est parfois refusé environ une seconde après. Retiré de la page, le composant libère la souris.
 
 **`sonic-wake-lock`** — Le navigateur relâche le verrou quand l'onglet passe en arrière-plan ; tant que `wanted` reste vrai, il est repris au retour (`reacquired` compte les reprises). Pas de repli par vidéo cachée.
 
-**`sonic-orientation`** — `type` / `angle` suivent l'écran. `lock {type}` : `landscape`, `portrait`, `natural`, `any`, `portrait-primary`, `portrait-secondary`, `landscape-primary`, `landscape-secondary` ; sur mobile, souvent seulement en plein écran. `smoothing` (0 à 0,95) lisse les capteurs ; `alpha` (boussole) est lissé par le plus court chemin sur le cercle.
+**`sonic-orientation`** — `type` / `angle` suivent l'écran. `lock {type}` : `landscape`, `portrait`, `natural`, `any`, `portrait-primary`, `portrait-secondary`, `landscape-primary`, `landscape-secondary` ; sur mobile, souvent seulement en plein écran. `smoothing` (0 à 0,95) lisse les capteurs, aussi en clé de réglage de `control` (`{ smoothing: 0.5 }`, appliqué en direct, prioritaire sur l'attribut tant qu'il est présent ; publié dans l'état) ; `alpha` (boussole) est lissé par le plus court chemin sur le cercle.
 
 **`sonic-clipboard`** — `text` : texte copié par défaut. La lecture (`read`) n'a lieu que sur commande, avec la permission du navigateur ; le texte lu (tronqué à 10 000 caractères) est publié dans le DataProvider : ne pas s'en servir pour des données sensibles.
 

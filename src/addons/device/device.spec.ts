@@ -148,6 +148,25 @@ describe("sonic-fullscreen", () => {
     await vi.waitFor(() => expect(el.getState().active).toBe(false));
   });
 
+  it("navigationUI : argument de commande ponctuel, ou clé de réglage de control (clé retirée : retour à l'attribut)", async () => {
+    const asked: unknown[] = [];
+    stub(Element.prototype, "requestFullscreen", val(async function (this: Element, opts?: object) { asked.push(opts); fsEl = this; change(); }));
+    const el = await mount<SonicFullscreen>(`<sonic-fullscreen id="fs9" navigation-ui="show" control="fsNav"></sonic-fullscreen>`, "sonic-fullscreen");
+    expect(el.getState().navigationUI).toBe("show");
+    await el.run("enter", { navigationUI: "hide" });
+    await el.run("exit");
+    expect(el.getState().navigationUI).toBe("show");
+    set("fsNav", { toggle: 0 });
+    set("fsNav", { toggle: 1, navigationUI: "hide" });
+    await vi.waitFor(() => expect(el.getState().active).toBe(true));
+    expect(get("fs9State")).toMatchObject({ navigationUI: "hide" });
+    await el.run("exit");
+    set("fsNav", { toggle: 1, navigationUI: "bof" });
+    expect(el.getState().navigationUI).toBe("show");
+    await el.run("enter");
+    expect(asked).toEqual([{ navigationUI: "hide" }, { navigationUI: "hide" }, { navigationUI: "show" }]);
+  });
+
   it("iPhone : plein écran seulement sur une <video> (supportsVideoOnly)", async () => {
     stub(Element.prototype, "requestFullscreen", val(undefined));
     stub(HTMLVideoElement.prototype, "webkitEnterFullscreen", val(function () {}));
@@ -226,6 +245,26 @@ describe("sonic-pointer-lock", () => {
     stub(Element.prototype, "requestPointerLock", val(async function (this: Element) { locked = this; lockChange(); }));
     expect(await el.run("lock")).toBe(true);
     expect(el.getState().raw).toBe(true);
+  });
+
+  it("unadjustedMovement : argument de commande ponctuel, ou clé de réglage de control", async () => {
+    const calls: unknown[] = [];
+    stub(Element.prototype, "requestPointerLock", val(async function (this: Element, opts?: object) { calls.push(opts); locked = this; lockChange(); }));
+    const el = await mount<SonicPointerLock>(`<sonic-pointer-lock id="pl7" control="plCtl"></sonic-pointer-lock>`, "sonic-pointer-lock");
+    expect(el.getState().unadjustedMovement).toBe(false);
+    await el.run("lock", { unadjustedMovement: true });
+    expect(el.getState()).toMatchObject({ raw: true, unadjustedMovement: false });
+    await el.run("unlock");
+    set("plCtl", { lock: 0 });
+    set("plCtl", { lock: 1, unadjustedMovement: true });
+    await vi.waitFor(() => expect(el.getState().active).toBe(true));
+    expect(get("pl7State")).toMatchObject({ raw: true, unadjustedMovement: true });
+    await el.run("unlock");
+    set("plCtl", { lock: 1 });
+    expect(el.getState().unadjustedMovement).toBe(false);
+    await el.run("lock");
+    expect(calls).toEqual([{ unadjustedMovement: true }, { unadjustedMovement: true }, undefined]);
+    expect(el.getState().raw).toBe(false);
   });
 
   it("requestPointerLock synchrone (Firefox, Safari) ; refus par événement pointerlockerror", async () => {
@@ -415,6 +454,23 @@ describe("sonic-orientation", () => {
     expect(beta).toBe(20);
     fire("deviceorientation", { alpha: 10, beta: 40, gamma: 0 });
     expect(el.getState().beta).toBe(30);
+  });
+
+  it("smoothing par control : appliqué en direct, borné, publié ; clé retirée : retour à l'attribut", async () => {
+    const el = await mount<SonicOrientation>(`<sonic-orientation id="or9" smoothing="0" control="orCtl"></sonic-orientation>`, "sonic-orientation");
+    expect(el.getState().smoothing).toBe(0);
+    set("orCtl", { smoothing: 0.5 });
+    expect(el.getState().smoothing).toBe(0.5);
+    await el.run("sensors");
+    fire("deviceorientation", { alpha: 0, beta: 0, gamma: 0 });
+    fire("deviceorientation", { alpha: 0, beta: 40, gamma: 0 });
+    expect(el.getState().beta).toBe(20);
+    set("orCtl", { smoothing: 3 });
+    expect(el.getState().smoothing).toBe(0.95);
+    set("orCtl", {});
+    expect(el.getState().smoothing).toBe(0);
+    fire("deviceorientation", { alpha: 0, beta: 10, gamma: 0 });
+    expect(el.getState().beta).toBe(10);
   });
 
   it("iOS : permission demandée avant d'écouter ; refus → denied, accord → ready", async () => {

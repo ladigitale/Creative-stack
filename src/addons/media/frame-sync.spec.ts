@@ -108,6 +108,31 @@ describe("sonic-frame-sync", () => {
     expect(mark(el)).toBe(7); // 400 - 100 = 300 → dernière image prise à t ≤ 300 : seq 7 (t=280)
   });
 
+  it("delayMs et mode par control : prioritaires, bornés ; clé retirée : retour à l'attribut", async () => {
+    restore = patchCanvas();
+    const src = mountSource();
+    const el = await mountSync({ for: "src", "delay-ms": "100", control: "fsDelayCtl" });
+    for (let s = 1; s <= 10; s++) {
+      src.frameSeq = s;
+      el.tick(s * 40);
+    }
+    expect(mark(el)).toBe(7);
+    PublisherManager.get("fsDelayCtl").set({ delayMs: 200 });
+    src.frameSeq = 11;
+    el.tick(440); // 440 - 200 = 240 → seq 6
+    expect(el.effectiveDelay()).toBe(200);
+    expect(mark(el)).toBe(6);
+    PublisherManager.get("fsDelayCtl").set({ delayMs: 99999, mode: "live" });
+    expect(el.effectiveDelay()).toBe(5000);
+    expect(el.resolveMode()).toBe("live");
+    src.frameSeq = 12;
+    el.tick(480);
+    expect(mark(el)).toBe(12);
+    PublisherManager.get("fsDelayCtl").set({ mode: "nimporte" });
+    expect(el.resolveMode()).toBe("delay");
+    expect(el.effectiveDelay()).toBe(100);
+  });
+
   it("mode live : toujours la dernière image ; auto sans réglage = live", async () => {
     restore = patchCanvas();
     const src = mountSource();
