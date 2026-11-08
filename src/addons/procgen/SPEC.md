@@ -264,3 +264,14 @@ Demande : il manque toutes sortes d'objets (ballons de toutes tailles, outils, s
 - Nouvelle pièce **`plate`** : polygone convexe extrudé (faces de panneaux par couches, disques à 24 côtés, triangles, flèches en tige + pointe) ; lue aussi par `assembly`.
 - Emprise au sol sur les pièces basses (bras de lampadaire, tête de feu exclus) ; rayon de la lumière proportionnel à sa hauteur ; dos des panneaux en métal ; plaques concaves venues d'une recette remplacées par leur enveloppe convexe (message).
 - **Places orientées** : le cap de chaque ancre `sit.N` (rotation de l'ancre) est publié (`seatYaw`) ; on s'assied face à la table de pique-nique des deux côtés.
+
+## 19. Lot v3.6 « objets pour animaux » (livré)
+
+- **`pet`** : 14 objets (niche, gamelle, abreuvoir, mangeoire à oiseaux, cage, clapier, poulailler avec rampe, arbre à chat, griffoir, aquarium, bain d'oiseaux, râtelier à foin, litière, porte-selle) sur la grammaire de pièces (pignons en `plate`, toits à deux pans).
+- **`for`** : taille de l'animal visé (chien, chat, cheval, poule, lapin, oiseau) ; ancre **`spot`** (où l'animal mange, boit, dort, se perche) et affordances (`shelter`, `sleep`, `eat`, `drink`, `perch`, `climb`, `scratch`, `lay`…).
+- Petits objets hors navigation, instanciés à l'échelle exacte.
+
+## 20. Lot v3.7 « ballons dynamiques » (livré)
+
+- **`BallWorld`** (`scene/balls.ts`), partagé par la vue 3D et la simulation vectorielle : gravité, rebond selon `physics.restitution`, roulement sans glissement (rotation visible), frottement, obstacles de navigation et bords de scène, chocs entre ballons, poussée par les acteurs (dribble).
+- Intention `{target: "<ballon>", action: "kick", power, loft}` (geste de jambe) et clé `kick` du DataProvider ; événements `kick`, `hit`, `rest`, `enter`/`leave` d'une zone par un ballon (buts) ; `balls` dans `state-out`.

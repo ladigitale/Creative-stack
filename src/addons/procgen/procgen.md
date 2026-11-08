@@ -26,6 +26,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `edit` | `{id: "maisons.3", params: {floors: 4}}` ou `{layer: "maisons", params: {...}}` : modifie sans réécrire la recette |
 | `hidden` | Ids cachés (objet ramassé, personnage parti) |
 | `anchors` | Ancres à suivre à l'écran : `["heros@head.top", "maisons.2@door"]` |
+| `kick` | Coup donné à un ballon sans acteur : `{ball: "ballons.0", power, dir (°, 0 = +z), loft, n}` ou `{ball, vx, vy, vz}` (m/s, norme bornée à 40), ou une liste de 16 au plus ; joué quand la valeur change (pas au chargement) : pour retirer le même coup, incrémenter `n` |
 
 ## Clés écrites dans `state-out` (défaut `<dataProvider>State`)
 
@@ -39,6 +40,7 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `actors` | Position, cap, vitesse, action de chaque acteur (5 fois par seconde au plus) |
 | `anchors` / `nodes` | Positions écran des ancres demandées ; `nodes` est au format de `sonic-stage` (bulles de dialogue en HTML par-dessus la scène) |
 | `view` | Vue courante (après pan / zoom de l'utilisateur) |
+| `balls` | `{<id>: {x, y, z, moving}}` des ballons visibles (200 au plus), republié pendant le mouvement (5 fois par seconde au plus), au coup et à l'arrêt |
 
 `issues` : `{path, code: unknown|clamped|type|expr|missing|limit|info, message, got, used, hint, didYouMean}`. Une erreur n'arrête jamais le rendu : la scène s'affiche avec ce qui est valide.
 
@@ -51,16 +53,20 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `pick` | `{objectId, generator, layer, x, y, z, actor, zone}` : position au sol comprise (point-and-click) |
 | `select` | `{objectId, generator, layer, params}` |
 | `arrive` | `{actor, x, z, target}` : l'acteur est arrivé |
-| `blocked` | `{actor, reason: no-path\|wall}` |
-| `enter` / `leave` | `{zone, actor}` |
-| `actionEnd` | `{actor, action}` (après `wave`, `cheer`, `jump`, `bow`, `point`) |
+| `blocked` | `{actor, reason: no-path\|wall\|ball-moved}` (`ball-moved` : le ballon visé a roulé hors d'atteinte trois fois) |
+| `enter` / `leave` | `{zone, actor}` ou `{zone, ball, actor: null}` quand un ballon entre dans une zone (un but) |
+| `kick` | `{actor, ball, power}` ; `{actor: null, ball}` pour la clé `kick` |
+| `hit` | `{ball, actor}` : un acteur a heurté un ballon (dribble) |
+| `rest` | `{ball, x, z}` : le ballon s'est arrêté |
+| `actionEnd` | `{actor, action}` (après `wave`, `cheer`, `jump`, `bow`, `point`, `kick`) |
 
 Intentions d'acteur (`actors.<id>`), écrites par le reducer, **jamais à chaque image** (le composant interpole) :
 
 - `{x, z}` ou `{target: "maisons.2"}` (ancre `door` par défaut, ou `"maisons.2.door"`) : marche jusque-là par la grille de navigation, contourne les bâtiments, puis `arrive` ; `run: true` pour courir, `speed` en m/s ;
 - `{target: "bancs.1.sit.0", action: "sit"}` : marche jusqu'à la place (ancre `approach.0`, devant l'assise), s'assied sur `sit.0` face à l'avant, le bassin à hauteur d'assise (chaise, tabouret de bar, rondin, balançoire…), puis `arrive` ;
+- `{target: "ballons.0", action: "kick", power, loft}` : va au ballon (le rattrape s'il a roulé) et tire dans l'axe de son arrivée (`power` en m/s, 7 par défaut, 30 au plus ; `loft` 0 à 1,5 lève le ballon) ; les ballons (`ball`) rebondissent selon leur `physics` (restitution, frottement) sur le sol, les obstacles (à toute hauteur) et les bords, roulent, s'empilent, sont poussés par les acteurs qui marchent dessus ; les ovales et les ballons écrasés glissent sans culbuter ; un ballon caché (`hidden`) sort du jeu ; `pick` et `selection` donnent la position de départ, `balls` la position courante ;
 - `{vx, vz}` : déplacement direct (manette à 30 Hz), sans chemin ;
-- `{action}` : `idle`, `walk`, `run`, `wave`, `point`, `cheer`, `talk`, `carry`, `sit`, `jump`, `think`, `bow`, `hammer` (frapper), `sweep` (balayer, ratisser), `dig` (bêcher) ; `{mood}` : `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy` ; `{facing}` (°).
+- `{action}` : `idle`, `walk`, `run`, `wave`, `point`, `cheer`, `talk`, `carry`, `sit`, `jump`, `think`, `bow`, `hammer` (frapper), `sweep` (balayer, ratisser), `dig` (bêcher), `kick` (geste de jambe) ; `{mood}` : `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy` ; `{facing}` (°).
 
 Exemple de reducer (voir `examples/village-vivant.sdui.json`) : sur `pick`, écrire `actors.heros = {x, z}` ; sur `arrive`, passer à la suite du dialogue.
 
@@ -95,7 +101,7 @@ Exemple de reducer (voir `examples/village-vivant.sdui.json`) : sur `pick`, écr
 
 ## Générateurs
 
-Table générée depuis les schémas (`generatorCatalog()`). Raccourcis : `prop.lamp`, `animal.horse`, `tree.oak`, `plant.fern`, `vehicle.sailboat`, `ball.soccer`, `seat.parkbench`, `tool.rake`, `container.basket`, `street.roadsign`…
+Table générée depuis les schémas (`generatorCatalog()`). Raccourcis : `prop.lamp`, `animal.horse`, `tree.oak`, `plant.fern`, `vehicle.sailboat`, `ball.soccer`, `seat.parkbench`, `tool.rake`, `container.basket`, `street.roadsign`, `pet.kennel`…
 
 | `gen` | Description et paramètres (`auto` = tiré de la graine) |
 |---|---|
@@ -119,7 +125,8 @@ Table générée depuis les schémas (`generatorCatalog()`). Raccourcis : `prop.
 | `tool` | Outils à taille réelle (hammer, mallet, sledgehammer, axe, pickaxe, shovel, spade, rake, leafrake, hoe, pitchfork, broom, besom, mop, scythe, saw, trowel, wrench, screwdriver, paintbrush, paintroller, crowbar, fishingrod, machete) : posés (`pose`: lying au sol, leaning appuyé, upright planté). Un personnage peut en tenir un : `character.item: "tool.rake"` ; action d'usage `hammer`, `sweep` ou `dig` (voir `extra.use`). `color` = rôle du manche, `color2` = tête, `color3` = détail. Ancre grip. Paramètres : `kind` (hammer\|mallet\|sledgehammer\|axe\|pickaxe\|shovel\|spade\|rake\|leafrake\|hoe\|pitchfork\|broom\|besom\|mop\|scythe\|saw\|trowel\|wrench\|screwdriver\|paintbrush\|paintroller\|crowbar\|fishingrod\|machete), `pose` (lying\|leaning\|upright), `scale`, `color`, `color2`, `color3` |
 | `container` | Contenants à taille réelle (crate, chest, cardboard, basket, bucket, sack, jar, amphora, pot, jerrycan, toolbox, suitcase, bag, pallet, wheeliebin, milkcan, cooler) sur la grammaire de pièces. `open` ouvre le couvercle (coffre, caisse à outils, poubelle…), `fill` le remplit (apples, oranges, potatoes, sand, soil, grain, water, milk, logs, tools, hay, flowers, gold). `color`/`color2` = rôles du corps et des ferrures. Ancres top et grip ; `extra.affords` (carry, open, fill, pour, sit, stack, push…). Paramètres : `kind` (crate\|chest\|cardboard\|basket\|bucket\|sack\|jar\|amphora\|pot\|jerrycan\|toolbox\|suitcase\|bag\|pallet\|wheeliebin\|milkcan\|cooler), `open`, `fill` (none\|apples\|oranges\|potatoes\|sand\|soil\|grain\|water\|milk\|logs\|tools\|hay\|flowers\|gold), `scale`, `color`, `color2` |
 | `street` | Mobilier urbain à taille réelle (streetlight, trafficlight, roadsign, streetsign, trafficcone, barrier, bikerack, recycling, phonebooth, picnictable, drinkingfountain, parkingmeter, electricbox, litterbin, manhole, hydrantpost), face lisible vers +z. `sign` choisit le panneau (stop, yield, noentry, limit, parking, crossing, danger, arrow, oneway, deadend), `state` la couleur du feu (red, orange, green, off), `count` le nombre d'arceaux. Le lampadaire éclaire la nuit (ancre light) ; la table de pique-nique a 4 places (sit.N). Complète prop (lamp, bollard, busstop, bench, mailbox…). Paramètres : `kind` (streetlight\|trafficlight\|roadsign\|streetsign\|trafficcone\|barrier\|bikerack\|recycling\|phonebooth\|picnictable\|drinkingfountain\|parkingmeter\|electricbox\|litterbin\|manhole\|hydrantpost), `sign` (stop\|yield\|noentry\|limit\|parking\|crossing\|danger\|arrow\|oneway\|deadend), `state` (red\|orange\|green\|off), `count`, `scale`, `color`, `color2` |
-Ancres : personnages `head.top`, `head.center`, `hand.r.grip`, `hand.l.grip`, `back`, `chest.front`, `hip.l`, `hip.r`, `feet` ; animaux `head.top`, `back`, `mouth`, `feet` ; bâtiments `door`, `roof` ; lampes et feux `light` ; ballons `center`, `top`, `grip` ; assises `sit.N`, `approach.N`, `back` ; outils `grip`, `top` ; contenants `top`, `grip`, `inside` (et `sit.0` s'il est assis).
+| `pet` | Objets pour animaux (kennel, bowl, trough, birdfeeder, birdcage, hutch, henhouse, cattree, scratchingpost, aquarium, birdbath, hayrack, litterbox, saddlerack) sur la grammaire de pièces. `for` (auto, dog, cat, horse, chicken, rabbit, bird) met l'objet à la taille de l'animal (une niche pour cheval est 2,6 fois plus grande). Ancre `spot` : là où l'animal mange, boit, dort ou se perche ; `extra.affords` (shelter, sleep, eat, drink, perch, climb, scratch, lay…). Paramètres : `kind` (kennel\|bowl\|trough\|birdfeeder\|birdcage\|hutch\|henhouse\|cattree\|scratchingpost\|aquarium\|birdbath\|hayrack\|litterbox\|saddlerack), `for` (auto\|dog\|cat\|horse\|chicken\|rabbit\|bird), `scale`, `color`, `color2` |
+Ancres : personnages `head.top`, `head.center`, `hand.r.grip`, `hand.l.grip`, `back`, `chest.front`, `hip.l`, `hip.r`, `feet` ; animaux `head.top`, `back`, `mouth`, `feet` ; bâtiments `door`, `roof` ; lampes et feux `light` ; ballons `center`, `top`, `grip` ; assises `sit.N`, `approach.N`, `back` ; outils `grip`, `top` ; objets pour animaux `spot` (où l'animal mange, boit, dort, se perche), `top` ; contenants `top`, `grip`, `inside` (et `sit.0` s'il est assis).
 
 ### Objets du quotidien : ce que l'objet permet
 

@@ -12,6 +12,7 @@ import { seatModel } from "../../gen/seat";
 import { placedTool } from "../../gen/tool";
 import { containerModel } from "../../gen/container";
 import { streetModel } from "../../gen/street";
+import { petModel } from "../../gen/pet";
 import type { ObjectDrawer } from "./types";
 
 const add3 = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -202,4 +203,9 @@ export const drawStreet: ObjectDrawer = (kit, p, ctx) => {
   const hx = Math.min(o.footprint.hx / o.scale, 0.6), hz = Math.min(o.footprint.hz / o.scale, 0.6);
   kit.castShadow(ctx.env.shadows, hx * 0.9, hz * 0.9, Math.min(o.height / o.scale, 2) * 0.6, ctx.env.ground, kit.em.z0 - 0.5, kit.em.layer, kit.em.depth);
   drawParts(kit, streetModel(p).parts, { width: 0.55 });
+};
+
+export const drawPet: ObjectDrawer = (kit, p, ctx) => {
+  shadowOf(kit, p, ctx);
+  drawParts(kit, petModel(p).parts, { width: 0.55 });
 };

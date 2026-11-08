@@ -3,6 +3,7 @@
  * errance et patrouille, actions transitoires, humeur, clignement, zones, événements de jeu. Produit, à chaque pas,
  * la pose 3D (`humanoidPose`) de chaque acteur ; le dessinateur vectoriel la projette.
  */
+import { BallWorld } from "../scene/balls";
 import { type M4, type V3, clamp } from "../core/math";
 import { GENERATORS } from "../gen/index";
 import { Rng } from "../core/rng";
@@ -12,8 +13,8 @@ import { type Motion, motionFor } from "../rig/motion";
 import type { ActorModel, SceneModel } from "../scene/compose";
 import type { ActorPose } from "./scene";
 
-export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd"; payload: Record<string, unknown> };
+export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest"; payload: Record<string, unknown> };
 
 export type ActorRT = {
   model: ActorModel;
@@ -29,7 +30,7 @@ export type ActorRT = {
   actionWeight: number;
   mood: string;
   path: [number, number][] | null;
-  goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number } } | null;
+  goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number }; kick?: { ball: string; power: number; loft: number; tries?: number } } | null;
   /** Hauteur de l'assise occupée (m) : le bassin s'y pose quand l'acteur est assis. */
   seatY?: number;
   /** Point libre devant l'assise, où l'acteur se relève. */
@@ -51,12 +52,16 @@ const round = (x: number) => Math.round(x * 100) / 100;
 export class ActorSim {
   readonly actors = new Map<string, ActorRT>();
   private model: SceneModel | null = null;
+  /** Ballons dynamiques (null sans ballon). */
+  balls: BallWorld | null = null;
   time = 0;
   onEvent: (e: GameEvent) => void = () => {};
 
   setModel(model: SceneModel) {
     this.model = model;
     this.actors.clear();
+    const bw = new BallWorld(model);
+    this.balls = bw.count ? bw : null;
     const issues = new Issues();
     for (const a of model.actors) {
       const sk = a.asset.skeleton;
@@ -76,6 +81,7 @@ export class ActorSim {
 
   setHidden(ids: Set<string>) {
     for (const [id, a] of this.actors) a.hidden = ids.has(id);
+    if (this.balls) this.balls.hidden = new Set([...ids].filter((id) => this.balls!.byId.has(id)));
   }
 
   setActors(intents: Record<string, ActorIntent>) {
@@ -87,8 +93,9 @@ export class ActorSim {
       a.lastIntent = sig;
       if (it.mood) a.mood = String(it.mood);
       const toSeat = typeof it.target === "string" && /\.sit\.\d+$/.test(it.target);
-      // en route vers une place, l'acteur marche : il ne s'assied qu'à l'arrivée
-      if (it.action && !(toSeat && it.action === "sit") && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
+      const toBall = typeof it.target === "string" && !!this.balls?.byId.get(it.target);
+      // en route vers une place (ou un ballon), l'acteur marche : il ne s'assied (ou ne tire) qu'à l'arrivée
+      if (it.action && !(toSeat && it.action === "sit") && !(toBall && it.action === "kick") && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
         if (a.action !== it.action) {
           if (it.action !== "sit") this.standUp(a);
           a.action = it.action as Action;
@@ -109,7 +116,16 @@ export class ActorSim {
       } else if (it.target || Number.isFinite(it.x) || Number.isFinite(it.z)) {
         let x = Number(it.x ?? a.pos[0]), z = Number(it.z ?? a.pos[2]);
         let seat: { x: number; y: number; z: number; yaw: number } | undefined;
-        if (it.target) {
+        let kick: { ball: string; power: number; loft: number } | undefined;
+        const ball = typeof it.target === "string" ? this.balls?.byId.get(it.target) : undefined;
+        if (ball) {
+          // derrière le ballon, sur la ligne acteur → ballon ; le coup part à l'arrivée
+          const dx = ball.pos[0] - a.pos[0], dz = ball.pos[2] - a.pos[2], d = Math.hypot(dx, dz) || 1;
+          const back = ball.r + 0.32 * a.mo.legLength;
+          x = ball.pos[0] - (dx / d) * back;
+          z = ball.pos[2] - (dz / d) * back;
+          if (it.action === "kick" || it.power !== undefined) kick = { ball: ball.id, power: Math.max(0, Math.min(30, Number.isFinite(it.power) ? Number(it.power) : 7)), loft: Math.max(0, Math.min(1.5, Number.isFinite(it.loft) ? Number(it.loft) : 0.15)) };
+        } else if (it.target) {
           const o = this.model?.objects.find((ob) => ob.id === it.target || it.target!.startsWith(ob.id + "."));
           if (o) {
             const an = it.target.slice(o.id.length + 1);
@@ -117,15 +133,52 @@ export class ActorSim {
             const sm = /^sit\.(\d+)$/.exec(an);
             const sp = sm ? o.anchors[an] : undefined;
             if (sp) seat = { x: sp[0], y: sp[1] - o.pos[1], z: sp[2], yaw: o.seatYaw?.[an] ?? o.yaw };
-            const p = (sm && o.anchors[`approach.${sm[1]}`]) || (an && o.anchors[an]) || o.anchors.door || o.pos;
+            const p = (sm && o.anchors[`approach.${sm[1]}`]) || (an === "spot" && o.anchors.approach) || (an && o.anchors[an]) || o.anchors.door || o.pos;
             [x, z] = [p[0], p[2]];
           }
         }
         this.goto(a, x, z, it.target);
         if (a.goal && seat) a.goal.seat = seat;
+        if (a.goal && kick) a.goal.kick = kick;
       }
       if (Number.isFinite(it.facing) && !a.goal && !a.drive) a.yaw = (Number(it.facing) * Math.PI) / 180;
     }
+  }
+
+  /** Tir : l'acteur se tourne vers le ballon, lance le geste, le ballon part dans cette direction. */
+  private doKick(a: ActorRT, k: { ball: string; power: number; loft: number; tries?: number }) {
+    const b = this.balls?.byId.get(k.ball);
+    if (!b) return;
+    const dx = b.pos[0] - a.pos[0], dz = b.pos[2] - a.pos[2], d = Math.hypot(dx, dz) || 1;
+    // le ballon a roulé entre-temps : l'acteur le rattrape (3 essais), sinon `blocked`
+    const back = b.r + 0.32 * a.mo.legLength;
+    if (d > back + 0.25) {
+      const tries = (k.tries ?? 0) + 1;
+      if (tries > 3) {
+        this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "ball-moved", target: b.id } });
+        return;
+      }
+      this.goto(a, b.pos[0] - (dx / d) * back, b.pos[2] - (dz / d) * back, b.id);
+      if (a.goal) a.goal.kick = { ...k, tries };
+      return;
+    }
+    a.yaw = Math.atan2(dx, dz);
+    a.action = "kick";
+    a.actionTime = 0;
+    this.balls!.kick(b.id, [(dx / d) * k.power, k.power * k.loft, (dz / d) * k.power]);
+    this.onEvent({ type: "kick", payload: { actor: a.model.id, ball: b.id, power: k.power } });
+  }
+
+  /** Coup donné à un ballon sans acteur (`kick` du DataProvider) : vitesse en m/s. */
+  kickBall(id: string, v: [number, number, number]): boolean {
+    const ok = !!this.balls?.kick(id, v);
+    if (ok) this.onEvent({ type: "kick", payload: { actor: null, ball: id } });
+    return ok;
+  }
+
+  /** Position et mouvement des ballons (publiés dans l'état). */
+  ballState() {
+    return this.balls?.snapshot() ?? {};
   }
 
   /** Quitte une place assise : retour au point libre devant l'assise (sinon l'acteur resterait dans l'obstacle). */
@@ -158,6 +211,21 @@ export class ActorSim {
   update(dt: number) {
     this.time += dt;
     for (const a of this.actors.values()) this.updateActor(a, dt);
+    this.stepBalls(dt);
+  }
+
+  private stepBalls(dt: number) {
+    const m = this.model;
+    if (!this.balls || !m) return;
+    const pushers = [...this.actors.values()].filter((a) => !a.hidden && !(a.action === "sit" && (a.seatY ?? 0) > 0)).map((a) => ({ id: a.model.id, pos: a.pos, vel: [Math.sin(a.yaw) * a.speed, 0, Math.cos(a.yaw) * a.speed] as V3, r: 0.18 * a.mo.legLength + 0.08, h: a.mo.legLength * 0.6 }));
+    this.balls.step(dt, (x, z) => (m.terrain ? m.terrain.height(x, z) : 0), (x, z) => (m.nav ? m.nav.free(x, z) : true), pushers, (e) => this.onEvent(e));
+  }
+
+  /** Centre et rotation courants de chaque ballon (rendu vectoriel). */
+  ballPoses(): Map<number, { center: V3; spin: [number, number, number, number] }> {
+    const out = new Map<number, { center: V3; spin: [number, number, number, number] }>();
+    for (const b of this.balls?.bodies ?? []) out.set(b.obj, { center: b.pos, spin: b.spin });
+    return out;
   }
 
   private updateActor(a: ActorRT, dt: number) {
@@ -183,6 +251,7 @@ export class ActorSim {
           const g = a.goal;
           a.path = null;
           a.goal = null;
+          if (g?.kick) this.doKick(a, g.kick);
           if (g?.seat) {
             a.pos[0] = g.seat.x;
             a.pos[2] = g.seat.z;
@@ -245,11 +314,11 @@ export class ActorSim {
       a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
     a.pos[1] = m.terrain ? m.terrain.height(a.pos[0], a.pos[2]) : a.pos[1];
-    const transient = a.action === "wave" || a.action === "cheer" || a.action === "jump" || a.action === "bow" || a.action === "point";
+    const transient = a.action === "wave" || a.action === "cheer" || a.action === "jump" || a.action === "bow" || a.action === "point" || a.action === "kick";
     a.actionTime += dt;
     const target = a.action === "idle" ? 0 : 1;
     a.actionWeight += (target - a.actionWeight) * (1 - Math.exp(-dt * 6));
-    if (transient && a.actionTime > (a.action === "jump" ? 1.1 : a.action === "bow" ? 1.4 : 2.6)) {
+    if (transient && a.actionTime > (a.action === "jump" ? 1.1 : a.action === "bow" ? 1.4 : a.action === "kick" ? 0.7 : 2.6)) {
       this.onEvent({ type: "actionEnd", payload: { actor: a.model.id, action: a.action } });
       a.action = "idle";
     }
