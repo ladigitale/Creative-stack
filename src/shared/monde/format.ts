@@ -8,6 +8,7 @@
 import { DEG, Rand, hash32 } from "./math";
 import { PRESETS, type PresetOut } from "./presets";
 import { readTex, type TexSpec } from "./textures";
+import { GEN_IDS, GEN_ROLES, genPreset, isGenId, type GenRig } from "./gen";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -52,6 +53,8 @@ export type ClipIn = {
 
 export type ModelIn = {
   preset?: string;
+  /** Générateur procgen (`character`, `animal.dog`, `tree`, `building`…) : forme, squelette et style procgen (3D). */
+  gen?: string;
   seed?: string | number;
   params?: Record<string, unknown>;
   parts?: PartIn[];
@@ -105,6 +108,8 @@ export type MondeIn = {
   ciel?: string;
   /** Brume 3D (0 à 1) vers la couleur du ciel. */
   brume?: number;
+  /** Style des modèles `gen` : préréglage procgen (`gouache`, `doux`, `bd`, `encre`, `aquarelle`…) ou jetons. */
+  style?: unknown;
 };
 
 /* ------------------------------------------------------------------ structures normalisées */
@@ -144,9 +149,13 @@ export type Model = {
   clip: string;
   /** Rôles utilisés par le modèle, couleur par défaut. */
   roles: Record<string, string>;
+  /** Modèle procgen : générateur, paramètres, graine ; les pièces sont alors ses os (sans forme). */
+  gen: GenSpec | null;
   /** Problèmes de lecture du modèle (redonnés quand il est réutilisé tel quel). */
   issues: Issue[];
 };
+
+export type GenSpec = { id: string; params: Record<string, unknown>; seed: string; rig: GenRig };
 
 export type Placement = {
   model: string;
@@ -177,6 +186,8 @@ export type Monde = {
   texture: TexSpec | null;
   ciel: string;
   brume: number;
+  /** Style procgen des modèles `gen` (préréglage ou jetons, lu par le rendu). */
+  style: unknown;
   issues: Issue[];
 };
 
@@ -321,14 +332,26 @@ function readShape(p: PartIn, path: string, issues: Issue[]): Shape | null {
 function readModel(name: string, src: ModelIn, palette: Record<string, string>, ownPal: Record<string, string>, issues: Issue[]): Model {
   const path = `models.${name}`;
   let preset: PresetOut | null = null;
-  if (typeof src.preset === "string") {
+  let gen: GenSpec | null = null;
+  if (src.gen !== undefined) {
+    if (!isGenId(src.gen)) issues.push({ path: `${path}.gen`, message: `générateur inconnu « ${String(src.gen)} » (${GEN_IDS.join(", ")})` });
+    else {
+      const params = src.params && typeof src.params === "object" && !Array.isArray(src.params) ? { ...src.params } : {};
+      const gp = genPreset(src.gen, params);
+      preset = gp;
+      gen = { id: src.gen, params, seed: `${src.seed ?? name}`, rig: gp.rig };
+      if (src.preset !== undefined) issues.push({ path: `${path}.preset`, message: "ignoré : le modèle a déjà un générateur (gen)" });
+      if (Array.isArray(src.parts) && src.parts.length) issues.push({ path: `${path}.parts`, message: "ignorées : un modèle gen n'a que ses os (pièces sans forme)" });
+    }
+  }
+  if (!gen && typeof src.preset === "string") {
     const gen = own(PRESETS, src.preset);
     if (!gen) issues.push({ path: `${path}.preset`, message: `préréglage inconnu « ${src.preset} » (${Object.keys(PRESETS).join(", ")})` });
     else preset = gen.build(new Rand(`${src.seed ?? name}`), src.params ?? {});
   }
   // Pièces du préréglage puis pièces écrites (même nom = remplace, sinon ajoute)
   const inParts: PartIn[] = [...(preset?.parts ?? [])];
-  for (const p of Array.isArray(src.parts) ? src.parts : []) {
+  for (const p of !gen && Array.isArray(src.parts) ? src.parts : []) {
     if (!p || typeof p !== "object") continue;
     const i = typeof p.name === "string" ? inParts.findIndex((q) => q.name === p.name) : -1;
     if (i >= 0) {
@@ -495,9 +518,10 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
   }
 
   const roles: Record<string, string> = {};
+  if (gen) for (const [k, v] of Object.entries(GEN_ROLES)) roles[k] = roles[v] = own(ownPal, k) ?? "";
   for (const p of sorted) if (p.role && !Object.prototype.hasOwnProperty.call(roles, p.role)) roles[p.role] = own(ownPal, p.role) ?? safeColor(own(preset?.roles, p.role)) ?? own(palette, p.role) ?? "#94a3b8";
   const clip = typeof src.clip === "string" ? src.clip : preset?.clip ?? (clips.has("idle") ? "idle" : "");
-  return { name, sig: "", parts: sorted, clips, clip, roles, issues: [] };
+  return { name, sig: "", parts: sorted, clips, clip, roles, gen, issues: [] };
 }
 
 function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue[]): Placement[] {
@@ -654,6 +678,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     texture: readTex(src.texture, (message) => issues.push({ path: "texture", message })),
     ciel: isColor(src.ciel) ? src.ciel : "",
     brume: clampN(num(src.brume, 0), 0, 1),
+    style: src.style ?? null,
     place: readPlacements(src.place, models, issues),
     look,
     detail,

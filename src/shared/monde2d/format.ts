@@ -7,7 +7,8 @@
  * Lecture tolérante : jamais d'exception, problèmes listés dans `issues`.
  */
 import { DEG, Rand, hash32 } from "../monde/math";
-import { isColor, own } from "../monde/format";
+import { isColor, own, readMonde, type Model } from "../monde/format";
+import { GEN_IDS, isGenId, type GenRig } from "../monde/gen";
 import { readTex, type TexSpec } from "../monde/textures";
 import type { Clip, ClipIn, Issue, Track } from "../monde/format";
 import { PRESETS2D, type Preset2dOut } from "./presets";
@@ -60,6 +61,14 @@ export type Clip2In = Omit<ClipIn, "tracks"> & { tracks?: Record<string, Track2I
 
 export type Model2In = {
   preset?: string;
+  /** Générateur procgen (`character`, `animal.dog`, `tree`, `building`…) dessiné en illustration vectorielle. */
+  gen?: string;
+  /** Modèle gen : vue `profil` (défaut), `face`, `dessus` (verticale) ou `plongee` (vue d'en haut inclinée). */
+  vue?: string;
+  /** Modèle gen : hauteur à l'écran (px) d'un objet de la taille du générateur (personnage ≈ 1,7 m). */
+  taille?: number;
+  /** Modèle gen en plongée : inclinaison (degrés, 90 = verticale). */
+  pitch?: number;
   seed?: string | number;
   params?: Record<string, unknown>;
   parts?: Part2In[];
@@ -99,8 +108,10 @@ export type Monde2dIn = {
   layers?: Layer2In[];
   /** Fond : couleur ou dégradé `[haut, bas]`. */
   ciel?: string | string[];
-  /** `plat` (défaut), `doux` (relief), `bd` (gros contour, relief), `encre` (contour noir, couleurs claires), `gouache` (relief, grain). */
+  /** `plat` (défaut), `doux` (relief), `bd` (gros contour, relief), `encre` (contour noir, couleurs claires), `gouache` (relief, grain) ; ou un style vectoriel procgen (`flat`, `ligne-claire`, `gravure`, `affiche`, `papier-decoupe`), qui fixe aussi celui des modèles gen. */
   style?: string;
+  /** Style vectoriel procgen des modèles gen (sinon déduit de `style`). */
+  styleGen?: string;
   outline?: number;
   relief?: boolean;
   textures?: Record<string, unknown>;
@@ -143,7 +154,32 @@ export type Part2 = {
   shape: Shape2 | null;
 };
 
-export type Model2 = { name: string; sig: string; parts: Part2[]; clips: Map<string, Clip>; clip: string; roles: Record<string, string>; height: number; shadow: [number, number] | null; issues: Issue[] };
+export type Model2 = {
+  name: string;
+  sig: string;
+  parts: Part2[];
+  clips: Map<string, Clip>;
+  clip: string;
+  roles: Record<string, string>;
+  height: number;
+  shadow: [number, number] | null;
+  /** Modèle procgen (illustration vectorielle) ; ses os et clips sont ceux du format monde (`model3`). */
+  gen: Gen2Spec | null;
+  issues: Issue[];
+};
+
+export type Gen2Spec = {
+  id: string;
+  params: Record<string, unknown>;
+  seed: string;
+  rig: GenRig;
+  view: "profil" | "face" | "dessus" | "plongee";
+  /** Pixels par mètre. */
+  pxPerM: number;
+  pitch: number;
+  /** Modèle du format monde (os = pièces, clips en pistes d'os) : pose partagée avec la 3D. */
+  model3: Model;
+};
 
 export type Placement2 = {
   model: string;
@@ -170,6 +206,8 @@ export type Monde2d = {
   layers: Layer2[];
   ciel: [string, string] | null;
   style: "plat" | "doux" | "bd" | "encre" | "gouache";
+  /** Style vectoriel procgen des modèles gen. */
+  styleGen: string;
   outline: number;
   relief: boolean;
   textures: Record<string, TexSpec>;
@@ -464,6 +502,10 @@ function readShape2(p: Part2In, seg: number, path: string, issues: Issue[]): Sha
 
 function readModel2(name: string, src: Model2In, palette: Record<string, string>, ownPal: Record<string, string>, seg: number, issues: Issue[]): Model2 {
   const path = `models.${name}`;
+  if (src.gen !== undefined) {
+    if (isGenId(src.gen)) return readGenModel2(name, src, issues);
+    issues.push({ path: `${path}.gen`, message: `générateur inconnu « ${String(src.gen)} » (${GEN_IDS.join(", ")})` });
+  }
   let preset: Preset2dOut | null = null;
   if (typeof src.preset === "string") {
     const gen = own(PRESETS2D, src.preset);
@@ -643,7 +685,40 @@ function readModel2(name: string, src: Model2In, palette: Record<string, string>
       roles[p.role] = own(ownPal, p.role) ?? (isColor(pr) ? pr : undefined) ?? own(palette, p.role) ?? "#94a3b8";
     }
   const clip = typeof src.clip === "string" ? src.clip : preset?.clip ?? (clips.has("idle") ? "idle" : "");
-  return { name, sig: "", parts: sorted, clips, clip, roles, height: preset?.height ?? 0, shadow: preset?.shadow ?? null, issues: [] };
+  return { name, sig: "", parts: sorted, clips, clip, roles, height: preset?.height ?? 0, shadow: preset?.shadow ?? null, gen: null, issues: [] };
+}
+
+const GEN_VIEWS = ["profil", "face", "dessus", "plongee"] as const;
+
+/** Modèle gen : os et clips lus par le format monde (3D), vue et échelle propres à la 2D. */
+function readGenModel2(name: string, src: Model2In, issues: Issue[]): Model2 {
+  const path = `models.${name}`;
+  const params = src.params && typeof src.params === "object" && !Array.isArray(src.params) ? { ...src.params } : {};
+  const m3 = readMonde({ models: { [name]: { gen: src.gen, params, seed: src.seed ?? name, clips: src.clips as never, clip: src.clip } } });
+  for (const i of m3.issues) issues.push({ path: i.path, message: i.message });
+  const model3 = m3.models.get(name)!;
+  if (src.parts !== undefined) issues.push({ path: `${path}.parts`, message: "ignorées : un modèle gen n'a que ses os" });
+  const view = (GEN_VIEWS as readonly string[]).includes(String(src.vue)) ? (src.vue as Gen2Spec["view"]) : "profil";
+  if (src.vue !== undefined && view !== src.vue) issues.push({ path: `${path}.vue`, message: `vue inconnue (${GEN_VIEWS.join(", ")})` });
+  const fam = String(src.gen).split(".")[0];
+  // hauteur de référence du générateur (m) : la taille en px donne l'échelle
+  const ref = fam === "character" ? 1.7 : fam === "animal" ? 0.8 : fam === "tree" ? 6 : fam === "building" ? 7 : 1;
+  const taille = clampN(num(src.taille, fam === "character" ? 64 : 64), 4, 2000);
+  // les clips du format monde, sans pistes 2D : le pilote 2D les reconnaît (noms, durées, enchaînements)
+  const clips = new Map<string, Clip>();
+  for (const [k, c] of model3.clips) clips.set(k, { ...c, tracks: [] });
+  return {
+    name,
+    sig: "",
+    parts: [],
+    clips,
+    clip: model3.clip,
+    roles: { ...model3.roles },
+    height: 0,
+    shadow: null,
+    gen: { id: String(src.gen), params, seed: `${src.seed ?? name}`, rig: model3.gen!.rig, view, pxPerM: taille / ref, pitch: clampN(num(src.pitch, view === "dessus" ? 90 : 55), 20, 90), model3 },
+    issues: [],
+  };
 }
 
 /* ------------------------------------------------------------------ placement */
@@ -797,8 +872,14 @@ function readUnsafe(input: unknown, previous?: Monde2d | null): Monde2d {
       if (r) textures[k] = r;
     }
   const ciel = Array.isArray(src.ciel) && isColor(src.ciel[0]) && isColor(src.ciel[1]) ? ([src.ciel[0], src.ciel[1]] as [string, string]) : isColor(src.ciel) ? ([src.ciel, src.ciel] as [string, string]) : null;
-  const style = (STYLES as readonly string[]).includes(String(src.style)) ? (src.style as Monde2d["style"]) : "plat";
+  const VEC: Record<string, Monde2d["style"]> = { flat: "plat", "ligne-claire": "bd", gravure: "encre", affiche: "gouache", "papier-decoupe": "doux" };
+  const GEN_OF: Record<string, string> = { plat: "flat", doux: "flat", bd: "ligne-claire", encre: "gravure", gouache: "affiche" };
+  const vecStyle = Object.prototype.hasOwnProperty.call(VEC, String(src.style)) ? String(src.style) : "";
+  const style = vecStyle ? VEC[vecStyle] : (STYLES as readonly string[]).includes(String(src.style)) ? (src.style as Monde2d["style"]) : "plat";
+  const styleGen = typeof src.styleGen === "string" && Object.prototype.hasOwnProperty.call(VEC, src.styleGen) ? src.styleGen : vecStyle || GEN_OF[style];
+  if (src.styleGen !== undefined && styleGen !== src.styleGen) issues.push({ path: "styleGen", message: `style vectoriel inconnu (${Object.keys(VEC).join(", ")})` });
   return {
+    styleGen,
     palette,
     models,
     place: readPlace2(src.place, models, layers, issues),

@@ -12,7 +12,7 @@
   "components": [
     {
       "name": "sonic-3d",
-      "description": "Scène 3D glTF/GLB pilotable par données : glb (base64, sans fetch), nodes (surcharges de nœuds via le DP), target (taps → sonic-store). Détail : règle « 3d » du catalogue ; sinon 3d.md ; clé monde : monde complet en primitives articulées et animées (monde.md), même JSON et mêmes nodes en 2D et 3D.",
+      "description": "Scène 3D glTF/GLB pilotable par données : glb (base64, sans fetch), nodes (surcharges de nœuds via le DP), target (taps → sonic-store). Détail : règle « 3d » du catalogue ; sinon 3d.md ; clé monde : monde complet en primitives articulées et animées (monde.md), même JSON et mêmes nodes en 2D et 3D ; modèles gen (générateurs procgen : personnages et animaux skinnés, bâtiments, arbres, objets) au style procgen.",
       "props": {
         "src": {
           "type": "url"
@@ -101,7 +101,7 @@
         },
         "monde": {
           "type": "string",
-          "description": "Monde en primitives (JSON : modèles articulés, clips, palette, textures, placement ; voir monde.md) ; aussi clé DP monde. Instances pilotées par nodes (x y z rx ry rz, clip, clipSpeed, clipT, roles)"
+          "description": "Monde en primitives ou modèles gen procgen (JSON : modèles articulés, clips, palette, textures, style, placement ; voir monde.md) ; aussi clé DP monde. Instances pilotées par nodes (x y z rx ry rz, clip, clipSpeed, clipT, roles)"
         }
       }
     }

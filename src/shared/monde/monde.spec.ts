@@ -268,3 +268,59 @@ describe("monde : entrées hostiles", () => {
     expect([...g.nrm].every(Number.isFinite)).toBe(true);
   });
 });
+
+describe("monde : modèles gen (procgen)", () => {
+  it("os en pièces nommées, clips par défaut, rôles du format, sans forme", () => {
+    const m = readMonde({ models: { j: { gen: "character", params: { top: "tee" }, seed: 2 } }, place: [{ model: "j", name: "p0" }] });
+    const j = m.models.get("j")!;
+    expect(m.issues).toEqual([]);
+    expect(j.gen).toEqual({ id: "character", params: { top: "tee" }, seed: "2", rig: "humanoid" });
+    const names = j.parts.map((p) => p.name);
+    for (const n of ["racine", "bassin", "torse", "tete", "cuisseL", "cuisseR", "avantBrasL", "mainR", "orteilL"]) expect(names).toContain(n);
+    expect(j.parts.every((p) => p.shape === null)).toBe(true);
+    for (const c of ["idle", "marche", "course", "joie", "tir", "passe", "tacle", "controle", "chute", "plongeon"]) expect(j.clips.has(c)).toBe(true);
+    expect(j.clip).toBe("idle");
+    expect(Object.keys(j.roles)).toEqual(expect.arrayContaining(["maillot", "short", "peau", "cloth1", "skin"]));
+  });
+
+  it("pistes d'os : paire en opposition, côté droit miroir ; os inconnus signalés", () => {
+    const m = readMonde({ models: { j: { gen: "character", clips: { geste: { tracks: { bras: { rz: [0, 40] }, aileron: { rx: [0, 1] } } } } } } });
+    const c = m.models.get("j")!.clips.get("geste")!;
+    expect(c.tracks.length).toBe(2);
+    expect(c.tracks[0].keys[1]).toBeCloseTo((40 * Math.PI) / 180);
+    expect(c.tracks[1].keys[1]).toBeCloseTo((-40 * Math.PI) / 180);
+    expect(c.tracks[1].phase).toBe(0.5);
+    expect(m.issues.some((i) => i.path.endsWith("aileron"))).toBe(true);
+  });
+
+  it("animaux, oiseaux, décor ; générateur inconnu et pièces ignorées signalés", () => {
+    const m = readMonde({
+      models: { c: { gen: "animal.dog" }, o: { gen: "animal", params: { species: "duck" } }, a: { gen: "tree" }, x: { gen: "dragon" }, y: { gen: "rock", parts: [{ name: "a", box: [1, 1, 1] }] } },
+    });
+    expect(m.models.get("c")!.gen!.rig).toBe("quadruped");
+    expect(m.models.get("c")!.parts.map((p) => p.name)).toContain("queue3");
+    expect(m.models.get("o")!.gen!.rig).toBe("bird");
+    expect(m.models.get("o")!.parts.map((p) => p.name)).toContain("aileL");
+    expect(m.models.get("a")!.parts).toEqual([]);
+    expect(m.models.get("x")!.gen).toBeNull();
+    expect(m.issues.some((i) => i.path === "models.x.gen")).toBe(true);
+    expect(m.issues.some((i) => i.path === "models.y.parts")).toBe(true);
+  });
+
+  it("os ↔ pièces", async () => {
+    const { boneAlias, aliasBone } = await import("./gen");
+    for (const b of ["thigh.l", "forearm.r", "neck.1", "tail.3", "head", "root", "wing.l"]) expect(aliasBone(boneAlias(b))).toBe(b);
+    expect(aliasBone("chapeau")).toBeNull();
+  });
+
+  it("le pilote anime les os par les clips du format (rotations ajoutées)", () => {
+    const m = readMonde({ models: { j: { gen: "character" } }, place: [{ model: "j", name: "p0" }] });
+    const d = new MondeDriver();
+    d.setMonde(m, 0);
+    d.apply("p0", { clip: "tir" }, 0, true, false);
+    d.step(300);
+    const inst = d.instances.get("p0")!;
+    const i = inst.model.parts.findIndex((p) => p.name === "cuisseR");
+    expect(Math.abs(inst.offs[i * STRIDE])).toBeGreaterThan(0.1);
+  });
+});
