@@ -5,6 +5,7 @@ import { parse } from "./parse";
 import { playback } from "./playback";
 import { postBind } from "./post-bind";
 import { reload } from "./reload";
+import { mondeBind } from "./monde-bind";
 
 function hasAny(
   changed: Map<string | number | symbol, unknown>,
@@ -78,6 +79,10 @@ function updated(
     );
   }
   if (changed.has("src") || changed.has("asset") || changed.has("glb")) void reload.run(host as never);
+  if (changed.has("monde")) {
+    const h = host as unknown as { formPublisher: { get?: () => Record<string, unknown> } | null };
+    mondeBind.sync(host as never, (h.formPublisher?.get?.() ?? {}) as Record<string, unknown>);
+  }
   if (postBind.propsChanged(changed)) {
     postBind.applyConfig(host as never);
   }

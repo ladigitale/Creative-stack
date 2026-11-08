@@ -15,7 +15,7 @@
   "components": [
     {
       "name": "sonic-2d",
-      "description": "Scène 2D/2.5D : width × height logiques (mise à l'échelle de la largeur) ; enfants sonic-sprite ou sprites=DP liste ; dataProvider : clé nodes {nom:{x, y, rz (radians), scale, opacity, visible, z, color, ease}} et clé camera {x, y, zoom, ease} (ou attribut camera = chemin) ; layers=\"ciel:0 decor:0.4 monde:1:y hud:0\" (parallaxe ; :y = tri par y) ; target reçoit {type:pick, payload:{objectId, x, y}} ; rendu à la demande.",
+      "description": "Scène 2D/2.5D : width × height logiques (mise à l'échelle de la largeur) ; enfants sonic-sprite ou sprites=DP liste ; dataProvider : clé nodes {nom:{x, y, rz (radians), scale, opacity, visible, z, color, ease}} et clé camera {x, y, zoom, ease} (ou attribut camera = chemin) ; layers=\"ciel:0 decor:0.4 monde:1:y hud:0\" (parallaxe ; :y = tri par y) ; target reçoit {type:pick, payload:{objectId, x, y}} ; rendu à la demande. ; clé monde : monde complet en primitives articulées et animées (monde.md), même JSON et mêmes nodes en 2D et 3D.",
       "props": {
         "dataProvider": {
           "type": "string",
@@ -72,6 +72,14 @@
         "max-dpr": {
           "type": "number",
           "description": "Densité de pixels maximale (défaut 2)"
+        },
+        "monde": {
+          "type": "string",
+          "description": "Monde en primitives (même JSON et mêmes nodes que sonic-3d, voir 3d/monde.md) ; aussi clé DP monde ; vue view2d top|side|front|iso"
+        },
+        "monde-layer": {
+          "type": "string",
+          "description": "Calque du monde (défaut monde)"
         }
       }
     },
@@ -174,10 +182,6 @@
         "opacity": {
           "type": "number",
           "description": "Opacité 0..1"
-        },
-        "blend": {
-          "type": "string",
-          "description": "Fusion avec ce qui est dessous : normal (défaut), add, screen (fumée, lumière : un sprite source=\"#shader\" noir devient transparent), multiply (ombre)"
         },
         "blend": {
           "type": "string",

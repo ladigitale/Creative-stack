@@ -20,6 +20,12 @@ export class Sonic3dProps extends LitElement {
   @property({ attribute: false }) asset: Sonic3dAsset | null = null;
   /** GLB embarqué en base64 (sans `fetch`). */
   @property() glb = "";
+  /** Monde décrit en primitives (JSON, voir monde.md) ; aussi clé DP `monde`. */
+  @property() monde = "";
+  /** État interne du monde (dernière source, signature, monde lu). */
+  mondeRef: unknown = undefined;
+  mondeSig = "";
+  mondeParsed: import("../../shared/monde/format").Monde | null = null;
   @property({ type: Number, attribute: "max-glb-bytes" })
   maxGlbBytes = DEFAULT_MAX_GLB_BYTES;
   /** Id du `sonic-store` qui reçoit les taps (`pick`). */

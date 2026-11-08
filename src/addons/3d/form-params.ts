@@ -4,6 +4,7 @@ import { parse } from "./parse";
 import { playback } from "./playback";
 import { postBind } from "./post-bind";
 import { reload } from "./reload";
+import { mondeBind } from "./monde-bind";
 import type { SceneRuntime } from "./runtime";
 import type { Sonic3dAsset, Sonic3dCameraMode } from "./types";
 
@@ -87,6 +88,7 @@ function applyFormOrbit(host: FormBindHost, data: Record<string, unknown>) {
 function applyFormParams(host: FormBindHost, data: Record<string, unknown>) {
   formFields.applyScalars(host, data);
   const needReload = formFields.applyAsset(host, data);
+  mondeBind.sync(host as never, data);
 
   if (!host.runtime) {
     if (needReload) void reload.run(host as never);

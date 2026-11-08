@@ -8,6 +8,7 @@ type ResolveHost = {
   src: string;
   glb?: string;
   maxGlbBytes?: number;
+  monde?: string;
 };
 
 function withLimit(a: Sonic3dAsset | null, host: ResolveHost, data: Record<string, unknown>) {
@@ -38,7 +39,12 @@ function resolve(
     const a = parse.asset(data.asset);
     if (a) return withLimit(a, host, data);
   }
-  if ("src" in data) return withLimit(parse.asset(data.src), host, data);
+  if ("src" in data) {
+    const a = parse.asset(data.src);
+    if (a) return withLimit(a, host, data);
+  }
+  // un monde seul : scène vide plutôt que le cube de démo
+  if ((host.monde && host.monde.trim()) || ("monde" in data && data.monde)) return { empty: true };
   return null;
 }
 

@@ -206,7 +206,25 @@ export class Scene2D {
     stage.sortableChildren = true;
     // Sprites dont le calque a disparu : calque par défaut.
     for (const e of this.entries.values()) this.attach(e);
+    for (const x of this.extras) this.layerOf(x.layer).container.addChild(x.c);
     this.applyCamera();
+  }
+
+  private extras: { c: Container; layer: string }[] = [];
+
+  /** Ajoute un conteneur géré ailleurs (rendu d'un `monde`) dans un calque ; suit les changements de calques. */
+  attachExtra(c: Container, layer: string): void {
+    const i = this.extras.findIndex((x) => x.c === c);
+    if (i >= 0) this.extras.splice(i, 1);
+    this.extras.push({ c, layer });
+    if (this.ready) this.layerOf(layer).container.addChild(c);
+    this.opts.invalidate();
+  }
+
+  /** Coordonnées dans un calque d'un point écran (unités de la scène). */
+  layerPoint(layer: string, sx: number, sy: number): [number, number] {
+    const l = this.layerOf(layer);
+    return screenToLayer(sx, sy, l.layer.parallax, this.camera, this.width, this.height);
   }
 
   setCamera(cam: Camera): void {
