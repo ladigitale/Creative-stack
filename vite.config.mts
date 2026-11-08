@@ -22,6 +22,12 @@ if (addon && !addonIds.includes(addon)) {
   throw new Error(`Addon inconnu : ${addon} (connus : ${addonIds.join(", ")})`);
 }
 
+const procgenIndex = path.join(addonsDir, "procgen", "index.ts");
+function isProcgenIndex(id: string, importer?: string): boolean {
+  const abs = importer && id.startsWith(".") ? path.resolve(path.dirname(importer), id) : id;
+  return abs === procgenIndex || abs === procgenIndex.replace(/\.ts$/, "");
+}
+
 /** Concorde est publié en TS source avec décorateurs legacy. */
 const tsconfigRaw = {
   compilerOptions: { experimentalDecorators: true, useDefineForClassFields: false },
@@ -45,6 +51,8 @@ export default defineConfig({
   optimizeDeps: { esbuildOptions: { tsconfigRaw } },
   define: {
     __BUILD_DATE__: JSON.stringify(new Date().toString()),
+    // bundles autonomes : procgen n'est jamais embarqué par un autre addon (voir src/shared/procgen-loader.ts)
+    "import.meta.env.CS_IIFE": format === "iife" && addon ? "true" : "false",
   },
   build: addon
     ? {
@@ -59,7 +67,14 @@ export default defineConfig({
               ? `creative-stack-${addon}.es.js`
               : `creative-stack-${addon}.bundle.js`,
         },
-        rollupOptions: format === "es" ? { external } : {},
+        rollupOptions:
+          format === "es"
+            ? {
+                // procgen chargé à la demande par 3d / 2d : le bundle ES de l'addon procgen, pas une copie
+                external: (id: string, importer?: string) => external(id) || (addon !== "procgen" && isProcgenIndex(id, importer)),
+                output: { paths: (id: string) => (isProcgenIndex(id) ? "./creative-stack-procgen.es.js" : id) },
+              }
+            : {},
       }
     : undefined,
   test: {

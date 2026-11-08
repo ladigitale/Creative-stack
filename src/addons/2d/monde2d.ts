@@ -5,15 +5,37 @@
  * Performance : chaque pièce de modèle est dessinée une fois par couleur (`GraphicsContext` partagé entre toutes
  * les instances) ; à chaque image, seules les affines des pièces animées changent. Le décor sans nom est dessiné une
  * fois, en un `Graphics` par copie. Rien ne bouge, rien n'est recalculé.
+ *
+ * Modèles `gen` : dessinés par procgen en illustration vectorielle (module chargé à la demande) sur un canvas par
+ * instance, posé en sprite ; le personnage est redessiné à chaque image où il bouge (pose du moteur procgen + pistes
+ * d'os des clips du format). Le cap vient de `rz` en vue de dessus (le dessin tourne, pas l'image) et de `flip` de profil.
  */
-import { BufferImageSource, Container, FillGradient, FillPattern, Graphics, GraphicsContext, Matrix, Text, Texture } from "pixi.js";
+import { BufferImageSource, CanvasSource, Container, FillGradient, FillPattern, Graphics, GraphicsContext, Matrix, Sprite, Text, Texture } from "pixi.js";
 import { shade } from "../../shared/monde/math";
 import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/textures";
 import { partColor2, partTex2, STRIDE2, type Model2, type Monde2d, type Part2, type Placement2 } from "../../shared/monde2d/format";
 import { Monde2dDriver, type Inst2 } from "../../shared/monde2d/driver";
+import { aliasBone, GEN_MOTION } from "../../shared/monde/gen";
+import { samplePose } from "../../shared/monde/pose";
+import type { GenSprite } from "../procgen/index";
+import { loadProcgen, type ProcgenApi } from "../../shared/procgen-loader";
+
+type ProcgenMod = ProcgenApi;
+type GenView = {
+  sprite: GenSprite | null;
+  spr: Sprite | null;
+  tex: Texture | null;
+  bones: (string | null)[];
+  offs: Float32Array;
+  last: [number, number] | null;
+  step: Map<string, [number, number, number]>;
+  ro: [number, number, number];
+};
+/** Dessin procgen d'un modèle et sa texture, réutilisés d'un monde au suivant. */
+type GenEntry = { sprite: GenSprite; tex: Texture; token: number };
 
 type PartView = { g: Graphics | Text; key: string };
-type Built = { inst: Inst2; holder: Container; parts: (PartView | null)[]; shadow: Graphics | null; rolesRev: number; overRev: number; world: Float32Array };
+type Built = { inst: Inst2; holder: Container; parts: (PartView | null)[]; shadow: Graphics | null; rolesRev: number; overRev: number; world: Float32Array; gen: GenView | null };
 
 const MAX_CONTEXTS = 3000;
 const RAD = Math.PI / 180;
@@ -158,6 +180,15 @@ export class Monde2dRenderer {
   private skyGrad: FillGradient | null = null;
   private ysort = new Map<string, boolean>();
   private mat = new Matrix();
+  private pg: ProcgenMod | null = null;
+  private pgLoad: Promise<void> | null = null;
+  private jobs: { token: number; run: () => void }[] = [];
+  private jobTimer: ReturnType<typeof setTimeout> | 0 = 0;
+  private token = 0;
+  private lastStep = 0;
+  /** Acteurs (par instance) et décor (par modèle, couleurs, cap) déjà dessinés : gardés tant qu'ils servent. */
+  private genActors = new Map<string, GenEntry & { sig: string }>();
+  private genDecor = new Map<string, GenEntry>();
 
   constructor(
     private invalidate: () => void,
@@ -231,12 +262,14 @@ export class Monde2dRenderer {
 
   set(m: Monde2d, now: number) {
     this.clearScene();
+    this.token++;
     this.monde = m;
     this.ysort = new Map(m.layers.map((l) => [l.name, l.ysort]));
     this.drawSky(m);
     this.driver.setMonde(m, now);
     for (const pl of m.place) if (!pl.name && !pl.hidden) this.buildStatic(m, pl);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
+    this.purgeGen();
     this.step(now, true);
     this.invalidate();
   }
@@ -263,8 +296,108 @@ export class Monde2dRenderer {
     return this.ysort.get(layer) ? y * 10 + z : z * 1e5 + order;
   }
 
+  /** Exécute `fn` avec le module procgen (chargé à la demande), par tranches pour garder la page fluide. */
+  private withProcgen(fn: (pg: ProcgenMod) => void) {
+    this.jobs.push({ token: this.token, run: () => fn(this.pg!) });
+    if (this.pg) return this.schedule();
+    this.pgLoad ??= loadProcgen().then(
+      (mod) => {
+        this.pg = mod;
+        this.schedule();
+      },
+      (err) => {
+        // nouvel essai au prochain monde (bundle procgen chargé entre-temps)
+        this.pgLoad = null;
+        this.jobs = [];
+        this.monde?.issues.push({ path: "", message: `procgen indisponible : ${err instanceof Error ? err.message : String(err)}` });
+        this.invalidate();
+      },
+    );
+  }
+
+  private schedule() {
+    if (this.jobTimer || !this.jobs.length || !this.pg) return;
+    this.jobTimer = setTimeout(() => {
+      this.jobTimer = 0;
+      const t0 = performance.now();
+      let ran = 0;
+      while (this.jobs.length && (ran === 0 || performance.now() - t0 < 12)) {
+        const j = this.jobs.shift()!;
+        if (j.token !== this.token) continue;
+        try {
+          j.run();
+        } catch (err) {
+          this.monde?.issues.push({ path: "", message: `procgen : ${err instanceof Error ? err.message : String(err)}` });
+        }
+        ran++;
+      }
+      if (ran) this.invalidate();
+      this.schedule();
+    }, 0);
+  }
+
+  private genEntry(pg: ProcgenMod, m: Monde2d, model: Model2, roles: Record<string, string> | undefined, yaw = 0): GenEntry {
+    const g = model.gen!;
+    const sprite = new pg.GenSprite({ id: g.id, params: g.params, seed: g.seed }, { view: g.view, pxPerM: g.pxPerM, resolution: 2, style: m.styleGen, pitch: g.pitch });
+    for (const i of sprite.issues.slice(0, 8)) {
+      const path = `models.${model.name}.${i.path}`;
+      if (!m.issues.some((x) => x.path === path && x.message === i.message)) m.issues.push({ path, message: i.message });
+    }
+    sprite.setRoles(roles);
+    if (!sprite.animated) {
+      sprite.setStaticYaw(yaw);
+      sprite.draw(0, null);
+    }
+    const tex = new Texture({ source: new CanvasSource({ resource: sprite.canvas as HTMLCanvasElement, autoGenerateMipmaps: false }) });
+    return { sprite, tex, token: this.token };
+  }
+
+  private spriteOf(model: Model2, e: GenEntry): Sprite {
+    const spr = new Sprite(e.tex);
+    const c = e.sprite.canvas;
+    spr.anchor.set(e.sprite.anchor[0] / Math.max(1, c.width), e.sprite.anchor[1] / Math.max(1, c.height));
+    spr.scale.set(model.gen!.pxPerM / e.sprite.pxScale);
+    return spr;
+  }
+
+  /** Dessins procgen qui ne servent plus au monde courant : libérés. */
+  private purgeGen() {
+    for (const [k, e] of this.genActors) if (e.token !== this.token) {
+      e.tex.destroy(true);
+      this.genActors.delete(k);
+    }
+    for (const [k, e] of this.genDecor) if (e.token !== this.token) {
+      e.tex.destroy(true);
+      this.genDecor.delete(k);
+    }
+  }
+
   private buildStatic(m: Monde2d, pl: Placement2) {
     const model = m.models.get(pl.model)!;
+    if (model.gen) {
+      const holder = new Container();
+      holder.label = `${model.name}~decor`;
+      holder.position.set(pl.at[0], pl.at[1]);
+      // de profil / de face l'image tourne ; vu d'en haut, l'objet est redessiné à son cap
+      const top = model.gen.view === "dessus" || model.gen.view === "plongee";
+      holder.rotation = top ? 0 : pl.rot;
+      holder.scale.set(pl.scale[0] * (pl.flip ? -1 : 1), pl.scale[1]);
+      holder.zIndex = this.zOf(m, pl.layer, pl.at[1], pl.z, pl.order);
+      this.layer(pl.layer).addChild(holder);
+      const yaw = top ? Math.round(-pl.rot * 100) / 100 : 0;
+      const key = `${model.sig}|${m.styleGen}|${JSON.stringify(pl.roles)}|${yaw}`;
+      const put = (pg: ProcgenMod) => {
+        if (holder.destroyed) return;
+        let e = this.genDecor.get(key);
+        if (!e) this.genDecor.set(key, (e = this.genEntry(pg, m, model, pl.roles, yaw)));
+        e.token = this.token;
+        holder.addChild(this.spriteOf(model, e));
+      };
+      // une seule génération et une seule texture pour toutes les copies identiques
+      if (this.pg && this.genDecor.has(key)) put(this.pg);
+      else this.withProcgen(put);
+      return;
+    }
     const world = new Float32Array(model.parts.length * 6);
     forward2(model, null, world);
     const g = new Container();
@@ -302,6 +435,32 @@ export class Monde2dRenderer {
     const holder = new Container({ sortableChildren: true });
     holder.label = inst.name;
     const model = inst.model;
+    if (model.gen) {
+      const g = model.gen;
+      const gv: GenView = { sprite: null, spr: null, tex: null, bones: g.model3.parts.map((p) => aliasBone(p.name)), offs: new Float32Array(g.model3.parts.length * 7), last: null, step: new Map(), ro: [0, 0, 0] };
+      this.layer(inst.placement.layer).addChild(holder);
+      const b: Built = { inst, holder, parts: [], shadow: null, rolesRev: inst.rolesRev, overRev: inst.overRev, world: new Float32Array(0), gen: gv };
+      this.built.set(inst.name, b);
+      const sig = `${model.sig}|${m.styleGen}`;
+      const put = (pg: ProcgenMod) => {
+        if (this.built.get(inst.name) !== b) return;
+        let e = this.genActors.get(inst.name);
+        if (!e || e.sig !== sig) {
+          e?.tex.destroy(true);
+          this.genActors.set(inst.name, (e = { ...this.genEntry(pg, m, model, inst.roles), sig }));
+        } else e.sprite.setRoles(inst.roles);
+        e.token = this.token;
+        gv.sprite = e.sprite;
+        gv.tex = e.tex;
+        gv.spr = this.spriteOf(model, e);
+        b.rolesRev = inst.rolesRev;
+        holder.addChild(gv.spr);
+      };
+      // même instance, même modèle : le dessin (et son état d'animation) passe au nouveau monde sans clignoter
+      if (this.pg && this.genActors.get(inst.name)?.sig === sig) put(this.pg);
+      else this.withProcgen(put);
+      return;
+    }
     const parts: (PartView | null)[] = model.parts.map((p, i) => {
       if (!p.shape) return null;
       const pv = this.partView(m, model, p, i, partColor2(model, p, inst.roles, m.palette), partTex2(m, p));
@@ -320,7 +479,7 @@ export class Monde2dRenderer {
       holder.addChild(shadow);
     }
     this.layer(inst.placement.layer).addChild(holder);
-    this.built.set(inst.name, { inst, holder, parts, shadow, rolesRev: -1, overRev: -1, world: new Float32Array(model.parts.length * 6) });
+    this.built.set(inst.name, { inst, holder, parts, shadow, rolesRev: -1, overRev: -1, world: new Float32Array(model.parts.length * 6), gen: null });
   }
 
   apply(name: string, p: unknown, now: number, animate: boolean): boolean {
@@ -330,10 +489,18 @@ export class Monde2dRenderer {
   step(now: number, force = false): boolean {
     const m = this.monde;
     if (!m) return false;
-    const busy = this.driver.step(now);
+    let busy = this.driver.step(now);
     let drew = false;
+    const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
+    this.lastStep = now;
     for (const b of this.built.values()) {
       const inst = b.inst;
+      if (b.gen) {
+        const r = this.stepGen(m, b, now, dt, force);
+        drew = r.drew || drew;
+        busy = r.busy || busy;
+        continue;
+      }
       const recolor = b.rolesRev !== inst.rolesRev || b.overRev !== inst.overRev;
       if (!force && !recolor && !inst.poseChanged && !inst.transformDirty) continue;
       drew = true;
@@ -389,11 +556,82 @@ export class Monde2dRenderer {
     return busy;
   }
 
+  /** Acteur procgen : cap, foulée, clip → pose ; redessin du canvas si la pose a changé. */
+  private stepGen(m: Monde2d, b: Built, now: number, dt: number, force: boolean): { drew: boolean; busy: boolean } {
+    const inst = b.inst, gv = b.gen!, g = inst.model.gen!;
+    const t = inst.t, hld = b.holder;
+    let drew = false;
+    const top = g.view === "dessus" || g.view === "plongee";
+    if (inst.transformDirty || force) {
+      inst.transformDirty = false;
+      hld.position.set(t.x, t.y - inst.liftY);
+      hld.rotation = top ? 0 : t.rz;
+      hld.scale.set(t.sx, t.sy);
+      hld.alpha = t.opacity;
+      hld.visible = inst.visible;
+      hld.zIndex = this.zOf(m, inst.placement.layer, t.y, inst.z, inst.placement.order);
+      drew = true;
+    }
+    const sp = gv.sprite;
+    // la position est suivie même caché : pas de foulée géante au retour
+    const sc = Math.max(1e-3, Math.abs(t.sx));
+    let moved = gv.last ? Math.hypot(t.x - gv.last[0], t.y - gv.last[1]) / g.pxPerM / sc : 0;
+    if (moved > 2) moved = 0; // téléportation (remise en jeu)
+    gv.last = [t.x, t.y];
+    if (!sp || !hld.visible) return { drew, busy: false };
+    if (b.rolesRev !== inst.rolesRev) {
+      b.rolesRev = inst.rolesRev;
+      sp.setRoles(inst.roles);
+      if (!sp.animated && sp.draw(0, null)) gv.tex!.source.update();
+      drew = true;
+    }
+    if (!sp.animated) return { drew, busy: false };
+    samplePose(g.model3, inst.clip, now, gv.offs);
+    const bones = gv.step;
+    bones.clear();
+    const ro = gv.ro;
+    ro[0] = ro[1] = ro[2] = 0;
+    const o = gv.offs;
+    for (let i = 0; i < gv.bones.length; i++) {
+      const bone = gv.bones[i];
+      if (!bone) continue;
+      const k = i * 7;
+      if (o[k] || o[k + 1] || o[k + 2]) bones.set(bone, [o[k], o[k + 1], o[k + 2]]);
+      if (bone === "root") {
+        ro[0] = o[k + 3];
+        ro[1] = o[k + 4];
+        ro[2] = o[k + 5];
+      }
+    }
+    const clip = inst.clip.clip;
+    const mo = Object.prototype.hasOwnProperty.call(GEN_MOTION, clip) ? GEN_MOTION[clip] : undefined;
+    // cap : de dessus, `rz` (regard +x à 0, y vers le bas) ; de profil, `flip` ; de face, face à l'écran
+    const yaw = top ? Math.PI / 2 - t.rz : g.view === "face" ? 0 : inst.flip ? -Math.PI / 2 : Math.PI / 2;
+    // clip en pause (`clipSpeed: 0`) ou figé (`clipT`) : le moteur procgen s'arrête aussi
+    const speed = inst.clip.speed ?? 1;
+    const frozen = speed === 0 || inst.clip.fixed !== null;
+    if (sp.draw(frozen ? 0 : dt * speed, { clipSpeed: (mo?.speed ?? 0) * speed, action: mo?.action ?? "idle", moved, yaw, bones, rootOff: ro })) {
+      gv.tex!.source.update();
+      drew = true;
+    }
+    return { drew, busy: true };
+  }
+
   /** Instance (et pièce) sous un point du calque `layer`. */
   pick(layer: string, x: number, y: number): { instance: string; part: string } | null {
     let best: { instance: string; part: string; z: number } | null = null;
     for (const b of this.built.values()) {
       if (!b.holder.visible || b.inst.placement.layer !== layer) continue;
+      if (b.gen) {
+        const spr = b.gen.spr, sp = b.gen.sprite;
+        const lp = spr ? spr.toLocal({ x, y }, b.holder.parent ?? undefined) : null;
+        // tap sur le dessin lui-même (pas sur le vide transparent autour)
+        if (spr && sp && lp && spr.containsPoint(lp) && sp.alphaAt(lp.x + spr.anchor.x * spr.texture.width, lp.y + spr.anchor.y * spr.texture.height) > 0.1) {
+          const z = b.holder.zIndex * 1000 + 500;
+          if (!best || z > best.z) best = { instance: b.inst.name, part: "", z };
+        }
+        continue;
+      }
       const local = b.holder.toLocal({ x, y }, b.holder.parent ?? undefined);
       b.parts.forEach((pv, i) => {
         if (!pv || !pv.g.visible) return;
@@ -421,6 +659,9 @@ export class Monde2dRenderer {
     this.clearSky();
     this.driver.clear();
     this.monde = null;
+    this.token++;
+    this.jobs = [];
+    this.purgeGen();
   }
 
   /** Retire tout ce qui est dessiné ; l'état des instances (pilote) est gardé pour la reconstruction. */

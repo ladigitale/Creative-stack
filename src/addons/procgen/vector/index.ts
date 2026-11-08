@@ -10,3 +10,4 @@ export { resolveVectorStyle, makeInks, VECTOR_STYLES, type VectorStyle, type Vec
 export { Projector, type VectorCamera } from "./project";
 export { ActorSim, type ActorIntent, type GameEvent } from "./actors";
 export { type Shape, Pen, strokeVar, blob, scallop, hull, validPath } from "./shape";
+export { GenSprite, type SpriteDrive, type SpriteOpts, type SpriteView } from "./sprite";
