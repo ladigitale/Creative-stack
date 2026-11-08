@@ -113,9 +113,9 @@ export type SceneModel = {
 
 /** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
 const ACTOR_GENS = new Set(["character", "animal"]);
-const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat"]);
+const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
-const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 } };
+const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 }, tool: { name: "scale", ref: 1 }, container: { name: "scale", ref: 1 } };
 const TILE = 24;
 const MAX_ITEMS = 1500;
 
@@ -306,8 +306,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       }
     } else {
       placedCircles.push({ x, z, r: Math.max(0.15, (generator === "building" ? Math.max(fp.hx, fp.hz) : fp.r * 0.6) * scale) });
-      // les ballons ne barrent pas le passage (on les pousse du pied)
-      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && generator !== "ball" && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
+      // ballons et outils posés ne barrent pas le passage
+      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && generator !== "ball" && generator !== "tool" && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
     }
     if (isActor) {
       const beh = (["idle", "wander", "patrol"] as const).includes(behavior as never) ? (behavior as ActorModel["behavior"]) : "idle";

@@ -4,14 +4,14 @@
  * donne le maillage 3D (`partsToMesh`) et l'illustration vectorielle (`vector/draw/parts.ts`) : un nouvel objet n'a
  * pas besoin de deux dessinateurs, et un agent peut composer un objet inédit en données (`gen: "assembly"`).
  */
-import { type V3, DEG, len, m4Compose, qEuler, qFromTo, qRot, sub } from "../core/math";
+import { type Q, type V3, DEG, len, m4Compose, qEuler, qFromTo, qMul, qRot, sub } from "../core/math";
 import { Mesh } from "../geom/mesh";
 import { box, cylinder, ellipsoid, lathe, tube } from "../geom/prims";
 import { ROLE, type Role, roleIndex } from "../style/roles";
 
 export type Part =
   /** Planche, pavé : centre, demi-côtés, rotation (degrés, x puis y puis z), arrondi des arêtes. */
-  | { t: "box"; c: V3; h: V3; rot?: V3; r?: number; role: Role }
+  | { t: "box"; c: V3; h: V3; rot?: V3; /** Orientation directe (interne : prioritaire sur `rot`). */ q?: Q; r?: number; role: Role }
   /** Barre droite (pied, barreau, montant) de `a` à `b`, rayon `r` (et `r1` au bout : pied fuselé). */
   | { t: "rod"; a: V3; b: V3; r: number; r1?: number; role: Role }
   /** Tube courbe (accoudoir, patin de bascule, cadre de chaise pliante) le long de points, rayon constant. */
@@ -25,6 +25,40 @@ export type PartList = Part[];
 
 const R = (role: Role) => ROLE[role] ?? ROLE.wood;
 
+/** Orientation d'une planche. */
+export function boxQ(p: { rot?: V3; q?: Q }): Q {
+  return p.q ?? (p.rot ? qEuler(p.rot[0] * DEG, p.rot[1] * DEG, p.rot[2] * DEG) : [0, 0, 0, 1]);
+}
+
+/**
+ * Pièces tournées (`q`) puis échelonnées (`k`) puis déplacées (`t`). Les tours (`lathe`) restent verticaux : seul
+ * leur centre suit (n'en mettre que dans des objets qui ne basculent pas) ; les coussins gardent des demi-axes alignés
+ * (enveloppe des axes tournés).
+ */
+export function transformParts(parts: PartList, q: Q, t: V3 = [0, 0, 0], k = 1): PartList {
+  const P = (v: V3): V3 => {
+    const r = qRot(q, v);
+    return [r[0] * k + t[0], r[1] * k + t[1], r[2] * k + t[2]];
+  };
+  return parts.map((p): Part => {
+    switch (p.t) {
+      case "box":
+        return { ...p, c: P(p.c), h: [p.h[0] * k, p.h[1] * k, p.h[2] * k], q: qMul(q, boxQ(p)), rot: undefined, r: p.r === undefined ? undefined : p.r * k };
+      case "rod":
+        return { ...p, a: P(p.a), b: P(p.b), r: p.r * k, r1: p.r1 === undefined ? undefined : p.r1 * k };
+      case "tube":
+        return { ...p, pts: p.pts.map(P), r: p.r * k };
+      case "lathe":
+        return { ...p, c: P(p.c), profile: p.profile.map(([r, y]) => [r * k, y * k] as [number, number]) };
+      case "blob": {
+        const ax = [qRot(q, [1, 0, 0]), qRot(q, [0, 1, 0]), qRot(q, [0, 0, 1])];
+        const r: V3 = [0, 1, 2].map((i) => k * Math.hypot(ax[0][i] * p.r[0], ax[1][i] * p.r[1], ax[2][i] * p.r[2])) as V3;
+        return { ...p, c: P(p.c), r };
+      }
+    }
+  });
+}
+
 /** Maillage 3D d'une liste de pièces (sobre en triangles : objets nombreux, instanciés). */
 export function partsToMesh(parts: PartList, detail = 1): Mesh {
   const m = new Mesh();
@@ -32,7 +66,7 @@ export function partsToMesh(parts: PartList, detail = 1): Mesh {
   for (const p of parts) {
     switch (p.t) {
       case "box": {
-        const q = p.rot ? qEuler(p.rot[0] * DEG, p.rot[1] * DEG, p.rot[2] * DEG) : ([0, 0, 0, 1] as [number, number, number, number]);
+        const q = boxQ(p);
         m.append(box(p.h[0], p.h[1], p.h[2], R(p.role), p.r ?? Math.min(0.012, Math.min(p.h[0], p.h[1], p.h[2]) * 0.4)), m4Compose(p.c, q));
         break;
       }
@@ -68,7 +102,7 @@ export function partsBounds(parts: PartList): { min: V3; max: V3 } {
   };
   for (const p of parts) {
     if (p.t === "box") {
-      const q = p.rot ? qEuler(p.rot[0] * DEG, p.rot[1] * DEG, p.rot[2] * DEG) : null;
+      const q = p.q || p.rot ? boxQ(p) : null;
       for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
         const d: V3 = [sx * p.h[0], sy * p.h[1], sz * p.h[2]];
         const r = q ? qRot(q, d) : d;

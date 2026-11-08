@@ -2,7 +2,7 @@
  * Assemblage d'un personnage : corps (champ grossier), tête et mains (champs fins), gabarits du visage, pièces
  * rigides (boutons, boucle, poches), objet tenu ; poids de skinning, découpe des bords de couleur, ancres.
  */
-import { type V3, DEG, dot, len, m4Compose, madd, mix, norm, qAxis, qFromTo, qId, qRot, smoothstep, sub } from "../../core/math";
+import { type V3, DEG, dot, len, m4Compose, madd, mix, norm, qAxis, qFromTo, qId, qRot, smoothstep, sub, qFromAxes } from "../../core/math";
 import type { Rng } from "../../core/rng";
 import { Field, polygonize, primDist } from "../../geom/implicit";
 import { Mesh } from "../../geom/mesh";
@@ -18,6 +18,7 @@ import { type Decal, buildBodyField } from "./body";
 import { buildFace } from "./face";
 import { handFrame, handTemplate, placeHand } from "./hands";
 import { buildHeadField } from "./head";
+import { heldToolBasis } from "../tool";
 import { buildItem } from "./items";
 import { type Pattern, makeKit } from "./kit";
 import type { Look } from "./look";
@@ -172,7 +173,9 @@ export function buildCharacter(look: Look, v: Rng): Built {
 
   /* ---------- objet tenu ---------- */
   if (item) {
-    item.mesh.transform(m4Compose(grips.r, qFromTo([0, 1, 0], frames.r)));
+    // outils : manche dans l'axe de la main, tête vers l'avant ou en travers (même repère qu'en vectoriel)
+    const q = item.head ? qFromAxes(...heldToolBasis(frames.r, [0, 0, 1], item.head)) : qFromTo([0, 1, 0], frames.r);
+    item.mesh.transform(m4Compose(grips.r, q));
     skinRigid(item.mesh, bi("hand.r"));
   }
 

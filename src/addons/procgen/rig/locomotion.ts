@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qMul, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig"] as const;
 export type Action = (typeof ACTIONS)[number];
 
 export type MotionState = {
@@ -193,6 +193,35 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       raiseArm("r", 15, 40, 140);
       over.head = qEuler(8 * DEG, -10 * DEG, 6 * DEG);
       break;
+    case "hammer": {
+      // frappe : le bras droit monte puis s'abat (2 coups par seconde), regard sur l'ouvrage
+      const k = 0.5 + 0.5 * Math.sin(at * 2 * TAU);
+      raiseArm("r", 22, 35 + 75 * k, 25 + 75 * k);
+      raiseArm("l", 14, 30, 70);
+      over.spine = qEuler(8 * DEG, 0, 0);
+      over.head = qEuler(14 * DEG, 0, 0);
+      break;
+    }
+    case "sweep": {
+      // balai, râteau : main gauche avancée plus bas (approchée, sans IK sur le manche), le buste va et vient
+      const k = Math.sin(at * 1.4 * TAU);
+      raiseArm("r", 18, 28 + 10 * k, 45);
+      raiseArm("l", 22, 48 - 10 * k, 70);
+      over.spine = qEuler(14 * DEG, 16 * k * DEG, 0);
+      over.chest = qEuler(4 * DEG, 10 * k * DEG, 0);
+      over.head = qEuler(12 * DEG, -6 * k * DEG, 0);
+      break;
+    }
+    case "dig": {
+      // bêcher : on se penche, on enfonce, on soulève (un cycle toutes les 1,1 s)
+      const c = (at % 1.1) / 1.1, k = Math.sin(c * Math.PI);
+      raiseArm("r", 15, 40 + 35 * k, 30 + 30 * (1 - k));
+      raiseArm("l", 18, 55 + 25 * k, 50);
+      over.spine = qEuler((18 + 16 * (1 - k)) * DEG, 0, 0);
+      over.chest = qEuler(8 * DEG, 0, 0);
+      over.head = qEuler(10 * DEG, 0, 0);
+      break;
+    }
     case "bow": {
       const k = Math.sin(clamp(at / 1.2, 0, 1) * Math.PI);
       over.spine = qEuler(35 * k * DEG, 0, 0);

@@ -241,3 +241,12 @@ Demande : il manque toutes sortes d'objets (ballons de toutes tailles, outils, s
 - Scène `aire-de-jeux`.
 
 **Suite** : outils à main (manche + tête + prise), contenants, mobilier urbain et objets pour animaux sur la même grammaire ; ballon dynamique (coup de pied, rebond) par `sonic-physics` ; numéros des boules de billard ; pieds sur le repose-pieds des tabourets hauts.
+
+## 16. Lot v3.3 « outils à main » (livré)
+
+- **`tool`** : 24 outils à taille réelle (marteau, maillet, masse, hache, pioche, pelle, bêche, râteau, balai à feuilles, binette, fourche, balai, balai de brindilles, serpillière, faux, scie, truelle, clé, tournevis, pinceau, rouleau, pied-de-biche, canne à pêche, machette) sur la grammaire de pièces ; poses `lying`, `leaning`, `upright` ; ancre `grip` ; `extra.use` donne l'action d'usage.
+- **Tenus** : `character.item: "tool.<kind>"` — mêmes pièces, prise à l'origine, mise à l'échelle du personnage, en 3D (maillage lié à la main) comme en vectoriel (`drawPartsOn` dans le repère de la prise).
+- **Actions** `hammer` (frapper), `sweep` (balayer, ratisser, peindre), `dig` (bêcher, piocher).
+- Porté bras ballant, un grand outil est tenu à 58 cm au plus du bas du manche (tête au-dessus du sol, vérifié par skinning) ; repère de main partagé 3D / vectoriel (`heldToolBasis` : manche dans l’axe de la prise, tête vers l’avant ou en travers selon l’outil), le manche suit le geste.
+- Grammaire : planches orientées par quaternion (`q`), `transformParts` (rotation, échelle, translation d'une liste de pièces), dessin sur une surface abstraite (`PartSurface`) réutilisable hors de la boîte à outils d'objet.
+- Outils posés : instanciés, ne bloquent pas la navigation.
