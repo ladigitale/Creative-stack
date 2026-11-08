@@ -33,7 +33,7 @@ export const assembly = defineGenerator({
     const rot: Q = [0, 0, 0, 1];
     const anchors: Record<string, Anchor> = { top: { pos: [0, bb.max[1], 0], rot, scale: 1 } };
     for (const [k, v] of Object.entries(p.anchors ?? {}).slice(0, 24)) {
-      if (Array.isArray(v) && v.length >= 3 && v.every((x) => typeof x === "number" && Number.isFinite(x))) anchors[k.slice(0, 40)] = { pos: [v[0], v[1], v[2]] as V3, rot, scale: 1 };
+      if (Array.isArray(v) && v.length >= 3 && v.every((x) => typeof x === "number" && Number.isFinite(x))) anchors[k.slice(0, 40)] = { pos: [v[0], v[1], v[2]].map((x) => Math.max(-6, Math.min(12, x))) as V3, rot, scale: 1 };
       else ctx.issues.add({ path: `${ctx.path}.anchors.${k}`, code: "type", message: "ancre attendue [x, y, z]" });
     }
     for (const k of Object.keys(anchors)) {

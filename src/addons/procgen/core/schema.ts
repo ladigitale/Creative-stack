@@ -124,6 +124,13 @@ export function resolveParams<S extends Schema>(schema: S, input: Record<string,
       case "list":
         if (v !== undefined && !Array.isArray(v)) issues.add({ path: p, code: "type", message: `liste attendue`, got: typeof v, used: "[]" });
         v = Array.isArray(v) ? v.slice(0, spec.max ?? 256) : spec.default;
+        // taille totale bornée (listes imbriquées : points, profils) : elle entre dans les clés de cache et la sélection
+        if (Array.isArray(v) && JSON.stringify(v).length > 60000) {
+          const l = (v as unknown[]).slice();
+          while (l.length && JSON.stringify(l).length > 60000) l.pop();
+          issues.add({ path: p, code: "limit", message: `liste trop volumineuse : ${l.length} éléments gardés` });
+          v = l;
+        }
         break;
       default:
         v = String(v).slice(0, 200);

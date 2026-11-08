@@ -113,7 +113,7 @@ export type SceneModel = {
 
 /** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
 const ACTOR_GENS = new Set(["character", "animal"]);
-const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle"]);
+const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
 const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 } };
 const TILE = 24;
@@ -263,7 +263,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
         extraScale = (resolved[sp.name] as number) / sp.ref;
         resolved[sp.name] = sp.ref;
       }
-      for (const [k, v] of Object.entries(resolved)) if (typeof v === "number" && k !== "variant" && gen.schema[k]?.type === "number") resolved[k] = Math.round(v * 4) / 4;
+      // ballons et assises : tailles fines (une balle de golf fait 4,3 cm), pas d'arrondi
+      if (gen.id !== "ball" && gen.id !== "seat") for (const [k, v] of Object.entries(resolved)) if (typeof v === "number" && k !== "variant" && gen.schema[k]?.type === "number") resolved[k] = Math.round(v * 4) / 4;
     }
     const key = `${gen.id}|${JSON.stringify(resolved)}`;
     let asset = ACTOR_GENS.has(gen.id) ? undefined : assetCache.get(key);
@@ -305,7 +306,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       }
     } else {
       placedCircles.push({ x, z, r: Math.max(0.15, (generator === "building" ? Math.max(fp.hx, fp.hz) : fp.r * 0.6) * scale) });
-      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
+      // les ballons ne barrent pas le passage (on les pousse du pied)
+      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && generator !== "ball" && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
     }
     if (isActor) {
       const beh = (["idle", "wander", "patrol"] as const).includes(behavior as never) ? (behavior as ActorModel["behavior"]) : "idle";
@@ -383,13 +385,13 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       if (!("at" in place) && !free(pos.x, pos.z, rr, !!layer.onPath || along || !!layer.onWater, spacing, !!layer.onWater)) continue;
       let yaw = pos.yaw ?? 0;
       // cap explicite d'un point `at` respecté ; sinon : bâtiments face au chemin, tracés sans rotation, le reste au hasard
-      const yw = layer.yaw ?? (built.generator === "building" || pos.yaw !== undefined ? "path" : built.asset.extra?.segments ? 0 : "random");
+      const yw = layer.yaw ?? (built.generator === "building" || ("at" in place && pos.yaw !== undefined) ? "path" : built.asset.extra?.segments ? 0 : "random");
       if (yw === "random") yaw = irng.range(0, Math.PI * 2);
       else if (yw === "center") yaw = Math.atan2(-pos.x, -pos.z);
       else if (yw === "away") yaw = Math.atan2(pos.x, pos.z);
       else if (yw === "path") yaw = pos.yaw ?? facePath(pos.x, pos.z, paths);
       else yaw = num(yw, `${lp}.yaw`, irng, 0, vars) * DEG;
-      placeObject(layer, id, built.asset, built.key, built.generator, raw, pos.x, pos.z, yaw, scale, irng, layer.behavior, layer.action);
+      placeObject(layer, id, built.asset, built.key, built.generator, { ...(resolveGeneratorId(layer.gen).preset ?? {}), ...raw }, pos.x, pos.z, yaw, scale, irng, layer.behavior, layer.action);
       n++;
     }
     if (n < count && !("at" in place) && count > 0) issues.add({ path: `${lp}.count`, code: "info", message: `${n} placés sur ${count} demandés (place libre insuffisante)`, got: count, used: n });

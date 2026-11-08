@@ -207,6 +207,38 @@ describe("objets du quotidien : assemblage libre et scène", () => {
     expect(a.seatY).toBeGreaterThan(0.3);
   });
 
+  it("en route vers une place l'acteur marche debout ; joystick ou nouvelle cible : il se relève devant l'assise", () => {
+    const model = composeVector({
+      recipe: { size: [12, 10], ground: { relief: 0 }, layers: [{ id: "banc", gen: "seat.parkbench", place: { at: [{ x: 0, z: 0, yaw: 0 }] } }], actors: { h: { at: [3, 3], facing: 0 } } },
+      seed: 1,
+    });
+    const sim = new ActorSim();
+    sim.setModel(model);
+    const bench = model.objects[0];
+    expect(bench.params.kind).toBe("parkbench");
+    sim.setActors({ h: { target: `${bench.id}.sit.0`, action: "sit" } });
+    sim.update(1 / 30);
+    const a = sim.actors.get("h")!;
+    expect(a.action).not.toBe("sit");
+    for (let i = 0; i < 400; i++) sim.update(1 / 30);
+    expect(a.action).toBe("sit");
+    const events: { type: string }[] = [];
+    sim.onEvent = (e) => events.push(e);
+    sim.setActors({ h: { vx: 1, vz: 1 } });
+    for (let i = 0; i < 30; i++) sim.update(1 / 30);
+    expect(a.seatY).toBe(0);
+    expect(events.some((e) => e.type === "blocked")).toBe(false);
+    expect(Math.hypot(a.pos[0] - bench.anchors["sit.0"][0], a.pos[2] - bench.anchors["sit.0"][2])).toBeGreaterThan(0.4);
+  });
+
+  it("un cap n'est imposé que par un point `at` ; le long d'une route les objets restent variés", () => {
+    const model = composeVector({
+      recipe: { size: [40, 20], ground: { relief: 0 }, paths: [{ id: "rue", points: [[-18, 0], [18, 0]], width: 3, kind: "road" }], layers: [{ id: "tonneaux", gen: "prop.barrel", count: 6, place: { along: "rue", spacing: 4, side: "left" } }] },
+      seed: 2,
+    });
+    expect(new Set(model.objects.map((o) => o.yaw.toFixed(2))).size).toBeGreaterThan(2);
+  });
+
   it("rôles de couleurs franches présents dans la palette", () => {
     for (const r of ["red", "orange", "yellow", "green", "blue", "purple", "white", "black"]) expect(ROLES).toContain(r);
   });

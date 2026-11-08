@@ -349,7 +349,7 @@ export function seatModel(p: Record<string, unknown>): SeatModel {
   };
   const b = build(kind, o);
   const user = String(p.user ?? "adult");
-  const s = (USERS[user] ?? 1) * clamp(Number(p.scale ?? 1) || 1, 0.1, 6);
+  const s = clamp((USERS[user] ?? 1) * clamp(Number(p.scale ?? 1) || 1, 0.1, 6), 0.1, 4);
   const S = (q: V3): V3 => [q[0] * s, q[1] * s, q[2] * s];
   const scalePart = (q: Part): Part => {
     switch (q.t) {

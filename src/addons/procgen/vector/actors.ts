@@ -32,6 +32,8 @@ export type ActorRT = {
   goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number } } | null;
   /** Hauteur de l'assise occupée (m) : le bassin s'y pose quand l'acteur est assis. */
   seatY?: number;
+  /** Point libre devant l'assise, où l'acteur se relève. */
+  standAt?: [number, number];
   drive: { vx: number; vz: number } | null;
   wantSpeed: number;
   wanderT: number;
@@ -84,16 +86,23 @@ export class ActorSim {
       if (sig === a.lastIntent) continue;
       a.lastIntent = sig;
       if (it.mood) a.mood = String(it.mood);
-      if (it.action && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
+      const toSeat = typeof it.target === "string" && /\.sit\.\d+$/.test(it.target);
+      // en route vers une place, l'acteur marche : il ne s'assied qu'à l'arrivée
+      if (it.action && !(toSeat && it.action === "sit") && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
         if (a.action !== it.action) {
+          if (it.action !== "sit") this.standUp(a);
           a.action = it.action as Action;
           a.actionTime = 0;
         }
-      } else if (it.action === "idle") a.action = "idle";
+      } else if (it.action === "idle") {
+        this.standUp(a);
+        a.action = "idle";
+      }
       const run = it.run || it.action === "run";
       const leg = a.mo.legLength;
       a.wantSpeed = Number.isFinite(it.speed) ? Number(it.speed) : run ? (3.6 * leg) / 0.85 : (1.35 * leg) / 0.85;
       if (Number.isFinite(it.vx) || Number.isFinite(it.vz)) {
+        this.standUp(a);
         a.drive = { vx: Number(it.vx) || 0, vz: Number(it.vz) || 0 };
         a.goal = null;
         a.path = null;
@@ -119,7 +128,19 @@ export class ActorSim {
     }
   }
 
+  /** Quitte une place assise : retour au point libre devant l'assise (sinon l'acteur resterait dans l'obstacle). */
+  private standUp(a: ActorRT) {
+    if ((a.seatY ?? 0) > 0 && a.standAt) {
+      a.pos[0] = a.standAt[0];
+      a.pos[2] = a.standAt[1];
+      if (a.action === "sit") a.action = "idle";
+    }
+    a.seatY = 0;
+    a.standAt = undefined;
+  }
+
   private goto(a: ActorRT, x: number, z: number, target?: string) {
+    this.standUp(a);
     a.drive = null;
     const nav = this.model?.nav;
     const p = nav ? nav.path([a.pos[0], a.pos[2]], [x, z]) : ([[a.pos[0], a.pos[2]], [x, z]] as [number, number][]);
@@ -131,7 +152,6 @@ export class ActorSim {
     }
     a.path = p.slice(1);
     a.goal = { x, z, target };
-    a.seatY = 0;
   }
 
   /** Avance la simulation de `dt` secondes. */
@@ -168,6 +188,7 @@ export class ActorSim {
             a.pos[2] = g.seat.z;
             a.yaw = g.seat.yaw;
             a.seatY = g.seat.y;
+            a.standAt = [g.x, g.z];
             a.speed = 0;
             if (a.action !== "sit") {
               a.action = "sit";
@@ -182,7 +203,7 @@ export class ActorSim {
         vx = dx / d;
         vz = dz / d;
       }
-    } else if (a.model.behavior === "wander" || a.model.behavior === "patrol") {
+    } else if ((a.model.behavior === "wander" || a.model.behavior === "patrol") && !(a.action === "sit" && (a.seatY ?? 0) > 0)) {
       a.wanderT -= dt;
       if (a.wanderT <= 0) {
         a.wanderT = 3 + ((a.model.seed * 7.3 + this.time) % 6);

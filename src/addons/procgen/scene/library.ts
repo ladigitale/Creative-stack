@@ -254,7 +254,7 @@ export const SCENES: Record<string, Recipe & { label: string; tags: string[] }> 
     layers: [
       { id: "arbres", gen: "tree", count: 7, place: { poisson: [-17, -13, 17, -7], minDist: 6 }, params: { species: "= pick('oak', 'birch', 'maple', 'fruit')", height: "= rand(6, 9)" } },
       { id: "balancoire", gen: "seat", place: { at: [{ x: -7, z: -3, yaw: 0 }] }, params: { kind: "swing", places: 2, color: "red", color2: "blue" } },
-      { id: "bancs", gen: "seat", count: 3, place: { along: "allee", spacing: 9, offset: 0.6, side: "left" }, params: { kind: "parkbench", places: 3 } },
+      { id: "bancs", gen: "seat", count: 3, place: { along: "allee", spacing: 9, offset: 0.6, side: "left" }, yaw: "path", params: { kind: "parkbench", places: 3 } },
       { id: "rondins", gen: "seat", count: 2, place: { at: [{ x: 6, z: -4, yaw: 20 }, { x: 8.5, z: -2, yaw: -70 }] }, params: { kind: "log", places: 2 } },
       { id: "transats", gen: "seat", count: 2, place: { at: [{ x: 12, z: -6, yaw: 10 }, { x: 13.4, z: -6.2, yaw: -8 }] }, params: { kind: "deckchair", color: "= pick('blue', 'orange')" } },
       { id: "chaises", gen: "seat", count: 4, place: { cluster: [-12, 1], radius: 1.6 }, yaw: "random", params: { kind: "monobloc", color: "= pick('white', 'green', 'white')" } },
