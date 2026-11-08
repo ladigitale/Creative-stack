@@ -12,7 +12,7 @@
   "components": [
     {
       "name": "sonic-hugging-face-infer",
-      "description": "Inférence ML navigateur",
+      "description": "Inférence ML navigateur (Transformers.js, modèle en liste blanche) : model (alias), inputProvider → outputProvider, options {text, call} ; params DP {model, options} qui l'emporte sur les attributs et redémarre le contrôleur au changement ; statut dans statusProvider {state, status, model, size, progress, backend, timings, error {code, message}}, erreurs de configuration comprises (code config, not-allowed, invalid-input)",
       "props": {
         "model": {
           "type": "string"
@@ -30,6 +30,9 @@
           "type": "string"
         },
         "consentProvider": {
+          "type": "string"
+        },
+        "params": {
           "type": "string"
         },
         "load": {
