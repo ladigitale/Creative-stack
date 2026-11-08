@@ -8,7 +8,7 @@
 import { BufferImageSource, Container, FillPattern, Graphics, GraphicsContext, Matrix, Texture } from "pixi.js";
 import { geometryOf } from "../../shared/monde/geometry";
 import { m4, m4Compose, type M4, type V3 } from "../../shared/monde/math";
-import { partColor, partTex, type Model, type Monde, type Part, type Placement } from "../../shared/monde/format";
+import { isColor, partColor, partTex, type Model, type Monde, type Part, type Placement } from "../../shared/monde/format";
 import { MondeDriver, type InstanceState } from "../../shared/monde/driver";
 import { forward, STRIDE } from "../../shared/monde/pose";
 import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/textures";
@@ -27,7 +27,7 @@ type PartView = {
   over: { visible?: boolean; color?: string; opacity?: number };
 };
 
-type Built = { inst: InstanceState; parts: (PartView | null)[]; shadow: Graphics | null; rolesRev: number; world: Float32Array; radius: number };
+type Built = { inst: InstanceState; parts: (PartView | null)[]; shadow: Graphics | null; shadowSig: string; rolesRev: number; world: Float32Array; radius: number };
 
 const textures = new Map<string, Texture>();
 const patterns = new Map<string, FillPattern>();
@@ -145,7 +145,7 @@ export class Monde2d {
       const pv: PartView = { g, bucket: -1, u: [1, 0, 0], v: [0, 1, 0], hull: [], color: "", over: {} };
       return pv;
     });
-    const b: Built = { inst, parts, shadow, rolesRev: -1, world: new Float32Array(model.parts.length * 16), radius: radiusOf(model) };
+    const b: Built = { inst, parts, shadow, shadowSig: "", rolesRev: -1, world: new Float32Array(model.parts.length * 16), radius: radiusOf(model) };
     this.built.set(inst.name, b);
     model.parts.forEach((p, i) => this.partIndex.set(`${inst.name}_${p.name}`, { b, i }));
   }
@@ -210,7 +210,7 @@ export class Monde2d {
     const pv = hit.b.parts[hit.i];
     if (!patch || !pv) return false;
     if (typeof patch.visible === "boolean") pv.over.visible = patch.visible;
-    if (typeof patch.color === "string") pv.over.color = patch.color;
+    if (isColor(patch.color)) pv.over.color = patch.color;
     if (isNum(patch.opacity)) pv.over.opacity = Math.max(0, Math.min(1, patch.opacity));
     pv.bucket = -1;
     hit.b.inst.poseDirty = true;
@@ -231,6 +231,15 @@ export class Monde2d {
     if (!m) return false;
     const busy = this.driver.step(now);
     const { unit, origin } = m.view2d;
+    // trop de dessins en cache : on repart de zéro, en redessinant toutes les pièces dans cette image
+    if (this.contexts.size > MAX_CONTEXTS) {
+      for (const b of this.built.values()) for (const pv of b.parts) if (pv) {
+        pv.bucket = -1;
+        pv.g.context = EMPTY;
+      }
+      this.clearContexts();
+      force = true;
+    }
     for (const b of this.built.values()) {
       const inst = b.inst;
       const colors = b.rolesRev !== inst.rolesRev;
@@ -274,7 +283,6 @@ export class Monde2d {
             // épaisseur du contour : px de la vue, rapportée à l'échelle de la pièce (unité × échelle)
             const sc = Math.cbrt(Math.abs(w[0] * (w[5] * w[10] - w[6] * w[9]) - w[4] * (w[1] * w[10] - w[2] * w[9]) + w[8] * (w[1] * w[6] - w[2] * w[5]))) || 1;
             drawPart(ctx, hull, color, partTex(m, p), p.glow, m.outline, unit * sc, p.shape?.kind === "plane");
-            if (this.contexts.size > 4000) this.clearContexts();
             this.contexts.set(key, ctx);
           }
           pv.g.context = ctx;
@@ -284,7 +292,9 @@ export class Monde2d {
         pv.g.alpha = (pv.over.opacity ?? 1) * t.opacity;
         pv.g.zIndex = zOf(depthOf(this.proj, w[12], w[13], w[14]) + i * 1e-5);
       }
-      if (b.shadow) {
+      const shadowSig = `${t.x}|${t.z}|${t.sx}|${t.sz}|${inst.liftY}|${t.opacity}|${inst.visible}`;
+      if (b.shadow && shadowSig !== b.shadowSig) {
+        b.shadowSig = shadowSig;
         const sh = b.shadow;
         sh.visible = inst.visible;
         if (inst.visible) {
@@ -330,11 +340,10 @@ export class Monde2d {
   }
 
   clear() {
-    for (const c of this.container.removeChildren()) {
-      // les contextes partagés sont détruits à part
-      if (c instanceof Graphics) c.context = new GraphicsContext();
-      c.destroy({ children: true });
-    }
+    // contexte jetable (le partagé et EMPTY ne doivent pas être détruits avec la pièce)
+    for (const b of this.built.values()) for (const pv of b.parts) if (pv) pv.g.context = new GraphicsContext();
+    // pièces d'instances : contexte partagé détaché ci-dessus ; décor et ombres : leurs propres dessins
+    for (const c of this.container.removeChildren()) c.destroy({ children: true, context: true });
     this.clearContexts();
     this.built.clear();
     this.partIndex.clear();
@@ -357,6 +366,9 @@ function ancestorHidden(parts: Part[], i: number, b: Built): boolean {
 }
 
 const zOf = (d: number) => Math.round(d * 1000);
+const MAX_CONTEXTS = 4000;
+/** Contexte vide partagé (jamais détruit) : posé avant de libérer les dessins en cache. */
+const EMPTY = new GraphicsContext();
 
 function inPoly(h: number[], x: number, y: number): boolean {
   let inside = false;

@@ -185,6 +185,8 @@ export class Sonic2d extends LitElement {
 
   private async build(): Promise<void> {
     if (!this.canvas) return;
+    this.mondeR?.destroy();
+    this.mondeR = null;
     this.scene?.destroy();
     // Un canvas WebGL ne se réutilise pas d'un contexte à l'autre : on le remplace.
     const fresh = document.createElement("canvas");
@@ -227,7 +229,6 @@ export class Sonic2d extends LitElement {
     this.camSig = "";
     this.applyLayers();
     scene.setDebug(this.debug);
-    this.mondeR?.destroy();
     this.mondeR = new Monde2d(() => this.invalidate());
     scene.attachExtra(this.mondeR.container, this.mondeLayer || "monde");
     this.mondeRef = undefined;
@@ -361,11 +362,13 @@ export class Sonic2d extends LitElement {
     const r = this.mondeR;
     if (!r) return;
     let src: unknown = dp;
+    let bad = false;
     if (!src && this.monde.trim()) {
       try {
         src = JSON.parse(this.monde);
       } catch {
-        src = null;
+        src = { invalide: this.monde.length };
+        bad = true;
       }
     }
     if (src === this.mondeRef) return;
@@ -380,7 +383,14 @@ export class Sonic2d extends LitElement {
       return;
     }
     this.mondeParsed = readMonde(src, this.mondeParsed);
-    r.set(this.mondeParsed, performance.now());
+    if (bad) this.mondeParsed.issues.push({ path: "", message: "attribut monde : JSON invalide" });
+    try {
+      r.set(this.mondeParsed, performance.now());
+    } catch (err) {
+      // un monde ne doit jamais bloquer le composant (sprites, nodes, taps continuent)
+      this.mondeParsed.issues.push({ path: "", message: `rendu 2D : ${err instanceof Error ? err.message : String(err)}` });
+      r.clear();
+    }
     this.publishOut();
     // les nodes déjà publiés valent aussi pour les instances neuves
     const data = this.publisher?.get() as Record<string, unknown> | null | undefined;

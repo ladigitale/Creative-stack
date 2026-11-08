@@ -23,6 +23,7 @@ const str = (v: unknown, list: readonly string[], r: Rand): string => (typeof v 
 const nb = (v: unknown, a: number, b: number, r: Rand): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(a, Math.min(b, v)) : r.range(a, b));
 const flag = (v: unknown, p: number, r: Rand): boolean => (typeof v === "boolean" ? v : r.chance(p));
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+const isHex = (v: unknown): v is string => typeof v === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v);
 const R = (a: number[]) => a.map(round3);
 
 /* ------------------------------------------------------------------ bipède */
@@ -55,7 +56,7 @@ function bipede(r: Rand, p: Record<string, unknown>): PresetOut {
   const museau = nb(p.museau ?? E.museau, 0, 1, r);
   const ventre = flag(p.ventre, espece === "humain" || espece === "robot" ? 0 : 0.6, r);
   const peaux = (E.peau as string[]) ?? ["#f2c29b"];
-  const peau = typeof p.peau === "string" ? p.peau : r.pick(peaux);
+  const peau = isHex(p.peau) ? p.peau : r.pick(peaux);
 
   // Proportions (mètres)
   const headH = h * big;
@@ -303,7 +304,7 @@ function quadrupede(r: Rand, p: Record<string, unknown>): PresetOut {
   const longueur = nb(p.longueur, 1.1, 1.8, r);
   const oreilles = str(p.oreilles, ["pointues", "rondes", "tombantes"], r);
   const queue = str(p.queue, ["courte", "longue", "touffue"], r);
-  const peau = typeof p.peau === "string" ? p.peau : r.pick(["#a16207", "#78350f", "#f5f5f4", "#57534e", "#ea580c", "#1c1917"]);
+  const peau = isHex(p.peau) ? p.peau : r.pick(["#a16207", "#78350f", "#f5f5f4", "#57534e", "#ea580c", "#1c1917"]);
   const legL = h * 0.5;
   const bodyL = h * longueur * 0.55;
   const bodyR = h * 0.2;

@@ -200,6 +200,7 @@ export class SceneRuntime {
     if (!m) {
       this.monde.clear();
       this.monde.group.removeFromParent();
+      this.monde.applySky(this.scene, null);
     } else this.mountMonde(m, fit);
     this.nodes.attach(this.content);
     return true;
@@ -207,12 +208,15 @@ export class SceneRuntime {
 
   private mountMonde(m: Monde, fit: boolean) {
     const first = this.monde.group.parent !== this.content;
-    this.monde.set(m, performance.now());
-    if (this.monde.group.parent !== this.content) this.content!.add(this.monde.group);
-    if (m.ciel) {
-      this.scene.background = new THREE.Color(m.ciel);
-      this.scene.fog = m.brume > 0 ? new THREE.FogExp2(m.ciel, m.brume * 0.08) : null;
+    try {
+      this.monde.set(m, performance.now());
+    } catch (err) {
+      // un monde ne doit jamais casser la scène (glb, nodes, taps continuent)
+      m.issues.push({ path: "", message: `rendu 3D : ${err instanceof Error ? err.message : String(err)}` });
+      this.monde.clear();
     }
+    if (this.monde.group.parent !== this.content) this.content!.add(this.monde.group);
+    this.monde.applySky(this.scene, m);
     if (first && fit && this.fitEnabled) {
       loadOps.updateBBox(this as never);
       this.fitToContent();

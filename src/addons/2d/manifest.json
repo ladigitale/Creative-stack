@@ -15,7 +15,7 @@
   "components": [
     {
       "name": "sonic-2d",
-      "description": "Scène 2D/2.5D : width × height logiques (mise à l'échelle de la largeur) ; enfants sonic-sprite ou sprites=DP liste ; dataProvider : clé nodes {nom:{x, y, rz (radians), scale, opacity, visible, z, color, ease}} et clé camera {x, y, zoom, ease} (ou attribut camera = chemin) ; layers=\"ciel:0 decor:0.4 monde:1:y hud:0\" (parallaxe ; :y = tri par y) ; target reçoit {type:pick, payload:{objectId, x, y}} ; rendu à la demande. ; clé monde : monde complet en primitives articulées et animées (monde.md), même JSON et mêmes nodes en 2D et 3D.",
+      "description": "Scène 2D/2.5D : width × height logiques (mise à l'échelle de la largeur) ; enfants sonic-sprite ou sprites=DP liste ; dataProvider : clé nodes {nom:{x, y, rz (radians), scale, opacity, visible, z, color, ease}} et clé camera {x, y, zoom, ease} (ou attribut camera = chemin) ; layers=\"ciel:0 decor:0.4 monde:1:y hud:0\" (parallaxe ; :y = tri par y) ; target reçoit {type:pick, payload:{objectId, x, y}} ; rendu à la demande ; clé monde : monde complet en primitives articulées et animées (monde.md), même JSON et mêmes nodes en 2D et 3D.",
       "props": {
         "dataProvider": {
           "type": "string",

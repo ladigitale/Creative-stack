@@ -186,6 +186,9 @@ export const LIMITS = {
   partsPerModel: 160,
   placements: 4000,
   named: 400,
+  /** Pièces dessinées au total (copies × pièces) et pièces des instances nommées (animées). */
+  parts: 40000,
+  namedParts: 6000,
   clipsPerModel: 32,
   keys: 32,
   points: 64,
@@ -212,8 +215,15 @@ const DEFAULT_PALETTE: Record<string, string> = {
 
 /* ------------------------------------------------------------------ lecture */
 
+/** Lecture d'une clé propre (jamais un membre hérité comme `constructor`). */
+export function own<T>(o: Record<string, T> | undefined | null, k: string): T | undefined {
+  return o && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined;
+}
+
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const clampN = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
+/** Dimension de forme : positive, jamais nulle (normales finies), bornée. */
+const dim = (v: number) => clampN(Math.abs(v), 1e-4, 1000);
 
 function vec3(v: unknown, d: [number, number, number]): [number, number, number] {
   if (!Array.isArray(v)) return [...d];
@@ -225,9 +235,11 @@ function scale3(v: unknown): [number, number, number] {
   return vec3(v, [1, 1, 1]);
 }
 
-function isColor(s: unknown): s is string {
+export function isColor(s: unknown): s is string {
   return typeof s === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s.trim());
 }
+
+const safeColor = (s: unknown): string | undefined => (isColor(s) ? s : undefined);
 
 function readShape(p: PartIn, path: string, issues: Issue[]): Shape | null {
   const kinds = SHAPES.filter((k) => p[k] !== undefined);
@@ -245,33 +257,33 @@ function readShape(p: PartIn, path: string, issues: Issue[]): Shape | null {
   switch (kind) {
     case "box": {
       const a = nums(raw);
-      return { kind, a: [Math.abs(num(a[0], 1)), Math.abs(num(a[1], a[0] ?? 1)), Math.abs(num(a[2], a[0] ?? 1)), Math.max(0, num(a[3], 0))], pts: [] };
+      return { kind, a: [dim(num(a[0], 1)), dim(num(a[1], a[0] ?? 1)), dim(num(a[2], a[0] ?? 1)), Math.max(0, num(a[3], 0))], pts: [] };
     }
     case "sphere": {
       const a = nums(raw);
-      const r = Math.abs(num(a[0], 0.5));
-      return { kind, a: [r, Math.abs(num(a[1], r)), Math.abs(num(a[2], a[0] ?? r))], pts: [] };
+      const r = dim(num(a[0], 0.5));
+      return { kind, a: [r, dim(num(a[1], r)), dim(num(a[2], a[0] ?? r))], pts: [] };
     }
     case "capsule": {
       const a = nums(raw);
-      return { kind, a: [Math.abs(num(a[0], 0.2)), Math.max(0, num(a[1], 0.5))], pts: [] };
+      return { kind, a: [dim(num(a[0], 0.2)), Math.max(0, num(a[1], 0.5))], pts: [] };
     }
     case "cylinder": {
       const a = nums(raw);
-      const r = Math.abs(num(a[0], 0.3));
-      return { kind, a: [r, Math.abs(num(a[1], 1)), Math.abs(num(a[2], r))], pts: [] };
+      const r = dim(num(a[0], 0.3));
+      return { kind, a: [r, dim(num(a[1], 1)), dim(num(a[2], r))], pts: [] };
     }
     case "cone": {
       const a = nums(raw);
-      return { kind: "cylinder", a: [Math.abs(num(a[0], 0.3)), Math.abs(num(a[1], 1)), 0], pts: [] };
+      return { kind: "cylinder", a: [dim(num(a[0], 0.3)), dim(num(a[1], 1)), 0], pts: [] };
     }
     case "torus": {
       const a = nums(raw);
-      return { kind, a: [Math.abs(num(a[0], 0.5)), Math.abs(num(a[1], 0.1)), clampN(num(a[2], 360), 1, 360)], pts: [] };
+      return { kind, a: [dim(num(a[0], 0.5)), dim(num(a[1], 0.1)), clampN(num(a[2], 360), 1, 360)], pts: [] };
     }
     case "plane": {
       const a = nums(raw);
-      return { kind, a: [Math.abs(num(a[0], 1)), Math.abs(num(a[1], a[0] ?? 1))], pts: [] };
+      return { kind, a: [dim(num(a[0], 1)), dim(num(a[1], a[0] ?? 1))], pts: [] };
     }
     case "lathe": {
       const pts = ptsOf(raw, 2);
@@ -288,7 +300,7 @@ function readShape(p: PartIn, path: string, issues: Issue[]): Shape | null {
         issues.push({ path, message: "extrude : au moins 3 points [x, y] dans pts" });
         return null;
       }
-      return { kind, a: [Math.abs(num(o.depth, 0.1))], pts };
+      return { kind, a: [dim(num(o.depth, 0.1))], pts };
     }
     case "tube": {
       const o = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { pts: raw }) as { pts?: unknown; r?: unknown; r2?: unknown };
@@ -297,18 +309,18 @@ function readShape(p: PartIn, path: string, issues: Issue[]): Shape | null {
         issues.push({ path, message: "tube : au moins 2 points [x, y, z] dans pts" });
         return null;
       }
-      const r = Math.abs(num(o.r, 0.05));
-      return { kind, a: [r, Math.abs(num(o.r2, r))], pts };
+      const r = dim(num(o.r, 0.05));
+      return { kind, a: [r, dim(num(o.r2, r))], pts };
     }
   }
   return null;
 }
 
-function readModel(name: string, src: ModelIn, palette: Record<string, string>, own: Record<string, string>, issues: Issue[]): Model {
+function readModel(name: string, src: ModelIn, palette: Record<string, string>, ownPal: Record<string, string>, issues: Issue[]): Model {
   const path = `models.${name}`;
   let preset: PresetOut | null = null;
   if (typeof src.preset === "string") {
-    const gen = PRESETS[src.preset];
+    const gen = own(PRESETS, src.preset);
     if (!gen) issues.push({ path: `${path}.preset`, message: `préréglage inconnu « ${src.preset} » (${Object.keys(PRESETS).join(", ")})` });
     else preset = gen.build(new Rand(`${src.seed ?? name}`), src.params ?? {});
   }
@@ -481,7 +493,7 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
   }
 
   const roles: Record<string, string> = {};
-  for (const p of sorted) if (p.role && !(p.role in roles)) roles[p.role] = own[p.role] ?? preset?.roles?.[p.role] ?? palette[p.role] ?? "#94a3b8";
+  for (const p of sorted) if (p.role && !Object.prototype.hasOwnProperty.call(roles, p.role)) roles[p.role] = own(ownPal, p.role) ?? safeColor(own(preset?.roles, p.role)) ?? own(palette, p.role) ?? "#94a3b8";
   const clip = typeof src.clip === "string" ? src.clip : preset?.clip ?? (clips.has("idle") ? "idle" : "");
   return { name, sig: "", parts: sorted, clips, clip, roles };
 }
@@ -490,7 +502,10 @@ function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue
   const out: Placement[] = [];
   const names = new Set<string>();
   let named = 0;
-  const arr = Array.isArray(list) ? list : [];
+  const arr = (Array.isArray(list) ? list : []).slice(0, 2000);
+  if (Array.isArray(list) && list.length > 2000) issues.push({ path: "place", message: "plus de 2000 entrées : la suite est ignorée" });
+  let budget: number = LIMITS.parts;
+  let namedParts = 0;
   arr.forEach((raw, i) => {
     const p = (raw && typeof raw === "object" ? raw : {}) as PlaceIn;
     const path = `place.${i}`;
@@ -511,13 +526,23 @@ function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue
       clip: typeof p.clip === "string" ? p.clip : "",
       hidden: p.hidden === true,
     };
+    const shaped = models.get(model)!.parts.filter((q) => q.shape).length || 1;
+    const full = () => out.length >= LIMITS.placements || budget < shaped;
     const push = (pl: Placement) => {
-      if (out.length >= LIMITS.placements) return;
+      if (full()) return;
+      if (pl.name) {
+        if (namedParts + shaped > LIMITS.namedParts) {
+          issues.push({ path, message: `plus de ${LIMITS.namedParts} pièces animées : instance ignorée` });
+          return;
+        }
+        namedParts += shaped;
+      }
+      budget -= shaped;
       out.push(pl);
     };
     const rnd = new Rand(`${p.seed ?? i}/${model}`);
     const jitter = Math.max(0, num(p.jitter, 0));
-    const turn = Math.abs(num(p.turn, 0)) * DEG;
+    const turn = dim(num(p.turn, 0)) * DEG;
     const size = Array.isArray(p.size) ? [num(p.size[0], 1), num(p.size[1], num(p.size[0], 1))] : null;
     const vary = (pl: Placement, step: number): Placement => {
       const s = size ? rnd.range(size[0], size[1]) : 1;
@@ -532,16 +557,17 @@ function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue
       const g = p.grid.map((v) => clampN(Math.round(num(v, 1)), 1, 200));
       const [nx, ny, nz] = g.length >= 3 ? g : [g[0] ?? 1, 1, g[1] ?? 1];
       const st = vec3(p.step, [1, 1, 1]);
-      for (let a = 0; a < nx; a++)
-        for (let b = 0; b < ny; b++)
-          for (let c = 0; c < nz; c++)
+      if (nx * ny * nz > LIMITS.placements) issues.push({ path, message: `grille de ${nx * ny * nz} copies : limitée à ${LIMITS.placements}` });
+      for (let a = 0; a < nx && !full(); a++)
+        for (let b = 0; b < ny && !full(); b++)
+          for (let c = 0; c < nz && !full(); c++)
             push(vary({ ...base, at: [base.at[0] + a * st[0], base.at[1] + b * st[1], base.at[2] + c * st[2]] }, Math.min(Math.abs(st[0]) || 1, Math.abs(st[2]) || 1)));
       return;
     }
     if (typeof p.scatter === "number") {
       const n = clampN(Math.round(p.scatter), 0, LIMITS.placements);
       const ar = Array.isArray(p.area) ? p.area.map((v) => num(v, 0)) : [-5, -5, 5, 5];
-      for (let k = 0; k < n; k++) {
+      for (let k = 0; k < n && !full(); k++) {
         const pl = vary({ ...base, at: [rnd.range(ar[0], ar[2]), base.at[1], rnd.range(ar[1], ar[3])] }, 0);
         if (!turn) pl.rot = [pl.rot[0], rnd.range(0, Math.PI * 2), pl.rot[2]];
         push(pl);
@@ -562,6 +588,7 @@ function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue
     }
     push(vary({ ...base, name }, 0));
   });
+  if (budget <= 0 || out.length >= LIMITS.placements) issues.push({ path: "place", message: `budget atteint (${LIMITS.placements} copies, ${LIMITS.parts} pièces) : placements suivants ignorés` });
   return out;
 }
 
@@ -570,13 +597,23 @@ const LOOKS = ["doux", "toon", "brillant"] as const;
 
 /** Lecture tolérante : jamais d'exception, les problèmes vont dans `issues`. */
 export function readMonde(input: unknown, previous?: Monde | null): Monde {
+  try {
+    return readMondeUnsafe(input, previous);
+  } catch (err) {
+    const m = readMondeUnsafe({}, null);
+    m.issues.push({ path: "", message: `monde illisible : ${err instanceof Error ? err.message : String(err)}` });
+    return m;
+  }
+}
+
+function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
   const src = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as MondeIn;
   const issues: Issue[] = [];
   const palette: Record<string, string> = { ...DEFAULT_PALETTE };
-  const own: Record<string, string> = {};
+  const ownPal: Record<string, string> = {};
   if (src.palette && typeof src.palette === "object") {
     for (const [k, v] of Object.entries(src.palette)) {
-      if (isColor(v)) palette[k] = own[k] = v;
+      if (isColor(v)) palette[k] = ownPal[k] = v;
       else issues.push({ path: `palette.${k}`, message: "couleur #rrggbb attendue" });
     }
   }
@@ -591,7 +628,7 @@ export function readMonde(input: unknown, previous?: Monde | null): Monde {
       models.set(name, prev);
       continue;
     }
-    const model = readModel(name, m, palette, own, issues);
+    const model = readModel(name, m, palette, ownPal, issues);
     model.sig = sig;
     models.set(name, model);
   }
@@ -625,14 +662,14 @@ export function readMonde(input: unknown, previous?: Monde | null): Monde {
 /** Couleur effective d'une pièce pour une instance (couleur fixe > rôle de l'instance > palette du modèle). */
 export function partColor(model: Model, part: Part, roles: Record<string, string> | undefined, palette: Record<string, string>): string {
   if (part.color) return part.color;
-  if (part.role) return roles?.[part.role] ?? model.roles[part.role] ?? palette[part.role] ?? "#94a3b8";
+  if (part.role) return safeColor(own(roles, part.role)) ?? own(model.roles, part.role) ?? own(palette, part.role) ?? "#94a3b8";
   return "#94a3b8";
 }
 
 /** Texture effective d'une pièce (propre > rôle > défaut du monde). */
 export function partTex(m: Monde, part: Part): TexSpec | null {
   if (part.glow > 0) return part.tex;
-  return part.tex ?? (part.role ? m.textures[part.role] : undefined) ?? m.texture;
+  return part.tex ?? (part.role ? own(m.textures, part.role) : undefined) ?? m.texture;
 }
 
 /** Résumé publié par les rendus (sortie `monde`) : ce qui existe et peut être piloté. */

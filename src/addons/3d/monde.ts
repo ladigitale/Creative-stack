@@ -19,18 +19,13 @@ import type { NodesSpec } from "./nodes";
 
 type Look = Monde["look"];
 
-const geoCache = new WeakMap<Geo, THREE.BufferGeometry>();
-function bufferOf(g: Geo): THREE.BufferGeometry {
-  let b = geoCache.get(g);
-  if (!b) {
-    b = new THREE.BufferGeometry();
-    b.setAttribute("position", new THREE.BufferAttribute(g.pos, 3));
-    b.setAttribute("normal", new THREE.BufferAttribute(g.nrm, 3));
-    b.setAttribute("uv", new THREE.BufferAttribute(g.uv, 2));
-    b.setIndex(new THREE.BufferAttribute(g.idx, 1));
-    b.computeBoundingSphere();
-    geoCache.set(g, b);
-  }
+function makeBuffer(g: Geo): THREE.BufferGeometry {
+  const b = new THREE.BufferGeometry();
+  b.setAttribute("position", new THREE.BufferAttribute(g.pos, 3));
+  b.setAttribute("normal", new THREE.BufferAttribute(g.nrm, 3));
+  b.setAttribute("uv", new THREE.BufferAttribute(g.uv, 2));
+  b.setIndex(new THREE.BufferAttribute(g.idx, 1));
+  b.computeBoundingSphere();
   return b;
 }
 
@@ -49,9 +44,15 @@ class Materials {
   private map = new Map<string, THREE.Material>();
   private texs = new Map<string, THREE.DataTexture>();
   constructor(private look: Look) {}
-  private texture(t: TexSpec, base: string): THREE.DataTexture {
-    const key = texKey(t, base);
+  /** Texture teintée (cache borné : au-delà, la version neutre, teintée par la couleur de la matière). */
+  texture(t: TexSpec, base: string): THREE.DataTexture {
+    let key = texKey(t, base);
     let tx = this.texs.get(key);
+    if (!tx && this.texs.size >= 256) {
+      base = "#ffffff";
+      key = texKey(t, base);
+      tx = this.texs.get(key);
+    }
     if (!tx) {
       tx = new THREE.DataTexture(texPixels(t, base), TEX_SIZE, TEX_SIZE, THREE.RGBAFormat);
       tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
@@ -62,36 +63,64 @@ class Materials {
       tx.repeat.set(t.scale, t.scale);
       tx.center.set(0.5, 0.5);
       tx.rotation = (t.angle * Math.PI) / 180;
+      tx.userData.neutral = base === "#ffffff";
       tx.needsUpdate = true;
       this.texs.set(key, tx);
     }
     return tx;
   }
-  /** `instanced` : couleur portée par chaque copie (la texture est alors en niveaux de blanc). */
+  /** Matière partagée du décor instancié : couleur portée par chaque copie, texture neutre. */
   get(color: string, glow: number, tex: TexSpec | null, instanced = false): THREE.Material {
     const key = `${color}|${glow}|${instanced}|${tex ? texKey(tex, "") + tex.scale + "/" + tex.angle : ""}`;
     let m = this.map.get(key);
     if (m) return m;
-    const map = tex ? this.texture(tex, instanced ? "#ffffff" : color) : null;
-    const c = new THREE.Color(instanced || map ? "#ffffff" : color);
-    const em = glow > 0 ? new THREE.Color(color).multiplyScalar(glow) : new THREE.Color(0);
-    if (this.look === "toon") m = new THREE.MeshToonMaterial({ color: c, map, gradientMap: ramp(), emissive: em });
-    else m = new THREE.MeshStandardMaterial({ color: c, map, roughness: this.look === "brillant" ? 0.28 : 0.72, metalness: 0, emissive: em });
+    m = this.create(color, glow, tex, instanced);
     this.map.set(key, m);
     return m;
   }
+
+  /** Matière propre (instance nommée) : recolorée sur place quand ses rôles changent. */
+  create(color: string, glow: number, tex: TexSpec | null, neutral = false): THREE.MeshStandardMaterial | THREE.MeshToonMaterial {
+    const map = tex ? this.texture(tex, neutral ? "#ffffff" : color) : null;
+    const c = new THREE.Color(neutral || map ? "#ffffff" : color);
+    const em = glow > 0 ? new THREE.Color(color).multiplyScalar(glow) : new THREE.Color(0);
+    const m = this.look === "toon"
+      ? new THREE.MeshToonMaterial({ color: c, map, gradientMap: ramp(), emissive: em })
+      : new THREE.MeshStandardMaterial({ color: c, map, roughness: this.look === "brillant" ? 0.28 : 0.72, metalness: 0, emissive: em });
+    this.owned.add(m);
+    return m;
+  }
+
+  /** Recolore une matière propre (couleur, éclat, texture teintée). */
+  recolor(m: THREE.MeshStandardMaterial | THREE.MeshToonMaterial, color: string, glow: number, tex: TexSpec | null) {
+    if (tex) {
+      m.map = this.texture(tex, color);
+      m.color.set(m.map.userData.neutral ? color : "#ffffff");
+    } else m.color.set(color);
+    if (glow > 0) m.emissive.set(color).multiplyScalar(glow);
+    m.needsUpdate = !!tex;
+  }
+  private owned = new Set<THREE.Material>();
+
   dispose() {
-    for (const m of this.map.values()) m.dispose();
+    for (const m of this.owned) m.dispose();
+    this.owned.clear();
     for (const t of this.texs.values()) t.dispose();
     this.map.clear();
     this.texs.clear();
   }
 }
 
+type OwnMat = THREE.MeshStandardMaterial | THREE.MeshToonMaterial;
+
 type Built = {
   inst: InstanceState;
   joints: THREE.Object3D[];
   meshes: (THREE.Mesh | null)[];
+  /** Matières propres de l'instance, une par (rôle ou couleur fixe, éclat, texture). */
+  mats: Map<string, { m: OwnMat; part: number }>;
+  /** Clé de matière de chaque pièce. */
+  matKey: string[];
   shadow: THREE.Mesh | null;
   rolesRev: number;
 };
@@ -104,6 +133,19 @@ export class Monde3d {
   readonly group = new THREE.Group();
   private mats: Materials = new Materials("doux");
   private built = new Map<string, Built>();
+  private buffers = new Map<Geo, THREE.BufferGeometry>();
+  private oldBuffers = new Map<Geo, THREE.BufferGeometry>();
+  private bgSaved: { bg: THREE.Scene["background"]; fog: THREE.Scene["fog"] } | null = null;
+
+  private bufferOf(g: Geo): THREE.BufferGeometry {
+    let b = this.buffers.get(g);
+    if (!b) {
+      b = this.oldBuffers.get(g) ?? makeBuffer(g);
+      this.oldBuffers.delete(g);
+      this.buffers.set(g, b);
+    }
+    return b;
+  }
   private statics: THREE.InstancedMesh[] = [];
   private monde: Monde | null = null;
   private tmp = m4();
@@ -127,9 +169,27 @@ export class Monde3d {
     this.monde = m;
     this.mats.dispose();
     this.mats = new Materials(m.look);
+    // les géométries encore utilisées sont reprises, les autres libérées après reconstruction
+    this.oldBuffers = this.buffers;
+    this.buffers = new Map();
     this.driver.setMonde(m, now);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.buildStatics(m);
+    for (const b of this.oldBuffers.values()) b.dispose();
+    this.oldBuffers.clear();
+  }
+
+  /** Ciel et brume du monde ; ceux de la scène sont rendus quand le monde n'en donne plus. */
+  applySky(scene: THREE.Scene, m: Monde | null) {
+    if (m?.ciel) {
+      this.bgSaved ??= { bg: scene.background, fog: scene.fog };
+      scene.background = new THREE.Color(m.ciel);
+      scene.fog = m.brume > 0 ? new THREE.FogExp2(m.ciel, m.brume * 0.08) : null;
+    } else if (this.bgSaved) {
+      scene.background = this.bgSaved.bg;
+      scene.fog = this.bgSaved.fog;
+      this.bgSaved = null;
+    }
   }
 
   private buildInstance(m: Monde, inst: InstanceState) {
@@ -143,6 +203,8 @@ export class Monde3d {
     const model = inst.model;
     const joints: THREE.Object3D[] = [];
     const meshes: (THREE.Mesh | null)[] = [];
+    const mats = new Map<string, { m: OwnMat; part: number }>();
+    const matKey: string[] = [];
     model.parts.forEach((p, i) => {
       const j = new THREE.Object3D();
       j.name = `${inst.name}_${p.name}`;
@@ -153,9 +215,14 @@ export class Monde3d {
       (p.parent >= 0 ? joints[p.parent] : root).add(j);
       joints.push(j);
       const g = geometryOf(p, m.detail);
+      const tex = partTex(m, p);
+      const key = `${p.color || "@" + p.role}|${p.glow}|${tex ? texKey(tex, "") + tex.scale + "/" + tex.angle : ""}`;
+      matKey.push(key);
       if (g) {
-        const mesh = new THREE.Mesh(bufferOf(g), this.mats.get(partColor(model, p, inst.roles, m.palette), p.glow, partTex(m, p)));
-        mesh.name = `${j.name}~`;
+        let e = mats.get(key);
+        if (!e) mats.set(key, (e = { m: this.mats.create(partColor(model, p, inst.roles, m.palette), p.glow, tex), part: i }));
+        const mesh = new THREE.Mesh(this.bufferOf(g), e.m);
+        // sans nom : un tap remonte à l'articulation `<instance>_<pièce>` ou à l'instance (pick-names)
         j.add(mesh);
         meshes.push(mesh);
       } else meshes.push(null);
@@ -164,14 +231,14 @@ export class Monde3d {
     if (m.shadows) {
       shadowMat ??= new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false });
       shadow = new THREE.Mesh(SHADOW_GEO, shadowMat);
-      shadow.name = `${inst.name}~ombre`;
+      shadow.name = "";
       shadow.renderOrder = -1;
       const r = radiusOf(model) * Math.max(pl.scale[0], pl.scale[2]);
       shadow.scale.set(r, 1, r);
       this.group.add(shadow);
     }
     this.group.add(root);
-    this.built.set(inst.name, { inst, joints, meshes, shadow, rolesRev: inst.rolesRev });
+    this.built.set(inst.name, { inst, joints, meshes, mats, matKey, shadow, rolesRev: inst.rolesRev });
   }
 
   private buildStatics(m: Monde) {
@@ -192,7 +259,7 @@ export class Monde3d {
       model.parts.forEach((p, i) => {
         const g = geometryOf(p, m.detail);
         if (!g || p.hidden) return;
-        const im = new THREE.InstancedMesh(bufferOf(g), this.mats.get(partColor(model, p, undefined, m.palette), p.glow, partTex(m, p), true), list.length);
+        const im = new THREE.InstancedMesh(this.bufferOf(g), this.mats.get(partColor(model, p, undefined, m.palette), p.glow, partTex(m, p), true), list.length);
         im.name = `${name}~decor~${p.name}`;
         const color = new THREE.Color();
         const pm = new THREE.Matrix4();
@@ -251,10 +318,11 @@ export class Monde3d {
       if (b.rolesRev !== inst.rolesRev) {
         b.rolesRev = inst.rolesRev;
         changed = true;
-        inst.model.parts.forEach((p, i) => {
-          const mesh = b.meshes[i];
-          if (mesh) mesh.material = this.mats.get(partColor(inst.model, p, inst.roles, this.monde!.palette), p.glow, partTex(this.monde!, p));
-        });
+        // recoloration sur place : les surcharges `nodes` (matières clonées) restent intactes
+        for (const { m, part } of b.mats.values()) {
+          const p = inst.model.parts[part];
+          this.mats.recolor(m, partColor(inst.model, p, inst.roles, this.monde!.palette), p.glow, partTex(this.monde!, p));
+        }
       }
       if (b.shadow) {
         const root = b.joints[0]?.parent;

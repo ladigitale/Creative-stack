@@ -6,6 +6,7 @@ import { hash32 } from "../../shared/monde/math";
 import { mondeSummary, readMonde, type Monde } from "../../shared/monde/format";
 import { formFields } from "./form-fields";
 import { reload } from "./reload";
+import { asset } from "./asset";
 import type { SceneRuntime } from "./runtime";
 
 export type MondeHost = {
@@ -33,7 +34,7 @@ function sourceOf(host: MondeHost, data: Record<string, unknown>): unknown {
   try {
     return JSON.parse(attr);
   } catch {
-    return { __error: "attribut monde : JSON invalide" };
+    return { invalide: attr.length };
   }
 }
 
@@ -60,14 +61,14 @@ function sync(host: MondeHost, data: Record<string, unknown>) {
   if (sig === host.mondeSig) return;
   host.mondeSig = sig;
   const parsed = src ? readMonde(src, host.mondeParsed) : null;
+  if (parsed && src && typeof src === "object" && "invalide" in src) parsed.issues.push({ path: "", message: "attribut monde : JSON invalide" });
   const first = !host.mondeParsed && !!parsed;
   host.mondeParsed = parsed;
   if (parsed) publish(host, parsed);
   if (!host.runtime) return;
-  const noAsset = !host.glb && !host.src && !host.asset && !("glb" in data) && !("src" in data) && !("asset" in data);
-  if (first && noAsset) {
-    // la scène affichait le cube de démo : rechargement sur une scène vide
-    host.runtime.setMonde(parsed);
+  if (first && asset.resolve(host as never, host.formPublisher as never)?.empty) {
+    // la scène affichait le cube de démo : rechargement sur une scène vide, le monde y est monté une seule fois
+    host.runtime.stageMonde(parsed);
     void reload.run(host as never);
     return;
   }

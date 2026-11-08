@@ -8,7 +8,7 @@
  * Commun aux deux rendus : la même suite de patchs donne la même pose et le même clip en 2D et en 3D.
  */
 import { easeCurve, isNum, patchOf, type NodeCurve, type NodePatch } from "../nodes";
-import type { Model, Monde, Placement } from "./format";
+import { isColor, type Model, type Monde, type Placement } from "./format";
 import { clipState, samplePose, setClip, STRIDE, type ClipState } from "./pose";
 
 /** Canaux de transformation d'une instance. */
@@ -36,7 +36,7 @@ export type InstanceState = {
   t: Record<Ch, number>;
   visible: boolean;
   transformDirty: boolean;
-  tween: { start: number; ms: number; curve: NodeCurve; from: Partial<Record<Ch, number>>; to: Partial<Record<Ch, number>>; lift: number } | null;
+  tween: { start: number; ms: number; curve: NodeCurve; keys: Ch[]; from: Partial<Record<Ch, number>>; to: Partial<Record<Ch, number>>; lift: number } | null;
   /** Hauteur ajoutée par `lift` à l'instant courant. */
   liftY: number;
 };
@@ -106,7 +106,7 @@ export class MondeDriver {
     if (p.roles && typeof p.roles === "object") {
       let changed = false;
       for (const [k, v] of Object.entries(p.roles)) {
-        if (typeof v === "string" && inst.roles[k] !== v) {
+        if (isColor(v) && Object.prototype.hasOwnProperty.call(inst.model.roles, k) && inst.roles[k] !== v) {
           inst.roles[k] = v;
           changed = true;
         }
@@ -132,7 +132,7 @@ export class MondeDriver {
         const from: Partial<Record<Ch, number>> = {};
         for (const k of keys) from[k] = inst.t[k];
         // un tween en cours est figé à sa valeur courante avant d'en lancer un autre
-        inst.tween = { start: now, ms, curve: p.ease?.curve ?? "linear", from, to, lift: isNum(p.lift) ? p.lift : 0 };
+        inst.tween = { start: now, ms, curve: p.ease?.curve ?? "linear", keys, from, to, lift: isNum(p.lift) ? p.lift : 0 };
       } else {
         for (const k of keys) inst.t[k] = to[k]!;
         inst.tween = null;
@@ -152,7 +152,7 @@ export class MondeDriver {
       if (tw) {
         const u = Math.min(1, (now - tw.start) / tw.ms);
         const e = easeCurve(tw.curve, u);
-        for (const k of Object.keys(tw.to) as Ch[]) inst.t[k] = tw.from[k]! + (tw.to[k]! - tw.from[k]!) * e;
+        for (const k of tw.keys) inst.t[k] = tw.from[k]! + (tw.to[k]! - tw.from[k]!) * e;
         inst.liftY = tw.lift ? tw.lift * 4 * u * (1 - u) : 0;
         inst.transformDirty = true;
         if (u >= 1) {

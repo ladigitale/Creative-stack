@@ -116,7 +116,8 @@ export function samplePose(model: Model, st: ClipState, now: number, out: Float3
   if (c) {
     const u = progress(c, st.start, st.speed, st.fixed, now);
     addClip(c, u, bw, out);
-    moving = st.fixed === null && st.speed > 0 && (c.loop || u < 1 || !!c.then);
+    const chains = !!c.then && c.then !== st.clip && model.clips.has(c.then);
+    moving = st.fixed === null && st.speed > 0 && (c.loop || u < 1 || chains);
   }
   if (bw < 1) {
     const p = model.clips.get(st.prev);

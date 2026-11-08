@@ -222,3 +222,49 @@ describe("monde : textures", () => {
     }
   });
 });
+
+describe("monde : entrées hostiles", () => {
+  it("clés héritées (constructor, toString) : ni exception ni couleur invalide", () => {
+    const m = readMonde({
+      palette: { constructor: "#123456" },
+      textures: { toString: "rayures" },
+      models: { a: { preset: "constructor" }, b: { preset: "toString" }, c: { parts: [{ name: "x", box: 1, role: "constructor" }, { name: "y", box: 1, role: "toString" }, { name: "z", box: 1, role: "valueOf" }] } },
+      place: [{ model: "c", name: "i", roles: { hasOwnProperty: "#ff0000" } }],
+    });
+    const c = m.models.get("c")!;
+    for (const p of c.parts) expect(partColor(c, p, m.place[0].roles, m.palette)).toMatch(/^#[0-9a-f]{3,6}$/i);
+    expect(m.issues.some((i) => i.message.includes("préréglage inconnu"))).toBe(true);
+  });
+
+  it("couleurs invalides ignorées (préréglage, patchs)", () => {
+    const m = readMonde({ models: { j: { preset: "bipede", params: { peau: "banane" } } }, place: [{ model: "j", name: "p" }] });
+    const md = m.models.get("j")!;
+    expect(md.roles.peau).toMatch(/^#/);
+    const d = new MondeDriver();
+    d.setMonde(m, 0);
+    d.apply("p", { roles: { peau: "banane", constructor: "#ffffff" } }, 0, true, true);
+    expect(d.instances.get("p")!.roles.peau).toBeUndefined();
+  });
+
+  it("grilles et semis géants : bornés et rapides", () => {
+    const t = performance.now();
+    const m = readMonde({ models: { a: { parts: [{ name: "x", box: 1 }] } }, place: Array.from({ length: 50 }, () => ({ model: "a", grid: [200, 200, 200] })) });
+    expect(performance.now() - t).toBeLessThan(1500);
+    expect(m.place.length).toBeLessThanOrEqual(4000);
+    expect(m.issues.length).toBeGreaterThan(0);
+  });
+
+  it("un clip qui s'enchaîne sur lui-même ou sur un clip absent s'arrête", () => {
+    const m = readMonde({ models: { a: { parts: [{ name: "x", box: 1 }], clips: { k: { ms: 100, loop: false, then: "k", tracks: { x: { rx: [0, 10] } } }, l: { ms: 100, loop: false, then: "absent", tracks: { x: { rx: [0, 10] } } } } } } });
+    const md = m.models.get("a")!;
+    const o = new Float32Array(md.parts.length * STRIDE);
+    expect(samplePose(md, clipState("k", 0), 500, o)).toBe(false);
+    expect(samplePose(md, clipState("l", 0), 500, o)).toBe(false);
+  });
+
+  it("rayon nul : normales finies", () => {
+    const m = readMonde({ models: { a: { parts: [{ name: "x", sphere: [0] }] } } });
+    const g = geometryOf(m.models.get("a")!.parts[0], 0)!;
+    expect([...g.nrm].every(Number.isFinite)).toBe(true);
+  });
+});
