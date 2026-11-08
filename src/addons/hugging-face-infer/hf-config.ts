@@ -134,6 +134,8 @@ export type HfRuntime =
       version: string;
       /** Binaires ONNX Runtime ; défaut : même dossier que `url`. */
       wasmPaths?: string | { mjs: string; wasm: string };
+      /** Fils WASM d'ONNX Runtime ; défaut : 1 si les binaires sont sur une autre origine (voir HfWorkerEnv). */
+      numThreads?: number;
     }
   /**
    * Worker construit par l'application avec son bundler (dépendance npm
@@ -145,6 +147,7 @@ export type HfRuntime =
       createWorker: () => Worker;
       version: string;
       wasmPaths?: string | { mjs: string; wasm: string };
+      numThreads?: number;
     }
   /** Moteur fourni tel quel (tests, transport maison). */
   | { source: "engine"; engine: HfEngine; version: string };

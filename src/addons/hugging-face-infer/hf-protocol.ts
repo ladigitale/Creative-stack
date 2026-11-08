@@ -12,6 +12,12 @@ export type HfWorkerEnv = {
   cacheKey: string;
   /** Emplacement des binaires ONNX Runtime (`.wasm` / `.mjs`) de la version figée. */
   wasmPaths?: string | { mjs: string; wasm: string };
+  /**
+   * Fils WASM d'ONNX Runtime. Défaut : 1 quand les binaires viennent d'une autre origine, car en multithread
+   * ONNX Runtime les recharge depuis une URL `blob:` que la CSP `script-src` d'une page sans `blob:` refuse
+   * (« Failed to fetch dynamically imported module: blob:… »). Sinon : choix d'ONNX Runtime.
+   */
+  numThreads?: number;
   logLevel?: "error" | "warning" | "info" | "debug";
 };
 
