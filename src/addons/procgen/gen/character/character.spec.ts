@@ -76,3 +76,27 @@ describe("valeurs auto cohérentes", () => {
     expect(c.beard).toBe(a.beard);
   });
 });
+
+describe("personnage animal", () => {
+  it("chat : pelage, museau blanc et truffe noire, pas de barbe ni de cheveux, queue", () => {
+    const { asset, issues } = build({ detail: "crowd", animal: "cat", beard: "full", top: "tee" }, "chat");
+    const look = (asset.extra as { look: Look }).look;
+    expect(look.animal).toBe("cat");
+    expect(look.beard).toBe("none");
+    expect(look.hair).toBe("none");
+    const roles = new Set(asset.mesh.role);
+    expect(roles.has(ROLE.white)).toBe(true);
+    expect(roles.has(ROLE.black)).toBe(true);
+    expect(["#8f8a86", "#d98a3d", "#3b3533", "#e9e1d6", "#b98a5e"]).toContain((asset.colors as Record<string, string>).skin);
+    expect(issues.list.filter((i) => i.code !== "info")).toEqual([]);
+    // la queue dépasse derrière le bassin
+    let minZ = 0;
+    for (let i = 0; i < asset.mesh.vertexCount; i++) minZ = Math.min(minZ, asset.mesh.pos[i * 3 + 2]);
+    expect(minZ).toBeLessThan(-0.2 * asset.height);
+  });
+  it("espèce inconnue signalée, humain par défaut", () => {
+    const { asset, issues } = build({ detail: "crowd", animal: "licorne" }, "x");
+    expect((asset.extra as { look: Look }).look.animal).toBe("none");
+    expect(issues.list.some((i) => String(i.path).endsWith("animal"))).toBe(true);
+  });
+});

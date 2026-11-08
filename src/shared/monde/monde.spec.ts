@@ -324,3 +324,12 @@ describe("monde : modèles gen (procgen)", () => {
     expect(Math.abs(inst.offs[i * STRIDE])).toBeGreaterThan(0.1);
   });
 });
+
+describe("monde : traits", () => {
+  it("importance des traits bornée, 1 par défaut", () => {
+    expect(readMonde({}).traits).toBe(1);
+    expect(readMonde({ traits: 0.4 }).traits).toBeCloseTo(0.4);
+    expect(readMonde({ traits: 9 }).traits).toBe(3);
+    expect(readMonde({ traits: "x" as never }).traits).toBe(1);
+  });
+});

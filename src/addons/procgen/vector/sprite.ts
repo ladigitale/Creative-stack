@@ -48,6 +48,8 @@ export type SpriteOpts = {
   pitch?: number;
   /** Images de dessin par seconde des personnages (défaut 24 : « en deux », comme un dessin animé). */
   fps?: number;
+  /** Importance des traits : 0 aucun, 1 style, jusqu'à 3. */
+  traits?: number;
 };
 
 export type SpriteDrive = {
@@ -326,10 +328,10 @@ export class GenSprite {
         g.fill(path);
         g.globalCompositeOperation = "source-over";
       }
-      if (p.stroke) {
+      if (p.stroke && (this.opts.traits ?? 1) > 0) {
         g.globalAlpha = p.alpha;
         g.strokeStyle = p.stroke;
-        g.lineWidth = (p.strokePx * k * (s / Math.max(1e-6, this.opts.pxPerM)) * PATH_UNIT) / (s * kk);
+        g.lineWidth = (p.strokePx * (this.opts.traits ?? 1) * k * (s / Math.max(1e-6, this.opts.pxPerM)) * PATH_UNIT) / (s * kk);
         g.stroke(path);
       }
     }

@@ -173,3 +173,10 @@ describe("monde2d : modèles gen (procgen vectoriel)", () => {
     expect(d.instances.get("p0")!.clip.clip).toBe("tacle");
   });
 });
+
+describe("monde2d : traits", () => {
+  it("importance des traits bornée", () => {
+    expect(readMonde2d({}).traits).toBe(1);
+    expect(readMonde2d({ traits: -1 }).traits).toBe(0);
+  });
+});

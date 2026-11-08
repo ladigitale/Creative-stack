@@ -57,6 +57,21 @@ export const BROWS = ["none", "thin", "straight", "arched", "thick", "bushy"] as
 export const NOSES = ["button", "long", "aquiline", "wide", "upturned"] as const;
 export const LIPS = ["thin", "medium", "full"] as const;
 export const EARS = ["small", "round", "large", "pointed"] as const;
+/** Personnage animal (anthropomorphe) : tête, oreilles, museau, queue et pelage de l'espèce sur un corps humanoïde. */
+export const ANIMALS = ["none", "cat", "fox", "dog", "bear", "rabbit", "mouse", "pig", "owl", "frog", "dino"] as const;
+/** Pelage par défaut (et variantes tirées par la graine). */
+export const FURS: Record<string, string[]> = {
+  cat: ["#8f8a86", "#d98a3d", "#3b3533", "#e9e1d6", "#b98a5e"],
+  fox: ["#d9682b", "#c75a24", "#e07a34"],
+  dog: ["#b98a5e", "#e2c9a2", "#5a4334", "#8a6a4c", "#efe7dc"],
+  bear: ["#7a5232", "#5c3d26", "#9a7350", "#efe9e0"],
+  rabbit: ["#e8e0d8", "#c9b39a", "#9b8b7e", "#f4efe8"],
+  mouse: ["#9a9aa3", "#b8aa9a", "#7d7a80"],
+  pig: ["#f0a8a8", "#e89a9a", "#d98f8a"],
+  owl: ["#8a6a4a", "#a3835e", "#6e5640"],
+  frog: ["#5fb34a", "#79c25a", "#4a9a3c"],
+  dino: ["#6cbf5a", "#4fa8a0", "#c86fb4", "#e0a23a"],
+};
 export const BEARDS = ["none", "stubble", "short", "full", "goatee", "long", "chinstrap"] as const;
 export const MUSTACHES = ["none", "thin", "pencil", "walrus", "handlebar"] as const;
 export const GLASSES = ["none", "round", "square", "half"] as const;
@@ -95,6 +110,8 @@ export type Look = {
   nose: string;
   lips: string;
   ears: string;
+  /** Espèce du personnage animal (`none` : humain). */
+  animal: string;
   beard: string;
   mustache: string;
   glasses: string;
@@ -302,7 +319,7 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
   });
   const lips = choose("lips");
   const ears = choose("ears");
-  const beard = choose("beard", (w) => {
+  let beard = choose("beard", (w) => {
     if (!masc || young) for (const k of BEARDS) w[k] = k === "none" ? 1 : 0;
     else {
       w.none = (w.none ?? 0) + 4;
@@ -314,7 +331,7 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
       w.long = (w.long ?? 0) + (elder ? 1.5 : 0.15);
     }
   });
-  const mustache = choose("mustache", (w) => {
+  let mustache = choose("mustache", (w) => {
     if (!masc || young) for (const k of MUSTACHES) w[k] = k === "none" ? 1 : 0;
     else {
       w.none = (w.none ?? 0) + 4;
@@ -343,10 +360,23 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
   if (age === "child" && over === "armor") over = "none";
   if (top === "none" && (over === "vest" || over === "jacket")) top = "tee";
 
+  // personnage animal : pas de cheveux, de barbe ni de lèvres, oreilles et museau de l'espèce
+  const animal = (ANIMALS as readonly string[]).includes(s("animal")) ? s("animal") : "none";
+  if (s("animal") !== "none" && s("animal") !== "auto" && animal === "none") issues.add({ path: `${path}.animal`, code: "unknown", message: `espèce « ${s("animal")} » inconnue`, hint: ANIMALS.join(", ") });
+  let glasses2 = glasses, freckles2 = freckles, wrinkles2 = wrinkles;
+  if (animal !== "none") {
+    if (s("hair") === "auto") hair = "none";
+    beard = "none";
+    mustache = "none";
+    if (s("glasses") === "auto") glasses2 = "none";
+    if (s("freckles") === "auto") freckles2 = "none";
+    if (s("wrinkles") === "auto") wrinkles2 = "none";
+  }
   return {
+    animal,
     role, figure, archetype: s("archetype"), age, height, build, shape, headSize, belly, body,
     top, bottom, over, collar, belt, details, gloves, shoes, pattern, hair, hat, bag, item, mood: s("mood"),
-    headShape, eyes, brows, nose, lips, ears, beard, mustache, glasses, freckles, blush, wrinkles, detail: s("detail"),
+    headShape, eyes, brows, nose, lips, ears, beard, mustache, glasses: glasses2, freckles: freckles2, blush, wrinkles: wrinkles2, detail: s("detail"),
   };
 }
 
@@ -357,7 +387,8 @@ export function resolveColors(pp: LookInput, look: Look, rng: Rng, issues: Issue
   const skinKeys = Object.keys(SKIN_TONES).slice(0, 8);
   const skinKey = SKIN_TONES[sk] ? sk : HEX.test(sk) ? "" : rng.fork("skin").pick(skinKeys);
   if (sk !== "auto" && !HEX.test(sk) && !SKIN_TONES[sk]) issues.add({ path: `${path}.skin`, code: "unknown", message: `carnation « ${sk} » inconnue`, hint: Object.keys(SKIN_TONES).join(", ") });
-  const skin = HEX.test(sk) ? sk : SKIN_TONES[skinKey];
+  const fur = FURS[look.animal];
+  const skin = HEX.test(sk) ? sk : fur && sk === "auto" ? rng.fork("fur").pick(fur) : SKIN_TONES[skinKey];
   const dark = skinKey ? skinKeys.indexOf(skinKey) / 7 : 0.4;
   const hc = String(pp.hairColor ?? "auto");
   let hair: string;

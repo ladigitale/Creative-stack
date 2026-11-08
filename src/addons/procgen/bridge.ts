@@ -45,9 +45,9 @@ const OUTLINE_VERTEX = VERTEX.replace("uniform float uSkinned;", "uniform float 
   vec3 nvo = normalize(mat3(viewMatrix) * vNormalW);
   vec2 cn = (projectionMatrix * vec4(nvo, 0.0)).xy;
   float cl = length(cn);
-  // trait affiné quand l'objet est petit à l'écran (2,5 cm au plus) : un personnage lointain reste lisible
+  // trait affiné quand l'objet est petit à l'écran (2 cm par pixel de trait au plus) : un personnage lointain reste lisible
   float ppm = projectionMatrix[1][1] * 0.5 * uResolution.y / max(gl_Position.w, 1e-4);
-  float px = min(uOutlinePx, ppm * 0.025);
+  float px = min(uOutlinePx, ppm * 0.02 * uOutlinePx);
   if (cl > 1e-5) gl_Position.xy += cn / cl * px * 2.0 / max(uResolution, vec2(1.0)) * gl_Position.w;`,
 );
 const OUTLINE_FRAGMENT = /* glsl */ `
@@ -75,6 +75,8 @@ export class GenKit {
   private live = new Set<Asset>();
   private size = new THREE.Vector2();
 
+  private traits = 1;
+
   constructor(
     style: unknown,
     look: string,
@@ -94,9 +96,10 @@ export class GenKit {
     this.applyStyle();
   }
 
-  /** Change le style (préréglage ou jetons) ; les acteurs existants se recolorent via `restyle`. */
-  setStyle(style: unknown, look: string) {
+  /** Change le style (préréglage ou jetons) et l'importance des traits (0 aucun … 1 style … 3). */
+  setStyle(style: unknown, look: string, traits = 1) {
     this.style = resolveStyle(style ?? LOOK_STYLE[look] ?? "doux");
+    this.traits = Math.max(0, Math.min(3, traits));
     this.applyStyle();
   }
 
@@ -125,7 +128,7 @@ export class GenKit {
     u.uDetail.value = s.detail;
     u.uShadowStrength.value = s.shadows ? s.shadowStrength : 0;
     u.uShadowOn.value = 0;
-    u.uOutlinePx.value = s.outline * s.outlineStrength;
+    u.uOutlinePx.value = s.outline * s.outlineStrength * this.traits;
     const ink = c.roles.slice(27 * 3, 27 * 3 + 3);
     (u.uInk.value as THREE.Color).setRGB(ink[0] * 0.6, ink[1] * 0.6, ink[2] * 0.6);
   }

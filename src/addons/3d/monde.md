@@ -32,6 +32,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `outline` | Contour des silhouettes 2D en px (défaut 1, 0 = aucun) |
 | `view2d` | Vue 2D : `{"view": "top" \| "side" \| "front" \| "iso", "unit": 48 (px par m), "origin": [x, y] (position écran de l'origine)}` |
 | `ciel`, `brume` | Fond 3D et brume (0 à 1) |
+| `traits` | Importance des traits (contours) des modèles `gen` : 0 aucun, 1 (défaut) celui du style, jusqu'à 3 ; 0,4 pour un rendu léger |
 | `style` | Style des modèles `gen` : préréglage procgen (`gouache`, `doux`, `bd`, `encre`, `aquarelle`, `papier`, `nuit`, `crepuscule`…) ou jetons `{preset, shading, bands, outline, palette…}` ; défaut selon `look` |
 
 ## Modèle
@@ -106,7 +107,9 @@ Tap : `pick` avec `objectId` = instance (en 2D, `part` en plus).
 maillage continu skinné (visage, coiffure, garde-robe en couches), animaux (`animal.dog`, `animal.horse`, `animal.duck`…),
 `tree`, `bush`, `rock`, `plant`, `flowers`, `building` (17 styles), `prop.<objet>`, `vehicle`, `wall`, `ball.<ballon>`,
 `seat.<assise>`, `assembly`. `params` = paramètres du générateur (voir le catalogue procgen : `top`, `bottom`, `hair`,
-`archetype` `chibi|cartoon|stylized|heroic`, `height`…). Rendu `sonic-3d` avec le style procgen (`style` du monde) :
+`archetype` `chibi|cartoon|stylized|heroic`, `height`…). **Personnages animaux** : `params.animal` `cat|fox|dog|bear|rabbit|mouse|pig|owl|frog|dino` donne
+la tête, les oreilles, le museau (ou le bec), la queue et le pelage de l'espèce au corps humanoïde (mêmes vêtements, mêmes
+os, mêmes clips : une équipe de chats en maillot). Rendu `sonic-3d` avec le style procgen (`style` du monde) :
 bandes toon, AO, textures et relief par matière, contour. Généré à la demande sans figer la page (le nœud est pilotable
 tout de suite, le maillage apparaît quand il est prêt). Pas de rendu dans la projection 2D (`sonic-2d` : `monde2d`).
 

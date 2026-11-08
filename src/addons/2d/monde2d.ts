@@ -338,7 +338,7 @@ export class Monde2dRenderer {
 
   private genEntry(pg: ProcgenMod, m: Monde2d, model: Model2, roles: Record<string, string> | undefined, yaw = 0): GenEntry {
     const g = model.gen!;
-    const sprite = new pg.GenSprite({ id: g.id, params: g.params, seed: g.seed }, { view: g.view, pxPerM: g.pxPerM, resolution: 2, style: m.styleGen, pitch: g.pitch });
+    const sprite = new pg.GenSprite({ id: g.id, params: g.params, seed: g.seed }, { view: g.view, pxPerM: g.pxPerM, resolution: 2, style: m.styleGen, pitch: g.pitch, traits: m.traits });
     for (const i of sprite.issues.slice(0, 8)) {
       const path = `models.${model.name}.${i.path}`;
       if (!m.issues.some((x) => x.path === path && x.message === i.message)) m.issues.push({ path, message: i.message });
@@ -385,7 +385,7 @@ export class Monde2dRenderer {
       holder.zIndex = this.zOf(m, pl.layer, pl.at[1], pl.z, pl.order);
       this.layer(pl.layer).addChild(holder);
       const yaw = top ? Math.round(-pl.rot * 100) / 100 : 0;
-      const key = `${model.sig}|${m.styleGen}|${JSON.stringify(pl.roles)}|${yaw}`;
+      const key = `${model.sig}|${m.styleGen}|${m.traits}|${JSON.stringify(pl.roles)}|${yaw}`;
       const put = (pg: ProcgenMod) => {
         if (holder.destroyed) return;
         let e = this.genDecor.get(key);
@@ -441,7 +441,7 @@ export class Monde2dRenderer {
       this.layer(inst.placement.layer).addChild(holder);
       const b: Built = { inst, holder, parts: [], shadow: null, rolesRev: inst.rolesRev, overRev: inst.overRev, world: new Float32Array(0), gen: gv };
       this.built.set(inst.name, b);
-      const sig = `${model.sig}|${m.styleGen}`;
+      const sig = `${model.sig}|${m.styleGen}|${m.traits}`;
       const put = (pg: ProcgenMod) => {
         if (this.built.get(inst.name) !== b) return;
         let e = this.genActors.get(inst.name);

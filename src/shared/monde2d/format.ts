@@ -112,6 +112,8 @@ export type Monde2dIn = {
   style?: string;
   /** Style vectoriel procgen des modèles gen (sinon déduit de `style`). */
   styleGen?: string;
+  /** Importance des traits des modèles gen : 0 aucun, 1 style, jusqu'à 3. */
+  traits?: number;
   outline?: number;
   relief?: boolean;
   textures?: Record<string, unknown>;
@@ -208,6 +210,7 @@ export type Monde2d = {
   style: "plat" | "doux" | "bd" | "encre" | "gouache";
   /** Style vectoriel procgen des modèles gen. */
   styleGen: string;
+  traits: number;
   outline: number;
   relief: boolean;
   textures: Record<string, TexSpec>;
@@ -880,6 +883,7 @@ function readUnsafe(input: unknown, previous?: Monde2d | null): Monde2d {
   if (src.styleGen !== undefined && styleGen !== src.styleGen) issues.push({ path: "styleGen", message: `style vectoriel inconnu (${Object.keys(VEC).join(", ")})` });
   return {
     styleGen,
+    traits: clampN(num(src.traits, 1), 0, 3),
     palette,
     models,
     place: readPlace2(src.place, models, layers, issues),
