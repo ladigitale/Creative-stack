@@ -2,6 +2,7 @@ import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
+import { bool, num } from "../../shared/media/control";
 import { dispatch } from "./registry";
 import { TriggerMachine, matchesRule, readPath, type TriggerRule } from "./trigger-core";
 import { parseRange, parseScale, quantizeNote } from "./motion-core";
@@ -13,7 +14,49 @@ const tagName = "sonic-trigger";
 const POLL_MS = 100;
 const MAX_PAYLOAD_CHARS = 2000;
 
+/** Réglages effectifs (attributs, puis `params` : le dernier l'emporte). */
+export type TriggerSettings = TriggerRule & {
+  holdMs: number;
+  cooldownMs: number;
+  mode: "edge" | "repeat";
+  disabled: boolean;
+};
+
+const RULE_KEYS = ["equals", "not", "gt", "gte", "lt", "lte"] as const;
+const NUMERIC_KEYS = ["gt", "gte", "lt", "lte"] as const;
+const MAX_MS = 3_600_000;
+
+/**
+ * Lit le DP `params` : `{ equals, not, gt, gte, lt, lte, truthy, holdMs, cooldownMs, mode, disabled }`.
+ * Opérateurs : chaîne ou nombre (`""` ou `null` : opérateur retiré) ; durées bornées à 0..1 h.
+ * `invalid` liste les clés reconnues mais refusées (signalées dans `error`).
+ */
+export function readTriggerParams(v: unknown): { settings: Partial<TriggerSettings>; invalid: string[] } {
+  const p = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const o: Partial<TriggerSettings> = {};
+  const invalid: string[] = [];
+  for (const k of RULE_KEYS) {
+    if (!(k in p)) continue;
+    const x = p[k];
+    if (x === null || x === "") o[k] = "";
+    else if (typeof x === "string" || (typeof x === "number" && Number.isFinite(x)) || typeof x === "boolean") o[k] = String(x);
+    else invalid.push(k);
+  }
+  const truthy = bool(p.truthy); if (truthy !== undefined) o.truthy = truthy;
+  const hold = num(p.holdMs, 0, MAX_MS); if (hold !== undefined) o.holdMs = hold;
+  const cool = num(p.cooldownMs, 0, MAX_MS); if (cool !== undefined) o.cooldownMs = cool;
+  if (p.mode === "edge" || p.mode === "repeat") o.mode = p.mode;
+  else if (p.mode !== undefined && p.mode !== null && p.mode !== "") invalid.push("mode");
+  const disabled = bool(p.disabled); if (disabled !== undefined) o.disabled = disabled;
+  return { settings: o, invalid };
+}
+
 export type TriggerState = {
+  /** `idle` : pas de source ou surveillance suspendue ; `ready` : surveillance active ; `error` : réglage invalide. */
+  status: "idle" | "ready" | "error";
+  /** Réglage invalide (seuil non numérique, mode inconnu, charge utile illisible…), sinon null. */
+  error: string | null;
+  disabled: boolean;
   /** La condition est vraie à cet instant. */
   active: boolean;
   /** Un déclenchement est possible. */
@@ -25,6 +68,7 @@ export type TriggerState = {
   /** Dernière note MIDI émise (null sans émission) et sa vélocité. */
   note: number | null;
   vel: number;
+  settings: TriggerSettings;
 };
 
 /**
@@ -33,6 +77,7 @@ export type TriggerState = {
  * `sonic-store`. Un seul déclenchement par franchissement (il faut repasser à faux pour le réarmer), avec un délai
  * de repos ; `mode="repeat"` répète à chaque repos tant que la condition tient. Le store décide de la suite
  * (compteur, alerte, journal, envoi dans une collecte). Pas d'évaluation de code : opérateurs fixes uniquement.
+ * Condition et minutage réglables en direct par le DP `params` (prioritaire sur les attributs).
  */
 @customElement(tagName)
 export class SonicTrigger extends LitElement {
@@ -155,9 +200,17 @@ export class SonicTrigger extends LitElement {
   @property({ type: Number })
   ch = 0;
 
-  /** DataProvider où publier {active, armed, count, value}. */
+  /** DataProvider où publier l'état {status, error, active, armed, count, value…}. */
   @property({ type: String, attribute: "state-provider" })
   stateProvider = "";
+
+  /** Même rôle que `state-provider` (convention des autres composants) ; les deux peuvent coexister. */
+  @property({ type: String, attribute: "out-data-provider" })
+  outDataProvider = "";
+
+  /** DP de réglages en direct : `{ equals, not, gt, gte, lt, lte, truthy, holdMs, cooldownMs, mode, disabled }`. */
+  @property({ type: String })
+  params = "";
 
   private machine = new TriggerMachine({ holdMs: 0, cooldownMs: 1000, mode: "edge" });
   private unlisten: (() => void) | null = null;
@@ -167,6 +220,9 @@ export class SonicTrigger extends LitElement {
   private velData: unknown = undefined;
   private unlistenVel: (() => void) | null = null;
   private emitCount = 0;
+  private live: Partial<TriggerSettings> = {};
+  private liveInvalid: string[] = [];
+  private unlistenParams: (() => void) | null = null;
   private held: string | number | null = null;
   /** Dernière note émise (nombre MIDI) et dernière vélocité, publiées dans l'état. */
   lastNote: number | null = null;
@@ -176,6 +232,7 @@ export class SonicTrigger extends LitElement {
     super.connectedCallback();
     this.listen();
     this.listenVelocity();
+    this.listenParams();
     this.initEmit();
     this.timer = window.setInterval(() => this.evaluate(), POLL_MS);
   }
@@ -185,6 +242,8 @@ export class SonicTrigger extends LitElement {
     this.unlisten = null;
     this.unlistenVel?.();
     this.unlistenVel = null;
+    this.unlistenParams?.();
+    this.unlistenParams = null;
     if (this.held !== null) this.emitEvents([{ type: "noteOff", note: this.held }]);
     this.held = null;
     if (this.timer !== null) clearInterval(this.timer);
@@ -196,10 +255,68 @@ export class SonicTrigger extends LitElement {
     if (changed.has("source")) this.listen();
     if (changed.has("velSource")) this.listenVelocity();
     if (changed.has("emitTrigger")) this.initEmit();
-    if (changed.has("disabled") && this.disabled) {
-      this.machine.step(performance.now(), false);
-      this.emitEnd();
+    if (changed.has("params") && changed.get("params") !== undefined && this.isConnected) this.listenParams();
+    if (changed.has("disabled") && this.settings().disabled) this.suspend();
+    if (changed.has("stateProvider") || changed.has("outDataProvider")) {
+      this.published = "";
+      this.publish(readPath(this.data, this.key));
     }
+  }
+
+  /** Réglages effectifs (attributs, puis `params`). */
+  settings(): TriggerSettings {
+    const s = { ...this.rule(), holdMs: this.holdMs, cooldownMs: this.cooldownMs, mode: this.mode, disabled: this.disabled, ...this.live };
+    return {
+      ...s,
+      holdMs: Math.max(0, Number(s.holdMs) || 0),
+      cooldownMs: Math.max(0, Number(s.cooldownMs) || 0),
+      mode: s.mode === "repeat" ? "repeat" : "edge",
+      disabled: !!s.disabled,
+      truthy: !!s.truthy,
+    };
+  }
+
+  /** Coupe un épisode en cours (suspension) : relâche la note tenue. */
+  private suspend(): void {
+    this.machine.step(performance.now(), false);
+    this.emitEnd();
+  }
+
+  private listenParams(): void {
+    this.unlistenParams?.();
+    this.unlistenParams = null;
+    this.live = {};
+    this.liveInvalid = [];
+    const path = this.params.trim();
+    if (!path) return;
+    this.unlistenParams = listenDp(path, (v) => {
+      const wasDisabled = this.settings().disabled;
+      const { settings, invalid } = readTriggerParams(v);
+      this.live = settings;
+      this.liveInvalid = invalid;
+      if (!wasDisabled && this.settings().disabled) this.suspend();
+      this.evaluate();
+    });
+  }
+
+  /** Premier problème de réglage, ou null. */
+  private configError(s: TriggerSettings): string | null {
+    if (this.liveInvalid.length) return `params : valeur refusée pour ${this.liveInvalid.join(", ")}`;
+    for (const k of NUMERIC_KEYS) {
+      if (s[k] !== "" && !Number.isFinite(Number(s[k]))) return `${k} : nombre attendu (reçu "${s[k]}")`;
+    }
+    if (this.mode !== "edge" && this.mode !== "repeat" && this.live.mode === undefined) return `mode inconnu : "${String(this.mode)}" (edge | repeat)`;
+    const raw = this.payload.trim();
+    if (raw) {
+      if (raw.length > MAX_PAYLOAD_CHARS) return `payload trop long (> ${MAX_PAYLOAD_CHARS} caractères) : ignoré`;
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "payload : objet JSON attendu, ignoré";
+      } catch {
+        return "payload : JSON illisible, ignoré";
+      }
+    }
+    return null;
   }
 
   render() {
@@ -293,13 +410,10 @@ export class SonicTrigger extends LitElement {
 
   /** Lit la valeur, avance la machine et émet les actions ; public pour les tests. */
   evaluate(now: number = performance.now()): void {
-    this.machine.opts = {
-      holdMs: Number(this.holdMs) || 0,
-      cooldownMs: Number(this.cooldownMs) || 0,
-      mode: this.mode === "repeat" ? "repeat" : "edge",
-    };
+    const s = this.settings();
+    this.machine.opts = { holdMs: s.holdMs, cooldownMs: s.cooldownMs, mode: s.mode };
     const value = readPath(this.data, this.key);
-    const on = !this.disabled && matchesRule(value, this.rule());
+    const on = !s.disabled && matchesRule(value, s);
     const events = this.machine.step(now, on);
     const target = this.target.trim();
     for (const ev of events) {
@@ -329,13 +443,25 @@ export class SonicTrigger extends LitElement {
     return { ...base, value: value ?? null, count: this.machine.count };
   }
 
+  /** État courant (aussi publié dans `state-provider` / `out-data-provider`). */
+  getState(): TriggerState {
+    const settings = this.settings();
+    const error = this.configError(settings);
+    const status: TriggerState["status"] = error ? "error" : !this.source.trim() || settings.disabled ? "idle" : "ready";
+    return {
+      status, error, disabled: settings.disabled,
+      active: this.machine.active, armed: this.machine.armed, count: this.machine.count,
+      value: readPath(this.data, this.key) ?? null, note: this.lastNote, vel: this.lastVel, settings,
+    };
+  }
+
   private publish(value: unknown): void {
-    const sp = this.stateProvider.trim();
-    if (!sp) return;
-    const state: TriggerState = { active: this.machine.active, armed: this.machine.armed, count: this.machine.count, value: value ?? null, note: this.lastNote, vel: this.lastVel };
+    const targets = [...new Set([this.stateProvider.trim(), this.outDataProvider.trim()].filter(Boolean))];
+    if (!targets.length) return;
+    const state: TriggerState = { ...this.getState(), value: value ?? null };
     const key = JSON.stringify(state);
     if (key === this.published) return;
     this.published = key;
-    set(sp, state);
+    for (const t of targets) set(t, state);
   }
 }

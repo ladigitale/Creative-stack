@@ -174,9 +174,18 @@ Micro + `output` autre que `none` = risque de Larsen sans casque : préférer `o
 | `notes-map` | `{"kick": 36}` : noms → notes pour les événements `sample` |
 | `prune` | Élagage par note des branches muettes (voir « Gros patches ») |
 | `seed` | Graine des tirages aléatoires (`random`, `voice.rand`, `jitter`) |
+| `control` | DP `{ preset, gain, bpm, params }` : prioritaire sur les attributs (clé absente = attribut). `gain` (0..4) s'applique en direct, sans couper les notes ; `preset` et `bpm` (1..999) recompilent ; `params` (`{ "cutoff": 900 }`) complète l'attribut `params` et s'applique en direct |
 | `out-data-provider` | État publié (défaut `<id>State`) |
 
-**État publié** : `{ status: "idle" | "ready" | "error" | "unsupported", preset, voices, played, inputs, errors, warnings }`. `idle` = en attente du premier geste. Les erreurs (module inconnu, paramètre inexistant, boucle sans délai…) rendent le patch muet ; les avertissements (valeur invalide, attribut inconnu) sont ignorés et le patch joue.
+```json
+{ "tagName": "sonic-patch", "attributes": { "id": "lead", "preset": "synth/lead", "control": "game.lead", "events": "game.notes" } }
+```
+
+```json
+{ "game": { "lead": { "preset": "synth/pad", "gain": 0.4, "bpm": 96, "params": { "cutoff": 1200 } } } }
+```
+
+**État publié** : `{ status: "idle" | "ready" | "error" | "unsupported", error, preset, gain, bpm, params, voices, played, inputs, errors, warnings }`. `error` est la première erreur (`null` sans erreur) ; `preset`, `gain`, `bpm`, `params` sont les valeurs effectives. `idle` = en attente du premier geste. Les erreurs (module inconnu, paramètre inexistant, boucle sans délai…) rendent le patch muet ; les avertissements (valeur invalide, attribut inconnu) sont ignorés et le patch joue.
 
 ### `sonic-param`
 
@@ -270,9 +279,14 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 ```
 
 - `source` : `master` (défaut) ou `#id` d'un patch / sampler (suivi même si le patch est recompilé).
-- État (`out-data-provider`, défaut `<id>State`) : `rms`, `peak`, `db`, `bands` (0..1, échelle log 40 Hz – 16 kHz), `centroidHz`, `onset` (attaque à cette mise à jour), `onsetCount` (compteur, utilisable comme `trigger`), `pitchHz` (avec l'attribut `pitch`).
+- État (`out-data-provider`, défaut `<id>State`) : `status` (`idle | waiting-source | ready | unsupported | error`), `error`, `rms`, `peak`, `db`, `bands` (0..1, échelle log 40 Hz – 16 kHz), `centroidHz`, `onset` (attaque à cette mise à jour), `onsetCount` (compteur, utilisable comme `trigger`), `pitchHz` (avec l'attribut `pitch`), `settings` (réglages effectifs).
 - **Texture** : `sonic-shader channel0="#spectre"` reçoit une image de 512 × 2 (ligne du haut : spectre, ligne du bas : forme d'onde). Dans le shader : `texture(iChannel0, vec2(x, 0.25)).r` pour le spectre, `vec2(x, 0.75)` pour l'onde.
 - `fft` (2048), `smoothing` (0.7), `onset-threshold` (1.5).
+- **Réglages en direct** : `params="ana"` (DP) `{ bands, fft, smoothing, pitch, onsetThreshold, rate }`, prioritaire sur les attributs (clé absente = attribut). L'analyseur est reconfiguré sans être recréé : la source reste branchée et le son n'est pas touché. Bornes : `bands` 1..64, `fft` 256..8192 (arrondi à une puissance de 2), `smoothing` 0..0.99, `onsetThreshold` 0.1..20, `rate` 1..120.
+
+```json
+{ "tagName": "sonic-audio-analyser", "attributes": { "id": "spectre", "source": "#lead", "params": "reglages.analyse", "out-data-provider": "spectreState" } }
+```
 
 ## Micro (`sonic-mic`)
 
@@ -328,6 +342,15 @@ Accès demandé **sur geste** seulement (`sonic-media-start for="midi"`, `sonic-
 ```
 
 Publie dans `<id>State` (défaut `audioLoad`) `{ status, average, peak, underrun, updates }` : charge moyenne et maximale du rendu audio (0..1 ; vers 1 le son craque), part des blocs rendus en retard. Mesure du navigateur (Render Capacity, Chrome) ; `status: "unsupported"` ailleurs. Démarre avec le moteur audio (premier geste).
+
+## Master (`sonic-audio-master`)
+
+```json
+{ "tagName": "sonic-audio-master", "attributes": { "id": "master", "control": "reglages.master", "out-data-provider": "masterState" } }
+```
+
+- `volume` (0..1), `muted` en attributs, ou DP `control` `{ volume, muted }`.
+- État (`out-data-provider`, défaut `<id>State`) : `{ status: idle | ready | suspended | unsupported, error, ready, volume, muted }`. `idle` = son pas encore autorisé (premier geste attendu), `suspended` = onglet caché. Le DP `audio` garde l'état complet du moteur.
 
 ## Démo
 

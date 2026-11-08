@@ -17,7 +17,7 @@
   "components": [
     {
       "name": "sonic-patch",
-      "description": "Instrument modulaire : enfants sonic-voice (+ modules) ou preset (synth/lead synth/bass synth/pad synth/pluck synth/fm-bell synth/chip synth/string synth/sync-lead synth/acid drums/kick drums/snare drums/hat drums/kit). events (DP liste) + trigger (DP), état dans out-data-provider",
+      "description": "Instrument modulaire : enfants sonic-voice (+ modules) ou preset (synth/lead synth/bass synth/pad synth/pluck synth/fm-bell synth/chip synth/string synth/sync-lead synth/acid drums/kick drums/snare drums/hat drums/kit). events (DP liste) + trigger (DP) ; DP control {preset, gain, bpm, params} prioritaire sur les attributs (gain en direct, preset/bpm recompilent) ; état {status, error, preset, gain, bpm, params, voices, played, inputs, errors, warnings} dans out-data-provider",
       "props": {
         "preset": {
           "type": "string",
@@ -62,6 +62,10 @@
         },
         "notes-map": {
           "type": "object"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP {preset, gain, bpm, params} : prioritaire sur les attributs ; clé absente = attribut"
         },
         "out-data-provider": {
           "type": "string"
@@ -663,7 +667,7 @@
     },
     {
       "name": "sonic-audio-analyser",
-      "description": "Analyse master ou #id : DP {rms, peak, db, bands[], centroidHz, onset, onsetCount, pitchHz} + texture lisible par sonic-shader channel0='#id' (ligne 0 spectre, ligne 1 onde)",
+      "description": "Analyse master ou #id : DP {status, error, rms, peak, db, bands[], centroidHz, onset, onsetCount, pitchHz, settings} + texture lisible par sonic-shader channel0='#id' (ligne 0 spectre, ligne 1 onde) ; DP params {bands, fft, smoothing, pitch, onsetThreshold, rate} en direct (analyseur reconfiguré sans couper le son)",
       "props": {
         "source": {
           "type": "string"
@@ -685,6 +689,10 @@
         },
         "onset-threshold": {
           "type": "number"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {bands, fft, smoothing, pitch, onsetThreshold, rate} ; prioritaire sur les attributs"
         },
         "out-data-provider": {
           "type": "string"
@@ -857,7 +865,7 @@
     },
     {
       "name": "sonic-audio-master",
-      "description": "Volume / muet du master partagé (attributs ou DP control)",
+      "description": "Volume / muet du master partagé (attributs ou DP control {volume, muted}) ; état {status: idle|ready|suspended|unsupported, error, ready, volume, muted} dans out-data-provider (défaut <id>State)",
       "props": {
         "volume": {
           "type": "number"
@@ -866,6 +874,9 @@
           "type": "boolean"
         },
         "control": {
+          "type": "string"
+        },
+        "out-data-provider": {
           "type": "string"
         }
       }

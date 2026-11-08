@@ -15,7 +15,19 @@
 | `rate-from` | Chemin DP (pointé) d'un nombre qui pilote la vitesse |
 | `rate-mode` | `rate` : valeur × `rate-scale` ; `omega` : °/s → vitesse (33⅓ tr/min = 1×, `rate-scale` = °/s pour 1×) ; `accel` : accélération → secousse |
 | `rate-deadzone`, `rate-smooth` | Zone morte du signal ; lissage (ms, défaut 40) |
-| `control` | DP : `{ rate, position, play, hold }` |
+| `control` | DP : `{ rate, position, play, hold }` et réglages (voir ci-dessous) |
+
+### Réglages par DataProvider
+
+Les clés `loop`, `loopStart`, `loopEnd`, `gain`, `pitch`, `rateMode`, `rateScale`, `rateDeadzone`, `rateSmooth` lues dans `control` l'emportent sur les attributs correspondants ; une clé absente rend la main à l'attribut. Valeurs bornées (`gain` 0..4, `pitch` −16..16, durées ≥ 0) ; une valeur invalide est ignorée. Appliquées en direct, sans recharger le son ni couper la lecture.
+
+```json
+{ "tagName": "sonic-tape", "attributes": { "id": "bande", "source": "prise", "control": "tapeCtl", "out-data-provider": "bandeState" } }
+```
+
+```json
+{ "tapeCtl": { "play": true, "loop": true, "loopStart": 1.5, "loopEnd": 3, "gain": 0.8, "pitch": 0.5 } }
+```
 
 ## Pilotage par l'appareil
 
@@ -25,7 +37,7 @@
 
 `control.position` (0..1) vise une position : la bande la rejoint en avant ou en arrière en ~30 ms, et s'arrête dessus (curseur de souris, doigt, valeur d'un slider). `control.position: null` relâche, puis `rate` / `play` / `hold` reprennent la main.
 
-État : `{ status: idle | loading | ready | error, error, duration, position, rate, playing, reversed }`.
+État : `{ status: idle | loading | ready | error, error, duration, position, rate, playing, reversed, settings }` ; `settings` donne les réglages effectifs (attributs, puis `control`).
 
 ## Limites
 

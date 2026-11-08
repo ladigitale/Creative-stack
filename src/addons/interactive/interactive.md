@@ -45,7 +45,19 @@ Watches one value of a DataProvider (tracker output, microphone, another store�
 | `payload` | Fixed JSON object merged into the payload; the component adds `value` (value read) and `count` (rank of the firing) | — |
 | `end-type` | Action type sent when the condition goes false after a firing (payload `{value}`); empty: none | — |
 | `disabled` | Suspends watching | `false` |
-| `state-provider` | DataProvider `{active, armed, count, value, note, vel}` for the UI | — |
+| `params` | DataProvider of live settings `{equals, not, gt, gte, lt, lte, truthy, holdMs, cooldownMs, mode, disabled}`; each key present overrides the attribute (absent key: attribute applies). Operators accept strings or numbers (`""` / `null` removes the operator), durations are clamped to 0..1 h. A change is evaluated at once | — |
+| `state-provider` | DataProvider of the state (see below) for the UI | — |
+| `out-data-provider` | Same state as `state-provider` (usual name across components); both may be set | — |
+
+State: `{ status: idle | ready | error, error, disabled, active, armed, count, value, note, vel, settings }`. `idle`: no `source` or suspended (`disabled`); `error`: invalid setting (non-numeric threshold, unknown `mode`, refused `params` value, unreadable `payload`), with a readable message in `error`; `settings`: effective values (attributes, then `params`).
+
+```json
+{ "tagName": "sonic-trigger", "attributes": { "source": "micState", "key": "db", "gt": "-30", "params": "ui.seuil", "target": "watch", "type": "noise", "out-data-provider": "noiseTrigger" } }
+```
+
+```json
+{ "ui": { "seuil": { "gt": -20, "holdMs": 300, "cooldownMs": 2000, "disabled": false } } }
+```
 
 The hold and cooldown are confirmed by a 100 ms loop, so timings are accurate to about 0.1 s. No code is evaluated: only the fixed operators above.
 

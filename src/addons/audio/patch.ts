@@ -5,6 +5,7 @@ import { AudioEngine, resolveAudioElement } from "../../shared/audio/engine";
 import { isAudioSink, isAudioSource, type SonicInstrument, type SonicNoteEvent } from "../../shared/audio/contracts";
 import { toMidi } from "../../shared/audio/notes";
 import { listenDp, plain } from "../../shared/audio/dp";
+import { num } from "../../shared/media/control";
 import { compilePatch, domToPatchNodes, type CompiledPatch, type PatchNode } from "./patch/compile";
 import { PATCH_LIBRARY } from "./patch/library";
 import { PatchRuntime, seededRandom } from "./patch/runtime";
@@ -26,9 +27,38 @@ const MAX_SEEN_IDS = 512;
 /** Retard maximal toléré pour un événement (s) : au-delà, il est ignoré (sauf les noteOff, toujours appliqués). */
 const LATE_LIMIT_S = 1;
 
+/** Réglages lus dans le DP `control` (clé absente : l'attribut s'applique). */
+export type PatchControl = { preset?: string; gain?: number; bpm?: number; params?: Record<string, number> };
+
+/** Lit le DP `control` : `{ preset, gain (0..4), bpm (1..999), params { nom: nombre } }` ; le reste est ignoré. */
+export function readPatchControl(v: unknown): PatchControl {
+  const c = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const o: PatchControl = {};
+  if (typeof c.preset === "string" && c.preset.trim()) o.preset = c.preset.trim();
+  const gain = num(c.gain, 0, 4);
+  if (gain !== undefined) o.gain = gain;
+  const bpm = num(c.bpm, 1, 999);
+  if (bpm !== undefined) o.bpm = bpm;
+  if (c.params && typeof c.params === "object" && !Array.isArray(c.params)) {
+    const params: Record<string, number> = {};
+    for (const [k, val] of Object.entries(c.params as Record<string, unknown>)) {
+      const n = typeof val === "number" ? val : typeof val === "string" && val.trim() !== "" ? Number(val) : NaN;
+      if (Number.isFinite(n)) params[k] = n;
+    }
+    o.params = params;
+  }
+  return o;
+}
+
 export type PatchState = {
   status: "idle" | "ready" | "error" | "unsupported";
+  /** Première erreur (null si aucune) ; liste complète dans `errors`. */
+  error: string | null;
   preset: string | null;
+  /** Volume, tempo et paramètres exposés effectifs (attributs, puis `control`). */
+  gain: number;
+  bpm: number;
+  params: Record<string, number>;
   voices: number;
   /** Notes jouées depuis le chargement. */
   played: number;
@@ -43,7 +73,8 @@ export type PatchState = {
  * bibliothèque) et crée un graphe WebAudio par note.
  *
  * Pilotage : `events` (DP : liste d'événements) + `trigger` (DP : valeur qui change),
- * `sonic-param source="…"` pour les valeurs continues. État dans `out-data-provider`.
+ * `sonic-param source="…"` pour les valeurs continues, `control` (DP `{ preset, gain, bpm, params }`,
+ * prioritaire sur les attributs). État dans `out-data-provider`.
  */
 @customElement(tagName)
 export class SonicPatch extends LitElement implements SonicInstrument {
@@ -114,10 +145,16 @@ export class SonicPatch extends LitElement implements SonicInstrument {
   @property({ type: Number })
   seed: number | null = null;
 
+  /** DataProvider de réglages : `{ preset, gain, bpm, params }` (prioritaire sur les attributs). */
+  @property({ type: String })
+  control = "";
+
   /** DataProvider de l'état (défaut : `<id>State`). */
   @property({ type: String, attribute: "out-data-provider" })
   outDataProvider = "";
 
+  private fromControl: PatchControl = {};
+  private unlistenControl: (() => void) | null = null;
   private compiled: CompiledPatch | null = null;
   private runtime: PatchRuntime | null = null;
   private observer: MutationObserver | null = null;
@@ -145,6 +182,7 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     this.unsubscribeEngine = AudioEngine.get().onChange(() => this.ensureRuntime());
     this.unsubscribeBank = SampleBank.get().onChange(() => this.publish());
     this.inputClock = setInterval(() => this.wireInputs(), 400);
+    this.listenControl();
     this.recompile();
   }
 
@@ -153,6 +191,8 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     this.unsubscribeEngine?.();
     this.unsubscribeBank?.();
     if (this.inputClock) clearInterval(this.inputClock);
+    this.unlistenControl?.();
+    this.unlistenControl = null;
     for (const u of [...this.unsubs, ...this.paramUnsubs]) u();
     this.unsubs = [];
     this.paramUnsubs = [];
@@ -162,9 +202,12 @@ export class SonicPatch extends LitElement implements SonicInstrument {
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
-    const structural = ["preset", "poly", "steal", "velSense", "gain", "bpm", "out", "output", "prune", "seed"];
+    // le volume ne recompile pas : il est appliqué en direct (rampe courte)
+    const structural = ["preset", "poly", "steal", "velSense", "bpm", "out", "output", "prune", "seed"];
     if (structural.some((k) => changed.has(k)) && changed.size && this.isConnected && this.compiled) this.queueRecompile();
+    if (changed.has("gain") && changed.get("gain") !== undefined) this.applyGain();
     if (changed.has("params") && this.runtime) this.applyParams();
+    if (changed.has("control") && changed.get("control") !== undefined && this.isConnected) this.listenControl();
     if (changed.has("events") || changed.has("trigger")) this.listenEvents();
   }
 
@@ -269,9 +312,64 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     });
   }
 
+  /* ---------------------------------------------------------------- */
+  /* Réglages effectifs (attributs, puis DP control)                   */
+  /* ---------------------------------------------------------------- */
+
+  private effPreset(): string {
+    return this.fromControl.preset ?? this.preset;
+  }
+
+  private effGain(): number {
+    const g = this.fromControl.gain ?? this.gain;
+    return Number.isFinite(g) ? Math.max(0, g) : 0.6;
+  }
+
+  private effBpm(): number {
+    const b = this.fromControl.bpm ?? this.bpm;
+    return Number.isFinite(b) && b > 0 ? b : 120;
+  }
+
+  private effParams(): Record<string, number> {
+    return { ...(this.params ?? {}), ...(this.fromControl.params ?? {}) };
+  }
+
+  private listenControl(): void {
+    this.unlistenControl?.();
+    this.unlistenControl = null;
+    if (Object.keys(this.fromControl).length) this.applyControl({});
+    const path = this.control.trim();
+    if (!path) return;
+    this.unlistenControl = listenDp(path, (v) => this.applyControl(readPatchControl(v)));
+  }
+
+  private applyControl(next: PatchControl): void {
+    const before = { preset: this.effPreset(), gain: this.effGain(), bpm: this.effBpm(), params: JSON.stringify(this.effParams()) };
+    this.fromControl = next;
+    if (this.effPreset() !== before.preset || this.effBpm() !== before.bpm) {
+      if (this.compiled) this.queueRecompile();
+    } else {
+      if (this.effGain() !== before.gain) this.applyGain();
+      if (JSON.stringify(this.effParams()) !== before.params) this.applyParams();
+    }
+    this.publish();
+  }
+
+  /** Volume de sortie en direct, sans recompiler (les notes en cours continuent). */
+  private applyGain(): void {
+    const rt = this.runtime;
+    const ac = AudioEngine.get().context;
+    if (!rt || !ac) return;
+    const g = rt.output.gain;
+    g.cancelScheduledValues(ac.currentTime);
+    g.setTargetAtTime(this.effGain(), ac.currentTime, 0.015);
+    this.publish();
+  }
+
   private nodes(): PatchNode[] {
-    if (this.preset) {
-      const lib = PATCH_LIBRARY[this.preset];
+    const preset = this.effPreset();
+    if (preset) {
+      const lib = PATCH_LIBRARY[preset];
       if (lib) return lib.nodes.map((nd) => plain<PatchNode>(nd));
     }
     return domToPatchNodes(this);
@@ -279,9 +377,10 @@ export class SonicPatch extends LitElement implements SonicInstrument {
 
   private recompile(): void {
     this.compiled = compilePatch(this.nodes(), { out: this.out || undefined });
-    if (this.preset && !PATCH_LIBRARY[this.preset]) {
-      this.compiled.errors.unshift(`preset "${this.preset}" inconnu (${Object.keys(PATCH_LIBRARY).join(", ")})`);
-    } else if (this.preset && this.children.length) {
+    const preset = this.effPreset();
+    if (preset && !PATCH_LIBRARY[preset]) {
+      this.compiled.errors.unshift(`preset "${preset}" inconnu (${Object.keys(PATCH_LIBRARY).join(", ")})`);
+    } else if (preset && this.children.length) {
       this.compiled.warnings.push("preset et modules enfants : les enfants sont ignorés");
     }
     for (const spec of this.compiled.samples) SampleBank.get().request(spec);
@@ -318,11 +417,11 @@ export class SonicPatch extends LitElement implements SonicInstrument {
       }
     }
     this.runtime = new PatchRuntime(engine.context, this.compiled, {
-      bpm: this.bpm,
+      bpm: this.effBpm(),
       poly: Math.max(1, Math.min(32, Math.round(this.poly))),
       steal: this.steal,
       velSense: Math.min(1, Math.max(0, this.velSense)),
-      gain: Math.max(0, this.gain),
+      gain: this.effGain(),
       onVoices: () => this.publish(),
       worklet,
       prune: this.prune,
@@ -391,7 +490,7 @@ export class SonicPatch extends LitElement implements SonicInstrument {
   private applyParams(): void {
     const rt = this.runtime;
     if (!rt || !this.compiled) return;
-    const values = this.params ?? {};
+    const values = this.effParams();
     for (const p of this.compiled.params) {
       const v = p.expose && typeof values[p.expose] === "number" ? values[p.expose] : p.value;
       if (typeof v === "number") rt.setParam(p.module, p.param, clamp(v, p.min, p.max), 0);
@@ -487,7 +586,11 @@ export class SonicPatch extends LitElement implements SonicInstrument {
     const errors = [...(this.compiled?.errors ?? [])];
     return {
       status: !engine.supported ? "unsupported" : errors.length ? "error" : this.runtime ? "ready" : "idle",
-      preset: this.preset || null,
+      error: errors[0] ?? (engine.supported ? null : "WebAudio indisponible dans ce navigateur"),
+      preset: this.effPreset() || null,
+      gain: this.effGain(),
+      bpm: this.effBpm(),
+      params: this.effParams(),
       voices: this.runtime?.voiceCount ?? 0,
       played: this.played,
       inputs: { ...this.inputsState },

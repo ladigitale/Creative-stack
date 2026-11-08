@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
-import { SonicTrigger } from "./trigger";
+import { SonicTrigger, readTriggerParams } from "./trigger";
 import { registerStore, unregisterStore } from "./registry";
 
 void SonicTrigger;
@@ -179,5 +179,71 @@ describe("sonic-trigger : sortie MIDI directe", () => {
     set("m7", { go: true });
     el.remove();
     expect(evs.at(-1)).toEqual([{ type: "noteOff", note: 60 }]);
+  });
+});
+
+describe("sonic-trigger : params en direct et état", () => {
+  it("readTriggerParams : opérateurs en chaîne, durées bornées, valeurs refusées listées", () => {
+    expect(readTriggerParams({ gt: 0.5, equals: "ok", not: null, truthy: true, holdMs: -5, cooldownMs: 1e9, mode: "repeat", disabled: false, autre: 1 })).toEqual({
+      settings: { gt: "0.5", equals: "ok", not: "", truthy: true, holdMs: 0, cooldownMs: 3_600_000, mode: "repeat", disabled: false },
+      invalid: [],
+    });
+    expect(readTriggerParams({ lt: { x: 1 }, mode: "turbo" }).invalid).toEqual(["lt", "mode"]);
+  });
+
+  it("seuil et minutage changés en direct, params prioritaire sur les attributs", async () => {
+    const el = await mount({ source: "pt1", key: "db", gt: "-10", params: "pt1P", target: "tg", "cooldown-ms": "0", "out-data-provider": "pt1S" });
+    set("pt1", { db: -20 });
+    expect(got).toHaveLength(0);
+    set("pt1P", { gt: -30 });
+    expect(got).toHaveLength(1); // la condition devient vraie sans nouvelle valeur
+    expect(el.settings()).toMatchObject({ gt: "-30", cooldownMs: 0, mode: "edge" });
+    expect(dp("pt1S").get()).toMatchObject({ status: "ready", error: null, count: 1, settings: { gt: "-30" } });
+
+    set("pt1P", { gt: -30, mode: "repeat", cooldownMs: 200, holdMs: 0 });
+    await vi.advanceTimersByTimeAsync(450);
+    expect(got.length).toBeGreaterThanOrEqual(3);
+
+    // retour aux attributs
+    set("pt1P", {});
+    expect(el.settings()).toMatchObject({ gt: "-10", mode: "edge" });
+  });
+
+  it("disabled par params : suspend et relâche la note tenue ; status idle", async () => {
+    await mount({ source: "pt2", key: "on", params: "pt2P", emit: "noteOn", "emit-provider": "pt2ev", note: "62", "cooldown-ms": "0", "state-provider": "pt2S" });
+    const evs: unknown[] = [];
+    dp("pt2ev").onAssign((v: unknown) => void evs.push(JSON.parse(JSON.stringify(v))));
+    set("pt2", { on: true });
+    expect(evs.at(-1)).toEqual([{ type: "noteOn", note: 62, vel: 0.3 }]);
+    set("pt2P", { disabled: true });
+    expect(evs.at(-1)).toEqual([{ type: "noteOff", note: 62 }]);
+    expect(dp("pt2S").get()).toMatchObject({ status: "idle", disabled: true, active: false });
+    set("pt2P", { disabled: false });
+    expect(evs.at(-1)).toEqual([{ type: "noteOn", note: 62, vel: 0.3 }]);
+  });
+
+  it("status error : seuil non numérique, valeur refusée, charge utile illisible ; idle sans source", async () => {
+    await mount({ source: "pt3", key: "v", gt: "beaucoup", "state-provider": "pt3S" });
+    set("pt3", { v: 1 });
+    expect(dp("pt3S").get()).toMatchObject({ status: "error", error: expect.stringContaining("gt") });
+
+    await mount({ source: "pt4", params: "pt4P", "state-provider": "pt4S" });
+    set("pt4P", { mode: "turbo" });
+    expect(dp("pt4S").get()).toMatchObject({ status: "error", error: expect.stringContaining("mode") });
+
+    await mount({ source: "pt5", payload: "{pas du json", "state-provider": "pt5S" });
+    set("pt5", true);
+    expect(dp("pt5S").get()).toMatchObject({ status: "error", error: expect.stringContaining("payload"), count: 1 });
+
+    const idle = await mount({ "state-provider": "pt6S" });
+    idle.evaluate();
+    expect(dp("pt6S").get()).toMatchObject({ status: "idle", error: null });
+  });
+
+  it("state-provider et out-data-provider reçoivent le même état", async () => {
+    await mount({ source: "pt7", "state-provider": "pt7A", "out-data-provider": "pt7B", "cooldown-ms": "0" });
+    set("pt7", true);
+    expect(dp("pt7A").get()).toMatchObject({ count: 1, status: "ready" });
+    expect(dp("pt7B").get()).toEqual(dp("pt7A").get());
   });
 });

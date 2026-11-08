@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { estimatePitch } from "./analyser";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { AudioEngine } from "../../shared/audio/engine";
+import { FakeAudioContext } from "../sound/fake-audio";
+import { analyserSettings, estimatePitch, readAnalyserParams, type SonicAudioAnalyser } from "./analyser";
+import "./analyser";
 import { safeSampleUrl } from "./sampler";
 
 const SR = 44100;
@@ -32,3 +36,73 @@ describe("safeSampleUrl", () => {
     }
   });
 });
+
+describe("sonic-audio-analyser : pilotage par DataProvider", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    AudioEngine.reset();
+    AudioEngine.setContextFactory(null);
+    vi.restoreAllMocks();
+  });
+
+  it("readAnalyserParams : clés reconnues, bornes, fft en puissance de 2", () => {
+    expect(readAnalyserParams({ bands: 200, fft: 1000, smoothing: 2, pitch: true, onsetThreshold: "3", rate: 0, autre: 1 })).toEqual({
+      bands: 64, fft: 1024, smoothing: 0.99, pitch: true, onsetThreshold: 3, rate: 1,
+    });
+    expect(readAnalyserParams({ fft: "abc", pitch: "oui" })).toEqual({});
+    expect(readAnalyserParams(null)).toEqual({});
+  });
+
+  it("analyserSettings : params l'emporte sur les attributs ; 0 = défaut pour bands, fft, rate", () => {
+    const attrs = { bands: 0, fft: 0, smoothing: 0, pitch: false, onsetThreshold: 1.5, rate: 0 };
+    expect(analyserSettings(attrs)).toEqual({ bands: 16, fft: 2048, smoothing: 0, pitch: false, onsetThreshold: 1.5, rate: 30 });
+    expect(analyserSettings(attrs, { bands: 8, pitch: true })).toMatchObject({ bands: 8, pitch: true, smoothing: 0 });
+  });
+
+  it("sans WebAudio : status unsupported avec une erreur lisible", async () => {
+    document.body.innerHTML = `<sonic-audio-analyser out-data-provider="anU"></sonic-audio-analyser>`;
+    await (document.querySelector("sonic-audio-analyser") as SonicAudioAnalyser).updateComplete;
+    expect(get("anU")).toMatchObject({ status: "unsupported", error: expect.stringContaining("WebAudio") });
+  });
+
+  it("params en direct : reconfigure le même AnalyserNode et publie les réglages", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null); // pas de canvas sous jsdom
+    const nodes: FakeAnalyser[] = [];
+    class Ctx extends FakeAudioContext {
+      createAnalyser() {
+        const a = new FakeAnalyser(this);
+        nodes.push(a);
+        return a;
+      }
+    }
+    AudioEngine.setContextFactory(() => new Ctx() as unknown as BaseAudioContext);
+    await AudioEngine.get().unlock();
+    document.body.innerHTML = `<sonic-audio-analyser params="anP" out-data-provider="anS" fft="1024"></sonic-audio-analyser>`;
+    const el = document.querySelector("sonic-audio-analyser") as SonicAudioAnalyser;
+    await el.updateComplete;
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].fftSize).toBe(1024);
+    set("anP", { fft: 512, smoothing: 0.2, bands: 8, pitch: true, rate: 60 });
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].fftSize).toBe(512);
+    expect(nodes[0].smoothingTimeConstant).toBe(0.2);
+    expect(el.settings()).toMatchObject({ fft: 512, bands: 8, pitch: true, rate: 60 });
+    expect(get("anS")).toMatchObject({ error: null, settings: { fft: 512, bands: 8, smoothing: 0.2, pitch: true, rate: 60 } });
+    // clé retirée : l'attribut reprend la main
+    set("anP", { bands: 8 });
+    expect(nodes[0].fftSize).toBe(1024);
+    expect(nodes[0].smoothingTimeConstant).toBe(0.7);
+  });
+});
+
+class FakeAnalyser {
+  fftSize = 2048;
+  smoothingTimeConstant = 0.8;
+  constructor(readonly context: FakeAudioContext) {}
+  connect(n: unknown) {
+    return n;
+  }
+  disconnect() {}
+  getFloatTimeDomainData() {}
+  getByteFrequencyData() {}
+}
