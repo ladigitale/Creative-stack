@@ -4,6 +4,7 @@ import type { CompiledMap } from "../../shared/ml/map-expr";
 import { FaceTrackerCore, type FacesOutput } from "./face-state";
 import { facesFromMediaPipe } from "./landmarkers";
 import { createMediaPipeMpEngine, getVisionConfig } from "./mp-engine";
+import { FLAG, type ParamSpecs } from "./live-params";
 import { SonicMlTracker, type TrackerEngine } from "./tracker-base";
 
 const tagName = "sonic-face-tracker";
@@ -31,6 +32,10 @@ export class SonicFaceTracker extends SonicMlTracker<RawFace[], FacesOutput> {
 
   protected extraReloadKeys(): string[] {
     return ["maxFaces"];
+  }
+
+  protected paramSpecs(): ParamSpecs {
+    return { ...super.paramSpecs(), maxFaces: { kind: "number", min: 1, max: 2, int: true }, landmarks: FLAG };
   }
 
   protected hasCustomEngine(): boolean {

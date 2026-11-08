@@ -176,3 +176,35 @@ describe("sonic-face-mesh", () => {
     expect([...(buf![2] as Float32Array)].every((v) => v === 1)).toBe(true);
   });
 });
+
+describe("sonic-face-mesh : params et état", () => {
+  it("état dès la connexion : status idle, error null, réglages", async () => {
+    await mount({ source: "fmp0", "out-data-provider": "fmp0State", opacity: "0.5" });
+    expect(dp("fmp0State").get()).toMatchObject({ status: "idle", error: null, ready: false, settings: { opacity: 0.5, feather: 6, colorMatch: 0.8, face: "all" } });
+  });
+
+  it("params : opacité, visage, fondu, correction en direct, prioritaires sur les attributs", async () => {
+    addSource("camfmp1");
+    set("fmp1P", { opacity: 0.25, face: 1, feather: 0, colorMatch: 2 });
+    const el = await mount({ source: "fmp1", background: "camfmp1", params: "fmp1P", opacity: "1", "out-data-provider": "fmp1State" });
+    set("fmp1", { present: true, faces: [{ landmarks: face() }, { landmarks: face(0.4) }] });
+    await settle();
+    expect(el).toMatchObject({ opacity: 0.25, face: "1", feather: 0, colorMatch: 1 });
+    fake.calls.length = 0;
+    expect(el.draw()).toBe(1);
+    expect(fake.calls.some((c) => c[0] === "uniform1f" && c[2] === 0.25)).toBe(true);
+    expect(dp("fmp1State").get()).toMatchObject({ status: "ready", error: null, mode: "swap", drawn: 1, settings: { opacity: 0.25, face: "1" } });
+
+    set("fmp1P", {}); // clés retirées : retour aux attributs
+    await el.updateComplete;
+    expect(el).toMatchObject({ opacity: 1, face: "all", feather: 6, colorMatch: 0.8 });
+    expect(el.draw()).toBe(2);
+  });
+
+  it("WebGL indisponible : status error", async () => {
+    glAvailable = false;
+    const el = await mount({ source: "fmp2", "out-data-provider": "fmp2State" });
+    el.draw();
+    expect(dp("fmp2State").get()).toMatchObject({ status: "error", error: "WebGL indisponible", ready: false });
+  });
+});

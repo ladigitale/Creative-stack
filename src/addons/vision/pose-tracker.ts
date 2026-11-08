@@ -4,6 +4,7 @@ import type { RawPose } from "../../shared/ml/pose";
 import { posesFromMediaPipe } from "./landmarkers";
 import { PoseTrackerCore, type PoseOutput } from "./pose-state";
 import { createMediaPipeMpEngine, getVisionConfig } from "./mp-engine";
+import type { ParamSpecs } from "./live-params";
 import { SonicMlTracker, type TrackerEngine } from "./tracker-base";
 
 const tagName = "sonic-pose-tracker";
@@ -27,6 +28,10 @@ export class SonicPoseTracker extends SonicMlTracker<RawPose[], PoseOutput> {
 
   protected extraReloadKeys(): string[] {
     return ["maxPoses"];
+  }
+
+  protected paramSpecs(): ParamSpecs {
+    return { ...super.paramSpecs(), maxPoses: { kind: "number", min: 1, max: 4, int: true } };
   }
 
   protected hasCustomEngine(): boolean {

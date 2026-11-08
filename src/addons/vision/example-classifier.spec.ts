@@ -152,3 +152,36 @@ describe("sonic-example-classifier", () => {
     expect(el.getOutput().counts).toEqual({ a: 2 });
   });
 });
+
+describe("sonic-example-classifier : réglages par DataProvider et état", () => {
+  it("control porte les réglages (k, samples, window, features…) appliqués avant l'action ; params l'emporte", async () => {
+    set("ctlS", { label: "a", record: 0, samples: 3, sampleMs: 0, window: 1, features: "hand", k: 99 });
+    const el = await mount({ id: "cs1", control: "ctlS", samples: "20" });
+    expect(el).toMatchObject({ samples: 3, sampleMs: 0, window: 1, features: "hand", k: 50 });
+    set("ctlS", { label: "a", record: 1, samples: 2, sampleMs: 0, window: 1, features: "hand" });
+    expect(el.getOutput()).toMatchObject({ recording: 1, samplesLeft: 2 });
+    expect(el.getOutput().settings).toMatchObject({ samples: 2, k: 3, features: "hand" }); // k retiré : attribut
+
+    set("prmS", { samples: 4, minConfidence: 0.9, maxDistance: 2, hand: "left", features: "nimporte" });
+    el.setAttribute("params", "prmS");
+    await el.updateComplete;
+    set("ctlS", { label: "a", record: 1, samples: 7 });
+    expect(el).toMatchObject({ samples: 4, minConfidence: 0.9, maxDistance: 2, hand: "left", features: "auto" });
+    expect((dp("cs1").get() as { settings: Record<string, unknown> }).settings).toMatchObject({ samples: 4, hand: "left" });
+  });
+
+  it("status / error : idle avant toute donnée, ready ensuite, error quand un enregistrement s'arrête (dimension)", async () => {
+    const el = await mount({ id: "cs2", "sample-ms": "0", samples: "2" });
+    expect(dp("cs2").get()).toMatchObject({ status: "idle", error: null });
+    el.record("a");
+    el.ingest({ present: 1, dim: 3, vector: [1, 0, 0] }, 0);
+    el.ingest({ present: 1, dim: 3, vector: [1, 0, 0] }, 1);
+    expect(el.getOutput()).toMatchObject({ status: "ready", error: null, total: 2 });
+    el.record("b");
+    el.ingest({ present: 1, dim: 4, vector: [1, 0, 0, 0] }, 2);
+    expect(el.getOutput()).toMatchObject({ status: "error", recording: 0 });
+    expect(el.getOutput().error).toContain("dimension");
+    el.clear();
+    expect(el.getOutput()).toMatchObject({ status: "ready", error: null });
+  });
+});

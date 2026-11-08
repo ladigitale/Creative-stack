@@ -5,10 +5,27 @@ import { listenDp } from "../../shared/audio/dp";
 import { extractFeatures, type FeatureSource, type HandPick } from "../../shared/ml/features";
 import { KnnClassifier } from "../../shared/ml/knn";
 import { labelKey } from "./detector-state";
+import { ParamOverlay, readParams, realChanges, snapshot, type ParamSpecs } from "./live-params";
 
 const tagName = "sonic-example-classifier";
 
+/** Clés de réglage lues dans `control` et `params` (nom de propriété → validation). */
+export const CLASSIFIER_PARAMS: ParamSpecs = {
+  k: { kind: "number", min: 1, max: 50, int: true },
+  minConfidence: { kind: "number", min: 0, max: 1 },
+  maxDistance: { kind: "number", min: 0, max: 1e6 },
+  window: { kind: "number", min: 1, max: 100, int: true },
+  samples: { kind: "number", min: 1, max: 1000, int: true },
+  sampleMs: { kind: "number", min: 0, max: 10000, int: true },
+  features: { kind: "enum", values: ["auto", "hand", "pose", "face", "embed"] },
+  hand: { kind: "enum", values: ["any", "left", "right"] },
+};
+
 export type ClassifierOutput = {
+  /** `idle` (rien reçu de la source), `ready`, `error` (voir `error`). */
+  status: "idle" | "ready" | "error";
+  /** Message d'erreur, `null` sans erreur (enregistrement arrêté : exemples d'une autre dimension). */
+  error: string | null;
   /** `1` si la source montre quelque chose de classable (une main, un corps, un visage). */
   present: 0 | 1;
   /** Étiquette stable (vote des dernières prédictions) ; vide sans exemples, sans confiance ou trop loin des exemples. */
@@ -25,10 +42,12 @@ export type ClassifierOutput = {
   recording: 0 | 1;
   recordingLabel: string;
   samplesLeft: number;
+  /** Réglages effectifs (attributs recouverts par `control` puis `params`). */
+  settings: Record<string, unknown>;
 };
 
 const EMPTY: ClassifierOutput = {
-  present: 0, label: "", raw: "", confidence: 0, scores: {}, match: {}, counts: {}, total: 0,
+  status: "idle", error: null, settings: {}, present: 0, label: "", raw: "", confidence: 0, scores: {}, match: {}, counts: {}, total: 0,
   recording: 0, recordingLabel: "", samplesLeft: 0,
 };
 
@@ -54,9 +73,13 @@ export class SonicExampleClassifier extends LitElement {
   @property({ type: String })
   hand: HandPick = "any";
 
-  /** DataProvider de pilotage : `{label, record, clear, clearAll}`. */
+  /** DataProvider de pilotage : `{label, record, clear, clearAll}` et réglages (`k`, `minConfidence`… sous `params`). */
   @property({ type: String })
   control = "";
+
+  /** DataProvider de réglages en direct, prioritaires : `k`, `minConfidence`, `maxDistance`, `window`, `samples`, `sampleMs`, `features`, `hand`. */
+  @property({ type: String })
+  params = "";
 
   /** DataProvider de sortie (défaut : l'id de l'élément). */
   @property({ type: String })
@@ -98,6 +121,12 @@ export class SonicExampleClassifier extends LitElement {
   private lastOutput: ClassifierOutput = { ...EMPTY };
   private unlistenSource: (() => void) | null = null;
   private unlistenControl: (() => void) | null = null;
+  private unlistenParams: (() => void) | null = null;
+  private overlay = new ParamOverlay(this);
+  private fromControl: Record<string, unknown> = {};
+  private fromParams: Record<string, unknown> = {};
+  private received = false;
+  private error: string | null = null;
   private seen: { record?: number; clear?: number; clearAll?: number } = {};
   private ctlLabel = "";
 
@@ -107,21 +136,30 @@ export class SonicExampleClassifier extends LitElement {
     this.loadStored();
     this.listenSource();
     this.listenControl();
+    this.listenParams();
     this.publish();
   }
 
   disconnectedCallback(): void {
     this.unlistenSource?.();
     this.unlistenControl?.();
-    this.unlistenSource = this.unlistenControl = null;
+    this.unlistenParams?.();
+    this.unlistenSource = this.unlistenControl = this.unlistenParams = null;
     super.disconnectedCallback();
+  }
+
+  protected willUpdate(changed: Map<PropertyKey, unknown>): void {
+    super.willUpdate(changed);
+    this.overlay.guard(changed);
   }
 
   protected updated(changed: Map<string, unknown>): void {
     if (!this.isConnected) return;
     if (changed.has("source")) this.listenSource();
     if (changed.has("control")) this.listenControl();
+    if (changed.has("params")) this.listenParams();
     if (changed.has("storage")) this.loadStored();
+    if (realChanges(this, changed).some((k) => k in CLASSIFIER_PARAMS)) this.publish();
   }
 
   /* ---------------- API ---------------- */
@@ -133,6 +171,7 @@ export class SonicExampleClassifier extends LitElement {
   /** Lance un enregistrement sous `label` (comme une hausse de `control.record`). */
   record(label: string): void {
     if (!label.trim()) return;
+    this.error = null;
     this.recLabel = label.trim();
     this.left = Math.max(1, Math.round(this.samples) || 20);
     this.lastSample = -Infinity;
@@ -143,6 +182,7 @@ export class SonicExampleClassifier extends LitElement {
   clear(label?: string): void {
     this.knn.clear(label || undefined);
     this.recent = [];
+    this.error = null;
     this.save();
     this.publish();
   }
@@ -150,11 +190,12 @@ export class SonicExampleClassifier extends LitElement {
   /** Traite une sortie de tracker (public pour les tests) ; `now` en ms. */
   ingest(data: unknown, now: number): ClassifierOutput {
     this.knn.k = Math.max(1, Math.round(this.k) || 3);
+    this.received = true;
     const vec = extractFeatures(data, this.features, this.hand);
     if (!vec) {
       const counts = this.knn.counts();
       this.recent = [];
-      this.lastOutput = { ...EMPTY, counts, total: this.knn.size, recording: this.left > 0 ? 1 : 0, recordingLabel: this.left > 0 ? this.recLabel : "", samplesLeft: this.left };
+      this.lastOutput = { ...EMPTY, ...this.meta(), counts, total: this.knn.size, recording: this.left > 0 ? 1 : 0, recordingLabel: this.left > 0 ? this.recLabel : "", samplesLeft: this.left };
       this.emit();
       return this.lastOutput;
     }
@@ -167,6 +208,7 @@ export class SonicExampleClassifier extends LitElement {
       } else {
         // Dimension incompatible avec les exemples existants (autre type de source) : arrêt de l'enregistrement.
         this.left = 0;
+        this.error = "exemples d'une autre dimension (autre type de source) : enregistrement arrêté";
       }
     }
 
@@ -195,6 +237,7 @@ export class SonicExampleClassifier extends LitElement {
     const match: Record<string, 0 | 1> = {};
     for (const l of Object.keys(counts)) match[labelKey(l)] = l === stable && stable !== "" ? 1 : 0;
     this.lastOutput = {
+      ...this.meta(),
       present: 1,
       label: stable,
       raw,
@@ -225,8 +268,12 @@ export class SonicExampleClassifier extends LitElement {
     this.unlistenControl?.();
     this.unlistenControl = null;
     this.seen = {};
+    this.fromControl = {};
     const path = this.control.trim();
-    if (!path) return;
+    if (!path) {
+      this.applySettings();
+      return;
+    }
     this.unlistenControl = listenDp(path, (v) => this.onControl(v));
     try {
       this.onControl(dp(path).get()); // valeur de départ : sert de référence aux compteurs
@@ -235,8 +282,31 @@ export class SonicExampleClassifier extends LitElement {
     }
   }
 
+  private listenParams(): void {
+    this.unlistenParams?.();
+    this.unlistenParams = null;
+    this.fromParams = {};
+    const path = this.params.trim();
+    if (path) this.unlistenParams = listenDp(path, (v) => {
+      this.fromParams = readParams(CLASSIFIER_PARAMS, v);
+      this.applySettings();
+    });
+    else this.applySettings();
+  }
+
+  private applySettings(): void {
+    this.overlay.set({ ...this.fromControl, ...this.fromParams });
+  }
+
+  /** Statut, erreur et réglages effectifs. */
+  private meta(): Pick<ClassifierOutput, "status" | "error" | "settings"> {
+    return { status: this.error ? "error" : this.received ? "ready" : "idle", error: this.error, settings: snapshot(this, CLASSIFIER_PARAMS) };
+  }
+
   private onControl(v: unknown): void {
     if (!v || typeof v !== "object") return;
+    this.fromControl = readParams(CLASSIFIER_PARAMS, v);
+    this.applySettings();
     const c = v as { label?: unknown; record?: unknown; clear?: unknown; clearAll?: unknown };
     if (typeof c.label === "string") this.ctlLabel = c.label;
     const rose = (key: "record" | "clear" | "clearAll") => {
@@ -257,7 +327,7 @@ export class SonicExampleClassifier extends LitElement {
   }
 
   private publish(): void {
-    this.lastOutput = { ...this.lastOutput, counts: this.knn.counts(), total: this.knn.size, recording: this.left > 0 ? 1 : 0, recordingLabel: this.left > 0 ? this.recLabel : "", samplesLeft: this.left };
+    this.lastOutput = { ...this.lastOutput, ...this.meta(), counts: this.knn.counts(), total: this.knn.size, recording: this.left > 0 ? 1 : 0, recordingLabel: this.left > 0 ? this.recLabel : "", samplesLeft: this.left };
     this.emit();
   }
 

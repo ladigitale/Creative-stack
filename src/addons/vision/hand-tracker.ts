@@ -2,6 +2,7 @@ import { customElement, property } from "lit/decorators.js";
 import type { CompiledMap } from "../../shared/ml/map-expr";
 import { createMediaPipeEngine, getVisionConfig, type HandEngine } from "./hand-engine";
 import { HandTrackerCore, type HandsOutput } from "./hand-state";
+import { FLAG, type ParamSpecs } from "./live-params";
 import { SonicMlTracker, type TrackerEngine, type TrackerPhase, type TrackerStatus } from "./tracker-base";
 import type { RawHand } from "../../shared/ml/hands";
 
@@ -33,6 +34,10 @@ export class SonicHandTracker extends SonicMlTracker<RawHand[], HandsOutput> {
 
   protected extraReloadKeys(): string[] {
     return ["gestures", "maxHands"];
+  }
+
+  protected paramSpecs(): ParamSpecs {
+    return { ...super.paramSpecs(), maxHands: { kind: "number", min: 1, max: 2, int: true }, gestures: FLAG };
   }
 
   protected hasCustomEngine(): boolean {

@@ -2,6 +2,7 @@ import { customElement, property } from "lit/decorators.js";
 import { listenDp } from "../../shared/audio/dp";
 import { createMediaPipeMpEngine, getVisionConfig } from "./mp-engine";
 import { SonicSegmenter, type SegmentOutput } from "./segmenter";
+import { FLAG, type ParamSpecs } from "./live-params";
 import type { TrackerEngine } from "./tracker-base";
 
 const tagName = "sonic-click-segmenter";
@@ -66,6 +67,10 @@ export class SonicClickSegmenter extends SonicSegmenter {
 
   protected defaultModel(): string {
     return "interactive-segmenter";
+  }
+
+  protected paramSpecs(): ParamSpecs {
+    return { ...super.paramSpecs(), live: FLAG };
   }
 
   /** Désigne le point (0..1, repère écran) ou, avec `null`, l'efface. */

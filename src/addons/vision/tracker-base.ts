@@ -2,10 +2,12 @@ import { LitElement } from "lit";
 import { property } from "lit/decorators.js";
 import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
+import { CounterTrigger } from "../../shared/media/control";
 import { compileMap, type CompiledMap } from "../../shared/ml/map-expr";
 import { fetchModel, ModelFetchError } from "../../shared/ml/model-fetch";
 import { decideTrust, getConsentStore, getMlPolicy, readConsentValue, type TrustDecision } from "../../shared/ml/trust";
 import { getVisionConfig } from "./mp-engine";
+import { MIRROR, ParamOverlay, flag, readParams, realChanges, snapshot, type ParamSpecs } from "./live-params";
 
 export type TrackerPhase =
   | "idle"
@@ -17,7 +19,12 @@ export type TrackerPhase =
   | "error"
   | "unsupported";
 
+/** Statut standard de creative-stack, dérivé de `phase`. */
+export type TrackerStandardStatus = "idle" | "requesting" | "ready" | "denied" | "error" | "unsupported";
+
 export type TrackerStatus = {
+  /** `idle`, `requesting` (consentement, téléchargement, chargement), `ready`, `denied` (refusé), `error`, `unsupported`. */
+  status: TrackerStandardStatus;
   phase: TrackerPhase;
   error: { code: string; message: string } | null;
   backend: "gpu" | "cpu" | null;
@@ -32,7 +39,27 @@ export type TrackerStatus = {
   model: { url: string; origin: string } | null;
   /** Renseigné en `awaiting-consent` : ce que l'utilisateur doit accepter. */
   consent: { key: string; origin: string; url: string } | null;
+  /** `false` : inférence en pause (`control.active`). */
+  active: boolean;
+  /** Réglages effectifs (attributs recouverts par `control` puis `params`). */
+  settings: Record<string, unknown>;
 };
+
+type InnerStatus = Omit<TrackerStatus, "status" | "settings">;
+
+const STANDARD: Record<TrackerPhase, TrackerStandardStatus> = {
+  idle: "idle",
+  "awaiting-consent": "requesting",
+  downloading: "requesting",
+  loading: "requesting",
+  declined: "denied",
+  ready: "ready",
+  error: "error",
+  unsupported: "unsupported",
+};
+
+/** Délai de regroupement des rechargements du modèle (réglages qui exigent de recréer le moteur). */
+const RELOAD_DELAY_MS = 150;
 
 /** Moteur vu par la base : détecte sur une image, résultat propre à la tâche. */
 export type TrackerEngine<R> = {
@@ -149,6 +176,20 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
   @property({ type: String })
   load: "auto" | "idle" | "first-use" | "visible" | "manual" = "first-use";
 
+  /**
+   * DataProvider de réglages en direct (clés de `paramSpecs()` : `minScore`, `smooth`, `holdMs`, `fps`, `mirror`,
+   * plus celles du composant). Prioritaire sur les attributs et sur `control`.
+   */
+  @property({ type: String })
+  params = "";
+
+  /**
+   * DataProvider de pilotage : `active` (`false` met l'inférence en pause), `load` (compteur : une hausse charge
+   * le modèle, utile en `load="manual"`) ; accepte aussi les clés de réglage (sous `params`).
+   */
+  @property({ type: String })
+  control = "";
+
   /* ---------- à fournir par les sous-classes ---------- */
 
   /** Alias du modèle quand `model` est vide. */
@@ -168,6 +209,20 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
   protected hasCustomEngine(): boolean {
     return false;
   }
+  /**
+   * Clés de réglage lues dans `params` / `control` (nom de propriété → validation). Les sous-classes ajoutent les
+   * leurs : `return { ...super.paramSpecs(), maxHands: { kind: "number", min: 1, max: 2, int: true } }`.
+   * Une clé listée dans les clés de rechargement recrée le moteur (regroupé, voir `RELOAD_DELAY_MS`).
+   */
+  protected paramSpecs(): ParamSpecs {
+    return {
+      minScore: { kind: "number", min: 0, max: 1 },
+      smooth: { kind: "number", min: 0, max: 1 },
+      holdMs: { kind: "number", min: 0, max: 10000, int: true },
+      fps: { kind: "number", min: 1, max: 120 },
+      mirror: MIRROR,
+    };
+  }
 
   private trackerEngine: TrackerEngine<R> | null = null;
   private loading = false;
@@ -181,7 +236,15 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
   private lastOutput: O | null = null;
   private unlistenConsent: (() => void) | null = null;
   private decision: Extract<TrustDecision, { allowed: true }> | null = null;
-  private status: TrackerStatus = {
+  private overlay = new ParamOverlay(this);
+  private fromControl: Record<string, unknown> = {};
+  private fromParams: Record<string, unknown> = {};
+  private unlistenDp: Array<() => void> = [];
+  private loadTrigger = new CounterTrigger();
+  private reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  private reloadPending = false;
+  private settled = false;
+  private status: InnerStatus = {
     phase: "idle",
     error: null,
     backend: null,
@@ -191,6 +254,7 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
     latencyMs: 0,
     model: null,
     consent: null,
+    active: true,
   };
 
   connectedCallback(): void {
@@ -198,6 +262,7 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
     this.style.display = "none";
     this.syncCore();
     this.syncConsentListener();
+    this.listenSettings();
     if (this.load === "auto") void this.loadModel();
     else if (this.load === "idle") this.scheduleIdle();
     this.publishStatus();
@@ -213,26 +278,43 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
     }
     this.unlistenConsent?.();
     this.unlistenConsent = null;
+    this.unlistenSettings();
+    if (this.reloadTimer) clearTimeout(this.reloadTimer);
+    this.reloadTimer = null;
+    this.reloadPending = false;
     this.closeEngine();
     super.disconnectedCallback();
   }
 
+  protected willUpdate(changed: Map<PropertyKey, unknown>): void {
+    super.willUpdate(changed);
+    this.overlay.guard(changed);
+  }
+
   protected updated(changed: Map<string, unknown>): void {
     if (!this.isConnected) return;
-    const keys = [...changed.keys()].map(String);
+    const keys = realChanges(this, changed);
     if (keys.some((k) => BASE_CORE_KEYS.includes(k))) this.syncCore();
     if (changed.has("consentProvider")) this.syncConsentListener();
+    if (changed.has("params") || changed.has("control")) this.listenSettings();
     const reload = [...BASE_RELOAD_KEYS, ...this.extraReloadKeys()];
-    if (this.trackerEngine && keys.some((k) => reload.includes(k))) {
-      this.closeEngine();
-      void this.loadModel();
-    }
+    // Premier rendu : toutes les propriétés figurent dans `changed`, le chargement en cours les lit déjà.
+    if (this.settled && (this.trackerEngine || this.loading) && keys.some((k) => reload.includes(k))) this.scheduleReload();
+    this.settled = true;
+    const specs = this.paramSpecs();
+    if (keys.some((k) => k in specs)) this.publishStatus();
   }
 
   /* ---------------- API ---------------- */
 
   getState(): TrackerStatus {
-    return { ...this.status };
+    return { ...this.status, status: STANDARD[this.status.phase], settings: snapshot(this, this.paramSpecs()) };
+  }
+
+  /** Met l'inférence en pause (`false`) ou la reprend (comme `control.active`). */
+  setActive(active: boolean): void {
+    if (this.status.active === active) return;
+    this.patch({ active });
   }
 
   /** Dernière sortie publiée. */
@@ -308,6 +390,11 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
     } finally {
       this.loading = false;
     }
+    // Réglage modifié pendant le chargement : le moteur créé peut l'ignorer, on le recrée.
+    if (this.reloadPending && this.isConnected) {
+      this.reloadPending = false;
+      this.scheduleReload();
+    }
   }
 
   /** Accepte le consentement en attente (mémorisé pour cette origine / ce modèle). */
@@ -322,7 +409,7 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
   /** Traite une image (public pour les tests) ; `now` en ms. Retourne la sortie publiée, ou `null` si rien à faire. */
   async processFrame(now: number): Promise<O | null> {
     const engine = this.trackerEngine;
-    if (!engine || this.busy) return null;
+    if (!engine || this.busy || !this.status.active) return null;
     const frame = this.frame();
     if (!frame || frame.token === this.lastToken) return null;
     this.lastToken = frame.token;
@@ -367,6 +454,7 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
 
   private onFrame = (now: number) => {
     this.raf = requestAnimationFrame(this.onFrame);
+    if (!this.status.active) return;
     if (this.load === "first-use" || this.load === "visible") {
       if (!this.trackerEngine && !this.loading && this.status.phase === "idle" && this.frame()) void this.loadModel();
     }
@@ -420,6 +508,67 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
     this.configureCore({ smooth: this.smooth, holdMs: this.holdMs, map: compiled });
   }
 
+  /** Écoute `params` et `control`. */
+  private listenSettings(): void {
+    this.unlistenSettings();
+    this.loadTrigger.reset();
+    const ctl = this.control.trim();
+    if (ctl) {
+      this.unlistenDp.push(
+        listenDp(ctl, (v) => {
+          const c = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+          const active = flag(c.active);
+          if (active !== undefined) this.setActive(active);
+          if (this.loadTrigger.feed(c.load)) void this.loadModel();
+          this.fromControl = readParams(this.paramSpecs(), c);
+          this.applySettings();
+        }),
+      );
+    }
+    const prm = this.params.trim();
+    if (prm) {
+      this.unlistenDp.push(
+        listenDp(prm, (v) => {
+          this.fromParams = readParams(this.paramSpecs(), v);
+          this.applySettings();
+        }),
+      );
+    }
+  }
+
+  private unlistenSettings(): void {
+    this.unlistenDp.forEach((u) => u());
+    this.unlistenDp = [];
+  }
+
+  private applySettings(): void {
+    this.overlay.set({ ...this.fromControl, ...this.fromParams });
+  }
+
+  /**
+   * Recrée le moteur avec les réglages courants. Regroupé : plusieurs changements rapprochés (curseur) ne
+   * rechargent qu'une fois ; pendant un chargement, le rechargement attend sa fin. L'ancien moteur tourne
+   * jusqu'au rechargement.
+   */
+  private scheduleReload(): void {
+    if (this.loading) {
+      this.reloadPending = true;
+      return;
+    }
+    if (this.reloadTimer) clearTimeout(this.reloadTimer);
+    this.reloadTimer = setTimeout(() => {
+      this.reloadTimer = null;
+      if (!this.isConnected) return;
+      if (this.loading) {
+        this.reloadPending = true;
+        return;
+      }
+      if (!this.trackerEngine) return;
+      this.closeEngine();
+      void this.loadModel();
+    }, RELOAD_DELAY_MS);
+  }
+
   private syncConsentListener(): void {
     this.unlistenConsent?.();
     this.unlistenConsent = null;
@@ -452,7 +601,7 @@ export abstract class SonicMlTracker<R, O> extends LitElement {
     if (this.status.phase === "ready") this.status = { ...this.status, phase: "idle" };
   }
 
-  private patch(p: Partial<TrackerStatus>): void {
+  private patch(p: Partial<InnerStatus>): void {
     this.status = { ...this.status, ...p };
     this.publishStatus();
   }

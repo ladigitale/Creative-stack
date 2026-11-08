@@ -4,6 +4,7 @@ import { maskStats, maskToRgba, type MaskMode } from "../../shared/ml/mask";
 import { Smoother } from "../../shared/ml/one-euro";
 import { combineMasks, foreground, labelsFor, resolveClasses } from "../../shared/ml/segment-classes";
 import { createMediaPipeMpEngine, getVisionConfig, type MpResult } from "./mp-engine";
+import { FLAG, type ParamSpecs } from "./live-params";
 import { SonicMlTracker, type TrackerEngine } from "./tracker-base";
 
 const tagName = "sonic-segmenter";
@@ -96,6 +97,19 @@ export class SonicSegmenter extends SonicMlTracker<Masks, SegmentOutput> {
 
   protected extraReloadKeys(): string[] {
     return [];
+  }
+
+  protected paramSpecs(): ParamSpecs {
+    return {
+      ...super.paramSpecs(),
+      threshold: { kind: "number", min: 0, max: 1 },
+      mode: { kind: "enum", values: ["gray", "alpha"] },
+      invert: FLAG,
+      maskIndex: { kind: "string", pattern: /^(auto|\d{1,3})$/ },
+      classes: { kind: "string", max: 1000 },
+      labels: { kind: "string", max: 4000 },
+      classStats: FLAG,
+    };
   }
 
   protected hasCustomEngine(): boolean {
