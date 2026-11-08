@@ -13,6 +13,37 @@ const tagName = "sonic-tape";
 
 export type TapeStatus = "idle" | "loading" | "ready" | "error";
 
+/** Réglages effectifs (attributs, puis `control` : le dernier l'emporte). */
+export type TapeSettings = {
+  loop: boolean;
+  loopStart: number;
+  loopEnd: number;
+  gain: number;
+  pitch: number;
+  rateMode: RateMode;
+  rateScale: number;
+  rateDeadzone: number;
+  rateSmooth: number;
+};
+
+const RATE_MODES: RateMode[] = ["rate", "omega", "accel"];
+
+/** Lit les réglages du DP `control` (clés absentes ou invalides ignorées), valeurs bornées. */
+export function readTapeSettings(v: unknown): Partial<TapeSettings> {
+  const c = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  const o: Partial<TapeSettings> = {};
+  const loop = bool(c.loop); if (loop !== undefined) o.loop = loop;
+  const ls = num(c.loopStart, 0, 86400); if (ls !== undefined) o.loopStart = ls;
+  const le = num(c.loopEnd, 0, 86400); if (le !== undefined) o.loopEnd = le;
+  const gain = num(c.gain, 0, 4); if (gain !== undefined) o.gain = gain;
+  const pitch = num(c.pitch, -16, 16); if (pitch !== undefined) o.pitch = pitch;
+  if (typeof c.rateMode === "string" && RATE_MODES.includes(c.rateMode as RateMode)) o.rateMode = c.rateMode as RateMode;
+  const scale = num(c.rateScale, -10000, 10000); if (scale !== undefined) o.rateScale = scale;
+  const dz = num(c.rateDeadzone, 0, 10000); if (dz !== undefined) o.rateDeadzone = dz;
+  const sm = num(c.rateSmooth, 0, 10000); if (sm !== undefined) o.rateSmooth = sm;
+  return o;
+}
+
 export type TapeState = {
   status: TapeStatus;
   error: string | null;
@@ -23,6 +54,7 @@ export type TapeState = {
   rate: number;
   playing: boolean;
   reversed: boolean;
+  settings: TapeSettings;
 };
 
 /**
@@ -77,7 +109,10 @@ export class SonicTape extends LitElement implements SonicAudioSource {
   @property({ type: Number, attribute: "rate-smooth" })
   rateSmooth = 40;
 
-  /** DP de pilotage : `{ rate, position, play, hold }`. */
+  /**
+   * DP de pilotage : `{ rate, position, play, hold }` et réglages
+   * `{ loop, loopStart, loopEnd, gain, pitch, rateMode, rateScale, rateDeadzone, rateSmooth }` (prioritaires sur les attributs).
+   */
   @property({ type: String })
   control = "";
 
@@ -97,7 +132,28 @@ export class SonicTape extends LitElement implements SonicAudioSource {
   private unsubEngine: (() => void) | null = null;
   private unsubBank: (() => void) | null = null;
   private baseRate = 0;
-  private state: TapeState = { status: "idle", error: null, duration: 0, position: 0, rate: 0, playing: false, reversed: false };
+  private fromControl: Partial<TapeSettings> = {};
+  private state: Omit<TapeState, "settings"> = { status: "idle", error: null, duration: 0, position: 0, rate: 0, playing: false, reversed: false };
+
+  /** Réglages effectifs (attributs, puis `control`). */
+  settings(): TapeSettings {
+    const s = {
+      loop: this.loop, loopStart: this.loopStart, loopEnd: this.loopEnd, gain: this.gain, pitch: this.pitch,
+      rateMode: this.rateMode, rateScale: this.rateScale, rateDeadzone: this.rateDeadzone, rateSmooth: this.rateSmooth,
+      ...this.fromControl,
+    };
+    return {
+      loop: !!s.loop,
+      loopStart: finite(s.loopStart, 0, 0),
+      loopEnd: finite(s.loopEnd, 0, 0),
+      gain: finite(s.gain, 0, 1),
+      pitch: Number.isFinite(s.pitch) ? s.pitch : 1,
+      rateMode: RATE_MODES.includes(s.rateMode) ? s.rateMode : "rate",
+      rateScale: Number.isFinite(s.rateScale) ? s.rateScale : 1,
+      rateDeadzone: finite(s.rateDeadzone, 0, 0),
+      rateSmooth: finite(s.rateSmooth, 0, 40),
+    };
+  }
 
   getAudioOutput(): AudioNode | null {
     return this.outGain;
@@ -112,6 +168,7 @@ export class SonicTape extends LitElement implements SonicAudioSource {
       rate: v?.currentRate ?? 0,
       playing: !!v && Math.abs(v.currentRate) > 0,
       reversed: (v?.currentRate ?? 0) < 0,
+      settings: this.settings(),
     };
   }
 
@@ -161,17 +218,47 @@ export class SonicTape extends LitElement implements SonicAudioSource {
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
     if (changed.has("source")) this.loadSource();
-    if (changed.has("control") || changed.has("rateFrom") || changed.has("rateMode") || changed.has("rateScale") || changed.has("rateDeadzone") || changed.has("rateSmooth")) {
-      this.listen();
-    }
-    if (this.voice) {
-      this.voice.loop = this.loop;
-      this.voice.loopStart = this.loopStart;
-      this.voice.loopEnd = this.loopEnd;
-    }
-    if (changed.has("gain") && this.outGain) this.outGain.gain.value = Math.max(0, this.gain);
+    if (changed.has("control") || changed.has("rateFrom")) this.listen();
+    else if (changed.has("rateMode") || changed.has("rateScale") || changed.has("rateDeadzone") || changed.has("rateSmooth")) this.buildMapper();
+    this.applyLoop();
+    if (changed.has("gain")) this.applyGain();
     if (changed.has("pitch") || changed.has("loop")) this.apply();
     if (changed.has("output")) this.reconnect();
+    if (["loop", "loopStart", "loopEnd", "gain", "pitch", "rateMode", "rateScale", "rateDeadzone", "rateSmooth"].some((k) => changed.has(k))) {
+      this.lastPub = "";
+      this.publish();
+    }
+  }
+
+  private applyLoop(): void {
+    if (!this.voice) return;
+    const s = this.settings();
+    this.voice.loop = s.loop;
+    this.voice.loopStart = s.loopStart;
+    this.voice.loopEnd = s.loopEnd;
+  }
+
+  private applyGain(): void {
+    if (this.outGain) this.outGain.gain.value = this.settings().gain;
+  }
+
+  /** Applique les réglages lus dans `control` (seulement ce qui a changé). */
+  private applySettings(next: Partial<TapeSettings>): void {
+    const before = this.settings();
+    this.fromControl = next;
+    const after = this.settings();
+    if (JSON.stringify(before) === JSON.stringify(after)) return;
+    if (before.rateMode !== after.rateMode || before.rateScale !== after.rateScale || before.rateDeadzone !== after.rateDeadzone || before.rateSmooth !== after.rateSmooth) {
+      this.buildMapper();
+    }
+    this.applyLoop();
+    if (before.gain !== after.gain) this.applyGain();
+    if (before.pitch !== after.pitch || before.loop !== after.loop) {
+      if (this.target !== null) this.tickScrub();
+      else this.apply();
+    }
+    this.lastPub = "";
+    this.publish();
   }
 
   render() {
@@ -212,7 +299,7 @@ export class SonicTape extends LitElement implements SonicAudioSource {
     if (!engine.context || !engine.master) return;
     if (!this.outGain) {
       this.outGain = engine.context.createGain();
-      this.outGain.gain.value = Math.max(0, this.gain);
+      this.outGain.gain.value = this.settings().gain;
     }
     this.reconnect();
     this.buildVoice();
@@ -236,27 +323,26 @@ export class SonicTape extends LitElement implements SonicAudioSource {
     const ac = AudioEngine.get().context;
     if (this.voice || !this.buffer || !ac || !this.outGain) return;
     this.voice = new TapeVoice(ac, this.buffer, this.outGain);
-    this.voice.loop = this.loop;
-    this.voice.loopStart = this.loopStart;
-    this.voice.loopEnd = this.loopEnd;
+    this.applyLoop();
     this.patch({ status: "ready", error: null, duration: this.buffer.duration });
     this.apply();
   }
 
   private apply(): void {
     if (this.target !== null) return;
-    this.voice?.setRate(this.baseRate * (Number.isFinite(this.pitch) ? this.pitch : 1));
+    this.voice?.setRate(this.baseRate * this.settings().pitch);
+  }
+
+  private buildMapper(): void {
+    const s = this.settings();
+    this.mapper = new RateMapper({ mode: s.rateMode, scale: s.rateScale, deadzone: s.rateDeadzone, smoothMs: s.rateSmooth });
   }
 
   private listen(): void {
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.mapper = new RateMapper({
-      mode: ["rate", "omega", "accel"].includes(this.rateMode) ? this.rateMode : "rate",
-      scale: Number.isFinite(this.rateScale) ? this.rateScale : 1,
-      deadzone: Math.max(0, this.rateDeadzone),
-      smoothMs: Math.max(0, this.rateSmooth),
-    });
+    if (Object.keys(this.fromControl).length) this.applySettings({});
+    this.buildMapper();
     if (this.rateFrom) {
       this.unsubs.push(
         listenDp(this.rateFrom, (v) => {
@@ -271,6 +357,7 @@ export class SonicTape extends LitElement implements SonicAudioSource {
         listenDp(this.control, (v) => {
           if (!v || typeof v !== "object") return;
           const c = v as Record<string, unknown>;
+          this.applySettings(readTapeSettings(c));
           if ("position" in c) {
             const p = c.position === null ? null : num(c.position, 0, 1);
             if (p !== undefined) this.scrubTo(p);
@@ -304,10 +391,10 @@ export class SonicTape extends LitElement implements SonicAudioSource {
     const buf = this.buffer;
     if (!v || !buf || this.target === null) return;
     const err = (this.target * v.duration - v.position()) * buf.sampleRate;
-    v.setRate(scrubRate(err, buf.sampleRate) * (Number.isFinite(this.pitch) ? this.pitch : 1));
+    v.setRate(scrubRate(err, buf.sampleRate) * this.settings().pitch);
   }
 
-  private patch(p: Partial<TapeState>): void {
+  private patch(p: Partial<Omit<TapeState, "settings">>): void {
     this.state = { ...this.state, ...p };
     this.lastPub = "";
     this.publish();
@@ -323,5 +410,7 @@ export class SonicTape extends LitElement implements SonicAudioSource {
     set(out, s);
   }
 }
+
+const finite = (v: number, min: number, d: number) => (Number.isFinite(v) ? Math.max(min, v) : d);
 
 export default SonicTape;

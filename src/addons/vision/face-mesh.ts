@@ -21,19 +21,36 @@ import {
 } from "../../shared/ml/face-mesh";
 import { FACE_UV } from "../../shared/ml/face-mesh-data";
 import type { Point } from "../../shared/ml/hands";
+import { MIRROR, ParamOverlay, readParams, snapshot, type ParamSpecs } from "./live-params";
 
 const tagName = "sonic-face-mesh";
 
 export type FaceMeshMode = "swap" | "portrait" | "canonical";
 
+/** Clés de réglage de `params` (nom de propriété → validation). */
+export const FACE_MESH_PARAMS: ParamSpecs = {
+  opacity: { kind: "number", min: 0, max: 1 },
+  feather: { kind: "number", min: 0, max: 20 },
+  colorMatch: { kind: "number", min: 0, max: 1 },
+  face: { kind: "enum", values: ["all", "0", "1"] },
+  mirror: MIRROR,
+};
+
 export type FaceMeshState = {
+  /** `idle` (rien dessiné encore), `ready`, `error` (WebGL indisponible). */
+  status: "idle" | "ready" | "error";
+  /** Message d'erreur, `null` sans erreur ; renseigné aussi en `ready` si la texture est refusée ou illisible. */
+  error: string | null;
   ready: boolean;
   /** `swap` (visages de l'image échangés), `portrait` (visage d'une autre image), `canonical` (texture à plat), `none` (rien à greffer). */
   mode: FaceMeshMode | "none";
   faces: number;
   drawn: number;
-  error?: string;
+  /** Réglages effectifs (attributs recouverts par `params`). */
+  settings: Record<string, unknown>;
 };
+
+type DrawState = Omit<FaceMeshState, "status" | "error" | "settings"> & { error?: string };
 
 type FrameEl = Element & { getFrameSource?: () => HTMLVideoElement | null; getFrameCanvas?: () => HTMLCanvasElement | null };
 type Frame = { image: CanvasImageSource; width: number; height: number; flip: boolean };
@@ -126,6 +143,10 @@ export class SonicFaceMesh extends LitElement implements SonicFrameSource {
   @property({ type: String, attribute: "out-data-provider" })
   outDataProvider = "";
 
+  /** DataProvider de réglages en direct, prioritaires sur les attributs : `opacity`, `feather`, `colorMatch`, `face`, `mirror`. */
+  @property({ type: String })
+  params = "";
+
   @query("canvas")
   private canvas!: HTMLCanvasElement;
 
@@ -133,6 +154,8 @@ export class SonicFaceMesh extends LitElement implements SonicFrameSource {
   private texFaces: Point[][] = [];
   private unlistenFaces: (() => void) | null = null;
   private unlistenTex: (() => void) | null = null;
+  private unlistenParams: (() => void) | null = null;
+  private overlay = new ParamOverlay(this);
   private raf = 0;
   private seq = 0;
   private tick = 0;
@@ -170,20 +193,30 @@ export class SonicFaceMesh extends LitElement implements SonicFrameSource {
   connectedCallback(): void {
     super.connectedCallback();
     this.listen();
+    this.listenParams();
     this.loadTexture();
+    if (!this.lastState) this.publish({ ready: false, mode: "none", faces: 0, drawn: 0, ...(this.textureError ? { error: this.textureError } : {}) });
   }
 
   disconnectedCallback(): void {
     this.unlistenFaces?.();
     this.unlistenTex?.();
     this.unlistenFaces = this.unlistenTex = null;
+    this.unlistenParams?.();
+    this.unlistenParams = null;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.releaseGl();
     super.disconnectedCallback();
   }
 
+  protected willUpdate(changed: Map<PropertyKey, unknown>): void {
+    super.willUpdate(changed);
+    this.overlay.guard(changed);
+  }
+
   protected updated(changed: Map<string, unknown>): void {
+    if (changed.has("params")) this.listenParams();
     if (changed.has("source") || changed.has("textureLandmarks")) this.listen();
     if (changed.has("texture")) this.loadTexture();
     this.schedule();
@@ -219,6 +252,17 @@ export class SonicFaceMesh extends LitElement implements SonicFrameSource {
         this.schedule();
       });
     }
+  }
+
+  private listenParams(): void {
+    this.unlistenParams?.();
+    this.unlistenParams = null;
+    const path = this.params.trim();
+    if (!path) return;
+    this.unlistenParams = listenDp(path, (v) => {
+      this.overlay.set(readParams(FACE_MESH_PARAMS, v));
+      this.schedule();
+    });
   }
 
   private loadTexture(): void {
@@ -504,9 +548,12 @@ export class SonicFaceMesh extends LitElement implements SonicFrameSource {
     }
   }
 
-  private publish(state: FaceMeshState): void {
+  private publish(draw: DrawState): void {
     if (!this.outDataProvider) return;
-    const key = `${state.ready}|${state.mode}|${state.faces}|${state.drawn}|${state.error ?? ""}`;
+    const { error, ...rest } = draw;
+    const status: FaceMeshState["status"] = error && !draw.ready ? "error" : draw.ready ? "ready" : "idle";
+    const state: FaceMeshState = { status, error: error ?? null, ...rest, settings: snapshot(this, FACE_MESH_PARAMS) };
+    const key = JSON.stringify(state);
     if (key === this.lastState) return;
     this.lastState = key;
     set(this.outDataProvider, state);

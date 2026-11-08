@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./index";
-import { parseLangs, setOcrEngineFactory, shapeResult, type OcrEngine, type RawResult } from "./index";
+import { parseLangs, readOcrSettings, setOcrEngineFactory, shapeResult, type OcrEngine, type RawResult } from "./index";
 import type { SonicOcr } from "./ocr";
 
 const RAW: RawResult = {
@@ -25,6 +25,15 @@ describe("langues", () => {
     expect(parseLangs("xx")).toBeNull();
     expect(parseLangs("../../evil")).toBeNull();
     expect(parseLangs("")).toBeNull();
+  });
+});
+
+describe("réglages DataProvider", () => {
+  it("lit les clés camelCase ou en tirets, bornées", () => {
+    expect(readOcrSettings({ lang: " fra+eng ", minConfidence: 150, "max-size": 10 })).toEqual({ lang: "fra+eng", minConfidence: 100, maxSize: 64 });
+    expect(readOcrSettings({ lang: ["fra", "deu"], "min-confidence": "40" })).toEqual({ lang: "fra+deu", minConfidence: 40 });
+    expect(readOcrSettings({ n: 3, lang: "", maxSize: "x" })).toEqual({});
+    expect(readOcrSettings(null)).toEqual({});
   });
 });
 
@@ -143,6 +152,90 @@ describe("composant", () => {
     expect(n).toBe(1);
     release!();
     await a;
+    el.remove(); src.remove();
+  });
+
+  it("publie les réglages effectifs : attributs < control < params", async () => {
+    fake({ created: 0, terminated: 0, langs: [] });
+    set("ocrPrioParams", {});
+    const el = make({ lang: "fra", "min-confidence": "20", "max-size": "999999", control: "ocrPrioCtl", params: "ocrPrioParams", "out-data-provider": "ocr.prio" });
+    await el.updateComplete;
+    expect((dp("ocr.prio").get() as { settings: unknown }).settings).toEqual({ lang: "fra", minConfidence: 20, maxSize: 4000 });
+    set("ocrPrioCtl", { n: 0, lang: "deu", minConfidence: 30 });
+    expect(el.settings()).toEqual({ lang: "deu", minConfidence: 30, maxSize: 4000 });
+    set("ocrPrioParams", { lang: "ENG+fra", maxSize: 800 });
+    expect(el.settings()).toEqual({ lang: "eng+fra", minConfidence: 30, maxSize: 800 });
+    expect((dp("ocr.prio").get() as { settings: unknown }).settings).toEqual({ lang: "eng+fra", minConfidence: 30, maxSize: 800 });
+    el.remove();
+  });
+
+  it("minConfidence en direct : remise en forme sans relire", async () => {
+    let reads = 0;
+    setOcrEngineFactory(async () => ({ recognize: async () => { reads++; return RAW; }, terminate: async () => {} }));
+    const src = source("ocr-src-4");
+    set("ocrMcParams", {});
+    const el = make({ source: "#ocr-src-4", params: "ocrMcParams", "out-data-provider": "ocr.mc" });
+    await el.run();
+    expect((dp("ocr.mc").get() as { text: string }).text).toBe("Bonjour le monde");
+    set("ocrMcParams", { minConfidence: 50 });
+    await vi.waitFor(() => expect((dp("ocr.mc").get() as { text: string }).text).toBe("Bonjour monde"));
+    expect(reads).toBe(1);
+    expect((dp("ocr.mc").get() as { settings: { minConfidence: number } }).settings.minConfidence).toBe(50);
+    el.remove(); src.remove();
+  });
+
+  it("changer de langue libère le moteur et relit", async () => {
+    const calls = { created: 0, terminated: 0, langs: [] as string[][] };
+    fake(calls);
+    const src = source("ocr-src-5");
+    set("ocrLangParams", {});
+    const el = make({ source: "#ocr-src-5", lang: "fra", params: "ocrLangParams", "out-data-provider": "ocr.lang" });
+    await el.run();
+    expect(calls.langs).toEqual([["fra"]]);
+    set("ocrLangParams", { lang: "deu+eng" });
+    await vi.waitFor(() => expect((dp("ocr.lang").get() as { lang: string; status: string })).toMatchObject({ lang: "deu+eng", status: "ready" }));
+    expect(calls.langs).toEqual([["fra"], ["deu", "eng"]]);
+    expect(calls.terminated).toBe(1);
+    expect((dp("ocr.lang").get() as { runs: number }).runs).toBe(2);
+    set("ocrLangParams", { lang: "klingon" });
+    await vi.waitFor(() => expect((dp("ocr.lang").get() as { error: string }).error).toMatch(/langue/));
+    el.remove(); src.remove();
+  });
+
+  it("un changement de langue pendant une lecture s'applique ensuite", async () => {
+    const langs: string[][] = [];
+    let release: (() => void) | null = null;
+    setOcrEngineFactory(async (l) => {
+      langs.push(l);
+      return { recognize: () => new Promise<RawResult>((r) => (release = () => r(RAW))), terminate: async () => {} };
+    });
+    const src = source("ocr-src-6");
+    set("ocrBusyParams", {});
+    const el = make({ source: "#ocr-src-6", params: "ocrBusyParams", "out-data-provider": "ocr.busy" });
+    const a = el.run();
+    await vi.waitFor(() => expect(release).toBeTruthy());
+    set("ocrBusyParams", { lang: "ita" });
+    const r1 = release!; release = null;
+    r1();
+    await a;
+    await vi.waitFor(() => expect(release).toBeTruthy());
+    release!();
+    await vi.waitFor(() => expect((dp("ocr.busy").get() as { lang: string; status: string })).toMatchObject({ lang: "ita", status: "ready" }));
+    expect(langs).toEqual([["eng"], ["ita"]]);
+    el.remove(); src.remove();
+  });
+
+  it("auto relit à chaque nouvelle image de la source", async () => {
+    let reads = 0;
+    setOcrEngineFactory(async () => ({ recognize: async () => { reads++; return RAW; }, terminate: async () => {} }));
+    const src = source("ocr-src-7") as HTMLElement & { frameSeq: number };
+    const el = make({ source: "#ocr-src-7", auto: "", interval: "100", "out-data-provider": "ocr.auto" });
+    await vi.waitFor(() => expect(reads).toBe(1));
+    await new Promise((r) => setTimeout(r, 250));
+    expect(reads).toBe(1);
+    src.frameSeq = 2;
+    await vi.waitFor(() => expect(reads).toBe(2));
+    expect((dp("ocr.auto").get() as { runs: number }).runs).toBe(2);
     el.remove(); src.remove();
   });
 });

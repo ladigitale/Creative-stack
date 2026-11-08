@@ -3,6 +3,7 @@ import type { CompiledMap } from "../../shared/ml/map-expr";
 import { DetectorCore, type ObjectsOutput } from "./detector-state";
 import { detectionsFromMediaPipe, type RawDetection } from "./landmarkers";
 import { createMediaPipeMpEngine, getVisionConfig } from "./mp-engine";
+import { FLAG, type ParamSpecs } from "./live-params";
 import { SonicMlTracker, type TrackerEngine } from "./tracker-base";
 
 const tagName = "sonic-object-detector";
@@ -43,6 +44,17 @@ export class SonicObjectDetector extends SonicMlTracker<RawDetection[], ObjectsO
 
   protected extraReloadKeys(): string[] {
     return ["maxResults", "categories"];
+  }
+
+  protected paramSpecs(): ParamSpecs {
+    return {
+      ...super.paramSpecs(),
+      categories: { kind: "string", max: 1000 },
+      maxResults: { kind: "number", min: 1, max: 20, int: true },
+      track: FLAG,
+      trackIou: { kind: "number", min: 0, max: 1 },
+      trackMaxAgeMs: { kind: "number", min: 0, max: 60000, int: true },
+    };
   }
 
   protected hasCustomEngine(): boolean {

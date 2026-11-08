@@ -4,6 +4,7 @@ import { cropBox, boxesOf, selectBoxes, type Box } from "../../shared/ml/composi
 import type { CompiledMap } from "../../shared/ml/map-expr";
 import { EmbedderCore, embeddingFromMediaPipe, vectorOf, type EmbedOutput } from "./embed-state";
 import { createMediaPipeMpEngine, getVisionConfig } from "./mp-engine";
+import type { ParamSpecs } from "./live-params";
 import { SonicMlTracker, type TrackerEngine } from "./tracker-base";
 
 const tagName = "sonic-image-embedder";
@@ -126,6 +127,18 @@ export class SonicImageEmbedder extends SonicMlTracker<number[] | null, EmbedOut
 
   protected extraReloadKeys(): string[] {
     return ["head"];
+  }
+
+  protected paramSpecs(): ParamSpecs {
+    return {
+      ...super.paramSpecs(),
+      cropLabels: { kind: "string", max: 1000 },
+      cropMinScore: { kind: "number", min: 0, max: 1 },
+      cropPad: { kind: "number", min: 0, max: 1 },
+      cropId: { kind: "number", min: 0, max: 1e9, int: true },
+      region: { kind: "string", max: 100 },
+      head: { kind: "number", min: 0, max: 16, int: true },
+    };
   }
 
   protected hasCustomEngine(): boolean {

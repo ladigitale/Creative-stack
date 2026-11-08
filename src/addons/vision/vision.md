@@ -17,9 +17,17 @@ Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic
   | `open` | toute URL https | par modèle, mémorisé |
 
   Une URL hors origines approuvées est refusée (`error.code = "origin-not-allowed"`) tant que l'hôte n'est pas en niveau `open`. Les URL `http:`, `data:` ou avec identifiants sont toujours refusées.
-- **Statut** dans `status-provider` (défaut `<id>State`) : `phase` parmi `idle`, `awaiting-consent`, `declined`, `downloading`, `loading`, `ready`, `error`, `unsupported`, plus `error {code, message}` (`origin-not-allowed`, `too-large`, `hash-mismatch`, `download-failed`, `load-failed`, `detect-failed`, `invalid-map`…), `backend` (`gpu` / `cpu`), `thread` (`worker` / `main`), `download {loaded, total}`, `fps`, `latencyMs`, `model {url, origin}`, `consent {key, origin, url}`.
+- **Statut** dans `status-provider` (défaut `<id>State`) : `status` (statut standard dérivé de `phase` : `idle`, `requesting` pendant le consentement, le téléchargement et le chargement, `ready`, `denied` si refusé, `error`, `unsupported`), `active` (`false` en pause), `settings` (réglages effectifs, voir `params`), `phase` parmi `idle`, `awaiting-consent`, `declined`, `downloading`, `loading`, `ready`, `error`, `unsupported`, plus `error {code, message}` (`origin-not-allowed`, `too-large`, `hash-mismatch`, `download-failed`, `load-failed`, `detect-failed`, `invalid-map`…), `backend` (`gpu` / `cpu`), `thread` (`worker` / `main`), `download {loaded, total}`, `fps`, `latencyMs`, `model {url, origin}`, `consent {key, origin, url}`.
 - **Consentement** : en `awaiting-consent`, afficher une `sonic-modal` avec `consent.origin` et un bouton qui écrit `accepted` ou `declined` dans le DP de `consent-provider`. La réponse est mémorisée (localStorage, clé `concorde-ml-consent:…`).
-- **Chargement** (`load`) : `first-use` (défaut, au premier cadre disponible), `auto`, `idle`, `manual` (`loadModel()`).
+- **Chargement** (`load`) : `first-use` (défaut, au premier cadre disponible), `auto`, `idle`, `manual` (`loadModel()`, ou `control.load`).
+- **Réglages en direct** (`params`) : DataProvider dont les clés (noms de propriété en camelCase) recouvrent les attributs : `minScore` (0..1), `smooth` (0..1), `holdMs` (0..10 000), `fps` (1..120), `mirror` (`auto`, `true`, `false` ou booléen), plus les clés propres à chaque composant (listées dans sa section). Valeurs bornées, clés inconnues ou invalides ignorées ; une clé retirée rend la valeur de l'attribut, et un attribut modifié pendant qu'une clé le recouvre ne l'écrase pas. Les clés lues à la création du modèle (`minScore`, `maxHands`, `gestures`, `maxFaces`, `maxPoses`, `maxResults`, `categories`, `head`) **recréent le moteur** : les changements rapprochés (curseur) sont regroupés en un seul rechargement (150 ms), l'ancien moteur tourne jusque-là, et un changement pendant un chargement relance un chargement à sa fin. Le modèle est alors re-téléchargé (cache HTTP du navigateur) : éviter de les animer en continu.
+- **Pilotage** (`control`) : DataProvider `{ active, load, …réglages }`. `active: false` met l'inférence en pause (plus d'analyse ni de chargement automatique, la dernière sortie reste), `true` la reprend ; `load` est un compteur (convention creative-stack : la première valeur sert de référence, une hausse charge le modèle, utile en `load="manual"`). Les clés de réglage y sont aussi lues, sous `params` (priorité : attribut < `control` < `params`).
+
+```json
+{ "tagName": "sonic-hand-tracker", "attributes": { "id": "hand", "for": "cam", "load": "manual", "params": "handParams", "control": "handCtl" } }
+```
+
+Avec `handParams` = `{ "smooth": 0.2, "maxHands": 1 }` et `handCtl` = `{ "active": true, "load": 1 }` (dans un `sonic-store`, des `sonic-param`…).
 
 ## `sonic-hand-tracker`
 
@@ -51,6 +59,8 @@ Composants : `sonic-hand-tracker` (mains), `sonic-face-tracker` (visage), `sonic
 | `statusProvider` | DP du statut | `<id>State` |
 | `consentProvider` | DP de la réponse de consentement | aucun |
 | `load` | `first-use`, `auto`, `idle`, `manual` | `first-use` |
+| `params` | DP de réglages en direct (voir règles communes) ; clés propres : `maxHands` (1..2), `gestures` (`true` / `false`) | aucun |
+| `control` | DP de pilotage `{active, load, …réglages}` | aucun |
 
 ### Sortie
 
@@ -134,7 +144,7 @@ Par défaut l'inférence tourne dans un **worker classique** (blob) : le fil pri
   "map": "cut=300+mouthOpen*5000; gain=present ? 0.4 : 0" } }
 ```
 
-Mêmes attributs communs que `sonic-hand-tracker` (`for`, `model`, `model-sha256`, `thread`, `fps`, `delegate`, `mirror`, `smooth`, `hold-ms`, `min-score`, `map`, `outputProvider`, `statusProvider`, `consentProvider`, `load`), plus :
+Mêmes attributs communs que `sonic-hand-tracker` (`for`, `model`, `model-sha256`, `thread`, `fps`, `delegate`, `mirror`, `smooth`, `hold-ms`, `min-score`, `map`, `outputProvider`, `statusProvider`, `consentProvider`, `load`, `params`, `control`), plus les suivants (clés `params` : `maxFaces`, `landmarks`) :
 
 | Attribut | Rôle | Défaut |
 |---|---|---|
@@ -163,7 +173,7 @@ Modèle par défaut : alias `face-landmarker`. Sortie (premier visage, repère �
   "map": "cents=raiseRight*3600; gain=present ? 0.5*raiseLeft : 0" } }
 ```
 
-Attributs communs, plus `max-poses` (1 à 4, défaut `1`). Modèle par défaut : `pose-landmarker` (léger) ; `pose-landmarker-full` et `pose-landmarker-heavy` plus précis, plus lents. Sortie (premier corps, côtés **écran** : `leftWrist` est le poignet du côté gauche de l'écran) :
+Attributs communs, plus `max-poses` (1 à 4, défaut `1` ; clé `params` : `maxPoses`). Modèle par défaut : `pose-landmarker` (léger) ; `pose-landmarker-full` et `pose-landmarker-heavy` plus précis, plus lents. Sortie (premier corps, côtés **écran** : `leftWrist` est le poignet du côté gauche de l'écran) :
 
 | Clé | Contenu |
 |---|---|
@@ -186,7 +196,7 @@ Aucun des deux ne demande de calibration. Les côtés gauche/droite ne sont pas 
   "id": "obj", "for": "cam", "categories": "person,cup", "min-score": "0.45", "hold-ms": "300" } }
 ```
 
-Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…). Attributs communs, plus `max-results` (1 à 20, défaut `5`) et `categories` (liste blanche d'étiquettes séparées par des virgules). `smooth` est sans effet sans `track` (pas d'identité entre images). Modèle par défaut : `object-detector` (EfficientDet-Lite0). Sortie, repère écran, boîtes 0..1 :
+Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…). Attributs communs, plus `max-results` (1 à 20, défaut `5`) et `categories` (liste blanche d'étiquettes séparées par des virgules). `smooth` est sans effet sans `track` (pas d'identité entre images). Clés `params` : `categories`, `maxResults`, `track`, `trackIou`, `trackMaxAgeMs`. Modèle par défaut : `object-detector` (EfficientDet-Lite0). Sortie, repère écran, boîtes 0..1 :
 
 | Clé | Contenu |
 |---|---|
@@ -218,6 +228,8 @@ Segmente la personne (modèle `selfie-segmenter` par défaut). Le masque est une
 | `labels` | Noms des classes d'un modèle perso (autant que de masques, dans l'ordre) ; vide : ceux de l'alias | aucun |
 | `class-stats` | `"true"` : publie `classes.<nom>` = `{ coverage, cx, cy }` pour chaque classe | `false` |
 
+Clés `params` : `threshold`, `mode`, `invert`, `maskIndex` (`auto` ou un indice), `classes`, `labels`, `classStats`.
+
 **Multi-classes.** `model="selfie-multiclass"` (256 × 256) segmente `background`, `hair`, `body-skin`, `face-skin`, `clothes`, `others` ; `deeplab-v3` : 21 catégories de Pascal VOC (`person`, `cat`, `chair`, `tv`…) ; `hair-segmenter` : les cheveux seuls. `classes` forme le masque par **réunion** (confiance maximale pixel par pixel) : un `sonic-mask-replace mask="#seg"` ou un `sonic-shader channel1="#seg"` ne voit que ces classes (recolorer les cheveux, flouter les vêtements, isoler la peau). Un nom inconnu est listé dans `unknownClasses` de la sortie. Exemple : `examples/couleur-cheveux.sdui.json`. Plus un modèle est riche, plus il est lent (le multi-classes est de l'ordre de plusieurs fois le segmenteur de personne) : baisser `fps`.
 
 Le masque est dessiné en repère écran (miroir appliqué comme pour les autres trackers) ; l'image de la caméra lue par le shader, elle, n'est pas retournée si elle vient de la vidéo native : retourner `x` dans le shader (`1.-uv.x`) avec `mirror="false"` sur la caméra. Sortie : `present`, `coverage` (part de l'image), `cx`, `cy`, `x0`, `y0`, `x1`, `y1` (centre et boîte, lissés).
@@ -239,6 +251,8 @@ Segmente l'**objet qui se trouve au point désigné** (modèle interactif de Med
 | `click-on` | Id d'un élément dont un clic ou un toucher désigne le point (position relative à sa boîte) | aucun |
 | `live` | `true` : re-segmente ce qui est sous le point à chaque image ; `false` : une seule fois par point (masque figé) | `true` |
 | `fps` | Cadence maximale (le modèle est lourd) | `8` |
+
+Clés `params` : celles de `sonic-segmenter`, plus `live`.
 
 Sans point : aucun masque et aucun calcul. `live="true"` n'est **pas un suivi d'objet** : l'objet qui bouge quitte le point, il faut le re-désigner (pour un suivi, voir `sonic-object-detector track="true"`). Un point peut aussi venir d'un tap de `sonic-2d` ou d'un autre composant via `point-from`. `setPoint(p | null)` (méthode) désigne ou efface le point. Exemple : `examples/clic-objet.sdui.json`.
 
@@ -273,7 +287,8 @@ Remplace une zone de l'image avec un masque, sans écrire de shader : le **fond 
 | `mirror` | `auto` (retourne une vidéo native, pas un canvas déjà dessiné), `true`, `false` | `auto` |
 | `fps`, `width`, `height` | Images par seconde au plus ; taille du canvas quand il n'y a pas de source | `30`, 640 × 480 |
 | `crop` | `true` (avec `target="background"`) : l'image produite est recadrée sur la zone gardée, avec `effect="cutout"` un sprite à fond transparent | `false` |
-| `out-data-provider` | `{ready, effect, target, mask, regions, box, error}` ; `box` = `{x, y, w, h, cx, cy}` de la zone gardée (0..1 de l'image, lissée, `null` si rien) | — |
+| `params` | DataProvider de réglages en direct, prioritaires sur les attributs (clé retirée : retour à l'attribut ; valeurs bornées, invalides ignorées) : `effect`, `amount`, `target`, `color`, `image`, `withSource`, `feather`, `grow`, `smooth`, `minScore`, `labels`, `maxObjects`, `objectId`, `shape`, `pad`, `crop`, `mirror`, `fps` | aucun |
+| `out-data-provider` | `{status, error, ready, effect, target, mask, regions, box, settings}` ; `status` : `idle` (pas encore d'image source), `ready`, `error` (dessin impossible) ; `error` : message ou `null`, renseigné aussi en `ready` quand une ressource manque (image refusée ou illisible : repli en flou) ; `box` = `{x, y, w, h, cx, cy}` de la zone gardée (0..1 de l'image, lissée, `null` si rien) ; `settings` : réglages effectifs. Publié dès la connexion | — |
 
 **Récupérer la personne (ou un objet) pour la recomposer** : `effect="cutout"` + `target="background"` donne la personne sur fond transparent (un objet détecté seul : `detections` sans `mask`). Le résultat se place ensuite avec l'existant, sans composant de plus : `sonic-sprite shape="image" source="#personne"` dans un `sonic-2d` (calques, parallaxe, `nodes`, caméra, physique) ; la copie, le reflet, l'échelle ou la rotation sont d'autres sprites ou des `nodes`. Sans `crop`, le sprite garde la position de la personne dans l'image (stable) ; avec `crop`, il est serré sur sa boîte (la taille de l'image change donc d'une image à l'autre : le sprite tient dans `w` × `h`, à placer avec `box.cx`/`box.cy`). `box` sert aussi à faire suivre la personne par un autre élément (store, reducer). Voir `examples/recomposition.sdui.json`.
 
@@ -300,6 +315,8 @@ Calcule l'**empreinte numérique** d'une image (MobileNet V3 par défaut, un vec
 | `head` | Tête du modèle dont on lit le vecteur | `0` |
 | `mirror` | Comme le détecteur de `crop` : mettre la même valeur aux deux (une zone en repère écran est retournée vers l'image brute) | `auto` |
 
+Clés `params` : `cropLabels`, `cropMinScore`, `cropPad`, `cropId`, `region`, `head` (recrée le moteur).
+
 | Clé | Contenu |
 |---|---|
 | `present`, `dim` | `1` si une empreinte existe (ou maintenue par `hold-ms`) ; nombre de valeurs |
@@ -320,12 +337,15 @@ Apprend à reconnaître des **poses de main, de corps ou des expressions de visa
 
 Pilotage par le DataProvider `control` (typiquement un `sonic-store`) : `label` (étiquette courante), `record` (compteur : une hausse enregistre `samples` exemples sous `label`), `clear` (compteur : efface `label`, ou tout si `label` est vide), `clearAll` (compteur : efface tout). La première valeur vue sert de référence : rien ne s'enregistre au chargement.
 
+Réglages en direct : `k`, `minConfidence`, `maxDistance`, `window`, `samples`, `sampleMs`, `features`, `hand` sont lus dans `control` et dans `params` (priorité : attribut < `control` < `params` ; valeurs bornées, invalides ignorées ; clé retirée : retour à l'attribut). Dans un même message de `control`, les réglages s'appliquent avant l'action : `{ "label": "a", "samples": 5, "record": 2 }` enregistre 5 exemples.
+
 | Attribut | Rôle | Défaut |
 |---|---|---|
 | `source` | DataProvider de sortie d'un tracker | requis |
 | `features` | `auto` (d'après les clés), `hand`, `pose`, `face` (blendshapes), `embed` (vecteur d'un `sonic-image-embedder` : objets, scènes) | `auto` |
 | `hand` | `any`, `left`, `right` (côté écran) | `any` |
-| `control` | DataProvider de pilotage | aucun |
+| `control` | DataProvider de pilotage (actions et réglages) | aucun |
+| `params` | DataProvider de réglages en direct (prioritaire sur `control`) | aucun |
 | `outputProvider` | DataProvider de sortie | l'id |
 | `k` | Voisins du vote | `3` |
 | `samples` | Exemples pris par enregistrement | `20` |
@@ -335,7 +355,7 @@ Pilotage par le DataProvider `control` (typiquement un `sonic-store`) : `label` 
 | `max-distance` | Distance maximale au plus proche exemple, 0 = sans limite | `0` |
 | `storage` | Clé de mémoire locale (`localStorage`) des exemples ; vide = pas de sauvegarde | aucune |
 
-Sortie : `present`, `label` (stable, vide sans exemples ni confiance), `raw` (dernière image, sans lissage), `confidence`, `scores.<étiquette>`, `match.<étiquette>` (1 pour l'étiquette stable, utile à `sonic-if`), `counts.<étiquette>`, `total`, `recording`, `recordingLabel`, `samplesLeft`. Les étiquettes servent de clés en minuscules (`_` pour les séparateurs). Un enregistrement dont la dimension ne correspond pas aux exemples existants (autre type de source) s'arrête sans rien ajouter.
+Sortie : `status` (`idle` tant que rien n'est reçu de la source, `ready`, `error`), `error` (message ou `null` : enregistrement arrêté parce que la dimension ne correspond pas aux exemples ; effacé au prochain enregistrement ou effacement), `settings` (réglages effectifs), `present`, `label` (stable, vide sans exemples ni confiance), `raw` (dernière image, sans lissage), `confidence`, `scores.<étiquette>`, `match.<étiquette>` (1 pour l'étiquette stable, utile à `sonic-if`), `counts.<étiquette>`, `total`, `recording`, `recordingLabel`, `samplesLeft`. Les étiquettes servent de clés en minuscules (`_` pour les séparateurs). Un enregistrement dont la dimension ne correspond pas aux exemples existants (autre type de source) s'arrête sans rien ajouter.
 
 ## `sonic-landmarks-overlay`
 
@@ -387,7 +407,8 @@ Trois façons de fournir la texture :
 | `color-match` | Correction de couleur vers la peau cible, 0 à 1 | 0,8 |
 | `opacity` | Opacité de la greffe, 0 à 1 | 1 |
 | `width`, `height` | Taille du canvas sans image de fond | 640 × 480 |
-| `out-data-provider` | Publie `{ready, mode, faces, drawn, error}` (`mode` : `swap`, `portrait`, `canonical`, `none`) | aucun |
+| `params` | DataProvider de réglages en direct, prioritaires sur les attributs : `opacity`, `feather`, `colorMatch`, `face` (`all`, `0`, `1` ou nombre), `mirror` ; clé retirée : retour à l'attribut | aucun |
+| `out-data-provider` | Publie `{status, error, ready, mode, faces, drawn, settings}` dès la connexion ; `status` : `idle` (rien dessiné), `ready`, `error` (WebGL indisponible) ; `error` : message ou `null` (aussi en `ready` si la texture est refusée ou illisible) ; `mode` : `swap`, `portrait`, `canonical`, `none` | aucun |
 
 Le composant est lui-même une source d'images (`getFrameCanvas`, `frameSeq`) : on peut le brancher dans `sonic-shader channel0="#id"`. La correction de couleur est ignorée si l'image vient d'une autre origine (canvas « teinté »). Les textures passent par le même filtre d'URL que les autres médias (https, `blob:`, `data:image`, relatif). Aucun HTML n'est injecté et tout se calcule sur l'appareil. Limites : maillage 2D appliqué à plat (pas de relief ni d'éclairage, donc de profil la greffe se déforme), pas de réglage des yeux ni de la bouche à l'intérieur de la texture, et la ressemblance vient de la texture, pas d'un modèle neuronal. À n'utiliser qu'avec des visages dont les personnes sont d'accord.
 

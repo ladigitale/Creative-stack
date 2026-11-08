@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./index";
+import { readTapeSettings, type SonicTape } from "./tape";
 import { HighPass, LeakyIntegrator, RateMapper, deadzone, ema, omegaToRate, scrubRate, TURNTABLE_33_DEG_PER_SEC } from "./mapping";
 import { TapeVoice, reverseBuffer } from "./voice";
 
@@ -201,6 +203,42 @@ describe("sonic-tape", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(el.getState().status).toBe("error");
     expect(el.getState().error).toMatch(/refusée/);
+    el.remove();
+  });
+
+  it("readTapeSettings : réglages reconnus et bornés, le reste ignoré", () => {
+    expect(readTapeSettings({ loop: true, loopStart: -2, loopEnd: "3", gain: 10, pitch: 0.5, rateMode: "omega", rateScale: 200, rateDeadzone: -1, rateSmooth: 80, rate: 2 })).toEqual({
+      loop: true, loopStart: 0, loopEnd: 3, gain: 4, pitch: 0.5, rateMode: "omega", rateScale: 200, rateDeadzone: 0, rateSmooth: 80,
+    });
+    expect(readTapeSettings({ loop: "oui", rateMode: "turbo", gain: "fort" })).toEqual({});
+  });
+
+  it("control : réglages prioritaires sur les attributs, appliqués à la voix et publiés", async () => {
+    const el = document.createElement("sonic-tape") as SonicTape;
+    el.setAttribute("control", "tpC");
+    el.setAttribute("out-data-provider", "tpS");
+    el.setAttribute("gain", "0.5");
+    el.setAttribute("rate-scale", "2");
+    document.body.append(el);
+    await el.updateComplete;
+    const rates: number[] = [];
+    const voice = { loop: false, loopStart: 0, loopEnd: 0, duration: 10, currentRate: 0, position: () => 0, setRate: (r: number) => void rates.push(r), stop() {} };
+    (el as unknown as { voice: unknown }).voice = voice;
+    expect(el.getState().settings).toMatchObject({ gain: 0.5, rateScale: 2, loop: false, pitch: 1 });
+
+    set("tpC", { rate: 1, loop: true, loopStart: 1, loopEnd: 4, pitch: 2, gain: 0.8, rateMode: "omega", rateScale: 100, rateDeadzone: 5, rateSmooth: 0 });
+    expect(voice).toMatchObject({ loop: true, loopStart: 1, loopEnd: 4 });
+    expect(rates.at(-1)).toBe(2); // vitesse 1 × pitch 2
+    expect(el.getState().settings).toEqual({ loop: true, loopStart: 1, loopEnd: 4, gain: 0.8, pitch: 2, rateMode: "omega", rateScale: 100, rateDeadzone: 5, rateSmooth: 0 });
+    expect(get("tpS")).toMatchObject({ settings: { gain: 0.8, pitch: 2, loop: true } });
+    const mapper = (el as unknown as { mapper: { opts: { mode: string; scale: number; deadzone: number; smoothMs: number } } }).mapper;
+    expect(mapper.opts).toMatchObject({ mode: "omega", scale: 100, deadzone: 5, smoothMs: 0 });
+
+    // clés retirées : retour aux attributs
+    set("tpC", { rate: 1 });
+    expect(el.getState().settings).toMatchObject({ gain: 0.5, rateScale: 2, loop: false, pitch: 1, rateMode: "rate" });
+    expect(rates.at(-1)).toBe(1);
+    (el as unknown as { voice: unknown }).voice = null;
     el.remove();
   });
 });

@@ -165,10 +165,11 @@ On the JSONata side, `$cosine(a, b)` and `$rankBySimilarity(items, vectors, quer
 
 | Attribute | Role |
 |---|---|
-| `model` | Allowlist alias (required) |
+| `model` | Allowlist alias (required, unless given by `params.model`) |
 | `inputProvider` | Input: text, list of texts, list of objects (+ `options.text`), image (URL, data URL, Blob), audio (Float32Array, URL) |
 | `outputProvider` | Output (readonly). List in → **aligned** list out (`null` for unusable items) |
 | `options` | JSON `{"text": …, "call": {…}}`. `text`: paths to concatenate (`"label + edito.sub_title"`, arrays flattened). `call`: pipeline options, validated per task |
+| `params` | DataProvider `{ model, options }` (live settings, see [Driving by DataProvider](#driving-by-dataprovider)) |
 | `load` | `auto` · `idle` · `visible` · `first-use` (default) · `consent` · `manual` |
 | `trigger` | `mutation` (default) · `demand` |
 | `debounce` | Debounce (ms) for `mutation` |
@@ -229,13 +230,45 @@ Detailed status on `statusProvider`:
 | Field | Content |
 |---|---|
 | `state` | `idle` · `empty` · `awaiting-consent` · `declined` · `downloading` · `loading` · `ready` · `running` · `done` · `invalid-input` · `error` · `unsupported` |
+| `status` | Same value as `state` (the `status` / `error` convention shared by the other components) |
 | `size` | `{ totalBytes, totalMB, fromCache }` — known **before** download |
 | `progress` | `{ loadedBytes, totalBytes, percent, file }` while downloading |
 | `backend` | `webgpu` or `wasm` |
 | `skipped` · `warnings` | Skipped items, truncated texts |
 | `timings` | `{ loadMs, lastRunMs }` |
 | `fromResultsCache` | Result served from cache |
-| `error` | `{ code, message }` — `invalid-input`, `too-large`, `not-allowed`, `quota`, `timeout`, `network`, `runtime` |
+| `error` | `{ code, message }` — `config`, `invalid-input`, `too-large`, `not-allowed`, `quota`, `timeout`, `network`, `runtime` |
+
+### Configuration errors
+
+When the component cannot start, `statusProvider` receives `{ state: "error", status: "error", model: { alias }, size: { totalBytes: null, totalMB: null, fromCache: false }, error: { code, message } }`:
+
+| Cause | `error.code` |
+|---|---|
+| `configureHuggingFace()` not called | `config` |
+| No model (attribute or `params.model`), no `inputProvider` or `outputProvider` | `config` |
+| Output overlapping the input, unreadable `params` | `config` |
+| Alias not in the allowlist | `not-allowed` |
+| `options.call` rejected by the task schema | `invalid-input` (published as soon as the component starts) |
+
+A later valid configuration (attributes, `params`, or `configureHuggingFace()`) restarts the component and replaces the error.
+
+## Driving by DataProvider
+
+`params` points to a DataProvider `{ model, options }`. Its keys override the `model` and `options` attributes (an absent key keeps the attribute; `options: null` removes the attribute's options). `options` may be an object or a JSON string. Each actual change (deep comparison) stops the controller and restarts it with the new model and options; republishing the same value does nothing. Limits and loading policy stay on the attributes and in the application config: `params` cannot raise them.
+
+<sonic-code language="html">
+  <template>
+&lt;sonic-hugging-face-infer
+  model="event-labels"
+  params="aiSettings"
+  inputProvider="listing.description"
+  outputProvider="listing.labels"
+  statusProvider="labelsAiStatus"
+&gt;&lt;/sonic-hugging-face-infer&gt;
+&lt;!-- aiSettings = { "model": "event-labels-multilingual", "options": { "call": { "candidate_labels": ["concert", "theatre"] } } } --&gt;
+  </template>
+</sonic-code>
 
 ## Empty or invalid inputs
 

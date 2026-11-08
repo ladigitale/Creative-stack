@@ -1,5 +1,5 @@
 /** Addon predict : entraîner un modèle de prédiction dans le navigateur, puis l'utiliser. */
-export { SonicTrain, type TrainState } from "./train-element";
+export { SonicTrain, readTrainSettings, type TrainState, type TrainSettings } from "./train-element";
 export { SonicPredict, type PredictState } from "./predict";
 export { Trainer, type TrainOptions } from "./train";
 export { loadModel, predictRow, toModel, MODEL_FORMAT, type Model, type Prediction } from "./model";

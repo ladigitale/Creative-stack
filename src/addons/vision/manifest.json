@@ -27,7 +27,7 @@
   "components": [
     {
       "name": "sonic-hand-tracker",
-      "description": "Suit jusqu'à 2 mains dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : count, left/right {present, x, y, z, tipX, tipY, pinch, openness, roll, thumb/index/middle/ring/pinky (ouverture de chaque doigt 0..1), fingerCount (doigts tendus 0..5), pinchMiddle/pinchRing/pinchPinky, spread (écartement), gesture, gestureScore}, hands[].landmarks/world (21 points) ; map = clés dérivées sans latence (« cents=right.x*3600 ; gain=left.present ? 1-left.y : 0 ») ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync)",
+      "description": "Suit jusqu'à 2 mains dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : count, left/right {present, x, y, z, tipX, tipY, pinch, openness, roll, thumb/index/middle/ring/pinky (ouverture de chaque doigt 0..1), fingerCount (doigts tendus 0..5), pinchMiddle/pinchRing/pinchPinky, spread (écartement), gesture, gestureScore}, hands[].landmarks/world (21 points) ; map = clés dérivées sans latence (« cents=right.x*3600 ; gain=left.present ? 1-left.y : 0 ») ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync) ; params = DataProvider de réglages en direct, prioritaires sur les attributs (clé retirée : retour à l'attribut) : minScore, smooth, holdMs, fps, mirror, maxHands, gestures (ceux qui changent le modèle — minScore et les nombres maximaux, categories, gestures, head — recréent le moteur, regroupés en un rechargement) ; control = DataProvider de pilotage {active (false : inférence en pause), load (compteur : une hausse charge le modèle, pour load=\"manual\"), réglages sous params} ; le statut ajoute status idle|requesting|ready|denied|error|unsupported, active, settings (réglages effectifs)",
       "props": {
         "for": {
           "type": "string"
@@ -82,12 +82,18 @@
         },
         "thread": {
           "type": "string"
+        },
+        "params": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
         }
       }
     },
     {
       "name": "sonic-face-tracker",
-      "description": "Suit 1 ou 2 visages dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, x, y, z (nez), size, yaw/pitch/roll -1..1, mouthOpen, smile, pucker, browUp, browDown, blinkLeft, blinkRight (côtés écran), gazeX, gazeY, blend.<52 blendshapes MediaPipe> 0..1, faces[].blend ; landmarks=\"true\" ajoute faces[].landmarks (478 points) ; map = clés dérivées sans latence (« cut=300+mouthOpen*5000 ») ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync)",
+      "description": "Suit 1 ou 2 visages dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, x, y, z (nez), size, yaw/pitch/roll -1..1, mouthOpen, smile, pucker, browUp, browDown, blinkLeft, blinkRight (côtés écran), gazeX, gazeY, blend.<52 blendshapes MediaPipe> 0..1, faces[].blend ; landmarks=\"true\" ajoute faces[].landmarks (478 points) ; map = clés dérivées sans latence (« cut=300+mouthOpen*5000 ») ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync) ; params = DataProvider de réglages en direct, prioritaires sur les attributs (clé retirée : retour à l'attribut) : minScore, smooth, holdMs, fps, mirror, maxFaces, landmarks (ceux qui changent le modèle — minScore et les nombres maximaux, categories, gestures, head — recréent le moteur, regroupés en un rechargement) ; control = DataProvider de pilotage {active (false : inférence en pause), load (compteur : une hausse charge le modèle, pour load=\"manual\"), réglages sous params} ; le statut ajoute status idle|requesting|ready|denied|error|unsupported, active, settings (réglages effectifs)",
       "props": {
         "for": {
           "type": "string"
@@ -142,12 +148,18 @@
         },
         "landmarks": {
           "type": "string"
+        },
+        "params": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
         }
       }
     },
     {
       "name": "sonic-pose-tracker",
-      "description": "Suit le corps (33 points) dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, x, y (centre des hanches), raiseLeft/raiseRight 0..1 (poignet : hanche 0, épaule 0,5, au-dessus 1), span (écart des poignets / largeur d'épaules), lean -1..1, elbowLeft/elbowRight/kneeLeft/kneeRight (extension de l'articulation 0 fléchie..1 tendue), squat 0..1 (flexion des genoux), joints.<nom>.{x,y,z,v} (nose, leftShoulder, rightWrist… 33 noms, côtés écran), poses[].landmarks ; map = clés dérivées sans latence (« cents=raiseRight*3600 ») ; modèles pose-landmarker (léger), pose-landmarker-full, pose-landmarker-heavy ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync)",
+      "description": "Suit le corps (33 points) dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, x, y (centre des hanches), raiseLeft/raiseRight 0..1 (poignet : hanche 0, épaule 0,5, au-dessus 1), span (écart des poignets / largeur d'épaules), lean -1..1, elbowLeft/elbowRight/kneeLeft/kneeRight (extension de l'articulation 0 fléchie..1 tendue), squat 0..1 (flexion des genoux), joints.<nom>.{x,y,z,v} (nose, leftShoulder, rightWrist… 33 noms, côtés écran), poses[].landmarks ; map = clés dérivées sans latence (« cents=raiseRight*3600 ») ; modèles pose-landmarker (léger), pose-landmarker-full, pose-landmarker-heavy ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync) ; params = DataProvider de réglages en direct, prioritaires sur les attributs (clé retirée : retour à l'attribut) : minScore, smooth, holdMs, fps, mirror, maxPoses (ceux qui changent le modèle — minScore et les nombres maximaux, categories, gestures, head — recréent le moteur, regroupés en un rechargement) ; control = DataProvider de pilotage {active (false : inférence en pause), load (compteur : une hausse charge le modèle, pour load=\"manual\"), réglages sous params} ; le statut ajoute status idle|requesting|ready|denied|error|unsupported, active, settings (réglages effectifs)",
       "props": {
         "for": {
           "type": "string"
@@ -199,12 +211,18 @@
         },
         "max-poses": {
           "type": "number"
+        },
+        "params": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
         }
       }
     },
     {
       "name": "sonic-object-detector",
-      "description": "Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…) dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, label/score/x/y/w/h/cx/cy du meilleur objet, labels.<étiquette> = nombre d'objets (étiquette en minuscules, _ pour les séparateurs), objects[] {label, score, x, y, w, h, cx, cy} en 0..1 repère écran ; categories=\"person,cup\" filtre ; max-results ; min-score ; hold-ms ; map = clés dérivées sans latence ; track=\"true\" donne à chaque objet un id stable entre images (objects[].id, ageMs, ids = ids dans l'ordre, id/ageMs du meilleur ; track-iou 0.3 = recouvrement minimal, track-max-age-ms 500 = un objet disparu garde son id) et lisse sa boîte avec smooth (sans track, smooth sans effet) ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync)",
+      "description": "Détecte des objets (80 classes COCO : personne, tasse, téléphone, chaise…) dans une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, count, label/score/x/y/w/h/cx/cy du meilleur objet, labels.<étiquette> = nombre d'objets (étiquette en minuscules, _ pour les séparateurs), objects[] {label, score, x, y, w, h, cx, cy} en 0..1 repère écran ; categories=\"person,cup\" filtre ; max-results ; min-score ; hold-ms ; map = clés dérivées sans latence ; track=\"true\" donne à chaque objet un id stable entre images (objects[].id, ageMs, ids = ids dans l'ordre, id/ageMs du meilleur ; track-iou 0.3 = recouvrement minimal, track-max-age-ms 500 = un objet disparu garde son id) et lisse sa boîte avec smooth (sans track, smooth sans effet) ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync) ; params = DataProvider de réglages en direct, prioritaires sur les attributs (clé retirée : retour à l'attribut) : minScore, smooth, holdMs, fps, mirror, categories, maxResults, track, trackIou, trackMaxAgeMs (ceux qui changent le modèle — minScore et les nombres maximaux, categories, gestures, head — recréent le moteur, regroupés en un rechargement) ; control = DataProvider de pilotage {active (false : inférence en pause), load (compteur : une hausse charge le modèle, pour load=\"manual\"), réglages sous params} ; le statut ajoute status idle|requesting|ready|denied|error|unsupported, active, settings (réglages effectifs)",
       "props": {
         "for": {
           "type": "string"
@@ -271,12 +289,18 @@
         "track-max-age-ms": {
           "type": "number",
           "description": "Un objet disparu garde son id pendant cette durée en ms (500)"
+        },
+        "params": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
         }
       }
     },
     {
       "name": "sonic-segmenter",
-      "description": "Segmente la personne dans une source d'images (for=\"cam\") : le masque est une SOURCE D'IMAGES lue par sonic-shader (channel1=\"#seg\", mode gray : r=g=b=masque, ou alpha : blanc + alpha = masque ; invert) ; sortie dans output-provider (défaut = id) : present, coverage 0..1, cx, cy, x0, y0, x1, y1 (repère écran, lissés) ; threshold des statistiques ; mask-index si le modèle fournit plusieurs masques (auto : le dernier) ; MULTI-CLASSES (model=\"selfie-multiclass\" : background, hair, body-skin, face-skin, clothes, others ; \"deeplab-v3\" : 21 catégories ; \"hair-segmenter\") : classes=\"hair,clothes\" (noms ou indices) forme le masque par réunion, sans classes : tout sauf l'arrière-plan ; class-stats=\"true\" publie classes.<nom>.{coverage,cx,cy} ; labels pour un modèle perso ; unknownClasses signale un nom inconnu ; map = clés dérivées ; modèle par défaut selfie-segmenter ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync)",
+      "description": "Segmente la personne dans une source d'images (for=\"cam\") : le masque est une SOURCE D'IMAGES lue par sonic-shader (channel1=\"#seg\", mode gray : r=g=b=masque, ou alpha : blanc + alpha = masque ; invert) ; sortie dans output-provider (défaut = id) : present, coverage 0..1, cx, cy, x0, y0, x1, y1 (repère écran, lissés) ; threshold des statistiques ; mask-index si le modèle fournit plusieurs masques (auto : le dernier) ; MULTI-CLASSES (model=\"selfie-multiclass\" : background, hair, body-skin, face-skin, clothes, others ; \"deeplab-v3\" : 21 catégories ; \"hair-segmenter\") : classes=\"hair,clothes\" (noms ou indices) forme le masque par réunion, sans classes : tout sauf l'arrière-plan ; class-stats=\"true\" publie classes.<nom>.{coverage,cx,cy} ; labels pour un modèle perso ; unknownClasses signale un nom inconnu ; map = clés dérivées ; modèle par défaut selfie-segmenter ; statut dans status-provider (défaut <id>State) : phase idle|awaiting-consent|declined|downloading|loading|ready|error|unsupported, error {code, message}, backend gpu|cpu, thread worker|main, download {loaded, total}, fps, latencyMs, consent {key, origin, url} ; consent-provider accepted|declined ; inférence locale dans un worker (repli fil principal), modèle téléchargé, plafonné et vérifié par model-sha256 ; aucune image n'est envoyée ; publie aussi frameSeq, frameTime, capturedAt, latencyMs (identité de l'image analysée, pour sonic-frame-sync) ; params = DataProvider de réglages en direct, prioritaires sur les attributs (clé retirée : retour à l'attribut) : minScore, smooth, holdMs, fps, mirror, threshold, mode, invert, maskIndex, classes, labels, classStats (ceux qui changent le modèle — minScore et les nombres maximaux, categories, gestures, head — recréent le moteur, regroupés en un rechargement) ; control = DataProvider de pilotage {active (false : inférence en pause), load (compteur : une hausse charge le modèle, pour load=\"manual\"), réglages sous params} ; le statut ajoute status idle|requesting|ready|denied|error|unsupported, active, settings (réglages effectifs)",
       "props": {
         "for": {
           "type": "string"
@@ -349,12 +373,18 @@
         "class-stats": {
           "type": "string",
           "description": "\"true\" : publie classes.<nom> = {coverage, cx, cy} pour chaque classe d'un modèle multi-classes"
+        },
+        "params": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
         }
       }
     },
     {
       "name": "sonic-click-segmenter",
-      "description": "Segmente l'objet qui se trouve au point désigné (clic, toucher, DataProvider) : modèle interactif MediaPipe (alias interactive-segmenter), pas de liste de catégories. Même sortie et même contrat que sonic-segmenter (le masque est une SOURCE D'IMAGES : sonic-mask-replace mask=\"#id\", sonic-shader channel1=\"#id\" ; mode gray|alpha, invert, threshold ; present, coverage, cx, cy, x0, y0, x1, y1 ; statut, consentement, worker), plus point {x,y}|null dans la sortie. Le point est en coordonnées d'écran 0..1 (miroir compris) : point=\"0.5,0.4\", point-from=\"chemin\" (DataProvider {x,y} ou \"x,y\"), ou click-on=\"#id\" (un clic / toucher sur cet élément, ex. sonic-mask-replace ou la caméra) ; sans point, aucun masque et aucun calcul. live=\"true\" (défaut) re-segmente ce qui est sous le point à chaque image (pas un suivi d'objet) ; live=\"false\" fige le masque par point. fps 8 par défaut (modèle lourd). Inférence locale, aucune image envoyée",
+      "description": "Segmente l'objet qui se trouve au point désigné (clic, toucher, DataProvider) : modèle interactif MediaPipe (alias interactive-segmenter), pas de liste de catégories. Même sortie et même contrat que sonic-segmenter (le masque est une SOURCE D'IMAGES : sonic-mask-replace mask=\"#id\", sonic-shader channel1=\"#id\" ; mode gray|alpha, invert, threshold ; present, coverage, cx, cy, x0, y0, x1, y1 ; statut, consentement, worker), plus point {x,y}|null dans la sortie. Le point est en coordonnées d'écran 0..1 (miroir compris) : point=\"0.5,0.4\", point-from=\"chemin\" (DataProvider {x,y} ou \"x,y\"), ou click-on=\"#id\" (un clic / toucher sur cet élément, ex. sonic-mask-replace ou la caméra) ; sans point, aucun masque et aucun calcul. live=\"true\" (défaut) re-segmente ce qui est sous le point à chaque image (pas un suivi d'objet) ; live=\"false\" fige le masque par point. fps 8 par défaut (modèle lourd). Inférence locale, aucune image envoyée ; params = DataProvider de réglages en direct, prioritaires sur les attributs (clé retirée : retour à l'attribut) : minScore, smooth, holdMs, fps, mirror, threshold, mode, invert, maskIndex, classes, labels, classStats, live (ceux qui changent le modèle — minScore et les nombres maximaux, categories, gestures, head — recréent le moteur, regroupés en un rechargement) ; control = DataProvider de pilotage {active (false : inférence en pause), load (compteur : une hausse charge le modèle, pour load=\"manual\"), réglages sous params} ; le statut ajoute status idle|requesting|ready|denied|error|unsupported, active, settings (réglages effectifs)",
       "props": {
         "for": {
           "type": "string"
@@ -419,12 +449,18 @@
         "live": {
           "type": "string",
           "description": "\"true\" (défaut) : segmente à chaque image ; \"false\" : une seule fois par point"
+        },
+        "params": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
         }
       }
     },
     {
       "name": "sonic-image-embedder",
-      "description": "Empreinte numérique d'une image (MobileNet V3 par défaut, ~1 024 nombres : des images qui se ressemblent ont des vecteurs proches) pour une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, dim, vector (unitaire, 4 décimales), norm (norme brute), similarity (cosinus avec reference, 0 sans référence) + frameSeq/frameTime/capturedAt/latencyMs ; crop=<DP d'un sonic-object-detector> (crop-labels, crop-min-score, crop-pad, crop-id = id d'un détecteur en track=\"true\" : suit cet objet précis) analyse seulement l'objet détecté, region=\"x,y,w,h\" une zone fixe ; smooth (0.3) lisse le vecteur, hold-ms (300) ; fps 5 par défaut ; map = clés dérivées ; sonic-example-classifier features=\"embed\" apprend des classes d'objets à partir de ces vecteurs ; statut dans status-provider (défaut <id>State) ; inférence locale, mêmes règles de modèle, consentement et téléchargement que les autres trackers",
+      "description": "Empreinte numérique d'une image (MobileNet V3 par défaut, ~1 024 nombres : des images qui se ressemblent ont des vecteurs proches) pour une source d'images (for=\"cam\") ; sortie dans output-provider (défaut = id) : present, dim, vector (unitaire, 4 décimales), norm (norme brute), similarity (cosinus avec reference, 0 sans référence) + frameSeq/frameTime/capturedAt/latencyMs ; crop=<DP d'un sonic-object-detector> (crop-labels, crop-min-score, crop-pad, crop-id = id d'un détecteur en track=\"true\" : suit cet objet précis) analyse seulement l'objet détecté, region=\"x,y,w,h\" une zone fixe ; smooth (0.3) lisse le vecteur, hold-ms (300) ; fps 5 par défaut ; map = clés dérivées ; sonic-example-classifier features=\"embed\" apprend des classes d'objets à partir de ces vecteurs ; statut dans status-provider (défaut <id>State) ; inférence locale, mêmes règles de modèle, consentement et téléchargement que les autres trackers ; params = DataProvider de réglages en direct, prioritaires sur les attributs (clé retirée : retour à l'attribut) : minScore, smooth, holdMs, fps, mirror, cropLabels, cropMinScore, cropPad, cropId, region, head (ceux qui changent le modèle — minScore et les nombres maximaux, categories, gestures, head — recréent le moteur, regroupés en un rechargement) ; control = DataProvider de pilotage {active (false : inférence en pause), load (compteur : une hausse charge le modèle, pour load=\"manual\"), réglages sous params} ; le statut ajoute status idle|requesting|ready|denied|error|unsupported, active, settings (réglages effectifs)",
       "props": {
         "for": {
           "type": "string"
@@ -505,6 +541,12 @@
         "crop-id": {
           "type": "number",
           "description": "id (sonic-object-detector track=\"true\") de l'objet à analyser ; 0 : la meilleure boîte retenue"
+        },
+        "params": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
         }
       }
     },
@@ -555,7 +597,7 @@
     },
     {
       "name": "sonic-face-mesh",
-      "description": "Greffe un visage sur le visage suivi : dessine en WebGL le maillage de 468 points d'un sonic-face-tracker (landmarks=\"true\", source = son DataProvider) avec une texture, déformé comme le visage (pose, bouche, yeux), correction de couleur (color-match) et bords estompés (feather). Trois sources de texture : échange (défaut ; background=\"synced\" + max-faces=\"2\" côté tracker, chacun prend le visage de l'autre), portrait (texture-source=\"#img\" + texture-landmarks = DataProvider d'un second tracker qui analyse cette image), à plat (texture = image sur le modèle canonique MediaPipe, pour masques) ; background = source d'images dessinée dessous (sonic-camera, sonic-frame-sync) ; face all|0|1 ; opacity ; est lui-même une source d'images (getFrameCanvas, frameSeq) ; out-data-provider publie {ready, mode swap|portrait|canonical|none, faces, drawn, error} ; calcul local, aucun HTML injecté, URL de texture filtrées (https, blob:, data:image, relative)",
+      "description": "Greffe un visage sur le visage suivi : dessine en WebGL le maillage de 468 points d'un sonic-face-tracker (landmarks=\"true\", source = son DataProvider) avec une texture, déformé comme le visage (pose, bouche, yeux), correction de couleur (color-match) et bords estompés (feather). Trois sources de texture : échange (défaut ; background=\"synced\" + max-faces=\"2\" côté tracker, chacun prend le visage de l'autre), portrait (texture-source=\"#img\" + texture-landmarks = DataProvider d'un second tracker qui analyse cette image), à plat (texture = image sur le modèle canonique MediaPipe, pour masques) ; background = source d'images dessinée dessous (sonic-camera, sonic-frame-sync) ; face all|0|1 ; opacity ; est lui-même une source d'images (getFrameCanvas, frameSeq) ; out-data-provider publie {status idle|ready|error, error (null sans erreur), ready, mode swap|portrait|canonical|none, faces, drawn, settings} ; params = DataProvider de réglages en direct, prioritaires sur les attributs : opacity, feather, colorMatch, face, mirror ; calcul local, aucun HTML injecté, URL de texture filtrées (https, blob:, data:image, relative)",
       "props": {
         "source": {
           "type": "string"
@@ -595,12 +637,15 @@
         },
         "out-data-provider": {
           "type": "string"
+        },
+        "params": {
+          "type": "string"
         }
       }
     },
     {
       "name": "sonic-mask-replace",
-      "description": "Remplace une zone d'une image avec un masque : le fond derrière la personne (mask=\"#seg\", un sonic-segmenter ; mode alpha ou gray) ou les objets détectés (detections = DataProvider d'un sonic-object-detector, labels = étiquettes, min-score, max-objects, object-id (id d'un détecteur en track=\"true\" : seul cet objet), shape ellipse|rect, pad). source = source d'images à modifier (sonic-camera, sonic-frame-sync) ; target background (garde la zone masquée, remplace le reste) | subject (remplace la zone masquée) ; effect blur | pixelate (amount 0..1) | color (color CSS) | image (image = URL https, blob:, data:image, relative) | source (with-source = autre source d'images : vidéo, shader, canvas) | cutout (zone transparente) | fill (la zone remplacée est reconstruite depuis les couleurs autour, par diffusion : une personne retirée d'une photo) ; feather adoucit les bords, grow élargit / rétrécit la zone (px), smooth lisse le masque dans le temps, mirror auto|true|false, fps ; est lui-même une source d'images (getFrameCanvas, frameSeq) ; crop=\"true\" (avec target background) recadre l'image sur la zone gardée : un sprite (la personne, un objet) à recomposer dans sonic-2d via sonic-sprite source=\"#id\" ; out-data-provider publie {ready, effect, target, mask, regions, box {x, y, w, h, cx, cy} (zone gardée, 0..1, lissée), error} ; canvas 2D local, aucun HTML injecté",
+      "description": "Remplace une zone d'une image avec un masque : le fond derrière la personne (mask=\"#seg\", un sonic-segmenter ; mode alpha ou gray) ou les objets détectés (detections = DataProvider d'un sonic-object-detector, labels = étiquettes, min-score, max-objects, object-id (id d'un détecteur en track=\"true\" : seul cet objet), shape ellipse|rect, pad). source = source d'images à modifier (sonic-camera, sonic-frame-sync) ; target background (garde la zone masquée, remplace le reste) | subject (remplace la zone masquée) ; effect blur | pixelate (amount 0..1) | color (color CSS) | image (image = URL https, blob:, data:image, relative) | source (with-source = autre source d'images : vidéo, shader, canvas) | cutout (zone transparente) | fill (la zone remplacée est reconstruite depuis les couleurs autour, par diffusion : une personne retirée d'une photo) ; feather adoucit les bords, grow élargit / rétrécit la zone (px), smooth lisse le masque dans le temps, mirror auto|true|false, fps ; est lui-même une source d'images (getFrameCanvas, frameSeq) ; crop=\"true\" (avec target background) recadre l'image sur la zone gardée : un sprite (la personne, un objet) à recomposer dans sonic-2d via sonic-sprite source=\"#id\" ; out-data-provider publie {status idle|ready|error, error (null sans erreur ; renseigné aussi en ready si une ressource manque), ready, effect, target, mask, regions, box {x, y, w, h, cx, cy} (zone gardée, 0..1, lissée), settings} ; params = DataProvider de réglages en direct, prioritaires sur les attributs : effect, amount, target, color, image, withSource, feather, grow, smooth, minScore, labels, maxObjects, objectId, shape, pad, crop, mirror, fps ; canvas 2D local, aucun HTML injecté",
       "props": {
         "source": {
           "type": "string"
@@ -676,12 +721,15 @@
         "grow": {
           "type": "number",
           "description": "Élargit (> 0) ou rétrécit (< 0) la zone masquée de n pixels de l'image (-24 à 24), avant feather ; fill : positif (la frange de la personne ne reste pas dans le fond), cutout : négatif (le fond ne reste pas sur ses bords)"
+        },
+        "params": {
+          "type": "string"
         }
       }
     },
     {
       "name": "sonic-example-classifier",
-      "description": "Apprend à reconnaître des poses de main / de corps ou des expressions de visage à partir d'EXEMPLES enregistrés par l'utilisateur (k plus proches voisins, sans modèle ni réseau), à partir de la sortie d'un tracker (source=\"hand\" ; invariant à la position et à l'échelle) ; pilotage par le DataProvider control {label, record, clear, clearAll} (compteurs : une hausse enregistre `samples` exemples sous `label`, efface `label` ou tout) ; sortie dans output-provider (défaut = id) : present, label (stable, vote des `window` dernières images), raw, confidence, scores.<étiquette>, match.<étiquette> 0|1, counts, total, recording, recordingLabel, samplesLeft ; features auto|hand|pose|face|embed (embed : le vecteur d'un sonic-image-embedder, pour reconnaître des objets ou des scènes), hand any|left|right, k, sample-ms, min-confidence, max-distance (0 = sans limite), storage = clé de mémoire locale des exemples",
+      "description": "Apprend à reconnaître des poses de main / de corps ou des expressions de visage à partir d'EXEMPLES enregistrés par l'utilisateur (k plus proches voisins, sans modèle ni réseau), à partir de la sortie d'un tracker (source=\"hand\" ; invariant à la position et à l'échelle) ; pilotage par le DataProvider control {label, record, clear, clearAll} (compteurs : une hausse enregistre `samples` exemples sous `label`, efface `label` ou tout) ; sortie dans output-provider (défaut = id) : present, label (stable, vote des `window` dernières images), raw, confidence, scores.<étiquette>, match.<étiquette> 0|1, counts, total, recording, recordingLabel, samplesLeft ; features auto|hand|pose|face|embed (embed : le vecteur d'un sonic-image-embedder, pour reconnaître des objets ou des scènes), hand any|left|right, k, sample-ms, min-confidence, max-distance (0 = sans limite), storage = clé de mémoire locale des exemples ; control et params (prioritaire) portent aussi les réglages en direct : k, minConfidence, maxDistance, window, samples, sampleMs, features, hand ; la sortie ajoute status idle|ready|error, error (enregistrement arrêté : dimension incompatible), settings",
       "props": {
         "source": {
           "type": "string"
@@ -718,6 +766,9 @@
           "type": "number"
         },
         "storage": {
+          "type": "string"
+        },
+        "params": {
           "type": "string"
         }
       }

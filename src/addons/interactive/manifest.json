@@ -168,7 +168,7 @@
     },
     {
       "name": "sonic-trigger",
-      "description": "Relie un capteur à une action : surveille une valeur d'un DataProvider (source + key en chemin pointé : labels.person, right.gesture, db, faces.0.blend.jawOpen) et envoie une action au sonic-store target quand la condition tient (equals, not, gt, gte, lt, lte, truthy ; plusieurs opérateurs = ET) pendant hold-ms ; un seul déclenchement par franchissement (mode edge, réarmé au retour à faux) ou à chaque repos (mode repeat), cooldown-ms entre deux ; action {type, payload = payload JSON + value (valeur lue) + count} ; end-type = action au retour à faux ; disabled suspend ; state-provider publie {active, armed, count, value, note, vel} ; pas d'évaluation de code ; sortie MIDI directe : emit=note|noteOn (tenue jusqu'au retour à faux puis noteOff) avec emit-provider (→ events de sonic-midi) et emit-trigger (→ trigger de sonic-midi) ; hauteur fixe (note) ou lue dans la source (note-key 0..1, note-range bas,haut, scale en demi-tons) ; vélocité depuis vel-source/vel-key (ex. sonic-motion vel), plancher vel-min ; dur-s, ch",
+      "description": "Relie un capteur à une action : surveille une valeur d'un DataProvider (source + key en chemin pointé : labels.person, right.gesture, db, faces.0.blend.jawOpen) et envoie une action au sonic-store target quand la condition tient (equals, not, gt, gte, lt, lte, truthy ; plusieurs opérateurs = ET) pendant hold-ms ; un seul déclenchement par franchissement (mode edge, réarmé au retour à faux) ou à chaque repos (mode repeat), cooldown-ms entre deux ; action {type, payload = payload JSON + value (valeur lue) + count} ; end-type = action au retour à faux ; disabled suspend ; params (DP) {equals, not, gt, gte, lt, lte, truthy, holdMs, cooldownMs, mode, disabled} en direct, prioritaire sur les attributs ; state-provider (ou out-data-provider) publie {status: idle|ready|error, error, disabled, active, armed, count, value, note, vel, settings} ; pas d'évaluation de code ; sortie MIDI directe : emit=note|noteOn (tenue jusqu'au retour à faux puis noteOff) avec emit-provider (→ events de sonic-midi) et emit-trigger (→ trigger de sonic-midi) ; hauteur fixe (note) ou lue dans la source (note-key 0..1, note-range bas,haut, scale en demi-tons) ; vélocité depuis vel-source/vel-key (ex. sonic-motion vel), plancher vel-min ; dur-s, ch",
       "props": {
         "source": {
           "type": "string"
@@ -221,6 +221,10 @@
         "disabled": {
           "type": "boolean"
         },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {equals, not, gt, gte, lt, lte, truthy, holdMs, cooldownMs, mode, disabled}"
+        },
         "state-provider": {
           "type": "string"
         },
@@ -259,6 +263,10 @@
         },
         "ch": {
           "type": "number"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "Même état que state-provider"
         }
       }
     },

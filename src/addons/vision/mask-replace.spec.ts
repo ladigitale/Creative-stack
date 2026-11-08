@@ -342,3 +342,66 @@ describe("sonic-mask-replace", () => {
     for (const e of ["fond-virtuel", "masquer-objet", "recomposition", "suivre-objet", "mes-objets"]) expect(listed).toContain(`examples/${e}.sdui.json`);
   });
 });
+
+describe("sonic-mask-replace : params et état", () => {
+  const state = (id: string) => (dp(id) as { get?: () => unknown }).get?.() as Record<string, unknown>;
+
+  it("état complet dès la connexion : status idle, error null, réglages effectifs", async () => {
+    await mount({ source: "absent", "out-data-provider": "mrs0", effect: "pixelate" });
+    expect(state("mrs0")).toMatchObject({ status: "idle", error: null, ready: false, settings: { effect: "pixelate", amount: 0.5, target: "background" } });
+  });
+
+  it("params en direct : effet, couleur, cible, forme… prioritaires sur les attributs ; clé retirée → attribut", async () => {
+    addCanvasSource("cam");
+    addCanvasSource("seg", 64, 64, { mode: "alpha" });
+    dp("mrsP").set({ effect: "color", color: "#00f", target: "subject", feather: 0, smooth: 0, grow: 99, shape: "carré" });
+    const { el, canvas } = await mount({ source: "cam", mask: "seg", effect: "blur", params: "mrsP", "out-data-provider": "mrs1" });
+    expect(el).toMatchObject({ effect: "color", color: "#00f", target: "subject", grow: 24, shape: "ellipse" });
+    el.draw();
+    expect(callsOf(canvas, "set:fillStyle").at(-1)?.[1]).toBe("#00f");
+    expect(state("mrs1")).toMatchObject({ status: "ready", error: null, effect: "color", target: "subject", settings: { color: "#00f", grow: 24 } });
+
+    el.setAttribute("effect", "pixelate");
+    await el.updateComplete;
+    expect(el.effect).toBe("color"); // params reste prioritaire
+    dp("mrsP").set({ amount: 0.9 });
+    await el.updateComplete;
+    expect(el).toMatchObject({ effect: "pixelate", amount: 0.9, target: "background" });
+    el.draw();
+    expect(state("mrs1")).toMatchObject({ effect: "pixelate", settings: { amount: 0.9 } });
+  });
+
+  it("params.image : l'image est chargée (URL filtrée), erreur publiée en status ready (repli)", async () => {
+    addCanvasSource("cam");
+    addCanvasSource("seg", 64, 64, { mode: "alpha" });
+    dp("mrsI").set({ effect: "image", image: "javascript:alert(1)" });
+    const { el } = await mount({ source: "cam", mask: "seg", params: "mrsI", "out-data-provider": "mrs2" });
+    el.draw();
+    expect(state("mrs2")).toMatchObject({ status: "ready", error: "URL d'image refusée", effect: "image" });
+    dp("mrsI").set({ effect: "image", image: "https://example.com/fond.jpg" });
+    await el.updateComplete;
+    el.draw();
+    expect(state("mrs2")).toMatchObject({ error: null });
+  });
+
+  it("canvas 2D indisponible : status error", async () => {
+    addCanvasSource("cam");
+    const { el } = await mount({ source: "cam", "out-data-provider": "mrs3" });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    el.draw();
+    expect(state("mrs3")).toMatchObject({ status: "error", error: "Canvas 2D indisponible", ready: false });
+  });
+
+  it("params labels / minScore : objets retenus en direct", async () => {
+    addCanvasSource("cam");
+    dp("mrsDet").set({ objects: [{ label: "cup", score: 0.5, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }] });
+    dp("mrsL").set({ labels: "cup", minScore: 0.6 });
+    const { el } = await mount({ source: "cam", detections: "mrsDet", params: "mrsL", feather: "0", smooth: "0", "out-data-provider": "mrs4" });
+    el.draw();
+    expect(state("mrs4")).toMatchObject({ regions: 0 });
+    dp("mrsL").set({ labels: "cup", minScore: 0.3 });
+    await el.updateComplete;
+    el.draw();
+    expect(state("mrs4")).toMatchObject({ regions: 1, settings: { labels: "cup", minScore: 0.3 } });
+  });
+});

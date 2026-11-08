@@ -11,12 +11,14 @@
   "components": [
     {
       "name": "sonic-ocr",
-      "description": "OCR d'une source d'images (#id) : lang (eng, fra, fra+eng…), control {n} ou auto, max-size, min-confidence ; état {status, text, confidence, lines[{text, x, y, w, h, words[]}], words, step, progress, ms, error}",
+      "description": "OCR d'une source d'images (#id) : lang (eng, fra, fra+eng…), control {n, …réglages} ou auto (chaque nouvelle image, au plus toutes les interval ms), max-size, min-confidence ; réglages {lang, minConfidence, maxSize} en direct par control et params (priorité attributs < control < params ; un changement de lang recharge le moteur) ; état {status, text, confidence, lines[{text, x, y, w, h, words[]}], words, lang, step, progress, ms, runs, settings, error}",
       "props": {
         "source": { "type": "string" },
         "lang": { "type": "string" },
         "control": { "type": "string" },
+        "params": { "type": "string" },
         "auto": { "type": "boolean" },
+        "interval": { "type": "number" },
         "max-size": { "type": "number" },
         "min-confidence": { "type": "number" },
         "out-data-provider": { "type": "string" }

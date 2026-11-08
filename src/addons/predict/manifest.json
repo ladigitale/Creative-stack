@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-train",
-      "description": "Entraîne un modèle (data-provider : tableau de lignes ou texte CSV, par exemple sonic-file-open…text) : target (défaut : dernière colonne), task auto|regression|classification, features, kind mlp|linear, hidden-units, epochs, learning-rate, test-split, seed, auto-train ; control {train, stop} compteurs ; modèle JSON dans model-data-provider ; état {status, rows, columns, target, task, epoch, progress, curve [{epoch, train, test}], metrics, importance, confusion [{reel, predit, n}], ignored, model}",
+      "description": "Entraîne un modèle (data-provider : tableau de lignes ou texte CSV, par exemple sonic-file-open…text) : target (défaut : dernière colonne), task auto|regression|classification, features, kind mlp|linear, hidden-units, epochs, learning-rate, test-split, seed, auto-train ; control {train, stop} compteurs (+ réglages) ; params DP {target, features, task, kind, hiddenUnits, epochs, learningRate, testSplit, seed} lu au lancement (priorité attributs < control < params, valeurs bornées) ; modèle JSON dans model-data-provider ; état {status, error, rows, columns, target, task, epoch, epochs, progress, curve [{epoch, train, test}], metrics, importance, confusion [{reel, predit, n}], ignored, features, droppedRows, model, settings}",
       "props": {
         "data-provider": {
           "type": "string"
@@ -47,6 +47,9 @@
           "type": "boolean"
         },
         "control": {
+          "type": "string"
+        },
+        "params": {
           "type": "string"
         },
         "model-data-provider": {

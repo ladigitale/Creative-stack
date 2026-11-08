@@ -70,6 +70,8 @@ export type HfInferState =
 
 export type HfInferStatus = {
   state: HfInferState;
+  /** Même valeur que `state` (convention `status` / `error` des composants). */
+  status: HfInferState;
   model: {
     alias: string;
     task: HfTask;
@@ -319,6 +321,7 @@ export function createHfInferController(
         : undefined;
     const status: HfInferStatus = {
       state,
+      status: state,
       model: {
         alias: model.alias,
         task,
@@ -570,6 +573,13 @@ export function createHfInferController(
       if (isAccepted(value)) registry.accept(options.model);
       else if (value === "declined") registry.decline(options.model);
     });
+  }
+
+  // Options d'appel refusées : l'erreur est visible tout de suite, sans attendre une entrée.
+  if (callError) {
+    ctrl = "error";
+    lastError = { code: "invalid-input", message: callError };
+    publishStatus();
   }
 
   /* ---------------- préchargement selon la politique ---------------- */

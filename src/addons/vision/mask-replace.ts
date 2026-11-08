@@ -4,6 +4,7 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { safeMediaUrl } from "../../shared/media/urls";
 import type { SonicFrameSource } from "../../shared/mediaRef";
+import { FLAG, MIRROR, ParamOverlay, readParams, realChanges, snapshot, type ParamSpecs } from "./live-params";
 import { dilateHoles, fillHoles, holesFromMask } from "../../shared/ml/inpaint";
 import {
   blurDivisor,
@@ -24,13 +25,40 @@ import {
   type Box,
   type MaskTarget,
   type ReplaceEffect,
+  EFFECTS,
 } from "../../shared/ml/composite";
 
 const tagName = "sonic-mask-replace";
 
 const r4 = (n: number) => Math.round(n * 10000) / 10000;
 
+/** Clés de réglage de `params` (nom de propriété → validation). */
+export const MASK_REPLACE_PARAMS: ParamSpecs = {
+  effect: { kind: "enum", values: EFFECTS },
+  amount: { kind: "number", min: 0, max: 1 },
+  target: { kind: "enum", values: ["background", "subject"] },
+  color: { kind: "string", max: 100 },
+  image: { kind: "string", max: 2_000_000 },
+  withSource: { kind: "string", max: 200 },
+  feather: { kind: "number", min: 0, max: 1 },
+  grow: { kind: "number", min: -24, max: 24, int: true },
+  smooth: { kind: "number", min: 0, max: 0.9 },
+  minScore: { kind: "number", min: 0, max: 1 },
+  labels: { kind: "string", max: 1000 },
+  maxObjects: { kind: "number", min: 0, max: 50, int: true },
+  objectId: { kind: "number", min: 0, max: 1e9, int: true },
+  shape: { kind: "enum", values: ["ellipse", "rect"] },
+  pad: { kind: "number", min: 0, max: 1 },
+  crop: FLAG,
+  mirror: MIRROR,
+  fps: { kind: "number", min: 1, max: 120 },
+};
+
 export type MaskReplaceState = {
+  /** `idle` (pas encore d'image source), `ready` (dessine), `error` (dessin impossible). */
+  status: "idle" | "ready" | "error";
+  /** Message d'erreur, `null` sans erreur. Renseigné aussi en `ready` quand une ressource manque (image refusée : repli en flou). */
+  error: string | null;
   ready: boolean;
   effect: ReplaceEffect;
   target: MaskTarget;
@@ -40,8 +68,11 @@ export type MaskReplaceState = {
   regions: number;
   /** Boîte (0..1, repère écran) de la zone masquée, lissée ; `null` sans zone. `cx`, `cy` : son centre. */
   box: { x: number; y: number; w: number; h: number; cx: number; cy: number } | null;
-  error?: string;
+  /** Réglages effectifs (attributs recouverts par `params`). */
+  settings: Record<string, unknown>;
 };
+
+type DrawState = Omit<MaskReplaceState, "status" | "error" | "settings"> & { error?: string };
 
 type FrameEl = Element & {
   getFrameSource?: () => HTMLVideoElement | null;
@@ -175,11 +206,21 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
   @property({ type: String, attribute: "out-data-provider" })
   outDataProvider = "";
 
+  /**
+   * DataProvider de réglages en direct, prioritaires sur les attributs : `effect`, `amount`, `target`, `color`,
+   * `image`, `withSource`, `feather`, `grow`, `smooth`, `minScore`, `labels`, `maxObjects`, `objectId`, `shape`,
+   * `pad`, `crop`, `mirror`, `fps` (clé retirée : retour à l'attribut).
+   */
+  @property({ type: String })
+  params = "";
+
   @query("canvas")
   private canvas!: HTMLCanvasElement;
 
   private boxes: Box[] = [];
   private unlisten: (() => void) | null = null;
+  private unlistenParams: (() => void) | null = null;
+  private overlay = new ParamOverlay(this);
   private raf = 0;
   private seq = 0;
   private lastDraw = -Infinity;
@@ -201,21 +242,43 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
   connectedCallback(): void {
     super.connectedCallback();
     this.listen();
+    this.listenParams();
     this.loadImage();
+    if (!this.lastState) {
+      const target: MaskTarget = this.target === "subject" ? "subject" : "background";
+      this.publish({ ready: false, effect: effectOf(this.effect), target, mask: false, regions: 0, box: null, ...(this.imageError ? { error: this.imageError } : {}) });
+    }
   }
 
   disconnectedCallback(): void {
     this.unlisten?.();
     this.unlisten = null;
+    this.unlistenParams?.();
+    this.unlistenParams = null;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     super.disconnectedCallback();
   }
 
+  protected willUpdate(changed: Map<PropertyKey, unknown>): void {
+    super.willUpdate(changed);
+    this.overlay.guard(changed);
+  }
+
   protected updated(changed: Map<string, unknown>): void {
+    const keys = realChanges(this, changed);
     if (changed.has("detections")) this.listen();
-    if (changed.has("image")) this.loadImage();
+    if (changed.has("params")) this.listenParams();
+    if (keys.includes("image")) this.loadImage();
     this.schedule();
+  }
+
+  private listenParams(): void {
+    this.unlistenParams?.();
+    this.unlistenParams = null;
+    const path = this.params.trim();
+    if (!path) return;
+    this.unlistenParams = listenDp(path, (v) => this.overlay.set(readParams(MASK_REPLACE_PARAMS, v)));
   }
 
   render() {
@@ -605,9 +668,12 @@ export class SonicMaskReplace extends LitElement implements SonicFrameSource {
     return true;
   }
 
-  private publish(state: MaskReplaceState): void {
+  private publish(draw: DrawState): void {
     const dpId = this.outDataProvider.trim();
     if (!dpId) return;
+    const { error, ...rest } = draw;
+    const status: MaskReplaceState["status"] = error && !draw.ready ? "error" : draw.ready ? "ready" : "idle";
+    const state: MaskReplaceState = { status, error: error ?? null, ...rest, settings: snapshot(this, MASK_REPLACE_PARAMS) };
     const key = JSON.stringify(state);
     if (key === this.lastState) return;
     this.lastState = key;
