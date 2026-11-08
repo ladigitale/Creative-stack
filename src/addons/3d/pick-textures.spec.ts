@@ -41,6 +41,20 @@ describe("pick : filtre pick-names", () => {
     expect(pick.hit(ctx, 0.5, 0.5, "^(m_|hole_)")?.objectId).toBe("m_10");
   });
 
+  it("mesh sans nom (acteur procgen, pièce de monde) : nom de l'ancêtre accepté", () => {
+    const root = new THREE.Group();
+    const j = new THREE.Group();
+    j.name = "j3";
+    const inner = new THREE.Group();
+    inner.name = "j3_corps";
+    root.add(j);
+    j.add(inner);
+    box("", 0, inner);
+    const ctx = ctxFor(root);
+    expect(pick.hit(ctx, 0.5, 0.5, "^j[0-9]$")?.objectId).toBe("j3");
+    expect(pick.hit(ctx, 0.5, 0.5)?.objectId).toBe("j3_corps");
+  });
+
   it("accepte un nom porté par un ancêtre", () => {
     const root = new THREE.Group();
     const g = new THREE.Group();

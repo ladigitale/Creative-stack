@@ -55,12 +55,25 @@ function isVisibleChain(obj: THREE.Object3D | null): boolean {
   return true;
 }
 
-function hitFromIntersection(h: THREE.Intersection): SceneHit {
+/** Nom du tap : le nœud touché, sinon son premier ancêtre nommé (accepté par `pick-names`), sinon son uuid. */
+function hitName(obj: THREE.Object3D, names?: string): string {
+  if (obj.name) return obj.name;
+  let re: RegExp | null = null;
+  try {
+    re = names ? new RegExp(names) : null;
+  } catch {
+    re = null;
+  }
+  for (let o: THREE.Object3D | null = obj.parent; o; o = o.parent) if (o.name && (!re || re.test(o.name))) return o.name;
+  return obj.uuid;
+}
+
+function hitFromIntersection(h: THREE.Intersection, names?: string): SceneHit {
   return {
     x: h.point.x,
     y: h.point.y,
     z: h.point.z,
-    objectId: h.object.name || h.object.uuid,
+    objectId: hitName(h.object, names),
   };
 }
 
@@ -73,7 +86,7 @@ function hit(
 ): SceneHit | null {
   const hits = raycastHits(ctx, normX, normY, names);
   if (!hits.length) return null;
-  return hitFromIntersection(hits[0]);
+  return hitFromIntersection(hits[0], names);
 }
 
 function clearHighlight(ctx: HighlightCtx) {
@@ -100,7 +113,7 @@ function setHoverAt(
   const next = mesh?.isMesh ? mesh : null;
   if (!highlight) clearHighlight(ctx);
   if (next === ctx.highlighted) {
-    return hits.length ? hitFromIntersection(hits[0]) : null;
+    return hits.length ? hitFromIntersection(hits[0], names) : null;
   }
   clearHighlight(ctx);
   if (!next) return null;
@@ -113,7 +126,7 @@ function setHoverAt(
     std.emissive.set(0x3b82f6);
     std.emissiveIntensity = 0.45;
   }
-  return hitFromIntersection(hits[0]);
+  return hitFromIntersection(hits[0], names);
 }
 
 export const pick = {

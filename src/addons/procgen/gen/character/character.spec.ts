@@ -94,6 +94,22 @@ describe("personnage animal", () => {
     for (let i = 0; i < asset.mesh.vertexCount; i++) minZ = Math.min(minZ, asset.mesh.pos[i * 3 + 2]);
     expect(minZ).toBeLessThan(-0.2 * asset.height);
   });
+  it("fiche animalSpec : retouche des couleurs et espèce inventée (custom)", () => {
+    const { asset, issues } = build({ detail: "crowd", animal: "fox", animalSpec: { colors: { fur: ["#123456"] }, horns: "antlers", tail: { shape: "none" } } }, "f");
+    const look = (asset.extra as { look: Look }).look;
+    expect((asset.colors as Record<string, string>).skin).toBe("#123456");
+    expect(look.animalSpec!.horns).toBe("antlers");
+    expect(issues.list.filter((i) => i.code !== "info")).toEqual([]);
+    const c = build({ detail: "crowd", animalSpec: { ears: { shape: "long" }, beak: true } }, "c");
+    expect((c.asset.extra as { look: Look }).look.animal).toBe("custom");
+  });
+  it("toutes les espèces se construisent sans erreur", () => {
+    for (const a of ["owl", "frog", "dino", "lion", "tiger", "panda", "elephant", "duck", "deer", "cow", "sheep", "horse"]) {
+      const { asset, issues } = build({ detail: "crowd", animal: a }, a);
+      expect(asset.mesh.vertexCount, a).toBeGreaterThan(100);
+      expect(issues.list.filter((i) => i.code !== "info"), a).toEqual([]);
+    }
+  });
   it("espèce inconnue signalée, humain par défaut", () => {
     const { asset, issues } = build({ detail: "crowd", animal: "licorne" }, "x");
     expect((asset.extra as { look: Look }).look.animal).toBe("none");

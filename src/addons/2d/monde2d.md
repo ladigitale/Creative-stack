@@ -19,7 +19,9 @@ DP `jeu` : `{ "monde2d": {…}, "nodes": { "p0": { "x": 320, "y": 400, "clip": "
 | `layers` | Calques du fond vers l'avant : `[{"name": "loin", "parallax": 0.3}, {"name": "monde", "parallax": 1, "ysort": true}, …]` (12 max). Appliqués si l'attribut `layers` est vide. `ysort` : tri par y (vue de dessus, 3/4) |
 | `style` | `plat` (aplats, contour fin), `doux` (relief, contour léger), `bd` (gros contour noir, relief), `encre` (contour noir, couleurs claires), `gouache` (relief, grain) ; ou un style vectoriel procgen : `flat`, `ligne-claire`, `gravure`, `affiche`, `papier-decoupe` |
 | `traits` | Importance des traits des modèles `gen` : 0 aucun, 1 (défaut) celui du style, jusqu'à 3 |
-| `styleGen` | Style vectoriel des modèles `gen` (sinon déduit de `style` : plat/doux → flat, bd → ligne-claire, encre → gravure, gouache → affiche) |
+| `styleGen` | Style vectoriel des modèles `gen` (sinon déduit de `style` : plat/doux → flat, bd → ligne-claire, encre → gravure, gouache → affiche). Réglages fins en objet : `{ "vector": "flat", "outline": 2, "tones": 0.6, "shadows": 0.3, "hatch": 0, "halftone": 0, "posterize": 0, "papercut": 0, "paper": 0, "wash": 0, "chroma": 1.2, "contrast": 1.1 }` |
+| `fpsGen` | Cadence de redessin des modèles `gen` (images/s, 6 … 60, défaut 24) |
+| `resGen` | Résolution des dessins `gen` (0,5 … 3, défaut 2 ; baisser pour beaucoup d'acteurs) |
 | `outline` | Épaisseur du contour (px) ; `relief` : ombre et reflet internes (bool) |
 | `palette`, `textures`, `texture` | Couleurs par rôle ; motifs par rôle ou pour tout (voir `../3d/monde.md`, Textures : `scale` = motifs pour 100 px) |
 | `models`, `place` | Modèles (64 max) et placements |
@@ -73,7 +75,8 @@ générateurs procgen en illustration vectorielle (traits continus à épaisseur
 encre, hachures selon `styleGen`) : personnages humains (visage, coiffure, garde-robe), animaux (`animal.dog`,
 `animal.horse`, `animal.duck`…), `building`, `tree`, `bush`, `rock`, `plant`, `flowers`, `prop.<objet>`, `vehicle`,
 `ball.<ballon>`, `seat.<assise>`… `params` = paramètres du générateur (`top`, `bottom`, `hair`, `archetype`…) ;
-`params.animal` (`cat fox dog bear rabbit mouse pig owl frog dino`) : personnage animal (oreilles, museau, queue, pelage).
+`params.animal` (`cat fox dog bear rabbit mouse pig owl frog dino lion tiger panda koala raccoon monkey cow sheep deer horse elephant duck`) : personnage animal (oreilles, museau, queue, pelage) ; `params.animalSpec`, variantes par placement
+(`params`, `genSeed`) et clips libres (`action`, `speed`) : comme en 3D (`../3d/monde.md`).
 
 | Clé | Rôle |
 |---|---|
@@ -85,7 +88,7 @@ Os, clips et rôles : ceux du format monde (voir `../3d/monde.md`, Modèles `gen
 salut…` (moteur procgen : un personnage déplacé par `nodes` marche ou court, pieds plantés) et gestes `tir passe
 controle tacle chute plongeon` ; `roles` `maillot short chaussette peau cheveux toit mur…`. En `dessus` / `plongee`,
 `rz` est le **cap** (le personnage est redessiné tourné, l'image ne pivote pas). Le personnage porte son ombre.
-Dessin cadencé à 24 images/s ; décor dessiné une fois. Tap : `{objectId: instance}`.
+Dessin cadencé à `fpsGen` (24 images/s) ; décor dessiné une fois. Tap : `{objectId: instance}`.
 
 ## Préréglages (`preset`)
 

@@ -8,7 +8,7 @@
  */
 import { DEG, Rand, hash32 } from "../monde/math";
 import { isColor, own, readMonde, type Model } from "../monde/format";
-import { GEN_IDS, isGenId, type GenRig } from "../monde/gen";
+import { GEN_IDS, genVariants, isGenId, type GenRig } from "../monde/gen";
 import { readTex, type TexSpec } from "../monde/textures";
 import type { Clip, ClipIn, Issue, Track } from "../monde/format";
 import { PRESETS2D, type Preset2dOut } from "./presets";
@@ -78,6 +78,10 @@ export type Model2In = {
 
 export type Place2In = {
   model?: string;
+  /** Modèle `gen` : retouche de ses `params` pour ce placement (ex. `{ animal: "fox" }`). */
+  params?: Record<string, unknown>;
+  /** Modèle `gen` : graine propre à ce placement. */
+  genSeed?: string | number;
   name?: string;
   at?: number[];
   rot?: number;
@@ -111,7 +115,12 @@ export type Monde2dIn = {
   /** `plat` (défaut), `doux` (relief), `bd` (gros contour, relief), `encre` (contour noir, couleurs claires), `gouache` (relief, grain) ; ou un style vectoriel procgen (`flat`, `ligne-claire`, `gravure`, `affiche`, `papier-decoupe`), qui fixe aussi celui des modèles gen. */
   style?: string;
   /** Style vectoriel procgen des modèles gen (sinon déduit de `style`). */
-  styleGen?: string;
+  /** Style vectoriel des modèles `gen` : nom, ou réglages `{ vector, outline, tones, chroma… }`. */
+  styleGen?: string | Record<string, unknown>;
+  /** Cadence de redessin des modèles `gen` (défaut 24 images/s). */
+  fpsGen?: number;
+  /** Résolution des dessins `gen` (défaut 2 ; baisser pour alléger beaucoup d'acteurs). */
+  resGen?: number;
   /** Importance des traits des modèles gen : 0 aucun, 1 style, jusqu'à 3. */
   traits?: number;
   outline?: number;
@@ -209,7 +218,13 @@ export type Monde2d = {
   ciel: [string, string] | null;
   style: "plat" | "doux" | "bd" | "encre" | "gouache";
   /** Style vectoriel procgen des modèles gen. */
-  styleGen: string;
+  styleGen: string | Record<string, unknown>;
+  /** Clé de cache du style vectoriel (avec cadence et résolution). */
+  styleKey: string;
+  /** Cadence de redessin des modèles `gen` (images/s, 6 … 60). */
+  fpsGen: number;
+  /** Résolution des dessins `gen` (pixels par pixel d'écran, 0.5 … 3). */
+  resGen: number;
   traits: number;
   outline: number;
   relief: boolean;
@@ -678,7 +693,7 @@ function readModel2(name: string, src: Model2In, palette: Record<string, string>
         }
       });
     }
-    clips.set(cname, { name: cname, ms: clampN(num(c.ms, 800), 30, 60000), loop: c.loop !== false, then: typeof c.then === "string" ? c.then : "", smooth: c.ease !== "linear", tracks });
+    clips.set(cname, { name: cname, ms: clampN(num(c.ms, 800), 30, 60000), loop: c.loop !== false, then: typeof c.then === "string" ? c.then : "", smooth: c.ease !== "linear", tracks, action: "", move: null });
   }
 
   const roles: Record<string, string> = {};
@@ -833,8 +848,8 @@ export function readMonde2d(input: unknown, previous?: Monde2d | null): Monde2d 
 }
 
 function readUnsafe(input: unknown, previous?: Monde2d | null): Monde2d {
-  const src = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as Monde2dIn;
   const issues: Issue[] = [];
+  const src = genVariants((input && typeof input === "object" && !Array.isArray(input) ? input : {}) as Monde2dIn, issues);
   const palette: Record<string, string> = { ...DEFAULT_PALETTE };
   const ownPal: Record<string, string> = {};
   if (src.palette && typeof src.palette === "object")
@@ -879,10 +894,26 @@ function readUnsafe(input: unknown, previous?: Monde2d | null): Monde2d {
   const GEN_OF: Record<string, string> = { plat: "flat", doux: "flat", bd: "ligne-claire", encre: "gravure", gouache: "affiche" };
   const vecStyle = Object.prototype.hasOwnProperty.call(VEC, String(src.style)) ? String(src.style) : "";
   const style = vecStyle ? VEC[vecStyle] : (STYLES as readonly string[]).includes(String(src.style)) ? (src.style as Monde2d["style"]) : "plat";
-  const styleGen = typeof src.styleGen === "string" && Object.prototype.hasOwnProperty.call(VEC, src.styleGen) ? src.styleGen : vecStyle || GEN_OF[style];
-  if (src.styleGen !== undefined && styleGen !== src.styleGen) issues.push({ path: "styleGen", message: `style vectoriel inconnu (${Object.keys(VEC).join(", ")})` });
+  const sg = src.styleGen as unknown;
+  let styleGen: Monde2d["styleGen"] = typeof sg === "string" && Object.prototype.hasOwnProperty.call(VEC, sg) ? sg : vecStyle || GEN_OF[style];
+  if (sg && typeof sg === "object" && !Array.isArray(sg)) {
+    // réglages fins : { vector, outline, tones, shadows, hatch, halftone, posterize, papercut, paper, wash, chroma, contrast, … }
+    const json = JSON.stringify(sg);
+    if (json.length > 4000) issues.push({ path: "styleGen", message: "réglages trop volumineux (4000 caractères max)" });
+    else {
+      const o = JSON.parse(json) as Record<string, unknown>;
+      if (typeof o.vector !== "string" || !Object.prototype.hasOwnProperty.call(VEC, o.vector)) {
+        if (o.vector !== undefined) issues.push({ path: "styleGen.vector", message: `style vectoriel inconnu (${Object.keys(VEC).join(", ")})` });
+        o.vector = styleGen;
+      }
+      styleGen = o;
+    }
+  } else if (sg !== undefined && styleGen !== sg) issues.push({ path: "styleGen", message: `style vectoriel inconnu (${Object.keys(VEC).join(", ")})` });
   return {
     styleGen,
+    styleKey: `${typeof styleGen === "string" ? styleGen : JSON.stringify(styleGen)}|${clampN(num(src.fpsGen, 24), 6, 60)}|${clampN(num(src.resGen, 2), 0.5, 3)}`,
+    fpsGen: clampN(num(src.fpsGen, 24), 6, 60),
+    resGen: clampN(num(src.resGen, 2), 0.5, 3),
     traits: clampN(num(src.traits, 1), 0, 3),
     palette,
     models,

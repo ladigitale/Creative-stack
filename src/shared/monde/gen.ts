@@ -12,6 +12,7 @@
  */
 import type { ClipIn, PartIn } from "./format";
 import type { PresetOut } from "./presets";
+import { hash32 } from "./math";
 
 /** Générateurs procgen utilisables (`prop.lamp`, `animal.dog`, `ball.soccer` : raccourcis `famille.sorte`). */
 export const GEN_IDS = [
@@ -167,6 +168,15 @@ const BIRD: J[] = [
  * la vitesse réelle, mesurée sur ses déplacements, fait marcher ou courir avec les pieds plantés) et action du haut du
  * corps. Les autres clips sont des pistes d'os ajoutées à la pose procédurale.
  */
+/** Actions du moteur procgen (copie de rig/locomotion ACTIONS, vérifiée par test). */
+export const GEN_ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick"] as const;
+
+/** Locomotion et action d'un clip : champs du clip, sinon ceux de son nom (GEN_MOTION). */
+export function genMotion(name: string, def?: { action: string; move: number | null } | null): { speed: number; action: string } {
+  const mo = Object.prototype.hasOwnProperty.call(GEN_MOTION, name) ? GEN_MOTION[name] : undefined;
+  return { speed: def?.move ?? mo?.speed ?? 0, action: def?.action || mo?.action || "" };
+}
+
 export const GEN_MOTION: Record<string, { speed?: number; action?: string }> = {
   idle: { action: "idle" },
   marche: { speed: 1.3 },
@@ -281,6 +291,15 @@ export const GEN_ROLES: Record<string, string> = {
   chaussure: "leather",
   cuir: "leather",
   peau: "skin",
+  fourrure: "skin",
+  museau: "white",
+  truffe: "black",
+  oreille: "sky",
+  bec: "orange",
+  criniere: "hair",
+  marques: "bark",
+  boutQueue: "paper",
+  cornes: "leaf2",
   cheveux: "hair",
   oeil: "eye",
   accent: "accent",
@@ -313,4 +332,46 @@ export const GEN_ROLES: Record<string, string> = {
 export function genRole(name: string, procgenRoles: readonly string[]): string | null {
   if (Object.prototype.hasOwnProperty.call(GEN_ROLES, name)) return GEN_ROLES[name];
   return procgenRoles.includes(name) ? name : null;
+}
+
+/** Variantes par placement d'un modèle `gen` : `params` (fusionnés à ceux du modèle) et `genSeed`. */
+export const GEN_VARIANTS_MAX = 64;
+
+/**
+ * Réécrit `place` : un placement d'un modèle `gen` qui porte `params` et/ou `genSeed` vise une variante
+ * `<modèle>~<clé>` (mêmes réglages + retouches), partagée entre placements identiques. Entrée JSON brute.
+ */
+export function genVariants<T extends { models?: unknown; place?: unknown }>(src: T, issues: { path: string; message: string }[]): T {
+  const models = src.models && typeof src.models === "object" && !Array.isArray(src.models) ? (src.models as Record<string, Record<string, unknown>>) : null;
+  if (!models || !Array.isArray(src.place)) return src;
+  const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+  if (!src.place.some((p) => isObj(p) && (isObj(p.params) || p.genSeed !== undefined))) return src;
+  const out: Record<string, Record<string, unknown>> = { ...models };
+  let n = 0;
+  const place = src.place.map((raw, i) => {
+    if (!isObj(raw) || (!isObj(raw.params) && raw.genSeed === undefined)) return raw;
+    const { params, genSeed, ...rest } = raw;
+    const name = typeof raw.model === "string" ? raw.model : "";
+    const base = Object.prototype.hasOwnProperty.call(models, name) ? models[name] : null;
+    if (!base || typeof base.gen !== "string") {
+      issues.push({ path: `place.${i}.params`, message: "params / genSeed : seulement pour un modèle gen" });
+      return rest;
+    }
+    const key = JSON.stringify([isObj(params) ? params : null, typeof genSeed === "string" || typeof genSeed === "number" ? genSeed : null]);
+    const vname = `${name}~${hash32(key).toString(36)}`;
+    if (!Object.prototype.hasOwnProperty.call(out, vname)) {
+      if (++n > GEN_VARIANTS_MAX) {
+        if (n === GEN_VARIANTS_MAX + 1) issues.push({ path: `place.${i}`, message: `plus de ${GEN_VARIANTS_MAX} variantes gen : modèle de base utilisé` });
+        return rest;
+      }
+      out[vname] = {
+        ...base,
+        params: { ...(isObj(base.params) ? base.params : {}), ...(isObj(params) ? params : {}) },
+        // même tirage que le modèle de base (sa graine par défaut est son nom), sauf `genSeed`
+        seed: typeof genSeed === "string" || typeof genSeed === "number" ? genSeed : (base.seed ?? name),
+      };
+    }
+    return { ...rest, model: vname };
+  });
+  return { ...src, models: out, place };
 }

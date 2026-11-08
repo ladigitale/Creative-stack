@@ -107,7 +107,7 @@ Tap : `pick` avec `objectId` = instance (en 2D, `part` en plus).
 maillage continu skinné (visage, coiffure, garde-robe en couches), animaux (`animal.dog`, `animal.horse`, `animal.duck`…),
 `tree`, `bush`, `rock`, `plant`, `flowers`, `building` (17 styles), `prop.<objet>`, `vehicle`, `wall`, `ball.<ballon>`,
 `seat.<assise>`, `assembly`. `params` = paramètres du générateur (voir le catalogue procgen : `top`, `bottom`, `hair`,
-`archetype` `chibi|cartoon|stylized|heroic`, `height`…). **Personnages animaux** : `params.animal` `cat|fox|dog|bear|rabbit|mouse|pig|owl|frog|dino` donne
+`archetype` `chibi|cartoon|stylized|heroic`, `height`…). **Personnages animaux** : `params.animal` `cat|fox|dog|bear|rabbit|mouse|pig|owl|frog|dino|lion|tiger|panda|koala|raccoon|monkey|cow|sheep|deer|horse|elephant|duck` donne
 la tête, les oreilles, le museau (ou le bec), la queue et le pelage de l'espèce au corps humanoïde (mêmes vêtements, mêmes
 os, mêmes clips : une équipe de chats en maillot). Rendu `sonic-3d` avec le style procgen (`style` du monde) :
 bandes toon, AO, textures et relief par matière, contour. Généré à la demande sans figer la page (le nœud est pilotable
@@ -124,6 +124,19 @@ tout de suite, le maillage apparaît quand il est prêt). Pas de rendu dans la p
   `peau`, `cheveux`, `toit`, `mur`, `feuillage`…) ou procgen (`cloth1`, `skin`, `roof`…).
 - `nodes.<instance>_<os>` : `emissive` (0..1) et `emissiveColor` donnent un éclat à tout l'acteur.
 - Sans `name` : décor instancié (un appel de dessin par modèle, quel que soit le nombre de copies).
+- **Fiche animal** `params.animalSpec` : retouche l'espèce (ou en invente une : sans `animal`, ou `animal: "custom"`),
+  champs facultatifs : `ears {shape pointed|round|floppy|long|flap|tuft|none, size 0..3, spread 0..1, tilt}`,
+  `horns none|small|antlers`, `snout {w, h, l}` (`l` > 1,2 : trompe), `nose` (bool ou `"disc"` : groin), `beak`, `mane`,
+  `markings none|mask|patches`, `eyeBulge`, `spikes`, `eyeDiscs`, `tail {shape curve|bushy|wag|stub|pom|long|curl|fan|thick|tuft|none, length 0..3, tip}`,
+  `colors {fur [#…], muzzle, nose, innerEar, beak, mane, marks, tailTip}`. Valeurs inconnues ignorées.
+  Rôles recolorables par instance : `fourrure museau truffe oreille bec criniere marques boutQueue cornes`.
+- **Variantes par placement** : `params` (fusionnés à ceux du modèle) et `genSeed` sur un placement d'un modèle `gen`
+  (`{ "model": "j", "name": "p3", "params": { "animal": "fox", "mood": "happy" } }`) : une foule variée sans un modèle
+  par personne ; les placements identiques partagent la variante (64 au plus). Changer ces `params` dans le store
+  reconstruit seulement l'acteur concerné (humeur, espèce, tenue en cours de jeu).
+- **Clips libres** : un clip d'un modèle `gen` peut fixer `action` (moteur procgen : `idle walk run wave point cheer talk
+  carry sit jump think bow hammer sweep dig kick`) et `speed` (locomotion en m/s, 0 sur place), en plus de ses pistes :
+  `"danse": { "action": "cheer", "speed": 0, "tracks": { "brasL": { "rz": [0, 60, 0] } } }`.
 
 ```json
 { "style": "bd",

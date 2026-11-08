@@ -8,7 +8,7 @@
 import { DEG, Rand, hash32 } from "./math";
 import { PRESETS, type PresetOut } from "./presets";
 import { readTex, type TexSpec } from "./textures";
-import { GEN_IDS, GEN_ROLES, genPreset, isGenId, type GenRig } from "./gen";
+import { GEN_ACTIONS, GEN_IDS, genVariants, GEN_ROLES, genPreset, isGenId, type GenRig } from "./gen";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -48,6 +48,10 @@ export type ClipIn = {
   then?: string;
   /** `smooth` (défaut, courbe douce) ou `linear`. */
   ease?: "smooth" | "linear";
+  /** Modèle `gen` : action du moteur procgen jouée sous les pistes (`wave`, `cheer`, `kick`, `sit`…). */
+  action?: string;
+  /** Modèle `gen` : vitesse de locomotion procgen en m/s (0 = sur place ; 1.3 marche, 3.8 course). */
+  speed?: number;
   tracks?: Record<string, TrackIn>;
 };
 
@@ -84,6 +88,10 @@ export type PlaceIn = {
   turn?: number;
   size?: number[];
   seed?: string | number;
+  /** Modèle `gen` : retouche de ses `params` pour ce placement (ex. `{ animal: "fox", mood: "happy" }`). */
+  params?: Record<string, unknown>;
+  /** Modèle `gen` : graine propre à ce placement (autre tirage du même modèle). */
+  genSeed?: string | number;
 };
 
 export type MondeIn = {
@@ -140,7 +148,18 @@ export type Part = {
 
 export type Track = { part: number; ch: number; keys: number[]; phase: number };
 
-export type Clip = { name: string; ms: number; loop: boolean; then: string; smooth: boolean; tracks: Track[] };
+export type Clip = {
+  name: string;
+  ms: number;
+  loop: boolean;
+  then: string;
+  smooth: boolean;
+  tracks: Track[];
+  /** Modèle `gen` : action procgen (vide = celle du nom du clip, voir GEN_MOTION). */
+  action: string;
+  /** Modèle `gen` : vitesse de locomotion (m/s), `null` = celle du nom du clip. */
+  move: number | null;
+};
 
 export type Model = {
   name: string;
@@ -517,6 +536,7 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
       then: typeof c.then === "string" ? c.then : "",
       smooth: c.ease !== "linear",
       tracks,
+      ...clipMotion(c, `${path}.clips.${cname}`, issues),
     });
   }
 
@@ -636,8 +656,8 @@ export function readMonde(input: unknown, previous?: Monde | null): Monde {
 }
 
 function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
-  const src = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as MondeIn;
   const issues: Issue[] = [];
+  const src = genVariants((input && typeof input === "object" && !Array.isArray(input) ? input : {}) as MondeIn, issues);
   const palette: Record<string, string> = { ...DEFAULT_PALETTE };
   const ownPal: Record<string, string> = {};
   if (src.palette && typeof src.palette === "object") {
@@ -716,4 +736,15 @@ export function mondeSummary(m: Monde) {
     decor: m.place.filter((p) => !p.name).length,
     issues: m.issues.slice(0, 50),
   };
+}
+
+/** `action` / `speed` d'un clip (modèles `gen`) ; action inconnue signalée et ignorée. */
+export function clipMotion(c: { action?: unknown; speed?: unknown }, path: string, issues: { path: string; message: string }[]): { action: string; move: number | null } {
+  let action = "";
+  if (typeof c.action === "string" && c.action) {
+    if ((GEN_ACTIONS as readonly string[]).includes(c.action)) action = c.action;
+    else issues.push({ path: `${path}.action`, message: `action inconnue (${GEN_ACTIONS.join(", ")})` });
+  }
+  const move = typeof c.speed === "number" && Number.isFinite(c.speed) ? clampN(c.speed, 0, 12) : null;
+  return { action, move };
 }

@@ -7,6 +7,7 @@
  */
 import type { Rng } from "../../core/rng";
 import { TOOL_KINDS } from "../tool";
+import { type AnimalSpec, ANIMAL_NAMES, resolveAnimal } from "./animal";
 import type { Issues } from "../../core/schema";
 
 export const SKIN_TONES: Record<string, string> = {
@@ -57,21 +58,8 @@ export const BROWS = ["none", "thin", "straight", "arched", "thick", "bushy"] as
 export const NOSES = ["button", "long", "aquiline", "wide", "upturned"] as const;
 export const LIPS = ["thin", "medium", "full"] as const;
 export const EARS = ["small", "round", "large", "pointed"] as const;
-/** Personnage animal (anthropomorphe) : tête, oreilles, museau, queue et pelage de l'espèce sur un corps humanoïde. */
-export const ANIMALS = ["none", "cat", "fox", "dog", "bear", "rabbit", "mouse", "pig", "owl", "frog", "dino"] as const;
-/** Pelage par défaut (et variantes tirées par la graine). */
-export const FURS: Record<string, string[]> = {
-  cat: ["#8f8a86", "#d98a3d", "#3b3533", "#e9e1d6", "#b98a5e"],
-  fox: ["#d9682b", "#c75a24", "#e07a34"],
-  dog: ["#b98a5e", "#e2c9a2", "#5a4334", "#8a6a4c", "#efe7dc"],
-  bear: ["#7a5232", "#5c3d26", "#9a7350", "#efe9e0"],
-  rabbit: ["#e8e0d8", "#c9b39a", "#9b8b7e", "#f4efe8"],
-  mouse: ["#9a9aa3", "#b8aa9a", "#7d7a80"],
-  pig: ["#f0a8a8", "#e89a9a", "#d98f8a"],
-  owl: ["#8a6a4a", "#a3835e", "#6e5640"],
-  frog: ["#5fb34a", "#79c25a", "#4a9a3c"],
-  dino: ["#6cbf5a", "#4fa8a0", "#c86fb4", "#e0a23a"],
-};
+/** Personnage animal : espèces livrées (fiches de `animal.ts`), `custom` = fiche entièrement donnée par `animalSpec`. */
+export const ANIMALS = ["none", "custom", ...ANIMAL_NAMES] as const;
 export const BEARDS = ["none", "stubble", "short", "full", "goatee", "long", "chinstrap"] as const;
 export const MUSTACHES = ["none", "thin", "pencil", "walrus", "handlebar"] as const;
 export const GLASSES = ["none", "round", "square", "half"] as const;
@@ -112,6 +100,8 @@ export type Look = {
   ears: string;
   /** Espèce du personnage animal (`none` : humain). */
   animal: string;
+  /** Fiche résolue de l'animal (null : humain). */
+  animalSpec: AnimalSpec | null;
   beard: string;
   mustache: string;
   glasses: string;
@@ -361,11 +351,15 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
   if (top === "none" && (over === "vest" || over === "jacket")) top = "tee";
 
   // personnage animal : pas de cheveux, de barbe ni de lèvres, oreilles et museau de l'espèce
-  const animal = (ANIMALS as readonly string[]).includes(s("animal")) ? s("animal") : "none";
-  if (s("animal") !== "none" && s("animal") !== "auto" && animal === "none") issues.add({ path: `${path}.animal`, code: "unknown", message: `espèce « ${s("animal")} » inconnue`, hint: ANIMALS.join(", ") });
-  let glasses2 = glasses, freckles2 = freckles, wrinkles2 = wrinkles;
+  const a0 = s("animal") === "auto" ? "none" : s("animal");
+  let animal = (ANIMALS as readonly string[]).includes(a0) ? a0 : "none";
+  if (animal === "none" && a0 !== "none") issues.add({ path: `${path}.animal`, code: "unknown", message: `espèce « ${a0} » inconnue`, hint: ANIMALS.join(", ") });
+  const animalSpec = resolveAnimal(animal, pp.animalSpec);
+  if (animalSpec && animal === "none") animal = "custom";
+  let glasses2 = glasses, freckles2 = freckles, wrinkles2 = wrinkles, brows2 = brows;
   if (animal !== "none") {
     if (s("hair") === "auto") hair = "none";
+    if (s("brows") === "auto") brows2 = "none";
     beard = "none";
     mustache = "none";
     if (s("glasses") === "auto") glasses2 = "none";
@@ -374,9 +368,10 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
   }
   return {
     animal,
+    animalSpec,
     role, figure, archetype: s("archetype"), age, height, build, shape, headSize, belly, body,
     top, bottom, over, collar, belt, details, gloves, shoes, pattern, hair, hat, bag, item, mood: s("mood"),
-    headShape, eyes, brows, nose, lips, ears, beard, mustache, glasses: glasses2, freckles: freckles2, blush, wrinkles: wrinkles2, detail: s("detail"),
+    headShape, eyes, brows: brows2, nose, lips, ears, beard, mustache, glasses: glasses2, freckles: freckles2, blush, wrinkles: wrinkles2, detail: s("detail"),
   };
 }
 
@@ -387,8 +382,8 @@ export function resolveColors(pp: LookInput, look: Look, rng: Rng, issues: Issue
   const skinKeys = Object.keys(SKIN_TONES).slice(0, 8);
   const skinKey = SKIN_TONES[sk] ? sk : HEX.test(sk) ? "" : rng.fork("skin").pick(skinKeys);
   if (sk !== "auto" && !HEX.test(sk) && !SKIN_TONES[sk]) issues.add({ path: `${path}.skin`, code: "unknown", message: `carnation « ${sk} » inconnue`, hint: Object.keys(SKIN_TONES).join(", ") });
-  const fur = FURS[look.animal];
-  const skin = HEX.test(sk) ? sk : fur && sk === "auto" ? rng.fork("fur").pick(fur) : SKIN_TONES[skinKey];
+  const an = look.animalSpec;
+  const skin = HEX.test(sk) ? sk : an && sk === "auto" ? rng.fork("fur").pick(an.colors.fur) : SKIN_TONES[skinKey];
   const dark = skinKey ? skinKeys.indexOf(skinKey) / 7 : 0.4;
   const hc = String(pp.hairColor ?? "auto");
   let hair: string;
@@ -428,6 +423,18 @@ export function resolveColors(pp: LookInput, look: Look, rng: Rng, issues: Issue
     paper: look.over === "apron" || look.hat === "toque" ? "#ece6da" : "#e8dcc4",
     // paille (rôle « leaf2 » : texture tachetée, sans le mélange de pente des rôles de sol)
     leaf2: "#d6b878",
+    // personnage animal : museau, truffe, intérieur des oreilles, bec, crinière, marques, bout de queue (voir ANIMAL_ROLE)
+    ...(an
+      ? {
+          white: an.colors.muzzle,
+          black: an.colors.nose,
+          sky: an.colors.innerEar,
+          orange: an.colors.beak,
+          hair: HEX.test(hc) || HAIR_COLORS[hc] ? hair : an.colors.mane,
+          bark: an.colors.marks,
+          paper: an.colors.tailTip,
+        }
+      : {}),
   } as const;
 }
 
