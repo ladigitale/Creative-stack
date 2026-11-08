@@ -30,7 +30,7 @@ export type ActorRT = {
   actionWeight: number;
   mood: string;
   path: [number, number][] | null;
-  goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number }; kick?: { ball: string; power: number; loft: number } } | null;
+  goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number }; kick?: { ball: string; power: number; loft: number; tries?: number } } | null;
   /** Hauteur de l'assise occupée (m) : le bassin s'y pose quand l'acteur est assis. */
   seatY?: number;
   /** Point libre devant l'assise, où l'acteur se relève. */
@@ -81,6 +81,7 @@ export class ActorSim {
 
   setHidden(ids: Set<string>) {
     for (const [id, a] of this.actors) a.hidden = ids.has(id);
+    if (this.balls) this.balls.hidden = new Set([...ids].filter((id) => this.balls!.byId.has(id)));
   }
 
   setActors(intents: Record<string, ActorIntent>) {
@@ -145,10 +146,22 @@ export class ActorSim {
   }
 
   /** Tir : l'acteur se tourne vers le ballon, lance le geste, le ballon part dans cette direction. */
-  private doKick(a: ActorRT, k: { ball: string; power: number; loft: number }) {
+  private doKick(a: ActorRT, k: { ball: string; power: number; loft: number; tries?: number }) {
     const b = this.balls?.byId.get(k.ball);
     if (!b) return;
     const dx = b.pos[0] - a.pos[0], dz = b.pos[2] - a.pos[2], d = Math.hypot(dx, dz) || 1;
+    // le ballon a roulé entre-temps : l'acteur le rattrape (3 essais), sinon `blocked`
+    const back = b.r + 0.32 * a.mo.legLength;
+    if (d > back + 0.25) {
+      const tries = (k.tries ?? 0) + 1;
+      if (tries > 3) {
+        this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "ball-moved", target: b.id } });
+        return;
+      }
+      this.goto(a, b.pos[0] - (dx / d) * back, b.pos[2] - (dz / d) * back, b.id);
+      if (a.goal) a.goal.kick = { ...k, tries };
+      return;
+    }
     a.yaw = Math.atan2(dx, dz);
     a.action = "kick";
     a.actionTime = 0;

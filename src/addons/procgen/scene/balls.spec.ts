@@ -17,6 +17,46 @@ const field = (extra: Record<string, unknown> = {}) =>
   });
 
 describe("ballons dynamiques", () => {
+  it("un tir à 40 m/s sur une grande image ne traverse pas un mur d'une case ; la vitesse est bornée en norme", () => {
+    const m = field();
+    const w = new BallWorld(m);
+    const b = w.byId.get(m.objects[0].id)!;
+    const wall = (x: number) => !(x > 2 && x < 2.5);
+    w.kick(b.id, [1e9, 0, 1e9]);
+    expect(Math.hypot(...b.vel)).toBeCloseTo(40, 3);
+    b.vel = [40, 0, 0];
+    for (let i = 0; i < 20; i++) w.step(0.1, () => 0, (x) => wall(x), []);
+    expect(b.pos[0]).toBeLessThan(2);
+  });
+
+  it("un ballon dans une case bloquée peut en sortir ; un ballon caché ne bouge plus et n'émet rien", () => {
+    const m = field();
+    const w = new BallWorld(m);
+    const b = w.byId.get(m.objects[0].id)!;
+    w.kick(b.id, [3, 0, 0]);
+    for (let i = 0; i < 60; i++) w.step(1 / 60, () => 0, (x) => !(x > -0.5 && x < 0.5), []);
+    expect(b.pos[0]).toBeGreaterThan(0.5);
+    const p = [...b.pos];
+    w.hidden = new Set([b.id]);
+    expect(w.kick(b.id, [3, 0, 0])).toBe(false);
+    const ev: string[] = [];
+    for (let i = 0; i < 30; i++) w.step(1 / 60, () => 0, () => true, [{ id: "a", pos: [p[0] - 0.1, 0, p[2]], vel: [2, 0, 0], r: 0.2, h: 1 }], (e) => ev.push(e.type));
+    expect(b.pos).toEqual(p);
+    expect(ev).toEqual([]);
+    expect(w.snapshot()[b.id]).toBeUndefined();
+  });
+
+  it("un ballon posé sur un autre finit par s'endormir", () => {
+    const m = field();
+    const w = new BallWorld(m);
+    const [a, b] = w.bodies;
+    b.pos = [a.pos[0], a.pos[1] + a.r + b.r + 0.05, a.pos[2]];
+    b.awake = true;
+    let t = 0;
+    for (; t < 10 && w.moving; t += 1 / 60) w.step(1 / 60, () => 0, () => true, []);
+    expect(w.moving).toBe(false);
+  });
+
   it("un coup fait rouler le ballon, qui ralentit, tourne sur lui-même et s'arrête", () => {
     const m = field();
     const w = new BallWorld(m);

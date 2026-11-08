@@ -36,7 +36,7 @@ type ActorRT = {
   actionWeight: number;
   mood: string;
   path: [number, number][] | null;
-  goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number }; kick?: { ball: string; power: number; loft: number } } | null;
+  goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number }; kick?: { ball: string; power: number; loft: number; tries?: number } } | null;
   /** Hauteur de l'assise occupée (m) : le bassin s'y pose quand l'acteur est assis. */
   seatY?: number;
   /** Point libre devant l'assise, où l'acteur se relève. */
@@ -155,6 +155,9 @@ export class ProcgenView {
     const bw = new BallWorld(model);
     this.balls = bw.count ? bw : null;
     this.ballSlots.clear();
+    this.ballAwake.clear();
+    this.ballsDirty = !!this.balls && this.hiddenIds.size > 0;
+    if (this.balls) this.balls.hidden = new Set([...this.hiddenIds].filter((id) => this.balls!.byId.has(id)));
     for (const g of model.instances) {
       const geo = toGeometry(g.mesh);
       const im = new THREE.InstancedMesh(geo, this.staticMats.color, g.matrices.length);
@@ -304,6 +307,10 @@ export class ProcgenView {
   setHidden(ids: string[]) {
     this.hiddenIds = new Set(ids);
     for (const [id, a] of this.actors) a.mesh.visible = !this.hiddenIds.has(id);
+    if (this.balls) {
+      this.balls.hidden = new Set(ids.filter((id) => this.balls!.byId.has(id)));
+      this.ballsDirty = true;
+    }
     this.dirty = this.shadowDirty = true;
     this.kick();
   }
@@ -381,10 +388,22 @@ export class ProcgenView {
   }
 
   /** Tir : l'acteur se tourne vers le ballon, lance le geste, le ballon part dans cette direction. */
-  private doKick(a: ActorRT, k: { ball: string; power: number; loft: number }) {
+  private doKick(a: ActorRT, k: { ball: string; power: number; loft: number; tries?: number }) {
     const b = this.balls?.byId.get(k.ball);
     if (!b) return;
     const dx = b.pos[0] - a.pos[0], dz = b.pos[2] - a.pos[2], d = Math.hypot(dx, dz) || 1;
+    // le ballon a roulé entre-temps : l'acteur le rattrape (3 essais), sinon `blocked`
+    const back = b.r + 0.32 * a.mo.legLength;
+    if (d > back + 0.25) {
+      const tries = (k.tries ?? 0) + 1;
+      if (tries > 3) {
+        this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "ball-moved", target: b.id } });
+        return;
+      }
+      this.goto(a, b.pos[0] - (dx / d) * back, b.pos[2] - (dz / d) * back, b.id);
+      if (a.goal) a.goal.kick = { ...k, tries };
+      return;
+    }
     a.yaw = Math.atan2(dx, dz);
     a.action = "kick";
     a.actionTime = 0;
@@ -667,18 +686,30 @@ export class ProcgenView {
     return this.actors.size > 0 || !!this.balls?.moving || this.model.instances.some((g) => g.flex) || !!this.model.water || !!this.style?.grain;
   }
 
+  private ballsDirty = false;
+  private ballAwake = new Set<number>();
+
   private stepBalls(dt: number) {
     const m = this.model!;
     const bw = this.balls!;
-    if (!bw.moving && !this.actors.size) return;
+    if (!bw.moving && !this.actors.size && !this.ballsDirty) return;
     const pushers = [...this.actors.values()].filter((a) => !a.hidden && !(a.action === "sit" && (a.seatY ?? 0) > 0)).map((a) => ({ id: a.model.id, pos: a.pos, vel: [Math.sin(a.yaw) * a.speed, 0, Math.cos(a.yaw) * a.speed] as V3, r: 0.18 * a.mo.legLength + 0.08, h: a.mo.legLength * 0.6 }));
     bw.step(dt, (x, z) => (m.terrain ? m.terrain.height(x, z) : 0), (x, z) => (m.nav ? m.nav.free(x, z) : true), pushers, (e) => this.onEvent(e));
     const touched = new Set<THREE.InstancedMesh>();
     const tmp = new THREE.Matrix4();
+    // seuls les ballons en mouvement (et celui qui vient de s'arrêter) sont réécrits ; un ballon caché est réduit à rien
+    const all = this.ballsDirty;
+    this.ballsDirty = false;
     for (const b of bw.bodies) {
+      const was = this.ballAwake.has(b.obj);
+      if (b.awake) this.ballAwake.add(b.obj);
+      else this.ballAwake.delete(b.obj);
+      if (!all && !b.awake && !was) continue;
       const slot = this.ballSlots.get(b.obj);
       if (!slot) continue;
-      slot.im.setMatrixAt(slot.i, tmp.fromArray(bw.matrix(b, slot.m0) as unknown as number[]));
+      if (bw.hidden.has(b.id)) tmp.makeScale(0, 0, 0);
+      else tmp.fromArray(bw.matrix(b, slot.m0) as unknown as number[]);
+      slot.im.setMatrixAt(slot.i, tmp);
       touched.add(slot.im);
     }
     for (const im of touched) {

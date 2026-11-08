@@ -59,6 +59,7 @@ export class SonicProcgen extends HTMLElement {
   private styleKey = "";
   private viewKey = "";
   private miscKey = "";
+  private kickKey: string | null = null;
   private issues: unknown[] = [];
   private error = "";
   /** Erreur de rendu (contexte WebGL) : durable, indépendante de la composition. */
@@ -311,7 +312,7 @@ export class SonicProcgen extends HTMLElement {
       this.viewKey = vk;
       this.view.setView(vIn);
     }
-    const mk = JSON.stringify([d.anim, d.actors, d.select, d.hidden, d.anchors, d.kick]);
+    const mk = JSON.stringify([d.anim, d.actors, d.select, d.hidden, d.anchors]);
     if (mk !== this.miscKey) {
       this.miscKey = mk;
       if (d.anim && typeof d.anim === "object") this.view.setAnim(d.anim as Json);
@@ -319,7 +320,12 @@ export class SonicProcgen extends HTMLElement {
       if (d.select !== undefined) this.writeSelection(this.view.select(d.select ? String(d.select) : null)?.id ?? null);
       this.view.setHidden(Array.isArray(d.hidden) ? d.hidden.map(String) : []);
       this.anchorList = Array.isArray(d.anchors) ? d.anchors.map(String) : [];
-      // coups donnés aux ballons sans acteur : {ball, vx, vy, vz} ou {ball, power, dir (°), loft} (ou une liste)
+    }
+    // coups donnés aux ballons sans acteur : joués quand la valeur de `kick` change (pas au chargement, pas à la recomposition)
+    const kk = JSON.stringify(d.kick ?? null);
+    if (this.kickKey === null) this.kickKey = kk;
+    else if (kk !== this.kickKey && this.model) {
+      this.kickKey = kk;
       const kicks = Array.isArray(d.kick) ? d.kick : d.kick && typeof d.kick === "object" ? [d.kick] : [];
       for (const k of kicks.slice(0, 16) as Json[]) {
         if (!k || typeof k !== "object" || typeof k.ball !== "string") continue;
@@ -329,7 +335,7 @@ export class SonicProcgen extends HTMLElement {
           const a = (n(k.dir) * Math.PI) / 180, pw = n(k.power);
           v = [Math.sin(a) * pw, pw * (k.loft === undefined ? 0.15 : n(k.loft)), Math.cos(a) * pw];
         }
-        if (!this.view.kickBall(k.ball, v)) this.issues = [...this.issues, { path: "kick.ball", code: "unknown", message: `ballon inconnu : ${k.ball}` }];
+        if (!this.view.kickBall(k.ball, v)) { if (!this.issues.some((x) => (x as { path?: string; got?: unknown }).path === "kick.ball" && (x as { got?: unknown }).got === k.ball)) this.issues = [...this.issues, { path: "kick.ball", code: "unknown", message: `ballon inconnu : ${k.ball}`, got: k.ball }]; }
       }
     }
     // export SVG à la demande (mode vectoriel) : changer `exportSvg` (compteur) publie `svg` dans state-out
