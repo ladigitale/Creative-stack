@@ -31,9 +31,20 @@ La cible est `target` (par défaut la **dernière colonne**). `task="auto"` choi
 | `seed` | Graine : même données et mêmes réglages donnent le même modèle |
 | `features` | Variables à utiliser, séparées par des virgules (défaut : toutes) |
 | `auto-train` | Entraîne dès que les données arrivent |
-| `control` | `{ train: n, stop: n }` : compteurs (la commande part quand `n` augmente) |
+| `control` | `{ train: n, stop: n, …réglages }` : compteurs (la commande part quand `n` augmente) ; les réglages présents valent pour le prochain entraînement |
+| `params` | DP de réglages `{ target, features, task, kind, hiddenUnits, epochs, learningRate, testSplit, seed }` (clés en tirets acceptées : `hidden-units`, `learning-rate`, `test-split`) |
 
 L'entraînement avance par tranches de 12 ms : la page reste fluide. `stop` garde le modèle à l'époque atteinte.
+
+### Réglages par DataProvider
+
+Les réglages se lisent dans les attributs, puis dans `control`, puis dans `params` : le dernier l'emporte. Les valeurs sont bornées comme les attributs ; une valeur hors liste (`task`, `kind`) ou non numérique est ignorée. `features` : tableau ou texte séparé par des virgules. Ils sont lus **au lancement** de l'entraînement : les changer ne relance rien. Avant l'entraînement, l'état « prêt » suit la cible et la tâche demandées ; un entraînement en cours ou terminé garde ses résultats et les réglages qu'il a utilisés jusqu'au lancement suivant.
+
+```json
+{ "tagName": "sonic-train", "attributes": { "data-provider": "fichier.text", "params": "reglages", "control": "entrCtl", "out-data-provider": "entr" } }
+```
+
+avec `reglages` = `{ "target": "prix", "kind": "linear", "epochs": 300 }` (un formulaire, des curseurs…).
 
 ## Lire le résultat
 
@@ -42,7 +53,8 @@ L'entraînement avance par tranches de 12 ms : la page reste fluide. `stop` gard
 - `metrics` — **régression** : `r2`, `rmse`, `mae` et `baselineRmse` (l'erreur qu'on ferait en prédisant toujours la moyenne : le modèle doit faire nettement mieux) ; **classification** : `accuracy`, `baselineAccuracy` (toujours la classe majoritaire), `macroF1`, `confusion` ;
 - `importance` : `[{ name, importance }]` triées, parts de 0 à 1 — baisse de qualité quand on mélange une variable (importance par permutation) ;
 - `confusion` : `[{ reel, predit, n }]` à plat, pour `sonic-plot type="heatmap" x="predit" y="reel" value="n"` ;
-- `ignored`, `features`, `droppedRows`, `columns`, `task`, `target`.
+- `ignored`, `features`, `droppedRows`, `columns`, `task`, `target` ;
+- `settings` : réglages effectifs `{ target, features, task, kind, hiddenUnits, epochs, learningRate, testSplit, seed }` — ceux de l'entraînement en cours ou terminé, sinon ceux du prochain (`target` et `features` tels que demandés, vides = par défaut ; les valeurs retenues sont `target` et `features` de l'état).
 
 Le **modèle** (JSON, format `sonic-model/1`) est dans `state.model` et dans `model-data-provider` : il contient les poids et l'encodage, pas les données.
 

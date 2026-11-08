@@ -131,3 +131,53 @@ describe("sonic-train / sonic-predict", () => {
     expect(s.model).not.toBeNull();
   });
 });
+
+describe("sonic-train : réglages par DataProvider", () => {
+  it("lit les clés camelCase ou en tirets, bornées", async () => {
+    const { readTrainSettings } = await import("./train-element");
+    expect(readTrainSettings({ target: " prix ", features: "surface, pieces", task: "regression", kind: "linear", "hidden-units": 999, epochs: 0, "learning-rate": 5, testSplit: 0.9, seed: 4.6 }))
+      .toEqual({ target: "prix", features: ["surface", "pieces"], task: "regression", kind: "linear", hiddenUnits: 128, epochs: 1, learningRate: 1, testSplit: 0.5, seed: 5 });
+    expect(readTrainSettings({ task: "nope", kind: "cnn", epochs: "x", features: ["a", 3, null] })).toEqual({ features: ["a", "3"] });
+    expect(readTrainSettings(null)).toEqual({});
+  });
+
+  it("params l'emporte sur control et sur les attributs, lus au lancement ; réglages publiés", async () => {
+    const el = mount<SonicTrain>("sonic-train", { "data-provider": "t7d", control: "t7c", params: "t7p", "out-data-provider": "t7s", epochs: "500", kind: "mlp", "test-split": "0.3" });
+    await tick();
+    set("t7d", csv());
+    set("t7c", { train: 0, epochs: 400, seed: 9 });
+    await tick();
+    expect(get("t7s").settings).toMatchObject({ epochs: 400, kind: "mlp", testSplit: 0.3, seed: 9, target: "", features: [] });
+    set("t7p", { kind: "linear", epochs: 30, learningRate: 0.05, features: ["surface", "pieces"], target: "prix" });
+    await tick();
+    expect(get("t7s")).toMatchObject({ status: "ready", target: "prix", settings: { kind: "linear", epochs: 30, seed: 9, features: ["surface", "pieces"] } });
+    set("t7c", { train: 1, epochs: 400, seed: 9 });
+    await until(() => get("t7s")?.status === "done");
+    const s = get("t7s");
+    expect(s.epochs).toBe(30);
+    expect(s.curve).toHaveLength(30);
+    expect(s.features).toEqual(["surface", "pieces"]);
+    expect(s.settings).toMatchObject({ kind: "linear", epochs: 30, learningRate: 0.05, testSplit: 0.3, seed: 9 });
+    // Un changement après coup ne relance rien et garde le résultat.
+    set("t7p", { kind: "linear", epochs: 60 });
+    await tick(60);
+    expect(get("t7s")).toMatchObject({ status: "done", epochs: 30, settings: { epochs: 30 } });
+    expect(el.settings().epochs).toBe(60);
+    set("t7c", { train: 2 });
+    await until(() => get("t7s")?.status === "done" && get("t7s").epochs === 60);
+    expect(get("t7s").curve).toHaveLength(60);
+    expect(get("t7s").settings).toMatchObject({ epochs: 60, features: [] });
+  });
+
+  it("une cible inconnue dans params retombe sur la dernière colonne", async () => {
+    mount<SonicTrain>("sonic-train", { "data-provider": "t8d", params: "t8p", "out-data-provider": "t8s" });
+    await tick();
+    set("t8d", csv());
+    set("t8p", { target: "surface" });
+    await tick();
+    expect(get("t8s")).toMatchObject({ target: "surface", task: "regression", settings: { target: "surface" } });
+    set("t8p", { target: "inexistante" });
+    await tick();
+    expect(get("t8s").target).toBe("prix");
+  });
+});
