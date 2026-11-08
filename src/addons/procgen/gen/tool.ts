@@ -1,6 +1,6 @@
 /**
  * Outils à main (`tool`, raccourci `tool.<kind>`) : manche + tête + prise, à taille réelle, par la grammaire de pièces
- * (même modèle en 3D et en vectoriel). Posés au sol (`pose: lying`), appuyés (`leaning`) ou plantés (`upright`), ou
+ * (même modèle en 3D et en vectoriel). Posés au sol (`pose: lying`), appuyés (`leaning`, penché vers −z : dos au mur) ou plantés (`upright`), ou
  * **tenus** par un personnage (`character.item: "tool.<kind>"`) avec l'action qui va avec (`hammer`, `sweep`, `dig`).
  *
  * Modèle de référence : manche selon +y depuis l'extrémité basse (y = 0), prise principale à `grip` (m), tête dans le
@@ -15,6 +15,8 @@ export type ToolDef = {
   label: string;
   /** Prise principale (hauteur sur le manche, m). */
   grip: number;
+  /** Tête tournée vers l'avant du porteur (marteau, hache) ou en travers (râteau, balai, pelle). */
+  head?: "forward" | "side";
   /** Action d'usage pour un personnage qui le tient. */
   use: "hammer" | "sweep" | "dig" | "carry";
   affords: string[];
@@ -31,22 +33,22 @@ export const TOOLS: Record<string, ToolDef> = {
   sledgehammer: { label: "Masse", grip: 0.12, use: "hammer", affords: ["hold", "hit", "carry"], parts: (o) => [rod([0, 0, 0], [0, 0.86, 0], 0.017, o.handle, 0.015), bx([0, 0.88, 0], [0.09, 0.034, 0.034], o.head)] },
   axe: { label: "Hache", grip: 0.1, use: "hammer", affords: ["hold", "chop", "carry"], parts: (o) => [{ t: "tube", pts: [[0, 0, 0], [0.012, 0.25, 0], [0, 0.5, 0], [-0.008, 0.7, 0]], r: 0.016, role: o.handle }, bx([0.05, 0.66, 0], [0.05, 0.05, 0.008], o.head), bx([0.1, 0.66, 0], [0.008, 0.075, 0.004], o.head)] },
   pickaxe: { label: "Pioche", grip: 0.12, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [rod([0, 0, 0], [0, 0.88, 0], 0.018, o.handle), { t: "tube", pts: arc(0, 0.62, 0.3, Math.PI * 0.18, Math.PI * 0.82, 8).map(([x, y, z]) => [x, y, z] as V3), r: 0.018, role: o.head }, bx([0, 0.9, 0], [0.03, 0.035, 0.028], o.head)] },
-  shovel: { label: "Pelle", grip: 0.75, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [bx([0, 0.14, 0.015], [0.115, 0.14, 0.006], o.head, [-12, 0, 0]), rod([0, 0.26, 0], [0, 1.08, 0], 0.017, o.handle), bx([0, 1.1, 0], [0.065, 0.016, 0.016], o.handle)] },
-  spade: { label: "Bêche", grip: 0.8, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [bx([0, 0.15, 0], [0.095, 0.15, 0.005], o.head), bx([0, 0.31, 0], [0.1, 0.012, 0.012], o.head), rod([0, 0.3, 0], [0, 1.0, 0], 0.017, o.handle), { t: "tube", pts: [[-0.06, 1.0, 0], [-0.05, 1.07, 0], [0.05, 1.07, 0], [0.06, 1.0, 0]], r: 0.013, role: o.handle }] },
-  rake: { label: "Râteau", grip: 0.9, use: "sweep", affords: ["hold", "rake", "carry"], parts: (o) => [rod([0, 0.07, 0], [0, 1.55, 0], 0.014, o.handle), bx([0, 0.07, 0], [0.2, 0.012, 0.016], o.head), ...Array.from({ length: 12 }, (_, i) => rod([-0.19 + (i * 0.38) / 11, 0.065, 0], [-0.19 + (i * 0.38) / 11, 0.0, 0.02], 0.004, o.head))] },
-  leafrake: { label: "Balai à feuilles", grip: 0.95, use: "sweep", affords: ["hold", "rake", "carry"], parts: (o) => [rod([0, 0.32, 0], [0, 1.6, 0], 0.014, o.handle), ...Array.from({ length: 11 }, (_, i) => { const a = Math.PI * (0.22 + (0.56 * i) / 10); return rod([0, 0.32, 0], [Math.cos(a) * 0.32, 0.32 - Math.sin(a) * 0.32, 0.02], 0.004, o.accent); })] },
-  hoe: { label: "Binette", grip: 0.85, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [rod([0, 0.05, 0], [0, 1.4, 0], 0.015, o.handle), bx([0, 0.05, 0.06], [0.08, 0.05, 0.004], o.head, [-70, 0, 0])] },
-  pitchfork: { label: "Fourche", grip: 0.8, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [rod([0, 0.3, 0], [0, 1.45, 0], 0.015, o.handle), { t: "tube", pts: [[-0.08, 0.06, 0], [-0.08, 0.26, 0], [0.08, 0.26, 0], [0.08, 0.06, 0]], r: 0.006, role: o.head }, rod([0, 0.3, 0], [0, 0.06, 0], 0.006, o.head)] },
-  broom: { label: "Balai", grip: 0.85, use: "sweep", affords: ["hold", "sweep", "carry"], parts: (o) => [rod([0, 0.08, 0], [0, 1.35, 0], 0.013, o.handle), bx([0, 0.1, 0], [0.16, 0.025, 0.03], o.handle), bx([0, 0.04, 0], [0.155, 0.04, 0.026], o.accent)] },
-  besom: { label: "Balai de brindilles", grip: 0.75, use: "sweep", affords: ["hold", "sweep", "carry", "fly"], parts: (o) => [rod([0, 0.4, 0], [0, 1.3, 0], 0.016, o.handle), { t: "blob", c: [0, 0.2, 0], r: [0.12, 0.24, 0.12], role: "path" }, rod([-0.03, 0.4, 0], [0.03, 0.4, 0], 0.03, o.accent)] },
-  mop: { label: "Serpillière", grip: 0.85, use: "sweep", affords: ["hold", "sweep", "carry"], parts: (o) => [rod([0, 0.12, 0], [0, 1.3, 0], 0.013, o.handle), { t: "blob", c: [0, 0.08, 0], r: [0.12, 0.08, 0.12], role: o.accent }] },
-  scythe: { label: "Faux", grip: 0.9, use: "sweep", affords: ["hold", "mow", "carry"], parts: (o) => [{ t: "tube", pts: [[0, 0, 0], [0.04, 0.5, 0], [0.02, 1.0, 0], [-0.02, 1.45, 0]], r: 0.016, role: o.handle }, rod([0.04, 0.95, 0], [0.18, 0.98, 0], 0.012, o.handle), { t: "tube", pts: arc(-0.3, 0.2, 0.36, -0.05, Math.PI * 0.45, 8).map(([x, y]) => [x + 0.06, y - 0.2, 0] as V3), r: 0.008, role: o.head }] },
+  shovel: { head: "side", label: "Pelle", grip: 0.75, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [bx([0, 0.14, 0.015], [0.115, 0.14, 0.006], o.head, [-12, 0, 0]), rod([0, 0.26, 0], [0, 1.08, 0], 0.017, o.handle), bx([0, 1.1, 0], [0.065, 0.016, 0.016], o.handle)] },
+  spade: { head: "side", label: "Bêche", grip: 0.8, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [bx([0, 0.15, 0], [0.095, 0.15, 0.005], o.head), bx([0, 0.31, 0], [0.1, 0.012, 0.012], o.head), rod([0, 0.3, 0], [0, 1.0, 0], 0.017, o.handle), { t: "tube", pts: [[-0.06, 1.0, 0], [-0.05, 1.07, 0], [0.05, 1.07, 0], [0.06, 1.0, 0]], r: 0.013, role: o.handle }] },
+  rake: { head: "side", label: "Râteau", grip: 0.9, use: "sweep", affords: ["hold", "rake", "carry"], parts: (o) => [rod([0, 0.07, 0], [0, 1.55, 0], 0.014, o.handle), bx([0, 0.07, 0], [0.2, 0.012, 0.016], o.head), ...Array.from({ length: 12 }, (_, i) => rod([-0.19 + (i * 0.38) / 11, 0.065, 0], [-0.19 + (i * 0.38) / 11, 0.0, 0.02], 0.004, o.head))] },
+  leafrake: { head: "side", label: "Balai à feuilles", grip: 0.95, use: "sweep", affords: ["hold", "rake", "carry"], parts: (o) => [rod([0, 0.32, 0], [0, 1.6, 0], 0.014, o.handle), ...Array.from({ length: 11 }, (_, i) => { const a = Math.PI * (0.22 + (0.56 * i) / 10); return rod([0, 0.32, 0], [Math.cos(a) * 0.32, 0.32 - Math.sin(a) * 0.32, 0.02], 0.004, o.accent); })] },
+  hoe: { head: "side", label: "Binette", grip: 0.85, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [rod([0, 0.05, 0], [0, 1.4, 0], 0.015, o.handle), bx([0, 0.05, 0.06], [0.08, 0.05, 0.004], o.head, [-70, 0, 0])] },
+  pitchfork: { head: "side", label: "Fourche", grip: 0.8, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [rod([0, 0.3, 0], [0, 1.45, 0], 0.015, o.handle), { t: "tube", pts: [[-0.08, 0.06, 0], [-0.08, 0.26, 0], [0.08, 0.26, 0], [0.08, 0.06, 0]], r: 0.006, role: o.head }, rod([0, 0.3, 0], [0, 0.06, 0], 0.006, o.head)] },
+  broom: { head: "side", label: "Balai", grip: 0.85, use: "sweep", affords: ["hold", "sweep", "carry"], parts: (o) => [rod([0, 0.08, 0], [0, 1.35, 0], 0.013, o.handle), bx([0, 0.1, 0], [0.16, 0.025, 0.03], o.handle), bx([0, 0.04, 0], [0.155, 0.04, 0.026], o.accent)] },
+  besom: { head: "side", label: "Balai de brindilles", grip: 0.75, use: "sweep", affords: ["hold", "sweep", "carry", "fly"], parts: (o) => [rod([0, 0.4, 0], [0, 1.3, 0], 0.016, o.handle), { t: "blob", c: [0, 0.2, 0], r: [0.12, 0.24, 0.12], role: "path" }, rod([-0.03, 0.4, 0], [0.03, 0.4, 0], 0.03, o.accent)] },
+  mop: { head: "side", label: "Serpillière", grip: 0.85, use: "sweep", affords: ["hold", "sweep", "carry"], parts: (o) => [rod([0, 0.12, 0], [0, 1.3, 0], 0.013, o.handle), { t: "blob", c: [0, 0.08, 0], r: [0.12, 0.08, 0.12], role: o.accent }] },
+  scythe: { head: "side", label: "Faux", grip: 0.9, use: "sweep", affords: ["hold", "mow", "carry"], parts: (o) => [{ t: "tube", pts: [[0, 0, 0], [0.04, 0.5, 0], [0.02, 1.0, 0], [-0.02, 1.45, 0]], r: 0.016, role: o.handle }, rod([0.04, 0.95, 0], [0.18, 0.98, 0], 0.012, o.handle), { t: "tube", pts: arc(-0.3, 0.2, 0.36, -0.05, Math.PI * 0.45, 8).map(([x, y]) => [x + 0.06, y - 0.2, 0] as V3), r: 0.008, role: o.head }] },
   saw: { label: "Scie", grip: 0.05, use: "sweep", affords: ["hold", "saw", "carry"], parts: (o) => [bx([0, 0.05, 0], [0.025, 0.06, 0.014], o.handle), { t: "box", c: [0.015, 0.36, 0], h: [0.05, 0.26, 0.002], role: o.head, rot: [0, 0, -3] }] },
   trowel: { label: "Truelle", grip: 0.05, use: "dig", affords: ["hold", "dig", "carry"], parts: (o) => [rod([0, 0, 0], [0, 0.11, 0], 0.013, o.handle, 0.011), rod([0, 0.11, 0], [0, 0.14, 0.02], 0.004, o.head), bx([0, 0.22, 0.025], [0.05, 0.08, 0.003], o.head)] },
   wrench: { label: "Clé", grip: 0.05, use: "hammer", affords: ["hold", "carry"], parts: (o) => [bx([0, 0.1, 0], [0.012, 0.1, 0.005], o.head), { t: "tube", pts: arc(0, 0.235, 0.028, -Math.PI * 0.25, Math.PI * 1.25, 8), r: 0.008, role: o.head }] },
   screwdriver: { label: "Tournevis", grip: 0.05, use: "hammer", affords: ["hold", "carry"], parts: (o) => [rod([0, 0, 0], [0, 0.1, 0], 0.014, o.accent, 0.012), rod([0, 0.1, 0], [0, 0.21, 0], 0.0035, o.head)] },
   paintbrush: { label: "Pinceau", grip: 0.06, use: "sweep", affords: ["hold", "paint", "carry"], parts: (o) => [rod([0, 0, 0], [0, 0.16, 0], 0.008, o.handle, 0.011), bx([0, 0.18, 0], [0.025, 0.02, 0.008], "metal"), bx([0, 0.22, 0], [0.024, 0.025, 0.006], o.accent)] },
-  paintroller: { label: "Rouleau à peindre", grip: 0.06, use: "sweep", affords: ["hold", "paint", "carry"], parts: (o) => [rod([0, 0, 0], [0, 0.13, 0], 0.013, o.accent), { t: "tube", pts: [[0, 0.13, 0], [0, 0.22, 0], [0.04, 0.26, 0], [0.04, 0.3, 0]], r: 0.004, role: "metal" }, rod([-0.07, 0.3, 0], [0.11, 0.3, 0], 0.025, "white")] },
+  paintroller: { head: "side", label: "Rouleau à peindre", grip: 0.06, use: "sweep", affords: ["hold", "paint", "carry"], parts: (o) => [rod([0, 0, 0], [0, 0.13, 0], 0.013, o.accent), { t: "tube", pts: [[0, 0.13, 0], [0, 0.22, 0], [0.04, 0.26, 0], [0.04, 0.3, 0]], r: 0.004, role: "metal" }, rod([-0.07, 0.3, 0], [0.11, 0.3, 0], 0.025, "white")] },
   crowbar: { label: "Pied-de-biche", grip: 0.15, use: "dig", affords: ["hold", "pry", "carry"], parts: (o) => [{ t: "tube", pts: [[0.03, -0.01, 0], [0, 0.03, 0], [0, 0.55, 0], ...arc(0.03, 0.55, 0.03, Math.PI, Math.PI * 0.25, 4)], r: 0.009, role: o.accent }] },
   fishingrod: { label: "Canne à pêche", grip: 0.25, use: "carry", affords: ["hold", "fish", "carry"], parts: (o) => [rod([0, 0, 0], [0, 0.4, 0], 0.016, "cloth2", 0.012), rod([0, 0.4, 0], [0, 2.3, 0], 0.008, o.handle, 0.002), rod([0, 0.3, 0], [0.04, 0.3, 0], 0.022, o.head)] },
   machete: { label: "Machette", grip: 0.05, use: "hammer", affords: ["hold", "chop", "carry"], parts: (o) => [rod([0, 0, 0], [0, 0.12, 0], 0.013, o.accent), { t: "box", c: [0.01, 0.34, 0], h: [0.022, 0.22, 0.002], role: o.head, rot: [0, 0, -4] }] },
@@ -61,10 +63,27 @@ export function toolParts(kind: string, p: Record<string, unknown> = {}): { def:
   return { def, parts: def.parts({ handle, head, accent }) };
 }
 
+/** Hauteur maximale de la prise au-dessus du bas du manche quand l'outil est porté (m, pour 1,7 m). */
+export const CARRY_GRIP = 0.58;
+
+/**
+ * Orientation d'un outil tenu : le manche suit `up` (axe de la main), la tête suit l'avant du porteur `fwd` (projeté
+ * orthogonalement au manche) ou le travers. Même repère en 3D et en vectoriel.
+ */
+export function heldToolBasis(up: V3, fwd: V3, head: "forward" | "side"): [V3, V3, V3] {
+  const d = up[0] * fwd[0] + up[1] * fwd[1] + up[2] * fwd[2];
+  let f: V3 = [fwd[0] - up[0] * d, fwd[1] - up[1] * d, fwd[2] - up[2] * d];
+  const fl = Math.hypot(f[0], f[1], f[2]);
+  f = fl > 1e-4 ? [f[0] / fl, f[1] / fl, f[2] / fl] : [0, 0, 1];
+  const s: V3 = [up[1] * f[2] - up[2] * f[1], up[2] * f[0] - up[0] * f[2], up[0] * f[1] - up[1] * f[0]];
+  // (x, y, z) de l'outil → (avant, manche, −travers) ou (travers, manche, avant)
+  return head === "forward" ? [f, up, [-s[0], -s[1], -s[2]]] : [s, up, f];
+}
+
 export type ToolPose = "lying" | "leaning" | "upright";
 
 /** Outil posé : pièces dans le repère de l'objet (au sol), et position de la prise. */
-export function placedTool(kind: string, p: Record<string, unknown>): { parts: PartList; grip: V3; def: ToolDef } {
+export function placedTool(kind: string, p: Record<string, unknown>): { parts: PartList; grip: V3; top: V3; def: ToolDef } {
   const { def, parts } = toolParts(kind, p);
   const s = clamp(Number(p.scale ?? 1) || 1, 0.2, 5);
   const pose = String(p.pose ?? "lying") as ToolPose;
@@ -79,27 +98,30 @@ export function placedTool(kind: string, p: Record<string, unknown>): { parts: P
   out = transformParts(out, [0, 0, 0, 1], t);
   const g = transformParts([{ t: "rod", a: [0, def.grip, 0], b: [0, def.grip + 0.01, 0], r: 0.01, role: "wood" }], q, [0, 0, 0], s);
   const ga = (g[0] as { a: V3 }).a;
-  return { parts: out, grip: [ga[0] + t[0], ga[1] + t[1], ga[2] + t[2]], def };
+  const top = transformParts([{ t: "rod", a: [0, partsBounds(parts).max[1], 0], b: [0, 0, 0], r: 0.01, role: "wood" }], q, [0, 0, 0], s)[0] as { a: V3 };
+  return { parts: out, grip: [ga[0] + t[0], ga[1] + t[1], ga[2] + t[2]], top: [top.a[0] + t[0], top.a[1] + t[1], top.a[2] + t[2]], def };
 }
 
 /**
  * Outil tenu par un personnage de taille `H` : manche selon y, **prise à l'origine** (le personnage referme la main
  * dessus). Échelle réelle ramenée à la taille du personnage (1,7 m = 1).
  */
-export function heldToolParts(kind: string, H: number): { parts: PartList; handle: number } | null {
+export function heldToolParts(kind: string, H: number): { parts: PartList; handle: number; head: "forward" | "side" } | null {
   if (!TOOLS[kind]) return null;
   const { def, parts } = toolParts(kind);
   const k = H / 1.7;
-  const out = transformParts(parts, [0, 0, 0, 1], [0, -def.grip * k, 0], k);
+  // porté bras le long du corps, la main pend vers 0,67 m (pour 1,7 m) : les grands outils sont tenus plus bas sur le
+  // manche pour que leur tête reste au-dessus du sol
+  const out = transformParts(parts, [0, 0, 0, 1], [0, -Math.min(def.grip, CARRY_GRIP) * k, 0], k);
   const handleR = parts.find((q) => q.t === "rod" || q.t === "tube") as { r: number } | undefined;
-  return { parts: out, handle: (handleR?.r ?? 0.013) * k };
+  return { parts: out, handle: (handleR?.r ?? 0.013) * k, head: def.head ?? "forward" };
 }
 
 export const tool = defineGenerator({
   id: "tool",
   label: "Outil à main",
   doc:
-    "Outils à taille réelle (hammer, mallet, sledgehammer, axe, pickaxe, shovel, spade, rake, leafrake, hoe, pitchfork, broom, besom, mop, scythe, saw, trowel, wrench, screwdriver, paintbrush, paintroller, crowbar, fishingrod, machete) : posés (`pose`: lying au sol, leaning appuyé, upright planté). Un personnage peut en tenir un : `character.item: \"tool.rake\"` ; action d'usage `hammer`, `sweep` ou `dig` (voir `extra.use`). `color` = rôle du manche, `color2` = tête, `color3` = détail. Ancre grip.",
+    "Outils à taille réelle (hammer, mallet, sledgehammer, axe, pickaxe, shovel, spade, rake, leafrake, hoe, pitchfork, broom, besom, mop, scythe, saw, trowel, wrench, screwdriver, paintbrush, paintroller, crowbar, fishingrod, machete) : posés (`pose`: lying au sol, leaning appuyé — penché vers l'arrière de l'objet, à placer dos au mur —, upright planté). Un personnage peut en tenir un : `character.item: \"tool.rake\"` ; action d'usage `hammer`, `sweep` ou `dig` (voir `extra.use`). `color` = rôle du manche, `color2` = tête, `color3` = détail. Ancre grip.",
   tags: ["outil", "jardin", "atelier", "chantier", "ferme", "objet du quotidien"],
   schema: {
     kind: { type: "enum", default: "hammer", options: TOOL_KINDS, doc: "Outil" },
@@ -111,13 +133,13 @@ export const tool = defineGenerator({
   },
   build(p) {
     const kind = String(p.kind);
-    const { parts, grip, def } = placedTool(kind, p);
+    const { parts, grip, top, def } = placedTool(kind, p);
     const mesh = partsToMesh(parts, 0.8);
     const bb = partsBounds(parts);
     const hx = Math.max(Math.abs(bb.min[0]), Math.abs(bb.max[0]), 0.01);
     const hz = Math.max(Math.abs(bb.min[2]), Math.abs(bb.max[2]), 0.01);
     const rot: Q = [0, 0, 0, 1];
-    const anchors: Record<string, Anchor> = { grip: { pos: grip, rot, scale: 0.05 }, top: { pos: [0, bb.max[1], 0], rot, scale: 0.05 } };
+    const anchors: Record<string, Anchor> = { grip: { pos: grip, rot, scale: 0.05 }, top: { pos: top, rot, scale: 0.05 } };
     return { generator: "tool", mesh, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: Math.max(0.01, bb.max[1]), extra: { affords: def.affords, use: def.use, label: def.label } };
   },
 });

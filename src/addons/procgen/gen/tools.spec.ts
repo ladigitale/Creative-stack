@@ -9,6 +9,7 @@ import { validPath } from "../vector/shape";
 import { character } from "./character";
 import { GENERATORS } from "./index";
 import { TOOL_KINDS, TOOLS, heldToolParts } from "./tool";
+import { dqSkinPoint, dualQuat } from "../rig/skeleton";
 
 const make = (gen: string, params: Record<string, unknown>, seed: string | number = 1) => {
   const g = GENERATORS[gen];
@@ -25,7 +26,7 @@ describe("outils à main", () => {
         expect(issues.list, `${kind}/${pose}`).toEqual([]);
         const b = asset.mesh.bounds();
         expect(b.min[1], `${kind}/${pose}`).toBeGreaterThan(-0.01);
-        expect(asset.mesh.triangleCount, `${kind}/${pose}`).toBeLessThan(2500);
+        expect(asset.mesh.triangleCount, `${kind}/${pose}`).toBeLessThan(600);
         expect(asset.anchors.grip, kind).toBeDefined();
         const len = Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
         expect(len, kind).toBeGreaterThan(0.12);
@@ -51,6 +52,24 @@ describe("outils à main", () => {
       const a = character.build(p as never, { rng: new Rng(kind), issues, path: "" });
       const b = character.build(plain as never, { rng: new Rng(kind), issues, path: "" });
       expect(a.mesh.triangleCount, kind).toBeGreaterThan(b.mesh.triangleCount);
+    }
+  });
+
+  it("outil tenu, bras au repos ou en marchant : la tête reste au-dessus du sol (3D, skinning réel)", () => {
+    for (const kind of TOOL_KINDS) {
+      const issues = new Issues();
+      const cp = resolveParams(character.schema, { archetype: "stylized", detail: "crowd", item: `tool.${kind}`, height: 1.7 }, { rng: new Rng("g"), vars: {} }, issues);
+      const a = character.build(cp as never, { rng: new Rng("g"), issues, path: "" });
+      const sk = a.skeleton!, info = rigInfo(sk);
+      for (const [speed, phase] of [[0, 0], [1.4, 0.25], [1.4, 0.75]]) {
+        const st: MotionState = { speed, phase, time: 1, action: speed ? "walk" : "idle", actionTime: 1, actionWeight: 0, mood: "neutral", turn: 0, seed: 1 };
+        const { pose } = humanoidPose(sk, info, st, [0, 0, 0], 0);
+        const dq = sk.skinMatrices(sk.world(pose)).map(dualQuat);
+        const m = a.mesh;
+        let minY = Infinity;
+        for (let v = 0; v < m.vertexCount; v++) minY = Math.min(minY, dqSkinPoint(m.getPos(v), dq, m.skin!.slice(v * 4, v * 4 + 4), m.weight!.slice(v * 4, v * 4 + 4))[1]);
+        expect(minY, `${kind} v=${speed}`).toBeGreaterThan(-0.03);
+      }
     }
   });
 

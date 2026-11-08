@@ -13,14 +13,15 @@
  *   queue, chignon, crête, boucles ; chapeaux par anneaux 3D projetés (bords, calottes, cônes).
  * - Membres éloignés plus sombres et derrière ; ordre de dessin par profondeur des parties.
  */
-import { type M4, type V3, add, clamp, cross, dot, m4Dir, madd, norm, scale, sub } from "../../core/math";
+import { type M4, type V3, DEG, add, clamp, cross, dot, m4Dir, madd, norm, scale, sub } from "../../core/math";
 import { ARCHETYPES } from "../../rig/humanoid";
 import type { Skeleton } from "../../rig/skeleton";
 import type { Projector } from "../project";
 import { type P2, Pen, type Shape, hull, lerp2, strokeVar } from "../shape";
 import { Emitter, Frame } from "./kit";
 import { drawPartsOn } from "./parts";
-import { heldToolParts } from "../../gen/tool";
+import { heldToolBasis, heldToolParts } from "../../gen/tool";
+import { handFrame } from "../../gen/character/hands";
 
 export type CharacterInput = {
   sk: Skeleton;
@@ -1136,9 +1137,13 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       // outil : mêmes pièces que le générateur `tool`, dans le repère de la prise (côté, manche, avant)
       const t = heldToolParts(item.slice(5), H);
       if (!t) return;
-      const fwd = norm(cross(side, iu));
-      const W = (x: number, y: number, z: number): V3 => add(add(madd(grip, side, x), scale(iu, y)), scale(fwd, z));
-      const wn = (n: V3): V3 => norm(add(add(scale(side, n[0]), scale(iu, n[1])), scale(fwd, n[2])));
+      // repère partagé avec la 3D : manche dans l'axe de la main (il suit le geste), tête vers l'avant ou en travers
+      // axe de prise du modèle 3D (pouce vers le haut, poing tendu en avant), porté par l'os de la main
+      const ad = (v: V3): V3 => [v[0] * Math.cos(-36 * DEG) - v[1] * Math.sin(-36 * DEG), v[0] * Math.sin(-36 * DEG) + v[1] * Math.cos(-36 * DEG), v[2]];
+      const gt = handFrame(norm(ad([0, -0.35, 1])), -1, ad([0, 1, 0])).t;
+      const [bx, by, bz] = heldToolBasis(D("hand.r", gt), D("hand.r", [0, 0, 1]), t.head);
+      const W = (x: number, y: number, z: number): V3 => add(add(madd(grip, bx, x), scale(by, y)), scale(bz, z));
+      const wn = (n: V3): V3 => norm(add(add(scale(bx, n[0]), scale(by, n[1])), scale(bz, n[2])));
       drawPartsOn({ P: (x, y, z) => S(W(x, y, z)), vis: (n) => dot(wn(n), vdir), tone: (n) => (wn(n)[1] > 0.5 ? 1 : dot(wn(n), [-0.6, 0.7, 0.3]) > 0.1 ? 0 : -1), depth: (v) => dot(W(v[0], v[1], v[2]), vdir), k: 1, em, lightSide: -1, toneBias: tone }, t.parts, { width: 0.45 });
       return;
     }

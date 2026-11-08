@@ -9,10 +9,10 @@ import { ROLE } from "../../style/roles";
 import { partsToMesh } from "../parts";
 import { heldToolParts } from "../tool";
 
-export function buildItem(kind: string, H: number): { mesh: Mesh; handle: number } | null {
+export function buildItem(kind: string, H: number): { mesh: Mesh; handle: number; head?: "forward" | "side" } | null {
   if (kind.startsWith("tool.")) {
     const t = heldToolParts(kind.slice(5), H);
-    return t ? { mesh: partsToMesh(t.parts, 0.8), handle: t.handle } : null;
+    return t ? { mesh: partsToMesh(t.parts, 0.8), handle: t.handle, head: t.head } : null;
   }
   const m = new Mesh();
   const W = ROLE.wood, M = ROLE.metal;

@@ -203,7 +203,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       break;
     }
     case "sweep": {
-      // balai, râteau : les deux mains sur le manche, le buste va et vient
+      // balai, râteau : main gauche avancée plus bas (approchée, sans IK sur le manche), le buste va et vient
       const k = Math.sin(at * 1.4 * TAU);
       raiseArm("r", 18, 28 + 10 * k, 45);
       raiseArm("l", 22, 48 - 10 * k, 70);
@@ -213,7 +213,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       break;
     }
     case "dig": {
-      // bêcher : on se penche, on enfonce, on soulève (un cycle par seconde)
+      // bêcher : on se penche, on enfonce, on soulève (un cycle toutes les 1,1 s)
       const c = (at % 1.1) / 1.1, k = Math.sin(c * Math.PI);
       raiseArm("r", 15, 40 + 35 * k, 30 + 30 * (1 - k));
       raiseArm("l", 18, 55 + 25 * k, 50);

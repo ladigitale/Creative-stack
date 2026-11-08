@@ -76,6 +76,27 @@ export function qFromTo(a: V3, b: V3): Q {
   const c = cross(na, nb);
   return qNorm([c[0], c[1], c[2], 1 + d]);
 }
+/** Rotation qui envoie les axes x, y, z sur la base orthonormée directe (bx, by, bz). */
+export function qFromAxes(bx: V3, by: V3, bz: V3): Q {
+  const m00 = bx[0], m10 = bx[1], m20 = bx[2], m01 = by[0], m11 = by[1], m21 = by[2], m02 = bz[0], m12 = bz[1], m22 = bz[2];
+  const tr = m00 + m11 + m22;
+  let q: Q;
+  if (tr > 0) {
+    const s = Math.sqrt(tr + 1) * 2;
+    q = [(m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s, 0.25 * s];
+  } else if (m00 > m11 && m00 > m22) {
+    const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+    q = [0.25 * s, (m01 + m10) / s, (m02 + m20) / s, (m21 - m12) / s];
+  } else if (m11 > m22) {
+    const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+    q = [(m01 + m10) / s, 0.25 * s, (m12 + m21) / s, (m02 - m20) / s];
+  } else {
+    const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+    q = [(m02 + m20) / s, (m12 + m21) / s, 0.25 * s, (m10 - m01) / s];
+  }
+  return qNorm(q);
+}
+
 export function qSlerp(a: Q, b: Q, t: number): Q {
   let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
   let bb = b;
