@@ -362,4 +362,42 @@ describe("sonic-animate", () => {
     expect((document.getElementById("p") as HTMLElement).style.opacity).toBe("");
     expect(warn).toHaveBeenCalled();
   });
+
+  it("control {n} : lance sans JS (trigger manual) ; état publié {status, progress, done, runs}", async () => {
+    const frames = fakeFrames();
+    const ctl = id("animCtl");
+    const out = id("animOut");
+    set(ctl, { n: 0 });
+    document.body.innerHTML = `<sonic-animate recipe="fade" trigger="manual" duration="1" control="${ctl}" out-data-provider="${out}"><p id="p">x</p></sonic-animate>`;
+    await (document.querySelector("sonic-animate") as HTMLElement & { updateComplete: Promise<boolean> }).updateComplete;
+    const st = () => get(out) as { status: string; progress: number; done: boolean; runs: number; error: string | null };
+    expect(st()).toMatchObject({ status: "idle", progress: 0, done: false, runs: 0, error: null });
+    frames.advance(500);
+    expect(document.getElementById("p")!.style.opacity).toBe("0"); // manual : rien sans control
+    set(ctl, { n: 1 });
+    expect(st()).toMatchObject({ status: "running", runs: 1 });
+    frames.advance(16);
+    frames.advance(500);
+    expect(st().progress).toBeGreaterThan(0.3);
+    expect(st().progress).toBeLessThan(1);
+    frames.advance(2000);
+    expect(st()).toMatchObject({ status: "ready", progress: 1, done: true, runs: 1 });
+    set(ctl, { n: 2 }); // relance
+    expect(st()).toMatchObject({ status: "running", progress: 0, runs: 2 });
+  });
+
+  it("recette inconnue : status error publié, corrigée ensuite : reconstruite", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const out = id("animOut");
+    document.body.innerHTML = `<sonic-animate recipe="explode" out-data-provider="${out}"><p id="p">x</p></sonic-animate>`;
+    const el = document.querySelector("sonic-animate") as HTMLElement & { updateComplete: Promise<boolean>; recipe: string };
+    await el.updateComplete;
+    expect(get(out)).toMatchObject({ status: "error" });
+    expect((get(out) as { error: string }).error).toContain("explode");
+    el.recipe = "fade";
+    await el.updateComplete;
+    expect((get(out) as { status: string; error: string | null })).toMatchObject({ error: null });
+    expect((get(out) as { status: string }).status).not.toBe("error");
+  });
 });
+

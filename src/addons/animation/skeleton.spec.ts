@@ -373,3 +373,30 @@ describe("exemple bras souple", () => {
     for (const i of all.filter((n) => n.tagName === "sonic-input")) expect(i.attributes!.formDataProvider).toBe("bras");
   });
 });
+
+describe("sonic-skeleton : état publié", () => {
+  it("status, error et errors dans nodes-out", async () => {
+    const el = await mount({ "nodes-out": "skSt1", preset: "robot" }, [{ name: "a", length: "10" }, { name: "a" }, { length: "5" }]);
+    await flush();
+    expect(dp("skSt1.status").get()).toBe("error");
+    const errors = dp("skSt1.errors").get() as string[];
+    expect(errors.length).toBe(3);
+    expect(errors.join(" ")).toContain("robot");
+    expect(dp("skSt1.error").get()).toBe(errors[0]);
+    expect(el.getState()).toMatchObject({ status: "error", bones: ["a"] });
+    el.preset = "";
+    for (const b of [...el.querySelectorAll("sonic-bone")].slice(1)) b.remove();
+    await el.updateComplete;
+    await flush();
+    expect(dp("skSt1.status").get()).toBe("ready");
+    expect(dp("skSt1.error").get()).toBeNull();
+    expect(dp("skSt1.errors").get()).toEqual([]);
+  });
+
+  it("aucun os : status idle", async () => {
+    await mount({ "nodes-out": "skSt2" });
+    await flush();
+    expect(dp("skSt2.status").get()).toBe("idle");
+  });
+});
+

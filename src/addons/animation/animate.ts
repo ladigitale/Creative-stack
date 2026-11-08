@@ -1,6 +1,8 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
+import { CounterTrigger } from "../../shared/media/control";
 import { boolConverter, prefersReducedMotion } from "./attrs";
 import { ClockCore } from "./clock-core";
 import { buildRecipe, isRecipe, RECIPE_NAMES } from "./recipes";
@@ -11,9 +13,26 @@ const tagName = "sonic-animate";
 
 type Trigger = "viewport" | "load" | "data" | "manual";
 
+/** Publications au plus toutes les 33 ms pendant la lecture (≈ 30 Hz). */
+const PUBLISH_MS = 33;
+
+export type AnimateState = {
+  /** `idle` : pas encore joué ; `running` : horloge locale en cours ; `ready` : terminé, ou temps lu dans `time-source` ; `error` : recette inconnue. */
+  status: "idle" | "running" | "ready" | "error";
+  error: string | null;
+  /** Avancement affiché, 0..1. */
+  progress: number;
+  done: boolean;
+  /** Nombre de lancements (trigger, `control`, `start()`) depuis le chargement. */
+  runs: number;
+  /** Durée totale de la recette (s). */
+  duration: number;
+};
+
 /**
  * Enveloppe ses enfants et leur applique une recette (reveal, fade, slide-up, count-up, typewriter).
  * Horloge locale par défaut ; avec `time-source`, le temps vient d'un DataProvider (slider, p2p, audio…).
+ * `control` (`{ n }`, une hausse de `n` lance) remplace l'appel de `start()` ; état complet dans `out-data-provider`.
  */
 @customElement(tagName)
 export class SonicAnimate extends LitElement {
@@ -69,6 +88,14 @@ export class SonicAnimate extends LitElement {
   @property({ type: String })
   ease?: string;
 
+  /** DP de pilotage `{ n }` : chaque hausse de `n` lance (ou relance) l'animation, quel que soit `trigger`. */
+  @property({ type: String })
+  control = "";
+
+  /** DataProvider où publier l'état `{ status, error, progress, done, runs, duration }`. */
+  @property({ type: String, attribute: "out-data-provider" })
+  outDataProvider = "";
+
   private runner: TimelineRunner | null = null;
   private core = new ClockCore();
   private raf = 0;
@@ -76,29 +103,95 @@ export class SonicAnimate extends LitElement {
   private played = false;
   private unsubs: Array<() => void> = [];
   private io: IntersectionObserver | null = null;
+  private counter = new CounterTrigger();
+  private unlistenControl: (() => void) | null = null;
+  private runs = 0;
+  private error: string | null = null;
+  private published = "";
+  private lastPublish = 0;
 
   connectedCallback(): void {
     super.connectedCallback();
+    this.listenControl();
     this.build();
   }
 
   disconnectedCallback(): void {
     this.teardown();
+    this.unlistenControl?.();
+    this.unlistenControl = null;
     super.disconnectedCallback();
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
-    if (!this.isConnected || !this.runner) return;
-    if (changed.size && [...changed.keys()].some((k) => k !== "once")) this.build();
+    if (!this.isConnected) return;
+    if (changed.has("control") && changed.get("control") !== undefined) this.listenControl();
+    if (changed.has("outDataProvider")) {
+      this.published = "";
+      this.publish(true);
+    }
+    // Recette d'abord inconnue puis corrigée : on reconstruit aussi sans runner.
+    if (!this.runner && !changed.has("recipe")) return;
+    const own = new Set(["once", "control", "outDataProvider"]);
+    if (changed.size && [...changed.keys()].some((k) => !own.has(String(k)))) this.build();
+  }
+
+  private listenControl(): void {
+    this.unlistenControl?.();
+    this.unlistenControl = null;
+    this.counter.reset();
+    const path = this.control.trim();
+    if (!path) return;
+    this.unlistenControl = listenDp(path, (v) => {
+      if (this.counter.feed(v)) this.start();
+    });
+  }
+
+  /** État courant (aussi publié dans `out-data-provider`). */
+  getState(): AnimateState {
+    const r = this.runner?.state;
+    const progress = r ? Math.round(r.progress * 10000) / 10000 : 0;
+    const status: AnimateState["status"] = this.error
+      ? "error"
+      : !this.runner
+        ? "idle"
+        : this.timeSource.trim()
+          ? "ready"
+          : this.core.playing
+            ? "running"
+            : this.played
+              ? "ready"
+              : "idle";
+    return { status, error: this.error, progress, done: progress >= 1, runs: this.runs, duration: this.runner?.duration ?? 0 };
+  }
+
+  /** Publie l'état (plafonné à ≈ 30 Hz pendant la lecture, sauf `force`). */
+  private publish(force = false): void {
+    const dp = this.outDataProvider.trim();
+    if (!dp) return;
+    const now = performance.now();
+    if (!force && now - this.lastPublish < PUBLISH_MS) return;
+    const state = this.getState();
+    const key = JSON.stringify(state);
+    if (key === this.published) return;
+    this.published = key;
+    this.lastPublish = now;
+    set(dp, state);
   }
 
   /** Lance l'animation (trigger `manual`, ou relance). */
   start(): void {
     if (!this.runner) return;
     this.played = true;
-    if (this.timeSource.trim()) return; // le temps vient d'ailleurs
+    this.runs++;
+    if (this.timeSource.trim()) {
+      this.publish(true);
+      return; // le temps vient d'ailleurs
+    }
     if (prefersReducedMotion()) {
+      this.core.pause();
       this.runner.setProgress(1);
+      this.publish(true);
       return;
     }
     this.core.duration = this.runner.duration > 0 ? this.runner.duration : 0.5;
@@ -107,6 +200,7 @@ export class SonicAnimate extends LitElement {
     this.core.t = 0;
     this.core.play();
     this.runner.setProgress(0);
+    this.publish(true);
     if (!this.raf) {
       this.last = performance.now();
       this.raf = requestAnimationFrame(this.tick);
@@ -119,6 +213,7 @@ export class SonicAnimate extends LitElement {
     this.core.t = 0;
     this.played = false;
     this.runner?.setProgress(0);
+    this.publish(true);
   }
 
   private tick = (now: number) => {
@@ -128,6 +223,7 @@ export class SonicAnimate extends LitElement {
     this.last = now;
     this.runner?.setProgress(this.core.t);
     if (this.core.playing) this.raf = requestAnimationFrame(this.tick);
+    this.publish(!this.core.playing);
   };
 
   private teardown(): void {
@@ -145,8 +241,11 @@ export class SonicAnimate extends LitElement {
     this.teardown();
     if (!isRecipe(this.recipe)) {
       console.warn(`[sonic-animate] recipe « ${this.recipe} » inconnue. Utilise ${RECIPE_NAMES.join(", ")}.`);
+      this.error = `recipe « ${this.recipe} » inconnue (${RECIPE_NAMES.join(", ")})`;
+      this.publish(true);
       return;
     }
+    this.error = null;
     const ease: Ease | undefined = this.ease === "linear" || this.ease === "easeIn" || this.ease === "easeOut" || this.ease === "easeInOut" ? this.ease : undefined;
     const descriptor = buildRecipe(this.recipe, {
       duration: this.duration,
@@ -163,9 +262,14 @@ export class SonicAnimate extends LitElement {
 
     const source = this.timeSource.trim();
     if (source) {
-      this.unsubs.push(listenDp(source, (v) => this.runner?.setProgress(v)));
+      this.unsubs.push(listenDp(source, (v) => {
+        this.runner?.setProgress(v);
+        this.publish();
+      }));
+      this.publish(true);
       return;
     }
+    this.publish(true);
     this.armTrigger();
   }
 

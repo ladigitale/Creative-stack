@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { dp } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { effectStyle, lineIndices, splitPieces, unitProgress } from "./core";
-import { SonicSplitText } from "./split-text";
+import { SonicSplitText, readSplitTextParams } from "./split-text";
 
 void SonicSplitText;
 
@@ -115,5 +115,31 @@ describe("sonic-split-text", () => {
     el.text = "x y z";
     await el.updateComplete;
     expect(inners(el).length).toBe(3);
+  });
+  it("état : status ready / idle, valeur inconnue signalée", async () => {
+    const el = await mk({ text: "a b", effect: "explode" });
+    expect(el.getState()).toMatchObject({ status: "error", units: 2 });
+    expect(el.getState().error).toContain("effect");
+    el.effect = "fade";
+    await el.updateComplete;
+    expect(el.getState()).toMatchObject({ status: "ready", error: null });
+    const empty = await mk({ text: " " });
+    expect(empty.getState().status).toBe("idle");
+  });
+  it("params : texte, découpe, effet, avancement réglables par DataProvider ; clé retirée = retour à l'attribut", async () => {
+    const el = await mk({ text: "a b", effect: "fade", progress: "0", params: "txt-p1", "out-data-provider": "txt-o1" });
+    set("txt-p1", { text: "xy zw", split: "chars", spread: 0, effect: "slide", distance: 10 });
+    expect(inners(el).map((s) => s.textContent)).toEqual(["x", "y", "z", "w"]);
+    expect(inners(el)[0].style.transform).toBe("translateX(10px)");
+    expect((dp("txt-o1").get() as any)).toMatchObject({ status: "ready", units: 4, settings: { split: "chars", effect: "slide", spread: 0, distance: 10 } });
+    set("txt-p1", { split: "mots" });
+    expect((dp("txt-o1").get() as any).status).toBe("error");
+    expect(inners(el).map((s) => s.textContent)).toEqual(["a", "b"]); // split refusé, text retiré : attributs
+    set("txt-p1", {});
+    expect(el.settings()).toMatchObject({ text: "a b", split: "words", effect: "fade", spread: 0.7 });
+  });
+  it("readSplitTextParams : bornes et refus", () => {
+    expect(readSplitTextParams({ spread: 4, duration: 0, ease: "inout", effect: "" })).toEqual({ settings: { spread: 1, duration: 0.05, ease: "inout" }, invalid: [] });
+    expect(readSplitTextParams({ text: {}, ease: "bounce", distance: "loin" }).invalid).toEqual(["text", "ease", "distance"]);
   });
 });
