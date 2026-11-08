@@ -132,6 +132,7 @@ export class HuggingFaceRegistry {
         remoteHost: this.config.remoteHost,
         remotePathTemplate: this.config.remotePathTemplate,
         wasmPaths,
+        numThreads: runtime.source === "engine" ? undefined : runtime.numThreads,
         logLevel: this.config.logLevel,
       });
     }

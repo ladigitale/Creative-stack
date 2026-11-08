@@ -269,6 +269,21 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
         }
         e.backends.onnx.wasm.wasmPaths = paths;
       }
+      if (e.backends?.onnx?.wasm) {
+        let threads = typeof env.numThreads === "number" && env.numThreads >= 1 ? Math.floor(env.numThreads) : undefined;
+        if (threads === undefined && env.wasmPaths) {
+          // Binaires sur une autre origine + multithread = import d'une URL blob: (refusée par une CSP sans blob:).
+          const first = typeof env.wasmPaths === "string" ? env.wasmPaths : env.wasmPaths.mjs;
+          let foreign = true;
+          try {
+            foreign = new URL(first, (globalThis as any).location?.href).origin !== (globalThis as any).location?.origin;
+          } catch {
+            foreign = true;
+          }
+          if (foreign) threads = 1;
+        }
+        if (threads !== undefined) e.backends.onnx.wasm.numThreads = threads;
+      }
       if (env.logLevel && lib.LogLevel) {
         const level = (lib.LogLevel as any)[String(env.logLevel).toUpperCase()];
         if (level !== undefined) e.logLevel = level;
