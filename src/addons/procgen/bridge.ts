@@ -4,6 +4,7 @@
  * texture et relief procéduraux par rôle, contre-jour), plus un contour en coque inversée calé en pixels. Le reste de
  * la scène `sonic-3d` (glTF, lumières, post-traitement) n'est pas touché.
  *
+ * Contour : épaisseur du style en pixels, affinée pour un objet petit à l'écran.
  * - `GenKit` : uniformes de style partagés (préréglage procgen ou jetons), cache des assets, fabrique d'acteurs.
  * - `GenActor` : une instance nommée ; locomotion procgen (foulée intégrée par la distance réellement parcourue, pieds
  *   plantés), actions du moteur et pistes d'os du format ajoutées à la pose ; skinning par quaternions duaux.
@@ -44,7 +45,10 @@ const OUTLINE_VERTEX = VERTEX.replace("uniform float uSkinned;", "uniform float 
   vec3 nvo = normalize(mat3(viewMatrix) * vNormalW);
   vec2 cn = (projectionMatrix * vec4(nvo, 0.0)).xy;
   float cl = length(cn);
-  if (cl > 1e-5) gl_Position.xy += cn / cl * uOutlinePx * 2.0 / max(uResolution, vec2(1.0)) * gl_Position.w;`,
+  // trait affiné quand l'objet est petit à l'écran (2,5 cm au plus) : un personnage lointain reste lisible
+  float ppm = projectionMatrix[1][1] * 0.5 * uResolution.y / max(gl_Position.w, 1e-4);
+  float px = min(uOutlinePx, ppm * 0.025);
+  if (cl > 1e-5) gl_Position.xy += cn / cl * px * 2.0 / max(uResolution, vec2(1.0)) * gl_Position.w;`,
 );
 const OUTLINE_FRAGMENT = /* glsl */ `
 precision highp float;
