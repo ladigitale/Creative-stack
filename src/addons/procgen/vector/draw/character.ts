@@ -19,6 +19,8 @@ import type { Skeleton } from "../../rig/skeleton";
 import type { Projector } from "../project";
 import { type P2, Pen, type Shape, hull, lerp2, strokeVar } from "../shape";
 import { Emitter, Frame } from "./kit";
+import { drawPartsOn } from "./parts";
+import { heldToolParts } from "../../gen/tool";
 
 export type CharacterInput = {
   sk: Skeleton;
@@ -1130,6 +1132,16 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     const side = norm(cross(iu, vdir));
     const tone = far ? -1 : 0;
     const g = S(grip);
+    if (item.startsWith("tool.")) {
+      // outil : mêmes pièces que le générateur `tool`, dans le repère de la prise (côté, manche, avant)
+      const t = heldToolParts(item.slice(5), H);
+      if (!t) return;
+      const fwd = norm(cross(side, iu));
+      const W = (x: number, y: number, z: number): V3 => add(add(madd(grip, side, x), scale(iu, y)), scale(fwd, z));
+      const wn = (n: V3): V3 => norm(add(add(scale(side, n[0]), scale(iu, n[1])), scale(fwd, n[2])));
+      drawPartsOn({ P: (x, y, z) => S(W(x, y, z)), vis: (n) => dot(wn(n), vdir), tone: (n) => (wn(n)[1] > 0.5 ? 1 : dot(wn(n), [-0.6, 0.7, 0.3]) > 0.1 ? 0 : -1), depth: (v) => dot(W(v[0], v[1], v[2]), vdir), k: 1, em, lightSide: -1, toneBias: tone }, t.parts, { width: 0.45 });
+      return;
+    }
     switch (item) {
       case "staff": {
         const a = S(madd(grip, iu, -H * 0.42)), b = S(madd(grip, iu, H * 0.52)), k = S(madd(madd(grip, iu, H * 0.58), side, H * 0.03));
