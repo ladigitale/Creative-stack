@@ -59,6 +59,7 @@ export class SonicProcgen extends HTMLElement {
   private styleKey = "";
   private viewKey = "";
   private miscKey = "";
+  private kickKey: string | null = null;
   private issues: unknown[] = [];
   private error = "";
   /** Erreur de rendu (contexte WebGL) : durable, indépendante de la composition. */
@@ -320,6 +321,23 @@ export class SonicProcgen extends HTMLElement {
       this.view.setHidden(Array.isArray(d.hidden) ? d.hidden.map(String) : []);
       this.anchorList = Array.isArray(d.anchors) ? d.anchors.map(String) : [];
     }
+    // coups donnés aux ballons sans acteur : joués quand la valeur de `kick` change (pas au chargement, pas à la recomposition)
+    const kk = JSON.stringify(d.kick ?? null);
+    if (this.kickKey === null) this.kickKey = kk;
+    else if (kk !== this.kickKey && this.model) {
+      this.kickKey = kk;
+      const kicks = Array.isArray(d.kick) ? d.kick : d.kick && typeof d.kick === "object" ? [d.kick] : [];
+      for (const k of kicks.slice(0, 16) as Json[]) {
+        if (!k || typeof k !== "object" || typeof k.ball !== "string") continue;
+        const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+        let v: [number, number, number] = [n(k.vx), n(k.vy), n(k.vz)];
+        if (k.power !== undefined) {
+          const a = (n(k.dir) * Math.PI) / 180, pw = n(k.power);
+          v = [Math.sin(a) * pw, pw * (k.loft === undefined ? 0.15 : n(k.loft)), Math.cos(a) * pw];
+        }
+        if (!this.view.kickBall(k.ball, v)) { if (!this.issues.some((x) => (x as { path?: string; got?: unknown }).path === "kick.ball" && (x as { got?: unknown }).got === k.ball)) this.issues = [...this.issues, { path: "kick.ball", code: "unknown", message: `ballon inconnu : ${k.ball}`, got: k.ball }]; }
+      }
+    }
     // export SVG à la demande (mode vectoriel) : changer `exportSvg` (compteur) publie `svg` dans state-out
     if (d.exportSvg !== undefined && d.exportSvg !== this.svgKey) {
       this.svgKey = d.exportSvg;
@@ -379,6 +397,7 @@ export class SonicProcgen extends HTMLElement {
       anchors,
       nodes,
       svg: this.svgOut,
+      balls: this.view?.ballState() ?? {},
       ids: m ? m.objects.map((o) => ({ id: o.id, generator: o.generator, layer: o.layer, ...(o.affords ? { affords: o.affords } : {}) })).slice(0, 400) : [],
     };
     const sig = JSON.stringify(next);
@@ -410,6 +429,8 @@ export class SonicProcgen extends HTMLElement {
       }
     }
     this.dispatchEvent(new CustomEvent(`procgen-${e.type}`, { detail: e.payload, bubbles: true, composed: true }));
+    // positions des ballons republiées quand un coup part ou qu'un ballon s'arrête
+    if (e.type === "kick" || e.type === "rest") this.queueOut();
   }
 
   /* ---------------- interactions ---------------- */

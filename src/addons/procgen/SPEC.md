@@ -270,3 +270,8 @@ Demande : il manque toutes sortes d'objets (ballons de toutes tailles, outils, s
 - **`pet`** : 14 objets (niche, gamelle, abreuvoir, mangeoire à oiseaux, cage, clapier, poulailler avec rampe, arbre à chat, griffoir, aquarium, bain d'oiseaux, râtelier à foin, litière, porte-selle) sur la grammaire de pièces (pignons en `plate`, toits à deux pans).
 - **`for`** : taille de l'animal visé (chien, chat, cheval, poule, lapin, oiseau) ; ancre **`spot`** (où l'animal mange, boit, dort, se perche) et affordances (`shelter`, `sleep`, `eat`, `drink`, `perch`, `climb`, `scratch`, `lay`…).
 - Petits objets hors navigation, instanciés à l'échelle exacte.
+
+## 20. Lot v3.7 « ballons dynamiques » (livré)
+
+- **`BallWorld`** (`scene/balls.ts`), partagé par la vue 3D et la simulation vectorielle : gravité, rebond selon `physics.restitution`, roulement sans glissement (rotation visible), frottement, obstacles de navigation et bords de scène, chocs entre ballons, poussée par les acteurs (dribble).
+- Intention `{target: "<ballon>", action: "kick", power, loft}` (geste de jambe) et clé `kick` du DataProvider ; événements `kick`, `hit`, `rest`, `enter`/`leave` d'une zone par un ballon (buts) ; `balls` dans `state-out`.

@@ -26,6 +26,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `edit` | `{id: "maisons.3", params: {floors: 4}}` ou `{layer: "maisons", params: {...}}` : modifie sans réécrire la recette |
 | `hidden` | Ids cachés (objet ramassé, personnage parti) |
 | `anchors` | Ancres à suivre à l'écran : `["heros@head.top", "maisons.2@door"]` |
+| `kick` | Coup donné à un ballon sans acteur : `{ball: "ballons.0", power, dir (°, 0 = +z), loft, n}` ou `{ball, vx, vy, vz}` (m/s, norme bornée à 40), ou une liste de 16 au plus ; joué quand la valeur change (pas au chargement) : pour retirer le même coup, incrémenter `n` |
 
 ## Clés écrites dans `state-out` (défaut `<dataProvider>State`)
 
@@ -39,6 +40,7 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `actors` | Position, cap, vitesse, action de chaque acteur (5 fois par seconde au plus) |
 | `anchors` / `nodes` | Positions écran des ancres demandées ; `nodes` est au format de `sonic-stage` (bulles de dialogue en HTML par-dessus la scène) |
 | `view` | Vue courante (après pan / zoom de l'utilisateur) |
+| `balls` | `{<id>: {x, y, z, moving}}` des ballons visibles (200 au plus), republié pendant le mouvement (5 fois par seconde au plus), au coup et à l'arrêt |
 
 `issues` : `{path, code: unknown|clamped|type|expr|missing|limit|info, message, got, used, hint, didYouMean}`. Une erreur n'arrête jamais le rendu : la scène s'affiche avec ce qui est valide.
 
@@ -51,16 +53,20 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `pick` | `{objectId, generator, layer, x, y, z, actor, zone}` : position au sol comprise (point-and-click) |
 | `select` | `{objectId, generator, layer, params}` |
 | `arrive` | `{actor, x, z, target}` : l'acteur est arrivé |
-| `blocked` | `{actor, reason: no-path\|wall}` |
-| `enter` / `leave` | `{zone, actor}` |
-| `actionEnd` | `{actor, action}` (après `wave`, `cheer`, `jump`, `bow`, `point`) |
+| `blocked` | `{actor, reason: no-path\|wall\|ball-moved}` (`ball-moved` : le ballon visé a roulé hors d'atteinte trois fois) |
+| `enter` / `leave` | `{zone, actor}` ou `{zone, ball, actor: null}` quand un ballon entre dans une zone (un but) |
+| `kick` | `{actor, ball, power}` ; `{actor: null, ball}` pour la clé `kick` |
+| `hit` | `{ball, actor}` : un acteur a heurté un ballon (dribble) |
+| `rest` | `{ball, x, z}` : le ballon s'est arrêté |
+| `actionEnd` | `{actor, action}` (après `wave`, `cheer`, `jump`, `bow`, `point`, `kick`) |
 
 Intentions d'acteur (`actors.<id>`), écrites par le reducer, **jamais à chaque image** (le composant interpole) :
 
 - `{x, z}` ou `{target: "maisons.2"}` (ancre `door` par défaut, ou `"maisons.2.door"`) : marche jusque-là par la grille de navigation, contourne les bâtiments, puis `arrive` ; `run: true` pour courir, `speed` en m/s ;
 - `{target: "bancs.1.sit.0", action: "sit"}` : marche jusqu'à la place (ancre `approach.0`, devant l'assise), s'assied sur `sit.0` face à l'avant, le bassin à hauteur d'assise (chaise, tabouret de bar, rondin, balançoire…), puis `arrive` ;
+- `{target: "ballons.0", action: "kick", power, loft}` : va au ballon (le rattrape s'il a roulé) et tire dans l'axe de son arrivée (`power` en m/s, 7 par défaut, 30 au plus ; `loft` 0 à 1,5 lève le ballon) ; les ballons (`ball`) rebondissent selon leur `physics` (restitution, frottement) sur le sol, les obstacles (à toute hauteur) et les bords, roulent, s'empilent, sont poussés par les acteurs qui marchent dessus ; les ovales et les ballons écrasés glissent sans culbuter ; un ballon caché (`hidden`) sort du jeu ; `pick` et `selection` donnent la position de départ, `balls` la position courante ;
 - `{vx, vz}` : déplacement direct (manette à 30 Hz), sans chemin ;
-- `{action}` : `idle`, `walk`, `run`, `wave`, `point`, `cheer`, `talk`, `carry`, `sit`, `jump`, `think`, `bow`, `hammer` (frapper), `sweep` (balayer, ratisser), `dig` (bêcher) ; `{mood}` : `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy` ; `{facing}` (°).
+- `{action}` : `idle`, `walk`, `run`, `wave`, `point`, `cheer`, `talk`, `carry`, `sit`, `jump`, `think`, `bow`, `hammer` (frapper), `sweep` (balayer, ratisser), `dig` (bêcher), `kick` (geste de jambe) ; `{mood}` : `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy` ; `{facing}` (°).
 
 Exemple de reducer (voir `examples/village-vivant.sdui.json`) : sur `pick`, écrire `actors.heros = {x, z}` ; sur `arrive`, passer à la suite du dialogue.
 

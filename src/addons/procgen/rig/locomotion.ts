@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qMul, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick"] as const;
 export type Action = (typeof ACTIONS)[number];
 
 export type MotionState = {
@@ -274,6 +274,14 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     z *= moving;
     feetLocal[s] = { p: [sx + sway * 0.2, y, z + info.footLen * 0.05], pitch, planted: u < beta || moving < 0.05 };
     if (sit > 0) feetLocal[s].p = [sx * 1.15, 0, mix(feetLocal[s].p[2], info.thigh * 0.95, sit)];
+    // tir : le pied droit recule, puis fouette vers l'avant et vers le haut (0,7 s)
+    if (st.action === "kick" && s === "r") {
+      const t = clamp(st.actionTime / 0.7, 0, 1);
+      const back = Math.sin(clamp(t / 0.35, 0, 1) * Math.PI * 0.5) * (1 - smoothstep(0.35, 0.5, t));
+      const swing = Math.sin(clamp((t - 0.3) / 0.5, 0, 1) * Math.PI);
+      const L = info.thigh + info.shin;
+      feetLocal[s] = { p: [sx * 0.6, (0.12 * back + 0.35 * swing) * L * w, (-0.35 * back + 0.75 * swing) * L * w], pitch: 30 * swing * w, planted: false };
+    }
   }
   // passes : position du bassin, puis IK, puis abaissement si hors d'atteinte
   let pose: Pose = { rot, root: toWorld(pelvisOffset), rootRot: yawQ };

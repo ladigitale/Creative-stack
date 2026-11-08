@@ -3,14 +3,23 @@
  * l'hémisphère visible (le bord suit la silhouette, pas une corde), coutures visibles, ombre propre et reflet.
  * Même géométrie que le maillage 3D (`gen/ball.ts`).
  */
-import type { V3 } from "../../core/math";
+import { type V3, qAxis, qConj, qMul } from "../../core/math";
+import { Frame, Kit } from "./kit";
 import { ballSpec, patternToLocal, toPatternDir } from "../../gen/ball";
 import { clipHemisphere, clipPolyline, regionOutlines, type Region } from "../../gen/sphere-pattern";
 import { type P2, Pen, hull, strokeVar } from "../shape";
 import type { ObjectDrawer } from "./types";
 
-export const drawBall: ObjectDrawer = (kit, p, ctx) => {
+export const drawBall: ObjectDrawer = (kit0, p, ctx) => {
   const spec = ballSpec(p);
+  let kit = kit0;
+  if (ctx.ball) {
+    // ballon simulé : repère posé sous le centre courant, rotation de roulement ramenée dans le repère de l'objet
+    const o = ctx.obj, c = ctx.ball.center;
+    kit = new Kit(kit0.pr, new Frame([c[0], c[1] - spec.cy * o.scale, c[2]], o.yaw, o.scale), kit0.em, kit0.L);
+    const yq = qAxis([0, 1, 0], o.yaw), yi = qConj(yq);
+    spec.q = qMul(qMul(qMul(yi, ctx.ball.spin), yq), spec.q);
+  }
   const em = kit.em;
   const o = ctx.obj;
   const fr = kit.fr;

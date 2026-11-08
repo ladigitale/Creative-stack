@@ -95,7 +95,7 @@ export function toSVG(model: SceneModel, style: unknown, view: Partial<ViewOpts>
   const sim = new ActorSim();
   sim.setModel(model);
   const st = scene.staticShapes(vs.tokens.night).shapes;
-  const dyn = scene.dynamicShapes(0, vs.tokens.night, sim.poses());
+  const dyn = scene.dynamicShapes(0, vs.tokens.night, sim.poses(), sim.ballPoses());
   const f = fitFrame(scene, view.width ?? 1280, view.height ?? 720, view.zoom ?? 1);
   if (Number.isFinite(view.cx) || Number.isFinite(view.cy) || Number.isFinite(view.cz)) {
     const [u, v] = scene.pr.p(Number(view.cx ?? 0), Number(view.cy ?? 0), Number(view.cz ?? 0));
