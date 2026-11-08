@@ -42,6 +42,17 @@ Enveloppe ses enfants directs et leur applique une recette. Pas besoin d'horloge
 | `time-source` | chemin DataProvider d'un temps 0..1 (ex. `scrub.t`) : remplace l'horloge locale | aucun |
 | `ease` | `linear`, `easeIn`, `easeOut`, `easeInOut` | selon la recette |
 | `from`, `to`, `decimals`, `text-prefix`, `text-suffix` | `count-up` : nombres de départ et d'arrivée, décimales, texte autour | `0`, `100`, `0` |
+| `control` | chemin DataProvider `{ n }` : chaque hausse de `n` lance (ou relance) l'animation, quel que soit `trigger` ; avec `trigger="manual"`, c'est le déclenchement sans JS (la première valeur vue sert de référence) | aucun |
+| `out-data-provider` | reçoit l'état `{ status, error, progress, done, runs, duration }` (≈ 30 Hz au plus pendant la lecture) | aucun |
+
+État : `status` `idle` (pas encore joué), `running` (horloge locale en cours), `ready` (terminé, ou temps lu dans `time-source`), `error` (recette inconnue, message dans `error`) ; `progress` 0..1, `done` à 1 ; `runs` : nombre de lancements.
+
+```json
+{ "tagName": "sonic-animate", "attributes": { "recipe": "count-up", "trigger": "manual", "control": "ui.compteur", "to": "1200", "out-data-provider": "compteurState" },
+  "nodes": [ { "tagName": "span", "textContent": "0" } ] }
+```
+
+Un `sonic-action` (ou un reducer) qui incrémente `ui.compteur.n` relance le compteur.
 
 Recettes : `reveal` (fondu + montée de 16 px, décalé), `fade`, `slide-up` (montée de 40 px), `count-up` (compteur dans le texte de l'enfant), `typewriter` (le texte de l'enfant s'écrit).
 
@@ -173,7 +184,7 @@ Une hiérarchie d'**os rigides** (marionnette articulée, bras mécanique, plant
 
 | Attribut | Rôle | Défaut |
 |---|---|---|
-| `nodes-out` | DataProvider qui reçoit `nodes`, `bones`, `present` ; c'est celui que lit `sonic-2d dataProvider` | aucun (rien n'est écrit) |
+| `nodes-out` | DataProvider qui reçoit `nodes`, `bones`, `present`, `rest`, et l'état `status`, `error`, `errors` ; c'est celui que lit `sonic-2d dataProvider` | aucun (rien n'est écrit) |
 | `preset` | `humain` : 13 os (bassin, torse, tête, bras, avant-bras, mains, cuisses, mollets) branchés sur les articulations d'un `sonic-pose-tracker` | aucun |
 | `source` | DataProvider de la sortie d'un `sonic-pose-tracker` (clé `joints`) | aucun |
 | `root` | Articulations dont la moyenne place la racine (`leftHip+rightHip`) ; avec le preset humain et `source`, c'est le défaut | position fixe |
@@ -187,6 +198,8 @@ Une hiérarchie d'**os rigides** (marionnette articulée, bras mécanique, plant
 | `ease-ms` | Durée de l'interpolation du retour au repos demandée au rendu (`ease`) | `300` |
 | `rest` | `pose` : la pose de repos publiée (`<nodes-out>.rest`) est la pose **mesurée** (sans les ajouts `angle-add-from`) | – |
 | `fit` | Nom d'un os (`true` = `torse`) dont la longueur mesurée règle l'échelle : les os prennent la taille de la personne ; sans mesure, dernière échelle trouvée | – |
+
+État : `<nodes-out>.status` vaut `idle` (aucun os), `ready` ou `error` ; `<nodes-out>.errors` liste les erreurs de déclaration (os sans nom ou déclaré deux fois, parent inconnu, preset inconnu, trop d'os…) et `<nodes-out>.error` la première (ou `null`). Les os valides restent actifs malgré une erreur.
 
 ### `sonic-bone`
 

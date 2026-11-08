@@ -231,9 +231,9 @@ Horloge calée sur l'audio (ordonnancement anticipé : précision à l'échantil
 
 **Horloge externe** : `sync="#midi"` (un `sonic-midi`) : Start / Continue / Stop, tempo mesuré et phase viennent de l'appareil (Elektron, DAW…). La phase est recalée à chaque temps ; l'état publie `sync: { source, locked, driftMs }`. Sans horloge reçue, `playing` / `control` marchent comme d'habitude.
 
-**Pilotage** : `control` (DP) `{ playing, bpm, swing, seed, pattern }` ; attributs `playing`, `bpm`, `swing`, `seed`, `beats` (4), `steps-per-beat` (4). Le tempo change sans saut. Le séquenceur démarre au premier geste si `playing` est vrai.
+**Pilotage** : `control` (DP) `{ playing, bpm, swing, seed, pattern, beats, stepsPerBeat }` ; attributs `playing`, `bpm`, `swing`, `seed`, `beats` (4), `steps-per-beat` (4). Le tempo change sans saut. Le séquenceur démarre au premier geste si `playing` est vrai. `beats` (1..16) et `stepsPerBeat` (1..12) de `control` recouvrent les attributs tant que la clé est présente (clé retirée : retour à l'attribut).
 
-**État** (`out-data-provider`, défaut `<id>State`) : `{ status, playing, bpm, swing, step, beat, bar, phase, sync, errors, warnings }`, publié quand le pas est **entendu** (latence de sortie comprise).
+**État** (`out-data-provider`, défaut `<id>State`) : `{ status, playing, bpm, swing, seed, beats, stepsPerBeat, step, beat, bar, phase, sync, errors, warnings }`, publié quand le pas est **entendu** (latence de sortie comprise).
 
 ### Mini-notation
 
@@ -270,7 +270,8 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 - Par sample : `gain`, `pan`, `pitch` (demi-tons), `root` (note de référence pour jouer chromatiquement), `start`, `end` (s), `loop`, `reverse`, `gate` (couper à la fin de la note ; sinon le sample est joué en entier).
 - Événements : `{ sample: "kick" }`, ou `{ note: "E4" }` (sample `chromatic`, sinon le premier qui a un `root` ; `notes-map` pour associer des notes à des noms).
 - `choke` : groupes où jouer un sample coupe les autres (charleston ouvert / fermé).
-- Mêmes `events` / `trigger` / `output` que `sonic-patch`. État : `{ status, loaded, total, samples, empty, voices, played, errors }` ; `empty` liste les samples `ref` encore vides (pad pas encore enregistré, sans bloquer `ready`). Les samples sont décodés avant même le premier geste ; une nouvelle prise écrite dans le `ref` remplace le son du pad.
+- `control` (DP) `{ gain, choke, chromatic }` : prioritaire sur les attributs (clé retirée : retour à l'attribut). `gain` (0..4) s'applique en direct sans couper les voix ; `choke` remplace les groupes de l'attribut ; `chromatic` choisit le sample joué par `{ note }`.
+- Mêmes `events` / `trigger` / `output` que `sonic-patch`. État : `{ status, error, loaded, total, samples, empty, voices, played, errors, gain, choke, chromatic }` (`error` : première erreur ou `null`, liste complète dans `errors` ; `gain`, `choke`, `chromatic` : réglages effectifs) ; `empty` liste les samples `ref` encore vides (pad pas encore enregistré, sans bloquer `ready`). Les samples sont décodés avant même le premier geste ; une nouvelle prise écrite dans le `ref` remplace le son du pad.
 
 ## Analyseur (`sonic-audio-analyser`)
 
@@ -294,10 +295,11 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 { "tagName": "sonic-mic", "attributes": { "id": "mic", "control": "game.mic" } }
 ```
 
-- Démarrage : un clic sur `sonic-audio-unlock start="mic"` (active le son **et** le micro en un geste), `sonic-media-start for="mic"`, `autostart` (premier geste), `active` ou DP `control` `{ active, monitor, gain, deviceId }`. Jamais au chargement.
+- Démarrage : un clic sur `sonic-audio-unlock start="mic"` (active le son **et** le micro en un geste), `sonic-media-start for="mic"`, `autostart` (premier geste), `active` ou DP `control` `{ active, monitor, gain, deviceId, echoCancellation, noiseSuppression, autoGain, rate }`. Jamais au chargement.
+- Les réglages de `control` recouvrent les attributs tant que la clé est présente (clé retirée : retour à l'attribut). `gain` (0..4), `monitor` et `rate` (0..60) s'appliquent en direct ; `deviceId`, `echoCancellation`, `noiseSuppression`, `autoGain` rouvrent le flux proprement s'il est actif (une seule réouverture par écriture), sinon sont gardés pour la prochaine ouverture.
 - `monitor` : écouter le micro dans les haut-parleurs (risque de Larsen sans casque). Par défaut, le micro ne sort **pas** vers le master : il sert de source (`sonic-audio-analyser source="#mic"`, futur enregistreur).
 - `echo-cancellation`, `noise-suppression`, `auto-gain` : désactivés par défaut (son brut, pour la création) ; `gain` ; `device-id`.
-- État (`<id>State`) : `{ status: idle | requesting | ready | denied | error | unsupported, error, active, rms, peak, db, monitor, deviceId, devices }`. `rms` / `db` à `rate` mises à jour par seconde (15).
+- État (`<id>State`) : `{ status: idle | requesting | ready | denied | error | unsupported, error, active, rms, peak, db, monitor, deviceId, devices, settings }` (`settings` : réglages effectifs `{ monitor, gain, deviceId, echoCancellation, noiseSuppression, autoGain, rate }`). `rms` / `db` à `rate` mises à jour par seconde (15).
 - Avec l'analyseur : `pitchHz` (attribut `pitch`) pour un accordeur ou un jeu chanté, `onsetCount` pour des claquements de mains.
 
 ## MIDI (`sonic-midi`)
@@ -314,13 +316,13 @@ Accès demandé **sur geste** seulement (`sonic-media-start for="midi"`, `sonic-
 - `in-map="jeu.carte"` : DP d'un tableau de 128 entrées qui remplace chaque note reçue (après `transpose`) par la note jouée : un numéro, une liste (`[62, 65]` : note aimantée + harmonie) ou `-1` / `null` (ignorée, par exemple une zone d'accords traitée par le store). Une entrée absente joue la note telle quelle. Les notes jouées sont retenues au noteOn : noteOff, bend, pression et timbre de chaque doigt suivent la même note même si la carte change (accord suivant) pendant qu'elle est tenue. Un réducteur peut ainsi corriger les notes sans perdre l'expression MPE par note : il calcule la carte, `sonic-midi` joue.
 - `mpe` : un canal par note (zone basse, canal maître 1 ; `mpe-master="16"` pour la zone haute) ; bend ±48 demi-tons par note (`bend-range`), ±2 sur le canal maître. Sans `mpe`, bend / pression d'un canal touchent toutes ses notes (`bend-range` 2).
 - `store="jam"` : chaque message devient `{ type: "midi" (action-type), payload: { kind: "noteOn" | "noteOff" | "cc" | "program" | "start" | "stop" | "beat", ch, note, name, vel, cc, value, beat, bpm } }`. Pas d'horloge à 24 ppq dans le store : un `beat` par noire.
-- État (`<id>State`) : `{ status, error, inputs, outputs, input, output, held: [{ note, name, ch, vel, bend, pressure, timbre }], last, notes (compteur), sent, cc: { "74": 0.5 }, bend, pressure, program, clock: { running, bpm, ticks, beat } }`. Valeurs continues publiées au plus `rate` fois par seconde (30).
+- État (`<id>State`) : `{ status, error, inputs, outputs, input, output, held: [{ note, name, ch, vel, bend, pressure, timbre }], last, notes (compteur), sent, cc: { "74": 0.5 }, bend, pressure, program, clock: { running, bpm, ticks, beat }, settings: { transpose, bendRange, offsetMs, durS } }`. Valeurs continues publiées au plus `rate` fois par seconde (30).
 
 **Sortie** — `output` : vide (aucune, défaut), `first`, `all` ou morceau de nom ; `out-channel` (1).
 - C'est un **instrument** : `sonic-sequencer pattern='{"midi": "c3 ~ e3 g3"}'` joue sur l'appareil, horodaté au son près (même ancre que l'audio) ; ou `events` / `trigger` comme un patch. `ch` dans un événement choisit le canal, `notes-map` associe des pads à des notes.
 - `cc-out="knobs"` : DP `{ "74": 0.5, "71": 0.2 }`, chaque valeur changée (0..1) part en CC (pas les valeurs initiales).
 - `clock-out="#seq"` : horloge 24 ppq + Start / Stop calée sur le séquenceur (la machine suit le tempo et la mesure de la page). `offset-ms` compense la latence d'un appareil.
-- `control` (DP) : `{ active, input, output, channel, outChannel, program, panic: compteur }` — `panic` coupe toutes les notes (CC 123 sur les 16 canaux).
+- `control` (DP) : `{ active, input, output, channel, outChannel, program, panic: compteur, transpose, bendRange, offsetMs, durS }` — `panic` coupe toutes les notes (CC 123 sur les 16 canaux). `transpose` (-48..48), `bendRange` (0..96, 0 = automatique), `offsetMs` (-1000..1000) et `durS` (0.01..60, durée des notes envoyées sans `durS`) recouvrent les attributs tant que la clé est présente (clé retirée : retour à l'attribut) ; une note tenue garde la note jouée à son noteOn.
 
 ## Enregistreur (`sonic-audio-recorder`)
 
@@ -341,7 +343,7 @@ Accès demandé **sur geste** seulement (`sonic-media-start for="midi"`, `sonic-
 { "tagName": "sonic-audio-load", "attributes": { "id": "load", "interval": "1" } }
 ```
 
-Publie dans `<id>State` (défaut `audioLoad`) `{ status, average, peak, underrun, updates }` : charge moyenne et maximale du rendu audio (0..1 ; vers 1 le son craque), part des blocs rendus en retard. Mesure du navigateur (Render Capacity, Chrome) ; `status: "unsupported"` ailleurs. Démarre avec le moteur audio (premier geste).
+Publie dans `<id>State` (défaut `audioLoad`) `{ status, error, average, peak, underrun, updates }` : charge moyenne et maximale du rendu audio (0..1 ; vers 1 le son craque), part des blocs rendus en retard. Mesure du navigateur (Render Capacity, Chrome) ; `status: "unsupported"` ailleurs, `"error"` si la mesure ne démarre pas ; `error` en donne la raison (`null` sinon). Démarre avec le moteur audio (premier geste).
 
 ## Master (`sonic-audio-master`)
 

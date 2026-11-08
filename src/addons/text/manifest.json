@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-split-text",
-      "description": "Texte cinétique : text (ou le contenu de l'élément), split=\"chars|words|lines\", effect=\"rise|fade|blur|wipe|scale|slide\", spread 0..1 (part de la course consacrée au décalage entre unités, défaut 0,7), ease=\"linear|out|inout\", distance (px, effet slide) ; avancement 0..1 par progress, par progress-source=\"defil.smoothProgress\" (DataProvider) ou lecture automatique avec play et duration (secondes) ; out-data-provider reçoit {progress, units, done} ; le texte complet reste lu par les lecteurs d'écran",
+      "description": "Texte cinétique : text (ou le contenu de l'élément), split=\"chars|words|lines\", effect=\"rise|fade|blur|wipe|scale|slide\", spread 0..1 (part de la course consacrée au décalage entre unités, défaut 0,7), ease=\"linear|out|inout\", distance (px, effet slide) ; avancement 0..1 par progress, par progress-source=\"defil.smoothProgress\" (DataProvider) ou lecture automatique avec play et duration (secondes) ; params (DP) {text, split, effect, ease, spread, distance, duration} en direct, prioritaire sur les attributs (clé retirée : retour à l'attribut) ; out-data-provider reçoit {status: idle|ready|error, error, progress, units, done, settings} ; le texte complet reste lu par les lecteurs d'écran",
       "props": {
         "text": { "type": "string" },
         "split": { "type": "string" },
@@ -23,7 +23,8 @@
         "distance": { "type": "number" },
         "play": { "type": "boolean" },
         "duration": { "type": "number" },
-        "out-data-provider": { "type": "string" }
+        "out-data-provider": { "type": "string" },
+        "params": { "type": "string" }
       }
     }
   ]

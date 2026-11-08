@@ -39,7 +39,22 @@ export type MidiState = {
   program: number | null;
   /** Horloge entrante : { running, bpm, ticks, beat }. */
   clock: ClockState;
+  /** Réglages effectifs (attributs, puis `control`) ; `bendRange` 0 = automatique (48 en MPE, 2 sinon). */
+  settings: MidiSettings;
 };
+
+export type MidiSettings = { transpose: number; bendRange: number; offsetMs: number; durS: number };
+
+/** Lit les réglages du DP `control` : `{ transpose (-48..48), bendRange (0..96), offsetMs (-1000..1000), durS (0.01..60) }`. */
+export function readMidiSettings(v: unknown): Partial<MidiSettings> {
+  const c = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const o: Partial<MidiSettings> = {};
+  const tr = num(c.transpose, -48, 48); if (tr !== undefined) o.transpose = Math.round(tr);
+  const br = num(c.bendRange, 0, 96); if (br !== undefined) o.bendRange = br;
+  const off = num(c.offsetMs, -1000, 1000); if (off !== undefined) o.offsetMs = off;
+  const d = num(c.durS, 0.01, 60); if (d !== undefined) o.durS = d;
+  return o;
+}
 
 export type MidiClockEvent = { type: "start" | "continue" | "stop" | "beat"; perf: number; ticks: number; bpm: number };
 
@@ -162,7 +177,10 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   @property({ type: Number })
   rate = 30;
 
-  /** DP de pilotage : `{ active, input, output, channel, outChannel, program, panic: compteur }`. */
+  /**
+   * DP de pilotage : `{ active, input, output, channel, outChannel, program, panic: compteur,
+   * transpose, bendRange, offsetMs, durS }`. Les quatre derniers recouvrent l'attribut tant que la clé est présente.
+   */
   @property({ type: String })
   control = "";
 
@@ -176,6 +194,8 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   private token = 0;
   private wantActive = false;
   private overrides: { input?: string; output?: string; channel?: string; outChannel?: number } = {};
+  /** Réglages lus dans `control` (clé retirée : retour à l'attribut). */
+  private fromControl: Partial<MidiSettings> = {};
   private tracker = new NoteTracker({ mpe: false, bendRange: 2, masterBendRange: 2, masterCh: 1 });
   private map: unknown[] | null = null;
   private mapUnsub: (() => void) | null = null;
@@ -186,6 +206,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   private state: MidiState = {
     status: "idle", error: null, active: false, inputs: [], outputs: [], input: [], output: [], held: [], last: null,
     notes: 0, sent: 0, cc: {}, bend: 0, pressure: 0, program: null, clock: { running: false, bpm: 0, ticks: 0, beat: 0 },
+    settings: { transpose: 0, bendRange: 0, offsetMs: 0, durS: 0.25 },
   };
   private unsubs: (() => void)[] = [];
   private outUnsubs: (() => void)[] = [];
@@ -223,14 +244,8 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
-    if (changed.has("mpe") || changed.has("bendRange") || changed.has("mpeMaster")) {
-      this.tracker.opts = {
-        mpe: this.mpe,
-        bendRange: this.bendRange > 0 ? this.bendRange : this.mpe ? 48 : 2,
-        masterBendRange: 2,
-        masterCh: this.mpeMaster === 16 ? 16 : 1,
-      };
-    }
+    if (changed.has("mpe") || changed.has("bendRange") || changed.has("mpeMaster")) this.applyTracker();
+    if (["transpose", "bendRange", "offsetMs", "durS"].some((k) => changed.has(k))) this.patch({ settings: this.settings() });
     if (changed.has("active")) this.setActive(this.active);
     if (changed.has("autostart")) {
       this.cancelGesture?.();
@@ -255,6 +270,28 @@ export class SonicMidi extends LitElement implements SonicInstrument {
     this.setActive(false);
   }
 
+  /** Réglages effectifs (attributs, puis `control`). */
+  settings(): MidiSettings {
+    const fin = (v: number, d: number) => (Number.isFinite(v) ? v : d);
+    return {
+      transpose: Math.round(fin(this.transpose, 0)) || 0,
+      bendRange: Math.max(0, fin(this.bendRange, 0)),
+      offsetMs: fin(this.offsetMs, 0),
+      durS: fin(this.durS, 0.25) > 0 ? fin(this.durS, 0.25) : 0.25,
+      ...this.fromControl,
+    };
+  }
+
+  private applyTracker(): void {
+    const br = this.settings().bendRange;
+    this.tracker.opts = {
+      mpe: this.mpe,
+      bendRange: br > 0 ? br : this.mpe ? 48 : 2,
+      masterBendRange: 2,
+      masterCh: this.mpeMaster === 16 ? 16 : 1,
+    };
+  }
+
   getState(): MidiState {
     return JSON.parse(JSON.stringify(this.state)) as MidiState;
   }
@@ -268,7 +305,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   /** Envoie un message brut (statut + données) aux ports de sortie. */
   send(data: number[], perf?: number): boolean {
     if (!this.outs.length) return false;
-    const at = perf !== undefined ? perf + this.offsetMs : undefined;
+    const at = perf !== undefined ? perf + this.settings().offsetMs : undefined;
     for (const o of this.outs) {
       try {
         if (at !== undefined && at > performance.now()) o.send(data, at);
@@ -310,7 +347,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
       if (type === "param") continue;
       const midi = this.noteOf(ev);
       if (type === "expr") {
-        if (typeof ev.bend === "number") this.send(encode.bend(ch, ev.bend / (this.bendRange > 0 ? this.bendRange : 2)), at);
+        if (typeof ev.bend === "number") this.send(encode.bend(ch, ev.bend / (this.settings().bendRange || 2)), at);
         if (typeof ev.pressure === "number") this.send(encode.pressure(ch, ev.pressure), at);
         if (typeof ev.timbre === "number") this.send(encode.cc(ch, 74, ev.timbre), at);
         continue;
@@ -323,7 +360,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
       const vel = typeof ev.vel === "number" ? ev.vel : 0.8;
       this.send(encode.noteOn(ch, midi, vel), at);
       if (type === "note") {
-        const dur = typeof ev.durS === "number" && ev.durS > 0 ? ev.durS : this.durS;
+        const dur = typeof ev.durS === "number" && ev.durS > 0 ? ev.durS : this.settings().durS;
         const end = typeof ev.when === "number" && ac ? perfOf(ev.when + dur) : performance.now() + dur * 1000;
         this.send(encode.noteOff(ch, midi), end ?? performance.now() + dur * 1000);
       }
@@ -420,7 +457,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
     }
     // en MPE, toute la zone est écoutée (un canal par note) ; sinon filtre `channel`
     if (!this.mpe && !this.channelAccepted(m.ch)) return;
-    const tr = Math.round(this.transpose) || 0;
+    const tr = this.settings().transpose;
     switch (m.kind) {
       case "noteOn": {
         const h = this.tracker.noteOn(m.ch, m.note, m.vel);
@@ -502,7 +539,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
 
   private releaseHeld(): void {
     const gone = this.tracker.clear();
-    const tr = Math.round(this.transpose) || 0;
+    const tr = this.settings().transpose;
     this.toTargets(gone.flatMap((h) => this.takeMapped(h.ch, h.note, clampNote(h.note + tr)).map((n) => ({ type: "noteOff" as const, note: n, ch: h.ch }))));
     this.mapped.clear();
   }
@@ -563,6 +600,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.panic.reset();
+    if (Object.keys(this.fromControl).length) this.applyMidiSettings({});
     if (!this.control) return;
     this.unsubs.push(
       listenDp(this.control, (v) => {
@@ -581,6 +619,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
         const oc = num(c.outChannel, 1, 16);
         if (oc !== undefined) this.overrides.outChannel = Math.round(oc);
         if (rebind) this.bindPorts();
+        this.applyMidiSettings(readMidiSettings(c));
         const a = bool(c.active);
         if (a !== undefined) this.setActive(a);
         if (this.panic.feed(c.panic)) {
@@ -595,6 +634,15 @@ export class SonicMidi extends LitElement implements SonicInstrument {
         }
       }),
     );
+  }
+
+  private applyMidiSettings(next: Partial<MidiSettings>): void {
+    const before = JSON.stringify(this.settings());
+    this.fromControl = next;
+    const s = this.settings();
+    if (JSON.stringify(s) === before) return;
+    this.applyTracker();
+    this.patch({ settings: s });
   }
 
   private outChannelValue(): number {
@@ -724,7 +772,7 @@ export class SonicMidi extends LitElement implements SonicInstrument {
   private publishQueued = false;
   private publish(): void {
     this.state.held = this.tracker.held.map((h) => {
-      const note = clampNote(h.note + (Math.round(this.transpose) || 0));
+      const note = clampNote(h.note + (this.settings().transpose));
       return { note, name: noteName(note), ch: h.ch, vel: round(h.vel), bend: round(h.bend), pressure: round(h.pressure), timbre: round(h.timbre) };
     });
     const out = (this.outDataProvider || (this.id ? `${this.id}State` : "")).trim();

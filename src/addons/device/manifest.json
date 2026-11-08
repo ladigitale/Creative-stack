@@ -11,11 +11,11 @@
   "components": [
     {
       "name": "sonic-fullscreen",
-      "description": "Plein écran (sans rendu). Commandes control {enter:n, exit:n, toggle:n}, ou for=\"idBouton\" (clic = bascule, geste exigé). target = sélecteur CSS (défaut toute la page). État <id>State {status, error, supported, allowed, active, element, supportsVideoOnly}. Événement sonic-fullscreen-change. iPhone : seulement sur une <video>. Iframe : allow=\"fullscreen\"",
+      "description": "Plein écran (sans rendu). Commandes control {enter:n, exit:n, toggle:n} (forme {n, navigationUI} pour une entrée ponctuelle) + clé de réglage navigationUI (auto|hide|show, prioritaire sur l'attribut), ou for=\"idBouton\" (clic = bascule, geste exigé). target = sélecteur CSS (défaut toute la page). État <id>State {status, error, supported, allowed, active, element, supportsVideoOnly, navigationUI}. Événement sonic-fullscreen-change. iPhone : seulement sur une <video>. Iframe : allow=\"fullscreen\"",
       "props": {
         "control": {
           "type": "string",
-          "description": "DP de pilotage : compteurs {commande: n}"
+          "description": "DP de pilotage : compteurs {commande: n} ; réglage navigationUI"
         },
         "out-data-provider": {
           "type": "string",
@@ -37,11 +37,11 @@
     },
     {
       "name": "sonic-pointer-lock",
-      "description": "Pointer Lock : souris verrouillée, déplacements relatifs (visée, caméra orbitale, potentiomètre infini). Commandes control {lock:n, unlock:n, toggle:n, reset:n} ou for. État <id>State {status, error, supported, allowed, active, element, dx, dy, x, y, raw} (dx/dy = somme depuis la publication précédente, x/y = cumul depuis le verrouillage). Événements sonic-pointerlock-change, sonic-pointerlock-move {dx,dy}. Iframe : sandbox allow-pointer-lock. Échap rend la souris",
+      "description": "Pointer Lock : souris verrouillée, déplacements relatifs (visée, caméra orbitale, potentiomètre infini). Commandes control {lock:n, unlock:n, toggle:n, reset:n} (forme {n, unadjustedMovement} pour un verrouillage ponctuel) ou for ; clé de réglage unadjustedMovement (booléen, prioritaire sur l'attribut). État <id>State {status, error, supported, allowed, active, element, dx, dy, x, y, raw, unadjustedMovement} (dx/dy = somme depuis la publication précédente, x/y = cumul depuis le verrouillage). Événements sonic-pointerlock-change, sonic-pointerlock-move {dx,dy}. Iframe : sandbox allow-pointer-lock. Échap rend la souris",
       "props": {
         "control": {
           "type": "string",
-          "description": "DP de pilotage : compteurs {commande: n}"
+          "description": "DP de pilotage : compteurs {commande: n} ; réglage unadjustedMovement"
         },
         "out-data-provider": {
           "type": "string",
@@ -89,11 +89,11 @@
     },
     {
       "name": "sonic-orientation",
-      "description": "Orientation de l'écran (lecture, verrouillage) et capteurs de mouvement (inclinaison alpha/beta/gamma, accélération ax/ay/az, rotation ra/rb/rg ; null tant que rien n'arrive). Commandes control {lock:{n,type}, unlock:n, sensors:n, stop:n} ; for = démarre les capteurs (iOS : permission dans le clic). État <id>State {status, error, supported, allowed, active, type, angle, locked, sensors, permission, alpha, beta, gamma, ax, ay, az, ra, rb, rg}. Verrouiller exige souvent le plein écran. Iframe : allow=\"accelerometer; gyroscope; magnetometer\"",
+      "description": "Orientation de l'écran (lecture, verrouillage) et capteurs de mouvement (inclinaison alpha/beta/gamma, accélération ax/ay/az, rotation ra/rb/rg ; null tant que rien n'arrive). Commandes control {lock:{n,type}, unlock:n, sensors:n, stop:n} + clé de réglage smoothing (0..0.95, en direct, prioritaire sur l'attribut) ; for = démarre les capteurs (iOS : permission dans le clic). État <id>State {status, error, supported, allowed, active, type, angle, locked, sensors, permission, alpha, beta, gamma, ax, ay, az, ra, rb, rg, smoothing}. Verrouiller exige souvent le plein écran. Iframe : allow=\"accelerometer; gyroscope; magnetometer\"",
       "props": {
         "control": {
           "type": "string",
-          "description": "DP de pilotage : compteurs {commande: n}"
+          "description": "DP de pilotage : compteurs {commande: n} ; réglage smoothing"
         },
         "out-data-provider": {
           "type": "string",

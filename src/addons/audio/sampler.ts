@@ -5,6 +5,7 @@ import { AudioEngine, AudioRoute, resolveAudioElement } from "../../shared/audio
 import { isAudioSink, type SonicInstrument, type SonicNoteEvent } from "../../shared/audio/contracts";
 import { toMidi } from "../../shared/audio/notes";
 import { listenDp, plain } from "../../shared/audio/dp";
+import { num } from "../../shared/media/control";
 import { loadSample, safeSampleUrl } from "../../shared/audio/samples";
 
 export { safeSampleUrl, loadSample };
@@ -30,8 +31,30 @@ export type SampleSpec = {
   gate?: boolean;
 };
 
+/** Réglages lus dans le DP `control` (clé absente : l'attribut s'applique). */
+export type SamplerControl = { gain?: number; choke?: string[][]; chromatic?: string };
+
+/** Lit le DP `control` : `{ gain (0..4), choke [[nom, …]], chromatic }` ; le reste est ignoré. */
+export function readSamplerControl(v: unknown): SamplerControl {
+  const c = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const o: SamplerControl = {};
+  const gain = num(c.gain, 0, 4);
+  if (gain !== undefined) o.gain = gain;
+  if (Array.isArray(c.choke)) {
+    o.choke = c.choke
+      .filter((g): g is unknown[] => Array.isArray(g))
+      .map((g) => g.filter((n) => typeof n === "string" || typeof n === "number").map(String))
+      .filter((g) => g.length > 1)
+      .slice(0, 64);
+  }
+  if (typeof c.chromatic === "string") o.chromatic = c.chromatic.trim();
+  return o;
+}
+
 export type SamplerState = {
   status: "idle" | "loading" | "ready" | "error" | "unsupported";
+  /** Première erreur (null si aucune) ; liste complète dans `errors`. */
+  error: string | null;
   loaded: number;
   total: number;
   samples: string[];
@@ -40,6 +63,10 @@ export type SamplerState = {
   voices: number;
   played: number;
   errors: string[];
+  /** Réglages effectifs (attributs, puis `control`). */
+  gain: number;
+  choke: string[][];
+  chromatic: string;
 };
 
 /** `empty` : sample `ref` dont le DataProvider est encore vide (pad pas encore enregistré). */
@@ -59,6 +86,8 @@ function reverseBuffer(ctx: BaseAudioContext, buf: AudioBuffer): AudioBuffer {
 /**
  * Sampler : joue des samples (URL, ou SonicMediaRef lu dans un DataProvider)
  * par nom (`{ sample: "kick" }`) ou chromatiquement (`{ note: "C4" }`).
+ * Réglages en attributs, ou par le DP `control` `{ gain, choke, chromatic }` (prioritaire ;
+ * clé retirée : retour à l'attribut ; le volume change en direct, sans couper les voix).
  */
 @customElement(tagName)
 export class SonicSampler extends LitElement implements SonicInstrument {
@@ -100,9 +129,15 @@ export class SonicSampler extends LitElement implements SonicInstrument {
   @property({ type: String })
   trigger = "";
 
+  /** DataProvider de réglages : `{ gain, choke, chromatic }` (prioritaire sur les attributs). */
+  @property({ type: String })
+  control = "";
+
   @property({ type: String, attribute: "out-data-provider" })
   outDataProvider = "";
 
+  private fromControl: SamplerControl = {};
+  private unlistenControl: (() => void) | null = null;
   private loaded = new Map<string, Loaded>();
   private provided: Record<string, string | SampleSpec> = {};
   private voices: Voice[] = [];
@@ -123,10 +158,13 @@ export class SonicSampler extends LitElement implements SonicInstrument {
   connectedCallback(): void {
     super.connectedCallback();
     this.unsubscribeEngine = AudioEngine.get().onChange(() => this.ensureOutput());
+    this.listenControl();
   }
 
   disconnectedCallback(): void {
     this.unsubscribeEngine?.();
+    this.unlistenControl?.();
+    this.unlistenControl = null;
     for (const u of [...this.unsubs, ...this.refUnsubs]) u();
     this.providerUnsub?.();
     this.providerUnsub = null;
@@ -153,10 +191,58 @@ export class SonicSampler extends LitElement implements SonicInstrument {
           })
         : null;
     }
-    if (changed.has("gain") && this.outGain) this.outGain.gain.value = Math.max(0, this.gain);
+    if (changed.has("gain")) this.applyGain();
+    if (changed.has("choke") || changed.has("chromatic")) this.publish();
+    if (changed.has("control") && changed.get("control") !== undefined && this.isConnected) this.listenControl();
     if (changed.has("output")) this.reconnect();
     if (changed.has("events") || changed.has("trigger")) this.listenEvents();
     this.ensureOutput();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Réglages effectifs (attributs, puis DP control)                   */
+  /* ---------------------------------------------------------------- */
+
+  private effGain(): number {
+    const g = this.fromControl.gain ?? this.gain;
+    return Number.isFinite(g) ? Math.min(4, Math.max(0, g)) : 0.8;
+  }
+
+  private effChoke(): string[][] {
+    if (this.fromControl.choke) return this.fromControl.choke;
+    const c = plain<unknown>(this.choke);
+    return Array.isArray(c) ? (c.filter((g) => Array.isArray(g)) as unknown[][]).map((g) => g.map(String)) : [];
+  }
+
+  private effChromatic(): string {
+    return this.fromControl.chromatic ?? this.chromatic ?? "";
+  }
+
+  private listenControl(): void {
+    this.unlistenControl?.();
+    this.unlistenControl = null;
+    if (Object.keys(this.fromControl).length) this.applyControl({});
+    const path = this.control.trim();
+    if (!path) return;
+    this.unlistenControl = listenDp(path, (v) => this.applyControl(readSamplerControl(v)));
+  }
+
+  private applyControl(next: SamplerControl): void {
+    const gain = this.effGain();
+    this.fromControl = next;
+    if (this.effGain() !== gain) this.applyGain();
+    this.publish();
+  }
+
+  /** Volume de sortie en direct (rampe courte : les voix en cours continuent). */
+  private applyGain(): void {
+    const ac = AudioEngine.get().context;
+    if (this.outGain && ac) {
+      const g = this.outGain.gain;
+      g.cancelScheduledValues(ac.currentTime);
+      g.setTargetAtTime(this.effGain(), ac.currentTime, 0.015);
+    }
+    this.publish();
   }
 
   /* ---------------------------------------------------------------- */
@@ -222,7 +308,7 @@ export class SonicSampler extends LitElement implements SonicInstrument {
     const engine = AudioEngine.get();
     if (this.outGain || !engine.context || !engine.master) return;
     this.outGain = engine.context.createGain();
-    this.outGain.gain.value = Math.max(0, this.gain);
+    this.outGain.gain.value = this.effGain();
     this.reconnect();
     this.publish();
   }
@@ -297,7 +383,8 @@ export class SonicSampler extends LitElement implements SonicInstrument {
     if (this.notesMap) {
       for (const [k, name] of Object.entries(this.notesMap)) if (toMidi(k) === midi && this.loaded.has(name)) return name;
     }
-    if (this.chromatic && this.loaded.has(this.chromatic)) return this.chromatic;
+    const chromatic = this.effChromatic();
+    if (chromatic && this.loaded.has(chromatic)) return chromatic;
     for (const [name, l] of this.loaded) if (l.spec.root !== undefined) return name;
     return null;
   }
@@ -310,7 +397,7 @@ export class SonicSampler extends LitElement implements SonicInstrument {
     const buffer = spec.reverse ? entry.reversed! : entry.buffer;
 
     // Étouffement
-    for (const group of this.choke ?? []) {
+    for (const group of this.effChoke()) {
       if (!group.includes(name)) continue;
       for (const v of this.voices) if (v.sample !== name && group.includes(v.sample)) this.fade(v, t, 0.008);
     }
@@ -449,6 +536,7 @@ export class SonicSampler extends LitElement implements SonicInstrument {
     const loadErrors = entries.map((e) => e.error).filter((e): e is string => !!e);
     const supported = AudioEngine.get().supported;
     const pending = entries.filter((e) => !e.buffer && !e.error && !e.empty).length;
+    const errors = [...loadErrors, ...this.errors];
     return {
       status: !supported
         ? "unsupported"
@@ -459,13 +547,17 @@ export class SonicSampler extends LitElement implements SonicInstrument {
             : this.outGain
               ? "ready"
               : "idle",
+      error: !supported ? "WebAudio indisponible dans ce navigateur" : (errors[0] ?? null),
       loaded,
       total: entries.length,
       samples: [...this.loaded.keys()],
       empty: [...this.loaded].filter(([, e]) => e.empty).map(([n]) => n),
       voices: this.voices.length,
       played: this.played,
-      errors: [...loadErrors, ...this.errors],
+      errors,
+      gain: this.effGain(),
+      choke: this.effChoke(),
+      chromatic: this.effChromatic(),
     };
   }
 

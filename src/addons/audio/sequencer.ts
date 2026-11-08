@@ -4,6 +4,7 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { AudioEngine, resolveAudioElement } from "../../shared/audio/engine";
 import { isInstrument, type SonicNoteEvent } from "../../shared/audio/contracts";
 import { listenDp } from "../../shared/audio/dp";
+import { num } from "../../shared/media/control";
 import { compilePattern, SequencerCore, type StepTick } from "./seq/core";
 
 const tagName = "sonic-sequencer";
@@ -14,6 +15,10 @@ export type SequencerState = {
   playing: boolean;
   bpm: number;
   swing: number;
+  /** Graine des probabilités et métrique effectives (attributs, puis `control`). */
+  seed: number;
+  beats: number;
+  stepsPerBeat: number;
   /** Pas dans la mesure, temps, mesure, position 0..1 : publiés à l'heure audio. */
   step: number;
   beat: number;
@@ -34,6 +39,8 @@ type StoreLike = { dispatchAction?: (a: { type: string; payload?: unknown; t?: n
  * Horloge musicale calée sur l'AudioContext (ordonnancement anticipé).
  * Joue `pattern` sur des instruments désignés par leur id, et/ou envoie
  * l'action `step` à un `sonic-store` pour la musique calculée par un reducer.
+ * DP `control` : `{ playing, bpm, swing, seed, pattern, beats, stepsPerBeat }` ; `beats` (1..16)
+ * et `stepsPerBeat` (1..12) recouvrent l'attribut tant que la clé est présente.
  */
 @customElement(tagName)
 export class SonicSequencer extends LitElement {
@@ -68,7 +75,7 @@ export class SonicSequencer extends LitElement {
   @property({ type: Boolean })
   playing = false;
 
-  /** DataProvider de pilotage : { playing, bpm, swing, seed, pattern }. */
+  /** DataProvider de pilotage : { playing, bpm, swing, seed, pattern, beats, stepsPerBeat }. */
   @property({ type: String })
   control = "";
 
@@ -98,6 +105,8 @@ export class SonicSequencer extends LitElement {
   private wantPlaying = false;
   private position: Pick<SequencerState, "step" | "beat" | "bar" | "phase"> = { step: 0, beat: 0, bar: 0, phase: 0 };
   private controlPattern: unknown = undefined;
+  /** Métrique lue dans `control` (clé retirée : retour à l'attribut). */
+  private controlMeter: { beats?: number; stepsPerBeat?: number } = {};
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -121,10 +130,7 @@ export class SonicSequencer extends LitElement {
     if (changed.has("bpm")) this.setBpm(this.bpm);
     if (changed.has("swing")) this.core.opts.swing = clamp(this.swing, 0, 0.5);
     if (changed.has("seed")) this.core.setSeed(Math.round(this.seed) >>> 0);
-    if (changed.has("beats") || changed.has("stepsPerBeat")) {
-      this.core.opts.beats = Math.max(1, Math.min(16, Math.round(this.beats)));
-      this.core.opts.stepsPerBeat = Math.max(1, Math.min(12, Math.round(this.stepsPerBeat)));
-    }
+    if (changed.has("beats") || changed.has("stepsPerBeat")) this.applyMeter();
     if (changed.has("playing")) {
       this.wantPlaying = this.playing;
       this.sync();
@@ -215,9 +221,21 @@ export class SonicSequencer extends LitElement {
   /* Pilotage                                                          */
   /* ---------------------------------------------------------------- */
 
+  /** Métrique effective : attributs, puis `control`, bornés. */
+  private applyMeter(): void {
+    const beats = this.controlMeter.beats ?? this.beats;
+    const spb = this.controlMeter.stepsPerBeat ?? this.stepsPerBeat;
+    this.core.opts.beats = Math.max(1, Math.min(16, Math.round(Number.isFinite(beats) ? beats : 4)));
+    this.core.opts.stepsPerBeat = Math.max(1, Math.min(12, Math.round(Number.isFinite(spb) ? spb : 4)));
+  }
+
   private listenControl(): void {
     for (const u of this.unsubs) u();
     this.unsubs = [];
+    if (Object.keys(this.controlMeter).length) {
+      this.controlMeter = {};
+      this.applyMeter();
+    }
     if (!this.control) return;
     this.unsubs.push(
       listenDp(this.control, (v) => {
@@ -226,6 +244,14 @@ export class SonicSequencer extends LitElement {
         if (typeof c.bpm === "number") this.setBpm(c.bpm);
         if (typeof c.swing === "number") this.core.opts.swing = clamp(c.swing, 0, 0.5);
         if (typeof c.seed === "number") this.core.setSeed(Math.round(c.seed) >>> 0);
+        const raw = v as Record<string, unknown>;
+        const beats = num(raw.beats, 1, 16);
+        const spb = num(raw.stepsPerBeat, 1, 12);
+        this.controlMeter = {
+          ...(beats !== undefined ? { beats: Math.round(beats) } : {}),
+          ...(spb !== undefined ? { stepsPerBeat: Math.round(spb) } : {}),
+        };
+        this.applyMeter();
         if (c.pattern !== undefined && JSON.stringify(c.pattern) !== JSON.stringify(this.controlPattern)) {
           this.controlPattern = c.pattern;
           this.setPattern(c.pattern);
@@ -356,6 +382,9 @@ export class SonicSequencer extends LitElement {
       playing: this.running,
       bpm: this.core.opts.bpm,
       swing: this.core.opts.swing,
+      seed: this.core.opts.seed,
+      beats: this.core.opts.beats,
+      stepsPerBeat: this.core.opts.stepsPerBeat,
       ...this.position,
       sync: this.syncSource ? { source: this.syncSource, ...this.syncInfo } : null,
       errors: [...this.patternErrors],

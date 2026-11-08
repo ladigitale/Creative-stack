@@ -85,7 +85,11 @@ export const PRESETS: Record<string, BoneAttrs[]> = { humain: HUMAN_PRESET };
 /** Articulation de la sortie d'un tracker de pose (`{ x, y, v }`), ou `null` si absente. */
 type Joint = { x: number; y: number; v: number };
 
-type SkeletonState = {
+export type SkeletonState = {
+  /** `idle` : aucun os ; `ready` : squelette valide ; `error` : au moins une erreur de déclaration (les os valides restent actifs). */
+  status: "idle" | "ready" | "error";
+  /** Première erreur de déclaration, ou null. */
+  error: string | null;
   /** Os et erreurs de déclaration. */
   bones: string[];
   errors: string[];
@@ -103,6 +107,8 @@ type SkeletonState = {
  * Les os sont pilotés par des mesures de pose (`source` = sortie d'un `sonic-pose-tracker`, `aim` par os) ou par
  * n'importe quelle valeur (`angle-from`). `preset="humain"` déclare le corps entier ; des enfants `sonic-bone` de même
  * nom en modifient les attributs. Angles en degrés : 0 = vers le bas, positif = sens horaire.
+ * État standard dans `<nodes-out>.status`, `.error` et `.errors` (erreurs de déclaration : os sans nom, en double,
+ * parent inconnu, preset inconnu…).
  */
 @customElement(tagName)
 export class SonicSkeleton extends LitElement {
@@ -197,6 +203,7 @@ export class SonicSkeleton extends LitElement {
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
   private states: BoneState[] = [];
   private present: 0 | 1 = 0;
+  private lastStatusSig = "";
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -215,13 +222,26 @@ export class SonicSkeleton extends LitElement {
   }
 
   protected updated(changed: Map<string, unknown>): void {
+    if (changed.has("nodesOut")) this.lastSig = this.lastRestSig = "";
     if (changed.has("source") || changed.has("preset") || changed.has("scale") || changed.has("fit")) this.rebuild();
     else if (changed.size) this.schedule();
   }
 
   /** État courant (os, erreurs de déclaration, présence). */
   getState(): SkeletonState {
-    return { bones: this.configs.map((c) => c.spec.name), errors: [...this.errors], present: this.present };
+    const status: SkeletonState["status"] = this.errors.length ? "error" : this.configs.length ? "ready" : "idle";
+    return { status, error: this.errors[0] ?? null, bones: this.configs.map((c) => c.spec.name), errors: [...this.errors], present: this.present };
+  }
+
+  /** `<nodes-out>.status`, `.error`, `.errors` : publiés quand ils changent (et à chaque changement de `nodes-out`). */
+  private publishStatus(out: string): void {
+    const { status, error, errors } = this.getState();
+    const sig = JSON.stringify([out, status, errors]);
+    if (sig === this.lastStatusSig) return;
+    this.lastStatusSig = sig;
+    set(`${out}.status`, status);
+    set(`${out}.error`, error);
+    set(`${out}.errors`, errors);
   }
 
   /** Pose résolue à la dernière mise à jour (pour les tests et l'atelier). */
@@ -496,6 +516,7 @@ export class SonicSkeleton extends LitElement {
   private publish(states: BoneState[], eased: boolean, scale?: number): boolean {
     const out = (this.nodesOut ?? "").trim();
     if (!out) return false;
+    this.publishStatus(out);
     const nodes: Record<string, Record<string, unknown>> = {};
     const bones: Record<string, Record<string, number>> = {};
     const names = new Map(this.configs.map((c) => [c.spec.name, c.nodes]));

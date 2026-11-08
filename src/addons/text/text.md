@@ -20,7 +20,18 @@
 | `progress` | Avancement 0..1 fixé à la main |
 | `progress-source` | Chemin DataProvider de l'avancement, par exemple `defil.smoothProgress` ; remplace `progress` |
 | `play`, `duration` | Lecture automatique d'une durée `duration` secondes (défaut 1,2) quand le texte entre dans l'écran |
-| `out-data-provider` | Reçoit `{ progress, units, done }` |
+| `params` | Chemin DataProvider de réglages en direct `{ text, split, effect, ease, spread, distance, duration }` : chaque clé présente remplace l'attribut, une clé retirée (ou `null`) rend la main à l'attribut. `spread` borné à 0..1, `distance` à ±2000 px, `duration` à 0,05..600 s, `text` à 20 000 caractères |
+| `out-data-provider` | Reçoit `{ status, error, progress, units, done, settings }` |
+
+`status` : `idle` (aucun texte), `ready`, `error` (valeur inconnue de `split` / `effect` / `ease`, ou valeur `params` refusée : le message est dans `error`, le rendu retombe sur le défaut) ; `settings` : réglages effectifs.
+
+```json
+{ "tagName": "sonic-split-text", "attributes": { "text": "Titre", "params": "ui.titre", "progress-source": "defil.smoothProgress", "out-data-provider": "titreState" } }
+```
+
+```json
+{ "ui": { "titre": { "text": "Nouveau titre", "split": "chars", "effect": "blur", "spread": 0.5 } } }
+```
 
 Au plus 2000 unités.
 

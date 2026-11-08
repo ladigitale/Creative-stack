@@ -31,7 +31,7 @@
     },
     {
       "name": "sonic-keyboard",
-      "description": "Clavier -> actions store",
+      "description": "Clavier -> actions store (keymap code -> type ou {type, payload}, repeat {type: [délai, intervalle]}, keyup -> <type>:up) ; control / params (DP) {keymap, repeat, keyup, disabled} en direct (attributs < control < params) ; out-data-provider publie {status: idle|ready|error, error, held (codes tenus), last {code, type, payload, phase}, count, keys}",
       "props": {
         "target": {
           "type": "string"
@@ -47,12 +47,32 @@
         },
         "keyup": {
           "type": "boolean"
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Suspend l'écoute"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage {keymap, repeat, keyup, disabled}"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {keymap, repeat, keyup, disabled}, prioritaire sur control"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "Reçoit {status, error, held, last, count, keys}"
+        },
+        "dispatch-event": {
+          "type": "boolean",
+          "description": "Émet aussi l'événement DOM sonic-action"
         }
       }
     },
     {
       "name": "sonic-gamepad",
-      "description": "Manette -> actions store",
+      "description": "Manette (disposition standard, première manette) : boutons et stick gauche poussé à fond (ls-x-, ls-x+, ls-y-, ls-y+) -> actions store ; params (DP) {deadzone, keymap, repeat} en direct ; dataProvider / out-data-provider publie {status: idle|ready|error|unsupported, error, connected, id, deadzone}. Axes analogiques, gâchettes, plusieurs manettes, vibration : voir sonic-controller (addon controller)",
       "props": {
         "target": {
           "type": "string"
@@ -61,16 +81,29 @@
           "type": "object"
         },
         "deadzone": {
-          "type": "number"
+          "type": "number",
+          "description": "Seuil du stick pour ls-* (0..0.95, défaut 0.25)"
         },
         "repeat": {
           "type": "object"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {deadzone, keymap, repeat}"
+        },
+        "dataProvider": {
+          "type": "string",
+          "description": "Reçoit {status, error, connected, id, deadzone}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "Même état que dataProvider"
         }
       }
     },
     {
       "name": "sonic-gesture",
-      "description": "Gestes tactiles multipoints -> actions vers target. Toujours : tap / double-tap / long-press {x, y (px dans la zone), u, v (fraction)}, swipe-up|down|left|right. drag : drag {dx, dy} cumulés en fraction de la zone + drag-end. pan : pan {dx, dy, x, y} en px depuis l'action précédente + pan-end {dx, dy, vx, vy}, sans swipe. pinch : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end. wheel : molette -> pinch {source:\"wheel\"}. Continues regroupées par image. press : press {id, x, y, u, v} au contact de chaque doigt, release au lever (jeu instrumental).",
+      "description": "Gestes tactiles multipoints -> actions vers target. Toujours : tap / double-tap / long-press {x, y (px dans la zone), u, v (fraction)}, swipe-up|down|left|right. drag : drag {dx, dy} cumulés en fraction de la zone + drag-end. pan : pan {dx, dy, x, y} en px depuis l'action précédente + pan-end {dx, dy, vx, vy}, sans swipe. pinch : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end. wheel : molette -> pinch {source:\"wheel\"}. Continues regroupées par image. press : press {id, x, y, u, v} au contact de chaque doigt, release au lever (jeu instrumental). params (DP) {swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press} en direct, prioritaire sur les attributs.",
       "props": {
         "target": {
           "type": "string",
@@ -115,6 +148,10 @@
         "press": {
           "type": "boolean",
           "description": "press / release par doigt (pointerdown / pointerup)"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press}"
         }
       }
     },
@@ -272,7 +309,7 @@
     },
     {
       "name": "sonic-motion",
-      "description": "Vitesse d'un capteur : suit une ou plusieurs valeurs d'un DataProvider (source + keys en chemins pointés séparés par des virgules ; plusieurs = norme du déplacement) et publie dans out-data-provider {value, values, speed (unités/s, signée avec une seule valeur), accel, vel (|speed|/speed-max, 0..1 : vélocité MIDI), peak (plus grande vitesse des peak-ms dernières ms), peakVel, moving} ; smooth-ms lisse, idle-ms : sans nouvelle valeur la vitesse retombe vers 0 ; pas d'évaluation de code",
+      "description": "Vitesse d'un capteur : suit une ou plusieurs valeurs d'un DataProvider (source + keys en chemins pointés séparés par des virgules ; plusieurs = norme du déplacement) et publie dans out-data-provider {status (idle sans source/keys | ready | error : params refusé), error, value, values, speed (unités/s, signée avec une seule valeur), accel, vel (|speed|/speed-max, 0..1 : vélocité MIDI), peak (plus grande vitesse des peak-ms dernières ms), peakVel, moving} ; smooth-ms lisse, idle-ms : sans nouvelle valeur la vitesse retombe vers 0 ; params (DP) {smoothMs, speedMax, idleMs, peakMs} en direct, prioritaire sur les attributs (clé retirée : retour à l'attribut), settings = réglages effectifs ; pas d'évaluation de code",
       "props": {
         "source": {
           "type": "string"
@@ -293,7 +330,12 @@
           "type": "number"
         },
         "out-data-provider": {
-          "type": "string"
+          "type": "string",
+          "description": "Reçoit {status, error, value, values, speed, accel, vel, peak, peakVel, moving, settings}"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {smoothMs, speedMax, idleMs, peakMs}"
         }
       }
     },

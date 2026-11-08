@@ -7,8 +7,8 @@ Addon opt-in `@supersoniks/creative-stack/interactive` for **declarative** playa
 | Tag | Role |
 |---|---|
 | `sonic-store` | State + JSONata reducer (`$state`, `$action`, `$env`) |
-| `sonic-keyboard` | Keymap → actions |
-| `sonic-gamepad` | Standard gamepad → actions |
+| `sonic-keyboard` | Keymap → actions — see below |
+| `sonic-gamepad` | Standard gamepad buttons → actions (for analog sticks, triggers, several pads: `sonic-controller`) — see below |
 | `sonic-gesture` | Tap / swipe / long-press, drag, pan, pinch (multipoint), wheel — see below |
 | `sonic-action` | `pointerdown` (default: games, touch d-pads, `hold-repeat`) or `trigger="click"` (UI buttons: tabs, details, filters) → action |
 | `sonic-ticker` | Clock `tick` with `dt` |
@@ -105,9 +105,49 @@ Publishes the speed of one or several values of a DataProvider (`keys="x"` or `k
 | `speed-max` | Speed (units/s) giving `vel = 1`; normalized positions typically need 1–4 | `2` |
 | `idle-ms` | Without a new value for this long, the speed decays toward 0 | `120` |
 | `peak-ms` | Window of the peak speed | `150` |
-| `out-data-provider` | `{value, values, speed, accel, vel, peak, peakVel, moving}` | — |
+| `params` | DataProvider of live settings `{smoothMs, speedMax, idleMs, peakMs}`; each key present overrides the attribute (absent, `null` or `""`: attribute applies). Durations clamped to 0..60 s, `speedMax` to 0.001..1e6 | — |
+| `out-data-provider` | `{status, error, value, values, speed, accel, vel, peak, peakVel, moving, settings}` (published at mount, then on each measure) | — |
+
+`status`: `idle` (no `source` or `keys`), `ready`, `error` (refused `params` value, named in `error`); `settings`: effective values.
+
+```json
+{ "tagName": "sonic-motion", "attributes": { "source": "hands", "keys": "right.x,right.y", "params": "ui.motion", "out-data-provider": "hand-speed" } }
+```
 
 A gap longer than 0.5 s between two values restarts the measure with a speed of 0 (no spike when a hand reappears).
+
+## `sonic-keyboard`
+
+```json
+{ "tagName": "sonic-keyboard", "attributes": {
+  "target": "game", "keyup": "", "params": "ui.keys", "out-data-provider": "kbState",
+  "keymap": "{\"ArrowLeft\":\"left\",\"ArrowRight\":\"right\",\"Space\":{\"type\":\"jump\",\"payload\":1}}",
+  "repeat": "{\"left\":[170,50],\"right\":[170,50]}" } }
+```
+
+| Attribute | Role | Default |
+|---|---|---|
+| `target` | Id of the `sonic-store` receiving the actions | — |
+| `keymap` | `KeyboardEvent.code` (or `key`) → `"type"` or `{type, payload}` | `{}` |
+| `repeat` | `{ type: [delayMs, intervalMs] }`: auto-repeat while held | `{}` |
+| `keyup` | Also sends `<type>:up` on release | `false` |
+| `scope` | `document` or `focus` (only when the element has focus) | `document` |
+| `disabled` | Suspends listening (held keys are released) | `false` |
+| `control`, `params` | DataProviders of live settings `{keymap, repeat, keyup, disabled}` (`keymap` / `repeat` as object or JSON string); priority attributes < `control` < `params`, absent key: back to the lower level | — |
+| `out-data-provider` | State `{status, error, held, last, count, keys}` | — |
+
+State: `status` `idle` (empty keymap or disabled) / `ready` / `error` (refused `control` / `params` value, named in `error`); `held`: codes currently held, in press order; `last`: `{code, type, payload, phase: down | repeat | up}` of the last action; `count`: actions sent; `keys`: codes of the effective keymap. Keys typed in a field (`input`, `textarea`, `contenteditable`) are ignored.
+
+## `sonic-gamepad`
+
+Standard-layout buttons of the first pad (`dpad-up|down|left|right`, `a b x y start select`, and the left stick pushed: `ls-x-`, `ls-x+`, `ls-y-`, `ls-y+`) → actions. For **analog** axes and triggers, releases, several pads or rumble, use `sonic-controller` (addon `controller`).
+
+| Attribute | Role | Default |
+|---|---|---|
+| `target`, `keymap`, `repeat` | As `sonic-keyboard`, with button names as keys | tetris-like keymap |
+| `deadzone` | Stick threshold (0..0.95) for `ls-*` | `0.25` |
+| `params` | DataProvider of live settings `{deadzone, keymap, repeat}`; absent key: attribute applies | — |
+| `dataProvider`, `out-data-provider` | State `{status: idle \| ready \| error \| unsupported, error, connected, id, deadzone}` (both may be set) | — |
 
 ## `sonic-gesture`
 
@@ -121,6 +161,7 @@ Pointer area (touch, mouse, pen) dispatching actions to `target`. Coordinates ar
 | `pinch` | `pinch-start {cx, cy}`, `pinch {scale, dScale, rotation, dRotation, cx, cy}` (two fingers; `scale` cumulative, `dScale` since the previous action, radians), `pinch-end {scale, rotation}` |
 | `wheel` | mouse wheel / trackpad → `pinch {source: "wheel", scale, dScale, cx, cy}` (page scroll blocked on the area) |
 | `state-provider="nom"` | DataProvider `{active, pointers, scale, rotation, panX, panY, x, y}` |
+| `params="ui.geste"` | DataProvider of live settings `{swipeThreshold (px, 1..2000), longPressMs (50..10000), doubleTapMs (0..2000), drag, pan, pinch, wheel, press}`, read at each pointer event; each key present overrides the attribute, absent key: attribute applies; unreadable values are ignored |
 
 Continuous actions (`drag`, `pan`, `pinch`) are coalesced: at most one of each per animation frame (`pan` deltas summed, `dScale` multiplied). A gesture with two fingers never ends in `tap` or `swipe`, nor does a fired long press.
 

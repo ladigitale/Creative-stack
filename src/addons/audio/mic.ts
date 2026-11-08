@@ -16,6 +16,32 @@ import { bool, num } from "../../shared/media/control";
 
 const tagName = "sonic-mic";
 
+/** Réglages effectifs (attributs, puis `control` : le dernier l'emporte). */
+export type MicSettings = {
+  monitor: boolean;
+  gain: number;
+  /** Micro demandé (`""` = celui par défaut). */
+  deviceId: string;
+  echoCancellation: boolean;
+  noiseSuppression: boolean;
+  autoGain: boolean;
+  rate: number;
+};
+
+/** Lit les réglages du DP `control` (clés absentes ou invalides ignorées), valeurs bornées. */
+export function readMicControl(v: unknown): Partial<MicSettings> {
+  const c = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const o: Partial<MicSettings> = {};
+  const m = bool(c.monitor); if (m !== undefined) o.monitor = m;
+  const g = num(c.gain, 0, 4); if (g !== undefined) o.gain = g;
+  if (typeof c.deviceId === "string") o.deviceId = c.deviceId;
+  const ec = bool(c.echoCancellation); if (ec !== undefined) o.echoCancellation = ec;
+  const ns = bool(c.noiseSuppression); if (ns !== undefined) o.noiseSuppression = ns;
+  const ag = bool(c.autoGain); if (ag !== undefined) o.autoGain = ag;
+  const r = num(c.rate, 0, 60); if (r !== undefined) o.rate = r;
+  return o;
+}
+
 export type MicState = {
   status: CaptureStatus;
   error: string | null;
@@ -27,6 +53,8 @@ export type MicState = {
   monitor: boolean;
   deviceId: string | null;
   devices: MediaDeviceInfoLite[];
+  /** Réglages effectifs (attributs, puis `control`). */
+  settings: MicSettings;
 };
 
 /**
@@ -35,6 +63,10 @@ export type MicState = {
  *
  * Démarrage : `active` (attribut ou DP `control`), `autostart` (au premier geste),
  * ou un bouton `sonic-audio-unlock start="mic"` / `sonic-media-start for="mic"`.
+ *
+ * DP `control` : `{ active, monitor, gain, deviceId, echoCancellation, noiseSuppression, autoGain, rate }`,
+ * prioritaire sur les attributs (clé retirée : retour à l'attribut). Changer de micro ou de traitement
+ * (écho, bruit, gain auto) rouvre le flux proprement s'il est actif ; gain, monitor et rate s'appliquent en direct.
  */
 @customElement(tagName)
 export class SonicMic extends LitElement implements SonicAudioSource {
@@ -74,7 +106,7 @@ export class SonicMic extends LitElement implements SonicAudioSource {
   @property({ type: Number })
   rate = 15;
 
-  /** DataProvider de pilotage : { active, monitor, gain, deviceId }. */
+  /** DataProvider de pilotage : { active, monitor, gain, deviceId, echoCancellation, noiseSuppression, autoGain, rate }. */
   @property({ type: String })
   control = "";
 
@@ -88,7 +120,10 @@ export class SonicMic extends LitElement implements SonicAudioSource {
   private meterData: Float32Array<ArrayBuffer> | null = null;
   private state: MicState = {
     status: "idle", error: null, active: false, rms: 0, peak: 0, db: -100, monitor: false, deviceId: null, devices: [],
+    settings: { monitor: false, gain: 1, deviceId: "", echoCancellation: false, noiseSuppression: false, autoGain: false, rate: 15 },
   };
+  private fromControl: Partial<MicSettings> = {};
+  private restartQueued = false;
   private wantActive = false;
   private opening = false;
   private token = 0;
@@ -100,6 +135,8 @@ export class SonicMic extends LitElement implements SonicAudioSource {
   connectedCallback(): void {
     super.connectedCallback();
     this.unsubscribeEngine = AudioEngine.get().onChange(() => this.wire());
+    this.lastSettings = this.settings();
+    this.state = { ...this.state, settings: this.lastSettings };
     this.publish();
   }
 
@@ -119,8 +156,11 @@ export class SonicMic extends LitElement implements SonicAudioSource {
       this.cancelGesture?.();
       this.cancelGesture = this.autostart ? onFirstGesture(() => this.start()) : null;
     }
-    if (changed.has("monitor") || changed.has("gain")) this.wire();
-    if (changed.has("deviceId") && changed.get("deviceId") !== undefined && this.stream) this.restart();
+    const keys = ["monitor", "gain", "deviceId", "echoCancellation", "noiseSuppression", "autoGain", "rate"];
+    if (keys.some((k) => changed.has(k) && changed.get(k) !== undefined)) {
+      // Attribut modifié : même chemin qu'un réglage du DP (le recouvrement `control` reste prioritaire).
+      this.applySettings();
+    } else if (changed.has("monitor") || changed.has("gain")) this.wire();
     if (changed.has("control")) this.listenControl();
   }
 
@@ -144,25 +184,64 @@ export class SonicMic extends LitElement implements SonicAudioSource {
     return this.out;
   }
 
+  /** Réglages effectifs, bornés. */
+  settings(): MicSettings {
+    const a: MicSettings = {
+      monitor: !!this.monitor,
+      gain: Number.isFinite(this.gain) ? Math.min(4, Math.max(0, this.gain)) : 1,
+      deviceId: this.deviceId || "",
+      echoCancellation: !!this.echoCancellation,
+      noiseSuppression: !!this.noiseSuppression,
+      autoGain: !!this.autoGain,
+      rate: Number.isFinite(this.rate) ? Math.min(60, Math.max(0, this.rate)) : 15,
+    };
+    return { ...a, ...this.fromControl };
+  }
+
   /* ---------------------------------------------------------------- */
+
+  private lastSettings: MicSettings | null = null;
 
   private listenControl(): void {
     for (const u of this.unsubs) u();
     this.unsubs = [];
+    if (Object.keys(this.fromControl).length) {
+      this.fromControl = {};
+      this.applySettings();
+    }
     if (!this.control) return;
     this.unsubs.push(
       listenDp(this.control, (v) => {
         if (!v || typeof v !== "object") return;
-        const c = v as Record<string, unknown>;
-        const m = bool(c.monitor);
-        if (m !== undefined) this.monitor = m;
-        const g = num(c.gain, 0, 4);
-        if (g !== undefined) this.gain = g;
-        if (typeof c.deviceId === "string" && c.deviceId !== this.deviceId) this.deviceId = c.deviceId;
-        const a = bool(c.active);
+        this.fromControl = readMicControl(v);
+        this.applySettings();
+        const a = bool((v as Record<string, unknown>).active);
         if (a !== undefined) this.setActive(a);
       }),
     );
+  }
+
+  /** Compare aux réglages précédemment appliqués et n'applique que ce qui a changé. */
+  private applySettings(): void {
+    const s = this.settings();
+    const before = this.lastSettings ?? s;
+    this.lastSettings = s;
+    const reopen =
+      s.deviceId !== before.deviceId || s.echoCancellation !== before.echoCancellation || s.noiseSuppression !== before.noiseSuppression || s.autoGain !== before.autoGain;
+    if (reopen && (this.stream || this.opening)) this.queueRestart();
+    if (s.monitor !== before.monitor || s.gain !== before.gain) this.wire();
+    if (s.rate !== before.rate && this.meter) this.startMeter();
+    if (JSON.stringify(s) !== JSON.stringify(this.state.settings)) this.patch({ settings: s });
+  }
+
+  /** Plusieurs réglages changés d'un coup : une seule réouverture du flux. */
+  private queueRestart(): void {
+    if (this.restartQueued) return;
+    this.restartQueued = true;
+    queueMicrotask(() => {
+      this.restartQueued = false;
+      if (this.isConnected && (this.stream || this.opening)) this.restart();
+    });
   }
 
   private setActive(on: boolean): void {
@@ -182,13 +261,14 @@ export class SonicMic extends LitElement implements SonicAudioSource {
     this.patch({ status: "requesting", error: null });
     // Le geste qui demande le micro active aussi le son (même geste : exigence iOS).
     void AudioEngine.get().unlock();
+    const settings = this.settings();
     const res = await openStream(
       {
         audio: {
-          deviceId: this.deviceId ? { exact: this.deviceId } : undefined,
-          echoCancellation: this.echoCancellation,
-          noiseSuppression: this.noiseSuppression,
-          autoGainControl: this.autoGain,
+          deviceId: settings.deviceId ? { exact: settings.deviceId } : undefined,
+          echoCancellation: settings.echoCancellation,
+          noiseSuppression: settings.noiseSuppression,
+          autoGainControl: settings.autoGain,
         },
       },
       "micro",
@@ -260,19 +340,21 @@ export class SonicMic extends LitElement implements SonicAudioSource {
       this.meter.connect(sink).connect(ac.destination);
       this.startMeter();
     }
-    this.out!.gain.setTargetAtTime(Math.max(0, this.gain), ac.currentTime, 0.02);
+    const { gain, monitor } = this.settings();
+    this.out!.gain.setTargetAtTime(gain, ac.currentTime, 0.02);
     try {
       this.out!.disconnect(engine.master);
     } catch {
       /* pas connecté */
     }
-    if (this.monitor) this.out!.connect(engine.master);
-    this.patch({ monitor: this.monitor });
+    if (monitor) this.out!.connect(engine.master);
+    this.patch({ monitor });
   }
 
   private startMeter(): void {
     if (this.timer) clearInterval(this.timer);
-    const hz = Math.min(60, Math.max(0, this.rate || 0));
+    this.timer = null;
+    const hz = this.settings().rate;
     if (!hz) return;
     this.timer = setInterval(() => {
       const m = this.meter;

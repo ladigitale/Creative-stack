@@ -213,7 +213,7 @@ Le shader lit `#synced` (pas `#cam`) et les valeurs du tracker (`param0..3` via 
 | `max-width` | Largeur max des copies (mémoire) ; 0 = taille de la source | `0` |
 | `stale-ms` | Silence du tracker toléré en mode `sync` | `600` |
 | `hold` | `true` : fige l'image affichée (la plus récente au moment du gel) et `frameSeq` | `false` |
-| `control` | DP de commande `{ hold: boolean, source: "#id" }` (un store) ; `hold` prime sur l'attribut, `source` sur `for` (passer de la caméra à une image envoyée sans doubler les trackers ; vide ou absent : `for`) | – |
+| `control` | DP de commande `{ hold: boolean, source: "#id", delayMs, mode }` (un store) ; `hold` prime sur l'attribut, `source` sur `for` (passer de la caméra à une image envoyée sans doubler les trackers ; vide ou absent : `for`), `delayMs` (0..5000) sur `delay-ms`, `mode` (`auto`, `sync`, `delay`, `live`) sur `mode` ; clé absente ou invalide : l'attribut | – |
 | `snapshot-provider` | DP où publier l'image figée à chaque gel : `{ url (blob:, PNG), width, height, mime }`, `null` à la levée. Entrée d'un modèle d'image (`sonic-hugging-face-infer inputProvider="<chemin>.url"`, carte de profondeur) | – |
 | `out-data-provider` | DP d'état | – |
 

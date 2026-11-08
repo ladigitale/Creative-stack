@@ -1,10 +1,55 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { listenDp } from "../../shared/audio/dp";
+import { bool, num } from "../../shared/media/control";
 import { dispatch, type SonicActionMessage } from "./registry";
 import { CONTINUOUS, GestureTracker, coalesce, type GestureAction, type GestureOptions } from "./gesture-core";
 
 const tagName = "sonic-gesture";
+
+export type GestureSettings = {
+  swipeThreshold: number;
+  longPressMs: number;
+  doubleTapMs: number;
+  drag: boolean;
+  pan: boolean;
+  pinch: boolean;
+  wheel: boolean;
+  press: boolean;
+};
+
+const NUM_KEYS: Array<[keyof GestureSettings, number, number]> = [
+  ["swipeThreshold", 1, 2000],
+  ["longPressMs", 50, 10_000],
+  ["doubleTapMs", 0, 2000],
+];
+const BOOL_KEYS = ["drag", "pan", "pinch", "wheel", "press"] as const;
+
+/**
+ * Lit le DP `params` : `{ swipeThreshold (px, 1..2000), longPressMs (50..10000), doubleTapMs (0..2000), drag, pan,
+ * pinch, wheel, press }`. Clé absente, `null` ou `""` : l'attribut s'applique. `invalid` : clés présentes mais illisibles
+ * (ignorées).
+ */
+export function readGestureParams(v: unknown): { settings: Partial<GestureSettings>; invalid: string[] } {
+  const p = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const o: Record<string, number | boolean> = {};
+  const invalid: string[] = [];
+  for (const [k, min, max] of NUM_KEYS) {
+    const x = p[k];
+    if (x === undefined || x === null || x === "") continue;
+    const n = typeof x === "boolean" ? undefined : num(x, min, max);
+    if (n === undefined) invalid.push(k);
+    else o[k] = n;
+  }
+  for (const k of BOOL_KEYS) {
+    if (p[k] === undefined || p[k] === null) continue;
+    const b = bool(p[k]);
+    if (b === undefined) invalid.push(k);
+    else o[k] = b;
+  }
+  return { settings: o as Partial<GestureSettings>, invalid };
+}
 
 /**
  * Zone tactile multipoint → actions vers un sonic-store (`target`).
@@ -18,6 +63,8 @@ const tagName = "sonic-gesture";
  * `press` : press {id, x, y, u, v} dès qu'un doigt touche, release {id, x, y, u, v} quand il se lève
  *   (ou que le geste est annulé), pour chaque doigt : jeu instrumental (note tenue tant que le doigt reste).
  * `state-provider` : DataProvider qui reçoit {active, pointers, scale, rotation, panX, panY, x, y}.
+ * `params` : DP de réglages en direct {swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press},
+ *   prioritaires sur les attributs (clé retirée : retour à l'attribut).
  */
 @customElement(tagName)
 export class SonicGesture extends LitElement {
@@ -63,13 +110,19 @@ export class SonicGesture extends LitElement {
   @property({ type: Boolean, attribute: "dispatch-event" })
   dispatchEventFlag = false;
 
+  /** DP de réglages en direct : `{ swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press }`. */
+  @property({ type: String })
+  params = "";
+
+  private live: Partial<GestureSettings> = {};
+  private unlistenParams: (() => void) | null = null;
   private tracker = new GestureTracker();
   private longTimer: number | null = null;
   private queue: GestureAction[] = [];
   private frame: number | null = null;
 
-  private options(): GestureOptions {
-    const r = this.getBoundingClientRect();
+  /** Réglages effectifs (attributs, puis `params`). */
+  settings(): GestureSettings {
     return {
       swipeThreshold: this.swipeThreshold,
       longPressMs: this.longPressMs,
@@ -77,6 +130,37 @@ export class SonicGesture extends LitElement {
       drag: this.drag,
       pan: this.pan,
       pinch: this.pinch,
+      wheel: this.wheel,
+      press: this.press,
+      ...this.live,
+    };
+  }
+
+  private listenParams(): void {
+    this.unlistenParams?.();
+    this.unlistenParams = null;
+    this.live = {};
+    const path = this.params.trim();
+    if (!path) return;
+    this.unlistenParams = listenDp(path, (v) => {
+      this.live = readGestureParams(v).settings;
+    });
+  }
+
+  protected updated(changed: Map<string | number | symbol, unknown>): void {
+    if (changed.has("params") && changed.get("params") !== undefined && this.isConnected) this.listenParams();
+  }
+
+  private options(): GestureOptions {
+    const r = this.getBoundingClientRect();
+    const s = this.settings();
+    return {
+      swipeThreshold: s.swipeThreshold,
+      longPressMs: s.longPressMs,
+      doubleTapMs: s.doubleTapMs,
+      drag: s.drag,
+      pan: s.pan,
+      pinch: s.pinch,
       width: r.width,
       height: r.height,
     };
@@ -126,7 +210,7 @@ export class SonicGesture extends LitElement {
     } catch {
       /* pointeur déjà relâché */
     }
-    if (this.press) {
+    if (this.settings().press) {
       // tout de suite, avant toute analyse de geste : la note part au contact
       this.pressed.add(e.pointerId);
       this.flush();
@@ -138,7 +222,7 @@ export class SonicGesture extends LitElement {
       this.longTimer = window.setTimeout(() => {
         this.longTimer = null;
         this.handle(this.tracker.longPress(this.options()));
-      }, this.longPressMs);
+      }, this.settings().longPressMs);
     }
   };
 
@@ -163,7 +247,7 @@ export class SonicGesture extends LitElement {
   };
 
   private onWheel = (e: WheelEvent) => {
-    if (!this.wheel) return;
+    if (!this.settings().wheel) return;
     e.preventDefault();
     const r = this.getBoundingClientRect();
     this.handle([this.tracker.wheel(e.deltaY, e.clientX - r.left, e.clientY - r.top)]);
@@ -215,6 +299,7 @@ export class SonicGesture extends LitElement {
 
   connectedCallback(): void {
     super.connectedCallback();
+    this.listenParams();
     // Écouteurs sur l'hôte : setPointerCapture() vise l'hôte, les événements
     // capturés (move/up) n'atteignent jamais un <slot> du shadow DOM.
     this.addEventListener("pointerdown", this.onDown);
@@ -235,6 +320,8 @@ export class SonicGesture extends LitElement {
     this.frame = null;
     this.queue = [];
     this.tracker.cancel();
+    this.unlistenParams?.();
+    this.unlistenParams = null;
     super.disconnectedCallback();
   }
 

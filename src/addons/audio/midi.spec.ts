@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { get } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { AudioEngine } from "../../shared/audio/engine";
 import "./midi";
 import type { SonicMidi } from "./midi";
@@ -83,5 +83,38 @@ describe("sonic-midi (sans Web MIDI)", () => {
     expect(seq.filter(([t]) => t === "noteOn")).toEqual([["noteOn", 62], ["noteOn", 64], ["noteOn", 67], ["noteOn", 50]]);
     expect(seq.filter(([t]) => t === "expr")).toEqual([["expr", 64], ["expr", 67]]);
     expect(seq.filter(([t]) => t === "noteOff")).toEqual([["noteOff", 62], ["noteOff", 64], ["noteOff", 67]]);
+  });
+});
+
+describe("sonic-midi : réglages par control", () => {
+  it("transpose, bendRange, offsetMs, durS dans control, bornés et publiés ; clé retirée : retour à l'attribut", async () => {
+    const got: SonicNoteEvent[] = [];
+    customElements.define("fake-instr3", class extends HTMLElement {
+      schedule(ev: SonicNoteEvent[]) { got.push(...ev); }
+      allNotesOff() {}
+    });
+    document.body.innerHTML = `<sonic-midi id="mc1" target="#fx3" transpose="12" control="mcC"></sonic-midi><fake-instr3 id="fx3"></fake-instr3>`;
+    const el = document.querySelector("sonic-midi") as SonicMidi;
+    await el.updateComplete;
+    await tick();
+    expect(get("mc1State")).toMatchObject({ settings: { transpose: 12, bendRange: 0, offsetMs: 0, durS: 0.25 } });
+    set("mcC", { transpose: -100, bendRange: 24, offsetMs: 5000, durS: 0 });
+    await tick();
+    expect(get("mc1State")).toMatchObject({ settings: { transpose: -48, bendRange: 24, offsetMs: 1000, durS: 0.01 } });
+    el.onMessage([0x90, 60, 100]);
+    el.onMessage([0x80, 60, 0]);
+    expect(got.map((e) => [e.type, e.note])).toEqual([["noteOn", 12], ["noteOff", 12]]);
+    // pitch bend reçu converti avec la nouvelle amplitude (24 demi-tons)
+    el.onMessage([0x90, 60, 100]);
+    el.onMessage([0xe0, 0x7f, 0x7f]);
+    const expr = got.filter((e) => e.type === "expr").pop();
+    expect(expr?.bend).toBeCloseTo(24, 0);
+    el.onMessage([0x80, 60, 0]);
+    set("mcC", {});
+    await tick();
+    expect(get("mc1State")).toMatchObject({ settings: { transpose: 12, bendRange: 0, offsetMs: 0, durS: 0.25 } });
+    got.length = 0;
+    el.onMessage([0x90, 60, 100]);
+    expect(got[0]).toMatchObject({ type: "noteOn", note: 72 });
   });
 });

@@ -148,7 +148,7 @@
     },
     {
       "name": "sonic-frame-sync",
-      "description": "Resynchronise image et effet : garde les dernières images d'une source (#id) et montre celle que le tracker a réellement analysée (sync=<out-data-provider du tracker>, exact via frameSeq), ou une image retardée (delay-ms), ou le direct ; hold=\"true\" (ou control={hold}) fige l'image : placé entre une caméra et ses trackers (for=\"<ce composant>\"), il fige la photo, les trackers gardent leur dernier résultat. Source d'images (#id) pour sonic-shader ; état {mode, matched, seq, delayMs, trackerSeq, filled}",
+      "description": "Resynchronise image et effet : garde les dernières images d'une source (#id) et montre celle que le tracker a réellement analysée (sync=<out-data-provider du tracker>, exact via frameSeq), ou une image retardée (delay-ms), ou le direct ; control {delayMs, mode} prioritaire sur delay-ms / mode ; hold=\"true\" (ou control={hold}) fige l'image : placé entre une caméra et ses trackers (for=\"<ce composant>\"), il fige la photo, les trackers gardent leur dernier résultat. Source d'images (#id) pour sonic-shader ; état {mode, matched, seq, delayMs, trackerSeq, filled}",
       "props": {
         "for": {
           "type": "string"
@@ -177,7 +177,7 @@
         },
         "control": {
           "type": "string",
-          "description": "DataProvider de commande { hold: boolean, source: \"#id\" } (un store) : hold prime sur l'attribut hold, source sur for (caméra ou image envoyée, sans doubler les trackers)"
+          "description": "DataProvider de commande { hold: boolean, source: \"#id\", delayMs (0..5000), mode } (un store) : hold prime sur l'attribut hold, source sur for (caméra ou image envoyée, sans doubler les trackers), delayMs sur delay-ms, mode sur mode ; clé retirée = attribut"
         },
         "out-data-provider": {
           "type": "string"
