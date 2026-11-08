@@ -262,4 +262,5 @@ Demande : il manque toutes sortes d'objets (ballons de toutes tailles, outils, s
 
 - **`street`** : 16 objets (lampadaire moderne qui éclaire la nuit, feu tricolore `state`, panneaux `sign` — stop, cédez-le-passage, sens interdit, limitation, parking, passage piéton, danger, flèche, sens unique, impasse —, plaque de rue, cône, barrière de chantier, arceaux à vélos `count`, bornes de tri, cabine téléphonique, table de pique-nique à 4 places, fontaine à boire, horodateur, armoire électrique, corbeille, plaque d'égout, poteau d'incendie). Complète `prop`.
 - Nouvelle pièce **`plate`** : polygone convexe extrudé (faces de panneaux par couches, disques à 24 côtés, triangles, flèches en tige + pointe) ; lue aussi par `assembly`.
+- Emprise au sol sur les pièces basses (bras de lampadaire, tête de feu exclus) ; rayon de la lumière proportionnel à sa hauteur ; dos des panneaux en métal ; plaques concaves venues d'une recette remplacées par leur enveloppe convexe (message).
 - **Places orientées** : le cap de chaque ancre `sit.N` (rotation de l'ancre) est publié (`seatYaw`) ; on s'assied face à la table de pique-nique des deux côtés.

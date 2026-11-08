@@ -27,6 +27,23 @@ export type PartList = Part[];
 
 const R = (role: Role) => ROLE[role] ?? ROLE.wood;
 
+/** Enveloppe convexe 2D (chaîne monotone), sens trigonométrique. */
+export function hull2(pts: [number, number][]): [number, number][] {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cr = (o: [number, number], a: [number, number], b: [number, number]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo: [number, number][] = [], up: [number, number][] = [];
+  for (const q of p) {
+    while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop();
+    lo.push(q);
+  }
+  for (const q of p.slice().reverse()) {
+    while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop();
+    up.push(q);
+  }
+  return [...lo.slice(0, -1), ...up.slice(0, -1)];
+}
+
 /** Polygone convexe en sens trigonométrique (vu depuis +z). */
 export function ccw(pts: [number, number][]): [number, number][] {
   let a = 0;
@@ -204,6 +221,10 @@ export function readParts(raw: unknown, maxParts = 80): { parts: PartList; probl
       }
       case "plate": {
         const pts = Array.isArray(o.pts) ? (o.pts as unknown[]).slice(0, 24).map((p) => (Array.isArray(p) ? [clampLen(num(p[0], 0), -S, S), clampLen(num(p[1], 0), -S, S)] : [0, 0]) as [number, number]) : [];
+        // la plaque doit être convexe (éventail en 3D) : sinon on prend son enveloppe et on le signale
+        const h = hull2(pts);
+        if (pts.length >= 3 && h.length < pts.length) problems.push(`parts[${i}].pts : polygone non convexe ou dégénéré, remplacé par son enveloppe convexe (découper en plusieurs plaques)`);
+        pts.splice(0, pts.length, ...h);
         if (pts.length >= 3) parts.push({ t: "plate", c: c3(o.c, [0, 0.5, 0]), pts, d: clampLen(Math.abs(num(o.d, 0.01)), 0.001, S), rot: o.rot ? v3(o.rot, [0, 0, 0]) : undefined, role: role(o.role, i) });
         else problems.push(`parts[${i}].pts : au moins trois points [x, y] (polygone convexe)`);
         break;

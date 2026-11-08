@@ -26,7 +26,15 @@ export const SIGNS = ["stop", "yield", "noentry", "limit", "parking", "crossing"
 /** Face d'un panneau (couches de plaques), centrée en `c`, taille ≈ 0,6 m. */
 function signFace(sign: string, c: V3): PartList {
   const P: PartList = [];
-  const L = (pts: [number, number][], role: Role, layer: number) => P.push(plate(c, pts, role, layer * 0.006));
+  let back = false;
+  const L = (pts: [number, number][], role: Role, layer: number) => {
+    // dos en métal : la couche de fond, reprise derrière (ce qu'on voit du panneau par l'arrière)
+    if (!back) {
+      back = true;
+      P.push(plate(c, pts, "metal", -0.014, 0.01));
+    }
+    P.push(plate(c, pts, role, layer * 0.006));
+  };
   switch (sign) {
     case "stop":
       L(poly(8, 0.32, Math.PI / 8), "white", 0), L(poly(8, 0.3, Math.PI / 8), "red", 1), L(rect(0.2, 0.045), "white", 2);
@@ -96,7 +104,8 @@ const KINDS: Record<string, { label: string; main: Role; trim: Role; build: (o: 
     label: "Panneau de signalisation",
     main: "metal",
     trim: "metal",
-    build: (o) => ({ parts: [rod([0, 0, -0.03], [0, 2.3, -0.03], 0.03, o.main), ...signFace(o.sign, [0, 2.3, 0])], affords: ["read"] }),
+    // poteau en deux tronçons : celui derrière le panneau garde sa hauteur pour l'ordre de dessin
+    build: (o) => ({ parts: [rod([0, 0, -0.03], [0, 1.95, -0.03], 0.03, o.main), rod([0, 1.95, -0.03], [0, 2.45, -0.03], 0.03, o.main), ...signFace(o.sign, [0, 2.3, 0])], affords: ["read"] }),
   },
   streetsign: {
     label: "Plaque de rue",
@@ -174,7 +183,8 @@ const KINDS: Record<string, { label: string; main: Role; trim: Role; build: (o: 
       for (const z of [-0.62, 0.62]) for (let i = 0; i < 2; i++) P.push(bx([0, 0.44, z + (i - 0.5) * 0.15], [0.9, 0.016, 0.07], o.main));
       for (const x of [-0.65, 0.65]) {
         P.push(bx([x, 0.42, 0], [0.03, 0.03, 0.75], o.trim));
-        for (const s of [-1, 1]) P.push({ t: "box", c: [x, 0.36, s * 0.22], h: [0.03, 0.4, 0.035], role: o.trim, rot: [s * 28, 0, 0] });
+        // pieds en A : du dessous du plateau vers l'extérieur, sous les bancs
+        for (const s of [-1, 1]) P.push(rod([x, 0.72, s * 0.15], [x, 0.03, s * 0.72], 0.03, o.trim));
       }
       const seats: V3[] = [-0.45, 0.45].flatMap((x) => [[x, 0.46, 0.62], [x, 0.46, -0.62]] as V3[]);
       return { parts: P, affords: ["sit", "eat"], seats };
@@ -260,8 +270,11 @@ export const street = defineGenerator({
     const m = streetModel(p);
     const mesh = partsToMesh(m.parts, 0.85);
     const bb = partsBounds(m.parts);
-    const hx = Math.max(Math.abs(bb.min[0]), Math.abs(bb.max[0]), 0.05);
-    const hz = Math.max(Math.abs(bb.min[2]), Math.abs(bb.max[2]), 0.05);
+    // emprise au sol : pièces basses seulement (le bras d'un lampadaire, la tête d'un feu ne barrent pas le trottoir)
+    const low = m.parts.filter((q) => partsBounds([q]).min[1] < 1.5 * m.scale);
+    const lb = partsBounds(low.length ? low : m.parts);
+    const hx = Math.max(Math.abs(lb.min[0]), Math.abs(lb.max[0]), 0.05);
+    const hz = Math.max(Math.abs(lb.min[2]), Math.abs(lb.max[2]), 0.05);
     const rot: Q = [0, 0, 0, 1];
     const anchors: Record<string, Anchor> = { top: { pos: [0, bb.max[1], 0], rot, scale: m.scale } };
     if (m.light) anchors.light = { pos: m.light, rot, scale: m.scale };

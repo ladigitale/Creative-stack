@@ -473,7 +473,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     actors,
     objects,
     zones,
-    lights: objects.filter((o) => o.anchors.light).map((o) => ({ pos: o.anchors.light, kind: String(o.params.kind ?? "") === "campfire" || o.layer.includes("feu") ? "fire" : "lamp", radius: String(o.params.kind ?? "") === "campfire" ? 9 : 6 }) as PointLight),
+    lights: objects.filter((o) => o.anchors.light).map((o) => ({ pos: o.anchors.light, kind: String(o.params.kind ?? "") === "campfire" || o.layer.includes("feu") ? "fire" : "lamp", radius: String(o.params.kind ?? "") === "campfire" ? 9 : Math.max(6, (o.anchors.light[1] - o.pos[1]) * 1.9) }) as PointLight),
     nav,
     issues: issues.list,
     view: (recipe.view as Record<string, unknown>) ?? {},

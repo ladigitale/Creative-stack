@@ -42,6 +42,23 @@ describe("mobilier urbain", () => {
     expect(green.role.includes(ROLE.green) && !green.role.includes(ROLE.red)).toBe(true);
   });
 
+  it("emprise au sol des objets à poteau, pieds de table en A, lumière à la hauteur du lampadaire", () => {
+    const lamp = make({ kind: "streetlight" }).asset;
+    expect(lamp.footprint.hz).toBeLessThan(0.3);
+    const table = make({ kind: "picnictable" }).asset.mesh.bounds();
+    expect(table.max[2]).toBeGreaterThan(0.7);
+    const model = composeVector({ recipe: { size: [10, 10], ground: { relief: 0 }, layers: [{ id: "l", gen: "street.streetlight", place: { at: [{ x: 0, z: 0, yaw: 0 }] } }] }, seed: 1 });
+    expect(model.lights[0].radius).toBeGreaterThan(10);
+  });
+
+  it("une plaque concave venant d'une recette est remplacée par son enveloppe convexe, avec un message", () => {
+    const arrow: [number, number][] = [[-0.05, -0.2], [0.05, -0.2], [0.05, 0.05], [0.15, 0.05], [0, 0.2], [-0.15, 0.05], [-0.05, 0.05]];
+    const { parts, problems } = readParts([{ t: "plate", c: [0, 1, 0], pts: arrow, d: 0.01, role: "red" }]);
+    expect(parts.length).toBe(1);
+    expect(problems.some((m) => m.includes("convexe"))).toBe(true);
+    expect((parts[0] as { pts: unknown[] }).pts.length).toBeLessThan(arrow.length);
+  });
+
   it("plaque : polygone convexe extrudé, lu sans risque depuis une recette", () => {
     const { parts, problems } = readParts([{ t: "plate", c: [0, 1, 0], pts: [[0, 0], [1, 0], [0.5, 1]], d: 0.01, role: "red" }, { t: "plate", pts: [[0, 0], [1, 1]] }]);
     expect(parts.length).toBe(1);
