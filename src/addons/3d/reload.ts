@@ -5,6 +5,7 @@ import { frameSource } from "./frame-source";
 import { postBind } from "./post-bind";
 import { playback } from "./playback";
 import type { SceneRuntime } from "./runtime";
+import { status } from "./status";
 import type { Sonic3dAsset } from "./types";
 import { readMonde, type Monde } from "../../shared/monde/format";
 
@@ -43,6 +44,7 @@ async function run(host: ReloadHost) {
   const token = ++host.loadToken;
   host.errorMessage = "";
   host.lastNodesJson = "";
+  status.set(host as never, "loading");
   try {
     const mh = host as unknown as { mondeParsed?: Monde | null; monde?: string; formPublisher: { get?: () => Record<string, unknown> } | null };
     if (!mh.mondeParsed) {
@@ -71,6 +73,7 @@ async function run(host: ReloadHost) {
     host.syncPlayback();
     postBind.applyConfig(host as never);
     frameSource.maybePublish(host as never);
+    status.set(host as never, "ready");
     host.dispatchEvent(
       new CustomEvent("ready", {
         detail: { ready: true },
@@ -82,6 +85,7 @@ async function run(host: ReloadHost) {
     if (token !== host.loadToken) return;
     host.ready = !!host.runtime?.ready;
     emitError(host, err);
+    status.set(host as never, "error");
     host.syncPlayback();
   }
 }

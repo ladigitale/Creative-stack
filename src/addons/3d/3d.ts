@@ -12,6 +12,7 @@ import { pointer } from "./pointer";
 import { Sonic3dProps } from "./props";
 import type { SceneRuntime } from "./scene-runtime";
 import { sonic3dStyles } from "./styles";
+import { status, type Sonic3dStatus } from "./status";
 import { propUpdate } from "./updated";
 import { wire } from "./wire";
 
@@ -26,6 +27,11 @@ export class Sonic3d extends Sonic3dProps {
   static styles = sonic3dStyles;
 
   @state() errorMessage = "";
+  /** État standard publié en sortie (`status` / `error`). */
+  status: Sonic3dStatus = "idle";
+  /** Vrai pendant l'écriture de `status` / `error` (DP partagé : pas de relecture form). */
+  writingStatus = false;
+  lastStatusSig = "";
 
   /** État runtime partagé avec les helpers (lu ici pour noUnusedLocals). */
   runtime: SceneRuntime | null = null;
@@ -72,6 +78,7 @@ export class Sonic3d extends Sonic3dProps {
   }
 
   onFormMutation = () => {
+    if (this.writingStatus) return;
     const data = (this.formPublisher?.get() ?? {}) as Record<string, unknown>;
     formBind.formParams.applyFormParams(this as never, data);
   };
@@ -148,7 +155,15 @@ export class Sonic3d extends Sonic3dProps {
 
   syncAutoRotate = () => playback.syncAutoRotate(this as never);
   syncPlayback = () => playback.syncPlayback(this as never, this.loop);
-  bindOutPublisher = () => life.bindOutPublisher(this as never);
+  bindOutPublisher = () => {
+    const prev = this.outPublisher;
+    life.bindOutPublisher(this as never);
+    // nouveau DP de sortie : il reçoit l'état courant
+    if (this.outPublisher && this.outPublisher !== prev && this.status !== "idle") {
+      this.lastStatusSig = "";
+      status.set(this as never, this.status);
+    }
+  };
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
@@ -268,6 +283,7 @@ export class Sonic3d extends Sonic3dProps {
 }
 
 export { Sonic3dCameraMode } from "./constants";
+export type { Sonic3dStatus } from "./status";
 export type {
   Sonic3dAsset,
   Sonic3dConfig,

@@ -1,3 +1,4 @@
+import { num } from "../../shared/media/control";
 import { parse } from "./parse";
 import { playback } from "./playback";
 import { reload } from "./reload";
@@ -27,6 +28,11 @@ function applyScalars(host: FormBindHost, data: Record<string, unknown>) {
   if ("camera" in data && typeof data.camera === "string") {
     host.camera = parse.cameraMode(data.camera);
   }
+  // `updated()` relaie play → boucle RAF, damping → OrbitControls
+  if ("play" in data && data.play !== undefined && data.play !== null) {
+    host.play = parse.isFormFlagOn(data.play);
+  }
+  if ("damping" in data) host.damping = num(data.damping, 0, 1) ?? host.damping;
 }
 
 /** Asset / src → host ; retourne true si reload requis. */

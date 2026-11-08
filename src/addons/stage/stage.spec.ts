@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { set, get } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { getStore } from "../interactive";
 import { StageNodes, writeElement } from "./stage-core";
 import "./index";
@@ -125,6 +125,52 @@ describe("sonic-stage", () => {
       { objectId: "b1", x: 20, y: 30 },
       { objectId: null, x: 5, y: 5 },
     ]);
+  });
+});
+
+describe("sonic-stage : état standard et pilotage par DataProvider", () => {
+  it("status idle → ready ; nœud sans élément → error explicite, levée quand l'élément apparaît", async () => {
+    const dp = id("scene");
+    const out = id("sceneOut");
+    const host = el(`<sonic-stage dataProvider="${dp}" out-data-provider="${out}"><div id="a"></div></sonic-stage>`);
+    await tick();
+    const stage = host.querySelector("sonic-stage") as SonicStage;
+    expect(stage.status).toBe("idle");
+    set(dp, { nodes: { a: { x: 1 } } });
+    await tick();
+    expect(get(out)).toEqual({ count: 1, missing: 0, status: "ready", error: null });
+    set(dp, { nodes: { a: { x: 2 }, fantome: { x: 3 } } });
+    await tick();
+    expect(get(out)).toMatchObject({ count: 2, missing: 1, status: "error" });
+    expect((get(out) as { error: string }).error).toContain("fantome");
+    const f = document.createElement("div");
+    f.id = "fantome";
+    stage.appendChild(f);
+    await tick();
+    await tick();
+    expect(get(out)).toMatchObject({ status: "ready", error: null });
+  });
+
+  it("width / height / layout du DataProvider l'emportent sur les attributs ; clé retirée → attribut", async () => {
+    const dp = id("scene");
+    const host = el(`<sonic-stage dataProvider="${dp}" width="400" height="200"><div id="a"></div></sonic-stage>`);
+    await tick();
+    const stage = host.querySelector("sonic-stage") as SonicStage;
+    const a = host.querySelector("#a") as HTMLElement;
+    expect(stage.style.getPropertyValue("--sonic-stage-w")).toBe("400px");
+    set(dp, { width: 800, height: 450, nodes: { a: { x: 5, y: 6 } } });
+    await tick();
+    expect([stage.stageWidth, stage.stageHeight]).toEqual([800, 450]);
+    expect(stage.style.getPropertyValue("--sonic-stage-ar")).toBe("800 / 450");
+    expect(stage.hasAttribute("data-scaled")).toBe(true);
+    expect(a.style.position).toBe("absolute");
+    set(dp, { width: 800, height: 450, layout: "offset", nodes: { a: { x: 5, y: 6 } } });
+    await tick();
+    expect(stage.stageLayout).toBe("offset");
+    expect(a.style.transform).toBe("translate(5px, 6px)");
+    set(dp, { nodes: { a: { x: 5, y: 6 } } });
+    await tick();
+    expect([stage.stageWidth, stage.stageHeight, stage.stageLayout]).toEqual([400, 200, ""]);
   });
 });
 

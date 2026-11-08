@@ -19,6 +19,8 @@ export type FormBindHost = {
   minPolar: number;
   maxPolar: number;
   autoRotate: boolean;
+  play: boolean;
+  damping: number;
   camera: Sonic3dCameraMode;
   asset: Sonic3dAsset | null;
   src: string;

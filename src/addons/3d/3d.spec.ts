@@ -1,10 +1,16 @@
-import { expect, describe, it, afterEach, beforeAll } from "vitest";
+import { expect, describe, it, afterEach, beforeAll, vi } from "vitest";
 import TestUtils from "@supersoniks/concorde/test-utils/TestUtils";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Sonic3dCameraMode } from "./constants";
 import { orbit } from "./orbit";
 import { parse } from "./parse";
 import "./3d";
+import { PublisherManager } from "@supersoniks/concorde/utils";
+import { outPublish } from "./out-publish";
+import { reload } from "./reload";
+import { postBind } from "./post-bind";
+import { frameSource } from "./frame-source";
+import { status } from "./status";
 import { Sonic3d } from "./3d";
 
 describe("parseCameraMode", () => {
@@ -209,5 +215,126 @@ describe("wantsOffscreenPlay / frame consumers", () => {
     el.stopMotion();
     expect(el.autoRotate).toBe(false);
     expect(el.moving).toBe(0);
+  });
+});
+
+describe("état standard status / error", () => {
+  const nextId = (() => {
+    let i = 0;
+    return (p: string) => `${p}-${++i}`;
+  })();
+
+  const fakeHost = (outId: string, load: () => Promise<void>) => {
+    const host = {
+      runtime: { stageMonde() {}, load, ready: false, render() {}, setAutoRotate() {} },
+      loadToken: 0,
+      errorMessage: "",
+      ready: false,
+      status: "idle",
+      startTime: 0,
+      frame: 0,
+      frameSeq: 0,
+      lastFormOrbit: null,
+      formPublisher: null,
+      outPublisher: PublisherManager.get(outId),
+      asset: null,
+      src: "/absent.glb",
+      glb: "",
+      maxGlbBytes: 0,
+      lastNodesJson: "",
+      minDistance: 0.5,
+      maxDistance: 50,
+      minPolar: 8,
+      maxPolar: 172,
+      onFormMutation() {},
+      syncPlayback() {},
+      bindOutPublisher() {},
+      events: [] as string[],
+      dispatchEvent(e: Event) {
+        host.events.push(e.type);
+        return true;
+      },
+    };
+    return host;
+  };
+
+  it("échec de chargement : loading puis error avec message, publiés tout de suite", async () => {
+    const outId = nextId("out3d");
+    const seen: unknown[] = [];
+    const pub = PublisherManager.get(outId);
+    pub.status.onAssign((v: unknown) => seen.push(v));
+    const host = fakeHost(outId, async () => {
+      throw new Error("404 : /absent.glb");
+    });
+    await reload.run(host as never);
+    expect(seen).toContain("loading");
+    expect(pub.get()).toMatchObject({ status: "error", error: "404 : /absent.glb" });
+    expect(host.events).toContain("error");
+    expect(outPublish.buildOutput({ ...host, runtime: null } as never, 0)).toMatchObject({ status: "error", error: "404 : /absent.glb" });
+  });
+
+  it("chargement réussi : ready, error null ; un rechargement repasse par loading", async () => {
+    const outId = nextId("out3d");
+    const pub = PublisherManager.get(outId);
+    const host = fakeHost(outId, async () => {});
+    vi.spyOn(postBind, "applyConfig").mockImplementation(() => {});
+    vi.spyOn(frameSource, "maybePublish").mockImplementation(() => {});
+    await reload.run(host as never);
+    expect(pub.get()).toMatchObject({ status: "ready", error: null });
+    const seen: unknown[] = [];
+    pub.status.onAssign((v: unknown) => seen.push(v));
+    await reload.run(host as never);
+    expect(seen).toEqual(expect.arrayContaining(["loading", "ready"]));
+    vi.restoreAllMocks();
+  });
+
+  it("sans WebGL (jsdom) : status error publié dans out-data-provider", async () => {
+    const outId = nextId("out3d");
+    const el = TestUtils.bootstrap(
+      `<sonic-3d out-data-provider="${outId}" style="width:64px;height:64px"></sonic-3d>`,
+      true,
+    )[0] as Sonic3d;
+    await el.updateComplete;
+    await new Promise((r) => setTimeout(r, 60));
+    const out = PublisherManager.get(outId).get() as { status?: string; error?: string };
+    expect(out.status).toBe("error");
+    expect(typeof out.error).toBe("string");
+    expect(el.status).toBe("error");
+  });
+
+  it("play et damping pilotables par le dataProvider (attribut < DP)", async () => {
+    const dpId = nextId("in3d");
+    const el = TestUtils.bootstrap(
+      `<sonic-3d dataProvider="${dpId}" damping="0.1" style="width:64px;height:64px"></sonic-3d>`,
+      true,
+    )[0] as Sonic3d;
+    await el.updateComplete;
+    expect(el.play).toBe(true);
+    PublisherManager.get(dpId).set({ play: false, damping: 0.3 });
+    await el.updateComplete;
+    expect(el.play).toBe(false);
+    expect(el.damping).toBeCloseTo(0.3);
+    PublisherManager.get(dpId).set({ play: true, damping: 9 });
+    expect(el.play).toBe(true);
+    expect(el.damping).toBe(1);
+  });
+
+  it("DP partagé form / sortie : écrire status ne relit pas le form", () => {
+    const dpId = nextId("shared3d");
+    let reads = 0;
+    const host = {
+      status: "idle" as const,
+      errorMessage: "",
+      outPublisher: PublisherManager.get(dpId),
+      bindOutPublisher() {},
+      writingStatus: false,
+    };
+    PublisherManager.get(dpId).onInternalMutation(() => {
+      if (!host.writingStatus) reads++;
+    });
+    reads = 0; // appel immédiat à l'inscription
+    status.set(host as never, "loading");
+    expect(reads).toBe(0);
+    expect(PublisherManager.get(dpId).get()).toMatchObject({ status: "loading", error: null });
   });
 });

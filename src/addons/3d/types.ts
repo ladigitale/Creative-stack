@@ -138,6 +138,10 @@ export type Sonic3dOutput = {
   frame: number;
   ready: number;
   loading: number;
+  /** État standard : `idle` → `loading` → `ready` | `error`. */
+  status?: "idle" | "loading" | "ready" | "error";
+  /** Message de la dernière erreur (chargement, WebGL), `null` sinon. */
+  error?: string | null;
   hovering: number;
   pointerX: number;
   pointerY: number;

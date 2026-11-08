@@ -55,6 +55,8 @@ export const FORM_CONTROL_KEYS = [
   "distance",
   "yaw",
   "pitch",
+  "play",
+  "damping",
 ] as const;
 
 /**
@@ -74,6 +76,8 @@ export const FORM_INPUT_ONLY_KEYS = [
   "maxDistance",
   "minPolar",
   "maxPolar",
+  "play",
+  "damping",
 ] as const;
 
 /**
@@ -86,6 +90,8 @@ export const OUT_CONSUMER_KEYS = [
   "frame",
   "ready",
   "loading",
+  "status",
+  "error",
   "hovering",
   "pointerX",
   "pointerY",
