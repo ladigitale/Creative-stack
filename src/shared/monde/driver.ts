@@ -57,6 +57,20 @@ export class MondeDriver {
       if (!model) continue;
       const prev = old.get(pl.name);
       if (prev && prev.model.name === model.name && prev.model.parts.length === model.parts.length) {
+        // ce que le JSON change pour cette instance est appliqué ; le reste (pilotage par nodes) est gardé
+        const pp = prev.placement;
+        if (JSON.stringify([pp.at, pp.rot, pp.scale]) !== JSON.stringify([pl.at, pl.rot, pl.scale])) {
+          Object.assign(prev.t, { x: pl.at[0], y: pl.at[1], z: pl.at[2], rx: pl.rot[0], ry: pl.rot[1], rz: pl.rot[2], sx: pl.scale[0], sy: pl.scale[1], sz: pl.scale[2] });
+          prev.tween = null;
+          prev.liftY = 0;
+          prev.transformDirty = true;
+        }
+        if (JSON.stringify(pp.roles) !== JSON.stringify(pl.roles)) {
+          prev.roles = { ...pl.roles };
+          prev.rolesRev++;
+        }
+        if (pp.hidden !== pl.hidden) prev.visible = !pl.hidden;
+        if (pp.clip !== pl.clip) setClip(prev.clip, now, pl.clip || model.clip);
         prev.model = model;
         prev.placement = pl;
         prev.poseDirty = true;

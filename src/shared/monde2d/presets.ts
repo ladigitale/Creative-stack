@@ -453,7 +453,7 @@ function maison(r: Rand, p: Record<string, unknown>): Preset2dOut {
   else parts.push({ name: "toit", parent: "murs", at: [0, q(-fh / 2)], rect: Q([w * 1.08, fh * 0.1, 2]), role: "toit", z: 2 });
   parts.push({ name: "porte", parent: "murs", at: [0, q(fh / 2 - fh * 0.22)], rect: Q([w * 0.16, fh * 0.44, 3]), role: "bois", z: 3 });
   parts.push({ name: "poignee", parent: "porte", at: Q([w * 0.05, 0]), circle: q(Math.max(1.2, w * 0.012)), role: "accent", z: 3.1, line: 0 });
-  const nf = Math.max(1, Math.floor(w / 70));
+  const nf = Math.max(1, Math.min(8, Math.floor(w / 70)));
   for (let i = 0; i < nf * 2; i++) {
     const x = -w / 2 + ((i + 0.5) * w) / (nf * 2);
     if (Math.abs(x) < w * 0.14) continue;

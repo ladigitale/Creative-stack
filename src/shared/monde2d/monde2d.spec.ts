@@ -51,6 +51,25 @@ describe("monde2d : lecture", () => {
     expect(r.closed).toBe(true);
     expect(r.pts.length).toBeGreaterThan(10);
     expect(flattenPath("alert(1)", 24)).toBeNull();
+    // des nombres après Z, des commandes inconnues : on avance toujours
+    expect(flattenPath("M0 0 L10 0 L10 10 Z 5 5", 24)!.pts.length).toBeGreaterThan(4);
+    expect(flattenPath("M0 0 L10 0 L10 10 z0", 24)).not.toBeUndefined();
+    expect(flattenPath("M0 0 A 5 5 0 0 1 10 10 L 3 3", 24)).not.toBeUndefined();
+  });
+
+  it("texture au nom hérité (constructor) : refusée", () => {
+    const m = readMonde2d({ texture: "constructor", textures: { maillot: "__proto__" }, models: { a: { parts: [{ name: "x", circle: 3, tex: "toString" }] } } });
+    expect(m.texture).toBeNull();
+    expect(m.models.get("a")!.parts[0].tex).toBeNull();
+    expect(m.issues.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("problèmes d'un modèle réutilisé : toujours signalés", () => {
+    const src = { models: { a: { parts: [{ name: "x", circle: 3, parent: "absent" }] } }, place: [{ model: "a" }] };
+    const a = readMonde2d(src);
+    const b = readMonde2d({ ...src, place: [{ model: "a", at: [5, 5] }] }, a);
+    expect(b.models.get("a")).toBe(a.models.get("a"));
+    expect(b.issues.some((i) => i.message.includes("parent inconnu"))).toBe(true);
   });
 
   it("placements bornés, calques, ordre", () => {
@@ -103,5 +122,10 @@ describe("monde2d : clips et pilotage", () => {
     expect(d.apply("p0_tete", { color: "#00ff00", visible: false }, 0, true)).toBe(true);
     expect([...inst.over.values()][0]).toEqual({ color: "#00ff00", visible: false });
     expect(d.apply("inconnu", { x: 1 }, 0, true)).toBe(false);
+    // un JSON modifié s'applique à l'instance existante
+    const m2 = readMonde2d({ models: { j: { preset: "personnage", seed: 3, params: { vue: "profil" } } }, place: [{ model: "j", name: "p0", at: [40, 50], roles: { maillot: "#00ff00" } }] }, m);
+    d.setMonde(m2, 200);
+    expect(d.instances.get("p0")!.t.x).toBe(40);
+    expect(d.instances.get("p0")!.roles.maillot).toBe("#00ff00");
   });
 });

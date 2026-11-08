@@ -50,6 +50,22 @@ export class Monde2dDriver {
       const prev = old.get(pl.name);
       let inst: Inst2;
       if (prev && prev.model.name === model.name && prev.model.parts.length === model.parts.length) {
+        // ce que le JSON change pour cette instance est appliqué ; le reste (pilotage par nodes) est gardé
+        const pp = prev.placement;
+        if (pp.at[0] !== pl.at[0] || pp.at[1] !== pl.at[1] || pp.rot !== pl.rot || pp.scale[0] !== pl.scale[0] || pp.scale[1] !== pl.scale[1]) {
+          Object.assign(prev.t, { x: pl.at[0], y: pl.at[1], rz: pl.rot, sx: pl.scale[0], sy: pl.scale[1] });
+          prev.tween = null;
+          prev.liftY = 0;
+        }
+        if (JSON.stringify(pp.roles) !== JSON.stringify(pl.roles)) {
+          prev.roles = { ...pl.roles };
+          prev.rolesRev++;
+        }
+        if (pp.flip !== pl.flip) prev.flip = pl.flip;
+        if (pp.z !== pl.z) prev.z = pl.z;
+        if (pp.hidden !== pl.hidden) prev.visible = !pl.hidden;
+        if (pp.clip !== pl.clip) setClip(prev.clip, now, pl.clip || model.clip);
+        if (prev.model.sig !== model.sig) prev.over.clear();
         prev.model = model;
         prev.placement = pl;
         prev.poseDirty = true;
@@ -82,6 +98,11 @@ export class Monde2dDriver {
       this.instances.set(pl.name, inst);
       model.parts.forEach((p, i) => this.parts.set(`${pl.name}_${p.name}`, { inst, i }));
     }
+  }
+
+  clear(): void {
+    this.instances.clear();
+    this.parts.clear();
   }
 
   has(name: string): boolean {
@@ -123,6 +144,7 @@ export class Monde2dDriver {
     if (typeof p.visible === "boolean" && p.visible !== inst.visible) {
       inst.visible = p.visible;
       inst.transformDirty = true;
+      inst.poseDirty = true;
     }
     if (isNum(p.z) && p.z !== inst.z) {
       inst.z = p.z;
@@ -167,7 +189,8 @@ export class Monde2dDriver {
           inst.liftY = 0;
         } else busy = true;
       }
-      if (inst.poseDirty || inst.active) {
+      // une instance cachée ne s'anime pas (la pose est recalculée quand elle réapparaît)
+      if ((inst.poseDirty || inst.active) && inst.visible) {
         inst.active = sampleClips(inst.model.clips, inst.clip, now, inst.offs, STRIDE2, MULT2);
         inst.poseDirty = false;
         inst.poseChanged = true;

@@ -29,6 +29,8 @@ function patternOf(t: TexSpec, base: string): FillPattern {
       const source = new BufferImageSource({ resource: texPixels(t, base), width: TEX_SIZE, height: TEX_SIZE });
       source.style.addressMode = "repeat";
       tx = new Texture({ source });
+      // borne : on oublie les plus anciennes (les dessins qui les utilisent les gardent en vie)
+      if (textures.size > 256) textures.clear();
       textures.set(texKey(t, base), tx);
     }
     // `scale` = motifs pour 100 px
@@ -64,7 +66,7 @@ function scaled(pts: number[], cx: number, cy: number, k: number, dx: number, dy
 }
 
 /** Dessin d'une pièce (repère de la pièce) selon le style du monde. */
-function drawPart(ctx: GraphicsContext, m: Monde2d, p: Part2, color: string) {
+function drawPart(ctx: GraphicsContext, m: Monde2d, p: Part2, color: string, gradients: FillGradient[]) {
   const s = p.shape!;
   const base = p.shade ? shade(color, p.shade) : color;
   const fillColor = p.glow > 0 ? shade(base, p.glow * 0.35) : m.style === "encre" ? shade(base, 0.25) : base;
@@ -95,6 +97,7 @@ function drawPart(ctx: GraphicsContext, m: Monde2d, p: Part2, color: string) {
       ],
       textureSpace: "local",
     });
+    gradients.push(g);
     ctx.fill({ fill: g });
   } else ctx.fill({ color: fillColor, alpha: 1 });
   if (relief && r > 3) {
@@ -119,9 +122,12 @@ function mul(o: Float32Array, oi: number, A: ArrayLike<number>, ai: number, B: A
 const ID = new Float32Array([1, 0, 0, 1, 0, 0]);
 
 /** Affines (repère de l'instance) de toutes les pièces : 6 nombres par pièce. */
+const LOC = new Float32Array(6);
 function forward2(model: Model2, offs: Float32Array | null, out: Float32Array) {
-  const loc = new Float32Array(6);
-  model.parts.forEach((p, i) => {
+  const loc = LOC;
+  const parts = model.parts;
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
     const o = i * STRIDE2;
     const r = p.rot + (offs ? offs[o] : 0);
     const s = offs ? offs[o + 3] : 1;
@@ -134,7 +140,7 @@ function forward2(model: Model2, offs: Float32Array | null, out: Float32Array) {
     loc[4] = p.at[0] + (offs ? offs[o + 1] : 0);
     loc[5] = p.at[1] + (offs ? offs[o + 2] : 0);
     mul(out, i * 6, p.parent >= 0 ? out : ID, p.parent >= 0 ? p.parent * 6 : 0, loc, 0);
-  });
+  }
 }
 
 export class Monde2dRenderer {
@@ -145,7 +151,12 @@ export class Monde2dRenderer {
   private monde: Monde2d | null = null;
   private built = new Map<string, Built>();
   private contexts = new Map<string, GraphicsContext>();
-  private owned = new Set<GraphicsContext>();
+  /** Dessins partagés : nombre de Graphics qui les affichent, dégradés à libérer avec eux. */
+  private refs = new Map<GraphicsContext, number>();
+  private grads = new Map<GraphicsContext, FillGradient[]>();
+  private nextRecycle = MAX_CONTEXTS;
+  private skyGrad: FillGradient | null = null;
+  private ysort = new Map<string, boolean>();
   private mat = new Matrix();
 
   constructor(
@@ -182,29 +193,46 @@ export class Monde2dRenderer {
   private context(key: string, m: Monde2d, p: Part2, color: string): GraphicsContext {
     let ctx = this.contexts.get(key);
     if (!ctx) {
-      if (this.contexts.size > MAX_CONTEXTS) this.recycle();
+      if (this.contexts.size > this.nextRecycle) this.recycle();
       ctx = new GraphicsContext();
-      drawPart(ctx, m, p, color);
+      const gradients: FillGradient[] = [];
+      drawPart(ctx, m, p, color, gradients);
+      if (gradients.length) this.grads.set(ctx, gradients);
       this.contexts.set(key, ctx);
-      this.owned.add(ctx);
+      this.refs.set(ctx, 0);
     }
     return ctx;
   }
 
-  /** Trop de dessins en cache : les pièces affichées sont redessinées, les autres libérées. */
+  /** Pose un dessin partagé sur un Graphics (compte des références). */
+  private use(g: Graphics, ctx: GraphicsContext) {
+    const old = g.context;
+    if (old === ctx) return;
+    if (this.refs.has(old)) this.refs.set(old, this.refs.get(old)! - 1);
+    this.refs.set(ctx, (this.refs.get(ctx) ?? 0) + 1);
+    g.context = ctx;
+  }
+
+  private release(c: GraphicsContext) {
+    this.refs.delete(c);
+    for (const g of this.grads.get(c) ?? []) g.destroy();
+    this.grads.delete(c);
+    c.destroy();
+  }
+
+  /** Trop de dessins en cache : seuls ceux qu'aucune pièce n'affiche sont libérés. */
   private recycle() {
-    const used = new Set<GraphicsContext>();
-    for (const b of this.built.values()) for (const pv of b.parts) if (pv && pv.g instanceof Graphics) used.add(pv.g.context);
-    for (const [k, c] of this.contexts) if (!used.has(c)) {
+    for (const [k, c] of this.contexts) if (!this.refs.get(c)) {
       this.contexts.delete(k);
-      this.owned.delete(c);
-      c.destroy();
+      this.release(c);
     }
+    this.nextRecycle = Math.max(MAX_CONTEXTS, this.contexts.size * 2);
   }
 
   set(m: Monde2d, now: number) {
-    this.clear();
+    this.clearScene();
     this.monde = m;
+    this.ysort = new Map(m.layers.map((l) => [l.name, l.ysort]));
     this.drawSky(m);
     this.driver.setMonde(m, now);
     for (const pl of m.place) if (!pl.name && !pl.hidden) this.buildStatic(m, pl);
@@ -213,22 +241,26 @@ export class Monde2dRenderer {
     this.invalidate();
   }
 
-  private drawSky(m: Monde2d) {
+  private clearSky() {
     this.sky.removeChildren().forEach((c) => c.destroy({ context: true }));
+    this.skyGrad?.destroy();
+    this.skyGrad = null;
+  }
+
+  private drawSky(m: Monde2d) {
+    this.clearSky();
     if (!m.ciel) return;
     const [w, h] = this.size();
     const g = new Graphics();
-    g.rect(-w, -h, w * 3, h * 3).fill({
-      fill: new FillGradient({ type: "linear", start: { x: 0, y: 0.33 }, end: { x: 0, y: 0.66 }, colorStops: [{ offset: 0, color: m.ciel[0] }, { offset: 1, color: m.ciel[1] }], textureSpace: "local" }),
-    });
+    this.skyGrad = new FillGradient({ type: "linear", start: { x: 0, y: 0.33 }, end: { x: 0, y: 0.66 }, colorStops: [{ offset: 0, color: m.ciel[0] }, { offset: 1, color: m.ciel[1] }], textureSpace: "local" });
+    g.rect(-w * 2, -h * 2, w * 5, h * 5).fill({ fill: this.skyGrad });
     this.sky.addChild(g);
     this.invalidate();
   }
 
   /** Ordre de dessin : par y sur un calque trié (`ysort`), sinon par `z` puis rang d'écriture du placement. */
-  private zOf(m: Monde2d, layer: string, y: number, z: number, order: number): number {
-    const ys = m.layers.find((l) => l.name === layer)?.ysort;
-    return ys ? y * 10 + z : z * 1e5 + order;
+  private zOf(_m: Monde2d, layer: string, y: number, z: number, order: number): number {
+    return this.ysort.get(layer) ? y * 10 + z : z * 1e5 + order;
   }
 
   private buildStatic(m: Monde2d, pl: Placement2) {
@@ -261,7 +293,8 @@ export class Monde2dRenderer {
       return { g: t, key: "" };
     }
     const key = `${model.name}#${i}|${color}|${tex ? texKey(tex, "") : ""}`;
-    const g = new Graphics(this.context(key, m, { ...p, tex }, color));
+    const g = new Graphics();
+    this.use(g, this.context(key, m, { ...p, tex }, color));
     return { g, key };
   }
 
@@ -318,7 +351,7 @@ export class Monde2dRenderer {
             const key = `${model.name}#${i}|${color}|${tex ? texKey(tex, "") : ""}`;
             if (key !== pv.key) {
               pv.key = key;
-              pv.g.context = this.context(key, m, { ...p, tex }, color);
+              this.use(pv.g, this.context(key, m, { ...p, tex }, color));
             }
           }
           pv.g.visible = !p.hidden && o?.visible !== false;
@@ -365,6 +398,12 @@ export class Monde2dRenderer {
         if (!pv || !pv.g.visible) return;
         const p = b.inst.model.parts[i];
         const lp = pv.g.toLocal(local, b.holder);
+        // texte : centré sur son ancre, les points de la forme sont décalés de son centre
+        if (pv.g instanceof Text) {
+          const [cx, cy] = centroid(p.shape!.pts);
+          lp.x += cx;
+          lp.y += cy;
+        }
         if (p.shape && p.shape.closed && inPoly(p.shape.pts, lp.x, lp.y)) {
           const z = b.holder.zIndex * 1000 + pv.g.zIndex;
           if (!best || z > best.z) best = { instance: b.inst.name, part: p.name, z };
@@ -375,24 +414,36 @@ export class Monde2dRenderer {
     return r ? { instance: r.instance, part: r.part } : null;
   }
 
+  /** Vide la scène et libère le monde (plus rien ne s'anime). */
   clear() {
-    for (const b of this.built.values()) for (const pv of b.parts) if (pv && pv.g instanceof Graphics) pv.g.context = new GraphicsContext();
-    for (const c of this.layers.values()) for (const ch of c.removeChildren()) {
-      // décor : sous-Graphics partagés eux aussi (contexte détaché avant destruction)
-      ch.children.forEach((g) => {
-        if (g instanceof Graphics && this.owned.has(g.context)) g.context = new GraphicsContext();
-      });
-      ch.destroy({ children: true, context: true });
+    this.clearScene();
+    this.clearSky();
+    this.driver.clear();
+    this.monde = null;
+  }
+
+  /** Retire tout ce qui est dessiné ; l'état des instances (pilote) est gardé pour la reconstruction. */
+  private clearScene() {
+    // les dessins partagés sont détachés (contexte jetable) avant la destruction des pièces, puis libérés à part
+    const detach = (c: { children: unknown[] }) => {
+      for (const g of c.children) {
+        if (g instanceof Graphics && this.refs.has(g.context)) g.context = new GraphicsContext();
+        else if (g instanceof Container) detach(g);
+      }
+    };
+    for (const c of this.layers.values()) {
+      detach(c);
+      for (const ch of c.removeChildren()) ch.destroy({ children: true, context: true });
     }
     this.built.clear();
-    for (const c of this.owned) c.destroy();
-    this.owned.clear();
+    for (const c of this.refs.keys()) this.release(c);
     this.contexts.clear();
+    this.nextRecycle = MAX_CONTEXTS;
   }
 
   destroy() {
     this.clear();
-    this.sky.destroy({ children: true, context: true });
+    this.sky.destroy({ children: true });
     for (const c of this.layers.values()) c.destroy();
     this.layers.clear();
   }

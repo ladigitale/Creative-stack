@@ -143,7 +143,7 @@ export type Part2 = {
   shape: Shape2 | null;
 };
 
-export type Model2 = { name: string; sig: string; parts: Part2[]; clips: Map<string, Clip>; clip: string; roles: Record<string, string>; height: number };
+export type Model2 = { name: string; sig: string; parts: Part2[]; clips: Map<string, Clip>; clip: string; roles: Record<string, string>; height: number; issues: Issue[] };
 
 export type Placement2 = {
   model: string;
@@ -286,6 +286,7 @@ export function flattenPath(d: string, seg: number): { pts: number[]; closed: bo
   const n = () => Number(tokens[i++]);
   const k = Math.max(3, Math.round(seg / 3));
   while (i < tokens.length) {
+    const i0 = i;
     if (/[A-Za-z]/.test(tokens[i])) cmd = tokens[i++];
     const rel = cmd === cmd.toLowerCase();
     const C = cmd.toUpperCase();
@@ -293,9 +294,15 @@ export function flattenPath(d: string, seg: number): { pts: number[]; closed: bo
       closed = true;
       x = sx;
       y = sy;
+      // des nombres après Z : lignes implicites (jamais de boucle sans avancer)
+      cmd = rel ? "l" : "L";
+      if (i === i0) i++;
       continue;
     }
-    if (i >= tokens.length || /[A-Za-z]/.test(tokens[i])) continue;
+    if (i >= tokens.length || /[A-Za-z]/.test(tokens[i])) {
+      if (i === i0) i++;
+      continue;
+    }
     if (C === "M" || C === "L") {
       const nx = n() + (rel ? x : 0), ny = n() + (rel ? y : 0);
       x = nx;
@@ -329,6 +336,7 @@ export function flattenPath(d: string, seg: number): { pts: number[]; closed: bo
       x = ex;
       y = ey;
     } else i++;
+    if (i === i0) i++;
     if (out.length / 2 > LIMITS2.points) break;
     if (!out.every(Number.isFinite)) return null;
   }
@@ -608,7 +616,7 @@ function readModel2(name: string, src: Model2In, palette: Record<string, string>
         const names = repeats.get(pname)!;
         names.forEach((nm, k) => targets.push({ i: idx.get(nm)!, phase: ph + (t0.sync ? 0 : k / names.length), flip: false }));
       } else {
-        if (cname in ownClips) issues.push({ path: `${path}.clips.${cname}.tracks.${pname}`, message: "pièce inconnue" });
+        if (Object.prototype.hasOwnProperty.call(ownClips, cname)) issues.push({ path: `${path}.clips.${cname}.tracks.${pname}`, message: "pièce inconnue" });
         continue;
       }
       CH2.forEach((ch, ci) => {
@@ -619,6 +627,7 @@ function readModel2(name: string, src: Model2In, palette: Record<string, string>
         const k = ci === 0 ? keys.map((v) => v * DEG) : keys;
         // côté R : rotation inversée, et la translation perpendiculaire à l'axe du miroir (x en face, y vu de dessus)
         for (const tg of targets) {
+          if (tg.i === undefined) continue;
           const inv = tg.flip && (ci === 0 || (ci === 1 && !tg.flipY) || (ci === 2 && tg.flipY));
           tracks.push({ part: tg.i, ch: ci, keys: inv ? k.map((v) => -v) : k, phase: tg.phase });
         }
@@ -634,7 +643,7 @@ function readModel2(name: string, src: Model2In, palette: Record<string, string>
       roles[p.role] = own(ownPal, p.role) ?? (isColor(pr) ? pr : undefined) ?? own(palette, p.role) ?? "#94a3b8";
     }
   const clip = typeof src.clip === "string" ? src.clip : preset?.clip ?? (clips.has("idle") ? "idle" : "");
-  return { name, sig: "", parts: sorted, clips, clip, roles, height: preset?.height ?? 0 };
+  return { name, sig: "", parts: sorted, clips, clip, roles, height: preset?.height ?? 0, issues: [] };
 }
 
 /* ------------------------------------------------------------------ placement */
@@ -767,10 +776,13 @@ function readUnsafe(input: unknown, previous?: Monde2d | null): Monde2d {
     const prev = previous?.models.get(name);
     if (prev && prev.sig === sig) {
       models.set(name, prev);
+      issues.push(...prev.issues);
       continue;
     }
+    const own0 = issues.length;
     const model = readModel2(name, m, palette, ownPal, seg, issues);
     model.sig = sig;
+    model.issues = issues.slice(own0);
     models.set(name, model);
   }
   const layers: Layer2[] = [];

@@ -449,12 +449,19 @@ export class Sonic2d extends LitElement {
     this.m2Patch.clear();
     if (!src) {
       this.m2Parsed = null;
+      this.m2Info = null;
       r.clear();
+      if (!this.layers.trim()) this.applyLayers();
+      this.publishOut();
       return;
     }
     const m = readMonde2d(src, this.m2Parsed);
     this.m2Parsed = m;
+    this.m2Info = null;
     if (bad) m.issues.push({ path: "", message: "attribut monde2d : JSON invalide" });
+    if (!this.layers.trim()) {
+      if (!m.layers.length) this.applyLayers();
+    }
     if (m.layers.length && !this.layers.trim()) {
       const layers: Layer[] = m.layers.map((l) => ({ name: l.name, parallax: Math.max(0, l.parallax), sortY: l.ysort }));
       scene.setLayers(layers);
@@ -466,6 +473,7 @@ export class Sonic2d extends LitElement {
     } catch (err) {
       m.issues.push({ path: "", message: `rendu monde2d : ${err instanceof Error ? err.message : String(err)}` });
       r.clear();
+      this.m2Info = null;
     }
     this.publishOut();
     const data = this.publisher?.get() as Record<string, unknown> | null | undefined;
@@ -473,6 +481,7 @@ export class Sonic2d extends LitElement {
   }
 
   private m2Patch = new Map<string, string>();
+  private m2Info: ReturnType<typeof monde2dSummary> | null = null;
 
   private routeNodes2(nodes: unknown, now: number, animate: boolean): unknown {
     const r = this.m2;
@@ -620,7 +629,7 @@ export class Sonic2d extends LitElement {
       missing: scene?.nodes.missing ?? 0,
       errors: [...this.layerErrors, ...this.childErrors, ...this.listErrors],
       ...(this.mondeParsed ? { mondeInfo: mondeSummary(this.mondeParsed) } : {}),
-      ...(this.m2Parsed ? { monde2dInfo: monde2dSummary(this.m2Parsed) } : {}),
+      ...(this.m2Parsed ? { monde2dInfo: this.m2Info ?? (this.m2Info = monde2dSummary(this.m2Parsed)) } : {}),
     };
     const sig = JSON.stringify(next);
     if (sig === this.lastOut) return;

@@ -94,7 +94,7 @@ export function readTex(v: unknown, issue?: (msg: string) => void): TexSpec | nu
   const o = typeof v === "string" ? { kind: v } : v && typeof v === "object" ? (v as Record<string, unknown>) : null;
   if (!o) return null;
   const raw = String(o.kind ?? "").trim().toLowerCase();
-  const kind = (TEX_KINDS as readonly string[]).includes(raw) ? (raw as TexKind) : ALIASES[raw];
+  const kind = (TEX_KINDS as readonly string[]).includes(raw) ? (raw as TexKind) : Object.prototype.hasOwnProperty.call(ALIASES, raw) ? ALIASES[raw] : undefined;
   if (!kind) {
     issue?.(`texture inconnue « ${raw} » (${TEX_KINDS.join(", ")})`);
     return null;

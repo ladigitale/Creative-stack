@@ -144,6 +144,8 @@ export type Model = {
   clip: string;
   /** Rôles utilisés par le modèle, couleur par défaut. */
   roles: Record<string, string>;
+  /** Problèmes de lecture du modèle (redonnés quand il est réutilisé tel quel). */
+  issues: Issue[];
 };
 
 export type Placement = {
@@ -466,7 +468,7 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
         names.forEach((nm, k) => targets.push({ i: idx.get(nm)!, phase: ph + (t.sync ? 0 : k / names.length) }));
       } else {
         // les clips d'un préréglage visent des pièces facultatives (queue, oreilles) : pas de bruit
-        if (cname in ownClips) issues.push({ path: `${path}.clips.${cname}.tracks.${pname}`, message: "pièce inconnue" });
+        if (Object.prototype.hasOwnProperty.call(ownClips, cname)) issues.push({ path: `${path}.clips.${cname}.tracks.${pname}`, message: "pièce inconnue" });
         continue;
       }
       CHANNELS.forEach((ch, ci) => {
@@ -495,7 +497,7 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
   const roles: Record<string, string> = {};
   for (const p of sorted) if (p.role && !Object.prototype.hasOwnProperty.call(roles, p.role)) roles[p.role] = own(ownPal, p.role) ?? safeColor(own(preset?.roles, p.role)) ?? own(palette, p.role) ?? "#94a3b8";
   const clip = typeof src.clip === "string" ? src.clip : preset?.clip ?? (clips.has("idle") ? "idle" : "");
-  return { name, sig: "", parts: sorted, clips, clip, roles };
+  return { name, sig: "", parts: sorted, clips, clip, roles, issues: [] };
 }
 
 function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue[]): Placement[] {
@@ -626,10 +628,13 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     const prev = previous?.models.get(name);
     if (prev && prev.sig === sig) {
       models.set(name, prev);
+      issues.push(...prev.issues);
       continue;
     }
+    const own0 = issues.length;
     const model = readModel(name, m, palette, ownPal, issues);
     model.sig = sig;
+    model.issues = issues.slice(own0);
     models.set(name, model);
   }
   const v = src.view2d ?? {};
