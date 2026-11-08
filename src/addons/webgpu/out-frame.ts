@@ -5,8 +5,7 @@ import {
   OUT_META_KEYS,
   OUT_PARAM_KEYS,
 } from "./helpers";
-import { WEBGPU_STATE_KEYS } from "./state";
-import type { SonicWebGpuOutput, SonicWebGpuState } from "./types";
+import type { SonicWebGpuOutput } from "./types";
 
 type OutPublisherLike = {
   _proxies_?: Map<string, { hasListener?: () => boolean }>;
@@ -28,18 +27,24 @@ export type OutFrameHost = FormBindHost & {
   frameOutBusy: boolean;
   frameOutSeq: number;
   lastFrameUrl: string;
-  /** État standard : recopié dans chaque publication (le `set` racine remplace la valeur). */
-  stateValue?: SonicWebGpuState;
   dispatchEvent: (event: Event) => boolean;
 };
 
-/** Clés d'état à recopier dans un `set` racine, pour qu'il ne les efface pas. */
-function stateFields(host: OutFrameHost): Record<string, unknown> {
-  const st = host.stateValue;
-  if (!st) return {};
-  const out: Record<string, unknown> = {};
-  for (const k of WEBGPU_STATE_KEYS) out[k] = st[k];
-  return JSON.parse(JSON.stringify(out)) as Record<string, unknown>;
+/**
+ * Écrit chaque clé séparément dans le DP de sortie. Un `set` racine remplacerait toute la valeur :
+ * sur un DP partagé avec un formulaire (param0…), il effaçait ses champs à chaque frame, et il
+ * effaçait aussi l'état (`status`, `error`…) et les clés publiées par ailleurs.
+ */
+function writeKeys(pub: unknown, patch: Record<string, unknown>) {
+  const p = pub as Record<string, { set?: (v: unknown) => void }>;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    try {
+      p[key]?.set?.(value);
+    } catch {
+      /* clé indisponible */
+    }
+  }
 }
 
 function hasOutConsumer(host: OutFrameHost): boolean {
@@ -84,7 +89,6 @@ function maybePublishOut(host: OutFrameHost & HTMLElement, now: number, time: nu
       formBind.resolveFormProviderId(host) ===
       (host.outDataProvider?.trim() || formBind.resolveFormProviderId(host));
     const patch: Record<string, unknown> = {
-      ...stateFields(host),
       time: payload.time,
       frame: payload.frame,
       mouseX: payload.mouseX,
@@ -94,7 +98,7 @@ function maybePublishOut(host: OutFrameHost & HTMLElement, now: number, time: nu
     if (!sharedForm) {
       for (const k of OUT_PARAM_KEYS) patch[k] = payload[k];
     }
-    pub.set(patch);
+    writeKeys(pub, patch);
   }
   if (host.frameOut) void publishFrameSnapshot(host);
 }
@@ -122,8 +126,7 @@ async function publishFrameSnapshot(host: OutFrameHost) {
     const url = URL.createObjectURL(blob);
     revokeFrameUrl(host);
     host.lastFrameUrl = url;
-    host.outPublisher.set({
-      ...stateFields(host),
+    writeKeys(host.outPublisher, {
       frameUrl: url,
       snapshot: {
         url,
@@ -145,6 +148,7 @@ function revokeFrameUrl(host: OutFrameHost) {
 
 export const outFrame = {
   hasOutConsumer,
+  writeKeys,
   maybePublishOut,
   publishFrameSnapshot,
   revokeFrameUrl,
