@@ -54,7 +54,7 @@ export function setClip(st: ClipState, now: number, clip?: string, speed?: numbe
   return changed;
 }
 
-function sampleKeys(keys: number[], u: number, loop: boolean, smooth: boolean): number {
+export function sampleKeys(keys: number[], u: number, loop: boolean, smooth: boolean): number {
   const n = keys.length;
   if (n === 1) return keys[0];
   let f: number, i0: number, i1: number, im: number, i2: number;
@@ -87,11 +87,12 @@ function progress(c: Clip, start: number, speed: number, fixed: number | null, n
   return ((now - start) * speed) / c.ms;
 }
 
-function addClip(c: Clip, u: number, w: number, out: Float32Array) {
+/** Canaux multiplicatifs (échelles, opacité) : la clé est un facteur, pas un décalage. */
+function addClip(c: Clip, u: number, w: number, out: Float32Array, stride: number, mult: number) {
   for (const t of c.tracks) {
     const v = sampleKeys(t.keys, u + t.phase, c.loop, c.smooth);
-    const k = t.part * STRIDE + t.ch;
-    if (t.ch === 6) out[k] += (v - 1) * w;
+    const k = t.part * stride + t.ch;
+    if (mult & (1 << t.ch)) out[k] += (v - 1) * w;
     else out[k] += v * w;
   }
 }
@@ -101,27 +102,35 @@ function addClip(c: Clip, u: number, w: number, out: Float32Array) {
  * (clip bouclé, clip en cours, fondu en cours). Un clip non bouclé fini passe à `then` s'il existe.
  */
 export function samplePose(model: Model, st: ClipState, now: number, out: Float32Array): boolean {
+  return sampleClips(model.clips, st, now, out, STRIDE, 1 << 6);
+}
+
+/**
+ * Lecture générique (3D : rx ry rz x y z s ; 2D : voir monde2d) : `mult` = masque des canaux multiplicatifs,
+ * initialisés à 1.
+ */
+export function sampleClips(clips: Map<string, Clip>, st: ClipState, now: number, out: Float32Array, stride: number, mult: number): boolean {
   out.fill(0);
-  for (let i = 6; i < out.length; i += STRIDE) out[i] = 1;
-  let c = model.clips.get(st.clip);
-  if (c && !c.loop && st.fixed === null && c.then && model.clips.has(c.then)) {
+  for (let ch = 0; ch < stride; ch++) if (mult & (1 << ch)) for (let i = ch; i < out.length; i += stride) out[i] = 1;
+  let c = clips.get(st.clip);
+  if (c && !c.loop && st.fixed === null && c.then && c.then !== st.clip && clips.has(c.then)) {
     const u = progress(c, st.start, st.speed, null, now);
     if (u >= 1) {
       setClip(st, st.start + (c.ms / Math.max(1e-3, st.speed)), c.then);
-      c = model.clips.get(st.clip);
+      c = clips.get(st.clip);
     }
   }
   const bw = st.prev ? Math.min(1, (now - st.blendStart) / BLEND_MS) : 1;
   let moving = false;
   if (c) {
     const u = progress(c, st.start, st.speed, st.fixed, now);
-    addClip(c, u, bw, out);
-    const chains = !!c.then && c.then !== st.clip && model.clips.has(c.then);
+    addClip(c, u, bw, out, stride, mult);
+    const chains = !!c.then && c.then !== st.clip && clips.has(c.then);
     moving = st.fixed === null && st.speed > 0 && (c.loop || u < 1 || chains);
   }
   if (bw < 1) {
-    const p = model.clips.get(st.prev);
-    if (p) addClip(p, progress(p, st.prevStart, st.prevSpeed, null, now), 1 - bw, out);
+    const p = clips.get(st.prev);
+    if (p) addClip(p, progress(p, st.prevStart, st.prevSpeed, null, now), 1 - bw, out, stride, mult);
     moving = true;
   } else st.prev = "";
   return moving;

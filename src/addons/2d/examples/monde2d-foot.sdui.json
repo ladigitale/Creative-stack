@@ -1,0 +1,117 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.6rem;max-width:48rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "jeu",
+      "initial": "{\"monde2d\": {\"style\": \"doux\", \"ciel\": \"#14532d\", \"layers\": [{\"name\": \"monde\", \"parallax\": 1}], \"models\": {\"terrain\": {\"preset\": \"terrain\", \"params\": {\"largeur\": 640, \"hauteur\": 400}}, \"but\": {\"preset\": \"but\", \"params\": {\"largeur\": 110, \"profondeur\": 24}}, \"foule\": {\"preset\": \"foule\", \"seed\": 2, \"params\": {\"largeur\": 640, \"rangs\": 2, \"taille\": 7}}, \"bleu\": {\"preset\": \"personnage\", \"seed\": 3, \"params\": {\"espece\": \"chat\", \"vue\": \"dessus\", \"taille\": 56}}, \"rouge\": {\"preset\": \"personnage\", \"seed\": 8, \"params\": {\"espece\": \"renard\", \"vue\": \"dessus\", \"taille\": 56}}, \"ballon\": {\"preset\": \"ballon\", \"params\": {\"taille\": 7}}}, \"place\": [{\"model\": \"terrain\", \"at\": [360, 260]}, {\"model\": \"foule\", \"at\": [360, 46]}, {\"model\": \"but\", \"at\": [40, 260]}, {\"model\": \"but\", \"at\": [680, 260], \"flip\": true}, {\"model\": \"bleu\", \"name\": \"a0\", \"at\": [90, 260], \"roles\": {\"maillot\": \"#2563eb\"}}, {\"model\": \"bleu\", \"name\": \"a1\", \"at\": [220, 170], \"roles\": {\"maillot\": \"#2563eb\"}}, {\"model\": \"bleu\", \"name\": \"a2\", \"at\": [220, 350], \"roles\": {\"maillot\": \"#2563eb\"}}, {\"model\": \"bleu\", \"name\": \"a3\", \"at\": [300, 260], \"roles\": {\"maillot\": \"#2563eb\"}}, {\"model\": \"bleu\", \"name\": \"a4\", \"at\": [330, 190], \"roles\": {\"maillot\": \"#2563eb\"}}, {\"model\": \"rouge\", \"name\": \"b0\", \"at\": [630, 260], \"flip\": true, \"roles\": {\"maillot\": \"#dc2626\"}}, {\"model\": \"rouge\", \"name\": \"b1\", \"at\": [500, 170], \"flip\": true, \"roles\": {\"maillot\": \"#dc2626\"}}, {\"model\": \"rouge\", \"name\": \"b2\", \"at\": [500, 350], \"flip\": true, \"roles\": {\"maillot\": \"#dc2626\"}}, {\"model\": \"rouge\", \"name\": \"b3\", \"at\": [420, 260], \"flip\": true, \"roles\": {\"maillot\": \"#dc2626\"}}, {\"model\": \"rouge\", \"name\": \"b4\", \"at\": [390, 330], \"flip\": true, \"roles\": {\"maillot\": \"#dc2626\"}}, {\"model\": \"ballon\", \"name\": \"ball\", \"at\": [360, 260]}]}, \"nodes\": {}, \"sel\": \"a3\"}",
+      "reducer": "(\n  $p := $action.payload;\n  $id := $p.objectId;\n  $joueur := $id and $id != \"ball\";\n  $action.type = \"pick\" and $joueur ? $merge([$state, {\"sel\": $id, \"nodes\": $merge([$state.nodes, {$id: {\"clip\": \"joie\"}}])}]) :\n  $action.type = \"pick\" ? (\n    $s := $state.sel;\n    $from := $lookup($state.nodes, $s);\n    $merge([$state, {\"nodes\": $merge([$state.nodes, {\n      $s: {\"x\": $p.x, \"y\": $p.y, \"clip\": \"course\", \"ease\": {\"ms\": 900, \"curve\": \"inOut\"}},\n      \"ball\": {\"x\": $p.x + 10, \"y\": $p.y, \"ease\": {\"ms\": 900, \"curve\": \"inOut\"}, \"clip\": \"roule\"}\n    }])}])\n  ) :\n  $action.type = \"tous\" ? $merge([$state, {\"nodes\": $merge([$state.nodes, $merge([\"a0\",\"a1\",\"a2\",\"a3\",\"a4\",\"b0\",\"b1\",\"b2\",\"b3\",\"b4\"].{$: {\"clip\": $p.clip}})])}]) :\n  $state\n)"
+     }
+    },
+    {
+     "tagName": "sonic-2d",
+     "attributes": {
+      "dataProvider": "jeu",
+      "target": "jeu",
+      "pick-empty": true,
+      "width": "720",
+      "height": "500"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.4rem;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "tous",
+        "trigger": "click",
+        "payload": "{\"clip\": \"marche\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Tous marchent"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "tous",
+        "trigger": "click",
+        "payload": "{\"clip\": \"course\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Tous courent"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "tous",
+        "trigger": "click",
+        "payload": "{\"clip\": \"tacle\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Tacles !"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "tous",
+        "trigger": "click",
+        "payload": "{\"clip\": \"idle\"}"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Repos"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;font-size:.85rem;opacity:.7"
+     },
+     "textContent": "Touchez un joueur pour le choisir, puis la pelouse : il y court avec le ballon."
+    }
+   ]
+  }
+ ]
+}

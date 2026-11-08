@@ -40,6 +40,8 @@ export type NodePatch = {
   clipT?: number | null;
   /** Instance d'un `monde` : couleurs par rôle (`{"maillot": "#e11d48"}`). */
   roles?: Record<string, string>;
+  /** Instance d'un `monde2d` : retournée horizontalement (regard vers la gauche). */
+  flip?: boolean;
 };
 
 export type NodesSpec = { $reset?: boolean } & Record<string, NodePatch | boolean>;
