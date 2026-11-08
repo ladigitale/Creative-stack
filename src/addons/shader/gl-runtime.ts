@@ -562,6 +562,7 @@ export class ShaderToyRuntime {
       "vertex",
     );
 
+    const failures: { err: ShaderCompileError; pass: ShaderPassId }[] = [];
     for (const pass of PASS_ORDER) {
       const code =
         pass === "image"
@@ -569,14 +570,26 @@ export class ShaderToyRuntime {
           : sources[pass as keyof ShaderSources];
       if (!code?.trim()) continue;
       const fsSource = buildFragmentSource(sources.common || "", code);
-      const fs = compileShader(
-        this.gl,
-        this.gl.FRAGMENT_SHADER,
-        fsSource,
-        pass,
-      );
-      const program = linkProgram(this.gl, this.vertexShader, fs, pass);
-      this.gl.deleteShader(fs);
+      // On compile toutes les passes avant d'échouer : l'erreur levée (celle de la
+      // première passe fautive, inchangée) porte aussi celles des autres (`passErrors`).
+      let program: WebGLProgram;
+      try {
+        const fs = compileShader(
+          this.gl,
+          this.gl.FRAGMENT_SHADER,
+          fsSource,
+          pass,
+        );
+        try {
+          program = linkProgram(this.gl, this.vertexShader, fs, pass);
+        } finally {
+          this.gl.deleteShader(fs);
+        }
+      } catch (err) {
+        if (!(err instanceof ShaderCompileError)) throw err;
+        failures.push({ err, pass });
+        continue;
+      }
       this.programs.set(pass, {
         program,
         uniforms: getUniforms(this.gl, program),
@@ -592,6 +605,17 @@ export class ShaderToyRuntime {
       }
     }
 
+    if (failures.length) {
+      const first = failures[0].err;
+      first.passErrors = failures.map(({ err, pass }) => ({
+        pass,
+        kind: err.pass === "link" ? "link" : "compile",
+        message: err.message,
+        infoLog: err.infoLog,
+      }));
+      throw first;
+    }
+
     if (!this.programs.has("image")) {
       throw new ShaderCompileError(
         "image pass is required",
@@ -599,6 +623,11 @@ export class ShaderToyRuntime {
         "Missing image shader source",
       );
     }
+  }
+
+  /** Passes compilées, dans l'ordre de rendu. */
+  getActivePasses(): ShaderPassId[] {
+    return [...this.activePasses];
   }
 
   /**

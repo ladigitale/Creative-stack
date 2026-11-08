@@ -3,6 +3,7 @@ import { parse } from "./parse";
 import { playback, wantsOffscreenPlay } from "./playback";
 import { reload } from "./reload";
 import { SceneRuntime } from "./scene-runtime";
+import { status } from "./status";
 
 export type EnsureHost = {
   releasing: boolean;
@@ -61,6 +62,7 @@ async function ensureRuntime(host: EnsureHost) {
     await reload.run(host as never);
   } catch (err) {
     reload.emitError(host as never, err);
+    status.set(host as never, "error");
   }
 }
 

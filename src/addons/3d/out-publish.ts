@@ -8,6 +8,7 @@ import { frameCapture } from "./frame-capture";
 import type { SceneHit } from "./pick";
 import { publisherFieldHasListener } from "./publisher-listen";
 import type { SceneRuntime } from "./runtime";
+import { status, type Sonic3dStatus } from "./status";
 import type { Sonic3dOutput } from "./types";
 
 type OutPublisherLike = {
@@ -34,6 +35,8 @@ export type OutPublishHost = {
   lastHit: SceneHit | null;
   fov: number;
   moving: number;
+  status?: Sonic3dStatus;
+  errorMessage?: string;
   formPublisher: OutPublisherLike | null;
   bindOutPublisher: () => void;
   dispatchEvent: (event: Event) => boolean;
@@ -94,6 +97,10 @@ function buildOutput(host: OutPublishHost, time: number): Sonic3dOutput {
       pitch: 0,
     };
   const out: Sonic3dOutput = { ...base, moving: host.moving };
+  if (host.status) {
+    out.status = host.status;
+    out.error = status.errorOf(host as never);
+  }
   const missing = host.runtime?.nodes.missing;
   if (missing !== undefined) out.nodesMissing = missing;
   return out;

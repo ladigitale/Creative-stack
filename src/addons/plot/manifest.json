@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-plot",
-      "description": "Graphique (line, area, bar, barh, scatter, pie, donut, histogram, heatmap, sparkline) : data-provider (lignes), attributs type/x/y/series/value ou spec JSON ; formats nommés (compact, percent, currency:EUR, date…) ; état {hover, selected, count, error}",
+      "description": "Graphique (line, area, bar, barh, scatter, pie, donut, histogram, heatmap, sparkline) : data-provider (lignes), attributs type/x/y/series/value ou spec JSON ou spec-data-provider (prioritaire sur les attributs, clé par clé, en direct) ; formats nommés (compact, percent, currency:EUR, date…) ; état {hover, selected, count, status, error}",
       "props": {
         "spec": { "type": "string" },
         "spec-data-provider": { "type": "string" },

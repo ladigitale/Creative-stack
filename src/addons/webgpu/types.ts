@@ -42,6 +42,8 @@ export type SonicWebGpuConfig = {
   targetY?: number;
   dataProvider?: string;
   outDataProvider?: string;
+  /** DP de réglages en direct, prioritaires sur les attributs : `{ play, mouse, backend, dprMax, shader }`. */
+  params?: string;
   outInterval?: number;
   /** Publie `frameUrl` + `snapshot` (SonicMediaRef) vers le out-DP. */
   frameOut?: boolean;
@@ -71,10 +73,38 @@ export type SonicWebGpuOutput = {
   };
 };
 
+/** Erreur WGSL détaillée : ligne / colonne dans le corps `shader` de l'utilisateur (`null` si inconnue ou dans le prélude). */
+export type WebGpuErrorItem = {
+  line: number | null;
+  column: number | null;
+  message: string;
+};
+
+/**
+ * État publié par `sonic-webgpu` dans son DP de sortie.
+ * `idle` (pas encore de backend), `compiling` (démarrage du backend / compilation WGSL),
+ * `ready` (rendu actif), `error` (aucun backend, WGSL invalide, texture…).
+ */
+export type SonicWebGpuState = {
+  status: "idle" | "compiling" | "ready" | "error";
+  error: string | null;
+  errors: WebGpuErrorItem[];
+  /** Backend réellement utilisé, `null` tant qu'aucun n'a démarré. */
+  activeBackend: SonicWebGpuBackend | null;
+  /** Essais de démarrage (`webgl2:ok`, `webgpu:no-navigator.gpu`…). */
+  backendLog: string[];
+  /** Bandeau affiché (repli WebGL2 qui ignore le WGSL, Canvas2D…), sinon `null`. */
+  notice: string | null;
+  /** Vrai si la boucle d'animation tourne. */
+  playing: boolean;
+};
+
 export class WebGpuCompileError extends Error {
   constructor(
     message: string,
     public readonly infoLog?: string,
+    /** Messages du compilateur, lignes ramenées au corps de l'utilisateur. */
+    public readonly messages?: WebGpuErrorItem[],
   ) {
     super(message);
     this.name = "WebGpuCompileError";

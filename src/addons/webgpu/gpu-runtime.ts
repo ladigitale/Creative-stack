@@ -6,7 +6,7 @@ import {
 } from "../../shared/mediaRef";
 import { shouldUploadElementFrame } from "../shader/gl-runtime";
 import { WebGpuCompileError } from "./types";
-import { buildWgslSource } from "./wgsl-prelude";
+import { buildWgslSource, wgslUserLine } from "./wgsl-prelude";
 
 const UNIFORM_BYTES = 64; // resolution+time+frame+mouse+params + pad
 const CHANNEL_COUNT = 4;
@@ -216,6 +216,14 @@ export class WebGpuRuntime {
       throw new WebGpuCompileError(
         "WGSL compile error",
         errors.map((m) => m.message).join("\n"),
+        errors.map((m) => {
+          const line = wgslUserLine(m.lineNum, userBody);
+          return {
+            line,
+            column: line !== null && m.linePos > 0 ? m.linePos : null,
+            message: m.message,
+          };
+        }),
       );
     }
     this.pipeline = this.device.createRenderPipeline({

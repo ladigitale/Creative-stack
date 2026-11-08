@@ -3,6 +3,16 @@ import { customElement, property, state } from "lit/decorators.js";
 import HTML from "@supersoniks/concorde/core/utils/HTML";
 import { revokeMediaUrls, toMediaUrl, mediaElementKey, lookupLiveElement, FrameConsumerRegistry } from "../../shared/mediaRef";
 import { PublisherManager } from "@supersoniks/concorde/utils";
+import { listenDp } from "../../shared/audio/dp";
+import { describeShaderError } from "./errors";
+import {
+  SHADER_IDLE,
+  SHADER_STATE_KEYS,
+  SOURCE_KEYS,
+  readShaderParams,
+  type ShaderLiveParams,
+  type SonicShaderState,
+} from "./state";
 import {
   parseChannelSource,
   ShaderToyRuntime,
@@ -391,6 +401,15 @@ export class SonicShader extends LitElement {
   outDataProvider = "";
 
   /**
+   * DP de réglages en direct, prioritaires sur les attributs :
+   * `{ play, playOnHover, mouse, mouseMode, mouseSpeed, hoverSpeed, dprMax,
+   *    image, bufferA…bufferD, common, bufferFormat }`.
+   * Une source GLSL ou `bufferFormat` modifiés recompilent (regroupés sur ~120 ms).
+   * Une clé absente ou invalide rend la main à l'attribut.
+   */
+  @property({ type: String }) params = "";
+
+  /**
    * Active le sample couleur → sampleR/G/B/A + sampleLuma.
    * `readPixels` uniquement s’il y a un consommateur out (DP ou event `out`).
    */
@@ -432,6 +451,16 @@ export class SonicShader extends LitElement {
   aspectRatio = "";
 
   @state() private errorMessage = "";
+
+  /** État standard (`status`, `error`, `errors`…), publié dans le DP de sortie. */
+  stateValue: SonicShaderState = { ...SHADER_IDLE, errors: [], passes: [] };
+  private lastStateJson = "";
+  /** Réglages du DP `params` (vide = attributs seuls). */
+  private live: ShaderLiveParams = {};
+  /** Clés refusées du DP `params` (journal console, une fois par valeur). */
+  private liveInvalidKey = "";
+  private unsubParams: (() => void) | null = null;
+  private liveRebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
   private runtime: ShaderToyRuntime | null = null;
   private raf = 0;
@@ -495,6 +524,9 @@ export class SonicShader extends LitElement {
     this.bindFormProvider();
     this.bindOutPublisher();
     this.bindExtractPublisher();
+    this.listenParams();
+    this.lastStateJson = "";
+    this.publishState({});
   }
 
   /**
@@ -537,6 +569,10 @@ export class SonicShader extends LitElement {
       this.leaveRaf = 0;
     }
     this.unbindFormProvider();
+    this.unsubParams?.();
+    this.unsubParams = null;
+    if (this.liveRebuildTimer) clearTimeout(this.liveRebuildTimer);
+    this.liveRebuildTimer = null;
     this.unbindContextEvents();
     this.revokeBlobUrls();
     for (const url of this.pendingRevokeUrls) {
@@ -583,6 +619,18 @@ export class SonicShader extends LitElement {
   }
 
   protected updated(changed: Map<string, unknown>) {
+    if (changed.has("params") && changed.get("params") !== undefined && this.isConnected) {
+      this.listenParams();
+    }
+    if (
+      (changed.has("dataProvider") || changed.has("outDataProvider")) &&
+      this.isConnected
+    ) {
+      // Nouveau DP de sortie : y republier l'état courant.
+      this.bindOutPublisher();
+      this.lastStateJson = "";
+      this.publishState({});
+    }
     if (!this.runtime) return;
     const programChanged = PROGRAM_KEYS.some((k) => changed.has(k));
     const channelChanged = CHANNEL_KEYS.some((k) => changed.has(k));
@@ -591,8 +639,11 @@ export class SonicShader extends LitElement {
     } else if (channelChanged) {
       void this.rebindChannels();
     }
-    if (changed.has("play")) {
+    if (changed.has("play") || changed.has("playOnHover")) {
       this.syncPlayback();
+    }
+    if (changed.has("dprMax")) {
+      this.syncSize();
     }
     if (changed.has("releaseOffscreen") || channelChanged) {
       this.syncVisibility();
@@ -722,6 +773,173 @@ export class SonicShader extends LitElement {
     }
   }
 
+  // ── Réglages en direct (DP `params`) ─────────────────────────────────────
+
+  private listenParams() {
+    this.unsubParams?.();
+    this.unsubParams = null;
+    const path = this.params?.trim();
+    if (!path) {
+      if (Object.keys(this.live).length) this.applyLive({});
+      return;
+    }
+    this.unsubParams = listenDp(path, (v) => {
+      const { live, invalid } = readShaderParams(v);
+      const key = invalid.join(",");
+      if (key && key !== this.liveInvalidKey) {
+        console.warn(`[sonic-shader] params : valeur refusée pour ${key}`);
+      }
+      this.liveInvalidKey = key;
+      this.applyLive(live);
+    });
+  }
+
+  /** Remplace les réglages en direct et applique ce qui change. */
+  private applyLive(next: ShaderLiveParams) {
+    const before = this.liveSnapshot();
+    this.live = next;
+    const after = this.liveSnapshot();
+    if (
+      before.play !== after.play ||
+      before.playOnHover !== after.playOnHover
+    ) {
+      this.syncPlayback();
+    }
+    if (before.dprMax !== after.dprMax) this.syncSize();
+    if (
+      before.mouseMode !== after.mouseMode &&
+      after.mouseMode === "direct" &&
+      this.mouseHasPointer
+    ) {
+      // Passage en direct : iMouse rejoint tout de suite le pointeur.
+      this.setPointerTarget(this.mouseTarget[0], this.mouseTarget[1], true);
+    }
+    if (!after.mouse && before.mouse) this.pointerDown = false;
+    if (before.program !== after.program) this.scheduleLiveRebuild();
+  }
+
+  private liveSnapshot() {
+    return {
+      play: this.effPlay,
+      playOnHover: this.effPlayOnHover,
+      mouse: this.effMouse,
+      mouseMode: this.effMouseMode,
+      dprMax: this.effDprMax,
+      program: JSON.stringify([this.effSources(), this.effBufferFormat]),
+    };
+  }
+
+  /** Recompilation différée : une saisie au clavier ne recompile pas à chaque touche. */
+  private scheduleLiveRebuild() {
+    if (this.liveRebuildTimer) clearTimeout(this.liveRebuildTimer);
+    this.liveRebuildTimer = setTimeout(() => {
+      this.liveRebuildTimer = null;
+      if (!this.isConnected) return;
+      if (!this.runtime) {
+        // Pas encore (ou plus) de runtime : il compilera les sources effectives à sa création.
+        if (!this.effSources().image.trim()) this.publishState({ status: "idle", error: null, errors: [], passes: [] });
+        return;
+      }
+      void this.rebuild();
+    }, 120);
+  }
+
+  private get effPlay(): boolean {
+    return this.live.play ?? this.play;
+  }
+
+  private get effPlayOnHover(): boolean {
+    return this.live.playOnHover ?? this.playOnHover;
+  }
+
+  private get effMouse(): boolean {
+    return this.live.mouse ?? this.mouse;
+  }
+
+  private get effMouseMode(): ShaderMouseMode {
+    return this.live.mouseMode ?? this.mouseMode;
+  }
+
+  private get effMouseSpeed(): number {
+    return this.live.mouseSpeed ?? this.mouseSpeed;
+  }
+
+  private get effHoverSpeed(): number {
+    return this.live.hoverSpeed ?? this.hoverSpeed;
+  }
+
+  private get effDprMax(): number {
+    const v = this.live.dprMax ?? this.dprMax;
+    return Number.isFinite(v) && v > 0 ? v : 2;
+  }
+
+  private get effBufferFormat(): ShaderBufferFormat {
+    return this.live.bufferFormat ?? parseBufferFormat(this.bufferFormat);
+  }
+
+  /** Sources GLSL effectives (attribut / propriété, sinon `params`). */
+  private effSources(): ShaderSources {
+    const out = {} as ShaderSources;
+    for (const k of SOURCE_KEYS) {
+      out[k] = this.live[k] ?? this[k];
+    }
+    return out;
+  }
+
+  // ── État publié ──────────────────────────────────────────────────────────
+
+  /**
+   * Met à jour l'état et le publie (seulement s'il change) dans le DP de sortie
+   * — fusion à la racine, comme `extracts`, pour ne rien écraser du formulaire —
+   * et en event `shader-state`.
+   */
+  private publishState(patch: Partial<SonicShaderState>) {
+    const next: SonicShaderState = {
+      ...this.stateValue,
+      ...patch,
+      activeBufferFormat: this.activeBufferFormat,
+    };
+    const json = JSON.stringify(next);
+    this.stateValue = next;
+    if (json === this.lastStateJson) return;
+    this.lastStateJson = json;
+    if (!this.outPublisher) this.bindOutPublisher();
+    const pub = this.outPublisher;
+    if (pub) {
+      const plainState = JSON.parse(json) as Record<string, unknown>;
+      try {
+        const prev =
+          ((pub as { get?: () => Record<string, unknown> }).get?.() as
+            | Record<string, unknown>
+            | null
+            | undefined) ?? {};
+        const base = prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {};
+        (pub as { set: (v: unknown) => void }).set({ ...base, ...plainState });
+      } catch {
+        for (const key of SHADER_STATE_KEYS) {
+          try {
+            (pub as Record<string, { set: (v: unknown) => void }>)[key].set(
+              plainState[key],
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+    this.dispatchEvent(
+      new CustomEvent("shader-state", {
+        detail: next,
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  private notePlaying(playing: boolean) {
+    if (this.stateValue.playing !== playing) this.publishState({ playing });
+  }
+
   /** Params GPU : remplace le slot `hover-param` par `hoverMix`. */
   private effectiveParams(): [number, number, number, number] {
     const params: [number, number, number, number] = [
@@ -750,6 +968,11 @@ export class SonicShader extends LitElement {
     this.runtime?.dispose(false);
     this.runtime = null;
     this.releasing = false;
+    if (this.stateValue.status !== "error") {
+      this.publishState({ status: "idle", passes: [], playing: false });
+    } else {
+      this.notePlaying(false);
+    }
   }
 
   private getCanvas(): HTMLCanvasElement | null {
@@ -803,6 +1026,7 @@ export class SonicShader extends LitElement {
     this.stopLoop();
     this.ready = false;
     this.runtime = null;
+    this.publishState({ status: "idle", error: null, errors: [], passes: [], playing: false });
   };
 
   private onContextRestored = () => {
@@ -825,7 +1049,7 @@ export class SonicShader extends LitElement {
       this.runtime = new ShaderToyRuntime(canvas);
       this.runtime.setElementResolver((key) => this.lookupElement(key));
       this.activeBufferFormat = this.runtime.setBufferFormat(
-        parseBufferFormat(this.bufferFormat),
+        this.effBufferFormat,
       );
       this.bindContextEvents();
       this.syncSize();
@@ -852,7 +1076,7 @@ export class SonicShader extends LitElement {
     const rect = this.getBoundingClientRect();
     const cssW = Math.max(rect.width, this.clientWidth, 1);
     const cssH = Math.max(rect.height, this.clientHeight, 1);
-    const dpr = Math.min(window.devicePixelRatio || 1, this.dprMax);
+    const dpr = Math.min(window.devicePixelRatio || 1, this.effDprMax);
     this.runtime.resize(cssW * dpr, cssH * dpr);
     if (this.ready) {
       this.drawFrame(performance.now());
@@ -958,7 +1182,8 @@ export class SonicShader extends LitElement {
    * Re-lie les canaux sans recompiler ni vider les FBO (Vague A Lot 2).
    */
   private async rebindChannels() {
-    if (!this.runtime || this.runtime.isLost || !this.image.trim()) return;
+    if (!this.runtime || this.runtime.isLost || !this.effSources().image.trim())
+      return;
     if (!this.ready) {
       void this.rebuild();
       return;
@@ -987,23 +1212,23 @@ export class SonicShader extends LitElement {
   }
 
   private async rebuild() {
-    if (!this.runtime || this.runtime.isLost || !this.image.trim()) return;
+    if (!this.runtime || this.runtime.isLost) return;
+    const sources = this.effSources();
+    if (!sources.image.trim()) {
+      if (this.stateValue.status !== "ready") {
+        this.publishState({ status: "idle", error: null, errors: [], passes: [] });
+      }
+      return;
+    }
     this.rebindToken++;
     const token = ++this.rebuildToken;
     this.errorMessage = "";
-    const sources: ShaderSources = {
-      common: this.common,
-      image: this.image,
-      bufferA: this.bufferA,
-      bufferB: this.bufferB,
-      bufferC: this.bufferC,
-      bufferD: this.bufferD,
-    };
+    this.publishState({ status: "compiling", error: null, errors: [], passes: [] });
     const channels = this.collectPassChannels();
     try {
       this.syncSize();
       this.activeBufferFormat = this.runtime.setBufferFormat(
-        parseBufferFormat(this.bufferFormat),
+        this.effBufferFormat,
       );
       const urls = this.collectUrls(channels);
       await this.runtime.ensureTextures(urls);
@@ -1023,6 +1248,12 @@ export class SonicShader extends LitElement {
         return;
       }
       this.ready = true;
+      this.publishState({
+        status: "ready",
+        error: null,
+        errors: [],
+        passes: this.runtime.getActivePasses?.() ?? [],
+      });
       this.startTime = performance.now();
       this.lastTime = this.startTime;
       this.frame = 0;
@@ -1032,11 +1263,12 @@ export class SonicShader extends LitElement {
       if (token !== this.rebuildToken) return;
       this.ready = false;
       this.stopLoop();
-      this.emitError(err);
+      this.notePlaying(false);
+      this.emitError(err, sources.common);
     }
   }
 
-  private emitError(err: unknown) {
+  private emitError(err: unknown, common = this.effSources().common) {
     const message =
       err instanceof ShaderCompileError
         ? err.message
@@ -1044,12 +1276,20 @@ export class SonicShader extends LitElement {
           ? err.message
           : String(err);
     this.errorMessage = message;
+    const described = describeShaderError(err, common || "");
+    this.publishState({
+      status: "error",
+      error: described.error,
+      errors: described.errors,
+      passes: [],
+    });
     this.dispatchEvent(
       new CustomEvent("error", {
         detail: {
           message,
           pass: err instanceof ShaderCompileError ? err.pass : undefined,
           infoLog: err instanceof ShaderCompileError ? err.infoLog : undefined,
+          errors: described.errors,
         },
         bubbles: true,
         composed: true,
@@ -1059,7 +1299,7 @@ export class SonicShader extends LitElement {
 
   private shouldAnimate(): boolean {
     if (
-      !this.play ||
+      !this.effPlay ||
       !this.ready ||
       !this.inView ||
       prefersReducedMotion() ||
@@ -1067,7 +1307,7 @@ export class SonicShader extends LitElement {
     ) {
       return false;
     }
-    if (this.playOnHover) {
+    if (this.effPlayOnHover) {
       return this.hovering || !this.hoverSettled();
     }
     return true;
@@ -1085,10 +1325,12 @@ export class SonicShader extends LitElement {
         this.lastTime = performance.now();
         this.loop();
       }
+      this.notePlaying(true);
     } else {
       this.stopLoop();
       this.runtime?.setVideosPlaying(false);
       if (this.ready) this.drawFrame(performance.now());
+      this.notePlaying(false);
     }
   }
 
@@ -1096,9 +1338,10 @@ export class SonicShader extends LitElement {
     this.raf = requestAnimationFrame(this.loop);
     this.drawFrame(performance.now());
     // play-on-hover : arrêter une fois la transition terminée
-    if (this.playOnHover && !this.hovering && this.hoverSettled()) {
+    if (this.effPlayOnHover && !this.hovering && this.hoverSettled()) {
       this.stopLoop();
       this.runtime?.setVideosPlaying(false);
+      this.notePlaying(false);
     }
   };
 
@@ -1591,10 +1834,10 @@ export class SonicShader extends LitElement {
    * Frame-rate indépendant via `1 - exp(-speed * dt)`.
    */
   private advanceMouseFollow(dt: number) {
-    if (!this.mouse || this.mouseMode !== "target" || !this.mouseHasPointer) {
+    if (!this.effMouse || this.effMouseMode !== "target" || !this.mouseHasPointer) {
       return;
     }
-    const speed = Math.max(0, this.mouseSpeed);
+    const speed = Math.max(0, this.effMouseSpeed);
     const t = speed <= 0 || dt <= 0 ? 1 : 1 - Math.exp(-speed * dt);
     this.mouseFollow[0] += (this.mouseTarget[0] - this.mouseFollow[0]) * t;
     this.mouseFollow[1] += (this.mouseTarget[1] - this.mouseFollow[1]) * t;
@@ -1605,7 +1848,7 @@ export class SonicShader extends LitElement {
   /** Rollover / roll-out → easing de `hoverMix` (0↔1) pour le slot choisi. */
   private advanceHover(dt: number) {
     if (parseHoverParam(this.hoverParam) === null) return;
-    const speed = Math.max(0, this.hoverSpeed);
+    const speed = Math.max(0, this.effHoverSpeed);
     const t = speed <= 0 || dt <= 0 ? 1 : 1 - Math.exp(-speed * dt);
     const next = this.hoverMix + (this.hoverGoal - this.hoverMix) * t;
     // Snap pour éviter une micro-animation infinie (play-on-hover qui redémarre).
@@ -1615,7 +1858,7 @@ export class SonicShader extends LitElement {
 
   private localPointer(e: PointerEvent): { x: number; y: number } {
     const rect = this.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, this.dprMax);
+    const dpr = Math.min(window.devicePixelRatio || 1, this.effDprMax);
     const x = (e.clientX - rect.left) * dpr;
     const y = (rect.height - (e.clientY - rect.top)) * dpr;
     return { x, y };
@@ -1624,7 +1867,7 @@ export class SonicShader extends LitElement {
   private setPointerTarget(x: number, y: number, snap = false) {
     this.mouseTarget[0] = x;
     this.mouseTarget[1] = y;
-    if (!this.mouseHasPointer || snap || this.mouseMode === "direct") {
+    if (!this.mouseHasPointer || snap || this.effMouseMode === "direct") {
       this.mouseHasPointer = true;
       this.mouseFollow[0] = x;
       this.mouseFollow[1] = y;
@@ -1634,7 +1877,7 @@ export class SonicShader extends LitElement {
   }
 
   private onPointerMove = (e: PointerEvent) => {
-    if (!this.mouse) return;
+    if (!this.effMouse) return;
     const { x, y } = this.localPointer(e);
     this.setPointerTarget(x, y);
     if (this.pointerDown) {
@@ -1644,7 +1887,7 @@ export class SonicShader extends LitElement {
   };
 
   private onPointerDown = (e: PointerEvent) => {
-    if (!this.mouse) return;
+    if (!this.effMouse) return;
     this.pointerDown = true;
     this.setPointerCapture?.(e.pointerId);
     const { x, y } = this.localPointer(e);
@@ -1654,7 +1897,7 @@ export class SonicShader extends LitElement {
   };
 
   private onPointerUp = (e: PointerEvent) => {
-    if (!this.mouse) return;
+    if (!this.effMouse) return;
     this.pointerDown = false;
     const { x, y } = this.localPointer(e);
     this.setPointerTarget(x, y);
@@ -1698,6 +1941,10 @@ export class SonicShader extends LitElement {
 
 export { parseChannelSource, ShaderToyRuntime, shouldUploadElementFrame, resolveBufferGlFormat, resetBufferFormatWarnFlag } from "./gl-runtime";
 export { buildFragmentSource } from "./shadertoy-prelude";
+export { describeShaderError, mapGlslLine, parseGlslInfoLog } from "./errors";
+export type { ShaderErrorItem } from "./errors";
+export { readShaderParams } from "./state";
+export type { SonicShaderState, ShaderLiveParams } from "./state";
 export type {
   ChannelSource,
   ReleaseOffscreen,
@@ -1708,6 +1955,7 @@ export type {
   ShaderHoverParam,
   ShaderMouseMode,
   ShaderParamSlot,
+  ShaderPassError,
   ShaderPassId,
   ShaderPeak,
   ShaderRoi,

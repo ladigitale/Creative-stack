@@ -17,19 +17,19 @@
       "props": {
         "dataProvider": {
           "type": "string",
-          "description": "DataProvider dont la clé nodes place les éléments (sinon celui d'un ancêtre)"
+          "description": "DataProvider dont la clé nodes place les éléments (sinon celui d'un ancêtre) ; ses clés width, height, layout l'emportent sur les attributs"
         },
         "width": {
           "type": "number",
-          "description": "Largeur logique de la scène (unités de nodes)"
+          "description": "Largeur logique de la scène (unités de nodes) ; aussi clé DP width"
         },
         "height": {
           "type": "number",
-          "description": "Hauteur logique de la scène"
+          "description": "Hauteur logique de la scène ; aussi clé DP height"
         },
         "layout": {
           "type": "string",
-          "description": "absolute (défaut avec width et height : x, y = centre dans la scène) | offset (décalage depuis la place de mise en page)"
+          "description": "absolute (défaut avec width et height : x, y = centre dans la scène) | offset (décalage depuis la place de mise en page) ; aussi clé DP layout"
         },
         "target": {
           "type": "string",
@@ -49,7 +49,7 @@
         },
         "out-data-provider": {
           "type": "string",
-          "description": "DataProvider où publier {count, missing} (nœuds sans élément)"
+          "description": "DataProvider où publier {count, missing, status (idle|ready|error), error} ; error nomme les nœuds sans élément"
         }
       }
     }

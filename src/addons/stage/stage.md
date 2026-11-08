@@ -33,13 +33,36 @@ Même `width` / `height` des deux côtés, même nom de corps et d'`id` : la car
 | Attribut | Rôle |
 |---|---|
 | `dataProvider` | DataProvider dont la clé `nodes` place les éléments (sinon celui d'un ancêtre, comme les autres composants) |
-| `width`, `height` | Taille logique de la scène (unités de `nodes`). Avec les deux, la scène prend la largeur disponible, garde ses proportions et met son contenu à l'échelle |
+| `width`, `height` | Taille logique de la scène (unités de `nodes`). Avec les deux, la scène prend la largeur disponible, garde ses proportions et met son contenu à l'échelle. Aussi clés du DataProvider |
 | `layout` | `absolute` (défaut avec `width` et `height`) : `(x, y)` est le **centre** de l'élément dans la scène. `offset` : décalage depuis la place donnée par la mise en page (comme `sonic-timeline`) |
 | `target` | Id du `sonic-store` qui reçoit les taps |
 | `pick-action-type` | Type d'action (défaut `pick`) |
 | `pick-names` | Regex sur le nom du nœud tapé ; les autres taps sont ignorés |
 | `pick-empty` | Envoie aussi `{objectId: null, x, y}` pour un tap hors nœud |
-| `out-data-provider` | Publie `{ count, missing }` |
+| `out-data-provider` | Publie `{ count, missing, status, error }` (voir ci-dessous) |
+
+## Pilotage par DataProvider
+
+Les clés `width`, `height` et `layout` du DataProvider l'emportent sur les attributs du même nom (une clé absente ou invalide rend la main à l'attribut) :
+
+```json
+{ "tagName": "sonic-store", "attributes": { "id": "scene", "initial": "{\"width\": 800, \"height\": 450, \"layout\": \"absolute\", \"nodes\": {\"titre\": {\"x\": 400, \"y\": 60}}}" } },
+{ "tagName": "sonic-stage", "attributes": { "dataProvider": "scene", "out-data-provider": "sceneOut", "width": "400", "height": "300" },
+  "nodes": [ { "tagName": "h2", "attributes": { "id": "titre" }, "textContent": "Bonjour" } ] },
+{ "tagName": "sonic-if", "attributes": { "dataProvider": "sceneOut", "key": "status", "equals": "error" },
+  "nodes": [ { "tagName": "sonic-value", "attributes": { "dataProvider": "sceneOut", "key": "error" } } ] }
+```
+
+## Sortie (`out-data-provider`)
+
+| Clé | Valeur |
+|---|---|
+| `count` | Nombre de nœuds connus |
+| `missing` | Nœuds de la **dernière mutation** sans élément (inchangé) |
+| `status` | `idle` (aucun `nodes` reçu), `ready`, `error` (au moins un nœud connu sans élément dans la scène) |
+| `error` | `null`, ou message nommant les nœuds sans élément (10 au plus) |
+
+`status` est recalculé quand l'arbre change : un élément qui apparaît (liste, état, condition) repasse la scène en `ready`.
 
 ## Format `nodes`
 

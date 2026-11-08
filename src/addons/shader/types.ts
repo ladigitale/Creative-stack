@@ -187,6 +187,8 @@ export type SonicShaderConfig = {
    * n’a de listener et qu’aucun event `out` n’est branché.
    */
   outDataProvider?: string;
+  /** DP de réglages en direct, prioritaires sur les attributs : `{ play, playOnHover, mouse, mouseMode, mouseSpeed, hoverSpeed, dprMax, image, bufferA…D, common, bufferFormat }`. */
+  params?: string;
   /**
    * Active le sample couleur sous le pointeur → `sampleR`… / `sampleLuma`.
    * Le `readPixels` ne tourne que s’il existe un consommateur out (DP ou event).
@@ -513,7 +515,17 @@ export function rgbaToUint8(
   return out;
 }
 
+/** Erreur d'une passe (compilation, édition de liens ou autre), avec le journal du pilote. */
+export type ShaderPassError = {
+  pass: ShaderPassId | "vertex";
+  kind: "compile" | "link" | "other";
+  message: string;
+  infoLog: string;
+};
+
 export class ShaderCompileError extends Error {
+  /** Toutes les passes fautives d'une même compilation (la première est celle de `pass` / `message`). */
+  passErrors?: ShaderPassError[];
   constructor(
     message: string,
     public readonly pass: ShaderPassId | "vertex" | "link",

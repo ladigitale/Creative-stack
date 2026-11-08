@@ -4,6 +4,7 @@ import { HTML, PublisherManager } from "@supersoniks/concorde/utils";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch } from "../interactive";
 import { TAP_MAX_MOVE_PX, TAP_MAX_MS, namesRegex } from "../../shared/nodes";
+import { num } from "../../shared/media/control";
 import { StageNodes, type StageLayout } from "./stage-core";
 
 const tagName = "sonic-stage";
@@ -15,6 +16,15 @@ type Publisher = {
   onInternalMutation(handler: VoidFunction): void;
   offInternalMutation(handler: VoidFunction): void;
 };
+
+/** État standard publié dans `out-data-provider`. */
+export type SonicStageStatus = "idle" | "ready" | "error";
+export type SonicStageOutput = { count: number; missing: number; status: SonicStageStatus; error: string | null };
+
+/** Noms cités au plus dans le message d'erreur. */
+const MAX_NAMES_IN_ERROR = 10;
+/** Borne des tailles logiques reçues par DP. */
+const MAX_STAGE_SIZE = 100000;
 
 const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
@@ -73,7 +83,7 @@ export class SonicStage extends LitElement {
   @property({ type: String, attribute: "pick-names" }) pickNames = "";
   /** Envoie aussi les taps hors nœud : `{objectId: null, x, y}`. */
   @property({ type: Boolean, attribute: "pick-empty" }) pickEmpty = false;
-  /** DataProvider où publier `{ count, missing }`. */
+  /** DataProvider où publier `{ count, missing, status, error }`. */
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
   private nodes = new StageNodes({ resolve: (n) => this.resolve(n) });
@@ -85,12 +95,30 @@ export class SonicStage extends LitElement {
   private raf = 0;
   private tap: { x: number; y: number; t: number } | null = null;
   private lastOut = "";
+  /** Clés `width` / `height` / `layout` du DataProvider : elles l'emportent sur les attributs. */
+  private dpGeom: { width?: number; height?: number; layout?: StageLayout | "" } = {};
+  /** Des `nodes` ont été reçus (sinon `status` reste `idle`). */
+  private received = false;
+  /** État standard courant. */
+  status: SonicStageStatus = "idle";
+
+  /** Taille logique effective (DP > attribut). */
+  get stageWidth(): number {
+    return this.dpGeom.width ?? this.width;
+  }
+  get stageHeight(): number {
+    return this.dpGeom.height ?? this.height;
+  }
+  get stageLayout(): StageLayout | "" {
+    return this.dpGeom.layout ?? this.layout;
+  }
 
   /** Facteur d'échelle courant (largeur affichée / largeur logique). */
   get scaleFactor(): number {
-    if (!(this.width > 0 && this.height > 0)) return 1;
-    const w = this.clientWidth || this.width;
-    return w / this.width;
+    const sw = this.stageWidth;
+    if (!(sw > 0 && this.stageHeight > 0)) return 1;
+    const w = this.clientWidth || sw;
+    return w / sw;
   }
 
   /** État courant d'un nœud (tests, atelier). */
@@ -129,17 +157,36 @@ export class SonicStage extends LitElement {
   }
 
   protected updated(changed: PropertyValues): void {
-    if (changed.has("width") || changed.has("height") || changed.has("layout")) {
-      const scaled = this.width > 0 && this.height > 0;
-      this.toggleAttribute("data-scaled", scaled);
-      this.style.setProperty("--sonic-stage-w", `${this.width}px`);
-      this.style.setProperty("--sonic-stage-h", `${this.height}px`);
-      this.style.setProperty("--sonic-stage-ar", `${this.width} / ${this.height}`);
-      this.nodes.layout = this.layout === "offset" || this.layout === "absolute" ? this.layout : scaled ? "absolute" : "offset";
-      this.syncScale();
-      this.nodes.renderAll();
-    }
+    if (changed.has("width") || changed.has("height") || changed.has("layout")) this.applyGeometry();
     if (changed.has("dataProvider") && this.isConnected) this.bind();
+  }
+
+  private applyGeometry(): void {
+    const w = this.stageWidth;
+    const h = this.stageHeight;
+    const layout = this.stageLayout;
+    const scaled = w > 0 && h > 0;
+    this.toggleAttribute("data-scaled", scaled);
+    this.style.setProperty("--sonic-stage-w", `${w}px`);
+    this.style.setProperty("--sonic-stage-h", `${h}px`);
+    this.style.setProperty("--sonic-stage-ar", `${w} / ${h}`);
+    this.nodes.layout = layout === "offset" || layout === "absolute" ? layout : scaled ? "absolute" : "offset";
+    this.syncScale();
+    this.nodes.renderAll();
+  }
+
+  /** `width` / `height` / `layout` du DataProvider ; une clé absente rend la main à l'attribut. */
+  private readGeometry(data: Record<string, unknown>): void {
+    const lay = data.layout;
+    const next = {
+      width: num(data.width, 0, MAX_STAGE_SIZE),
+      height: num(data.height, 0, MAX_STAGE_SIZE),
+      layout: lay === "absolute" || lay === "offset" || lay === "" ? (lay as StageLayout | "") : undefined,
+    };
+    const prev = this.dpGeom;
+    if (prev.width === next.width && prev.height === next.height && prev.layout === next.layout) return;
+    this.dpGeom = next;
+    this.applyGeometry();
   }
 
   render() {
@@ -150,10 +197,12 @@ export class SonicStage extends LitElement {
 
   private onData = () => {
     const data = this.publisher?.get() as Record<string, unknown> | null | undefined;
+    if (data && typeof data === "object") this.readGeometry(data);
     const spec = data && typeof data === "object" ? data.nodes : undefined;
     if (spec === undefined) return;
     const animate = !reducedMotion() && document.visibilityState !== "hidden";
     this.nodes.apply(spec, performance.now(), animate);
+    this.received = true;
     this.loop();
     this.publishOut();
   };
@@ -171,16 +220,33 @@ export class SonicStage extends LitElement {
   }
 
   private unbind(): void {
+    if (this.dpGeom.width !== undefined || this.dpGeom.height !== undefined || this.dpGeom.layout !== undefined) {
+      this.dpGeom = {};
+      this.applyGeometry();
+    }
     if (!this.publisher) return;
     this.publisher.offAssign(this.onData);
     this.publisher.offInternalMutation(this.onData);
     this.publisher = null;
   }
 
+  /** Nœuds connus sans élément dans la scène (à cet instant, pas seulement dans la dernière mutation). */
+  private missingNames(): string[] {
+    return this.nodes.names.filter((n) => this.resolve(n).length === 0);
+  }
+
   private publishOut(): void {
+    const absent = this.received ? this.missingNames() : [];
+    this.status = !this.received ? "idle" : absent.length ? "error" : "ready";
     const out = this.outDataProvider.trim();
     if (!out) return;
-    const next = { count: this.nodes.names.length, missing: this.nodes.missing };
+    let error: string | null = null;
+    if (absent.length) {
+      const shown = absent.slice(0, MAX_NAMES_IN_ERROR).join(", ");
+      const more = absent.length > MAX_NAMES_IN_ERROR ? ` (+${absent.length - MAX_NAMES_IN_ERROR})` : "";
+      error = `Aucun élément (id ou data-node-id) pour ${absent.length} nœud(s) : ${shown}${more}.`;
+    }
+    const next: SonicStageOutput = { count: this.nodes.names.length, missing: this.nodes.missing, status: this.status, error };
     const sig = JSON.stringify(next);
     if (sig === this.lastOut) return;
     this.lastOut = sig;
@@ -230,6 +296,8 @@ export class SonicStage extends LitElement {
       this.cache.clear();
       this.nodes.prune();
       this.nodes.renderAll();
+      // un élément apparu (ou retiré) change l'état publié
+      if (this.received) this.publishOut();
     });
   }
 

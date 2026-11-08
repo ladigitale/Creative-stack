@@ -1,5 +1,6 @@
 export type PointerHost = {
-  mouse: boolean;
+  /** Pointeur actif (attribut `mouse`, sinon `params.mouse`). */
+  mouseActive: boolean;
   hovering: boolean;
   mouseVec: [number, number, number, number];
   runtime: {
@@ -25,7 +26,7 @@ export type PointerHost = {
 };
 
 function pointerToMouse(host: PointerHost, e: PointerEvent) {
-  if (!host.mouse || !host.runtime) return;
+  if (!host.mouseActive || !host.runtime) return;
   const rect = host.getBoundingClientRect();
   if (rect.width < 1 || rect.height < 1) return;
   // Même convention que sonic-shader (px drawing buffer, origine bas-gauche)

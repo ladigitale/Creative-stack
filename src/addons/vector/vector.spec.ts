@@ -74,6 +74,88 @@ describe("décalage, simplification, arrondi", () => {
   });
 });
 
+describe("ajustement de courbes (fitCurve)", () => {
+  type P2 = [number, number];
+  const nums = (d: string) => (d.match(/-?\d+(\.\d+)?(e-?\d+)?/g) ?? []).map(Number);
+  const pointsOf = (d: string): P2[] => { const n = nums(d); return Array.from({ length: n.length / 2 }, (_, i) => [n[2 * i], n[2 * i + 1]]); };
+  const flat = (d: string): P2[] => flatten(parsePath(d)!, 0.01).flatMap((s) => s.ring) as P2[];
+  const circle = (n: number, r = 50): P2[] => Array.from({ length: n }, (_, i) => [Math.cos((i / n) * 2 * Math.PI) * r, Math.sin((i / n) * 2 * Math.PI) * r]);
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5);
+  const hand: P2[] = Array.from({ length: 80 }, (_, i) => [i * 2 + rnd() * 1.5, (i < 40 ? i * 1.5 : 120 - i * 1.5) + rnd() * 1.5]);
+  const star: P2[] = Array.from({ length: 10 }, (_, i) => { const r = i % 2 ? 20 : 50, a = (i / 10) * 2 * Math.PI; return [Math.cos(a) * r, Math.sin(a) * r]; });
+  const roundedSparse: P2[] = [[10, 0], [90, 0], [97, 3], [100, 10], [100, 40], [97, 47], [90, 50], [10, 50], [3, 47], [0, 40], [0, 10], [3, 3]];
+
+  it("un rectangle reste à coins vifs", () => {
+    const d = fitCurve([[0, 0], [100, 0], [100, 50], [0, 50]], 1, true);
+    expect(d).not.toContain("C");
+    expect(Math.abs(area(d))).toBeCloseTo(5000);
+    expect(multiBBox(pathToMulti(d)!)).toEqual({ x: 0, y: 0, w: 100, h: 50 });
+    // Côtés densément échantillonnés : mêmes coins vifs.
+    const dense: P2[] = [];
+    for (let i = 0; i < 100; i += 5) dense.push([i, 0]);
+    for (let i = 0; i < 50; i += 5) dense.push([100, i]);
+    for (let i = 100; i > 0; i -= 5) dense.push([i, 50]);
+    for (let i = 50; i > 0; i -= 5) dense.push([0, i]);
+    const d2 = fitCurve(dense, 0.5, true);
+    expect(d2).not.toContain("C");
+    expect(Math.abs(area(d2))).toBeCloseTo(5000);
+    expect(runVectorOp("fit", "M0 0 H40 V20 H0 Z", "", { tolerance: 0.5 }).d).not.toContain("C");
+  });
+
+  it("aucun point de contrôle hors de la boîte englobante élargie", () => {
+    const cases: [P2[], number, boolean][] = [[circle(6), 0.5, true], [circle(8), 0.5, true], [circle(12), 0.5, true], [star, 0.5, true], [roundedSparse, 0.5, true], [hand, 0.8, false], [[[0, 0], [10, 10], [20, 0], [30, 10], [40, 0]], 0.4, false], [[[0, 0], [50, 10], [100, 0]], 0.4, false]];
+    for (const [pts, tol, closed] of cases) {
+      const d = fitCurve(pts, tol, closed);
+      expect(d).not.toMatch(/NaN|Infinity/);
+      const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const m = 0.1 * Math.max(x1 - x0, y1 - y0) + tol;
+      for (const [x, y] of pointsOf(d)) {
+        expect(x).toBeGreaterThanOrEqual(x0 - m);
+        expect(x).toBeLessThanOrEqual(x1 + m);
+        expect(y).toBeGreaterThanOrEqual(y0 - m);
+        expect(y).toBeLessThanOrEqual(y1 + m);
+      }
+      // La courbe suit la polyligne d'entrée (aucune boucle ni pointe qui s'en écarte).
+      const line = closed ? [...pts, pts[0]] : pts;
+      const toLine = (p: P2) => Math.min(...line.slice(1).map((b, i) => { const a = line[i], dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy, t = l ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l)) : 0; return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); }));
+      expect(Math.max(...flat(d).map(toLine))).toBeLessThanOrEqual(tol * 1.05);
+    }
+  });
+
+  it("un cercle échantillonné reste proche du cercle, en peu de courbes", () => {
+    for (const n of [40, 200]) {
+      const d = fitCurve(circle(n), 0.5, true);
+      expect((d.match(/C/g) ?? []).length).toBeLessThanOrEqual(8);
+      expect(d).not.toContain("L");
+      const radii = flat(d).map(([x, y]) => Math.hypot(x, y));
+      expect(Math.max(...radii.map((r) => Math.abs(r - 50)))).toBeLessThan(0.5 + 50 * (1 - Math.cos(Math.PI / n)));
+    }
+  });
+
+  it("coins détectés sur un contour mixte, extrémités et cas dégénérés", () => {
+    // L : six coins vifs, aucun arrondi.
+    expect(fitCurve([[0, 0], [60, 0], [60, 20], [20, 20], [20, 60], [0, 60]], 0.5, true)).not.toContain("C");
+    // Rectangle arrondi clairsemé : courbes aux angles, droites sur les côtés.
+    const rr = fitCurve(roundedSparse, 0.5, true);
+    expect(rr).toContain("C");
+    expect(Math.abs(area(rr))).toBeGreaterThan(4800);
+    // Courbe ouverte : commence et finit exactement aux extrémités.
+    const open = fitCurve(hand, 0.8);
+    expect(open.startsWith(`M${+hand[0][0].toFixed(3)},${+hand[0][1].toFixed(3)}`)).toBe(true);
+    const last = pointsOf(open).at(-1)!;
+    expect(last[0]).toBeCloseTo(hand.at(-1)![0], 2);
+    expect(last[1]).toBeCloseTo(hand.at(-1)![1], 2);
+    // Dégénérés : un point, deux points, aller-retour, doublons.
+    expect(fitCurve([[1, 1]], 1)).toBe("");
+    expect(fitCurve([[0, 0], [10, 0]], 1)).toBe("M0,0L10,0");
+    expect(fitCurve([[0, 0], [0, 0], [50, 0], [10, 0.1], [60, 0]], 0.3)).not.toMatch(/NaN/);
+    // cornerDeg ≥ 180 : aucun coin, contour entièrement lissé.
+    expect(fitCurve(circle(6), 0.5, true, { cornerDeg: 180 })).toContain("C");
+  });
+});
+
 describe("culling", () => {
   const items = [
     { id: "a", bbox: { x: 0, y: 0, w: 10, h: 10 } },
@@ -135,11 +217,48 @@ describe("composants", () => {
     await (el as unknown as { updateComplete: Promise<boolean> }).updateComplete;
     const out = dp("vt.out").get() as { area: number; error: string | null };
     expect(out.error).toBeNull();
+    expect((out as unknown as { status: string }).status).toBe("ready");
     expect(out.area).toBeCloseTo(25);
     set("vt.b", "M100 100 H110 V110 H100 Z");
     expect((dp("vt.out").get() as { area: number }).area).toBe(0);
     el.remove();
   });
+  it("sonic-vector-op : réglages en direct par params et control, status publié", async () => {
+    set("vt2.a", { d: SQ });
+    set("vt2.ctl", { n: 0 });
+    set("vt2.prm", {});
+    const el = document.createElement("sonic-vector-op") as HTMLElement & { settings(): Record<string, unknown> };
+    el.setAttribute("op", "simplify");
+    el.setAttribute("a", "vt2.a");
+    el.setAttribute("control", "vt2.ctl");
+    el.setAttribute("params", "vt2.prm");
+    el.setAttribute("out-data-provider", "vt2.out");
+    document.body.append(el);
+    await (el as unknown as { updateComplete: Promise<boolean> }).updateComplete;
+    const out = () => dp("vt2.out").get() as { status: string; area: number; d: string; error: string | null };
+    expect(out()).toMatchObject({ status: "ready", error: null });
+    expect(out().area).toBeCloseTo(100);
+    set("vt2.ctl", { n: 0, op: "offset", delta: 2 });
+    expect(out().area).toBeGreaterThan(140);
+    // params l'emporte sur control.
+    set("vt2.prm", { delta: -2 });
+    expect(out().area).toBeCloseTo(36, 0);
+    expect(el.settings()).toMatchObject({ op: "offset", delta: -2 });
+    set("vt2.prm", { op: "round", radius: 3 });
+    expect(out().d).toContain("Q");
+    set("vt2.prm", { op: "fit", tolerance: 0.5 });
+    expect(out().d).not.toContain("C");
+    set("vt2.prm", { op: "nope" });
+    expect(out()).toMatchObject({ status: "error" });
+    expect(out().error).toMatch(/inconnue/);
+    // Valeurs hors bornes ignorées ou bornées, jamais NaN.
+    set("vt2.prm", { op: "offset", delta: "abc", segments: 1e9 });
+    expect(el.settings()).toMatchObject({ delta: 2, segments: 64 });
+    set("vt2.a", "");
+    expect(out().status).toBe("idle");
+    el.remove();
+  });
+
   it("sonic-vector-library obéit au compteur", async () => {
     const el = document.createElement("sonic-vector-library") as HTMLElement;
     el.setAttribute("control", "vt.ctl");
@@ -153,8 +272,9 @@ describe("composants", () => {
     expect((dp("vt.lib").get() as { count: number }).count).toBe(1);
     set("vt.ctl", { n: 2, add: { name: "bad", d: "??" } });
     expect((dp("vt.lib").get() as { error: string }).error).toBeTruthy();
+    expect((dp("vt.lib").get() as { status: string }).status).toBe("error");
     set("vt.ctl", { n: 3, clear: true });
-    expect((dp("vt.lib").get() as { count: number }).count).toBe(0);
+    expect(dp("vt.lib").get()).toMatchObject({ count: 0, status: "ready", error: null });
     el.remove();
   });
   it("utilitaires exportés", () => {

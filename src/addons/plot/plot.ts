@@ -13,8 +13,25 @@ export type PlotState = {
   /** Élément choisi par clic (re-clic pour retirer). */
   selected: { series: string; label: string; value: number; share?: number; row: Row | null } | null;
   count: number;
+  /** `idle` (aucune ligne), `ready` (graphique dessiné), `error` (descripteur en partie refusé, voir `error`). */
+  status: "idle" | "ready" | "error";
   error: string | null;
 };
+
+/** Noms d'attributs acceptés dans `spec-data-provider` (en plus des clés du descripteur). */
+const ATTR_ALIASES: Record<string, string> = { heading: "title", "x-label": "xLabel", "y-label": "yLabel" };
+const FORMAT_ALIASES: Record<string, "x" | "y" | "value"> = { "format-x": "x", formatX: "x", "format-y": "y", formatY: "y", "format-value": "value", formatValue: "value" };
+
+function specAliases(d: Record<string, unknown>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  let fmt: Record<string, unknown> | null = null;
+  for (const [k, v] of Object.entries(d)) {
+    if (k in FORMAT_ALIASES) (fmt ??= {})[FORMAT_ALIASES[k]] = v;
+    else o[ATTR_ALIASES[k] ?? k] = v;
+  }
+  if (fmt) o.format = { ...(o.format && typeof o.format === "object" ? (o.format as object) : {}), ...fmt };
+  return o;
+}
 
 const pubHit = (h: Hit) => ({ series: h.seriesName, label: h.label, value: h.value, ...(h.share !== undefined ? { share: h.share } : {}), row: h.row });
 
@@ -24,7 +41,7 @@ const pubHit = (h: Hit) => ({ series: h.seriesName, label: h.label, value: h.val
  * `donut`, `histogram`, `heatmap`, `sparkline`.
  *
  * Données : `data-provider` (tableau de lignes, ou `{ rows | items | data }`). Descripteur : attributs
- * `type`, `x`, `y`… ou `spec` (objet / JSON), ou `spec-data-provider` (chemin DP). Le survol et le clic
+ * `type`, `x`, `y`… ou `spec` (objet / JSON), et `spec-data-provider` (chemin DP, prioritaire sur les attributs). Le survol et le clic
  * sont publiés dans `out-data-provider` (`hover`, `selected`) pour piloter le reste de l'interface.
  * Aucun formateur fonction : formats nommés (`number`, `compact`, `percent`, `currency:EUR`, `date`…).
  */
@@ -235,20 +252,34 @@ export class SonicPlot extends LitElement {
     if (this.specDataProvider) this.unsubs.push(listenDp(this.specDataProvider, (v) => (this.dpSpec = v)));
   }
 
-  /** Descripteur effectif : spec (objet/JSON) < spec DP < attributs. */
+  /**
+   * Descripteur effectif : `spec` (objet/JSON) < attributs < `spec-data-provider` (qui, s'il porte
+   * une valeur, remplace `spec` comme auparavant).
+   * Le DP l'emporte clé par clé (seules les clés qu'il porte remplacent) : un réglage posé en
+   * attribut sert de valeur par défaut et reste modifiable en direct par DataProvider.
+   */
   private effectiveSpec(): { spec: PlotSpec; errors: string[] } {
-    let base: unknown = this.dpSpec ?? this.spec;
-    if (typeof base === "string") {
-      try {
-        base = JSON.parse(base);
-      } catch {
-        return { spec: normalizeSpec({}).spec, errors: ["spec : JSON invalide"] };
+    const errors: string[] = [];
+    const parse = (v: unknown, label: string): Record<string, unknown> => {
+      let x = v;
+      if (typeof x === "string") {
+        if (!x.trim()) return {};
+        try {
+          x = JSON.parse(x);
+        } catch {
+          errors.push(`${label} : JSON invalide`);
+          return {};
+        }
       }
-    }
-    const o: Record<string, unknown> = { ...(base && typeof base === "object" ? (base as Record<string, unknown>) : {}) };
+      return x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {};
+    };
+    const hasDp = this.dpSpec !== null && this.dpSpec !== undefined;
+    // Comme avant : un descripteur DP remplace `spec` (pas de fusion entre les deux).
+    const base = hasDp ? {} : parse(this.spec, "spec");
+    const o: Record<string, unknown> = { ...base };
     if (this.type) o.type = this.type;
     if (this.x) o.x = this.x;
-    if (this.y) o.y = this.y.split(",").map((s) => s.trim()).filter(Boolean);
+    if (this.y) o.y = this.y;
     if (this.series) o.series = this.series;
     if (this.value) o.value = this.value;
     if (this.size) o.size = this.size;
@@ -264,7 +295,17 @@ export class SonicPlot extends LitElement {
     if (this.formatX || this.formatY || this.formatValue) {
       o.format = { ...(o.format as object), ...(this.formatX && { x: this.formatX }), ...(this.formatY && { y: this.formatY }), ...(this.formatValue && { value: this.formatValue }) };
     }
-    return normalizeSpec(o);
+    if (hasDp) {
+      const d = specAliases(parse(this.dpSpec, "spec-data-provider"));
+      for (const [k, v] of Object.entries(d)) {
+        if (v === undefined) continue;
+        if (k === "format" && v && typeof v === "object" && o.format && typeof o.format === "object") o.format = { ...(o.format as object), ...(v as object) };
+        else o[k] = v;
+      }
+    }
+    if (typeof o.y === "string") o.y = o.y.split(",").map((s) => s.trim()).filter(Boolean);
+    const res = normalizeSpec(o);
+    return { spec: res.spec, errors: [...errors, ...res.errors] };
   }
 
   private model(spec: PlotSpec): ChartModel | null {
@@ -274,16 +315,25 @@ export class SonicPlot extends LitElement {
     return buildChart(spec, rows, this.width, h);
   }
 
+  /** Dernier état publié (lecture directe, sans DataProvider). */
+  stateValue: PlotState = { hover: null, selected: null, count: 0, status: "idle", error: null };
+  private publishedKey = "";
+
   private publish(error: string | null): void {
-    const out = (this.outDataProvider || (this.id ? `${this.id}State` : "")).trim();
-    if (!out) return;
     const rows = this.data ?? this.rows;
-    const s: PlotState = { hover: this.hover ? pubHit(this.hover) : null, selected: this.selected ? pubHit(this.selected) : null, count: Array.isArray(rows) ? rows.length : 0, error };
-    set(out, s);
+    const count = Array.isArray(rows) ? rows.length : 0;
+    const s: PlotState = { hover: this.hover ? pubHit(this.hover) : null, selected: this.selected ? pubHit(this.selected) : null, count, status: error ? "error" : count ? "ready" : "idle", error };
+    this.stateValue = s;
+    this.publishedKey = `${s.status}|${error ?? ""}|${count}`;
+    const out = (this.outDataProvider || (this.id ? `${this.id}State` : "")).trim();
+    if (out) set(out, s);
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
-    if (changed.has("hover") || changed.has("selected") || changed.has("rows") || changed.has("data")) this.publish(this.lastError);
+    const rows = this.data ?? this.rows;
+    const count = Array.isArray(rows) ? rows.length : 0;
+    const key = `${this.lastError ? "error" : count ? "ready" : "idle"}|${this.lastError ?? ""}|${count}`;
+    if (changed.has("hover") || changed.has("selected") || changed.has("rows") || changed.has("data") || changed.has("outDataProvider") || key !== this.publishedKey) this.publish(this.lastError);
   }
 
   private svgPoint(e: PointerEvent): [number, number] {

@@ -57,13 +57,15 @@
           "type": "boolean"
         },
         "play": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Boucle de rendu (défaut vrai) ; aussi clé DP play"
         },
         "play-on-hover": {
           "type": "boolean"
         },
         "out-data-provider": {
-          "type": "string"
+          "type": "string",
+          "description": "Sortie : status (idle|loading|ready|error), error (message ou null), ready, loading, cam*, hit*, nodesMissing…"
         },
         "frame-out": {
           "type": "boolean"
@@ -93,11 +95,11 @@
         },
         "damping": {
           "type": "number",
-          "description": "Inertie de l'orbite (défaut 0.08, 0 = aucune)"
+          "description": "Inertie de l'orbite (défaut 0.08, 0 = aucune, max 1) ; aussi clé DP damping"
         },
         "dataProvider": {
           "type": "string",
-          "description": "DP d'entrée : glb, nodes, src, fov, yaw, pitch, distance…"
+          "description": "DP d'entrée : glb, nodes, src, fov, yaw, pitch, distance, play, damping…"
         },
         "monde": {
           "type": "string",

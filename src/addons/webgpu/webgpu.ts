@@ -15,10 +15,19 @@ import { CHANNEL_FORM_KEYS, LOG_PREFIX, prefersReducedMotion } from "./helpers";
 import { outFrame } from "./out-frame";
 import { ParticlesRuntime } from "./particles-runtime";
 import { pointer } from "./pointer";
+import { listenDp } from "../../shared/audio/dp";
+import {
+  WEBGPU_IDLE,
+  WEBGPU_STATE_KEYS,
+  describeWebGpuError,
+  readWebGpuParams,
+  type WebGpuLiveParams,
+} from "./state";
 import type {
   SonicWebGpuBackend,
   SonicWebGpuBackendPrefer,
   SonicWebGpuKernel,
+  SonicWebGpuState,
 } from "./types";
 import { parseBackendPrefer, parseKernel, WebGpuCompileError } from "./types";
 
@@ -131,9 +140,27 @@ export class SonicWebGpu extends LitElement {
   /** Publie `frameUrl` + `snapshot` (SonicMediaRef) vers le out-DP. */
   @property({ type: Boolean, attribute: "frame-out" }) frameOut = false;
   @property({ type: String, attribute: "aspect-ratio" }) aspectRatio = "";
+  /**
+   * DP de réglages en direct, prioritaires sur les attributs : `{ play, mouse, backend, dprMax, shader }`.
+   * `backend` redémarre le rendu, `shader` recompile (regroupés sur ~150 ms).
+   * Une clé absente ou invalide rend la main à l'attribut.
+   */
+  @property({ type: String }) params = "";
 
   @state() private errorMessage = "";
   @state() private fallbackNotice = "";
+
+  /** État standard (`status`, `error`, `errors`…), publié dans le DP de sortie. */
+  stateValue: SonicWebGpuState = { ...WEBGPU_IDLE, errors: [], backendLog: [] };
+  private lastStateJson = "";
+  private live: WebGpuLiveParams = {};
+  private liveInvalidKey = "";
+  private unsubParams: (() => void) | null = null;
+  private liveTimer: ReturnType<typeof setTimeout> | null = null;
+  private liveRestart = false;
+  private liveRecompile = false;
+  /** Backend demandé pendant un démarrage en vol : redémarrer à la fin. */
+  private rebootPending = false;
 
   /** Canvas hors template Lit — évite destroy/recreate du contexte GL. */
   private canvasEl: HTMLCanvasElement | null = null;
@@ -178,6 +205,9 @@ export class SonicWebGpu extends LitElement {
     this.addEventListener("pointerenter", this.onPointerEnter);
     this.bindFormProvider();
     this.bindOutPublisher();
+    this.listenParams();
+    this.lastStateJson = "";
+    this.publishState({});
   }
 
   override addEventListener(
@@ -208,6 +238,13 @@ export class SonicWebGpu extends LitElement {
     this.removeEventListener("pointerleave", this.onPointerLeave);
     this.removeEventListener("pointerenter", this.onPointerEnter);
     this.unbindFormProvider();
+    this.unsubParams?.();
+    this.unsubParams = null;
+    if (this.liveTimer) clearTimeout(this.liveTimer);
+    this.liveTimer = null;
+    this.liveRestart = false;
+    this.liveRecompile = false;
+    this.rebootPending = false;
     this.revokeFrameUrl();
     this.frameConsumers.clear();
     this.frameOutSeq++;
@@ -247,23 +284,32 @@ export class SonicWebGpu extends LitElement {
   }
 
   protected updated(changed: Map<string, unknown>) {
+    if (changed.has("params") && changed.get("params") !== undefined && this.isConnected) {
+      this.listenParams();
+    }
+    if (
+      (changed.has("dataProvider") || changed.has("outDataProvider")) &&
+      this.isConnected
+    ) {
+      this.bindOutPublisher();
+      this.lastStateJson = "";
+      this.publishState({});
+    }
+    if (changed.has("fallbackNotice")) {
+      this.publishState({ notice: this.fallbackNotice || null });
+    }
+    if (changed.has("mouse")) this.syncCursor();
     if (
       (changed.has("backendPrefer") || changed.has("kernel")) &&
       (this.runtime || this.boot)
     ) {
-      this.releaseRuntime();
-      this.activeBackend = "";
-      void this.ensureRuntime();
+      this.restartRuntime();
       return;
     }
     if (!this.runtime) return;
     const keys = ["shader", ...CHANNEL_FORM_KEYS];
     if (keys.some((k) => changed.has(k))) {
-      if (changed.has("shader") && this.runtime.backend === "webgl2") {
-        this.fallbackNotice = this.shader.trim()
-          ? "WebGL2 (fallback) — WGSL ignoré, canaux/params OK"
-          : "WebGL2 (fallback)";
-      }
+      if (changed.has("shader")) this.noteShaderOnFallback();
       void this.rebuild();
     }
     if (changed.has("play")) this.syncPlayback();
@@ -272,6 +318,164 @@ export class SonicWebGpu extends LitElement {
       this.bindOutPublisher();
     }
     if (changed.has("aspectRatio")) this.applyAspectRatio();
+  }
+
+  // ── Réglages en direct (DP `params`) ─────────────────────────────────────
+
+  private listenParams() {
+    this.unsubParams?.();
+    this.unsubParams = null;
+    const path = this.params?.trim();
+    if (!path) {
+      if (Object.keys(this.live).length) this.applyLive({});
+      return;
+    }
+    this.unsubParams = listenDp(path, (v) => {
+      const { live, invalid } = readWebGpuParams(v);
+      const key = invalid.join(",");
+      if (key && key !== this.liveInvalidKey) {
+        console.warn(`${LOG_PREFIX} params : valeur refusée pour ${key}`);
+      }
+      this.liveInvalidKey = key;
+      this.applyLive(live);
+    });
+  }
+
+  private applyLive(next: WebGpuLiveParams) {
+    const before = {
+      play: this.effPlay,
+      mouse: this.mouseActive,
+      backend: this.effBackend,
+      dprMax: this.effDprMax,
+      shader: this.effShader,
+    };
+    this.live = next;
+    if (before.play !== this.effPlay) this.syncPlayback();
+    if (before.mouse !== this.mouseActive) {
+      this.syncCursor();
+      if (!this.mouseActive) pointer.onUp(this as never);
+    }
+    if (before.dprMax !== this.effDprMax) this.syncSize();
+    if (before.backend !== this.effBackend) this.liveRestart = true;
+    if (before.shader !== this.effShader) this.liveRecompile = true;
+    if (this.liveRestart || this.liveRecompile) {
+      // Regroupe une rafale (saisie clavier, curseur) en un seul redémarrage / une compilation.
+      if (this.liveTimer) clearTimeout(this.liveTimer);
+      this.liveTimer = setTimeout(() => this.flushLive(), 150);
+    }
+  }
+
+  private flushLive() {
+    this.liveTimer = null;
+    const restart = this.liveRestart;
+    const recompile = this.liveRecompile;
+    this.liveRestart = false;
+    this.liveRecompile = false;
+    if (!this.isConnected) return;
+    if (restart) {
+      this.restartRuntime();
+      return;
+    }
+    if (recompile && this.runtime) {
+      this.noteShaderOnFallback();
+      void this.rebuild();
+    }
+  }
+
+  /** Change de backend / kernel : libère puis redémarre (ou après le démarrage en vol). */
+  private restartRuntime() {
+    if (this.boot && !this.runtime) {
+      this.rebootPending = true;
+      return;
+    }
+    this.releaseRuntime();
+    this.activeBackend = "";
+    this.publishState({
+      status: "compiling",
+      error: null,
+      errors: [],
+      activeBackend: null,
+      notice: null,
+      playing: false,
+    });
+    void this.ensureRuntime();
+  }
+
+  private noteShaderOnFallback() {
+    if (this.runtime?.backend === "webgl2") {
+      this.fallbackNotice = this.effShader.trim()
+        ? "WebGL2 (fallback) — WGSL ignoré, canaux/params OK"
+        : "WebGL2 (fallback)";
+    }
+  }
+
+  private syncCursor() {
+    if (this.canvasEl) this.canvasEl.style.cursor = this.mouseActive ? "crosshair" : "default";
+  }
+
+  private get effPlay(): boolean {
+    return this.live.play ?? this.play;
+  }
+
+  /** Pointeur → `iMouse` (attribut `mouse`, sinon `params.mouse`). Lu par pointer / form-bind. */
+  get mouseActive(): boolean {
+    return this.live.mouse ?? this.mouse;
+  }
+
+  private get effBackend(): SonicWebGpuBackendPrefer {
+    return this.live.backend ?? parseBackendPrefer(this.backendPrefer);
+  }
+
+  private get effDprMax(): number {
+    const v = this.live.dprMax ?? this.dprMax;
+    return Number.isFinite(v) && v > 0 ? v : 2;
+  }
+
+  private get effShader(): string {
+    return this.live.shader ?? this.shader;
+  }
+
+  // ── État publié ──────────────────────────────────────────────────────────
+
+  /**
+   * Met à jour l'état et le publie (seulement s'il change) dans le DP de sortie, fusionné à la
+   * racine, et en event `webgpu-state`. Les publications par frame (`out-frame`) le recopient.
+   */
+  private publishState(patch: Partial<SonicWebGpuState>) {
+    const next: SonicWebGpuState = { ...this.stateValue, ...patch };
+    const json = JSON.stringify(next);
+    this.stateValue = next;
+    if (json === this.lastStateJson) return;
+    this.lastStateJson = json;
+    if (!this.outPublisher) this.bindOutPublisher();
+    const pub = this.outPublisher;
+    if (pub) {
+      const plainState = JSON.parse(json) as Record<string, unknown>;
+      try {
+        const prev =
+          ((pub as { get?: () => Record<string, unknown> }).get?.() as
+            | Record<string, unknown>
+            | null
+            | undefined) ?? {};
+        const base = prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {};
+        (pub as { set: (v: unknown) => void }).set({ ...base, ...plainState });
+      } catch {
+        for (const key of WEBGPU_STATE_KEYS) {
+          try {
+            (pub as Record<string, { set: (v: unknown) => void }>)[key].set(plainState[key]);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+    this.dispatchEvent(
+      new CustomEvent("webgpu-state", { detail: next, bubbles: true, composed: true }),
+    );
+  }
+
+  private notePlaying(playing: boolean) {
+    if (this.stateValue.playing !== playing) this.publishState({ playing });
   }
 
   private applyAspectRatio(textureUrl?: string) {
@@ -316,6 +520,10 @@ export class SonicWebGpu extends LitElement {
     if (!this.boot) {
       this.boot = this.bootRuntime().finally(() => {
         this.boot = null;
+        if (this.rebootPending) {
+          this.rebootPending = false;
+          if (this.isConnected) this.restartRuntime();
+        }
       });
     }
     return this.boot;
@@ -323,7 +531,8 @@ export class SonicWebGpu extends LitElement {
 
   private async bootRuntime() {
     this.ensureCanvas();
-    const prefer = parseBackendPrefer(this.backendPrefer);
+    this.publishState({ status: "compiling", error: null, errors: [] });
+    const prefer = this.effBackend;
     const kernel = parseKernel(this.kernel);
     const log: string[] = [];
     try {
@@ -385,7 +594,7 @@ export class SonicWebGpu extends LitElement {
           }
         } else {
           // auto : WGSL custom → WebGPU d’abord (sinon fallback GLSL ignore le shader)
-          const preferWgpuFirst = !!this.shader.trim();
+          const preferWgpuFirst = !!this.effShader.trim();
           const ok = preferWgpuFirst
             ? (await tryWebgpu()) || tryWebgl2()
             : tryWebgl2() || (await tryWebgpu());
@@ -422,13 +631,18 @@ export class SonicWebGpu extends LitElement {
           backend === "webgpu"
             ? "Compute particles (WebGPU)"
             : "Particles (Canvas2D fallback)";
-      } else if (backend === "webgl2" && this.shader.trim()) {
+      } else if (backend === "webgl2" && this.effShader.trim()) {
         notice = "WebGL2 — WGSL ignoré (canaux/params OK)";
       } else if (backend === "canvas2d") {
         notice = `Canvas2D — ${log.filter((l) => !l.endsWith(":ok")).join(" · ") || "GPU indisponible"}`;
       }
       this.fallbackNotice = notice;
       this.errorMessage = "";
+      this.publishState({
+        activeBackend: backend,
+        backendLog: [...log],
+        notice: notice || null,
+      });
       console.info(`${LOG_PREFIX} backend:`, backend, "kernel:", kernel, log);
       this.dispatchEvent(
         new CustomEvent("backend", {
@@ -443,6 +657,14 @@ export class SonicWebGpu extends LitElement {
       this.activeBackend = "";
       this.fallbackNotice = "";
       console.error(`${LOG_PREFIX} boot failed:`, this.errorMessage, log);
+      this.publishState({
+        status: "error",
+        ...describeWebGpuError(e),
+        activeBackend: null,
+        backendLog: [...log],
+        notice: null,
+        playing: false,
+      });
       this.dispatchEvent(
         new CustomEvent("error", {
           detail: { message: this.errorMessage, log },
@@ -465,7 +687,7 @@ export class SonicWebGpu extends LitElement {
       stage.appendChild(canvas);
     }
     canvas.style.touchAction = "none";
-    canvas.style.cursor = this.mouse ? "crosshair" : "default";
+    canvas.style.cursor = this.mouseActive ? "crosshair" : "default";
     this.canvasEl = canvas;
     return canvas;
   }
@@ -523,8 +745,9 @@ export class SonicWebGpu extends LitElement {
     if (!this.runtime) return;
     const token = ++this.rebuildToken;
     this.ready = false;
+    this.publishState({ status: "compiling", error: null, errors: [] });
     try {
-      await this.runtime.setShader(this.shader);
+      await this.runtime.setShader(this.effShader);
       if (token !== this.rebuildToken) return;
       if (this.runtime instanceof WebGl2FallbackRuntime) {
         await this.runtime.setChannels([
@@ -545,6 +768,7 @@ export class SonicWebGpu extends LitElement {
       this.syncFrameConsumers();
       this.errorMessage = "";
       this.ready = true;
+      this.publishState({ status: "ready", error: null, errors: [] });
       this.syncSize();
       this.applyAspectRatio(this.channel0);
       this.startTime = performance.now();
@@ -559,10 +783,17 @@ export class SonicWebGpu extends LitElement {
           : e instanceof Error
             ? e.message
             : String(e);
+      if (token !== this.rebuildToken) return;
       this.errorMessage = message;
+      const described = describeWebGpuError(e);
+      this.publishState({ status: "error", ...described, playing: false });
       this.dispatchEvent(
         new CustomEvent("error", {
-          detail: { message, infoLog: e instanceof WebGpuCompileError ? e.infoLog : undefined },
+          detail: {
+            message,
+            infoLog: e instanceof WebGpuCompileError ? e.infoLog : undefined,
+            errors: described.errors,
+          },
           bubbles: true,
           composed: true,
         }),
@@ -575,7 +806,7 @@ export class SonicWebGpu extends LitElement {
     const rect = this.getBoundingClientRect();
     const dpr = Math.min(
       typeof devicePixelRatio === "number" ? devicePixelRatio : 1,
-      Number.isFinite(this.dprMax) && this.dprMax > 0 ? this.dprMax : 2,
+      this.effDprMax,
     );
     this.runtime.resize(rect.width * dpr, rect.height * dpr);
   }
@@ -583,6 +814,7 @@ export class SonicWebGpu extends LitElement {
   private syncVisibility() {
     if (!this.inView && this.releaseOffscreen) {
       this.stopLoop();
+      this.notePlaying(false);
       return;
     }
     if (!this.runtime) {
@@ -595,7 +827,7 @@ export class SonicWebGpu extends LitElement {
 
   private shouldPlay(): boolean {
     return (
-      !!this.play &&
+      this.effPlay &&
       !!this.runtime &&
       this.ready &&
       !this.errorMessage &&
@@ -605,9 +837,13 @@ export class SonicWebGpu extends LitElement {
   }
 
   private syncPlayback() {
-    if (!this.ready || !this.runtime) return;
+    if (!this.ready || !this.runtime) {
+      this.notePlaying(false);
+      return;
+    }
     if (this.shouldPlay()) this.startLoop();
     else this.stopLoop();
+    this.notePlaying(this.shouldPlay());
   }
 
   private startLoop() {
@@ -644,6 +880,8 @@ export class SonicWebGpu extends LitElement {
       }
       if (this.shouldPlay()) {
         this.raf = requestAnimationFrame(tick);
+      } else {
+        this.notePlaying(false);
       }
     };
     this.raf = requestAnimationFrame(tick);
@@ -696,9 +934,13 @@ export type {
   SonicWebGpuConfig,
   SonicWebGpuKernel,
   SonicWebGpuOutput,
+  SonicWebGpuState,
+  WebGpuErrorItem,
 } from "./types";
+export { describeWebGpuError, readWebGpuParams } from "./state";
+export type { WebGpuLiveParams } from "./state";
 export { parseBackendPrefer, parseKernel, WebGpuCompileError } from "./types";
-export { buildWgslSource, DEFAULT_MAIN_IMAGE } from "./wgsl-prelude";
+export { buildWgslSource, DEFAULT_MAIN_IMAGE, wgslUserLine } from "./wgsl-prelude";
 export { WebGpuRuntime, channelTextureNeedsRecreate } from "./gpu-runtime";
 export { WebGl2FallbackRuntime } from "./gl-fallback";
 export { Canvas2dFallbackRuntime } from "./canvas2d-fallback";

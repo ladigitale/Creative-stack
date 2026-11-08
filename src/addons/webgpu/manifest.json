@@ -10,16 +10,26 @@
   "components": [
     {
       "name": "sonic-webgpu",
-      "description": "Shader / kernel WGSL",
+      "description": "Shader / kernel WGSL (kernel image | particles), repli WebGL2 puis Canvas2D. dataProvider : param0…3, channel0…3, targetX/Y ; params (DP) {play, mouse, backend, dprMax, shader} prioritaire sur les attributs (backend redémarre, shader recompile) ; état {status idle|compiling|ready|error, error (ligne WGSL), errors[{line, column, message}], activeBackend, backendLog, notice, playing} dans le DP de sortie (out-data-provider, sinon dataProvider), plus time, frame, mouseX/Y, hovering",
       "props": {
         "shader": {
           "type": "string"
         },
         "kernel": {
-          "type": "string"
+          "type": "string",
+          "values": [
+            "",
+            "image",
+            "particles"
+          ]
         },
         "backend": {
-          "type": "string"
+          "type": "string",
+          "values": [
+            "auto",
+            "webgpu",
+            "webgl2"
+          ]
         },
         "channel0": {
           "type": "string"
@@ -52,13 +62,26 @@
           "type": "number"
         },
         "out-data-provider": {
-          "type": "string"
+          "type": "string",
+          "description": "DP de sortie : état {status, error, errors…} + time, frame, mouseX/Y…"
         },
         "frame-out": {
           "type": "boolean"
         },
         "aspect-ratio": {
           "type": "string"
+        },
+        "dpr-max": {
+          "type": "number",
+          "description": "Plafond du devicePixelRatio (défaut 2)"
+        },
+        "dataProvider": {
+          "type": "string",
+          "description": "DP d'entrée (param0…3, channel0…3, targetX/Y) et de sortie par défaut"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {play, mouse, backend, dprMax, shader}"
         }
       }
     }
