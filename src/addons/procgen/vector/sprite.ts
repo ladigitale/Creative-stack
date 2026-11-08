@@ -107,6 +107,9 @@ export class GenSprite {
   private staticDone = false;
   private L: V3;
   private acc = 1;
+  private staticYaw = 0;
+  /** Pixels du canvas par mètre (résolution comprise, réduite si l'objet dépasserait 2048 px). */
+  readonly pxScale: number;
 
   constructor(spec: { id: string; params: Record<string, unknown>; seed: string }, private opts: SpriteOpts) {
     const issues = new Issues();
@@ -149,7 +152,9 @@ export class GenSprite {
       v0 = Math.min(v0, v);
       v1 = Math.max(v1, v);
     }
-    this.s = opts.pxPerM * opts.resolution;
+    // échelle bornée : un très grand objet garde tout son dessin (moins de résolution plutôt que rogné)
+    this.s = Math.min(opts.pxPerM * opts.resolution, 2048 / Math.max(1e-3, u1 - u0), 2048 / Math.max(1e-3, v1 - v0));
+    this.pxScale = this.s;
     const w = Math.max(2, Math.min(2048, Math.ceil((u1 - u0) * this.s)));
     const h = Math.max(2, Math.min(2048, Math.ceil((v1 - v0) * this.s)));
     this.u0 = u0;
@@ -168,7 +173,30 @@ export class GenSprite {
         if (r && HEX.test(v)) out[r] = v;
       }
     this.colors = out;
+    this.invalidate();
+  }
+
+  /** Cap du décor (radians) : vu d'en haut, l'objet est redessiné tourné. */
+  setStaticYaw(yaw: number) {
+    if (yaw === this.staticYaw) return;
+    this.staticYaw = yaw;
+    this.invalidate();
+  }
+
+  /** Le prochain `draw` repeint (couleurs, cap) sans attendre la cadence. */
+  invalidate() {
     this.staticDone = false;
+    this.acc = 1e9;
+  }
+
+  /** Opacité (0..1) du dessin au pixel (x, y) du canvas : un tap sur le vide autour de l'objet ne le touche pas. */
+  alphaAt(x: number, y: number): number {
+    if (!this.ctx || x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return 0;
+    try {
+      return this.ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data[3] / 255;
+    } catch {
+      return 1;
+    }
   }
 
   /** Redessine ; renvoie true si le canvas a changé. `dt` en secondes. */
@@ -182,7 +210,7 @@ export class GenSprite {
     }
     this.time += dt;
     const mo = this.mo!;
-    const real = dt > 0 && d ? Math.min(d.moved, 2) / dt : 0;
+    const real = dt > 0 && d ? d.moved / dt : 0;
     const want = Math.max(real, d?.clipSpeed ?? 0);
     this.speed += (want - this.speed) * (1 - Math.exp(-dt * 8));
     const step = Math.max(this.speed, 0.2) * dt;
@@ -238,9 +266,9 @@ export class GenSprite {
     const out: Shape[] = [], shadows: Shape[] = [];
     const env: DrawEnv = { pr: this.pr, L: this.L, out, shadows, ground: () => 0, time: 0, night: this.vs.tokens.night, waterLevel: null };
     const em = new Emitter(out, 0, 5, 1, 0, "ink", this.colors);
-    const kit = new Kit(this.pr, new Frame([0, 0, 0], 0, 1), em, this.L);
+    const kit = new Kit(this.pr, new Frame([0, 0, 0], this.staticYaw, 1), em, this.L);
     const a = this.asset!;
-    const obj = { id: "gen", layer: "gen", generator: this.generator, params: this.params, pos: [0, 0, 0] as V3, yaw: 0, scale: 1, footprint: a.footprint, height: a.height, obj: 1, mode: "static" as const, anchors: {} };
+    const obj = { id: "gen", layer: "gen", generator: this.generator, params: this.params, pos: [0, 0, 0] as V3, yaw: this.staticYaw, scale: 1, footprint: a.footprint, height: a.height, obj: 1, mode: "static" as const, anchors: {} };
     const rng = new Rng(`gen/${this.seed}`);
     const ctx = { obj, env, rng, mirror: false, plan: this.generator === "building" ? buildPlan(this.params, new Rng(`plan/${this.seed}`)) : undefined };
     try {
@@ -255,6 +283,8 @@ export class GenSprite {
   }
 
   private path(d: string): Path2D {
+    // personnage animé : chaque image a ses propres chemins, rien à garder
+    if (this.animated) return new Path2D(d);
     let p = this.paths.get(d);
     if (!p) {
       p = new Path2D(d);
@@ -299,7 +329,7 @@ export class GenSprite {
       if (p.stroke) {
         g.globalAlpha = p.alpha;
         g.strokeStyle = p.stroke;
-        g.lineWidth = (p.strokePx * k * this.opts.resolution * PATH_UNIT) / (s * kk);
+        g.lineWidth = (p.strokePx * k * (s / Math.max(1e-6, this.opts.pxPerM)) * PATH_UNIT) / (s * kk);
         g.stroke(path);
       }
     }

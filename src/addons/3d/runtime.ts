@@ -80,7 +80,10 @@ export class SceneRuntime {
   constructor(opts: SceneRuntimeOptions) {
     // un modèle procgen généré en différé n'attend pas le prochain patch pour s'afficher
     this.monde.onAsync = () => {
-      if (this._ready) this.render();
+      if (!this._ready) return;
+      // les maillages générés arrivent après le cadrage : boîte englobante à jour
+      if (this.content) loadOps.updateBBox(this as never);
+      this.render();
     };
     const b = bootScene(opts);
     this.scene = b.scene;

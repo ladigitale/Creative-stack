@@ -78,3 +78,22 @@ describe("sprite vectoriel procgen (monde2d)", async () => {
     expect(x.draw(0.1, null)).toBe(false);
   });
 });
+
+describe("pont procgen : ressources", async () => {
+  const { GenSprite } = await import("./vector/sprite");
+  it("une géométrie encore dessinée survit à l'éviction du cache", () => {
+    const kit = new GenKit(null, "doux", 2);
+    const { asset } = kit.build({ id: "rock", params: {}, seed: "r0" }, false);
+    const geo = kit.geometry(asset!);
+    const g = kit.instanced(asset!, [new THREE.Matrix4().toArray()], "r");
+    for (let i = 1; i <= 4; i++) kit.build({ id: "rock", params: { size: 0.5 + i / 400 }, seed: `r${i}` }, false);
+    expect(kit.geometry(asset!)).toBe(geo);
+    expect(g.children.length).toBeGreaterThan(0);
+  });
+  it("sprite géant : échelle réduite plutôt que dessin rogné", () => {
+    const s = new GenSprite({ id: "character", params: {}, seed: "1" }, { view: "profil", pxPerM: 1000, resolution: 2, style: "flat" });
+    expect(s.canvas.width).toBeLessThanOrEqual(2048);
+    expect(s.pxScale).toBeLessThan(2000);
+    expect(s.anchor[0]).toBeLessThan(s.canvas.width);
+  });
+});

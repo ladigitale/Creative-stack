@@ -132,7 +132,7 @@ type Built = {
   shadow: THREE.Mesh | null;
   rolesRev: number;
   /** Modèle procgen : acteur (null tant qu'il n'est pas généré) et os de chaque pièce. */
-  gen: { actor: GenActor | null; bones: (string | null)[]; glow: number; glowColor: string } | null;
+  gen: { actor: GenActor | null; bones: (string | null)[]; glow: number; glowColor: string; step: Map<string, [number, number, number]>; rootOff: [number, number, number] } | null;
 };
 
 const SHADOW_GEO = new THREE.CircleGeometry(1, 24).rotateX(-Math.PI / 2);
@@ -168,6 +168,8 @@ export class Monde3d {
   private token = 0;
   private lastStep = 0;
   private genStatics: THREE.Group[] = [];
+  /** Acteurs procgen gardés d'un monde au suivant (même instance, même modèle) : état d'animation et éclat conservés. */
+  private spare = new Map<string, { sig: string; actor: GenActor; glow: number; glowColor: string }>();
   /** Appelé quand un élément généré à part (procgen) est prêt : un rendu suffit. */
   onAsync: (() => void) | null = null;
 
@@ -185,7 +187,7 @@ export class Monde3d {
 
   /** (Re)construit la scène ; les instances inchangées gardent leur état de pilotage. */
   set(m: Monde, now: number) {
-    this.clear();
+    this.clear(true);
     this.token++;
     this.monde = m;
     if (this.kit) {
@@ -200,6 +202,8 @@ export class Monde3d {
     this.driver.setMonde(m, now);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.buildStatics(m);
+    for (const s of this.spare.values()) s.actor.dispose();
+    this.spare.clear();
     for (const b of this.oldBuffers.values()) b.dispose();
     this.oldBuffers.clear();
   }
@@ -293,24 +297,38 @@ export class Monde3d {
     });
     const shadow = this.makeShadow(m, 0.35 * Math.max(pl.scale[0], pl.scale[2]));
     this.group.add(root);
-    const b: Built = { inst, joints, meshes: [], mats: new Map(), matKey: [], shadow, rolesRev: inst.rolesRev, gen: { actor: null, bones: model.parts.map((p) => aliasBone(p.name)), glow: 0, glowColor: "" } };
+    const kept = this.spare.get(inst.name);
+    const b: Built = { inst, joints, meshes: [], mats: new Map(), matKey: [], shadow, rolesRev: inst.rolesRev, gen: { actor: null, bones: model.parts.map((p) => aliasBone(p.name)), glow: kept?.glow ?? 0, glowColor: kept?.glowColor ?? "", step: new Map(), rootOff: [0, 0, 0] } };
     this.built.set(inst.name, b);
     const spec = model.gen!;
-    this.withKit((kit) => {
-      if (this.built.get(inst.name) !== b) return;
-      const res = kit.build(spec, spec.rig !== "none");
-      this.reportGen(m, model.name, res.issues);
-      if (!res.asset || this.built.get(inst.name) !== b) return;
-      const actor = new this.pg!.GenActor(kit, res.asset, inst.roles, `${spec.seed}/${inst.name}`);
+    const attach = (actor: GenActor) => {
+      actor.setRoles(inst.roles);
       actor.setGlow(b.gen!.glow, b.gen!.glowColor);
       root.add(actor.object);
       b.gen!.actor = actor;
       b.rolesRev = inst.rolesRev;
       if (b.shadow) {
-        const r = Math.max(0.2, Math.min(res.asset.footprint.hx, res.asset.footprint.hz) * 1.15) * Math.max(pl.scale[0], pl.scale[2]);
+        const fp = actor.asset.footprint;
+        const r = Math.max(0.2, Math.min(fp.hx, fp.hz) * 1.15) * Math.max(pl.scale[0], pl.scale[2]);
         b.shadow.scale.set(r, 1, r);
       }
-    });
+    };
+    // même instance, même modèle : l'acteur (pose, foulée, action en cours) passe au nouveau monde sans clignoter
+    if (kept && kept.sig === model.sig) {
+      this.spare.delete(inst.name);
+      attach(kept.actor);
+      return;
+    }
+    const make = (kit: GenKit) => {
+      if (this.built.get(inst.name) !== b) return;
+      const res = kit.build(spec, spec.rig !== "none");
+      this.reportGen(m, model.name, res.issues);
+      if (!res.asset || this.built.get(inst.name) !== b) return;
+      attach(new this.pg!.GenActor(kit, res.asset, inst.roles, `${spec.seed}/${inst.name}`));
+    };
+    // asset déjà généré : tout de suite ; sinon en tâche découpée
+    if (this.kit && this.kit.cached(spec, spec.rig !== "none")) make(this.kit);
+    else this.withKit(make);
   }
 
   private reportGen(m: Monde, model: string, issues: { path: string; message: string }[]) {
@@ -334,8 +352,11 @@ export class Monde3d {
         this.schedule();
       },
       (err) => {
-        this.monde?.issues.push({ path: "", message: `procgen indisponible : ${err instanceof Error ? err.message : String(err)}` });
+        // nouvel essai au prochain monde (bundle procgen chargé entre-temps)
+        this.pgLoad = null;
         this.jobs = [];
+        this.monde?.issues.push({ path: "", message: `procgen indisponible : ${err instanceof Error ? err.message : String(err)}` });
+        this.onAsync?.();
       },
     );
   }
@@ -374,19 +395,29 @@ export class Monde3d {
       const model = m.models.get(name)!;
       if (model.gen) {
         const spec = model.gen;
-        const mats = list.map((pl) => {
-          const out = new Float32Array(16);
-          m4Compose(out, pl.at[0], pl.at[1], pl.at[2], pl.rot[0], pl.rot[1], pl.rot[2], pl.scale[0], pl.scale[1], pl.scale[2]);
-          return out;
-        });
-        this.withKit((kit) => {
-          const res = kit.build(spec, false);
-          this.reportGen(m, name, res.issues);
-          if (!res.asset || m !== this.monde) return;
-          const g = kit.instanced(res.asset, mats, `${name}~decor`);
-          this.group.add(g);
-          this.genStatics.push(g);
-        });
+        // un groupe instancié par jeu de couleurs (`roles` du placement)
+        const byRoles = new Map<string, Placement[]>();
+        for (const pl of list) {
+          const k = JSON.stringify(pl.roles);
+          byRoles.set(k, [...(byRoles.get(k) ?? []), pl]);
+        }
+        for (const group of byRoles.values()) {
+          const mats = group.map((pl) => {
+            const out = new Float32Array(16);
+            m4Compose(out, pl.at[0], pl.at[1], pl.at[2], pl.rot[0], pl.rot[1], pl.rot[2], pl.scale[0], pl.scale[1], pl.scale[2]);
+            return out;
+          });
+          const make = (kit: GenKit) => {
+            const res = kit.build(spec, false);
+            this.reportGen(m, name, res.issues);
+            if (!res.asset || m !== this.monde) return;
+            const g = kit.instanced(res.asset, mats, `${name}~decor`, group[0].roles);
+            this.group.add(g);
+            this.genStatics.push(g);
+          };
+          if (this.kit && this.kit.cached(spec, false)) make(this.kit);
+          else this.withKit(make);
+        }
         continue;
       }
       // matrices de repos des pièces (repère du modèle)
@@ -438,7 +469,8 @@ export class Monde3d {
     if (!p || typeof p !== "object") return;
     const o = p as Record<string, unknown>;
     if (o.emissive === undefined && o.emissiveColor === undefined) return;
-    for (let i = name.indexOf("_"); i > 0; i = name.indexOf("_", i + 1)) {
+    // préfixe le plus long d'abord : « p_0_tete » vise l'instance « p_0 », pas « p »
+    for (let i = name.lastIndexOf("_"); i > 0; i = name.lastIndexOf("_", i - 1)) {
       const b = this.built.get(name.slice(0, i));
       if (!b?.gen) continue;
       if (typeof o.emissive === "number" && Number.isFinite(o.emissive)) b.gen.glow = o.emissive;
@@ -514,23 +546,41 @@ export class Monde3d {
     inst.poseChanged = false;
     const clip = inst.clip.clip;
     const mo = Object.prototype.hasOwnProperty.call(GEN_MOTION, clip) ? GEN_MOTION[clip] : undefined;
-    const bones = new Map<string, [number, number, number]>();
+    const bones = g.step;
+    bones.clear();
     const o = inst.offs;
-    let rootOff: [number, number, number] = [0, 0, 0];
-    g.bones.forEach((bone, i) => {
-      if (!bone) return;
+    const ro = g.rootOff;
+    ro[0] = ro[1] = ro[2] = 0;
+    for (let i = 0; i < g.bones.length; i++) {
+      const bone = g.bones[i];
+      if (!bone) continue;
       const k = i * STRIDE;
       if (o[k] || o[k + 1] || o[k + 2]) bones.set(bone, [o[k], o[k + 1], o[k + 2]]);
-      if (bone === "root") rootOff = [o[k + 3], o[k + 4], o[k + 5]];
-    });
-    actor.update(dt, root, { clip, clipSpeed: (mo?.speed ?? 0) * (inst.clip.speed || 1), action: mo?.action, bones, rootOff });
+      if (bone === "root") {
+        ro[0] = o[k + 3];
+        ro[1] = o[k + 4];
+        ro[2] = o[k + 5];
+      }
+    }
+    // clip en pause (`clipSpeed: 0`) ou figé (`clipT`) : le moteur procgen s'arrête aussi
+    const speed = inst.clip.speed ?? 1;
+    const frozen = speed === 0 || inst.clip.fixed !== null;
+    actor.update(frozen ? 0 : dt * speed, root, { clip, clipSpeed: (mo?.speed ?? 0) * speed, action: mo?.action, bones, rootOff: ro }, Math.max(1e-3, Math.abs(root.scale.x)));
     return root.visible;
   }
 
-  clear() {
+  /** Vide la scène ; `keep` : les acteurs procgen sont mis de côté pour le monde suivant (`set`). */
+  clear(keep = false) {
+    for (const s of this.spare.values()) s.actor.dispose();
+    this.spare.clear();
     for (const b of this.built.values()) {
       b.shadow?.removeFromParent();
-      b.gen?.actor?.dispose();
+      const a = b.gen?.actor;
+      if (!a) continue;
+      if (keep) {
+        a.object.removeFromParent();
+        this.spare.set(b.inst.name, { sig: b.inst.model.sig, actor: a, glow: b.gen!.glow, glowColor: b.gen!.glowColor });
+      } else a.dispose();
     }
     for (const g of this.genStatics) {
       g.removeFromParent();
@@ -538,6 +588,8 @@ export class Monde3d {
       mats?.color.dispose();
       mats?.outline.dispose();
       g.traverse((o) => (o as THREE.InstancedMesh).isInstancedMesh && (o as THREE.InstancedMesh).geometry.dispose());
+      const a = g.userData.genAsset;
+      if (a) this.kit?.release(a);
     }
     this.genStatics = [];
     for (const im of this.statics) im.dispose();

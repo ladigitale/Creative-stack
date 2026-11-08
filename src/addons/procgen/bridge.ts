@@ -67,10 +67,16 @@ export class GenKit {
   readonly shared: Shared;
   style: StyleTokens;
   private cache = new Map<string, GenBuild>();
-  private geos = new Map<Asset, THREE.BufferGeometry>();
+  private geos = new Map<Asset, { g: THREE.BufferGeometry; refs: number }>();
+  private live = new Set<Asset>();
   private size = new THREE.Vector2();
 
-  constructor(style: unknown, look: string) {
+  constructor(
+    style: unknown,
+    look: string,
+    /** Assets gardés en cache (les plus anciens sont oubliés ; leur géométrie survit tant qu'elle est dessinée). */
+    private maxCache = 96,
+  ) {
     this.shared = sharedUniforms();
     Object.assign(this.shared, {
       uToSRGB: { value: 1 },
@@ -133,9 +139,18 @@ export class GenKit {
     this.shared.uTime.value = time;
   }
 
+  private key(g: GenInput, actor: boolean) {
+    return `${g.id}|${g.seed}|${actor ? 1 : 0}|${JSON.stringify(g.params)}`;
+  }
+
+  /** Asset déjà construit (sans générer) : permet de reconstruire une instance sans attendre. */
+  cached(g: GenInput, actor: boolean): GenBuild | undefined {
+    return this.cache.get(this.key(g, actor));
+  }
+
   /** Asset d'un modèle gen (mis en cache par générateur, paramètres et graine). */
   build(g: GenInput, actor: boolean): GenBuild {
-    const key = `${g.id}|${g.seed}|${actor ? 1 : 0}|${JSON.stringify(g.params)}`;
+    const key = this.key(g, actor);
     const hit = this.cache.get(key);
     if (hit) return hit;
     const issues = new Issues();
@@ -156,26 +171,45 @@ export class GenKit {
       out.issues.push(...issues.list.map((i) => ({ path: i.path, message: i.message + (i.hint ? ` (${i.hint})` : "") })));
     }
     this.cache.set(key, out);
-    if (this.cache.size > 96) {
+    if (out.asset) this.live.add(out.asset);
+    if (this.cache.size > this.maxCache) {
       const old = this.cache.keys().next().value as string;
       const a = this.cache.get(old)?.asset;
       this.cache.delete(old);
       if (a) {
-        this.geos.get(a)?.dispose();
-        this.geos.delete(a);
+        this.live.delete(a);
+        this.drop(a);
       }
     }
     return out;
   }
 
+  /** Géométrie partagée d'un asset ; `retain` / `release` : libérée quand plus rien ne la dessine ni ne la garde en cache. */
   geometry(a: Asset): THREE.BufferGeometry {
-    let g = this.geos.get(a);
-    if (!g) {
-      g = toGeometry(a.mesh);
+    let e = this.geos.get(a);
+    if (!e) {
+      const g = toGeometry(a.mesh);
       if (a.skeleton) g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, a.height / 2, 0), a.height * 0.95);
-      this.geos.set(a, g);
+      this.geos.set(a, (e = { g, refs: 0 }));
     }
-    return g;
+    return e.g;
+  }
+  retain(a: Asset) {
+    this.geometry(a);
+    this.geos.get(a)!.refs++;
+  }
+  release(a: Asset) {
+    const e = this.geos.get(a);
+    if (!e) return;
+    e.refs = Math.max(0, e.refs - 1);
+    this.drop(a);
+  }
+  private drop(a: Asset) {
+    const e = this.geos.get(a);
+    if (e && e.refs === 0 && !this.live.has(a)) {
+      e.g.dispose();
+      this.geos.delete(a);
+    }
   }
 
   /** Couleurs de rôles (linéaires) d'un asset, surchargées par les rôles du format (`maillot`, `peau`…). */
@@ -217,11 +251,12 @@ export class GenKit {
   };
 
   /** Décor : `matrices` (colonne, 16 nombres) d'un même asset en un seul appel de dessin (+ contour). */
-  instanced(a: Asset, matrices: ArrayLike<number>[], name: string): THREE.Group {
+  instanced(a: Asset, matrices: ArrayLike<number>[], name: string, roleOverrides?: Record<string, string>): THREE.Group {
     const geo = this.geometry(a).clone();
+    this.retain(a);
     const n = matrices.length;
     geo.setAttribute("aInstObj", new THREE.InstancedBufferAttribute(new Float32Array(n).map((_, i) => i + 1), 1));
-    const roles = { value: this.roles(a, undefined) };
+    const roles = { value: this.roles(a, roleOverrides) };
     const mats = this.material(roles, false);
     const group = new THREE.Group();
     group.name = "";
@@ -247,9 +282,10 @@ export class GenKit {
   }
 
   dispose() {
-    for (const g of this.geos.values()) g.dispose();
+    for (const e of this.geos.values()) e.g.dispose();
     this.geos.clear();
     this.cache.clear();
+    this.live.clear();
   }
 }
 
@@ -298,6 +334,7 @@ export class GenActor {
     const skinned = !!asset.skeleton;
     this.mats = kit.material(this.roleBuf, skinned);
     const geo = kit.geometry(asset);
+    kit.retain(asset);
     this.mesh = new THREE.Mesh(geo, this.mats.color);
     this.mesh.name = "";
     this.mesh.onBeforeRender = kit.beforeRender as never;
@@ -324,8 +361,11 @@ export class GenActor {
     if (color && /^#[0-9a-f]{6}$/i.test(color)) (this.mats.uniforms.uGlowCol.value as THREE.Color).set(color).convertSRGBToLinear();
   }
 
-  /** Avance l'animation de `dt` secondes ; `holder` est l'objet placé par `nodes` (vitesse mesurée sur lui). */
-  update(dt: number, holder: THREE.Object3D, d: GenDrive): void {
+  /**
+   * Avance l'animation de `dt` secondes ; `holder` est l'objet placé par `nodes` (vitesse mesurée sur lui, ramenée à
+   * l'échelle du personnage : un géant agrandi par `scale` fait des pas à sa taille).
+   */
+  update(dt: number, holder: THREE.Object3D, d: GenDrive, scale = 1): void {
     if (!this.mo) return;
     this.time += dt;
     holder.getWorldPosition(this.wp);
@@ -333,7 +373,8 @@ export class GenActor {
     if (this.last) moved = Math.hypot(this.wp.x - this.last.x, this.wp.z - this.last.z);
     else this.last = new THREE.Vector3();
     this.last.copy(this.wp);
-    if (moved > 2) moved = 0; // téléportation (remise en jeu) : pas de foulée géante
+    if (moved > 2 * Math.max(scale, 1e-3)) moved = 0; // téléportation (remise en jeu) : pas de foulée géante
+    moved /= Math.max(scale, 1e-3);
     const real = dt > 0 ? moved / dt : 0;
     const want = Math.max(real, d.clipSpeed ?? 0);
     this.speed += (want - this.speed) * (1 - Math.exp(-dt * 8));
@@ -387,6 +428,7 @@ export class GenActor {
     this.mats.color.dispose();
     this.mats.outline.dispose();
     this.object.removeFromParent();
+    this.kit.release(this.asset);
   }
 }
 
