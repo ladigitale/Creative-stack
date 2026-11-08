@@ -15,7 +15,7 @@ import { shade } from "../../shared/monde/math";
 import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/textures";
 import { partColor2, partTex2, STRIDE2, type Model2, type Monde2d, type Part2, type Placement2 } from "../../shared/monde2d/format";
 import { Monde2dDriver, type Inst2 } from "../../shared/monde2d/driver";
-import { aliasBone, GEN_MOTION } from "../../shared/monde/gen";
+import { aliasBone, genMotion } from "../../shared/monde/gen";
 import { samplePose } from "../../shared/monde/pose";
 import type { GenSprite } from "../procgen/index";
 import { loadProcgen, type ProcgenApi } from "../../shared/procgen-loader";
@@ -338,7 +338,7 @@ export class Monde2dRenderer {
 
   private genEntry(pg: ProcgenMod, m: Monde2d, model: Model2, roles: Record<string, string> | undefined, yaw = 0): GenEntry {
     const g = model.gen!;
-    const sprite = new pg.GenSprite({ id: g.id, params: g.params, seed: g.seed }, { view: g.view, pxPerM: g.pxPerM, resolution: 2, style: m.styleGen, pitch: g.pitch, traits: m.traits });
+    const sprite = new pg.GenSprite({ id: g.id, params: g.params, seed: g.seed }, { view: g.view, pxPerM: g.pxPerM, resolution: m.resGen, fps: m.fpsGen, style: m.styleGen, pitch: g.pitch, traits: m.traits });
     for (const i of sprite.issues.slice(0, 8)) {
       const path = `models.${model.name}.${i.path}`;
       if (!m.issues.some((x) => x.path === path && x.message === i.message)) m.issues.push({ path, message: i.message });
@@ -385,7 +385,7 @@ export class Monde2dRenderer {
       holder.zIndex = this.zOf(m, pl.layer, pl.at[1], pl.z, pl.order);
       this.layer(pl.layer).addChild(holder);
       const yaw = top ? Math.round(-pl.rot * 100) / 100 : 0;
-      const key = `${model.sig}|${m.styleGen}|${m.traits}|${JSON.stringify(pl.roles)}|${yaw}`;
+      const key = `${model.sig}|${m.styleKey}|${m.traits}|${JSON.stringify(pl.roles)}|${yaw}`;
       const put = (pg: ProcgenMod) => {
         if (holder.destroyed) return;
         let e = this.genDecor.get(key);
@@ -441,7 +441,7 @@ export class Monde2dRenderer {
       this.layer(inst.placement.layer).addChild(holder);
       const b: Built = { inst, holder, parts: [], shadow: null, rolesRev: inst.rolesRev, overRev: inst.overRev, world: new Float32Array(0), gen: gv };
       this.built.set(inst.name, b);
-      const sig = `${model.sig}|${m.styleGen}|${m.traits}`;
+      const sig = `${model.sig}|${m.styleKey}|${m.traits}`;
       const put = (pg: ProcgenMod) => {
         if (this.built.get(inst.name) !== b) return;
         let e = this.genActors.get(inst.name);
@@ -604,13 +604,13 @@ export class Monde2dRenderer {
       }
     }
     const clip = inst.clip.clip;
-    const mo = Object.prototype.hasOwnProperty.call(GEN_MOTION, clip) ? GEN_MOTION[clip] : undefined;
+    const mo = genMotion(clip, inst.model.clips.get(clip));
     // cap : de dessus, `rz` (regard +x à 0, y vers le bas) ; de profil, `flip` ; de face, face à l'écran
     const yaw = top ? Math.PI / 2 - t.rz : g.view === "face" ? 0 : inst.flip ? -Math.PI / 2 : Math.PI / 2;
     // clip en pause (`clipSpeed: 0`) ou figé (`clipT`) : le moteur procgen s'arrête aussi
     const speed = inst.clip.speed ?? 1;
     const frozen = speed === 0 || inst.clip.fixed !== null;
-    if (sp.draw(frozen ? 0 : dt * speed, { clipSpeed: (mo?.speed ?? 0) * speed, action: mo?.action ?? "idle", moved, yaw, bones, rootOff: ro })) {
+    if (sp.draw(frozen ? 0 : dt * speed, { clipSpeed: mo.speed * speed, action: mo.action || "idle", moved, yaw, bones, rootOff: ro })) {
       gv.tex!.source.update();
       drew = true;
     }

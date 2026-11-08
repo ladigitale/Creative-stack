@@ -174,6 +174,19 @@ describe("monde2d : modèles gen (procgen vectoriel)", () => {
   });
 });
 
+describe("monde2d : réglages du style vectoriel", () => {
+  it("styleGen en objet, cadence et résolution", () => {
+    const m = readMonde2d({ styleGen: { vector: "gravure", outline: 2, chroma: 1.2 }, fpsGen: 100, resGen: 1, models: { j: { gen: "character" } } });
+    expect(m.styleGen).toEqual({ vector: "gravure", outline: 2, chroma: 1.2 });
+    expect(m.fpsGen).toBe(60);
+    expect(m.resGen).toBe(1);
+    expect(m.styleKey).toContain("gravure");
+    const b = readMonde2d({ style: "bd", styleGen: { vector: "aquarelle", tones: 0 } });
+    expect((b.styleGen as Record<string, unknown>).vector).toBe("ligne-claire");
+    expect(b.issues.some((i) => i.path === "styleGen.vector")).toBe(true);
+  });
+});
+
 describe("monde2d : traits", () => {
   it("importance des traits bornée", () => {
     expect(readMonde2d({}).traits).toBe(1);

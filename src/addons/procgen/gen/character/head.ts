@@ -46,7 +46,8 @@ export function buildHeadField(k: Kit): HeadField {
   const shape = look.headShape;
   const sk = (g: string, f: PrimIn, role = S) => set.add({ ...f, role, tag: 0 } as FieldPrim, "head", g);
   /** Personnage animal : ni nez, ni oreilles, ni lèvres humains ; museau et oreilles de l'espèce. */
-  const an = look.animal !== "none" ? look.animal : "";
+  const AS = look.animalSpec;
+  const an = AS ? "animal" : "";
 
   /* ---------- crâne et visage ---------- */
   const tall = shape === "long" ? 1.06 : shape === "round" ? 0.96 : 1;
@@ -143,53 +144,89 @@ export function buildHeadField(k: Kit): HeadField {
     set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, lh * 0.55, 0]), n, -lh * 0.32), r: [mouthW * 0.95, lh * 0.55, lh * 0.75], role: LIP, tag: 0 }, "head", "lips");
     set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, -lh * 0.75, 0]), n, -lh * 0.28), r: [mouthW * 0.8, lh * 0.72, lh * 0.8], role: LIP, tag: 0 }, "head", "lips");
   }
-  if (an) {
-    const MZ = an === "dog" || an === "bear" ? ROLE.paper : an === "pig" || an === "dino" ? S : ROLE.white;
+  if (AS) {
+    // couleurs : rôles réservés au personnage animal (voir animal.ts, ANIMAL_ROLE)
+    const MZ = ROLE.white, NOSE = ROLE.black, INNER = ROLE.sky, BEAK = ROLE.orange, MARK = ROLE.bark;
     const eh = hh * (chibi ? 0.22 : 0.2);
-    const topY = cc[1] + cr[1] * 0.74;
+    const E = AS.ears, sz = E.size;
+    const xs = 0.3 + 0.7 * E.spread;
+    const earY = cc[1] + cr[1] * (0.95 - 0.55 * E.spread * E.spread);
     for (const sx of [1, -1]) {
       const g = `ear.${sx}`;
-      const b0: V3 = [sx * cr[0] * 0.56, topY, cc[2] - cr[2] * 0.06];
-      if (an === "cat" || an === "fox" || an === "owl") {
-        const L = an === "fox" ? 2.3 : an === "owl" ? 1.25 : 1.65;
-        const tip = add(b0, [sx * eh * (an === "owl" ? 0.55 : 0.32), eh * L, -eh * 0.12]);
-        sk(g, { kind: "capsule", a: b0, b: tip, ra: eh * (an === "owl" ? 0.36 : 0.6), rb: eh * 0.05 });
-        if (an !== "owl") sk(g, { kind: "capsule", a: add(b0, [0, eh * 0.2, eh * 0.3]), b: add(tip, [0, -eh * 0.3, eh * 0.12]), ra: eh * 0.32, rb: eh * 0.03 }, an === "fox" ? ROLE.white : ROLE.sky);
-      } else if (an === "dog") {
-        sk(g, { kind: "ellipsoid", c: [sx * cr[0] * 1.0, cc[1] + cr[1] * 0.12, cc[2] - cr[2] * 0.08], r: [eh * 0.34, eh * 1.35, eh * 0.78] }, HR);
-      } else if (an === "bear" || an === "mouse") {
-        const R = an === "mouse" ? 1.15 : 0.68;
-        const c = add(b0, [sx * eh * 0.25, eh * R * 0.5, 0]);
-        sk(g, { kind: "ellipsoid", c, r: [eh * R, eh * R, eh * 0.34] });
-        sk(g, { kind: "ellipsoid", c: add(c, [0, 0, eh * 0.16]), r: [eh * R * 0.62, eh * R * 0.62, eh * 0.2] }, an === "mouse" ? ROLE.sky : MZ);
-      } else if (an === "rabbit") {
-        const tip = add(b0, [sx * eh * 0.45, eh * 3.1, -eh * 0.35]);
+      if (E.shape === "none" || sz <= 0) break;
+      const b0: V3 = [sx * cr[0] * xs, earY, cc[2] - cr[2] * 0.06];
+      const out = sx * eh * E.tilt;
+      if (E.shape === "pointed" || E.shape === "tuft") {
+        const tuft = E.shape === "tuft";
+        const tip = add(b0, [out * (tuft ? 1.6 : 1), eh * (tuft ? 1.25 : 1.65) * sz, -eh * 0.12]);
+        sk(g, { kind: "capsule", a: b0, b: tip, ra: eh * (tuft ? 0.36 : 0.6) * Math.sqrt(sz), rb: eh * 0.05 });
+        if (!tuft) sk(g, { kind: "capsule", a: add(b0, [0, eh * 0.2, eh * 0.3]), b: add(tip, [0, -eh * 0.3, eh * 0.12]), ra: eh * 0.32 * Math.sqrt(sz), rb: eh * 0.03 }, INNER);
+      } else if (E.shape === "floppy") {
+        sk(g, { kind: "ellipsoid", c: [sx * cr[0] * (0.7 + 0.3 * E.spread + 0.2), cc[1] + cr[1] * 0.12, cc[2] - cr[2] * 0.08], r: [eh * 0.34, eh * 1.35 * sz, eh * 0.78 * Math.sqrt(sz)] }, HR);
+      } else if (E.shape === "round") {
+        const R = eh * 0.68 * sz;
+        const c = add(b0, [sx * R * 0.35, R * 0.5, 0]);
+        sk(g, { kind: "ellipsoid", c, r: [R, R, eh * 0.34] });
+        sk(g, { kind: "ellipsoid", c: add(c, [0, 0, eh * 0.16]), r: [R * 0.62, R * 0.62, eh * 0.2] }, INNER);
+      } else if (E.shape === "long") {
+        const tip = add(b0, [out * 1.4, eh * 3.1 * sz, -eh * 0.35]);
         sk(g, { kind: "capsule", a: b0, b: tip, ra: eh * 0.42, rb: eh * 0.3 });
-        sk(g, { kind: "capsule", a: add(b0, [0, eh * 0.4, eh * 0.22]), b: add(tip, [0, -eh * 0.35, eh * 0.2]), ra: eh * 0.22, rb: eh * 0.15 }, ROLE.sky);
-      } else if (an === "pig") {
-        sk(g, { kind: "capsule", a: b0, b: add(b0, [sx * eh * 0.7, eh * 0.55, eh * 0.55]), ra: eh * 0.45, rb: eh * 0.08 });
+        sk(g, { kind: "capsule", a: add(b0, [0, eh * 0.4, eh * 0.22]), b: add(tip, [0, -eh * 0.35, eh * 0.2]), ra: eh * 0.22, rb: eh * 0.15 }, INNER);
+      } else if (E.shape === "flap") {
+        sk(g, { kind: "ellipsoid", c: [sx * (cr[0] * 0.95 + eh * 0.35 * sz), cc[1] + cr[1] * (0.45 - 0.35 * E.spread), cc[2] - cr[2] * 0.1], r: [eh * 0.16, eh * 0.62 * sz, eh * 0.55 * sz] });
+        sk(g, { kind: "ellipsoid", c: [sx * (cr[0] * 0.95 + eh * 0.42 * sz), cc[1] + cr[1] * (0.45 - 0.35 * E.spread), cc[2] - cr[2] * 0.08], r: [eh * 0.06, eh * 0.45 * sz, eh * 0.4 * sz] }, INNER);
       }
     }
-    // museau (et truffe), bec ou gros yeux
-    const SN: Record<string, [number, number, number]> = { cat: [0.2, 0.12, 0.14], fox: [0.16, 0.12, 0.34], dog: [0.24, 0.16, 0.28], bear: [0.24, 0.16, 0.22], rabbit: [0.18, 0.12, 0.12], mouse: [0.14, 0.11, 0.3], pig: [0.2, 0.15, 0.17], dino: [0.36, 0.22, 0.42] };
+    // cornes et bois
+    if (AS.horns !== "none")
+      for (const sx of [1, -1]) {
+        const a: V3 = [sx * cr[0] * 0.38, cc[1] + cr[1] * 0.82, cc[2] + cr[2] * 0.05];
+        if (AS.horns === "small") sk("horn", { kind: "capsule", a, b: add(a, [sx * eh * 0.35, eh * 0.85, -eh * 0.15]), ra: eh * 0.17, rb: eh * 0.05 }, ROLE.leaf2);
+        else {
+          const top = add(a, [sx * eh * 0.9, eh * 2.0, -eh * 0.3]);
+          sk("horn", { kind: "capsule", a, b: top, ra: eh * 0.1, rb: eh * 0.06 }, ROLE.bark);
+          for (const t of [0.45, 0.75]) {
+            const m = mix3(a, top, t);
+            sk("horn", { kind: "capsule", a: m, b: add(m, [sx * eh * 0.1, eh * 0.6, eh * 0.35]), ra: eh * 0.06, rb: eh * 0.03 }, ROLE.bark);
+          }
+        }
+      }
+    // crinière (couronne autour du visage)
+    if (AS.mane)
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        sk("mane", { kind: "ellipsoid", c: [Math.cos(a) * cr[0] * 1.02, cc[1] - hh * 0.06 + Math.sin(a) * cr[1] * 1.05, cc[2] - cr[2] * 0.25], r: [hw * 0.24, hw * 0.24, hd * 0.3] }, HR);
+      }
+    // marques du visage (sous les yeux, qui se posent dessus)
+    if (AS.markings === "patches") for (const sx of [1, -1]) sk("mark", { kind: "ellipsoid", c: madd(hit(base, sx * eyeX, eyeY - hh * 0.01).p, [0, 0, 1], -hd * 0.03), r: [eyeR * 1.7, eyeR * 1.45, hd * 0.07] }, MARK);
+    if (AS.markings === "mask") sk("mark", { kind: "ellipsoid", c: madd(hit(base, 0, eyeY).p, [0, 0, 1], -hd * 0.05), r: [hw * 0.44, eyeR * 1.25, hd * 0.1] }, MARK);
+    // museau (ou trompe) et truffe
     const ms = hit(base, 0, mix(noseTipY, mouthY, 0.4));
-    const sn = SN[an];
-    if (sn) {
-      const c = add(ms.p, [0, 0, hd * sn[2] * 0.5]);
-      const si = sk("snout", { kind: "ellipsoid", c, r: [hw * sn[0], hh * sn[1], hd * sn[2]] }, MZ);
+    const sn = AS.snout;
+    if (sn.l > 1.2 && sn.w > 0) {
+      const p0 = ms.p, p1 = add(p0, [0, -hh * 0.06, hd * 0.35]), p2 = add(p0, [0, -hh * 0.45 * (sn.l / 1.6), hd * 0.5]), p3 = add(p0, [0, -hh * 0.75 * (sn.l / 1.6), hd * 0.62]);
+      const r0 = hw * Math.max(0.08, sn.w);
+      sk("snout", { kind: "capsule", a: p0, b: p1, ra: r0 * 1.2, rb: r0 });
+      sk("snout", { kind: "capsule", a: p1, b: p2, ra: r0, rb: r0 * 0.8 });
+      sk("snout", { kind: "capsule", a: p2, b: p3, ra: r0 * 0.8, rb: r0 * 0.7 });
+    } else if (sn.l > 0 && sn.w > 0 && sn.h > 0) {
+      const c = add(ms.p, [0, 0, hd * sn.l * 0.5]);
+      const si = sk("snout", { kind: "ellipsoid", c, r: [hw * sn.w, hh * sn.h, hd * sn.l] }, MZ);
       set.extraBlends.push({ a: si, b: faceIdx, k: hw * 0.08 });
-      if (an === "pig") sk("snout", { kind: "ellipsoid", c: add(c, [0, 0, hd * sn[2] * 0.95]), r: [hw * 0.12, hh * 0.085, hd * 0.05] }, ROLE.sky);
-      else if (an !== "dino") sk("snout", { kind: "ellipsoid", c: add(c, [0, hh * sn[1] * 0.55, hd * sn[2] * 0.82]), r: [hw * 0.075, hh * 0.05, hd * 0.055] }, ROLE.black);
-    } else if (an === "owl") {
-      sk("snout", { kind: "capsule", a: add(ms.p, [0, hh * 0.05, 0]), b: add(ms.p, [0, -hh * 0.08, hd * 0.14]), ra: hw * 0.075, rb: hw * 0.012 }, ROLE.orange);
-      for (const sx of [1, -1]) sk("snout", { kind: "ellipsoid", c: add(hit(base, sx * eyeX, eyeY).p, [0, 0, -hd * 0.06]), r: [eyeR * 1.7, eyeR * 1.7, hd * 0.08] }, ROLE.white);
-    } else if (an === "frog") {
-      for (const sx of [1, -1]) sk("snout", { kind: "ellipsoid", c: [sx * eyeX * 1.1, eyeY + hh * 0.1, cc[2] + cr[2] * 0.35], r: [eyeR * 1.6, eyeR * 1.5, eyeR * 1.5] });
+      if (AS.nose === true) sk("snout", { kind: "ellipsoid", c: add(c, [0, hh * sn.h * 0.55, hd * sn.l * 0.82]), r: [hw * 0.075, hh * 0.05, hd * 0.055] }, NOSE);
+      else if (AS.nose === "disc") sk("snout", { kind: "ellipsoid", c: add(c, [0, 0, hd * sn.l * 0.95]), r: [hw * 0.12, hh * 0.085, hd * 0.05] }, INNER);
     }
-    if (an === "dino") for (let i = 0; i < 4; i++) {
-      const a: V3 = [0, cc[1] + cr[1] * (0.9 - i * 0.35), cc[2] - cr[2] * (0.3 + i * 0.25)];
-      sk("snout", { kind: "capsule", a, b: add(a, [0, hh * 0.09, -hh * 0.05]), ra: hh * 0.05, rb: hh * 0.01 }, ROLE.cloth3);
+    if (AS.beak) {
+      if (AS.eyeDiscs) sk("snout", { kind: "capsule", a: add(ms.p, [0, hh * 0.05, 0]), b: add(ms.p, [0, -hh * 0.08, hd * 0.14]), ra: hw * 0.075, rb: hw * 0.012 }, BEAK);
+      else sk("snout", { kind: "ellipsoid", c: add(ms.p, [0, -hh * 0.02, hd * 0.16]), r: [hw * 0.2, hh * 0.05, hd * 0.2] }, BEAK);
     }
+    if (AS.eyeDiscs) for (const sx of [1, -1]) sk("snout", { kind: "ellipsoid", c: add(hit(base, sx * eyeX, eyeY).p, [0, 0, -hd * 0.06]), r: [eyeR * 1.7, eyeR * 1.7, hd * 0.08] }, MZ);
+    if (AS.eyeBulge) for (const sx of [1, -1]) sk("snout", { kind: "ellipsoid", c: [sx * eyeX * 1.1, eyeY + hh * 0.1, cc[2] + cr[2] * 0.35], r: [eyeR * 1.6, eyeR * 1.5, eyeR * 1.5] });
+    if (AS.spikes)
+      for (let i = 0; i < 4; i++) {
+        const a: V3 = [0, cc[1] + cr[1] * (0.9 - i * 0.35), cc[2] - cr[2] * (0.3 + i * 0.25)];
+        sk("snout", { kind: "capsule", a, b: add(a, [0, hh * 0.09, -hh * 0.05]), ra: hh * 0.05, rb: hh * 0.01 }, MARK);
+      }
   }
   const skin = new Field(set.prims.slice(), [...set.groupBlends(groupK(hw, nr, er)), ...set.extraBlends]);
 

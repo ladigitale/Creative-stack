@@ -19,6 +19,7 @@ import type { Skeleton } from "../../rig/skeleton";
 import type { Projector } from "../project";
 import { type P2, Pen, type Shape, hull, lerp2, strokeVar } from "../shape";
 import { Emitter, Frame } from "./kit";
+import type { AnimalSpec } from "../../gen/character/animal";
 import { drawPartsOn } from "./parts";
 import { heldToolBasis, heldToolParts } from "../../gen/tool";
 import { handFrame } from "../../gen/character/hands";
@@ -80,8 +81,9 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   const hat = String(p.hat ?? "none"), bag = String(p.bag ?? "none"), item = String(p.item ?? "none");
   const archName = String(p.archetype ?? "stylized");
   const toony = archName === "chibi" || archName === "cartoon";
-  /** Personnage animal : oreilles, museau et queue de l'espèce (voir gen/character/head.ts). */
-  const animal = String(p.animal ?? "none") !== "none" ? String(p.animal) : "";
+  /** Personnage animal : fiche résolue (gen/character/animal.ts), mêmes oreilles, museau et queue qu'en 3D. */
+  const AS = (p.animalSpec && typeof p.animalSpec === "object" && (p.animalSpec as AnimalSpec).ears ? (p.animalSpec as AnimalSpec) : null);
+  const animal = AS ? "animal" : "";
 
   // repères du corps
   const fwd = D("chest", [0, 0, 1]), up = D("chest", [0, 1, 0]), lft = D("chest", [1, 0, 0]);
@@ -432,73 +434,163 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     return new Pen().smooth(hull(pts.map(S)), true);
   };
 
-  /** Oreille d'animal : plantée sur le haut du crâne (dessinée derrière la tête), tombante pour le chien. */
+  /** Oreille d'animal (fiche) : plantée sur le crâne selon l'écart ; tombante, ronde, longue, rabat ou plumet. */
   const animalEar = (s: number) => {
+    if (!AS) return;
+    const E = AS.ears, sz = E.size;
+    if (E.shape === "none" || sz <= 0) return;
     const tw = (pts: V3[], hw: number[], role: string, opt: Record<string, unknown> = {}) => em.add(strokeVar(new Pen(), pts.map(S), hw), role, { tone: 0, width: 0.6, ...opt });
-    if (animal === "dog") {
-      const a = onHead(s * 1.35, 0.35, 1.0), b = madd(onHead(s * 1.5, -0.35, 1.05), hLft, s * rx * 0.08);
-      tw([a, lerp3(a, b, 0.5), b], [rx * 0.2, rx * 0.26, rx * 0.2], "hair");
+    const lat = 0.95 - 0.6 * E.spread * E.spread, lon = s * (0.35 + 0.95 * E.spread);
+    const base = onHead(lon, lat, 0.96);
+    const outV = scale(hLft, s * rx * 0.3 * E.tilt);
+    if (E.shape === "floppy") {
+      const a = onHead(s * 1.35, 0.35, 1.0), b = madd(onHead(s * 1.5, -0.35 * sz, 1.05), hLft, s * rx * 0.08);
+      tw([a, lerp3(a, b, 0.5), b], [rx * 0.2, rx * 0.26 * Math.sqrt(sz), rx * 0.2], "hair");
       return;
     }
-    const base = onHead(s * 0.62, 0.78, 0.96);
-    const L = animal === "fox" ? 1.2 : animal === "rabbit" ? 1.75 : animal === "owl" ? 0.55 : animal === "pig" ? 0.45 : 0.85;
-    if (animal === "bear" || animal === "mouse") {
-      const R = animal === "mouse" ? rx * 0.5 : rx * 0.32;
-      const q = S(madd(base, hUp, R * 0.6));
+    if (E.shape === "round") {
+      const R = rx * 0.34 * sz;
+      const q = S(madd(base, hUp, R * 0.5));
       em.add(new Pen().ellipse(q[0], q[1], R, R), "skin", { tone: 0, width: 0.6 });
-      em.add(new Pen().ellipse(q[0], q[1], R * 0.58, R * 0.58), animal === "mouse" ? "sky" : "paper", { tone: 0, stroke: null });
+      em.add(new Pen().ellipse(q[0], q[1], R * 0.58, R * 0.58), "sky", { tone: 0, stroke: null });
       return;
     }
-    if (!["cat", "fox", "rabbit", "owl", "pig"].includes(animal)) return;
-    const tip = add(madd(base, hUp, ry * L), scale(hLft, s * rx * (animal === "rabbit" ? 0.18 : 0.28)));
-    const w0 = rx * (animal === "rabbit" ? 0.2 : animal === "owl" ? 0.16 : 0.3);
-    tw([base, lerp3(base, tip, 0.5), tip], [w0, animal === "rabbit" ? w0 * 0.95 : w0 * 0.55, rx * 0.02], "skin");
-    if (animal !== "owl" && animal !== "pig") tw([lerp3(base, tip, 0.12), lerp3(base, tip, 0.5), lerp3(base, tip, 0.85)], [w0 * 0.5, w0 * (animal === "rabbit" ? 0.5 : 0.28), rx * 0.01], animal === "fox" ? "white" : "sky", { stroke: null });
+    if (E.shape === "flap") {
+      const a = onHead(s * 1.4, 0.3 - 0.4 * E.spread, 1.0), b = madd(a, hLft, s * rx * 0.45 * sz);
+      tw([a, lerp3(a, b, 0.6), b], [ry * 0.22 * sz, ry * 0.3 * sz, ry * 0.12 * sz], "skin");
+      return;
+    }
+    const L = E.shape === "long" ? 1.75 : E.shape === "tuft" ? 0.55 : 0.85;
+    const tip = add(madd(base, hUp, ry * L * sz), E.shape === "long" ? scale(outV, 0.6) : outV);
+    const w0 = rx * (E.shape === "long" ? 0.2 : E.shape === "tuft" ? 0.16 : 0.3) * Math.sqrt(sz);
+    tw([base, lerp3(base, tip, 0.5), tip], [w0, E.shape === "long" ? w0 * 0.95 : w0 * 0.55, rx * 0.02], "skin");
+    if (E.shape !== "tuft") tw([lerp3(base, tip, 0.12), lerp3(base, tip, 0.5), lerp3(base, tip, 0.85)], [w0 * 0.5, w0 * (E.shape === "long" ? 0.5 : 0.28), rx * 0.01], "sky", { stroke: null });
   };
 
-  /** Museau et truffe, bec, ou gros yeux de grenouille. */
-  const snout = () => {
-    if (faceVis < -0.35) return;
-    const SN: Record<string, [number, number, number]> = { cat: [0.42, 0.26, 0.28], fox: [0.32, 0.24, 0.7], dog: [0.48, 0.32, 0.56], bear: [0.48, 0.32, 0.44], rabbit: [0.36, 0.24, 0.24], mouse: [0.28, 0.22, 0.6], pig: [0.4, 0.3, 0.34], dino: [0.72, 0.44, 0.84] };
-    const sn = SN[animal];
-    const muzzle = animal === "dog" || animal === "bear" ? "paper" : animal === "pig" || animal === "dino" ? "skin" : "white";
-    if (sn) {
-      const a = onHead(0, -0.3, 0.92), tip = madd(onHead(0, -0.32, 1), hFwd, rz * sn[2] * 0.7);
-      em.add(strokeVar(new Pen(), [S(a), S(lerp3(a, tip, 0.55)), S(tip)], [ry * sn[1] * 0.75, ry * sn[1] * 0.8, ry * sn[1] * 0.62]), muzzle, { tone: 0, width: 0.5 });
-      const nose = S(madd(tip, hUp, ry * sn[1] * 0.35));
-      if (animal === "pig") em.add(new Pen().ellipse(S(tip)[0], S(tip)[1], rx * 0.2, ry * 0.14), "sky", { tone: -1, width: 0.4 });
-      else if (animal !== "dino") em.add(new Pen().ellipse(nose[0], nose[1], rx * 0.13, ry * 0.08), "black", { stroke: null });
-    } else if (animal === "owl") {
-      const a = onHead(0, -0.12, 1), t = madd(onHead(0, -0.3, 1), hFwd, rz * 0.25);
-      em.add(strokeVar(new Pen(), [S(a), S(t)], [rx * 0.13, rx * 0.01]), "orange", { tone: 0, width: 0.4 });
-    } else if (animal === "frog") {
+  /** Cornes, bois, crinière (derrière la tête). */
+  const animalBack = () => {
+    if (!AS) return;
+    if (AS.mane) {
+      const pts: V3[] = [];
+      for (let i = 0; i < 18; i++) pts.push(onHead((i / 18) * Math.PI * 2, 0, 1.35, madd(hc, hFwd, -rz * 0.25), [rx, ry * 1.05, rz * 0.5]));
+      em.add(new Pen().smooth(hull(pts.map(S)), true), "hair", { tone: 0, width: 0.6 });
+    }
+    if (AS.horns !== "none")
       for (const sd of [-1, 1]) {
-        const v = vis(sd * 0.42, 0.35);
-        if (v < -0.2) continue;
+        const a = onHead(sd * 0.45, 0.85, 0.95);
+        if (AS.horns === "small") em.add(strokeVar(new Pen(), [S(a), S(add(madd(a, hUp, ry * 0.45), scale(hLft, sd * rx * 0.18)))], [rx * 0.1, rx * 0.03]), "leaf2", { tone: 0, width: 0.5 });
+        else {
+          const top = add(madd(a, hUp, ry * 1.1), scale(hLft, sd * rx * 0.5));
+          em.add(strokeVar(new Pen(), [S(a), S(lerp3(a, top, 0.5)), S(top)], [rx * 0.06, rx * 0.05, rx * 0.03]), "bark", { tone: 0, width: 0.4 });
+          for (const t of [0.45, 0.75]) {
+            const m = lerp3(a, top, t);
+            em.add(strokeVar(new Pen(), [S(m), S(madd(madd(m, hUp, ry * 0.3), hFwd, rz * 0.15))], [rx * 0.04, rx * 0.02]), "bark", { tone: 0, width: 0.4 });
+          }
+        }
+      }
+  };
+
+  /** Museau (ou trompe), truffe, bec, marques, yeux globuleux, disques, crête. */
+  const snout = () => {
+    if (!AS || faceVis < -0.35) return;
+    if (AS.markings === "patches")
+      for (const sd of [-1, 1]) {
+        if (vis(sd * 0.42, -0.05) < 0.05) continue;
+        const q = S(onHead(sd * 0.42, -0.06));
+        em.add(new Pen().ellipse(q[0], q[1], eyeR * 1.6, eyeR * 1.35), "bark", { stroke: null });
+      }
+    if (AS.markings === "mask" && faceVis > -0.2) {
+      const pts: V3[] = [];
+      for (let i = 0; i <= 8; i++) pts.push(onHead(-0.75 + i * 0.19, 0.02, 1.01), onHead(-0.75 + i * 0.19, -0.16, 1.01));
+      em.add(new Pen().smooth(hull(pts.map(S)), true), "bark", { stroke: null });
+    }
+    if (AS.eyeDiscs)
+      for (const sd of [-1, 1]) {
+        if (vis(sd * 0.42, -0.08) < 0.05) continue;
+        const q = S(onHead(sd * 0.42, -0.08));
+        em.add(new Pen().ellipse(q[0], q[1], eyeR * 1.7, eyeR * 1.7), "white", { tone: 0, width: 0.4 });
+      }
+    if (AS.eyeBulge)
+      for (const sd of [-1, 1]) {
+        if (vis(sd * 0.42, 0.35) < -0.2) continue;
         const q = S(onHead(sd * 0.42, 0.42, 1.08));
         em.add(new Pen().ellipse(q[0], q[1], eyeR * 1.5, eyeR * 1.35), "skin", { tone: 0, width: 0.5 });
       }
+    const sn = AS.snout;
+    if (sn.l > 1.2 && sn.w > 0) {
+      const a = onHead(0, -0.3, 0.92);
+      const m1 = madd(a, hFwd, rz * 0.6), m2 = madd(madd(a, hFwd, rz * 0.8), hUp, -ry * 0.9 * (sn.l / 1.6)), m3 = madd(madd(a, hFwd, rz * 1.0), hUp, -ry * 1.5 * (sn.l / 1.6));
+      em.add(strokeVar(new Pen(), [S(a), S(m1), S(m2), S(m3)], [ry * sn.w * 1.4, ry * sn.w * 1.2, ry * sn.w * 1.0, ry * sn.w * 0.9]), "skin", { tone: 0, width: 0.5 });
+    } else if (sn.l > 0 && sn.w > 0 && sn.h > 0) {
+      const a = onHead(0, -0.3, 0.92), tip = madd(onHead(0, -0.32, 1), hFwd, rz * sn.l * 2.1);
+      em.add(strokeVar(new Pen(), [S(a), S(lerp3(a, tip, 0.55)), S(tip)], [ry * sn.h * 3.1 * (0.5 + sn.w * 2.5) * 0.5, ry * sn.h * 3.3 * 0.5 * (0.5 + sn.w * 2.5), ry * sn.h * 2.6 * 0.5 * (0.5 + sn.w * 2.5)]), "white", { tone: 0, width: 0.5 });
+      const nose = S(madd(tip, hUp, ry * sn.h * 1.2));
+      if (AS.nose === true) em.add(new Pen().ellipse(nose[0], nose[1], rx * 0.13, ry * 0.08), "black", { stroke: null });
+      else if (AS.nose === "disc") em.add(new Pen().ellipse(S(tip)[0], S(tip)[1], rx * 0.2, ry * 0.14), "sky", { tone: -1, width: 0.4 });
     }
+    if (AS.beak) {
+      if (AS.eyeDiscs) {
+        const a = onHead(0, -0.12, 1), t = madd(onHead(0, -0.3, 1), hFwd, rz * 0.25);
+        em.add(strokeVar(new Pen(), [S(a), S(t)], [rx * 0.13, rx * 0.01]), "orange", { tone: 0, width: 0.4 });
+      } else {
+        const a = onHead(0, -0.3, 0.95), t = madd(onHead(0, -0.32, 1), hFwd, rz * 0.45);
+        em.add(strokeVar(new Pen(), [S(a), S(t)], [ry * 0.2, ry * 0.14]), "orange", { tone: 0, width: 0.4 });
+      }
+    }
+    if (AS.spikes)
+      for (let i = 0; i < 4; i++) {
+        const a = onHead(0, 1.2 - i * 0.35, 1.0, hc, [rx, ry, rz]);
+        if (vis(Math.PI, 1.2 - i * 0.35) > 0.6) continue;
+        em.add(strokeVar(new Pen(), [S(a), S(madd(a, nrm(Math.PI, 1.2 - i * 0.35), ry * 0.18))], [rx * 0.1, rx * 0.01]), "bark", { tone: 0, width: 0.4 });
+      }
   };
 
-  /** Queue : derrière le bassin, dans le plan du corps (mêmes formes que la 3D). */
+  /** Queue (fiche) : derrière le bassin, dans le plan du corps (mêmes formes que la 3D). */
   const tailDraw = () => {
-    if (!animal || animal === "frog") return;
+    const tl = AS?.tail;
+    if (!tl || tl.shape === "none" || tl.length <= 0) return;
+    const L = tl.length;
     const base = madd(pelvisH, fwd, -pelvisR * 0.9);
-    const P = (y: number, z: number): V3 => madd(madd(base, up, y * H), fwd, -z * H);
+    const P = (y: number, z: number): V3 => madd(madd(base, up, y * H * L), fwd, -z * H * L);
     const tw = (pts: V3[], r: number[], role = "skin") => em.add(strokeVar(new Pen(), pts.map(S), r.map((x) => x * H)), role, { tone: -1, width: 0.5 });
-    if (animal === "cat") tw([P(0, 0), P(-0.05, 0.1), P(0.04, 0.2), P(0.17, 0.24), P(0.25, 0.21)], [0.02, 0.019, 0.018, 0.017, 0.012]);
-    else if (animal === "fox") {
-      tw([P(0, 0), P(-0.06, 0.12), P(-0.04, 0.26)], [0.03, 0.055, 0.05]);
-      tw([P(-0.04, 0.27), P(-0.02, 0.36)], [0.045, 0.012], "white");
-    } else if (animal === "dog") tw([P(0, 0), P(0.06, 0.09), P(0.15, 0.13)], [0.02, 0.018, 0.01]);
-    else if (animal === "mouse") tw([P(0, 0), P(-0.08, 0.12), P(-0.1, 0.3), P(-0.05, 0.42)], [0.012, 0.01, 0.008, 0.004]);
-    else if (animal === "pig") tw([P(0, 0), P(0.03, 0.04), P(0.05, 0.06), P(0.03, 0.08)], [0.011, 0.01, 0.009, 0.006]);
-    else if (animal === "dino") tw([P(0.02, 0), P(-0.12, 0.14), P(-0.24, 0.32), P(-0.3, 0.52)], [0.06, 0.05, 0.03, 0.01]);
-    else {
-      const q = S(P(animal === "owl" ? -0.06 : 0.01, 0.03));
-      const r = H * (animal === "owl" ? 0.06 : animal === "rabbit" ? 0.045 : 0.035);
-      em.add(new Pen().ellipse(q[0], q[1], r, r), animal === "rabbit" ? "white" : "skin", { tone: -1, width: 0.5 });
+    const ball = (c: V3, r: number, role: string) => {
+      const q = S(c);
+      em.add(new Pen().ellipse(q[0], q[1], r * H, r * H), role, { tone: -1, width: 0.5 });
+    };
+    switch (tl.shape) {
+      case "curve":
+        tw([P(0, 0), P(-0.05, 0.1), P(0.04, 0.2), P(0.17, 0.24), P(0.25, 0.21)], [0.02, 0.019, 0.018, 0.017, 0.012]);
+        if (tl.tip) ball(P(0.25, 0.21), 0.018, "paper");
+        break;
+      case "bushy":
+        tw([P(0, 0), P(-0.06, 0.12), P(-0.04, 0.26)], [0.03, 0.055, 0.05]);
+        ball(P(-0.02, 0.33), 0.042, tl.tip ? "paper" : "skin");
+        break;
+      case "wag":
+        tw([P(0, 0), P(0.06, 0.09), P(0.15, 0.13)], [0.02, 0.018, 0.01]);
+        break;
+      case "long":
+        tw([P(0, 0), P(-0.08, 0.12), P(-0.1, 0.3), P(-0.05, 0.42)], [0.012, 0.01, 0.008, 0.004]);
+        break;
+      case "curl":
+        tw([P(0, 0), P(0.03, 0.04), P(0.05, 0.06), P(0.03, 0.08)], [0.011, 0.01, 0.009, 0.006]);
+        break;
+      case "thick":
+        tw([P(0.02, 0), P(-0.12, 0.14), P(-0.24, 0.32), P(-0.3, 0.52)], [0.06, 0.05, 0.03, 0.01]);
+        break;
+      case "tuft":
+        tw([P(0, 0), P(-0.1, 0.12), P(-0.22, 0.24)], [0.012, 0.01, 0.009]);
+        ball(P(-0.25, 0.26), 0.03, "hair");
+        break;
+      case "fan":
+        ball(P(-0.06, 0.04), 0.06, "skin");
+        break;
+      case "stub":
+        ball(P(0.01, 0.02), 0.034, "skin");
+        break;
+      case "pom":
+        ball(P(0.01, 0.025), 0.043, tl.tip ? "paper" : "white");
+        break;
     }
   };
 
@@ -1379,12 +1471,14 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   }
   if (hb) parts.push({ key: hb.key < depth(hc) ? (hair === "long" ? minLeg - 1.5 : headKey - 0.01) : headKey + 0.01, draw: hb.draw });
   // oreilles d'animal : devant la tête quand leur base est bien visible (vue d'en haut, de trois quarts), derrière sinon
-  const earBehind = (s: number) => (animal === "dog" ? vis(s * 1.4, 0) < 0.05 : animal ? vis(s * 0.62, 0.78) < 0.45 : vis(s * 1.5, -0.05) < 0.05);
+  const earBehind = (s: number) =>
+    AS ? (AS.ears.shape === "floppy" || AS.ears.shape === "flap" ? vis(s * 1.4, 0) < 0.05 : vis(s * (0.35 + 0.95 * AS.ears.spread), 0.95 - 0.6 * AS.ears.spread ** 2) < 0.45) : vis(s * 1.5, -0.05) < 0.05;
   parts.push({
     key: headKey,
     draw: () => {
       hairBehind();
       hatBehind();
+      animalBack();
       for (const s of [-1, 1]) if (earBehind(s)) ear(s);
       em.add(headShape(), "skin", { tone: 0 });
       // ombre portée sous le menton (cou)

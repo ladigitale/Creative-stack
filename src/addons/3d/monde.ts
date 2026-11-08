@@ -19,7 +19,7 @@ import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/te
 import { MondeDriver, type InstanceState } from "../../shared/monde/driver";
 import { STRIDE } from "../../shared/monde/pose";
 import type { NodesSpec } from "./nodes";
-import { aliasBone, GEN_MOTION } from "../../shared/monde/gen";
+import { aliasBone, genMotion } from "../../shared/monde/gen";
 import type { GenActor, GenKit } from "../procgen/index";
 import { loadProcgen, type ProcgenApi } from "../../shared/procgen-loader";
 
@@ -548,7 +548,7 @@ export class Monde3d {
     if (!actor.asset.skeleton) return false;
     inst.poseChanged = false;
     const clip = inst.clip.clip;
-    const mo = Object.prototype.hasOwnProperty.call(GEN_MOTION, clip) ? GEN_MOTION[clip] : undefined;
+    const mo = genMotion(clip, inst.model.clips.get(clip));
     const bones = g.step;
     bones.clear();
     const o = inst.offs;
@@ -568,7 +568,7 @@ export class Monde3d {
     // clip en pause (`clipSpeed: 0`) ou figé (`clipT`) : le moteur procgen s'arrête aussi
     const speed = inst.clip.speed ?? 1;
     const frozen = speed === 0 || inst.clip.fixed !== null;
-    actor.update(frozen ? 0 : dt * speed, root, { clip, clipSpeed: (mo?.speed ?? 0) * speed, action: mo?.action, bones, rootOff: ro }, Math.max(1e-3, Math.abs(root.scale.x)));
+    actor.update(frozen ? 0 : dt * speed, root, { clip, clipSpeed: mo.speed * speed, action: mo.action || undefined, bones, rootOff: ro }, Math.max(1e-3, Math.abs(root.scale.x)));
     return root.visible;
   }
 

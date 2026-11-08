@@ -1,4 +1,5 @@
 import { readMonde, partColor, mondeSummary, SHAPES } from "./format";
+import { genMotion } from "./gen";
 import { geometryOf } from "./geometry";
 import { clipState, samplePose, setClip, STRIDE, forward } from "./pose";
 import { MondeDriver } from "./driver";
@@ -284,6 +285,31 @@ describe("monde : modèles gen (procgen)", () => {
   });
 
   it("pistes d'os : paire en opposition, côté droit miroir ; os inconnus signalés", () => {
+    const v = readMonde({
+      models: { j: { gen: "character", params: { top: "tee" }, seed: 1 }, b: { box: [1, 1, 1] } as never },
+      place: [
+        { model: "j", name: "p0", params: { animal: "fox" } },
+        { model: "j", name: "p1", params: { animal: "fox" } },
+        { model: "j", name: "p2", genSeed: 7 },
+        { model: "j", name: "p3" },
+      ],
+    });
+    const mp = v.place.map((p) => p.model);
+    expect(mp[0]).toBe(mp[1]);
+    expect(mp[0]).toMatch(/^j~/);
+    expect(mp[2]).not.toBe(mp[0]);
+    expect(mp[3]).toBe("j");
+    expect(v.models.get(mp[0])!.gen!.params).toMatchObject({ top: "tee", animal: "fox" });
+    expect(v.models.get(mp[2])!.gen!.seed).not.toBe(v.models.get("j")!.gen!.seed);
+    expect(v.models.get(mp[0])!.gen!.seed).toBe(v.models.get("j")!.gen!.seed);
+    const a = readMonde({ models: { j: { gen: "character", clips: { danse: { action: "cheer", speed: 2, tracks: {} }, z: { action: "voler" } } } } });
+    const cd = a.models.get("j")!.clips.get("danse")!;
+    expect(cd.action).toBe("cheer");
+    expect(cd.move).toBe(2);
+    expect(a.issues.some((i) => i.path.endsWith("clips.z.action"))).toBe(true);
+    expect(genMotion("danse", cd)).toEqual({ speed: 2, action: "cheer" });
+    expect(genMotion("course", a.models.get("j")!.clips.get("course"))).toEqual({ speed: 3.8, action: "" });
+    expect(genMotion("joie", null).action).toBe("cheer");
     const m = readMonde({ models: { j: { gen: "character", clips: { geste: { tracks: { bras: { rz: [0, 40] }, aileron: { rx: [0, 1] } } } } } } });
     const c = m.models.get("j")!.clips.get("geste")!;
     expect(c.tracks.length).toBe(2);
