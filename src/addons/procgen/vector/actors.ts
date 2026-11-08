@@ -29,7 +29,11 @@ export type ActorRT = {
   actionWeight: number;
   mood: string;
   path: [number, number][] | null;
-  goal: { x: number; z: number; target?: string } | null;
+  goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number } } | null;
+  /** Hauteur de l'assise occupée (m) : le bassin s'y pose quand l'acteur est assis. */
+  seatY?: number;
+  /** Point libre devant l'assise, où l'acteur se relève. */
+  standAt?: [number, number];
   drive: { vx: number; vz: number } | null;
   wantSpeed: number;
   wanderT: number;
@@ -82,36 +86,61 @@ export class ActorSim {
       if (sig === a.lastIntent) continue;
       a.lastIntent = sig;
       if (it.mood) a.mood = String(it.mood);
-      if (it.action && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
+      const toSeat = typeof it.target === "string" && /\.sit\.\d+$/.test(it.target);
+      // en route vers une place, l'acteur marche : il ne s'assied qu'à l'arrivée
+      if (it.action && !(toSeat && it.action === "sit") && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
         if (a.action !== it.action) {
+          if (it.action !== "sit") this.standUp(a);
           a.action = it.action as Action;
           a.actionTime = 0;
         }
-      } else if (it.action === "idle") a.action = "idle";
+      } else if (it.action === "idle") {
+        this.standUp(a);
+        a.action = "idle";
+      }
       const run = it.run || it.action === "run";
       const leg = a.mo.legLength;
       a.wantSpeed = Number.isFinite(it.speed) ? Number(it.speed) : run ? (3.6 * leg) / 0.85 : (1.35 * leg) / 0.85;
       if (Number.isFinite(it.vx) || Number.isFinite(it.vz)) {
+        this.standUp(a);
         a.drive = { vx: Number(it.vx) || 0, vz: Number(it.vz) || 0 };
         a.goal = null;
         a.path = null;
       } else if (it.target || Number.isFinite(it.x) || Number.isFinite(it.z)) {
         let x = Number(it.x ?? a.pos[0]), z = Number(it.z ?? a.pos[2]);
+        let seat: { x: number; y: number; z: number; yaw: number } | undefined;
         if (it.target) {
           const o = this.model?.objects.find((ob) => ob.id === it.target || it.target!.startsWith(ob.id + "."));
           if (o) {
             const an = it.target.slice(o.id.length + 1);
-            const p = (an && o.anchors[an]) || o.anchors.door || o.pos;
+            // place assise : on marche jusqu'à l'ancre « approach.N » (devant), puis on s'assied sur « sit.N »
+            const sm = /^sit\.(\d+)$/.exec(an);
+            const sp = sm ? o.anchors[an] : undefined;
+            if (sp) seat = { x: sp[0], y: sp[1] - o.pos[1], z: sp[2], yaw: o.yaw };
+            const p = (sm && o.anchors[`approach.${sm[1]}`]) || (an && o.anchors[an]) || o.anchors.door || o.pos;
             [x, z] = [p[0], p[2]];
           }
         }
         this.goto(a, x, z, it.target);
+        if (a.goal && seat) a.goal.seat = seat;
       }
       if (Number.isFinite(it.facing) && !a.goal && !a.drive) a.yaw = (Number(it.facing) * Math.PI) / 180;
     }
   }
 
+  /** Quitte une place assise : retour au point libre devant l'assise (sinon l'acteur resterait dans l'obstacle). */
+  private standUp(a: ActorRT) {
+    if ((a.seatY ?? 0) > 0 && a.standAt) {
+      a.pos[0] = a.standAt[0];
+      a.pos[2] = a.standAt[1];
+      if (a.action === "sit") a.action = "idle";
+    }
+    a.seatY = 0;
+    a.standAt = undefined;
+  }
+
   private goto(a: ActorRT, x: number, z: number, target?: string) {
+    this.standUp(a);
     a.drive = null;
     const nav = this.model?.nav;
     const p = nav ? nav.path([a.pos[0], a.pos[2]], [x, z]) : ([[a.pos[0], a.pos[2]], [x, z]] as [number, number][]);
@@ -154,6 +183,18 @@ export class ActorSim {
           const g = a.goal;
           a.path = null;
           a.goal = null;
+          if (g?.seat) {
+            a.pos[0] = g.seat.x;
+            a.pos[2] = g.seat.z;
+            a.yaw = g.seat.yaw;
+            a.seatY = g.seat.y;
+            a.standAt = [g.x, g.z];
+            a.speed = 0;
+            if (a.action !== "sit") {
+              a.action = "sit";
+              a.actionTime = 0;
+            }
+          }
           if (g) this.onEvent({ type: "arrive", payload: { actor: a.model.id, x: round(a.pos[0]), z: round(a.pos[2]), target: g.target ?? null } });
         }
       } else {
@@ -162,7 +203,7 @@ export class ActorSim {
         vx = dx / d;
         vz = dz / d;
       }
-    } else if (a.model.behavior === "wander" || a.model.behavior === "patrol") {
+    } else if ((a.model.behavior === "wander" || a.model.behavior === "patrol") && !(a.action === "sit" && (a.seatY ?? 0) > 0)) {
       a.wanderT -= dt;
       if (a.wanderT <= 0) {
         a.wanderT = 3 + ((a.model.seed * 7.3 + this.time) % 6);
@@ -231,13 +272,13 @@ export class ActorSim {
 
   pose(a: ActorRT) {
     const sk = a.model.asset.skeleton!;
-    const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed };
+    const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" ? a.seatY : 0 };
     const { pose } = a.mo.pose(st);
     a.W = sk.world(pose);
   }
 
   poses(): ActorPose[] {
-    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, speed: a.speed, hidden: a.hidden, colors: a.model.asset.colors as Record<string, string> | undefined }));
+    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, speed: a.speed, hidden: a.hidden, seated: a.action === "sit" && (a.seatY ?? 0) > 0, colors: a.model.asset.colors as Record<string, string> | undefined }));
   }
 
   state(id: string) {

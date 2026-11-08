@@ -225,3 +225,19 @@ Demande : plus de précision, plus de variations, et un vrai mode 2D vectoriel. 
 - **Rendu 3D** : relief de détail procédural par matériau, usure des arêtes, ombres Poisson 12 échantillons, carte d'ombre 4096 sur ordinateur.
 
 **Écarts restants** : triangles en hausse (personnage foule ≈ 16 k, héros ≈ 38 k ; village ≈ 74 appels de dessin) → décimation et LOD toujours à faire ; doigts non animés (pas d'os de doigt) ; ardoise et zinc sans rangs dans le shader ; pas de rôle rose (cerisier) ; transitions d'allure des animaux avec un léger glissement.
+
+## 15. Lot v3.2 « objets du quotidien » (livré)
+
+Demande : il manque toutes sortes d'objets (ballons de toutes tailles, outils, sièges, bancs, carrioles…), pour des humains ou non. Réponse : une **grammaire** plutôt qu'un catalogue figé.
+
+- **Grammaire de pièces** (`gen/parts.ts`) : planche `box` (rotation), barre `rod` (fuselée), tube courbe `tube`, tour `lathe`, coussin `blob`. Une liste de pièces donne **à la fois** le maillage 3D et le dessin vectoriel (`vector/draw/parts.ts`, peintre par pièce) : un nouvel objet n'a qu'un seul code.
+- **`assembly`** : l'agent décrit un objet inédit en données (80 pièces au plus, nombres bornés, rôles connus, aucune évaluation), avec ses ancres et ses affordances.
+- **`ball`** : 22 ballons, balles, boules et billes à taille réelle (diamètre surchargeable, écrasement au sol), motifs en **espace motif** sur la sphère unité (`gen/sphere-pattern.ts` : polygones sphériques convexes, fuseaux, calottes, bandes, coutures). 3D : icosphère découpée aux frontières (`splitByLabel`, bords nets), coutures en tubes en relief. Vectoriel : régions découpées par l'hémisphère visible — l'ellipsoïde étant une image affine de la sphère, l'hémisphère visible reste un demi-espace en espace motif et le bord suit exactement la silhouette —, ombre propre par la même découpe côté lumière. Physique publiée (masse, rebond, frottement).
+- **`seat`** : 22 assises (tabouret, chaise, fauteuil, canapé, bancs, rondin, transat, trône, balançoire, panier de chien, perchoir…) par gabarit d'utilisateur (`adult`, `child`, `toddler`, `giant`, `pet`, `gnome`), matière, dossier, accoudoirs, places. Ancres `sit.N` / `approach.N`.
+- **S'asseoir** : `actors.<id> = {target: "<objet>.sit.N", action: "sit"}` → marche jusqu'à `approach.N`, se pose sur `sit.N` face à l'avant ; `MotionState.seatY` pose le bassin à hauteur d'assise (pieds au sol devant). En vectoriel, un acteur assis est ordonné par ses genoux (devant ou derrière le dossier).
+- **Couleurs franches** : rôles `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `white`, `black` (40 rôles ; tableau du shader dimensionné par `ROLES.length`).
+- **Affordances** : `affords` et `physics` publiés dans `selection` et `ids`.
+- Corrections au passage : un `yaw` explicite dans `place.at` est respecté (il était remplacé par un cap aléatoire hors bâtiments) ; en cavalière vectorielle, les objets loin à gauche ne sont plus coupés par la bande de sol de devant (clé d'ordre `Projector.key`, abscisse neutralisée).
+- Scène `aire-de-jeux`.
+
+**Suite** : outils à main (manche + tête + prise), contenants, mobilier urbain et objets pour animaux sur la même grammaire ; ballon dynamique (coup de pied, rebond) par `sonic-physics` ; numéros des boules de billard ; pieds sur le repose-pieds des tabourets hauts.

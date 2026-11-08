@@ -22,6 +22,8 @@ import { drawBush, drawFlowers, drawGrass, drawRock, drawTree, natureShadow } fr
 import { drawEmblem, drawGeneric, drawProp } from "./draw/props";
 import { drawVehicle, drawWall } from "./draw/fences";
 import { drawPlant } from "./draw/more";
+import { drawBall } from "./draw/ball";
+import { drawAssembly, drawSeat } from "./draw/parts";
 import type { DrawEnv, ObjectDrawer } from "./draw/types";
 import { type VectorCamera, Projector } from "./project";
 import type { Shape } from "./shape";
@@ -29,7 +31,7 @@ import { type Plan, buildPlan } from "./buildplan";
 import { VECTOR_META } from "./compose";
 import { hash32 } from "../core/rng";
 
-export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem, wall: drawWall, vehicle: drawVehicle, plant: drawPlant };
+export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem, wall: drawWall, vehicle: drawVehicle, plant: drawPlant, ball: drawBall, seat: drawSeat, assembly: drawAssembly };
 
 /** Générateurs dessinés par gabarit (même dessin pour mêmes paramètres : végétation, rochers). */
 const TEMPLATED = new Set(["tree", "bush", "grass", "rock", "plant"]);
@@ -38,7 +40,7 @@ const TEMPLATES = new Map<string, Shape[]>();
 /** Objets dont le dessin dépend du temps (redessinés à chaque image). */
 const ANIMATED = (o: ObjectInfo, p: Record<string, unknown>) => o.generator === "prop" && (p.kind === "campfire" || p.kind === "boat");
 
-export type ActorPose = { id: string; obj: number; sk: Skeleton; W: M4[]; pos: V3; yaw: number; params: Record<string, unknown>; blink: number; speed: number; hidden?: boolean; colors?: Record<string, string> };
+export type ActorPose = { id: string; obj: number; sk: Skeleton; W: M4[]; pos: V3; yaw: number; params: Record<string, unknown>; blink: number; speed: number; hidden?: boolean; /** Assis sur une assise : ordonné par ses genoux (devant ou derrière le dossier). */ seated?: boolean; colors?: Record<string, string> };
 
 export type ViewOpts = { camera: VectorCamera; lift?: number; angle?: number; k?: number };
 
@@ -92,9 +94,9 @@ export class VectorScene {
       let best = -Infinity;
       for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
         const x = o.pos[0] + a * o.footprint.hx * c + b * o.footprint.hz * s, z = o.pos[2] - a * o.footprint.hx * s + b * o.footprint.hz * c;
-        best = Math.max(best, this.pr.depth([x, o.pos[1], z]));
+        best = Math.max(best, this.pr.key([x, o.pos[1], z]));
       }
-      this.keys.set(o.obj, o.mode === "actor" ? this.pr.depth(o.pos) : best);
+      this.keys.set(o.obj, o.mode === "actor" ? this.pr.key(o.pos) : best);
     }
   }
 
@@ -202,7 +204,8 @@ export class VectorScene {
     for (const o of this.animated) this.drawObject(o, env);
     for (const a of actors) {
       if (a.hidden) continue;
-      const em = new Emitter(out, this.pr.depth(a.pos) + 0.05, this.layerOf(a.pos[2]), a.obj, this.pr.far(a.pos[2]), "ink", a.colors);
+      const kp: V3 = a.seated ? [a.pos[0] + Math.sin(a.yaw) * 0.6, a.pos[1], a.pos[2] + Math.cos(a.yaw) * 0.6] : a.pos;
+      const em = new Emitter(out, this.pr.key(kp) + 0.05, this.layerOf(a.pos[2]), a.obj, this.pr.far(a.pos[2]), "ink", a.colors);
       try {
         if (a.sk instanceof AnimalSkeleton) drawAnimal(this.pr, em, { sk: a.sk, W: a.W, pos: a.pos, yaw: a.yaw, params: a.params, blink: a.blink });
         else drawCharacter(this.pr, em, { sk: a.sk, W: a.W, pos: a.pos, yaw: a.yaw, params: a.params, blink: a.blink, time, speed: a.speed }, shadows, env.ground);

@@ -12,7 +12,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 
 | Clé | Rôle |
 |---|---|
-| `scene` | Scène de la bibliothèque : `village`, `rue`, `port`, `foret`, `bivouac`, `personnages`, `marche`, `montagne`, `vapeur`, `neon`, `blasons`, `jardin`, `ferme`, `bord-de-mer`, `place-medievale`, `jardin-japonais` |
+| `scene` | Scène de la bibliothèque : `village`, `rue`, `port`, `foret`, `bivouac`, `personnages`, `marche`, `montagne`, `vapeur`, `neon`, `blasons`, `jardin`, `ferme`, `bord-de-mer`, `aire-de-jeux`, `place-medievale`, `jardin-japonais` |
 | `render` | `3d` (défaut) ou `vector` (illustration vectorielle 2D, voir plus bas) |
 | `exportSvg` | Compteur : chaque changement publie le SVG de la vue dans `state-out.svg` (mode vectoriel) |
 | `recipe` | Recette complète (prioritaire sur `scene`, voir plus bas) |
@@ -58,6 +58,7 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 Intentions d'acteur (`actors.<id>`), écrites par le reducer, **jamais à chaque image** (le composant interpole) :
 
 - `{x, z}` ou `{target: "maisons.2"}` (ancre `door` par défaut, ou `"maisons.2.door"`) : marche jusque-là par la grille de navigation, contourne les bâtiments, puis `arrive` ; `run: true` pour courir, `speed` en m/s ;
+- `{target: "bancs.1.sit.0", action: "sit"}` : marche jusqu'à la place (ancre `approach.0`, devant l'assise), s'assied sur `sit.0` face à l'avant, le bassin à hauteur d'assise (chaise, tabouret de bar, rondin, balançoire…), puis `arrive` ;
 - `{vx, vz}` : déplacement direct (manette à 30 Hz), sans chemin ;
 - `{action}` : `idle`, `walk`, `run`, `wave`, `point`, `cheer`, `talk`, `carry`, `sit`, `jump`, `think`, `bow` ; `{mood}` : `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy` ; `{facing}` (°).
 
@@ -88,13 +89,13 @@ Exemple de reducer (voir `examples/village-vivant.sdui.json`) : sur `pick`, écr
 - Un nombre peut être une **expression** `"= …"` : `+ - * / % ^`, comparaisons, `cond ? a : b`, `min max clamp mix abs floor round sqrt pow sin cos`, `rand(a, b)`, `randint(a, b)`, `pick(…)`, `chance(p)`, `noise(x, y)`. Variables : paramètres de la recette, et dans une couche `i` (rang), `n`, `t` (0…1), `x`, `z`. Aucun code n'est exécuté.
 - `ground` : `relief`, `scale` (taille des collines, m), `mountains`, `water` (niveau), `coast` (`north|south|east|west`, avec `coastAt`, `coastDepth`), `surface` (`grass|sand|snow|dirt|paved|seabed`) ; `false` : pas de sol.
 - `paths[].kind` : `street` (chaussée, trottoirs, bordures), `road`, `path` (terre battue, chemin usé), `river`, `plaza`.
-- Placement (`place`) : `at` (points ou `{x, z, yaw}`), `grid` (`[nx, nz]`, `spacing`), `poisson` (`true` ou boîte `[x0, z0, x1, z1]`, `minDist`), `along` (route, `side` `left|right|both|center`, `spacing`, `offset`, `jitter`, `start`, `end`), `cluster` (centre, `radius`), `ring` (centre, `radius`, `jitter`), `edges` (`buildings|paths|all` : touffes au pied des murs et en bord de route).
+- Placement (`place`) : `at` (points ou `{x, z, yaw}` : un `yaw` donné est respecté), `grid` (`[nx, nz]`, `spacing`), `poisson` (`true` ou boîte `[x0, z0, x1, z1]`, `minDist`), `along` (route, `side` `left|right|both|center`, `spacing`, `offset`, `jitter`, `start`, `end`), `cluster` (centre, `radius`), `ring` (centre, `radius`, `jitter`), `edges` (`buildings|paths|all` : touffes au pied des murs et en bord de route).
 - Options de couche : `yaw` (`path`, `random`, `center`, `away` ou degrés), `scale`, `spacing`, `onPath`, `onWater` (bateaux), `walkable`, `behavior` (`idle|wander|patrol`, personnages), `action`.
 - Les ids sont `<couche>.<rang>` et ne changent pas quand on modifie un autre objet.
 
 ## Générateurs
 
-Table générée depuis les schémas (`generatorCatalog()`). Raccourcis : `prop.lamp`, `animal.horse`, `tree.oak`, `plant.fern`, `vehicle.sailboat`…
+Table générée depuis les schémas (`generatorCatalog()`). Raccourcis : `prop.lamp`, `animal.horse`, `tree.oak`, `plant.fern`, `vehicle.sailboat`, `ball.soccer`, `seat.parkbench`…
 
 | `gen` | Description et paramètres (`auto` = tiré de la graine) |
 |---|---|
@@ -112,7 +113,16 @@ Table générée depuis les schémas (`generatorCatalog()`). Raccourcis : `prop.
 | `wall` | Clôture continue le long de `points` (coordonnées de scène ; placer la couche à l'origine : place {at: [[0,0]]}). kind = drystone (muret de pierre sèche à couronnement), coping (muret maçonné à chaperon), fence (piquets et lisses), picket (palissade à lattes), hedge (haie taillée), railing (grille de fer forgé sur mur bahut), bamboo (clôture japonaise). Drapé sur le relief, brèches et portillons selon `gaps`. Paramètres : `kind` (drystone\|coping\|fence\|picket\|hedge\|railing\|bamboo), `points`, `height`, `gaps`, `closed` |
 | `emblem` | Écu en relief (heater, round, kite, banner, square) : partition, bordure, meuble. Se pose sur un mur ou se présente de face (vue `front`). Paramètres : `shape` (heater\|round\|kite\|banner\|square), `division` (plain\|per-pale\|per-fess\|per-bend\|quarterly\|chief), `charge` (none\|star\|circle\|cross\|chevron\|tower\|tree\|crescent), `field`, `tincture`, `metal`, `size` |
 
-Ancres : personnages `head.top`, `head.center`, `hand.r.grip`, `hand.l.grip`, `back`, `chest.front`, `hip.l`, `hip.r`, `feet` ; animaux `head.top`, `back`, `mouth`, `feet` ; bâtiments `door`, `roof` ; lampes et feux `light`.
+| `ball` | Ballons et balles à taille réelle (football 22 cm, basket 24 cm, tennis 6,7 cm, ballon de gym 65 cm…) avec leurs vrais motifs : panneaux, fuseaux, coutures en relief. Ovales (rugby, football américain) couchés sur le flanc. `diameter` change la taille (ballon géant, bille), `squash` l'écrase au sol (dégonflé), `color`/`color2`/`color3` prennent un rôle (red, orange, yellow, green, blue, purple, white, black, accent, cloth1…). Billard : `number` 0 (blanche) à 15. Publie `extra.affords` (kick, roll, bounce, throw, catch, hold…) et `extra.physics` {radius, mass, restitution, friction} ; ancres center, top, grip. Paramètres : `kind` (soccer\|basketball\|volleyball\|handball\|waterpolo\|rugby\|americanfootball\|tennis\|baseball\|cricket\|golf\|pingpong\|petanque\|cochonnet\|billiard\|bowling\|beach\|gym\|medicine\|bouncy\|marble\|playground), `diameter`, `squash`, `color`, `color2`, `color3`, `number`, `turn` |
+| `seat` | Assises paramétriques (stool, barstool, chair, armchair, school, folding, rocking, highchair, throne, monobloc, bench, parkbench, pew, sofa, log, stonebench, deckchair, pouf, beanbag, swing, dogbed, perch) construites par pièces : même modèle en 3D et en vectoriel. `user` règle le gabarit (adult, child, toddler, giant, pet, gnome), `places` la longueur des bancs et canapés, `material` (wood, metal, plastic, stone, upholstered, wicker…), `back` (none, low, high), `arms` (yes, no), `color`/`color2` les rôles de l'assise et de la structure. Ancres `sit.N` (bassin assis) et `approach.N` (devant, au sol) ; un acteur `{target: "<id>.sit.0", action: "sit"}` va s'y asseoir. `extra.affords` : sit, lie, rock, swing, perch… Paramètres : `kind` (stool\|barstool\|chair\|armchair\|school\|folding\|rocking\|highchair\|throne\|monobloc\|bench\|parkbench\|pew\|sofa\|log\|stonebench\|deckchair\|pouf\|beanbag\|swing\|dogbed\|perch), `user` (adult\|child\|toddler\|giant\|pet\|gnome), `scale`, `places`, `width`, `material` (auto\|wood\|metal\|plastic\|stone\|upholstered\|wicker\|park\|log\|deckchair\|throne\|swing), `back` (auto\|none\|low\|high), `arms` (auto\|yes\|no), `cushion`, `color`, `color2`, `variant` |
+| `assembly` | Objet composé par l'agent : `parts` = liste de pièces en mètres (y vers le haut, base au sol, avant = +z). Types : {t:'box', c:[x,y,z], h:[demi-côtés], rot?:[°x,°y,°z], role}, {t:'rod', a, b, r, r1?, role} (barre, pied), {t:'tube', pts:[[x,y,z]…], r, role} (barre courbe), {t:'lathe', c, profile:[[rayon, hauteur]…], role} (vase, seau, poteau tourné), {t:'blob', c, r:[rx,ry,rz], role} (coussin, sac, galet). 80 pièces au plus. `anchors` : {nom: [x,y,z]} (ex. sit.0, grip, top) ; `affords` : ['sit', 'push', 'carry'…]. Exemples : brouette, seau, pelle, établi, niche, mangeoire, panneau, jouet. Paramètres : `parts`, `anchors`, `affords`, `label` |
+Ancres : personnages `head.top`, `head.center`, `hand.r.grip`, `hand.l.grip`, `back`, `chest.front`, `hip.l`, `hip.r`, `feet` ; animaux `head.top`, `back`, `mouth`, `feet` ; bâtiments `door`, `roof` ; lampes et feux `light` ; ballons `center`, `top`, `grip` ; assises `sit.N`, `approach.N`, `back`.
+
+### Objets du quotidien : ce que l'objet permet
+
+`ball`, `seat` et `assembly` publient dans `selection` et dans `ids` leurs `affords` (ce que l'objet permet : `sit`, `lie`, `kick`, `roll`, `bounce`, `throw`, `catch`, `hold`, `carry`, `push`, `swing`, `rock`, `perch`…) ; la sélection d'un ballon ajoute `physics` `{shape, radius, length, mass, restitution, friction}`, celle d'une assise `seats` (`sit.0`, `sit.1`…) (unités SI) pour un jeu ou `sonic-physics`. Couleurs franches disponibles comme rôles : `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `white`, `black` (harmonisées par le style comme les autres rôles).
+
+**Grammaire de pièces** : un objet absent du catalogue se décrit en données avec `assembly` (planche `box`, barre `rod`, tube courbe `tube`, tour `lathe`, coussin `blob`) ; rendu identique en 3D et en vectoriel, aucune évaluation de code. Exemple d'un seau : `{"gen": "assembly", "params": {"parts": [{"t": "lathe", "c": [0, 0, 0], "profile": [[0.1, 0], [0.14, 0.26]], "role": "red"}, {"t": "tube", "pts": [[-0.14, 0.25, 0], [0, 0.36, 0], [0.14, 0.25, 0]], "r": 0.006, "role": "metal"}], "anchors": {"grip": [0, 0.36, 0]}, "affords": ["carry", "fill"]}}`.
 
 ## Vrai 2D : illustration vectorielle
 

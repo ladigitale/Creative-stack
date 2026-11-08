@@ -32,7 +32,7 @@ export const drawWall: ObjectDrawer = (kit, p, ctx) => {
   const z0 = em.z0;
   // tronçons du fond vers l'avant, chacun à sa profondeur
   const segs = pts.slice(0, -1).map((a, i) => ({ a, b: pts[i + 1], i })).filter((s) => Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]) > 0.05);
-  const depth = (x: number, z: number) => kit.pr.depth(kit.fr.w(x, 0, z));
+  const depth = (x: number, z: number) => kit.pr.key(kit.fr.w(x, 0, z));
   segs.sort((s, t) => Math.max(depth(...s.a), depth(...s.b)) - Math.max(depth(...t.a), depth(...t.b)));
   for (const s of segs) {
     const [x0, zz0] = s.a, [x1, zz1] = s.b;

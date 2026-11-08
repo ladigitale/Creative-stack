@@ -14,7 +14,9 @@ export type ParamSpec =
   | { type: "color"; default: string; doc: string }
   | { type: "string"; default: string; doc: string }
   | { type: "points"; default: [number, number][]; doc: string }
-  | { type: "object"; default: Record<string, unknown>; doc: string };
+  | { type: "object"; default: Record<string, unknown>; doc: string }
+  /** Liste libre (pièces d'un assemblage, affordances) : validée par le générateur lui-même. */
+  | { type: "list"; default: unknown[]; max?: number; doc: string };
 
 export type Schema = Record<string, ParamSpec>;
 
@@ -61,7 +63,7 @@ export function suggest(name: string, known: readonly string[]): string | undefi
 }
 
 export type Resolved<S extends Schema> = {
-  [K in keyof S]: S[K] extends { type: "number" | "int" } ? number : S[K] extends { type: "bool" } ? boolean : S[K] extends { type: "points" } ? [number, number][] : S[K] extends { type: "object" } ? Record<string, unknown> : string;
+  [K in keyof S]: S[K] extends { type: "number" | "int" } ? number : S[K] extends { type: "bool" } ? boolean : S[K] extends { type: "points" } ? [number, number][] : S[K] extends { type: "object" } ? Record<string, unknown> : S[K] extends { type: "list" } ? unknown[] : string;
 };
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -118,6 +120,17 @@ export function resolveParams<S extends Schema>(schema: S, input: Record<string,
         break;
       case "object":
         v = v && typeof v === "object" && !Array.isArray(v) ? v : spec.default;
+        break;
+      case "list":
+        if (v !== undefined && !Array.isArray(v)) issues.add({ path: p, code: "type", message: `liste attendue`, got: typeof v, used: "[]" });
+        v = Array.isArray(v) ? v.slice(0, spec.max ?? 256) : spec.default;
+        // taille totale bornée (listes imbriquées : points, profils) : elle entre dans les clés de cache et la sélection
+        if (Array.isArray(v) && JSON.stringify(v).length > 60000) {
+          const l = (v as unknown[]).slice();
+          while (l.length && JSON.stringify(l).length > 60000) l.pop();
+          issues.add({ path: p, code: "limit", message: `liste trop volumineuse : ${l.length} éléments gardés` });
+          v = l;
+        }
         break;
       default:
         v = String(v).slice(0, 200);

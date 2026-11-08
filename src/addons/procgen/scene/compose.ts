@@ -80,6 +80,9 @@ export type ObjectInfo = {
   obj: number;
   mode: "static" | "instance" | "actor";
   anchors: Record<string, V3>;
+  /** Ce que l'objet permet (s'asseoir, rouler, lancer…) et ses propriétés physiques, s'il les publie. */
+  affords?: string[];
+  physics?: Record<string, unknown>;
 };
 
 export type InstanceGroup = { key: string; mesh: Mesh; matrices: M4[]; objs: number[]; flex: boolean };
@@ -110,7 +113,7 @@ export type SceneModel = {
 
 /** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
 const ACTOR_GENS = new Set(["character", "animal"]);
-const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle"]);
+const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
 const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 } };
 const TILE = 24;
@@ -260,7 +263,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
         extraScale = (resolved[sp.name] as number) / sp.ref;
         resolved[sp.name] = sp.ref;
       }
-      for (const [k, v] of Object.entries(resolved)) if (typeof v === "number" && k !== "variant" && gen.schema[k]?.type === "number") resolved[k] = Math.round(v * 4) / 4;
+      // ballons et assises : tailles fines (une balle de golf fait 4,3 cm), pas d'arrondi
+      if (gen.id !== "ball" && gen.id !== "seat") for (const [k, v] of Object.entries(resolved)) if (typeof v === "number" && k !== "variant" && gen.schema[k]?.type === "number") resolved[k] = Math.round(v * 4) / 4;
     }
     const key = `${gen.id}|${JSON.stringify(resolved)}`;
     let asset = ACTOR_GENS.has(gen.id) ? undefined : assetCache.get(key);
@@ -288,7 +292,9 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     for (const [k, a] of Object.entries(asset.anchors)) anchors[k] = m4Point(T, a.pos);
     const isActor = ACTOR_GENS.has(generator);
     const mode: ObjectInfo["mode"] = isActor ? "actor" : INSTANCEABLE.has(generator) ? "instance" : "static";
-    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors });
+    const affords = Array.isArray(asset.extra?.affords) ? (asset.extra!.affords as string[]) : undefined;
+    const physics = asset.extra?.physics && typeof asset.extra.physics === "object" ? (asset.extra.physics as Record<string, unknown>) : undefined;
+    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(affords ? { affords } : {}), ...(physics ? { physics } : {}) });
     const segs = asset.extra?.segments as [number, number, number, number, number][] | undefined;
     if (segs) {
       // clôtures le long d'un tracé : chaque tronçon bloque sa bande, de petits disques jalonnent le tracé
@@ -300,7 +306,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       }
     } else {
       placedCircles.push({ x, z, r: Math.max(0.15, (generator === "building" ? Math.max(fp.hx, fp.hz) : fp.r * 0.6) * scale) });
-      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
+      // les ballons ne barrent pas le passage (on les pousse du pied)
+      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && generator !== "ball" && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
     }
     if (isActor) {
       const beh = (["idle", "wander", "patrol"] as const).includes(behavior as never) ? (behavior as ActorModel["behavior"]) : "idle";
@@ -377,13 +384,14 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       const rr = Math.max(0.2, built.generator === "building" ? Math.min(built.asset.footprint.hx, built.asset.footprint.hz) * scale * 0.95 : r * 0.6);
       if (!("at" in place) && !free(pos.x, pos.z, rr, !!layer.onPath || along || !!layer.onWater, spacing, !!layer.onWater)) continue;
       let yaw = pos.yaw ?? 0;
-      const yw = layer.yaw ?? (built.generator === "building" ? "path" : built.asset.extra?.segments ? 0 : "random");
+      // cap explicite d'un point `at` respecté ; sinon : bâtiments face au chemin, tracés sans rotation, le reste au hasard
+      const yw = layer.yaw ?? (built.generator === "building" || ("at" in place && pos.yaw !== undefined) ? "path" : built.asset.extra?.segments ? 0 : "random");
       if (yw === "random") yaw = irng.range(0, Math.PI * 2);
       else if (yw === "center") yaw = Math.atan2(-pos.x, -pos.z);
       else if (yw === "away") yaw = Math.atan2(pos.x, pos.z);
       else if (yw === "path") yaw = pos.yaw ?? facePath(pos.x, pos.z, paths);
       else yaw = num(yw, `${lp}.yaw`, irng, 0, vars) * DEG;
-      placeObject(layer, id, built.asset, built.key, built.generator, raw, pos.x, pos.z, yaw, scale, irng, layer.behavior, layer.action);
+      placeObject(layer, id, built.asset, built.key, built.generator, { ...(resolveGeneratorId(layer.gen).preset ?? {}), ...raw }, pos.x, pos.z, yaw, scale, irng, layer.behavior, layer.action);
       n++;
     }
     if (n < count && !("at" in place) && count > 0) issues.add({ path: `${lp}.count`, code: "info", message: `${n} placés sur ${count} demandés (place libre insuffisante)`, got: count, used: n });
