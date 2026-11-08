@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-vector-op",
-      "description": "Opération vectorielle (union, intersect, difference, xor, offset, simplify, round, fit, clip) sur des chemins SVG a et b ; résultat {d, polygons, bbox, area, error} publié en DataProvider",
+      "description": "Opération vectorielle (union, intersect, difference, xor, offset, simplify, round, fit, clip) sur des chemins SVG a et b ; op, delta, tolerance, radius, segments pilotables en direct par control / params ; fit garde les coins vifs ; résultat {status, d, polygons, bbox, area, error} publié en DataProvider",
       "props": {
         "op": { "type": "string" },
         "a": { "type": "string" },
@@ -23,12 +23,14 @@
         "radius": { "type": "number" },
         "segments": { "type": "number" },
         "view": { "type": "string" },
+        "control": { "type": "string" },
+        "params": { "type": "string" },
         "out-data-provider": { "type": "string" }
       }
     },
     {
       "name": "sonic-vector-library",
-      "description": "Bibliothèque de formes vectorielles nommées et étiquetées, pilotée par commandes (add, remove, rename, clear, load) à compteur n ; état {shapes, count, error} publié en DataProvider",
+      "description": "Bibliothèque de formes vectorielles nommées et étiquetées, pilotée par commandes (add, remove, rename, clear, load) à compteur n ; état {status, shapes, count, error} publié en DataProvider",
       "props": {
         "control": { "type": "string" },
         "filter": { "type": "string" },

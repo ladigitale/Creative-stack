@@ -237,4 +237,70 @@ describe("sonic-plot", () => {
     expect(el.shadowRoot!.querySelectorAll("path").length).toBe(2);
     expect((dp("pl2State").get() as { error: string }).error).toMatch(/format\.value/);
   });
+
+  it("spec-data-provider l'emporte sur les attributs, clé par clé, en direct", async () => {
+    set("ventesV", rows);
+    set("specV", null);
+    const el = document.createElement("sonic-plot") as SonicPlot;
+    el.id = "plV";
+    el.setAttribute("data-provider", "ventesV");
+    el.setAttribute("spec-data-provider", "specV");
+    el.setAttribute("type", "bar");
+    el.setAttribute("x", "m");
+    el.setAttribute("y", "ca");
+    el.setAttribute("heading", "CA");
+    document.body.append(el);
+    await settle(el);
+    expect(el.shadowRoot!.querySelectorAll("svg rect").length).toBe(3);
+    set("specV", { type: "line", y: "ca,marge", heading: "Marges" });
+    await settle(el);
+    const root = el.shadowRoot!;
+    expect(root.querySelectorAll("svg rect").length).toBe(0);
+    expect(root.querySelector(".title")!.textContent).toBe("Marges");
+    expect(root.querySelectorAll(".legend li").length).toBe(2);
+    // Clés absentes du DP : l'attribut reste la valeur par défaut.
+    set("specV", { type: "bar" });
+    await settle(el);
+    expect(root.querySelectorAll("svg rect").length).toBe(3);
+    expect(root.querySelector(".title")!.textContent).toBe("CA");
+    const st = dp("plVState").get() as { status: string; error: string | null; count: number };
+    expect(st).toMatchObject({ status: "ready", error: null, count: 3 });
+  });
+
+  it("status : idle sans données, error sur descripteur DP refusé, publié sans autre changement", async () => {
+    set("specW", { type: "bar", x: "m", y: "ca" });
+    const el = document.createElement("sonic-plot") as SonicPlot;
+    el.id = "plW";
+    el.setAttribute("spec-data-provider", "specW");
+    el.setAttribute("out-data-provider", "plWOut");
+    document.body.append(el);
+    await settle(el);
+    expect(dp("plWOut").get()).toMatchObject({ status: "idle", count: 0, error: null });
+    set("specW", { type: "nope", x: "m", y: "ca" });
+    await settle(el);
+    const st = dp("plWOut").get() as { status: string; error: string };
+    expect(st.status).toBe("error");
+    expect(st.error).toMatch(/type inconnu/);
+    set("specW", "{pas du json");
+    await settle(el);
+    expect((dp("plWOut").get() as { error: string }).error).toMatch(/JSON invalide/);
+    el.data = rows;
+    set("specW", { type: "bar", x: "m", y: "ca", "format-y": "compact" });
+    await settle(el);
+    expect(el.stateValue).toMatchObject({ status: "ready", error: null, count: 3 });
+  });
+
+  it("attributs seuls : comportement inchangé, spec objet écrasé par les attributs", async () => {
+    const el = document.createElement("sonic-plot") as SonicPlot;
+    el.id = "plX";
+    el.data = rows;
+    el.spec = { type: "pie", x: "cat", value: "ca" };
+    el.setAttribute("type", "bar");
+    el.setAttribute("y", "ca");
+    el.setAttribute("x", "m");
+    document.body.append(el);
+    await settle(el);
+    expect(el.shadowRoot!.querySelectorAll("svg rect").length).toBe(3);
+    expect(dp("plXState").get()).toMatchObject({ status: "ready", count: 3 });
+  });
 });

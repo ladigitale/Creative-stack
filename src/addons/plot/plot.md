@@ -34,10 +34,18 @@ L'axe des abscisses est détecté : nombres, dates ISO (`2026-03-14`) ou catégo
 
 ## Descripteur complet
 
-L'attribut `spec` (objet JSON) ou `spec-data-provider` accepte tous les champs : `rules: [{ value, label }]` (lignes de référence), `colors: ["primary", "danger", "#e63"]`, `yMin`, `yMax`, `legend`, `grid`, `height`. Les attributs écrasent le descripteur. Valeurs refusées (listées dans `state.error`) : types inconnus, formats autres que les noms ci-dessus, couleurs hors jetons / `#hex`.
+L'attribut `spec` (objet JSON) ou `spec-data-provider` accepte tous les champs : `rules: [{ value, label }]` (lignes de référence), `colors: ["primary", "danger", "#e63"]`, `yMin`, `yMax`, `legend`, `grid`, `height`.
+
+Priorité : `spec` < attributs < `spec-data-provider`. Les attributs écrasent `spec` ; le DP l'emporte sur les attributs **clé par clé** (une clé absente du DP laisse la valeur de l'attribut), et chaque nouvelle valeur du DP redessine le graphique. On peut donc poser les réglages par défaut en attributs et les changer en direct par DataProvider. Un descripteur DP remplace `spec` (pas de fusion entre les deux). Dans le DP, `y` accepte une liste ou `"ca,marge"`, et les noms d'attributs sont acceptés en alias : `heading` (= `title`), `x-label`, `y-label`, `format-x`, `format-y`, `format-value` (fusionnés dans `format`).
+
+```json
+{ "tagName": "sonic-plot", "attributes": { "id": "ventes", "data-provider": "ventes", "spec-data-provider": "ventesVue", "type": "bar", "x": "mois", "y": "ca" } }
+```
+
+Puis `ventesVue = { "type": "line", "y": "ca,marge", "curve": "monotone" }` bascule en courbes ; `ventesVue = {}` revient aux attributs. Valeurs refusées (listées dans `state.error`) : types inconnus, formats autres que les noms ci-dessus, couleurs hors jetons / `#hex`.
 
 ## Interaction
 
-Survol, clic (re-clic pour retirer), flèches et Entrée au clavier. `out-data-provider` (défaut `<id>State`) reçoit `{ hover, selected, count, error }` avec `{ series, label, value, share?, row }` : de quoi filtrer un tableau ou afficher le détail.
+Survol, clic (re-clic pour retirer), flèches et Entrée au clavier. `out-data-provider` (défaut `<id>State`) reçoit `{ hover, selected, count, status, error }` — `status` : `idle` (aucune ligne), `ready` (dessiné), `error` (descripteur en partie refusé, détail dans `error`, le reste est dessiné) ; republié à chaque changement de statut ou d'erreur — avec `{ series, label, value, share?, row }` : de quoi filtrer un tableau ou afficher le détail.
 
 Accessibilité : `role="img"` et résumé en `aria-label` ; le graphique est focusable.
