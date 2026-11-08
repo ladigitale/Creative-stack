@@ -38,7 +38,10 @@ const TEMPLATED = new Set(["tree", "bush", "grass", "rock", "plant"]);
 const TEMPLATES = new Map<string, Shape[]>();
 
 /** Objets dont le dessin dépend du temps (redessinés à chaque image). */
-const ANIMATED = (o: ObjectInfo, p: Record<string, unknown>) => o.generator === "prop" && (p.kind === "campfire" || p.kind === "boat");
+const ANIMATED = (o: ObjectInfo, p: Record<string, unknown>) => (o.generator === "prop" && (p.kind === "campfire" || p.kind === "boat")) || o.generator === "ball";
+
+/** Ballon en mouvement : centre et rotation courants (simulation `BallWorld`). */
+export type BallPose = { center: V3; spin: [number, number, number, number] };
 
 export type ActorPose = { id: string; obj: number; sk: Skeleton; W: M4[]; pos: V3; yaw: number; params: Record<string, unknown>; blink: number; speed: number; hidden?: boolean; /** Assis sur une assise : ordonné par ses genoux (devant ou derrière le dossier). */ seated?: boolean; colors?: Record<string, string> };
 
@@ -119,11 +122,12 @@ export class VectorScene {
     return { pr: this.pr, L: this.L, out, shadows, ground: (x, z) => (T ? T.height(x, z) : 0), time, night, waterLevel: T?.spec.water ?? null };
   }
 
-  private drawObject(o: ObjectInfo, env: DrawEnv) {
+  private drawObject(o: ObjectInfo, env: DrawEnv, ball?: BallPose) {
     const p = this.params.get(o.obj) ?? o.params;
-    const em = new Emitter(env.out, this.keys.get(o.obj) ?? 0, this.layerOf(o.pos[2]), o.obj, this.pr.far(o.pos[2]));
+    const zPos = ball ? ball.center[2] : o.pos[2];
+    const em = new Emitter(env.out, ball ? this.pr.key(ball.center) : (this.keys.get(o.obj) ?? 0), this.layerOf(zPos), o.obj, this.pr.far(zPos));
     const kit = new Kit(this.pr, new Frame(o.pos, o.yaw, o.scale), em, this.L);
-    const ctx = { obj: o, env, rng: new Rng(`${this.seed}/${o.id}`), mirror: (hash32(o.id) & 1) === 1, plan: o.generator === "building" ? this.planOf(o, p) : undefined };
+    const ctx = { obj: o, env, rng: new Rng(`${this.seed}/${o.id}`), mirror: (hash32(o.id) & 1) === 1, plan: o.generator === "building" ? this.planOf(o, p) : undefined, ball };
     if (TEMPLATED.has(o.generator) && DRAWERS[o.generator]) {
       // gabarit : dessiné une fois à l'origine (échelle 1), puis translaté / mis à l'échelle par instance
       const key = `${o.generator}|${JSON.stringify(p)}|${ctx.mirror}|${this.pr.ax.toFixed(3)}|${this.pr.ay.toFixed(3)}|${this.L[1].toFixed(3)}`;
@@ -197,11 +201,11 @@ export class VectorScene {
   }
 
   /** Formes animées (feux, barques, personnages) au temps `time`, triées. */
-  dynamicShapes(time: number, night: number, actors: ActorPose[]): Shape[] {
+  dynamicShapes(time: number, night: number, actors: ActorPose[], balls?: Map<number, BallPose>): Shape[] {
     const out: Shape[] = [], shadows: Shape[] = [];
     const env = this.env(out, shadows, time, night);
     if (!this.staticCache) this.staticShapes(night);
-    for (const o of this.animated) this.drawObject(o, env);
+    for (const o of this.animated) this.drawObject(o, env, balls?.get(o.obj));
     for (const a of actors) {
       if (a.hidden) continue;
       const kp: V3 = a.seated ? [a.pos[0] + Math.sin(a.yaw) * 0.6, a.pos[1], a.pos[2] + Math.cos(a.yaw) * 0.6] : a.pos;

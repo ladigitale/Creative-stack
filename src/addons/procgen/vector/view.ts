@@ -171,6 +171,16 @@ export class VectorView {
     this.kick();
   }
 
+  kickBall(id: string, v: [number, number, number]): boolean {
+    const ok = this.sim.kickBall(id, v);
+    if (ok) this.kick();
+    return ok;
+  }
+
+  ballState() {
+    return this.sim.ballState();
+  }
+
   /* ---------------- cadrage ---------------- */
 
   private layout() {
@@ -218,7 +228,7 @@ export class VectorView {
     const t0 = now();
     const night = this.vs.tokens.night;
     const st = sc.staticShapes(night, this.hiddenIds.size ? new Set([...this.hiddenIds].filter((id) => !this.sim.actors.has(id))) : undefined);
-    const dyn = sc.dynamicShapes(this.time, night, this.sim.poses());
+    const dyn = sc.dynamicShapes(this.time, night, this.sim.poses(), this.sim.ballPoses());
     this.genMs = now() - t0;
     return mergeSorted(st.shapes, dyn);
   }
@@ -527,7 +537,7 @@ export class VectorView {
   }
 
   private get animated(): boolean {
-    return !!this.model && this.play && (this.sim.actors.size > 0 || this.model.objects.some((o) => o.generator === "prop" && (this.scene?.params.get(o.obj)?.kind === "campfire")));
+    return !!this.model && this.play && (this.sim.actors.size > 0 || !!this.sim.balls?.moving || this.model.objects.some((o) => o.generator === "prop" && (this.scene?.params.get(o.obj)?.kind === "campfire")));
   }
 
   kick() {
