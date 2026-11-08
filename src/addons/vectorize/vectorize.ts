@@ -4,7 +4,8 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger, num } from "../../shared/media/control";
 import { isFrameSource } from "../../shared/mediaRef";
-import { toSvg, trace, type Layer, type TraceResult } from "./trace";
+import { toSvg, type Layer, type TraceResult } from "./trace";
+import { SupersededError, TraceRunner } from "./worker-client";
 
 /** Réglages effectifs (attributs, puis `control`, puis `params` : le dernier l'emporte). */
 export type VectorizeSettings = {
@@ -37,6 +38,8 @@ export type VectorizeState = {
   file: { url: string; mime: string; width: number; height: number } | null;
   bytes: number;
   ms: number;
+  /** Où le calcul a tourné : Web Worker (page fluide) ou fil principal (repli). */
+  engine: "worker" | "main";
   runs: number;
   truncated: boolean;
   settings: VectorizeSettings;
@@ -45,7 +48,7 @@ export type VectorizeState = {
 const DEFAULTS: VectorizeSettings = { colors: 8, tolerance: 1, minArea: 4, denoise: 1, curves: false, flat: false, maxSize: 512 };
 const IDLE: VectorizeState = {
   status: "idle", error: null, width: 0, height: 0, sourceWidth: 0, sourceHeight: 0, layers: 0, paths: [], palette: [],
-  svg: "", file: null, bytes: 0, ms: 0, runs: 0, truncated: false, settings: { ...DEFAULTS },
+  svg: "", file: null, bytes: 0, ms: 0, engine: "main", runs: 0, truncated: false, settings: { ...DEFAULTS },
 };
 
 /**
@@ -82,6 +85,8 @@ export class SonicVectorize extends LitElement {
   /** Côté max (px) de l'image analysée : borne le temps de calcul. */
   @property({ type: Number, attribute: "max-size" }) maxSize = DEFAULTS.maxSize;
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
+  /** Calcule sur le fil principal plutôt que dans un Web Worker (débogage). */
+  @property({ type: Boolean, attribute: "main-thread" }) mainThread = false;
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
   @state() private layerList: Layer[] = [];
@@ -98,6 +103,8 @@ export class SonicVectorize extends LitElement {
   private lastSeq = -1;
   private lastRun = 0;
   private runs = 0;
+  private runner: TraceRunner | null = null;
+  private job = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   private pending: ReturnType<typeof setTimeout> | null = null;
   private fileUrl: string | null = null;
@@ -116,6 +123,8 @@ export class SonicVectorize extends LitElement {
     this.timer = null;
     if (this.pending) clearTimeout(this.pending);
     this.pending = null;
+    this.runner?.dispose();
+    this.runner = null;
     this.revoke();
     super.disconnectedCallback();
   }
@@ -186,7 +195,7 @@ export class SonicVectorize extends LitElement {
     this.pending = setTimeout(() => {
       this.pending = null;
       if (this.settings().maxSize !== this.imageMaxSize) this.run(true);
-      else this.recompute();
+      else void this.recompute();
     }, 30);
   }
 
@@ -241,41 +250,49 @@ export class SonicVectorize extends LitElement {
       this.fail(e instanceof Error && e.name === "SecurityError" ? "image non lisible (CORS)" : e instanceof Error ? e.message : "lecture de l'image impossible");
       return true;
     }
-    this.recompute();
+    void this.recompute();
     return true;
   }
 
-  /** Vectorise la dernière image lue avec les réglages courants. */
-  private recompute(): void {
+  /** Vectorise la dernière image lue avec les réglages courants (dans un Web Worker si possible). */
+  private async recompute(): Promise<void> {
     const img = this.image;
     if (!img) return;
     const s = this.settings();
+    const job = ++this.job;
+    const size = { ...this.sourceSize };
     this.publish({ ...this.stateValue, status: "working", error: null, settings: s });
+    if (!this.runner) this.runner = new TraceRunner(!this.mainThread);
+    const runner = this.runner;
+    const t0 = performance.now();
+    let res: TraceResult;
     try {
-      const t0 = performance.now();
-      const res: TraceResult = trace(img, { colors: s.colors, tolerance: s.tolerance, minArea: s.minArea, denoise: s.denoise, curves: s.curves, stack: !s.flat });
-      const doc = toSvg(res, { width: this.sourceSize.w, height: this.sourceSize.h });
-      this.layerList = res.layers;
-      this.box = { w: res.width, h: res.height };
-      this.runs++;
-      this.revoke();
-      let file: VectorizeState["file"] = null;
-      if (typeof URL.createObjectURL === "function" && typeof Blob !== "undefined") {
-        this.fileUrl = URL.createObjectURL(new Blob([doc], { type: "image/svg+xml" }));
-        file = { url: this.fileUrl, mime: "image/svg+xml", width: this.sourceSize.w, height: this.sourceSize.h };
-      }
-      const total = res.width * res.height || 1;
-      this.publish({
-        status: "ready", error: null, width: res.width, height: res.height,
-        sourceWidth: this.sourceSize.w, sourceHeight: this.sourceSize.h,
-        layers: res.layers.length,
-        paths: res.layers.map((l) => ({ color: l.color, area: Math.round(l.area), share: Math.round((l.area / total) * 1e4) / 1e4 })),
-        palette: res.palette, svg: doc, file, bytes: doc.length,
-        ms: Math.round(performance.now() - t0), runs: this.runs, truncated: res.truncated, settings: s,
-      });
+      res = await runner.run(img, { colors: s.colors, tolerance: s.tolerance, minArea: s.minArea, denoise: s.denoise, curves: s.curves, stack: !s.flat });
     } catch (e) {
+      if (e instanceof SupersededError || job !== this.job) return;
       this.fail(e instanceof Error ? e.message : "échec de la vectorisation");
+      return;
     }
+    if (job !== this.job || !this.isConnected) return;
+    const doc = toSvg(res, { width: size.w, height: size.h });
+    this.layerList = res.layers;
+    this.box = { w: res.width, h: res.height };
+    this.runs++;
+    this.revoke();
+    let file: VectorizeState["file"] = null;
+    if (typeof URL.createObjectURL === "function" && typeof Blob !== "undefined") {
+      this.fileUrl = URL.createObjectURL(new Blob([doc], { type: "image/svg+xml" }));
+      file = { url: this.fileUrl, mime: "image/svg+xml", width: size.w, height: size.h };
+    }
+    const total = res.width * res.height || 1;
+    this.publish({
+      status: "ready", error: null, width: res.width, height: res.height,
+      sourceWidth: size.w, sourceHeight: size.h,
+      layers: res.layers.length,
+      paths: res.layers.map((l) => ({ color: l.color, area: Math.round(l.area), share: Math.round((l.area / total) * 1e4) / 1e4 })),
+      palette: res.palette, svg: doc, file, bytes: doc.length,
+      ms: Math.round(performance.now() - t0), engine: runner.engine, runs: this.runs, truncated: res.truncated, settings: s,
+    });
   }
 
   render(): TemplateResult | typeof nothing {

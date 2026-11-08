@@ -28,6 +28,7 @@ Store `vec` piloté par des `sonic-action` : `{ "n": 0, "colors": 8, "tolerance"
 | `flat` | `flat` | Sans empilement : chaque couleur seule, avec trous (peut laisser des fentes) |
 | `max-size` | `maxSize` | Côté maximal analysé en pixels (16 à 1400, défaut 512) |
 | `hidden-preview` | — | N'affiche pas le dessin |
+| `main-thread` | — | Calcule sur le fil principal au lieu d'un Web Worker (débogage) |
 
 État (`out-data-provider`) :
 
@@ -42,8 +43,11 @@ Store `vec` piloté par des `sonic-action` : `{ "n": 0, "colors": 8, "tolerance"
 | `svg` | Document SVG autonome (une couche = un `path` rempli) |
 | `file` | Le même SVG en SonicMediaRef `blob:` (`sonic-media-download`, `sonic-image`, `sonic-still`) |
 | `bytes`, `ms`, `runs`, `truncated` | Taille du SVG, durée du calcul, nombre de calculs, résultat plafonné |
+| `engine` | `worker` (calcul hors du fil principal) ou `main` (repli) |
 | `settings` | Réglages effectivement appliqués (à afficher plutôt que ceux du store) |
 
 ## Limites
 
-Calcul sur le fil principal : l'image est réduite à `max-size`. L'image d'un autre site doit autoriser CORS pour être lisible. Convient aux logos, dessins, affiches et photos posterisées, pas au rendu photographique fidèle. Les dégradés deviennent des aplats.
+Le calcul tourne dans un Web Worker (script en `blob:`) : la page reste fluide pendant qu'on règle, et un nouveau réglage interrompt le calcul en cours. Sans Worker disponible, repli sur le fil principal (`engine: "main"`). L'image est réduite à `max-size` (environ 1 s pour une image chargée en 1024 px).
+
+Le script du worker est généré à partir de `trace.ts` : après toute modification du tracé, lancer `yarn worker:vectorize` (`test:ci` vérifie qu'il est à jour). L'image d'un autre site doit autoriser CORS pour être lisible. Convient aux logos, dessins, affiches et photos posterisées, pas au rendu photographique fidèle. Les dégradés deviennent des aplats.
