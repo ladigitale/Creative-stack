@@ -1,0 +1,189 @@
+{
+ "nodes": [
+  {
+   "tagName": "div",
+   "attributes": {
+    "style": "display:flex;flex-direction:column;gap:.6rem;max-width:72rem;margin:1rem auto;padding:0 1rem"
+   },
+   "nodes": [
+    {
+     "tagName": "sonic-store",
+     "attributes": {
+      "id": "jeu",
+      "initial": "{\"monde\": {\"palette\": {\"sol\": \"#6a9a45\"}, \"textures\": {\"sol\": {\"kind\": \"herbe\", \"scale\": 1.2}, \"maillot\": {\"kind\": \"rayures\", \"color2\": \"#ffffff\", \"scale\": 7}}, \"texture\": \"grain\", \"ciel\": \"#9ed8f5\", \"brume\": 0.15, \"view2d\": {\"view\": \"iso\", \"unit\": 34, \"origin\": [360, 170]}, \"models\": {\"terrain\": {\"parts\": [{\"name\": \"sol\", \"plane\": [22, 16], \"role\": \"sol\"}]}, \"chat\": {\"preset\": \"bipede\", \"seed\": 3, \"params\": {\"espece\": \"chat\"}}, \"renard\": {\"preset\": \"bipede\", \"seed\": 8, \"params\": {\"espece\": \"renard\"}}, \"robot\": {\"preset\": \"bipede\", \"seed\": 2, \"params\": {\"espece\": \"robot\"}}, \"chien\": {\"preset\": \"quadrupede\", \"seed\": 5, \"params\": {\"taille\": 0.7}}, \"arbre\": {\"preset\": \"arbre\", \"seed\": 1, \"params\": {\"forme\": \"boules\"}}, \"sapin\": {\"preset\": \"arbre\", \"seed\": 4, \"params\": {\"forme\": \"sapin\", \"taille\": 4}}, \"maison\": {\"preset\": \"maison\", \"seed\": 2}, \"rocher\": {\"preset\": \"rocher\", \"seed\": 7}, \"ballon\": {\"preset\": \"ballon\"}}, \"place\": [{\"model\": \"terrain\"}, {\"model\": \"maison\", \"at\": [-6, 0, -5], \"rot\": [0, 20, 0]}, {\"model\": \"maison\", \"at\": [6, 0, -5.5], \"rot\": [0, -15, 0], \"seed\": 9}, {\"model\": \"arbre\", \"scatter\": 10, \"area\": [-10, -7, 10, -3], \"seed\": 2, \"size\": [0.6, 1.1]}, {\"model\": \"sapin\", \"grid\": [4, 1], \"step\": [3, 0, 0], \"at\": [-5, 0, 6.5], \"jitter\": 0.2}, {\"model\": \"rocher\", \"scatter\": 8, \"area\": [-10, -6, 10, 6], \"seed\": 4, \"size\": [0.3, 0.7]}, {\"model\": \"chat\", \"name\": \"p0\", \"at\": [-2, 0, 1], \"roles\": {\"maillot\": \"#e11d48\"}}, {\"model\": \"renard\", \"name\": \"p1\", \"at\": [0, 0, 2], \"rot\": [0, -30, 0]}, {\"model\": \"robot\", \"name\": \"p2\", \"at\": [2.5, 0, 0.5], \"rot\": [0, -60, 0], \"roles\": {\"maillot\": \"#16a34a\"}}, {\"model\": \"chien\", \"name\": \"c0\", \"at\": [-4, 0, 2.5], \"rot\": [0, 70, 0], \"clip\": \"marche\"}, {\"model\": \"ballon\", \"name\": \"b\", \"at\": [0.6, 0.11, 3]}]}, \"nodes\": {}, \"n\": 0}",
+      "reducer": "(\n  $p := $action.payload;\n  $clips := [\"saut\", \"joie\", \"tir\", \"tacle\", \"chute\", \"course\", \"marche\"];\n  $action.type = \"pick\" and $p.objectId ? (\n    $n := $state.n + 1;\n    $merge([$state, {\"n\": $n, \"nodes\": $merge([$state.nodes, {$p.objectId: {\"clip\": $p.objectId = \"c0\" ? ($n % 2 = 1 ? \"assis\" : \"marche\") : $clips[$n % 7]}}])}])\n  ) :\n  $action.type = \"tous\" ? $merge([$state, {\"nodes\": $merge([$state.nodes, {\"p0\": {\"clip\": $p.clip}, \"p1\": {\"clip\": $p.clip}, \"p2\": {\"clip\": $p.clip}}])}]) :\n  $action.type = \"vue\" ? $merge([$state, {\"monde\": $merge([$state.monde, {\"view2d\": $p}])}]) :\n  $state\n)"
+     }
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:grid;grid-template-columns:1fr 1fr;gap:.5rem"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-3d",
+       "attributes": {
+        "dataProvider": "jeu",
+        "target": "jeu",
+        "pick": true,
+        "pick-names": "^(p[0-9]|c0|b)$",
+        "style": "display:block;height:360px"
+       }
+      },
+      {
+       "tagName": "sonic-2d",
+       "attributes": {
+        "dataProvider": "jeu",
+        "target": "jeu",
+        "width": "720",
+        "height": "360",
+        "background": "#9ed8f5"
+       }
+      }
+     ]
+    },
+    {
+     "tagName": "div",
+     "attributes": {
+      "style": "display:flex;gap:.4rem;flex-wrap:wrap"
+     },
+     "nodes": [
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "tous",
+        "payload": "{\"clip\": \"marche\"}",
+        "trigger": "click"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Tous marchent"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "tous",
+        "payload": "{\"clip\": \"course\"}",
+        "trigger": "click"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Tous courent"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "tous",
+        "payload": "{\"clip\": \"joie\"}",
+        "trigger": "click"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Joie !"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "tous",
+        "payload": "{\"clip\": \"idle\"}",
+        "trigger": "click"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Repos"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "vue",
+        "payload": "{\"view\": \"iso\", \"unit\": 34, \"origin\": [360, 170]}",
+        "trigger": "click"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Vue iso"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "vue",
+        "payload": "{\"view\": \"top\", \"unit\": 30, \"origin\": [360, 180]}",
+        "trigger": "click"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Vue dessus"
+        }
+       ]
+      },
+      {
+       "tagName": "sonic-action",
+       "attributes": {
+        "target": "jeu",
+        "type": "vue",
+        "payload": "{\"view\": \"side\", \"unit\": 40, \"origin\": [360, 300]}",
+        "trigger": "click"
+       },
+       "nodes": [
+        {
+         "tagName": "sonic-button",
+         "attributes": {
+          "size": "sm"
+         },
+         "textContent": "Vue profil"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "tagName": "p",
+     "attributes": {
+      "style": "margin:0;font-size:.85rem;opacity:.7"
+     },
+     "textContent": "Touchez un personnage : il change d'animation, dans les deux vues à la fois."
+    }
+   ]
+  }
+ ]
+}

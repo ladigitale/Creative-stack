@@ -6,6 +6,7 @@ import { postBind } from "./post-bind";
 import { playback } from "./playback";
 import type { SceneRuntime } from "./runtime";
 import type { Sonic3dAsset } from "./types";
+import { readMonde, type Monde } from "../../shared/monde/format";
 
 function degToRad(deg: number): number {
   return ((Number.isFinite(deg) ? deg : 0) * Math.PI) / 180;
@@ -43,6 +44,20 @@ async function run(host: ReloadHost) {
   host.errorMessage = "";
   host.lastNodesJson = "";
   try {
+    const mh = host as unknown as { mondeParsed?: Monde | null; monde?: string; formPublisher: { get?: () => Record<string, unknown> } | null };
+    if (!mh.mondeParsed) {
+      const data = (mh.formPublisher?.get?.() ?? {}) as Record<string, unknown>;
+      let src: unknown = data.monde;
+      if (!src && mh.monde?.trim()) {
+        try {
+          src = JSON.parse(mh.monde);
+        } catch {
+          src = null;
+        }
+      }
+      if (src) mh.mondeParsed = readMonde(src);
+    }
+    host.runtime.stageMonde(mh.mondeParsed ?? null);
     await host.runtime.load(asset.resolve(host, host.formPublisher));
     if (token !== host.loadToken) return;
     host.ready = true;

@@ -29,6 +29,8 @@ export type Sonic3dAsset = {
   glb?: string;
   /** Plafond de taille du GLB décodé (octets). */
   maxBytes?: number;
+  /** Scène vide (pas de cube de démo) : le contenu vient d'un `monde`. */
+  empty?: boolean;
 };
 
 /**

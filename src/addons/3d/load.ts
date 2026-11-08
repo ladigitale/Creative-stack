@@ -129,6 +129,9 @@ async function asset(
       ctx.content = gltf.scene;
       ctx.root.add(ctx.content);
       if (asset.morphTargets) applyMorphTargets(ctx.content, asset.morphTargets);
+    } else if (!url && asset?.empty) {
+      ctx.content = new THREE.Group();
+      ctx.root.add(ctx.content);
     } else if (!url) {
       ctx.content = demoContent.create();
       ctx.root.add(ctx.content);

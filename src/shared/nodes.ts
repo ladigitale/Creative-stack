@@ -34,6 +34,12 @@ export type NodePatch = {
   ease?: NodeEase;
   /** 3D : hauteur max en y au milieu d'une interpolation de position (requiert `ease.ms`). */
   lift?: number;
+  /** Instance d'un `monde` (voir shared/monde) : clip joué, vitesse (1 = normale), position imposée 0..1. */
+  clip?: string;
+  clipSpeed?: number;
+  clipT?: number | null;
+  /** Instance d'un `monde` : couleurs par rôle (`{"maillot": "#e11d48"}`). */
+  roles?: Record<string, string>;
 };
 
 export type NodesSpec = { $reset?: boolean } & Record<string, NodePatch | boolean>;

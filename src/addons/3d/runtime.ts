@@ -16,6 +16,9 @@ import { NodeOverrides, type NodesSpec } from "./nodes";
 import { tune, type TuneCtx } from "./tune";
 import type { Sonic3dAsset, Sonic3dOutput } from "./types";
 import { view, type ViewCtx } from "./view";
+import { Monde3d } from "./monde";
+import { load as loadOps } from "./load";
+import type { Monde } from "../../shared/monde/format";
 
 export type { SceneHit, SceneRuntimeOptions };
 export { PostFxCompileError };
@@ -40,6 +43,9 @@ export class SceneRuntime {
   private loader = new GLTFLoader();
   /** Surcharges de nœuds pilotées par DP (clé `nodes`). */
   readonly nodes = new NodeOverrides();
+  /** Monde décrit en primitives (clé `monde`), ajouté au contenu chargé. */
+  readonly monde = new Monde3d();
+  private mondeData: Monde | null = null;
   private loadToken = 0;
   private blobUrl: string | null = null;
   private dprMax: number;
@@ -178,13 +184,51 @@ export class SceneRuntime {
   async load(asset: Sonic3dAsset | null) {
     this.nodes.dispose();
     await ops.runLoad(this.asOpsCtx(), asset);
+    if (this.mondeData && this.content) this.mountMonde(this.mondeData, true);
     this.nodes.attach(this.content);
+  }
+
+  /** Mémorise le monde à monter au prochain chargement (runtime neuf ou rechargement). */
+  stageMonde(m: Monde | null) {
+    this.mondeData = m;
+  }
+
+  /** Construit (ou reconstruit) le monde dans le contenu courant ; `fit` recadre si demandé. */
+  setMonde(m: Monde | null, fit = true): boolean {
+    this.mondeData = m;
+    if (!this._ready || !this.content) return false;
+    if (!m) {
+      this.monde.clear();
+      this.monde.group.removeFromParent();
+      this.monde.applySky(this.scene, null);
+    } else this.mountMonde(m, fit);
+    this.nodes.attach(this.content);
+    return true;
+  }
+
+  private mountMonde(m: Monde, fit: boolean) {
+    const first = this.monde.group.parent !== this.content;
+    try {
+      this.monde.set(m, performance.now());
+    } catch (err) {
+      // un monde ne doit jamais casser la scène (glb, nodes, taps continuent)
+      m.issues.push({ path: "", message: `rendu 3D : ${err instanceof Error ? err.message : String(err)}` });
+      this.monde.clear();
+    }
+    if (this.monde.group.parent !== this.content) this.content!.add(this.monde.group);
+    this.monde.applySky(this.scene, m);
+    if (first && fit && this.fitEnabled) {
+      loadOps.updateBBox(this as never);
+      this.fitToContent();
+    } else loadOps.updateBBox(this as never);
   }
 
   /** Applique `nodes` ; true si la scène a changé (un seul render à la charge de l'appelant). */
   applyNodes(spec: NodesSpec, animate = true): boolean {
     if (!this._ready) return false;
-    return this.nodes.apply(spec, performance.now(), animate);
+    const now = performance.now();
+    const a = this.mondeData ? this.monde.applyNodes(spec, now) : false;
+    return this.nodes.apply(spec, now, animate) || a;
   }
   fitToContent() {
     ops.fitToContent(this.asOpsCtx());
@@ -211,7 +255,9 @@ export class SceneRuntime {
   }
 
   render() {
-    this.nodes.step(performance.now());
+    const now = performance.now();
+    if (this.mondeData) this.monde.step(now);
+    this.nodes.step(now);
     this.controls?.update();
     if (this.postFx.isEnabled) {
       this.postFx.render(this.scene, this.activeCam, this.postFrame);
@@ -245,6 +291,7 @@ export class SceneRuntime {
   }
   dispose(loseContext = false) {
     this.nodes.dispose();
+    this.monde.dispose();
     this.postFx.dispose();
     ops.dispose(this.asOpsCtx(), loseContext);
   }

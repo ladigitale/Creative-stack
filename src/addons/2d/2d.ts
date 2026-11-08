@@ -4,6 +4,9 @@ import { HTML, PublisherManager } from "@supersoniks/concorde/utils";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch } from "../interactive";
 import { listenDp } from "../../shared/audio/dp";
+import { Monde2d } from "./monde";
+import { hash32 } from "../../shared/monde/math";
+import { mondeSummary, readMonde, type Monde } from "../../shared/monde/format";
 import { TAP_MAX_MOVE_PX, TAP_MAX_MS, easeCurve, isNum, namesRegex, type NodeCurve } from "../../shared/nodes";
 import { MAX_SPRITES, defaultCamera, parseLayers, parseSprite, readCamera, type Camera, type SpriteSpec } from "./model";
 import { Scene2D } from "./scene";
@@ -80,6 +83,16 @@ export class Sonic2d extends LitElement {
   @property({ type: Number, attribute: "max-dpr" }) maxDpr = 2;
   /** Contrôle visuel des maillages : `bones` (os de repos et courants), `mesh` (quadrillage déformé, sommets colorés par l'os dominant), `all`. */
   @property({ type: String }) debug = "";
+  /** Monde décrit en primitives (JSON, voir monde.md) ; aussi clé `monde` du dataProvider. */
+  @property({ type: String }) monde = "";
+  /** Calque du monde (défaut : `monde`, sinon le calque de premier plan). */
+  @property({ type: String, attribute: "monde-layer" }) mondeLayer = "";
+
+  private mondeR: Monde2d | null = null;
+  private mondeRef: unknown = undefined;
+  private mondeSig = "";
+  private mondeParsed: Monde | null = null;
+  private mondePatch = new Map<string, string>();
 
   private scene: Scene2D | null = null;
   private canvas: HTMLCanvasElement | null = null;
@@ -127,6 +140,8 @@ export class Sonic2d extends LitElement {
     this.unsubs = [];
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+    this.mondeR?.destroy();
+    this.mondeR = null;
     this.scene?.destroy();
     this.scene = null;
     super.disconnectedCallback();
@@ -162,12 +177,16 @@ export class Sonic2d extends LitElement {
     if (changed.has("debug")) this.scene.setDebug(this.debug);
     if (changed.has("dataProvider")) this.bind();
     if (changed.has("sprites") || changed.has("camera")) this.listen();
+    if (changed.has("monde")) this.syncMonde((this.publisher?.get() as Record<string, unknown> | null)?.monde);
+    if (changed.has("mondeLayer") && this.mondeR) this.scene.attachExtra(this.mondeR.container, this.mondeLayer || "monde");
   }
 
   /* ------------------------------------------------------------ construction */
 
   private async build(): Promise<void> {
     if (!this.canvas) return;
+    this.mondeR?.destroy();
+    this.mondeR = null;
     this.scene?.destroy();
     // Un canvas WebGL ne se réutilise pas d'un contexte à l'autre : on le remplace.
     const fresh = document.createElement("canvas");
@@ -210,6 +229,12 @@ export class Sonic2d extends LitElement {
     this.camSig = "";
     this.applyLayers();
     scene.setDebug(this.debug);
+    this.mondeR = new Monde2d(() => this.invalidate());
+    scene.attachExtra(this.mondeR.container, this.mondeLayer || "monde");
+    this.mondeRef = undefined;
+    this.mondeSig = "";
+    this.mondePatch.clear();
+    this.syncMonde((this.publisher?.get() as Record<string, unknown> | null)?.monde);
     this.syncSize();
     this.resync();
     this.listen();
@@ -324,12 +349,71 @@ export class Sonic2d extends LitElement {
     if (!data || typeof data !== "object") return;
     const animate = !reducedMotion() && document.visibilityState !== "hidden";
     const now = performance.now();
-    if (data.nodes !== undefined) scene.nodes.apply(data.nodes, now, animate);
+    if (data.monde !== undefined) this.syncMonde(data.monde);
+    if (data.nodes !== undefined) scene.nodes.apply(this.mondeR?.instanceCount ? this.routeNodes(data.nodes, now, animate) : data.nodes, now, animate);
     if (data.rest !== undefined || data.bones !== undefined) scene.setSkeleton(data.rest, data.bones);
     if (data.camera !== undefined && !this.camera.trim()) this.applyCameraSpec(data.camera, now, animate);
     this.publishOut();
     this.invalidate();
   };
+
+  /** Monde : lecture (attribut ou DP), reconstruction si le JSON a changé (modèles inchangés réutilisés). */
+  private syncMonde(dp: unknown): void {
+    const r = this.mondeR;
+    if (!r) return;
+    let src: unknown = dp;
+    let bad = false;
+    if (!src && this.monde.trim()) {
+      try {
+        src = JSON.parse(this.monde);
+      } catch {
+        src = { invalide: this.monde.length };
+        bad = true;
+      }
+    }
+    if (src === this.mondeRef) return;
+    this.mondeRef = src;
+    const sig = src ? String(hash32(JSON.stringify(src))) : "";
+    if (sig === this.mondeSig) return;
+    this.mondeSig = sig;
+    this.mondePatch.clear();
+    if (!src) {
+      this.mondeParsed = null;
+      r.clear();
+      return;
+    }
+    this.mondeParsed = readMonde(src, this.mondeParsed);
+    if (bad) this.mondeParsed.issues.push({ path: "", message: "attribut monde : JSON invalide" });
+    try {
+      r.set(this.mondeParsed, performance.now());
+    } catch (err) {
+      // un monde ne doit jamais bloquer le composant (sprites, nodes, taps continuent)
+      this.mondeParsed.issues.push({ path: "", message: `rendu 2D : ${err instanceof Error ? err.message : String(err)}` });
+      r.clear();
+    }
+    this.publishOut();
+    // les nodes déjà publiés valent aussi pour les instances neuves
+    const data = this.publisher?.get() as Record<string, unknown> | null | undefined;
+    if (data?.nodes && typeof data.nodes === "object") this.routeNodes(data.nodes, performance.now(), false);
+  }
+
+  /** Envoie au monde les patchs de ses instances et pièces (une seule fois par valeur) ; renvoie le reste. */
+  private routeNodes(nodes: unknown, now: number, animate: boolean): unknown {
+    const r = this.mondeR;
+    if (!r || !nodes || typeof nodes !== "object") return nodes;
+    const rest: Record<string, unknown> = {};
+    for (const [name, p] of Object.entries(nodes as Record<string, unknown>)) {
+      if (!r.has(name)) {
+        rest[name] = p;
+        continue;
+      }
+      const sig = JSON.stringify(p);
+      if (this.mondePatch.get(name) === sig) continue;
+      this.mondePatch.set(name, sig);
+      r.apply(name, p, now, animate);
+    }
+    return rest;
+  }
 
   private applyCameraSpec(v: unknown, now: number, animate: boolean): void {
     const sig = JSON.stringify(v);
@@ -385,11 +469,17 @@ export class Sonic2d extends LitElement {
       this.inFrame = false;
     }
     // Une source d'images vivante (sprite `source`) demande une image par rafraîchissement ; sinon : rendu à la demande.
-    if (this.dirty || scene.nodes.active || this.camTween || scene.hasLive) this.raf = requestAnimationFrame(this.frame);
+    if (this.dirty || scene.nodes.active || this.camTween || scene.hasLive || this.mondeBusy) this.raf = requestAnimationFrame(this.frame);
   };
+
+  private mondeBusy = false;
 
   private drawFrame(scene: Scene2D, now: number): void {
     let busy = scene.nodes.step(now);
+    if (this.mondeR) {
+      this.mondeBusy = this.mondeR.step(now);
+      busy = busy || this.mondeBusy;
+    }
     if (this.camTween) {
       const t = this.camTween;
       const k = Math.min(1, Math.max(0, (now - t.start) / t.ms));
@@ -433,6 +523,7 @@ export class Sonic2d extends LitElement {
       count: scene?.count ?? 0,
       missing: scene?.nodes.missing ?? 0,
       errors: [...this.layerErrors, ...this.childErrors, ...this.listErrors],
+      ...(this.mondeParsed ? { mondeInfo: mondeSummary(this.mondeParsed) } : {}),
     };
     const sig = JSON.stringify(next);
     if (sig === this.lastOut) return;
@@ -459,9 +550,17 @@ export class Sonic2d extends LitElement {
     const sx = (e.clientX - rect.left) / k;
     const sy = (e.clientY - rect.top) / k;
     const re = namesRegex(this.pickNames);
-    const hit = scene.pick(sx, sy, (n) => !re || re.test(n));
     const r2 = (n: number) => Math.round(n * 100) / 100;
     const type = this.pickActionType || "pick";
+    if (this.mondeR?.instanceCount) {
+      const [lx, ly] = scene.layerPoint(this.mondeLayer || "monde", sx, sy);
+      const mh = this.mondeR.pick(lx, ly);
+      if (mh && (!re || re.test(mh.instance))) {
+        dispatch(this.target, { type, payload: { objectId: mh.instance, part: mh.part, x: r2(lx), y: r2(ly) } });
+        return;
+      }
+    }
+    const hit = scene.pick(sx, sy, (n) => !re || re.test(n));
     if (hit) dispatch(this.target, { type, payload: { objectId: hit.name, x: r2(hit.x), y: r2(hit.y) } });
     else if (this.pickEmpty) {
       const [x, y] = scene.worldPoint(sx, sy);
