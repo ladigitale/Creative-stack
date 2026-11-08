@@ -19,8 +19,12 @@ const circle = (r: number, n = 20): [number, number][] => Array.from({ length: n
 const gable = (w: number, h: number, r: number): [number, number][] => [[-w, 0], [w, 0], [w, h], [0, h + r], [-w, h]];
 /** Toit à deux pans au-dessus d'un mur à la hauteur `h`, faîte `r`, profondeur 2·`d`. */
 function roof(P: PartList, w: number, h: number, r: number, d: number, role: Role, over = 0.05) {
-  const L = Math.hypot(w + over, r), a = (Math.atan2(r, w + over) * 180) / Math.PI;
-  for (const s of [-1, 1]) P.push(bx([(s * (w + over)) / 2, h + r / 2, 0], [L / 2, 0.012, d + over], role, [0, 0, -s * a]));
+  // même pente que le pignon ; pan prolongé de `over` au-delà du mur, posé sur l'arête (demi-épaisseur vers l'extérieur)
+  const a = Math.atan2(r, w), L = (w + over) / Math.cos(a), t = 0.012;
+  for (const s of [-1, 1]) {
+    const cx = (s * (w + over)) / 2, cy = h + r - (r * (w + over)) / (2 * w);
+    P.push(bx([cx + s * Math.sin(a) * t, cy + Math.cos(a) * t, 0], [L / 2, t, d + over], role, [0, 0, (-s * a * 180) / Math.PI]));
+  }
 }
 
 /** Dimension de référence (m) de l'animal visé, pour mettre les objets à sa taille. */
@@ -33,11 +37,12 @@ const KINDS: Record<string, { label: string; for: string; main: Role; trim: Role
     main: "wood",
     trim: "roof",
     build: (o) => {
-      const w = 0.4, h = 0.5, r = 0.25, d = 0.5;
+      // à la taille du chien du générateur `animal` (≈ 0,74 m de haut, 1,2 m de long)
+      const w = 0.42, h = 0.66, r = 0.3, d = 0.65;
       const P: PartList = [{ t: "plate", c: [0, 0, d], pts: gable(w, h, r), d: 0.012, role: o.main }, { t: "plate", c: [0, 0, -d], pts: gable(w, h, r), d: 0.012, role: o.main }];
       P.push(bx([w, h / 2, 0], [0.012, h / 2, d], o.main), bx([-w, h / 2, 0], [0.012, h / 2, d], o.main), bx([0, 0.02, 0], [w, 0.02, d], o.main));
       // entrée en arche sombre sur la façade
-      P.push({ t: "plate", c: [0, 0, d + 0.014], pts: [[-0.15, 0.04], [0.15, 0.04], [0.15, 0.3], [0.1, 0.38], [0, 0.41], [-0.1, 0.38], [-0.15, 0.3]], d: 0.002, role: "ink" });
+      P.push({ t: "plate", c: [0, 0, d + 0.014], pts: [[-0.18, 0.04], [0.18, 0.04], [0.18, 0.46], [0.12, 0.56], [0, 0.6], [-0.12, 0.56], [-0.18, 0.46]], d: 0.002, role: "ink" });
       roof(P, w, h, r, d, o.trim);
       return { parts: P, spot: [0, 0.05, 0], affords: ["shelter", "sleep"] };
     },
@@ -47,7 +52,7 @@ const KINDS: Record<string, { label: string; for: string; main: Role; trim: Role
     for: "dog",
     main: "red",
     trim: "leather",
-    build: (o) => ({ parts: [{ t: "lathe", c: [0, 0, 0], profile: [[0.1, 0], [0.12, 0.01], [0.13, 0.06], [0.12, 0.065], [0.1, 0.03], [0, 0.03]], role: o.main }, { t: "lathe", c: [0, 0.03, 0], profile: [[0.1, 0], [0.1, 0.012], [0, 0.015]], role: o.trim }], spot: [0, 0.05, 0.14], affords: ["eat", "drink"] }),
+    build: (o) => ({ parts: [{ t: "lathe", c: [0, 0, 0], profile: [[0.1, 0], [0.12, 0.01], [0.13, 0.06], [0.12, 0.065], [0.1, 0.03], [0, 0.03]], role: o.main }, { t: "lathe", c: [0, 0.03, 0], profile: [[0.1, 0], [0.1, 0.012], [0, 0.015]], role: o.trim }], spot: [0, 0, 0.3], affords: ["eat", "drink"] }),
   },
   trough: {
     label: "Abreuvoir",
@@ -68,11 +73,9 @@ const KINDS: Record<string, { label: string; for: string; main: Role; trim: Role
     trim: "roof",
     build: (o) => {
       const P: PartList = [rod([0, 0, 0], [0, 1.4, 0], 0.03, o.main), bx([0, 1.42, 0], [0.18, 0.012, 0.18], o.main)];
-      for (const [x, z] of [[-0.16, -0.16], [0.16, -0.16], [-0.16, 0.16], [0.16, 0.16]]) P.push(rod([x, 1.43, z], [x, 1.62, z], 0.01, o.main));
+      for (const [x, z] of [[-0.16, -0.16], [0.16, -0.16], [-0.16, 0.16], [0.16, 0.16]]) P.push(rod([x, 1.43, z], [x, 1.63, z], 0.01, o.main));
       P.push({ t: "blob", c: [0, 1.45, 0], r: [0.12, 0.02, 0.12], role: "yellow" });
-      const w = 0.2, r = 0.1;
-      const L = Math.hypot(w + 0.04, r), a = (Math.atan2(r, w + 0.04) * 180) / Math.PI;
-      for (const s of [-1, 1]) P.push(bx([(s * (w + 0.04)) / 2, 1.63 + r / 2, 0], [L / 2, 0.01, 0.22], o.trim, [0, 0, -s * a]));
+      roof(P, 0.17, 1.63, 0.1, 0.18, o.trim, 0.05);
       return { parts: P, spot: [0.18, 1.45, 0], affords: ["eat", "perch"] };
     },
   },
@@ -103,7 +106,8 @@ const KINDS: Record<string, { label: string; for: string; main: Role; trim: Role
       P.push(bx([0.3, 0.7, 0.34], [0.28, 0.27, 0.01], o.main));
       // grillage : barreaux fins sur la moitié gauche de la façade
       for (let i = 0; i < 8; i++) P.push(rod([-0.56 + i * 0.075, 0.44, 0.34], [-0.56 + i * 0.075, 0.97, 0.34], 0.003, "metal"));
-      P.push({ t: "box", c: [0, 1.02, 0.02], h: [0.66, 0.02, 0.42], role: o.trim, rot: [-6, 0, 0] });
+      P.push(bx([0, 0.74, -0.33], [0.6, 0.32, 0.02], o.main));
+      P.push({ t: "box", c: [0, 1.02, 0.02], h: [0.66, 0.02, 0.42], role: o.trim, rot: [6, 0, 0] });
       return { parts: P, spot: [-0.3, 0.45, 0], affords: ["shelter", "sleep", "eat"] };
     },
   },
@@ -119,14 +123,15 @@ const KINDS: Record<string, { label: string; for: string; main: Role; trim: Role
       const base = 0.3;
       P.push({ t: "plate", c: [0, base, d], pts: gable(w, h, r), d: 0.015, role: o.main }, { t: "plate", c: [0, base, -d], pts: gable(w, h, r), d: 0.015, role: o.main });
       P.push(bx([w, base + h / 2, 0], [0.015, h / 2, d], o.main), bx([-w, base + h / 2, 0], [0.015, h / 2, d], o.main), bx([0, base + 0.015, 0], [w, 0.015, d], o.main));
-      P.push({ t: "plate", c: [0.25, base, d + 0.017], pts: [[-0.12, 0.02], [0.12, 0.02], [0.12, 0.3], [-0.12, 0.3]], d: 0.002, role: "ink" });
+      P.push({ t: "plate", c: [0.25, base, d + 0.017], pts: [[-0.16, 0.02], [0.16, 0.02], [0.16, 0.44], [-0.16, 0.44]], d: 0.002, role: "ink" });
       // rampe d'accès
-      P.push({ t: "box", c: [0.25, base / 2 + 0.02, d + 0.35], h: [0.12, 0.01, 0.38], role: o.main, rot: [-25, 0, 0] });
-      for (let i = 0; i < 5; i++) P.push(bx([0.25, 0.065 + i * 0.065, d + 0.62 - i * 0.14], [0.12, 0.008, 0.012], o.main, [-25, 0, 0]));
+      P.push({ t: "box", c: [0.25, base / 2 + 0.02, d + 0.35], h: [0.12, 0.01, 0.38], role: o.main, rot: [25, 0, 0] });
+      // rampe : haute contre la trappe, au sol au bout ; tasseaux sur la planche
+      for (let i = 0; i < 5; i++) P.push(bx([0.25, 0.065 + i * 0.065, d + 0.62 - i * 0.14], [0.12, 0.008, 0.012], o.main, [25, 0, 0]));
       const P2: PartList = [];
       roof(P2, w, h, r, d, o.trim, 0.08);
       P.push(...transformParts(P2, [0, 0, 0, 1], [0, base, 0]));
-      return { parts: P, spot: [0.25, 0.02, d + 0.8], affords: ["shelter", "sleep", "lay"] };
+      return { parts: P, spot: [0, base + 0.03, 0], affords: ["shelter", "sleep", "lay"] };
     },
   },
   cattree: {
@@ -173,8 +178,8 @@ const KINDS: Record<string, { label: string; for: string; main: Role; trim: Role
         { t: "blob", c: [0.15, 1.0, 0.205], r: [0.035, 0.018, 0.006], role: "yellow" },
         rod([0.3, 0.75, 0], [0.32, 1.0, 0.02], 0.01, "leaf"),
       ],
-      spot: [0, 1.2, 0.3],
-      affords: ["watch"],
+      spot: [0, 1.185, 0],
+      affords: ["watch", "perch"],
     }),
   },
   birdbath: {
@@ -250,7 +255,7 @@ export const pet = defineGenerator({
   id: "pet",
   label: "Objet pour animaux",
   doc:
-    "Objets pour animaux (kennel, bowl, trough, birdfeeder, birdcage, hutch, henhouse, cattree, scratchingpost, aquarium, birdbath, hayrack, litterbox, saddlerack) sur la grammaire de pièces. `for` (auto, dog, cat, horse, chicken, rabbit, bird) met l'objet à la taille de l'animal (une niche pour cheval est 2,6 fois plus grande). Ancre `spot` : là où l'animal mange, boit, dort ou se perche ; `extra.affords` (shelter, sleep, eat, drink, perch, climb, scratch, lay…).",
+    "Objets pour animaux (kennel, bowl, trough, birdfeeder, birdcage, hutch, henhouse, cattree, scratchingpost, aquarium, birdbath, hayrack, litterbox, saddlerack) sur la grammaire de pièces. `for` (auto, dog, cat, horse, chicken, rabbit, bird : tailles de référence, bird ≈ petit oiseau) met l'objet à la taille de l'animal (une niche pour cheval est 2,6 fois plus grande ; échelle totale bornée à ×5 hors scène). Ancre `spot` : position de l'animal quand il mange, boit, dort ou se perche (pas celle de sa bouche) ; `approach` : où il arrive (devant l'entrée) — `target: <id>.spot` y mène ; `extra.affords` (shelter, sleep, eat, drink, perch, climb, scratch, lay…).",
   tags: ["animal", "ferme", "jardin", "maison", "écurie", "objet du quotidien"],
   schema: {
     kind: { type: "enum", default: "kennel", options: PET_KINDS, doc: "Objet" },
@@ -266,7 +271,7 @@ export const pet = defineGenerator({
     const hx = Math.max(Math.abs(bb.min[0]), Math.abs(bb.max[0]), 0.03);
     const hz = Math.max(Math.abs(bb.min[2]), Math.abs(bb.max[2]), 0.03);
     const rot: Q = [0, 0, 0, 1];
-    const anchors: Record<string, Anchor> = { top: { pos: [0, bb.max[1], 0], rot, scale: m.scale }, spot: { pos: m.spot, rot, scale: m.scale } };
+    const anchors: Record<string, Anchor> = { top: { pos: [0, bb.max[1], 0], rot, scale: m.scale }, spot: { pos: m.spot, rot, scale: m.scale }, approach: { pos: [m.spot[0], 0, Math.max(m.spot[2], hz + 0.3 * m.scale)], rot, scale: m.scale } };
     return { generator: "pet", mesh, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: bb.max[1], extra: { affords: m.affords, label: m.label, for: m.for } };
   },
 });

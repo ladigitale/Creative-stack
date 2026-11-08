@@ -117,7 +117,7 @@ export class ActorSim {
             const sm = /^sit\.(\d+)$/.exec(an);
             const sp = sm ? o.anchors[an] : undefined;
             if (sp) seat = { x: sp[0], y: sp[1] - o.pos[1], z: sp[2], yaw: o.seatYaw?.[an] ?? o.yaw };
-            const p = (sm && o.anchors[`approach.${sm[1]}`]) || (an && o.anchors[an]) || o.anchors.door || o.pos;
+            const p = (sm && o.anchors[`approach.${sm[1]}`]) || (an === "spot" && o.anchors.approach) || (an && o.anchors[an]) || o.anchors.door || o.pos;
             [x, z] = [p[0], p[2]];
           }
         }

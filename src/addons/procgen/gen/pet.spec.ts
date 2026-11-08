@@ -36,6 +36,24 @@ describe("objets pour animaux", () => {
     expect(cat.height).toBeLessThan(dog.height * 0.6);
   });
 
+  it("le chien et la poule du générateur animal passent par l'entrée ; approach devant l'entrée", () => {
+    const animal = (species: string) => {
+      const g = GENERATORS.animal, issues = new Issues();
+      const p = resolveParams(g.schema, { species }, { rng: new Rng(1), vars: {} }, issues, "");
+      return g.build(p as never, { rng: new Rng("a"), issues, path: "" });
+    };
+    const dog = animal("dog"), kennel = make({ kind: "kennel" }).asset;
+    expect(kennel.height).toBeGreaterThan(dog.height * 1.1);
+    expect(kennel.footprint.hz * 2).toBeGreaterThan(dog.footprint.hz * 2 * 1.0);
+    const hen = animal("chicken"), house = make({ kind: "henhouse" }).asset;
+    expect(house.height).toBeGreaterThan(hen.height * 1.5);
+    for (const kind of ["kennel", "hutch", "henhouse", "cattree"]) {
+      const a = make({ kind }).asset;
+      expect(a.anchors.approach.pos[1], kind).toBe(0);
+      expect(a.anchors.approach.pos[2], kind).toBeGreaterThan(a.footprint.hz);
+    }
+  });
+
   it("basse-cour vectorielle sans chemin invalide", () => {
     const model = composeVector({
       recipe: { size: [16, 10], ground: { relief: 0 }, layers: [{ id: "a", gen: "pet", count: 10, place: { poisson: [-6, -3, 6, 3], minDist: 1.6 }, params: { kind: "= pick('kennel', 'bowl', 'trough', 'birdfeeder', 'birdcage', 'hutch', 'henhouse', 'cattree', 'aquarium', 'birdbath', 'hayrack')" } }] },
