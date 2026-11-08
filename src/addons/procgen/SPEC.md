@@ -257,3 +257,10 @@ Demande : il manque toutes sortes d'objets (ballons de toutes tailles, outils, s
 - **Contenu** (`fill`) posé dans l'ouverture ronde ou rectangulaire : fruits (placement déterministe), sable, terre, grain, foin, eau, lait, bûches, fleurs, pièces d'or, outils couchés à plat (mêmes pièces que `tool`).
 - Ancres sur le corps fermé (ni couvercle levé ni contenu) : `top`, `grip` sur l'anse réelle, `inside` ; `sit.0`/`approach.0` sur caisse, coffre, glacière et sac fermés vides, palette vide.
 - Couvercles articulés sur leur charnière (coffre, caisse à outils, poubelle, glacière), dessinés derrière le corps quand ils sont levés ; contenus permis par contenant (issue sinon), fruits et pièces sur une grille centrée, bûches à la corde, contenu en détail réduit ; petits contenants hors navigation.
+
+## 18. Lot v3.5 « mobilier urbain » (livré)
+
+- **`street`** : 16 objets (lampadaire moderne qui éclaire la nuit, feu tricolore `state`, panneaux `sign` — stop, cédez-le-passage, sens interdit, limitation, parking, passage piéton, danger, flèche, sens unique, impasse —, plaque de rue, cône, barrière de chantier, arceaux à vélos `count`, bornes de tri, cabine téléphonique, table de pique-nique à 4 places, fontaine à boire, horodateur, armoire électrique, corbeille, plaque d'égout, poteau d'incendie). Complète `prop`.
+- Nouvelle pièce **`plate`** : polygone convexe extrudé (faces de panneaux par couches, disques à 24 côtés, triangles, flèches en tige + pointe) ; lue aussi par `assembly`.
+- Emprise au sol sur les pièces basses (bras de lampadaire, tête de feu exclus) ; rayon de la lumière proportionnel à sa hauteur ; dos des panneaux en métal ; plaques concaves venues d'une recette remplacées par leur enveloppe convexe (message).
+- **Places orientées** : le cap de chaque ancre `sit.N` (rotation de l'ancre) est publié (`seatYaw`) ; on s'assied face à la table de pique-nique des deux côtés.

@@ -8,7 +8,7 @@
  * Statiques uniques (bâtiments) : fusionnés par tuile spatiale ; objets répétés (arbres, rochers, objets) : instanciés ;
  * personnages : acteurs animés.
  */
-import { type M4, type V3, DEG, clamp, m4Compose, m4Point, qAxis } from "../core/math";
+import { type M4, type V3, DEG, clamp, m4Compose, m4Point, qAxis, qRot } from "../core/math";
 import { resolveDeep, type Scope } from "../core/expr";
 import { Rng } from "../core/rng";
 import { type Issue, Issues, resolveParams, suggest } from "../core/schema";
@@ -83,6 +83,8 @@ export type ObjectInfo = {
   /** Ce que l'objet permet (s'asseoir, rouler, lancer…) et ses propriétés physiques, s'il les publie. */
   affords?: string[];
   physics?: Record<string, unknown>;
+  /** Cap monde (radians) de chaque place `sit.N` : on s'y assied face à cette direction. */
+  seatYaw?: Record<string, number>;
 };
 
 export type InstanceGroup = { key: string; mesh: Mesh; matrices: M4[]; objs: number[]; flex: boolean };
@@ -113,9 +115,9 @@ export type SceneModel = {
 
 /** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
 const ACTOR_GENS = new Set(["character", "animal"]);
-const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container"]);
+const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
-const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 }, tool: { name: "scale", ref: 1 }, container: { name: "scale", ref: 1 } };
+const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 }, tool: { name: "scale", ref: 1 }, container: { name: "scale", ref: 1 }, street: { name: "scale", ref: 1 } };
 const TILE = 24;
 const MAX_ITEMS = 1500;
 
@@ -294,7 +296,12 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     const mode: ObjectInfo["mode"] = isActor ? "actor" : INSTANCEABLE.has(generator) ? "instance" : "static";
     const affords = Array.isArray(asset.extra?.affords) ? (asset.extra!.affords as string[]) : undefined;
     const physics = asset.extra?.physics && typeof asset.extra.physics === "object" ? (asset.extra.physics as Record<string, unknown>) : undefined;
-    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(affords ? { affords } : {}), ...(physics ? { physics } : {}) });
+    const seatYaw: Record<string, number> = {};
+    for (const [k, a] of Object.entries(asset.anchors)) if (k.startsWith("sit.")) {
+      const f = qRot(a.rot, [0, 0, 1]);
+      seatYaw[k] = yaw + Math.atan2(f[0], f[2]);
+    }
+    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, ...(Object.keys(seatYaw).length ? { seatYaw } : {}), footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(affords ? { affords } : {}), ...(physics ? { physics } : {}) });
     const segs = asset.extra?.segments as [number, number, number, number, number][] | undefined;
     if (segs) {
       // clôtures le long d'un tracé : chaque tronçon bloque sa bande, de petits disques jalonnent le tracé
@@ -466,7 +473,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     actors,
     objects,
     zones,
-    lights: objects.filter((o) => o.anchors.light).map((o) => ({ pos: o.anchors.light, kind: String(o.params.kind ?? "") === "campfire" || o.layer.includes("feu") ? "fire" : "lamp", radius: String(o.params.kind ?? "") === "campfire" ? 9 : 6 }) as PointLight),
+    lights: objects.filter((o) => o.anchors.light).map((o) => ({ pos: o.anchors.light, kind: String(o.params.kind ?? "") === "campfire" || o.layer.includes("feu") ? "fire" : "lamp", radius: String(o.params.kind ?? "") === "campfire" ? 9 : Math.max(6, (o.anchors.light[1] - o.pos[1]) * 1.9) }) as PointLight),
     nav,
     issues: issues.list,
     view: (recipe.view as Record<string, unknown>) ?? {},

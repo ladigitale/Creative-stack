@@ -9,7 +9,7 @@
  */
 import { type Q, type V3, clamp } from "../core/math";
 import type { Role } from "../style/roles";
-import { type Part, type PartList, partsBounds, partsToMesh, roleParam } from "./parts";
+import { type Part, type PartList, partsBounds, partsToMesh, roleParam, transformParts } from "./parts";
 import { type Anchor, defineGenerator } from "./types";
 
 export const SEAT_KINDS = [
@@ -351,21 +351,7 @@ export function seatModel(p: Record<string, unknown>): SeatModel {
   const user = String(p.user ?? "adult");
   const s = clamp((USERS[user] ?? 1) * clamp(Number(p.scale ?? 1) || 1, 0.1, 6), 0.1, 4);
   const S = (q: V3): V3 => [q[0] * s, q[1] * s, q[2] * s];
-  const scalePart = (q: Part): Part => {
-    switch (q.t) {
-      case "box":
-        return { ...q, c: S(q.c), h: S(q.h) };
-      case "rod":
-        return { ...q, a: S(q.a), b: S(q.b), r: q.r * s, r1: q.r1 === undefined ? undefined : q.r1 * s };
-      case "tube":
-        return { ...q, pts: q.pts.map(S), r: q.r * s };
-      case "lathe":
-        return { ...q, c: S(q.c), profile: q.profile.map(([r, y]) => [r * s, y * s] as [number, number]) };
-      case "blob":
-        return { ...q, c: S(q.c), r: S(q.r) };
-    }
-  };
-  return { parts: s === 1 ? b.parts : b.parts.map(scalePart), seats: b.seats.map(S), depth: b.depth * s, affords: b.affords, back: b.back ? S(b.back) : undefined, scale: s, label: d.label };
+  return { parts: s === 1 ? b.parts : transformParts(b.parts, [0, 0, 0, 1], [0, 0, 0], s), seats: b.seats.map(S), depth: b.depth * s, affords: b.affords, back: b.back ? S(b.back) : undefined, scale: s, label: d.label };
 }
 
 export const seat = defineGenerator({
