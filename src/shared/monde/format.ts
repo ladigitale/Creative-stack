@@ -110,6 +110,8 @@ export type MondeIn = {
   brume?: number;
   /** Style des modèles `gen` : préréglage procgen (`gouache`, `doux`, `bd`, `encre`, `aquarelle`…) ou jetons. */
   style?: unknown;
+  /** Importance des traits (contours) des modèles `gen` : 0 aucun, 1 style, jusqu'à 3. */
+  traits?: number;
 };
 
 /* ------------------------------------------------------------------ structures normalisées */
@@ -188,6 +190,7 @@ export type Monde = {
   brume: number;
   /** Style procgen des modèles `gen` (préréglage ou jetons, lu par le rendu). */
   style: unknown;
+  traits: number;
   issues: Issue[];
 };
 
@@ -679,6 +682,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     ciel: isColor(src.ciel) ? src.ciel : "",
     brume: clampN(num(src.brume, 0), 0, 1),
     style: src.style ?? null,
+    traits: clampN(num(src.traits, 1), 0, 3),
     place: readPlacements(src.place, models, issues),
     look,
     detail,

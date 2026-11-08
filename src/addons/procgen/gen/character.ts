@@ -12,7 +12,7 @@
 import { ARCHETYPES, AGES } from "../rig/humanoid";
 import { buildCharacter, type Built } from "./character/build";
 import {
-  BAGS, BEARDS, BELTS, BOTTOMS, BROWS, COLLARS, DETAILS, EARS, EYES, EYE_COLORS, FIGURES, GLASSES, GLOVES, HAIRS, HAIR_COLORS, HATS, HEAD_SHAPES, ITEMS, LEVELS, LIPS, MOODS, MUSTACHES, NOSES, OUTFITS, OVERS, PATTERNS, ROLES_CHAR, SHOES, SKIN_TONES, TOPS,
+  ANIMALS, BAGS, BEARDS, BELTS, BOTTOMS, BROWS, COLLARS, DETAILS, EARS, EYES, EYE_COLORS, FIGURES, GLASSES, GLOVES, HAIRS, HAIR_COLORS, HATS, HEAD_SHAPES, ITEMS, LEVELS, LIPS, MOODS, MUSTACHES, NOSES, OUTFITS, OVERS, PATTERNS, ROLES_CHAR, SHOES, SKIN_TONES, TOPS,
   resolveColors, resolveLook,
 } from "./character/look";
 import { defineGenerator } from "./types";
@@ -43,6 +43,7 @@ export const characterSchema = {
   nose: { type: "enum", default: "auto", options: auto(NOSES), doc: "Nez" },
   lips: { type: "enum", default: "auto", options: auto(LIPS), doc: "Lèvres" },
   ears: { type: "enum", default: "auto", options: auto(EARS), doc: "Oreilles (pointed : elfe)" },
+  animal: { type: "enum", default: "none", options: ANIMALS, doc: "Personnage animal : tête, oreilles, museau, queue et pelage (skin) de l'espèce sur le corps humanoïde : cat, fox, dog, bear, rabbit, mouse, pig, owl, frog, dino" },
   beard: { type: "enum", default: "auto", options: auto(BEARDS), doc: "Barbe" },
   mustache: { type: "enum", default: "auto", options: auto(MUSTACHES), doc: "Moustache" },
   glasses: { type: "enum", default: "auto", options: auto(GLASSES), doc: "Lunettes" },

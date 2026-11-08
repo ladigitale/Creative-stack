@@ -191,7 +191,7 @@ export class Monde3d {
     this.token++;
     this.monde = m;
     if (this.kit) {
-      this.kit.setStyle(m.style, m.look);
+      this.kit.setStyle(m.style, m.look, m.traits);
       this.kit.setFog(m.brume);
     }
     this.mats.dispose();
@@ -348,7 +348,10 @@ export class Monde3d {
       (mod) => {
         this.pg = mod;
         this.kit = new mod.GenKit(this.monde?.style, this.monde?.look ?? "doux");
-        if (this.monde) this.kit.setFog(this.monde.brume);
+        if (this.monde) {
+          this.kit.setStyle(this.monde.style, this.monde.look, this.monde.traits);
+          this.kit.setFog(this.monde.brume);
+        }
         this.schedule();
       },
       (err) => {

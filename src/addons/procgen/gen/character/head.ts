@@ -45,6 +45,8 @@ export function buildHeadField(k: Kit): HeadField {
   const chibi = arch === "chibi", toon = arch === "chibi" || arch === "cartoon";
   const shape = look.headShape;
   const sk = (g: string, f: PrimIn, role = S) => set.add({ ...f, role, tag: 0 } as FieldPrim, "head", g);
+  /** Personnage animal : ni nez, ni oreilles, ni lèvres humains ; museau et oreilles de l'espèce. */
+  const an = look.animal !== "none" ? look.animal : "";
 
   /* ---------- crâne et visage ---------- */
   const tall = shape === "long" ? 1.06 : shape === "round" ? 0.96 : 1;
@@ -102,8 +104,8 @@ export function buildHeadField(k: Kit): HeadField {
   if (nose === "button") (proj = 0.45), (tipR = [nr * 0.8, nr * 0.8, nr * 0.8]);
   const tipS = hit(base, 0, tipY);
   const noseTip = add(tipS.p, [0, nose === "upturned" ? nr * 0.15 : nose === "aquiline" ? -nr * 0.2 : 0, nr * proj]);
-  sk("nose", { kind: "ellipsoid", c: noseTip, r: tipR });
-  if (!chibi) {
+  if (!an) sk("nose", { kind: "ellipsoid", c: noseTip, r: tipR });
+  if (!chibi && !an) {
     const bridgeA = madd(root.p, root.n, -nr * 0.15);
     if (nose === "aquiline") {
       const mid = add(mix3(bridgeA, noseTip, 0.45), [0, 0, nr * 0.75]);
@@ -124,6 +126,7 @@ export function buildHeadField(k: Kit): HeadField {
     const e = base.raycast([sx * hw * 1.2, earY, cc[2] - hd * 0.02], [-sx, 0, 0], hw * 1.2, hh * 0.0005) ?? [sx * cr[0], earY, cc[2]];
     ears.push(e);
     const g = `ear.${sx}`;
+    if (an) continue;
     const i0 = set.add({ kind: "ellipsoid", c: add(e, [sx * er * 0.24, 0, -er * 0.12]), r: [er * 0.3, er, er * 0.62], role: S, tag: 0 }, "head", g);
     if (look.ears === "pointed") set.add({ kind: "capsule", a: add(e, [sx * er * 0.15, er * 0.45, -er * 0.25]), b: add(e, [sx * er * 0.5, er * 1.75, -er * 0.75]), ra: er * 0.32, rb: er * 0.04, role: S, tag: 0 }, "head", g);
     // conque : un relief intérieur
@@ -135,10 +138,58 @@ export function buildHeadField(k: Kit): HeadField {
   const mouthS = hit(base, 0, mouthY);
   const lh = look.lips === "full" ? hh * 0.03 : look.lips === "medium" ? hh * 0.021 : 0;
   const LIP = ROLE.sky;
-  if (lh > 0 && !chibi) {
+  if (lh > 0 && !chibi && !an) {
     const n = mouthS.n;
     set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, lh * 0.55, 0]), n, -lh * 0.32), r: [mouthW * 0.95, lh * 0.55, lh * 0.75], role: LIP, tag: 0 }, "head", "lips");
     set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, -lh * 0.75, 0]), n, -lh * 0.28), r: [mouthW * 0.8, lh * 0.72, lh * 0.8], role: LIP, tag: 0 }, "head", "lips");
+  }
+  if (an) {
+    const MZ = an === "dog" || an === "bear" ? ROLE.paper : an === "pig" || an === "dino" ? S : ROLE.white;
+    const eh = hh * (chibi ? 0.22 : 0.2);
+    const topY = cc[1] + cr[1] * 0.74;
+    for (const sx of [1, -1]) {
+      const g = `ear.${sx}`;
+      const b0: V3 = [sx * cr[0] * 0.56, topY, cc[2] - cr[2] * 0.06];
+      if (an === "cat" || an === "fox" || an === "owl") {
+        const L = an === "fox" ? 2.3 : an === "owl" ? 1.25 : 1.65;
+        const tip = add(b0, [sx * eh * (an === "owl" ? 0.55 : 0.32), eh * L, -eh * 0.12]);
+        sk(g, { kind: "capsule", a: b0, b: tip, ra: eh * (an === "owl" ? 0.36 : 0.6), rb: eh * 0.05 });
+        if (an !== "owl") sk(g, { kind: "capsule", a: add(b0, [0, eh * 0.2, eh * 0.3]), b: add(tip, [0, -eh * 0.3, eh * 0.12]), ra: eh * 0.32, rb: eh * 0.03 }, an === "fox" ? ROLE.white : ROLE.sky);
+      } else if (an === "dog") {
+        sk(g, { kind: "ellipsoid", c: [sx * cr[0] * 1.0, cc[1] + cr[1] * 0.12, cc[2] - cr[2] * 0.08], r: [eh * 0.34, eh * 1.35, eh * 0.78] }, HR);
+      } else if (an === "bear" || an === "mouse") {
+        const R = an === "mouse" ? 1.15 : 0.68;
+        const c = add(b0, [sx * eh * 0.25, eh * R * 0.5, 0]);
+        sk(g, { kind: "ellipsoid", c, r: [eh * R, eh * R, eh * 0.34] });
+        sk(g, { kind: "ellipsoid", c: add(c, [0, 0, eh * 0.16]), r: [eh * R * 0.62, eh * R * 0.62, eh * 0.2] }, an === "mouse" ? ROLE.sky : MZ);
+      } else if (an === "rabbit") {
+        const tip = add(b0, [sx * eh * 0.45, eh * 3.1, -eh * 0.35]);
+        sk(g, { kind: "capsule", a: b0, b: tip, ra: eh * 0.42, rb: eh * 0.3 });
+        sk(g, { kind: "capsule", a: add(b0, [0, eh * 0.4, eh * 0.22]), b: add(tip, [0, -eh * 0.35, eh * 0.2]), ra: eh * 0.22, rb: eh * 0.15 }, ROLE.sky);
+      } else if (an === "pig") {
+        sk(g, { kind: "capsule", a: b0, b: add(b0, [sx * eh * 0.7, eh * 0.55, eh * 0.55]), ra: eh * 0.45, rb: eh * 0.08 });
+      }
+    }
+    // museau (et truffe), bec ou gros yeux
+    const SN: Record<string, [number, number, number]> = { cat: [0.2, 0.12, 0.14], fox: [0.16, 0.12, 0.34], dog: [0.24, 0.16, 0.28], bear: [0.24, 0.16, 0.22], rabbit: [0.18, 0.12, 0.12], mouse: [0.14, 0.11, 0.3], pig: [0.2, 0.15, 0.17], dino: [0.36, 0.22, 0.42] };
+    const ms = hit(base, 0, mix(noseTipY, mouthY, 0.4));
+    const sn = SN[an];
+    if (sn) {
+      const c = add(ms.p, [0, 0, hd * sn[2] * 0.5]);
+      const si = sk("snout", { kind: "ellipsoid", c, r: [hw * sn[0], hh * sn[1], hd * sn[2]] }, MZ);
+      set.extraBlends.push({ a: si, b: faceIdx, k: hw * 0.08 });
+      if (an === "pig") sk("snout", { kind: "ellipsoid", c: add(c, [0, 0, hd * sn[2] * 0.95]), r: [hw * 0.12, hh * 0.085, hd * 0.05] }, ROLE.sky);
+      else if (an !== "dino") sk("snout", { kind: "ellipsoid", c: add(c, [0, hh * sn[1] * 0.55, hd * sn[2] * 0.82]), r: [hw * 0.075, hh * 0.05, hd * 0.055] }, ROLE.black);
+    } else if (an === "owl") {
+      sk("snout", { kind: "capsule", a: add(ms.p, [0, hh * 0.05, 0]), b: add(ms.p, [0, -hh * 0.08, hd * 0.14]), ra: hw * 0.075, rb: hw * 0.012 }, ROLE.orange);
+      for (const sx of [1, -1]) sk("snout", { kind: "ellipsoid", c: add(hit(base, sx * eyeX, eyeY).p, [0, 0, -hd * 0.06]), r: [eyeR * 1.7, eyeR * 1.7, hd * 0.08] }, ROLE.white);
+    } else if (an === "frog") {
+      for (const sx of [1, -1]) sk("snout", { kind: "ellipsoid", c: [sx * eyeX * 1.1, eyeY + hh * 0.1, cc[2] + cr[2] * 0.35], r: [eyeR * 1.6, eyeR * 1.5, eyeR * 1.5] });
+    }
+    if (an === "dino") for (let i = 0; i < 4; i++) {
+      const a: V3 = [0, cc[1] + cr[1] * (0.9 - i * 0.35), cc[2] - cr[2] * (0.3 + i * 0.25)];
+      sk("snout", { kind: "capsule", a, b: add(a, [0, hh * 0.09, -hh * 0.05]), ra: hh * 0.05, rb: hh * 0.01 }, ROLE.cloth3);
+    }
   }
   const skin = new Field(set.prims.slice(), [...set.groupBlends(groupK(hw, nr, er)), ...set.extraBlends]);
 
@@ -427,7 +478,7 @@ export function buildHeadField(k: Kit): HeadField {
 }
 
 const groupK = (hw: number, nr: number, er: number) => (g: string) =>
-  g === "skull" ? hw * 0.14 : g === "nose" ? nr * 0.5 : g.startsWith("ear") ? er * 0.15 : g === "lips" ? hw * 0.02 : g === "beard" ? hw * 0.05 : g === "hair" ? hw * 0.06 : g === "braid" ? hw * 0.02 : g === "hat" ? hw * 0.03 : g === "brim" ? hw * 0.02 : 0;
+  g === "skull" ? hw * 0.14 : g === "nose" ? nr * 0.5 : g === "snout" ? hw * 0.04 : g.startsWith("ear") ? er * 0.15 : g === "lips" ? hw * 0.02 : g === "beard" ? hw * 0.05 : g === "hair" ? hw * 0.06 : g === "braid" ? hw * 0.02 : g === "hat" ? hw * 0.03 : g === "brim" ? hw * 0.02 : 0;
 
 const sub3 = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len3 = (a: V3) => Math.hypot(a[0], a[1], a[2]);

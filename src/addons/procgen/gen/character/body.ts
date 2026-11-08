@@ -54,6 +54,26 @@ export function buildBodyField(k: Kit): BodyField {
   const torsoD = P.torsoD;
   put("pelvis", { kind: "ellipsoid", c: hipC, r: [P.hipHalf * 1.32 * bw, H * 0.068, H * 0.072 * torsoD * bw], role: S, tag: 0 }, "pelvis");
   put("spine", cap("spine", 0, 1, 0, S, bw), "spine");
+  /* ---------- queue (personnage animal) ---------- */
+  const an = look.animal;
+  if (an && an !== "none" && an !== "frog") {
+    const b0: V3 = [0, P.hipY - H * 0.005, hipC[2] - H * 0.072 * torsoD * bw * 0.85];
+    const chain = (pts: V3[], rs: number[], role = S) => {
+      for (let i = 0; i + 1 < pts.length; i++) put("tail", { kind: "capsule", a: pts[i], b: pts[i + 1], ra: rs[i], rb: rs[i + 1], role, tag: 0 }, "pelvis");
+    };
+    const o = (x: number, y: number, z: number): V3 => [b0[0] + x * H, b0[1] + y * H, b0[2] - z * H];
+    if (an === "cat") chain([o(0, 0, 0), o(0, -0.05, 0.1), o(0, 0.04, 0.2), o(0, 0.17, 0.24), o(0, 0.25, 0.21)], [0.02, 0.019, 0.018, 0.017, 0.015].map((r) => r * H));
+    else if (an === "fox") {
+      chain([o(0, 0, 0), o(0, -0.06, 0.12), o(0, -0.04, 0.26)], [0.03, 0.055, 0.05].map((r) => r * H));
+      put("tail", { kind: "ellipsoid", c: o(0, -0.02, 0.33), r: [H * 0.04, H * 0.04, H * 0.06], role: ROLE.white, tag: 0 }, "pelvis");
+    } else if (an === "dog") chain([o(0, 0, 0), o(0, 0.06, 0.09), o(0, 0.15, 0.13)], [0.02, 0.018, 0.012].map((r) => r * H));
+    else if (an === "bear") put("tail", { kind: "ellipsoid", c: o(0, 0.01, 0.02), r: [H * 0.035, H * 0.032, H * 0.03], role: S, tag: 0 }, "pelvis");
+    else if (an === "rabbit") put("tail", { kind: "ellipsoid", c: o(0, 0.01, 0.025), r: [H * 0.045, H * 0.042, H * 0.04], role: ROLE.white, tag: 0 }, "pelvis");
+    else if (an === "mouse") chain([o(0, 0, 0), o(0, -0.08, 0.12), o(0, -0.1, 0.3), o(0.03, -0.05, 0.42)], [0.012, 0.01, 0.008, 0.005].map((r) => r * H));
+    else if (an === "pig") chain([o(0, 0, 0), o(0.02, 0.03, 0.04), o(-0.01, 0.05, 0.06), o(0.0, 0.03, 0.08)], [0.011, 0.01, 0.009, 0.008].map((r) => r * H));
+    else if (an === "owl") put("tail", { kind: "ellipsoid", c: o(0, -0.06, 0.04), r: [H * 0.06, H * 0.07, H * 0.018], role: S, tag: 0 }, "pelvis");
+    else if (an === "dino") chain([o(0, 0.02, 0), o(0, -0.12, 0.14), o(0, -0.24, 0.32), o(0, -0.3, 0.52)], [0.06, 0.05, 0.03, 0.012].map((r) => r * H));
+  }
   if (look.belly > 0.05) put("spine", { kind: "ellipsoid", c: add(at("spine", 0.35), [0, 0, H * 0.025 * look.belly]), r: [H * (0.075 + 0.03 * look.belly) * bw, H * 0.075, H * (0.06 + 0.045 * look.belly) * bw], role: S, tag: 0 }, "spine");
   const chestC = add(at("chest", 0.45), [0, 0, H * 0.004]);
   const chestR: V3 = [P.shoulderHalf * 0.88 * mix(0.95, 1.08, look.build), H * 0.1, H * 0.068 * torsoD * bw];
