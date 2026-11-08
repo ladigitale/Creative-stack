@@ -5,6 +5,9 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch } from "../interactive";
 import { listenDp } from "../../shared/audio/dp";
 import { Monde2d } from "./monde";
+import { Monde2dRenderer } from "./monde2d";
+import { monde2dSummary, readMonde2d, type Monde2d as Monde2dData } from "../../shared/monde2d/format";
+import type { Layer } from "./model";
 import { hash32 } from "../../shared/monde/math";
 import { mondeSummary, readMonde, type Monde } from "../../shared/monde/format";
 import { TAP_MAX_MOVE_PX, TAP_MAX_MS, easeCurve, isNum, namesRegex, type NodeCurve } from "../../shared/nodes";
@@ -88,6 +91,13 @@ export class Sonic2d extends LitElement {
   /** Calque du monde (défaut : `monde`, sinon le calque de premier plan). */
   @property({ type: String, attribute: "monde-layer" }) mondeLayer = "";
 
+  /** Monde 2D natif (formes vectorielles, calques) ; aussi clé `monde2d` du dataProvider. */
+  @property({ type: String }) monde2d = "";
+
+  private m2: Monde2dRenderer | null = null;
+  private m2Ref: unknown = undefined;
+  private m2Sig = "";
+  private m2Parsed: Monde2dData | null = null;
   private mondeR: Monde2d | null = null;
   private mondeRef: unknown = undefined;
   private mondeSig = "";
@@ -142,6 +152,8 @@ export class Sonic2d extends LitElement {
     this.raf = 0;
     this.mondeR?.destroy();
     this.mondeR = null;
+    this.m2?.destroy();
+    this.m2 = null;
     this.scene?.destroy();
     this.scene = null;
     super.disconnectedCallback();
@@ -179,6 +191,7 @@ export class Sonic2d extends LitElement {
     if (changed.has("sprites") || changed.has("camera")) this.listen();
     if (changed.has("monde")) this.syncMonde((this.publisher?.get() as Record<string, unknown> | null)?.monde);
     if (changed.has("mondeLayer") && this.mondeR) this.scene.attachExtra(this.mondeR.container, this.mondeLayer || "monde");
+    if (changed.has("monde2d")) this.syncMonde2d((this.publisher?.get() as Record<string, unknown> | null)?.monde2d);
   }
 
   /* ------------------------------------------------------------ construction */
@@ -187,6 +200,8 @@ export class Sonic2d extends LitElement {
     if (!this.canvas) return;
     this.mondeR?.destroy();
     this.mondeR = null;
+    this.m2?.destroy();
+    this.m2 = null;
     this.scene?.destroy();
     // Un canvas WebGL ne se réutilise pas d'un contexte à l'autre : on le remplace.
     const fresh = document.createElement("canvas");
@@ -229,6 +244,14 @@ export class Sonic2d extends LitElement {
     this.camSig = "";
     this.applyLayers();
     scene.setDebug(this.debug);
+    this.m2 = new Monde2dRenderer(
+      () => this.invalidate(),
+      (c, layer) => scene.attachExtra(c, layer),
+      () => [this.width, this.height],
+    );
+    this.m2Ref = undefined;
+    this.m2Sig = "";
+    this.syncMonde2d((this.publisher?.get() as Record<string, unknown> | null)?.monde2d);
     this.mondeR = new Monde2d(() => this.invalidate());
     scene.attachExtra(this.mondeR.container, this.mondeLayer || "monde");
     this.mondeRef = undefined;
@@ -350,7 +373,13 @@ export class Sonic2d extends LitElement {
     const animate = !reducedMotion() && document.visibilityState !== "hidden";
     const now = performance.now();
     if (data.monde !== undefined) this.syncMonde(data.monde);
-    if (data.nodes !== undefined) scene.nodes.apply(this.mondeR?.instanceCount ? this.routeNodes(data.nodes, now, animate) : data.nodes, now, animate);
+    if (data.monde2d !== undefined) this.syncMonde2d(data.monde2d);
+    if (data.nodes !== undefined) {
+      let nodes: unknown = data.nodes;
+      if (this.m2?.instanceCount) nodes = this.routeNodes2(nodes, now, animate);
+      if (this.mondeR?.instanceCount) nodes = this.routeNodes(nodes, now, animate);
+      scene.nodes.apply(nodes, now, animate);
+    }
     if (data.rest !== undefined || data.bones !== undefined) scene.setSkeleton(data.rest, data.bones);
     if (data.camera !== undefined && !this.camera.trim()) this.applyCameraSpec(data.camera, now, animate);
     this.publishOut();
@@ -395,6 +424,80 @@ export class Sonic2d extends LitElement {
     // les nodes déjà publiés valent aussi pour les instances neuves
     const data = this.publisher?.get() as Record<string, unknown> | null | undefined;
     if (data?.nodes && typeof data.nodes === "object") this.routeNodes(data.nodes, performance.now(), false);
+  }
+
+  /** Monde 2D natif : lecture, calques (si l'attribut `layers` est vide), reconstruction si le JSON a changé. */
+  private syncMonde2d(dp: unknown): void {
+    const r = this.m2;
+    const scene = this.scene;
+    if (!r || !scene) return;
+    let src: unknown = dp;
+    let bad = false;
+    if (!src && this.monde2d.trim()) {
+      try {
+        src = JSON.parse(this.monde2d);
+      } catch {
+        src = { invalide: this.monde2d.length };
+        bad = true;
+      }
+    }
+    if (src === this.m2Ref) return;
+    this.m2Ref = src;
+    const sig = src ? String(hash32(JSON.stringify(src))) : "";
+    if (sig === this.m2Sig) return;
+    this.m2Sig = sig;
+    this.m2Patch.clear();
+    if (!src) {
+      this.m2Parsed = null;
+      this.m2Info = null;
+      r.clear();
+      if (!this.layers.trim()) this.applyLayers();
+      this.publishOut();
+      return;
+    }
+    const m = readMonde2d(src, this.m2Parsed);
+    this.m2Parsed = m;
+    this.m2Info = null;
+    if (bad) m.issues.push({ path: "", message: "attribut monde2d : JSON invalide" });
+    if (!this.layers.trim()) {
+      if (!m.layers.length) this.applyLayers();
+    }
+    if (m.layers.length && !this.layers.trim()) {
+      const layers: Layer[] = m.layers.map((l) => ({ name: l.name, parallax: Math.max(0, l.parallax), sortY: l.ysort }));
+      scene.setLayers(layers);
+    }
+    scene.attachExtra(r.sky, m.layers[0]?.name ?? "monde");
+    r.sky.zIndex = -1e9;
+    try {
+      r.set(m, performance.now());
+    } catch (err) {
+      m.issues.push({ path: "", message: `rendu monde2d : ${err instanceof Error ? err.message : String(err)}` });
+      r.clear();
+      this.m2Info = null;
+    }
+    this.publishOut();
+    const data = this.publisher?.get() as Record<string, unknown> | null | undefined;
+    if (data?.nodes && typeof data.nodes === "object") this.routeNodes2(data.nodes, performance.now(), false);
+  }
+
+  private m2Patch = new Map<string, string>();
+  private m2Info: ReturnType<typeof monde2dSummary> | null = null;
+
+  private routeNodes2(nodes: unknown, now: number, animate: boolean): unknown {
+    const r = this.m2;
+    if (!r || !nodes || typeof nodes !== "object") return nodes;
+    const rest: Record<string, unknown> = {};
+    for (const [name, p] of Object.entries(nodes as Record<string, unknown>)) {
+      if (!r.has(name)) {
+        rest[name] = p;
+        continue;
+      }
+      const sig = JSON.stringify(p);
+      if (this.m2Patch.get(name) === sig) continue;
+      this.m2Patch.set(name, sig);
+      r.apply(name, p, now, animate);
+    }
+    return rest;
   }
 
   /** Envoie au monde les patchs de ses instances et pièces (une seule fois par valeur) ; renvoie le reste. */
@@ -476,8 +579,10 @@ export class Sonic2d extends LitElement {
 
   private drawFrame(scene: Scene2D, now: number): void {
     let busy = scene.nodes.step(now);
-    if (this.mondeR) {
-      this.mondeBusy = this.mondeR.step(now);
+    if (this.mondeR || this.m2) {
+      const a = this.mondeR ? this.mondeR.step(now) : false;
+      const b = this.m2 ? this.m2.step(now) : false;
+      this.mondeBusy = a || b;
       busy = busy || this.mondeBusy;
     }
     if (this.camTween) {
@@ -524,6 +629,7 @@ export class Sonic2d extends LitElement {
       missing: scene?.nodes.missing ?? 0,
       errors: [...this.layerErrors, ...this.childErrors, ...this.listErrors],
       ...(this.mondeParsed ? { mondeInfo: mondeSummary(this.mondeParsed) } : {}),
+      ...(this.m2Parsed ? { monde2dInfo: this.m2Info ?? (this.m2Info = monde2dSummary(this.m2Parsed)) } : {}),
     };
     const sig = JSON.stringify(next);
     if (sig === this.lastOut) return;
@@ -552,6 +658,17 @@ export class Sonic2d extends LitElement {
     const re = namesRegex(this.pickNames);
     const r2 = (n: number) => Math.round(n * 100) / 100;
     const type = this.pickActionType || "pick";
+    if (this.m2?.instanceCount && this.m2Parsed) {
+      const layerNames = this.m2Parsed.layers.length ? this.m2Parsed.layers.map((l) => l.name).reverse() : ["monde"];
+      for (const ln of layerNames) {
+        const [lx, ly] = scene.layerPoint(ln, sx, sy);
+        const mh = this.m2.pick(ln, lx, ly);
+        if (mh && (!re || re.test(mh.instance))) {
+          dispatch(this.target, { type, payload: { objectId: mh.instance, part: mh.part, x: r2(lx), y: r2(ly) } });
+          return;
+        }
+      }
+    }
     if (this.mondeR?.instanceCount) {
       const [lx, ly] = scene.layerPoint(this.mondeLayer || "monde", sx, sy);
       const mh = this.mondeR.pick(lx, ly);

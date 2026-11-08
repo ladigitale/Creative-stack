@@ -133,7 +133,7 @@ describe("calques et caméra", () => {
 describe("manifeste et exemple", () => {
   it("l'exemple : sprites nommés comme les corps, dataProvider = état du monde, caméra du store", () => {
     const m = manifestJson as unknown as { examples: string[] };
-    expect(m.examples).toEqual(["examples/parallaxe.sdui.json"]);
+    expect(m.examples).toEqual(["examples/parallaxe.sdui.json", "examples/monde2d-foot.sdui.json"]);
     type N = { tagName: string; attributes?: Record<string, string>; nodes?: N[] };
     const all: N[] = [];
     const walk = (x: { nodes?: N[] }) => (x.nodes ?? []).forEach((c) => (all.push(c), walk(c)));

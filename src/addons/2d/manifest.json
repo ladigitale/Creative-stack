@@ -10,12 +10,13 @@
   ],
   "docs": "2d.md",
   "examples": [
-    "examples/parallaxe.sdui.json"
+    "examples/parallaxe.sdui.json",
+    "examples/monde2d-foot.sdui.json"
   ],
   "components": [
     {
       "name": "sonic-2d",
-      "description": "Scène 2D/2.5D : width × height logiques (mise à l'échelle de la largeur) ; enfants sonic-sprite ou sprites=DP liste ; dataProvider : clé nodes {nom:{x, y, rz (radians), scale, opacity, visible, z, color, ease}} et clé camera {x, y, zoom, ease} (ou attribut camera = chemin) ; layers=\"ciel:0 decor:0.4 monde:1:y hud:0\" (parallaxe ; :y = tri par y) ; target reçoit {type:pick, payload:{objectId, x, y}} ; rendu à la demande ; clé monde : monde complet en primitives articulées et animées (monde.md), même JSON et mêmes nodes en 2D et 3D.",
+      "description": "Scène 2D/2.5D : width × height logiques (mise à l'échelle de la largeur) ; enfants sonic-sprite ou sprites=DP liste ; dataProvider : clé nodes {nom:{x, y, rz (radians), scale, opacity, visible, z, color, ease}} et clé camera {x, y, zoom, ease} (ou attribut camera = chemin) ; layers=\"ciel:0 decor:0.4 monde:1:y hud:0\" (parallaxe ; :y = tri par y) ; target reçoit {type:pick, payload:{objectId, x, y}} ; rendu à la demande ; clé monde : monde complet en primitives articulées et animées (monde.md), même JSON et mêmes nodes en 2D et 3D. ; clé monde2d : monde 2D natif (monde2d.md).",
       "props": {
         "dataProvider": {
           "type": "string",
@@ -80,6 +81,10 @@
         "monde-layer": {
           "type": "string",
           "description": "Calque du monde (défaut monde)"
+        },
+        "monde2d": {
+          "type": "string",
+          "description": "Monde 2D natif (JSON : ciel, calques, styles, formes vectorielles, personnages et décor procéduraux en vue profil / face / dessus, clips ; voir monde2d.md) ; aussi clé DP monde2d. Instances pilotées par nodes (x y rz, flip, clip, clipSpeed, clipT, roles)"
         }
       }
     },
