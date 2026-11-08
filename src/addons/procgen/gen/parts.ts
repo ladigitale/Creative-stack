@@ -18,12 +18,42 @@ export type Part =
   | { t: "tube"; pts: V3[]; r: number; role: Role }
   /** Corps de révolution vertical posé en `c` : profil [rayon, hauteur] du bas vers le haut. */
   | { t: "lathe"; c: V3; profile: [number, number][]; role: Role }
+  /** Plaque : polygone **convexe** `pts` [x, y] (plan x–y), épaisseur 2·`d` selon z, centrée en `c`, orientée comme une planche (panneau, pignon, flèche, pendentif). */
+  | { t: "plate"; c: V3; pts: [number, number][]; d: number; rot?: V3; q?: Q; role: Role }
   /** Coussin, pouf, assise rembourrée : ellipsoïde de centre `c` et demi-axes `r`. */
   | { t: "blob"; c: V3; r: V3; role: Role };
 
 export type PartList = Part[];
 
 const R = (role: Role) => ROLE[role] ?? ROLE.wood;
+
+/** Polygone convexe en sens trigonométrique (vu depuis +z). */
+export function ccw(pts: [number, number][]): [number, number][] {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x0, y0] = pts[i], [x1, y1] = pts[(i + 1) % pts.length];
+    a += x0 * y1 - x1 * y0;
+  }
+  return a >= 0 ? pts : pts.slice().reverse();
+}
+
+/** Maillage d'une plaque (polygone convexe extrudé), dans son repère. */
+function plateMesh(pts0: [number, number][], d: number, role: number): Mesh {
+  const m = new Mesh();
+  const pts = ccw(pts0);
+  const n = pts.length;
+  const f = pts.map(([x, y]) => m.vertex([x, y, d], [0, 0, 1], role));
+  for (let i = 1; i < n - 1; i++) m.tri(f[0], f[i], f[i + 1]);
+  const b = pts.map(([x, y]) => m.vertex([x, y, -d], [0, 0, -1], role));
+  for (let i = 1; i < n - 1; i++) m.tri(b[0], b[i + 1], b[i]);
+  for (let i = 0; i < n; i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % n];
+    const l = Math.hypot(bx - ax, by - ay) || 1;
+    const nn: V3 = [(by - ay) / l, -(bx - ax) / l, 0];
+    m.quad(m.vertex([ax, ay, d], nn, role), m.vertex([ax, ay, -d], nn, role), m.vertex([bx, by, -d], nn, role), m.vertex([bx, by, d], nn, role));
+  }
+  return m;
+}
 
 /** Orientation d'une planche. */
 export function boxQ(p: { rot?: V3; q?: Q }): Q {
@@ -44,6 +74,8 @@ export function transformParts(parts: PartList, q: Q, t: V3 = [0, 0, 0], k = 1):
     switch (p.t) {
       case "box":
         return { ...p, c: P(p.c), h: [p.h[0] * k, p.h[1] * k, p.h[2] * k], q: qMul(q, boxQ(p)), rot: undefined, r: p.r === undefined ? undefined : p.r * k };
+      case "plate":
+        return { ...p, c: P(p.c), pts: p.pts.map(([x, y]) => [x * k, y * k] as [number, number]), d: p.d * k, q: qMul(q, boxQ(p)), rot: undefined };
       case "rod":
         return { ...p, a: P(p.a), b: P(p.b), r: p.r * k, r1: p.r1 === undefined ? undefined : p.r1 * k };
       case "tube":
@@ -70,6 +102,9 @@ export function partsToMesh(parts: PartList, detail = 1): Mesh {
         m.append(box(p.h[0], p.h[1], p.h[2], R(p.role), p.r ?? Math.min(0.012, Math.min(p.h[0], p.h[1], p.h[2]) * 0.4)), m4Compose(p.c, q));
         break;
       }
+      case "plate":
+        if (p.pts.length >= 3) m.append(plateMesh(p.pts, p.d, R(p.role)), m4Compose(p.c, boxQ(p)));
+        break;
       case "rod": {
         const d = sub(p.b, p.a);
         const L = len(d);
@@ -106,6 +141,12 @@ export function partsBounds(parts: PartList): { min: V3; max: V3 } {
       for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
         const d: V3 = [sx * p.h[0], sy * p.h[1], sz * p.h[2]];
         const r = q ? qRot(q, d) : d;
+        grow([p.c[0] + r[0], p.c[1] + r[1], p.c[2] + r[2]]);
+      }
+    } else if (p.t === "plate") {
+      const q = boxQ(p);
+      for (const [x, y] of p.pts) for (const z of [-p.d, p.d]) {
+        const r = qRot(q, [x, y, z]);
         grow([p.c[0] + r[0], p.c[1] + r[1], p.c[2] + r[2]]);
       }
     } else if (p.t === "rod") grow(p.a, p.r), grow(p.b, p.r1 ?? p.r);
@@ -161,11 +202,17 @@ export function readParts(raw: unknown, maxParts = 80): { parts: PartList; probl
         else problems.push(`parts[${i}].profile : au moins deux points [rayon, hauteur]`);
         break;
       }
+      case "plate": {
+        const pts = Array.isArray(o.pts) ? (o.pts as unknown[]).slice(0, 24).map((p) => (Array.isArray(p) ? [clampLen(num(p[0], 0), -S, S), clampLen(num(p[1], 0), -S, S)] : [0, 0]) as [number, number]) : [];
+        if (pts.length >= 3) parts.push({ t: "plate", c: c3(o.c, [0, 0.5, 0]), pts, d: clampLen(Math.abs(num(o.d, 0.01)), 0.001, S), rot: o.rot ? v3(o.rot, [0, 0, 0]) : undefined, role: role(o.role, i) });
+        else problems.push(`parts[${i}].pts : au moins trois points [x, y] (polygone convexe)`);
+        break;
+      }
       case "blob":
         parts.push({ t: "blob", c: c3(o.c, [0, 0.3, 0]), r: v3(o.r, [0.2, 0.1, 0.2]).map((x) => clampLen(Math.abs(x), 0.005, S)) as V3, role: role(o.role, i) });
         break;
       default:
-        problems.push(`parts[${i}].t : type inconnu « ${String(o.t)} » (box, rod, tube, lathe, blob)`);
+        problems.push(`parts[${i}].t : type inconnu « ${String(o.t)} » (box, rod, tube, lathe, blob, plate)`);
     }
   });
   if (Array.isArray(raw) && raw.length > maxParts) problems.push(`parts : ${raw.length} pièces, ${maxParts} gardées`);

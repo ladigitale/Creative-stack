@@ -4,13 +4,14 @@
  * suffit pour du mobilier et des objets du quotidien vus en élévation ou en cavalière.
  */
 import { type V3, qRot } from "../../core/math";
-import { type Part, type PartList, boxQ } from "../../gen/parts";
+import { type Part, type PartList, boxQ, ccw } from "../../gen/parts";
 import { type P2, Pen, hull, strokeVar } from "../shape";
 import type { Kit } from "./kit";
 import { readParts } from "../../gen/parts";
 import { seatModel } from "../../gen/seat";
 import { placedTool } from "../../gen/tool";
 import { containerModel } from "../../gen/container";
+import { streetModel } from "../../gen/street";
 import type { ObjectDrawer } from "./types";
 
 const add3 = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -18,6 +19,7 @@ const mul3 = (a: V3, k: number): V3 => [a[0] * k, a[1] * k, a[2] * k];
 
 function center(p: Part): V3 {
   switch (p.t) {
+    case "plate":
     case "box":
     case "blob":
       return p.c;
@@ -93,6 +95,25 @@ export function drawPartsOn(sf: PartSurface, parts: PartList, o: { width?: numbe
             const quad: V3[] = [add3(add3(fc, eu), ev), add3(add3(fc, mul3(eu, -1)), ev), add3(add3(fc, mul3(eu, -1)), mul3(ev, -1)), add3(add3(fc, eu), mul3(ev, -1))];
             em.add(new Pen().poly(quad.map((c) => sf.P(c[0], c[1], c[2]))), p.role, { tone: sf.tone(n) + tb, width: W });
           }
+        break;
+      }
+      case "plate": {
+        const q = boxQ(p);
+        const pts = ccw(p.pts);
+        const W3 = (x: number, y: number, z: number): V3 => add3(p.c, qRot(q, [x, y, z]));
+        const nz = qRot(q, [0, 0, 1]);
+        // tranches visibles d'abord, puis la face visible
+        for (let i = 0; i < pts.length; i++) {
+          const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % pts.length];
+          const l = Math.hypot(bx - ax, by - ay) || 1;
+          const n = qRot(q, [(by - ay) / l, -(bx - ax) / l, 0]);
+          if (sf.vis(n) <= 1e-3) continue;
+          const quad = [W3(ax, ay, p.d), W3(ax, ay, -p.d), W3(bx, by, -p.d), W3(bx, by, p.d)].map((c) => sf.P(c[0], c[1], c[2]));
+          em.add(new Pen().poly(quad), p.role, { tone: sf.tone(n) + tb, width: W * 0.6 });
+        }
+        const front = sf.vis(nz) >= 0;
+        const n = front ? nz : mul3(nz, -1);
+        em.add(new Pen().poly(pts.map(([x, y]) => { const c = W3(x, y, front ? p.d : -p.d); return sf.P(c[0], c[1], c[2]); })), p.role, { tone: sf.tone(n) + tb, width: W });
         break;
       }
       case "rod": {
@@ -173,4 +194,12 @@ export const drawContainer: ObjectDrawer = (kit, p, ctx) => {
   if (m.lidBehind && m.lid.length) drawParts(kit, m.lid, { width: 0.55 });
   drawParts(kit, [...m.body, ...m.fill], { width: 0.55 });
   if (!m.lidBehind && m.lid.length) drawParts(kit, m.lid, { width: 0.55 });
+};
+
+export const drawStreet: ObjectDrawer = (kit, p, ctx) => {
+  // ombre de pied : poteaux, bras de lampadaire et panneaux n'en projettent qu'une petite
+  const o = ctx.obj;
+  const hx = Math.min(o.footprint.hx / o.scale, 0.6), hz = Math.min(o.footprint.hz / o.scale, 0.6);
+  kit.castShadow(ctx.env.shadows, hx * 0.9, hz * 0.9, Math.min(o.height / o.scale, 2) * 0.6, ctx.env.ground, kit.em.z0 - 0.5, kit.em.layer, kit.em.depth);
+  drawParts(kit, streetModel(p).parts, { width: 0.55 });
 };
