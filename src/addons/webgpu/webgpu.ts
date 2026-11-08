@@ -18,7 +18,6 @@ import { pointer } from "./pointer";
 import { listenDp } from "../../shared/audio/dp";
 import {
   WEBGPU_IDLE,
-  WEBGPU_STATE_KEYS,
   describeWebGpuError,
   readWebGpuParams,
   type WebGpuLiveParams,
@@ -439,7 +438,7 @@ export class SonicWebGpu extends LitElement {
 
   /**
    * Met à jour l'état et le publie (seulement s'il change) dans le DP de sortie, fusionné à la
-   * racine, et en event `webgpu-state`. Les publications par frame (`out-frame`) le recopient.
+   * clé par clé, et en event `webgpu-state`.
    */
   private publishState(patch: Partial<SonicWebGpuState>) {
     const next: SonicWebGpuState = { ...this.stateValue, ...patch };
@@ -451,23 +450,8 @@ export class SonicWebGpu extends LitElement {
     const pub = this.outPublisher;
     if (pub) {
       const plainState = JSON.parse(json) as Record<string, unknown>;
-      try {
-        const prev =
-          ((pub as { get?: () => Record<string, unknown> }).get?.() as
-            | Record<string, unknown>
-            | null
-            | undefined) ?? {};
-        const base = prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {};
-        (pub as { set: (v: unknown) => void }).set({ ...base, ...plainState });
-      } catch {
-        for (const key of WEBGPU_STATE_KEYS) {
-          try {
-            (pub as Record<string, { set: (v: unknown) => void }>)[key].set(plainState[key]);
-          } catch {
-            /* ignore */
-          }
-        }
-      }
+      // Clé par clé : n'écrase ni les champs d'un formulaire partagé ni les publications par frame.
+      outFrame.writeKeys(pub, plainState);
     }
     this.dispatchEvent(
       new CustomEvent("webgpu-state", { detail: next, bubbles: true, composed: true }),

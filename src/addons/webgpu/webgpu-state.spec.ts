@@ -194,6 +194,31 @@ describe("sonic-webgpu : état publié et pilotage par params", () => {
     expect(PublisherManager.get(out).get()).toMatchObject({ status: "ready", time: 1 });
   });
 
+  it("DP partagé avec un formulaire : les publications par frame n'effacent pas ses champs", async () => {
+    const shared = "webgpu-shared-form";
+    PublisherManager.get(shared).set({ param0: 0.4, titre: "réglages", choix: [1, 2] });
+    const { el, internal } = mount(`dataProvider="${shared}"`);
+    await el.updateComplete;
+    await tick(40);
+    internal.runtime = fakeRuntime();
+    await internal.rebuild();
+    el.addEventListener("out", () => {});
+    for (let i = 0; i < 3; i++) {
+      (el as unknown as { lastOutAt: number }).lastOutAt = -1e9;
+      outFrame.maybePublishOut(el as never, performance.now(), i + 1);
+    }
+    expect(PublisherManager.get(shared).get()).toMatchObject({
+      param0: 0.4, titre: "réglages", choix: [1, 2], status: "ready", time: 3,
+    });
+  });
+
+  it("instantané (frameUrl) : n'efface pas les autres clés de la sortie", () => {
+    const out = "webgpu-snapshot-keys";
+    PublisherManager.get(out).set({ keep: 1, time: 2 });
+    outFrame.writeKeys(PublisherManager.get(out), { frameUrl: "blob:x", snapshot: { url: "blob:x", width: 1, height: 1, mime: "image/png" } });
+    expect(PublisherManager.get(out).get()).toMatchObject({ keep: 1, time: 2, frameUrl: "blob:x" });
+  });
+
   it("params : play, mouse, dprMax en direct (attributs non réécrits)", async () => {
     const params = "webgpu-live-params";
     PublisherManager.get(params).set({});
