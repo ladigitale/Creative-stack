@@ -106,6 +106,15 @@ const STUBS: Record<string, Stub> = {
   },
 };
 
+/**
+ * Asset d'un générateur pour un dessin vectoriel hors scène (modèles `gen` de `monde2d`) : doublure sans maillage quand
+ * elle existe (personnage, bâtiment, végétation : rapide), sinon le vrai générateur.
+ */
+export function vectorAsset(id: string, p: Record<string, unknown>, ctx: Parameters<Generator["build"]>[1]): Asset {
+  const stub = STUBS[id];
+  return stub ? stub(p, ctx) : GENERATORS[id].build(p as never, ctx);
+}
+
 /** Composition vectorielle (synchrone, sans maillage). Le résultat est un `SceneModel` ordinaire. */
 export function composeVector(input: ComposeInput): SceneModel {
   PLANS_BY_PATH.clear();
