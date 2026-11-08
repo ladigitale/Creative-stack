@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-vectorize",
-      "description": "Image → SVG : source (#id d'une source d'images) ; control {n, …réglages} ou auto (relance à chaque nouvelle image) ; réglages colors, tolerance, min-area, denoise, curves (courbes à coins vifs), flat, max-size en attributs ou en direct par DP (control / params : colors, tolerance, minArea, denoise, curves, flat, maxSize) ; état {status, error, width, height, sourceWidth, sourceHeight, layers, paths[{color, area, share}], palette, svg, file (SonicMediaRef blob: pour sonic-media-download), bytes, ms, runs, truncated, settings}",
+      "description": "Image → SVG : source (#id d'une source d'images) ; control {n, …réglages} ou auto (relance à chaque nouvelle image) ; réglages colors, tolerance, min-area, denoise, curves (courbes à coins vifs), flat, max-size en attributs ou en direct par DP (control / params : colors, tolerance, minArea, denoise, curves, flat, maxSize) ; état {status, error, width, height, sourceWidth, sourceHeight, layers, paths[{color, area, share}], palette, svg, file (SonicMediaRef blob: pour sonic-media-download), bytes, ms, engine (worker|main), runs, truncated, settings} ; calcul dans un Web Worker (page fluide, un nouveau réglage interrompt le calcul en cours)",
       "props": {
         "source": { "type": "string" },
         "control": { "type": "string" },
@@ -26,6 +26,7 @@
         "flat": { "type": "boolean" },
         "max-size": { "type": "number" },
         "hidden-preview": { "type": "boolean" },
+        "main-thread": { "type": "boolean" },
         "out-data-provider": { "type": "string" }
       }
     }
