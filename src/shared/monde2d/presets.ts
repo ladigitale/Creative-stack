@@ -7,7 +7,15 @@
 import type { Rand } from "../monde/math";
 import type { Clip2In, Part2In } from "./format";
 
-export type Preset2dOut = { parts: Part2In[]; clips?: Record<string, Clip2In>; roles?: Record<string, string>; clip?: string; height?: number };
+export type Preset2dOut = {
+  parts: Part2In[];
+  clips?: Record<string, Clip2In>;
+  roles?: Record<string, string>;
+  clip?: string;
+  height?: number;
+  /** Ombre au sol `[rx, ry]` dans le repère du modèle (vue de dessus : suit l'orientation) ; défaut : ellipse de profil. */
+  shadow?: [number, number];
+};
 export type Preset2d = { doc: string; params: Record<string, string>; build(r: Rand, p: Record<string, unknown>): Preset2dOut };
 
 const isHex = (v: unknown): v is string => typeof v === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v);
@@ -324,6 +332,7 @@ function personnage(r: Rand, p: Record<string, unknown>): Preset2dOut {
     clips: persoClips(L),
     clip: "idle",
     height: L.h,
+    ...(L.vue === "dessus" ? { shadow: [L.tw * 1.15, L.tw * 1.8] as [number, number] } : {}),
     roles: { peau, museau: "#f8fafc", interieur: "#fda4af", joue: "#f9a8d4", corne: "#f8fafc", crete: "#f97316", numero: "#f8fafc", chaussette: "#f8fafc", metal: "#94a3b8" },
   };
 }
@@ -378,7 +387,14 @@ function animal(r: Rand, p: Record<string, unknown>): Preset2dOut {
       saut: { ms: 700, loop: false, then: "idle", tracks: { corps: { y: Q([0, h * 0.04, -h * 0.5, -h * 0.2, 0]), r: [0, 8, -15, 10, 0] }, avant: { r: [0, 20, -70, 30, 0], sync: true }, arriere: { r: [0, -20, 60, 20, 0], sync: true } } },
     };
   }
-  return { parts, clips, clip: "idle", height: h, roles: { peau, museau: "#f5f5f4", patte: peau, taches: "#44403c" } };
+  return {
+    parts,
+    clips,
+    clip: "idle",
+    height: h,
+    ...(vue === "dessus" ? { shadow: [bl * 1.1, br * 1.2] as [number, number] } : {}),
+    roles: { peau, museau: "#f5f5f4", patte: peau, taches: "#44403c" },
+  };
 }
 
 /* ------------------------------------------------------------------ décor */

@@ -39,6 +39,15 @@ describe("monde2d : lecture", () => {
     expect(tR.phase - tL.phase).toBeCloseTo(0.5);
   });
 
+  it("ombre au sol : empreinte du corps vue de dessus, ellipse par défaut de profil", () => {
+    const m = readMonde2d({ models: { d: { preset: "personnage", params: { vue: "dessus" } }, p: { preset: "personnage" }, a: { preset: "animal", params: { vue: "dessus" } } } });
+    const [rx, ry] = m.models.get("d")!.shadow!;
+    expect(ry).toBeGreaterThan(rx);
+    expect(m.models.get("p")!.shadow).toBeNull();
+    const [ax, ay] = m.models.get("a")!.shadow!;
+    expect(ax).toBeGreaterThan(ay);
+  });
+
   it("miroir vu de dessus (y) : pieds de part et d'autre, translation y inversée", () => {
     const m = readMonde2d({ models: { j: { preset: "personnage", seed: 1, params: { vue: "dessus" } } } });
     const md = m.models.get("j")!;

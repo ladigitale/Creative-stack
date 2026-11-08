@@ -143,7 +143,7 @@ export type Part2 = {
   shape: Shape2 | null;
 };
 
-export type Model2 = { name: string; sig: string; parts: Part2[]; clips: Map<string, Clip>; clip: string; roles: Record<string, string>; height: number; issues: Issue[] };
+export type Model2 = { name: string; sig: string; parts: Part2[]; clips: Map<string, Clip>; clip: string; roles: Record<string, string>; height: number; shadow: [number, number] | null; issues: Issue[] };
 
 export type Placement2 = {
   model: string;
@@ -643,7 +643,7 @@ function readModel2(name: string, src: Model2In, palette: Record<string, string>
       roles[p.role] = own(ownPal, p.role) ?? (isColor(pr) ? pr : undefined) ?? own(palette, p.role) ?? "#94a3b8";
     }
   const clip = typeof src.clip === "string" ? src.clip : preset?.clip ?? (clips.has("idle") ? "idle" : "");
-  return { name, sig: "", parts: sorted, clips, clip, roles, height: preset?.height ?? 0, issues: [] };
+  return { name, sig: "", parts: sorted, clips, clip, roles, height: preset?.height ?? 0, shadow: preset?.shadow ?? null, issues: [] };
 }
 
 /* ------------------------------------------------------------------ placement */

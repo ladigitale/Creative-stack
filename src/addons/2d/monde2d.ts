@@ -314,7 +314,8 @@ export class Monde2dRenderer {
     if (h > 0) {
       // ombre au sol (ellipse) sous l'instance, dessinée une fois
       shadow = new Graphics();
-      shadow.ellipse(0, 0, h * 0.32, h * 0.09).fill({ color: "#000000", alpha: 0.22 });
+      const [rx, ry] = model.shadow ?? [h * 0.32, h * 0.09];
+      shadow.ellipse(model.shadow ? h * 0.03 : 0, 0, rx, ry).fill({ color: "#000000", alpha: 0.22 });
       shadow.zIndex = -1000;
       holder.addChild(shadow);
     }
