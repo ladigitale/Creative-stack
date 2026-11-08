@@ -5,7 +5,8 @@ import {
   OUT_META_KEYS,
   OUT_PARAM_KEYS,
 } from "./helpers";
-import type { SonicWebGpuOutput } from "./types";
+import { WEBGPU_STATE_KEYS } from "./state";
+import type { SonicWebGpuOutput, SonicWebGpuState } from "./types";
 
 type OutPublisherLike = {
   _proxies_?: Map<string, { hasListener?: () => boolean }>;
@@ -27,8 +28,19 @@ export type OutFrameHost = FormBindHost & {
   frameOutBusy: boolean;
   frameOutSeq: number;
   lastFrameUrl: string;
+  /** État standard : recopié dans chaque publication (le `set` racine remplace la valeur). */
+  stateValue?: SonicWebGpuState;
   dispatchEvent: (event: Event) => boolean;
 };
+
+/** Clés d'état à recopier dans un `set` racine, pour qu'il ne les efface pas. */
+function stateFields(host: OutFrameHost): Record<string, unknown> {
+  const st = host.stateValue;
+  if (!st) return {};
+  const out: Record<string, unknown> = {};
+  for (const k of WEBGPU_STATE_KEYS) out[k] = st[k];
+  return JSON.parse(JSON.stringify(out)) as Record<string, unknown>;
+}
 
 function hasOutConsumer(host: OutFrameHost): boolean {
   if (host.outEventListeners > 0) return true;
@@ -72,6 +84,7 @@ function maybePublishOut(host: OutFrameHost & HTMLElement, now: number, time: nu
       formBind.resolveFormProviderId(host) ===
       (host.outDataProvider?.trim() || formBind.resolveFormProviderId(host));
     const patch: Record<string, unknown> = {
+      ...stateFields(host),
       time: payload.time,
       frame: payload.frame,
       mouseX: payload.mouseX,
@@ -110,6 +123,7 @@ async function publishFrameSnapshot(host: OutFrameHost) {
     revokeFrameUrl(host);
     host.lastFrameUrl = url;
     host.outPublisher.set({
+      ...stateFields(host),
       frameUrl: url,
       snapshot: {
         url,

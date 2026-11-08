@@ -79,3 +79,17 @@ export function buildWgslSource(userBody: string): string {
   }
   return `${PRELUDE}\n\n${body}\n`;
 }
+
+/**
+ * Ligne de la source assemblée (`buildWgslSource`, 1 = première) → ligne du corps fourni par
+ * l'utilisateur (1 = première ligne de `userBody`, blancs de tête compris). `null` si la ligne
+ * est dans le prélude (ou inconnue : `lineNum` 0).
+ */
+export function wgslUserLine(lineNum: number, userBody: string): number | null {
+  if (!Number.isFinite(lineNum) || lineNum < 1) return null;
+  const preludeLines = PRELUDE.split("\n").length + 1; // prélude + ligne vide
+  const lead = /^\s*/.exec(userBody)?.[0] ?? "";
+  const trimmedLead = userBody.trim() ? (lead.match(/\n/g) ?? []).length : 0;
+  const rel = lineNum - preludeLines;
+  return rel >= 1 ? rel + trimmedLead : null;
+}

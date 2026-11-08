@@ -22,7 +22,8 @@ export type FormBindHost = {
   param3: number;
   remoteTarget: { x: number; y: number } | null;
   mouseVec: [number, number, number, number];
-  mouse: boolean;
+  /** Pointeur actif (attribut `mouse`, sinon `params.mouse`). */
+  mouseActive: boolean;
   hovering: boolean;
   runtime: { canvas: HTMLCanvasElement } | null;
   onFormMutation: () => void;
@@ -98,7 +99,7 @@ function applyFormParams(host: FormBindHost, data: Record<string, unknown>) {
 function applyRemoteMouse(host: FormBindHost) {
   if (!host.remoteTarget || !host.runtime) return;
   // Pendant un hover pointeur, le doigt / souris gagne
-  if (host.mouse && host.hovering) return;
+  if (host.mouseActive && host.hovering) return;
   const w = host.runtime.canvas.width;
   const h = host.runtime.canvas.height;
   if (w < 2 || h < 2) return;

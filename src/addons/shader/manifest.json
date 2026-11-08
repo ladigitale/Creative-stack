@@ -10,7 +10,7 @@
   "components": [
     {
       "name": "sonic-shader",
-      "description": "Shader fragment Shadertoy",
+      "description": "Shader fragment Shadertoy (passes image, buffer A–D, common ; canaux image/vidéo/#id). dataProvider : param0…3 → uParam0…3, canaux (string | MediaRef) ; params (DP) {play, playOnHover, mouse, mouseMode, mouseSpeed, hoverSpeed, dprMax, image, bufferA…D, common, bufferFormat} prioritaire sur les attributs (sources et bufferFormat recompilent) ; état {status idle|compiling|ready|error, error (passe + ligne), errors[{pass, line, column, message}], passes, activeBufferFormat, playing} dans le DP de sortie (out-data-provider, sinon dataProvider), plus time, frame, mouseX/Y, hovering, sample* (paresseux)",
       "props": {
         "image": {
           "type": "string"
@@ -52,7 +52,11 @@
           "type": "boolean"
         },
         "mouse-mode": {
-          "type": "string"
+          "type": "string",
+          "values": [
+            "direct",
+            "target"
+          ]
         },
         "param0": {
           "type": "number"
@@ -67,7 +71,20 @@
           "type": "number"
         },
         "out-data-provider": {
-          "type": "string"
+          "type": "string",
+          "description": "DP de sortie : état {status, error, errors…} + time, frame, mouseX/Y…"
+        },
+        "dpr-max": {
+          "type": "number",
+          "description": "Plafond du devicePixelRatio (défaut 2)"
+        },
+        "dataProvider": {
+          "type": "string",
+          "description": "DP d'entrée (param0…3, canaux) et de sortie par défaut"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {play, playOnHover, mouse, mouseMode, mouseSpeed, hoverSpeed, dprMax, image, bufferA…bufferD, common, bufferFormat}"
         }
       }
     }

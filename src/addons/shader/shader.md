@@ -173,6 +173,7 @@ Repli auto en `rgba8` si `EXT_color_buffer_float` est absent (`console.warn` une
 | `hoverSpeed` / `hover-speed` | `number` | Easing hover (1/s, défaut `10`) |
 | `param0`…`param3` | `number` | → `uParam0`…`uParam3` |
 | `dataProvider` | `string` | Publisher entrée (`param0`…) + sortie par défaut |
+| `params` | `string` | DP de réglages en direct (voir « État et pilotage par DataProvider ») |
 | `outDataProvider` / `out-data-provider` | `string` | Publisher de sortie (défaut = `dataProvider`) |
 | `sample` | `boolean` | Lit la couleur sous le pointeur → `sampleR…` / `sampleLuma` |
 | `outInterval` / `out-interval` | `number` | Intervalle publication + event `out` (ms, défaut `80`) |
@@ -188,6 +189,48 @@ Repli auto en `rgba8` si `EXT_color_buffer_float` est absent (`console.warn` une
 | `aspectRatio` / `aspect-ratio` | `string` | Ratio CSS forcé |
 | `dprMax` / `dpr-max` | `number` | Plafond DPR (défaut `2`) |
 | `releaseOffscreen` / `release-offscreen` | `boolean` \| `"auto"` | Hors viewport : libère textures/FBO (garde le contexte). `auto` (défaut) : ne libère pas si une passe lit `self`. `dispose` + loseContext au disconnect |
+
+## État et pilotage par DataProvider
+
+**État publié** dans le DP de sortie (`out-data-provider`, sinon `dataProvider`), à chaque changement seulement (pas à chaque frame), fusionné avec le reste du DP (rien n'est écrasé) ; aussi en event `shader-state` :
+
+| Clé | Rôle |
+|-----|------|
+| `status` | `idle` (pas de source `image`, pas encore monté, hors écran avec `release-offscreen`, contexte perdu) · `compiling` · `ready` · `error` |
+| `error` | Premier message, lisible : `image, ligne 12 : 'foo' : undeclared identifier` (`null` sinon) |
+| `errors[]` | `{ pass, line, column, message }` pour **chaque** erreur de **chaque** passe fautive (toutes les passes sont compilées avant d'échouer). `pass` : `image`, `bufferA`…`bufferD`, `common` (l'erreur est dans le code partagé), `prelude`, `vertex`, `runtime` (WebGL2 absent, texture…). `line` est la ligne **de la source de l'utilisateur** (prélude ShaderToy et `common` décomptés), `null` si le pilote ne la donne pas |
+| `passes` | Passes compilées, dans l'ordre de rendu (`["bufferA", "image"]`) |
+| `activeBufferFormat` | Format réel des buffers A–D après repli |
+| `playing` | La boucle d'animation tourne (dépend de `play`, `play-on-hover`, visibilité, `prefers-reduced-motion`) |
+
+Les champs `time`, `frame`, `mouseX/Y`, `hovering`, `sample*` gardent leur publication paresseuse (voir plus haut). Sur un DP partagé avec un formulaire, les clés d'état s'ajoutent aux champs du formulaire ; utiliser `out-data-provider` pour les séparer.
+
+**Réglages en direct** : `params="<DP>"`, prioritaires sur les attributs (une clé absente ou invalide rend la main à l'attribut ; l'attribut n'est jamais réécrit). Valeurs bornées :
+
+| Clé | Valeurs | Effet |
+|-----|---------|-------|
+| `play`, `playOnHover`, `mouse` | booléen (`true/false`, `1/0`, `"true"/"false"`) | immédiat |
+| `mouseMode` | `direct` \| `target` | immédiat |
+| `mouseSpeed`, `hoverSpeed` | 0..100 (1/s) | immédiat |
+| `dprMax` | 0.25..4 | redimensionne le canvas |
+| `image`, `bufferA`…`bufferD`, `common` | chaîne GLSL (200 000 caractères au plus) ; `image` vide = l'attribut reste en vigueur, un buffer ou `common` vide retire la passe | **recompile** ; une rafale (saisie clavier) est regroupée sur ~120 ms ; l'erreur éventuelle arrive dans `status` / `errors` et le rendu précédent s'arrête, comme avec l'attribut |
+| `bufferFormat` | `rgba8` \| `rgba16f` \| `rgba32f` | recompile |
+
+Le `dataProvider` historique (`param0…3`, canaux, `mouseSpeed`, `hoverSpeed`, `extract*`, `rois`) fonctionne comme avant ; `params` ne le remplace pas (priorité : attributs < `dataProvider` < `params`).
+
+Exemple SDUI complet : éditeur GLSL en direct avec affichage de l'erreur et bouton pause.
+
+```json
+{ "tagName": "sonic-shader", "attributes": {
+    "image": "void mainImage(out vec4 c, in vec2 p){ vec2 uv = p / iResolution.xy; c = vec4(uv, 0.5 + 0.5 * sin(iTime), 1.0); }",
+    "params": "fxReglages", "out-data-provider": "fxEtat", "style": "height:240px" } }
+{ "tagName": "div", "attributes": { "formDataProvider": "fxReglages" }, "nodes": [
+  { "tagName": "sonic-select", "attributes": { "name": "play", "options": [ { "value": "true", "wording": "Animer" }, { "value": "false", "wording": "Pause" } ] } },
+  { "tagName": "sonic-textarea", "attributes": { "name": "image", "rows": 6, "placeholder": "void mainImage(out vec4 c, in vec2 p){ … }" } }
+] }
+{ "tagName": "p", "nodes": [ "État : ", { "tagName": "sonic-value", "attributes": { "dataProvider": "fxEtat", "key": "status" } } ] }
+{ "tagName": "pre", "nodes": [ { "tagName": "sonic-value", "attributes": { "dataProvider": "fxEtat", "key": "error" } } ] }
+```
 
 ## État et visibilité
 
@@ -229,7 +272,9 @@ Assigne le GLSL via `.image` (et `.bufferA`, …) depuis JS / Lit.
 
 ## Events
 
-`error` — compile / link / WebGL (`detail.message`, `detail.pass`, `detail.infoLog`).
+`error` — compile / link / WebGL (`detail.message`, `detail.pass`, `detail.infoLog`, `detail.errors` = même détail que l'état).
+
+`shader-state` — `SonicShaderState` à chaque changement d'état (`status`, `error`, `errors`, `passes`, `activeBufferFormat`, `playing`).
 
 `out` — snapshot `SonicShaderOutput` (throttlé par `out-interval`, **seulement s’il y a un listener**) : souris, params, samples.
 
