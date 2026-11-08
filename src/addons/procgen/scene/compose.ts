@@ -307,7 +307,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     } else {
       placedCircles.push({ x, z, r: Math.max(0.15, (generator === "building" ? Math.max(fp.hx, fp.hz) : fp.r * 0.6) * scale) });
       // ballons et outils posés ne barrent pas le passage
-      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && generator !== "ball" && generator !== "tool" && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
+      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && generator !== "ball" && generator !== "tool" && !(generator === "container" && fp.r * scale < 0.3) && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
     }
     if (isActor) {
       const beh = (["idle", "wander", "patrol"] as const).includes(behavior as never) ? (behavior as ActorModel["behavior"]) : "idle";

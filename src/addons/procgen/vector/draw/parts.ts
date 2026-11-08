@@ -59,7 +59,12 @@ export function kitSurface(kit: Kit): PartSurface {
     k: kit.fr.scale,
     em: kit.em,
     lightSide: kit.L[0] <= 0 ? -1 : 1,
-    lathe: (c, profile, role, width) => kit.sub(c[0], c[1], c[2]).lathe(profile, role, { width }),
+    // silhouette : profil extérieur seulement (jusqu'au point le plus haut ; le retour intérieur d'un seau creux ne se voit pas de profil)
+    lathe: (c, profile, role, width) => {
+      let top = 0;
+      profile.forEach(([, y], i) => (y >= profile[top][1] ? (top = i) : 0));
+      kit.sub(c[0], c[1], c[2]).lathe(profile.slice(0, top + 1), role, { width });
+    },
   };
 }
 
@@ -163,5 +168,9 @@ export const drawTool: ObjectDrawer = (kit, p, ctx) => {
 
 export const drawContainer: ObjectDrawer = (kit, p, ctx) => {
   shadowOf(kit, p, ctx);
-  drawParts(kit, containerModel(p).parts, { width: 0.55 });
+  // couvercle levé : derrière le corps (dessiné d'abord) ; fermé : par-dessus
+  const m = containerModel(p);
+  if (m.lidBehind && m.lid.length) drawParts(kit, m.lid, { width: 0.55 });
+  drawParts(kit, [...m.body, ...m.fill], { width: 0.55 });
+  if (!m.lidBehind && m.lid.length) drawParts(kit, m.lid, { width: 0.55 });
 };

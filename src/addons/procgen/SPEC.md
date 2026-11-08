@@ -255,4 +255,5 @@ Demande : il manque toutes sortes d'objets (ballons de toutes tailles, outils, s
 
 - **`container`** : 17 contenants (caisse, coffre, carton, panier, seau, sac de jute, jarre, amphore, marmite, jerrican, caisse à outils, valise, sac de courses, palette, poubelle à roulettes, bidon à lait, glacière) sur la grammaire de pièces ; couvercles ouverts sur leur charnière (`open`).
 - **Contenu** (`fill`) posé dans l'ouverture ronde ou rectangulaire : fruits (placement déterministe), sable, terre, grain, foin, eau, lait, bûches, fleurs, pièces d'or, outils couchés à plat (mêmes pièces que `tool`).
-- Ancres `top`, `grip`, `inside` ; `sit.0`/`approach.0` pour ceux sur lesquels on s'assied (caisse, coffre, palette, glacière, sac fermé).
+- Ancres sur le corps fermé (ni couvercle levé ni contenu) : `top`, `grip` sur l'anse réelle, `inside` ; `sit.0`/`approach.0` sur caisse, coffre, glacière et sac fermés vides, palette vide.
+- Couvercles articulés sur leur charnière (coffre, caisse à outils, poubelle, glacière), dessinés derrière le corps quand ils sont levés ; contenus permis par contenant (issue sinon), fruits et pièces sur une grille centrée, bûches à la corde, contenu en détail réduit ; petits contenants hors navigation.

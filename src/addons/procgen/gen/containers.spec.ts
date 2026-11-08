@@ -24,7 +24,7 @@ describe("contenants", () => {
         const b = asset.mesh.bounds();
         expect(b.min[1], `${kind}/${open}`).toBeGreaterThan(-0.01);
         expect(asset.height, kind).toBeGreaterThan(0.1);
-        expect(asset.height, kind).toBeLessThan(1.4);
+        expect(asset.height, kind).toBeLessThan(1.7);
         expect(asset.mesh.triangleCount, `${kind}/${open}`).toBeLessThan(6000);
         expect((asset.extra!.affords as string[]).length).toBeGreaterThan(0);
       }
@@ -40,6 +40,33 @@ describe("contenants", () => {
     expect(apples.mesh.role.includes(ROLE.red)).toBe(true);
     const closed = make({ kind: "chest", open: false, fill: "gold" }).asset, closedEmpty = make({ kind: "chest", open: false }).asset;
     expect(closed.mesh.triangleCount).toBe(closedEmpty.mesh.triangleCount);
+  });
+
+  it("budget tenu pour chaque contenant × contenu", () => {
+    for (const kind of CONTAINER_KINDS)
+      for (const fill of FILLS) {
+        const { asset } = make({ kind, fill, open: true });
+        expect(asset.mesh.triangleCount, `${kind}/${fill}`).toBeLessThan(6000);
+      }
+  });
+
+  it("ancres sur le corps fermé, anse réelle, contenus impossibles refusés", () => {
+    const open = make({ kind: "chest", open: true }).asset, closed = make({ kind: "chest", open: false }).asset;
+    expect(open.anchors["sit.0"]).toBeUndefined();
+    expect(closed.anchors["sit.0"].pos[1]).toBeGreaterThan(0.4);
+    expect(closed.anchors["sit.0"].pos[1]).toBeLessThan(0.5);
+    expect(open.anchors.top.pos[1]).toBeLessThan(0.4);
+    expect(make({ kind: "wheeliebin" }).asset.anchors.grip.pos[2]).toBeLessThan(-0.3);
+    const r = make({ kind: "pallet", fill: "water" });
+    expect(r.issues.list.some((i) => i.path.endsWith("fill"))).toBe(true);
+    expect(r.asset.mesh.role.includes(ROLE.water)).toBe(false);
+  });
+
+  it("le contenu reste dans l'ouverture (fruits centrés, bûches à la corde)", () => {
+    const crate = make({ kind: "crate", fill: "apples" }).asset.mesh.bounds();
+    expect(crate.max[0] + crate.min[0]).toBeCloseTo(0, 1);
+    const bucket = make({ kind: "bucket", fill: "logs" }).asset.mesh.bounds();
+    expect(Math.max(-bucket.min[0], bucket.max[0])).toBeLessThan(0.16);
   });
 
   it("un coffre ouvert est plus haut qu'un coffre fermé (couvercle levé sur sa charnière)", () => {
