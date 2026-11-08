@@ -10,6 +10,7 @@ import type { Kit } from "./kit";
 import { readParts } from "../../gen/parts";
 import { seatModel } from "../../gen/seat";
 import { placedTool } from "../../gen/tool";
+import { containerModel } from "../../gen/container";
 import type { ObjectDrawer } from "./types";
 
 const add3 = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -158,4 +159,9 @@ export const drawAssembly: ObjectDrawer = (kit, p, ctx) => {
 export const drawTool: ObjectDrawer = (kit, p, ctx) => {
   shadowOf(kit, p, ctx);
   drawParts(kit, placedTool(String(p.kind), p).parts, { width: 0.5 });
+};
+
+export const drawContainer: ObjectDrawer = (kit, p, ctx) => {
+  shadowOf(kit, p, ctx);
+  drawParts(kit, containerModel(p).parts, { width: 0.55 });
 };

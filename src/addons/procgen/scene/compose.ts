@@ -113,7 +113,7 @@ export type SceneModel = {
 
 /** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
 const ACTOR_GENS = new Set(["character", "animal"]);
-const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool"]);
+const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
 const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 }, tool: { name: "scale", ref: 1 }, container: { name: "scale", ref: 1 } };
 const TILE = 24;
