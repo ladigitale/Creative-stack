@@ -278,7 +278,8 @@ export function buildChart(specIn: PlotSpec, rowsIn: unknown, width: number, hei
   /* ---- axes et grilles ---- */
   const vAxis: Axis = { ticks: vticks.map((t) => ({ pos: vs(t), label: fy(t) })), title: horizontal ? spec.xLabel : spec.yLabel };
   const cAxis: Axis = { ticks: catTicks, title: horizontal ? spec.yLabel : spec.xLabel };
-  if (!spark) {
+  if (spark) { model.gridX = []; model.gridY = []; }
+  else {
     if (horizontal) { model.xAxis = vAxis; model.yAxis = cAxis; model.gridX = spec.grid === false ? [] : vAxis.ticks.map((t) => t.pos); model.gridY = []; }
     else { model.xAxis = cAxis; model.yAxis = vAxis; model.gridY = spec.grid === false ? [] : vAxis.ticks.map((t) => t.pos); if (spec.grid !== true) model.gridX = []; }
   }
@@ -455,7 +456,8 @@ function buildHistogram(spec: PlotSpec, rows: Row[], model: ChartModel, addHit: 
   for (const v of vals) counts[Math.min(n - 1, Math.max(0, Math.floor((v - d0) / step)))]++;
   const ct = niceTicks(0, Math.max(...counts), 4);
   const fx = makeFormatter(spec.format?.x, locale), fy = makeFormatter(spec.format?.y ?? "integer", locale);
-  const labelPx = Math.max(...ct.ticks.map((t) => fy(t).length)) * 6.3 + 10 + (spec.yLabel ? 16 : 0);
+  const yTitle = spec.yLabel ?? "effectif"; // la marge doit aussi prévoir le titre par défaut
+  const labelPx = Math.max(...ct.ticks.map((t) => fy(t).length)) * 6.3 + 10 + 16;
   const ix = labelPx, iy = 8, iw = Math.max(10, model.width - ix - 12), ih = Math.max(10, model.height - 8 - 24 - (spec.xLabel ? 16 : 0));
   model.inner = { x: ix, y: iy, w: iw, h: ih };
   const xs = linear([d0, d1], [ix, ix + iw]), ys = linear(ct.domain, [iy + ih, iy]);
@@ -468,7 +470,7 @@ function buildHistogram(spec: PlotSpec, rows: Row[], model: ChartModel, addHit: 
     targets.push({ t: "rect", ...rect, hit });
   });
   model.xAxis = { ticks: nt.ticks.map((t) => ({ pos: xs(t), label: fx(t) })), title: spec.xLabel };
-  model.yAxis = { ticks: ct.ticks.map((t) => ({ pos: ys(t), label: fy(t) })), title: spec.yLabel ?? "effectif" };
+  model.yAxis = { ticks: ct.ticks.map((t) => ({ pos: ys(t), label: fy(t) })), title: yTitle };
   model.gridY = spec.grid === false ? [] : model.yAxis.ticks.map((t) => t.pos);
 }
 
