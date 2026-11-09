@@ -148,10 +148,95 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
   };
 
   /** Modèles de segmentation interactive : `alias` → modèle, processeur, image encodée courante. */
-  const segmenters = new Map<string, { model: any; processor: any; backend: string; image: any | null }>();
+  const segmenters = new Map<string, { model: any; processor: any; backend: string; image: any | null; raw: any | null; ref: any; fallbacks: string[] }>();
+
+  const samModelOn = async (model: any, device: string) => {
+    const opts: Record<string, unknown> = loadOptions(model);
+    const byDevice = (opts.dtypeByDevice ?? null) as Record<string, unknown> | null;
+    delete opts.dtypeByDevice;
+    if (byDevice && byDevice[device] !== undefined) opts.dtype = byDevice[device];
+    const files: Record<string, { loaded: number; total: number }> = {};
+    const progress_callback = (info: any) => {
+      if (info.status !== "progress") return;
+      files[info.file] = { loaded: info.loaded, total: info.total };
+      const all = Object.values(files);
+      const loaded = all.reduce((a, f) => a + (f.loaded || 0), 0);
+      const total = all.reduce((a, f) => a + (f.total || 0), 0);
+      post({ type: "progress", alias: model.alias, progress: { file: info.file, loadedBytes: loaded, totalBytes: total, percent: total ? Math.round((loaded / total) * 100) : 0 } });
+    };
+    return lib.AutoModelForMaskGeneration!.from_pretrained(model.repo, { ...opts, device, progress_callback });
+  };
+
+  const samEntry = (alias: string) => {
+    const entry = segmenters.get(alias);
+    if (!entry) {
+      const err: any = new Error(`Modèle "${alias}" non chargé.`);
+      err.code = "runtime";
+      throw err;
+    }
+    return entry;
+  };
+
+  /** Perte du GPU, mémoire GPU épuisée, échec d'exécution WebGPU : le moteur suivant peut prendre le relais. */
+  const isGpuFailure = (err: unknown) => /device\s*(is\s*)?lost|mapAsync|GPUBuffer|webgpu|OrtRun|out of memory|GPUValidationError/i.test(String((err as any)?.message ?? err));
+
+  /**
+   * Exécute `fn` ; si le moteur GPU lâche, recharge le modèle sur le moteur suivant (WASM en général) et relance
+   * `fn(true)` (qui réencode l'image si besoin). Le changement est définitif pour ce modèle.
+   */
+  const samWithFallback = async <R>(entry: any, fn: (retried: boolean) => Promise<R>): Promise<R> => {
+    try {
+      return await fn(false);
+    } catch (err) {
+      if (entry.backend === "wasm" || !entry.fallbacks?.length || !isGpuFailure(err)) throw err;
+      const next = entry.fallbacks.shift();
+      try { await entry.model?.dispose?.(); } catch { /* GPU déjà perdu */ }
+      entry.model = await samModelOn(entry.ref, next);
+      entry.backend = next;
+      entry.image = null;
+      return await fn(true);
+    }
+  };
+
+  const samEncode = async (entry: any, image: any) => {
+    const raw = new (lib.RawImage as any)(image.data, image.width, image.height, 4);
+    const inputs = await entry.processor(raw);
+    const embeddings = await entry.model.get_image_embeddings(inputs);
+    entry.image = { embeddings, original_sizes: inputs.original_sizes, reshaped_input_sizes: inputs.reshaped_input_sizes, width: image.width, height: image.height };
+  };
+
+  const samDecode = async (entry: any, points: any, box: any) => {
+    const ip = entry.processor.image_processor ?? entry.processor;
+    const img = entry.image;
+    const feed: Record<string, unknown> = { ...img.embeddings };
+    const pts = Array.isArray(points) ? points : [];
+    if (pts.length) {
+      const input_points = ip.reshape_input_points([[pts.map((p: any) => [p.x, p.y])]], img.original_sizes, img.reshaped_input_sizes);
+      feed.input_points = input_points;
+      feed.input_labels = ip.add_input_labels([[pts.map((p: any) => (p.label === 0 ? 0 : 1))]], input_points);
+    }
+    if (box) feed.input_boxes = ip.reshape_input_points([[[box.x0, box.y0, box.x1, box.y1]]], img.original_sizes, img.reshaped_input_sizes, true);
+    if (!feed.input_points && !feed.input_boxes) return null;
+    const out = await entry.model(feed);
+    const masks = await entry.processor.post_process_masks(out.pred_masks, img.original_sizes, img.reshaped_input_sizes);
+    const m = masks[0];
+    const scores: number[] = Array.from(out.iou_scores.data as ArrayLike<number>).map(Number);
+    const count = m.dims[1];
+    let best = 0;
+    for (let i = 1; i < count; i++) if ((scores[i] ?? -Infinity) > (scores[best] ?? -Infinity)) best = i;
+    const h = m.dims[2], w = m.dims[3];
+    const plane = h * w;
+    const mask = new Uint8Array(plane);
+    const data = m.data as ArrayLike<number | boolean>;
+    for (let i = 0, o = best * plane; i < plane; i++) mask[i] = data[o + i] ? 1 : 0;
+    return { width: w, height: h, mask, score: scores[best] ?? 0, scores: scores.slice(0, count), index: best };
+  };
 
   const handlers: Record<string, (msg: any) => Promise<unknown>> = {
-    /** Charge un modèle SAM / SAM 2 (`AutoModelForMaskGeneration` + `AutoProcessor`). */
+    /**
+     * Charge un modèle SAM / SAM 2 (`AutoModelForMaskGeneration` + `AutoProcessor`). `options.dtypeByDevice`
+     * (`{ webgpu: …, wasm: … }`) choisit la précision par moteur (q4f16 n'a de sens que sur GPU).
+     */
     async "sam-load"({ model, devices }) {
       const existing = segmenters.get(model.alias);
       if (existing) return { backend: existing.backend, loadMs: 0 };
@@ -161,25 +246,18 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
         throw err;
       }
       const t0 = performance.now();
-      const files: Record<string, { loaded: number; total: number }> = {};
-      const progress_callback = (info: any) => {
-        if (info.status !== "progress") return;
-        files[info.file] = { loaded: info.loaded, total: info.total };
-        const all = Object.values(files);
-        const loaded = all.reduce((a, f) => a + (f.loaded || 0), 0);
-        const total = all.reduce((a, f) => a + (f.total || 0), 0);
-        post({ type: "progress", alias: model.alias, progress: { file: info.file, loadedBytes: loaded, totalBytes: total, percent: total ? Math.round((loaded / total) * 100) : 0 } });
-      };
       const processor: any = await lib.AutoProcessor.from_pretrained(model.repo, { revision: model.revision });
       const errors: string[] = [];
-      for (const device of devices as string[]) {
+      const list = devices as string[];
+      for (let i = 0; i < list.length; i++) {
+        const device = list[i];
         if (device === "webgpu" && !(await hasWebGpu())) {
           errors.push("webgpu indisponible");
           continue;
         }
         try {
-          const m: any = await lib.AutoModelForMaskGeneration.from_pretrained(model.repo, { ...loadOptions(model), device, progress_callback });
-          segmenters.set(model.alias, { model: m, processor, backend: device, image: null });
+          const m = await samModelOn(model, device);
+          segmenters.set(model.alias, { model: m, processor, backend: device, image: null, raw: null, ref: model, fallbacks: list.slice(i + 1) });
           return { backend: device, loadMs: Math.round(performance.now() - t0) };
         } catch (err) {
           const code = errorCode(err);
@@ -194,18 +272,11 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
 
     /** Encode une image RGBA (une seule à la fois par modèle) : le décodage des invites réutilise l'encodage. */
     async "sam-encode"({ alias, image }) {
-      const entry = segmenters.get(alias);
-      if (!entry) {
-        const err: any = new Error(`Modèle "${alias}" non chargé.`);
-        err.code = "runtime";
-        throw err;
-      }
+      const entry = samEntry(alias);
       const t0 = performance.now();
-      const raw = new (lib.RawImage as any)(image.data, image.width, image.height, 4);
-      const inputs = await entry.processor(raw);
-      const embeddings = await entry.model.get_image_embeddings(inputs);
-      entry.image = { embeddings, original_sizes: inputs.original_sizes, reshaped_input_sizes: inputs.reshaped_input_sizes, width: image.width, height: image.height };
-      return { width: image.width, height: image.height, encodeMs: Math.round(performance.now() - t0) };
+      entry.raw = image;
+      await samWithFallback(entry, () => samEncode(entry, image));
+      return { width: image.width, height: image.height, encodeMs: Math.round(performance.now() - t0), backend: entry.backend };
     },
 
     /**
@@ -213,37 +284,18 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
      * Renvoie le meilleur des masques proposés (score IoU estimé) en octets 0/1, à la taille de l'image.
      */
     async "sam-decode"({ alias, points, box }) {
-      const entry = segmenters.get(alias);
-      if (!entry || !entry.image) {
+      const entry = samEntry(alias);
+      if (!entry.image) {
         const err: any = new Error("Aucune image encodée.");
         err.code = "runtime";
         throw err;
       }
       const t0 = performance.now();
-      const ip = entry.processor.image_processor ?? entry.processor;
-      const img = entry.image;
-      const feed: Record<string, unknown> = { ...img.embeddings };
-      const pts = Array.isArray(points) ? points : [];
-      if (pts.length) {
-        const input_points = ip.reshape_input_points([[pts.map((p: any) => [p.x, p.y])]], img.original_sizes, img.reshaped_input_sizes);
-        feed.input_points = input_points;
-        feed.input_labels = ip.add_input_labels([[pts.map((p: any) => (p.label === 0 ? 0 : 1))]], input_points);
-      }
-      if (box) feed.input_boxes = ip.reshape_input_points([[[box.x0, box.y0, box.x1, box.y1]]], img.original_sizes, img.reshaped_input_sizes, true);
-      if (!feed.input_points && !feed.input_boxes) return null;
-      const out = await entry.model(feed);
-      const masks = await entry.processor.post_process_masks(out.pred_masks, img.original_sizes, img.reshaped_input_sizes);
-      const m = masks[0];
-      const scores: number[] = Array.from(out.iou_scores.data as ArrayLike<number>).map(Number);
-      const count = m.dims[1];
-      let best = 0;
-      for (let i = 1; i < count; i++) if ((scores[i] ?? -Infinity) > (scores[best] ?? -Infinity)) best = i;
-      const h = m.dims[2], w = m.dims[3];
-      const plane = h * w;
-      const mask = new Uint8Array(plane);
-      const data = m.data as ArrayLike<number | boolean>;
-      for (let i = 0, o = best * plane; i < plane; i++) mask[i] = data[o + i] ? 1 : 0;
-      return { width: w, height: h, mask, score: scores[best] ?? 0, scores: scores.slice(0, count), index: best, decodeMs: Math.round(performance.now() - t0) };
+      const res = await samWithFallback(entry, async (retried) => {
+        if (retried && entry.raw) await samEncode(entry, entry.raw);
+        return samDecode(entry, points, box);
+      });
+      return res ? { ...res, decodeMs: Math.round(performance.now() - t0), backend: entry.backend } : null;
     },
 
     async "sam-dispose"({ alias }) {

@@ -37,6 +37,10 @@ export type HfModelDefinition<T extends HfTask = HfTask> = {
    * `sonic-segment-anything` (encodage d'une image puis masques à la demande). Défaut : `pipeline`.
    */
   engine?: "pipeline" | "sam";
+  /*
+   * Pour `engine: "sam"`, `options.dtypeByDevice` ({ webgpu: …, wasm: … }) choisit la précision par moteur ; si le
+   * GPU lâche en cours de calcul, le modèle est rechargé sur le moteur suivant de `devices`.
+   */
   /** Options d'appel par défaut, typées selon `task`. */
   defaults?: HfCallOptions<T>;
 };
