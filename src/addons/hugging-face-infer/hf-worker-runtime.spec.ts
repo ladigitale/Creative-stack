@@ -72,7 +72,8 @@ describe("hfWorkerMain", () => {
     expect(lib.env).toMatchObject({
       allowLocalModels: false,
       useBrowserCache: true,
-      useWasmCache: true,
+      // import blob: impossible dans jsdom (comme sous une CSP sans blob:) : cache WASM désactivé
+      useWasmCache: false,
       cacheKey: "concorde-hf-4.3.0",
       remoteHost: "https://cdn/models/",
     });
