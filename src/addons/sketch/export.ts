@@ -1,6 +1,6 @@
 import { tipGeometry, tipTransform } from "../paint/tip";
 import { fitCurve } from "../vector/ops";
-import type { BBox } from "../vector/geometry";
+import { intersects, type BBox } from "../vector/geometry";
 import { contentBBox, type Stroke } from "./model";
 import { strokeStamps } from "./render";
 
@@ -45,8 +45,19 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
   let count = 0;
 
   for (const st of strokes) {
+    // Culling : hors de la zone exportée, le trait ne produit rien.
+    if (opts.area && !intersects(st.bbox, opts.area)) continue;
     const b = st.brush;
     const op = b.opacity < 0.999 ? ` opacity="${f(b.opacity)}"` : "";
+    const at = body.length;
+    emit(st, b, op);
+    // Mode de fusion : le trait entier (ses empreintes réunies) fusionne avec ce qui est dessous.
+    if (b.blend && b.blend !== "normal" && body.length > at) {
+      body.splice(at, body.length - at, `<g style="mix-blend-mode:${b.blend}">${body.slice(at).join("")}</g>`);
+    }
+  }
+
+  function emit(st: Stroke, b: Stroke["brush"], op: string): void {
     if (isPlainLine(st)) {
       const pts: [number, number][] = [];
       for (let i = 0; i < st.pts.length; i += 3) pts.push([st.pts[i], st.pts[i + 1]]);
@@ -57,7 +68,7 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
         const d = fitCurve(pts, b.size * 0.04);
         if (d) body.push(`<path d="${d}" fill="none" stroke="${esc(b.color)}" stroke-width="${f(b.size)}" stroke-linecap="round" stroke-linejoin="round"/>`);
       }
-      continue;
+      return;
     }
     const stamps = strokeStamps(st);
     count += stamps.length;
@@ -74,7 +85,7 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
       for (const s of stamps) parts.push(`<use href="#${id}" transform="${tipTransform(geo, s.x, s.y, s.size, s.rot, s.squash)}"${op}/>`);
       parts.push("</g>");
       body.push(parts.join(""));
-      continue;
+      return;
     }
     let fill = esc(b.color);
     if (b.hardness < 0.999) {
@@ -97,6 +108,26 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
     body.push(parts.join(""));
   }
 
+  joinPaths(body);
   const bg = opts.background && opts.background !== "transparent" ? `<rect x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}" fill="${esc(opts.background)}"/>` : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(vb.x)} ${f(vb.y)} ${f(vb.w)} ${f(vb.h)}">${defs.length ? `<defs>${defs.join("")}</defs>` : ""}${bg}${body.join("")}</svg>`;
+}
+
+const PLAIN_PATH = /^<path d="([^"]+)" (fill="none" stroke="[^"]*" stroke-width="[^"]*" stroke-linecap="round" stroke-linejoin="round")\/>$/;
+
+/** Jointure : les tracés nets consécutifs de même style deviennent un seul `<path>` à plusieurs sous-tracés. */
+export function joinPaths(body: string[]): void {
+  let w = 0;
+  let prev: { d: string; attrs: string } | null = null;
+  const flush = () => { if (prev) body[w++] = `<path d="${prev.d}" ${prev.attrs}/>`; prev = null; };
+  const items = body.slice();
+  for (const it of items) {
+    const m = PLAIN_PATH.exec(it);
+    if (m && prev && prev.attrs === m[2]) { prev.d += m[1]; continue; }
+    flush();
+    if (m) prev = { d: m[1], attrs: m[2] };
+    else body[w++] = it;
+  }
+  flush();
+  body.length = w;
 }

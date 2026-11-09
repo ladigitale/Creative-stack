@@ -20,8 +20,21 @@ export type View = {
   zoom: number;
 };
 
-/** Pinceau mémorisé dans un trait : diamètre en unités du monde. */
-export type StrokeBrush = Pick<BrushSettings, "size" | "hardness" | "opacity" | "spacing" | "color" | "pressure" | "tip" | "angle" | "angleFollow" | "angleJitter" | "sizeJitter" | "scatter" | "roundness">;
+/** Modes de fusion d'un trait avec ce qui est dessous (noms CSS `mix-blend-mode`, communs au canvas et au SVG). */
+export const BLEND_MODES = [
+  "normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn",
+  "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity",
+] as const;
+export type BlendMode = (typeof BLEND_MODES)[number];
+
+/** Mode de fusion valide, sinon `fallback`. */
+export function sanitizeBlend(v: unknown, fallback: BlendMode = "normal"): BlendMode {
+  const s = typeof v === "string" ? v.trim().toLowerCase() : "";
+  return (BLEND_MODES as readonly string[]).includes(s) ? (s as BlendMode) : fallback;
+}
+
+/** Pinceau mémorisé dans un trait : diamètre en unités du monde ; `blend` absent = `normal`. */
+export type StrokeBrush = Pick<BrushSettings, "size" | "hardness" | "opacity" | "spacing" | "color" | "pressure" | "tip" | "angle" | "angleFollow" | "angleJitter" | "sizeJitter" | "scatter" | "roundness"> & { blend?: BlendMode };
 
 export type Stroke = {
   id: number;
@@ -86,9 +99,11 @@ export function strokeMargin(b: StrokeBrush): number {
   return (b.size / 2) * (1 + b.scatter * 2) + 1e-9;
 }
 
-export function makeBrush(b: BrushSettings, size: number): StrokeBrush {
+export function makeBrush(b: BrushSettings, size: number, blend: BlendMode = "normal"): StrokeBrush {
   const { hardness, opacity, spacing, color, pressure, tip, angle, angleFollow, angleJitter, sizeJitter, scatter, roundness } = b;
-  return { size, hardness, opacity, spacing, color, pressure, tip, angle, angleFollow, angleJitter, sizeJitter, scatter, roundness };
+  const out: StrokeBrush = { size, hardness, opacity, spacing, color, pressure, tip, angle, angleFollow, angleJitter, sizeJitter, scatter, roundness };
+  if (blend !== "normal") out.blend = blend;
+  return out;
 }
 
 /** Boîte de tout le contenu, ou `null` si vide. */
@@ -109,6 +124,55 @@ export function fitView(b: BBox | null, w: number, h: number, margin = 0.08): Vi
   const zw = (w * (1 - 2 * margin)) / Math.max(b.w, 1e-12);
   const zh = (h * (1 - 2 * margin)) / Math.max(b.h, 1e-12);
   return { x: b.x + b.w / 2, y: b.y + b.h / 2, zoom: clampZoom(Math.min(zw, zh)) };
+}
+
+/**
+ * Compacte les points d'un trait terminé (x, y, pression par point) :
+ * 1. jointure des points trop proches (moins de `tol / 2` du dernier gardé) ;
+ * 2. Ramer–Douglas–Peucker sur le tracé **et** la pression : un point reste s'il s'écarte de plus de `tol`
+ *    (monde) de la corde, ou si sa pression s'écarte de plus de `pressureTol` de la pression interpolée.
+ * Extrémités toujours gardées. Itératif (pas de récursion). Retourne un nouveau tableau.
+ */
+export function compactStroke(pts: number[], tol: number, pressureTol = 0.04): number[] {
+  const n0 = Math.floor(pts.length / 3);
+  if (n0 <= 2 || !(tol > 0)) return pts.slice(0, n0 * 3);
+  // 1. jointure
+  const j: number[] = [pts[0], pts[1], pts[2]];
+  const near = tol / 2;
+  for (let i = 3; i < n0 * 3; i += 3) {
+    const k = j.length - 3;
+    const last = i === n0 * 3 - 3;
+    if (!last && Math.hypot(pts[i] - j[k], pts[i + 1] - j[k + 1]) < near && Math.abs(pts[i + 2] - j[k + 2]) <= pressureTol) continue;
+    if (last && j.length > 3 && Math.hypot(pts[i] - j[k], pts[i + 1] - j[k + 1]) < near) j.length -= 3;
+    j.push(pts[i], pts[i + 1], pts[i + 2]);
+  }
+  const n = j.length / 3;
+  if (n <= 2) return j;
+  // 2. RDP tracé + pression
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    if (b - a < 2) continue;
+    const ax = j[a * 3], ay = j[a * 3 + 1], ap = j[a * 3 + 2];
+    const bx = j[b * 3], by = j[b * 3 + 1], bp = j[b * 3 + 2];
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    let worst = -1, score = 1;
+    for (let i = a + 1; i < b; i++) {
+      const px = j[i * 3], py = j[i * 3 + 1];
+      const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+      const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) / tol;
+      // Pression interpolée selon la position le long de la corde (indice si la corde est nulle).
+      const u = l2 === 0 ? (i - a) / (b - a) : t;
+      const e = Math.max(d, Math.abs(j[i * 3 + 2] - (ap + u * (bp - ap))) / pressureTol);
+      if (e > score) { score = e; worst = i; }
+    }
+    if (worst >= 0) { keep[worst] = 1; stack.push([a, worst], [worst, b]); }
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(j[i * 3], j[i * 3 + 1], j[i * 3 + 2]);
+  return out;
 }
 
 /** Distance d'un point à un segment. */

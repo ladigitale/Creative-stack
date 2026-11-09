@@ -8,10 +8,10 @@ import { BRUSH_DEFAULTS, Stabilizer, sanitizeBrush, type BrushSettings } from ".
 import { tipFromValue } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
-  Doc, MAX_POINTS_PER_STROKE, contentBBox, fitView, makeBrush, panBy, sanitizeView, strokeBBox, strokeHit, strokeMargin,
-  toWorld, visibleRect, zoomAt, DEFAULT_VIEW, type Stroke, type View,
+  Doc, MAX_POINTS_PER_STROKE, compactStroke, contentBBox, fitView, makeBrush, panBy, sanitizeView, strokeBBox, strokeHit, strokeMargin,
+  toWorld, visibleRect, zoomAt, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type View,
 } from "./model";
-import { drawStamp, drawStrokes, type Surface } from "./render";
+import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
 
 const MAX_SIDE = 4096;
@@ -23,12 +23,16 @@ export type SketchState = {
   x: number;
   y: number;
   strokes: number;
+  /** Points de tous les traits (après simplification), et ceux du dernier trait avant / après. */
+  points: number;
+  lastStroke: { before: number; after: number };
   drawing: boolean;
   canUndo: boolean;
   canRedo: boolean;
   tool: string;
   color: string;
   size: number;
+  blend: BlendMode;
   bbox: { x: number; y: number; w: number; h: number } | null;
   /** Dernier export (`control.save` / `savePng`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
@@ -73,6 +77,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Number, attribute: "size-jitter" }) sizeJitter = 0;
   @property({ type: Number }) scatter = 0;
   @property({ type: Number }) roundness = 1;
+  /** Mode de fusion des nouveaux traits (`normal`, `multiply`, `screen`, `overlay`… noms CSS `mix-blend-mode`). */
+  @property({ type: String }) blend: string = "normal";
   @property({ type: String, attribute: "tip-from" }) tipFrom = "";
   @property({ type: String, attribute: "brush-from" }) brushFrom = "";
   /** DP de la vue `{ x, y, zoom }` (écrit la vue quand elle diffère de l'actuelle). */
@@ -80,6 +86,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: String }) control = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
   @property({ type: Boolean }) readonly = false;
+  /**
+   * Tolérance de simplification des traits terminés, en pixels d'écran au moment du tracé (0 : aucune).
+   * Les points à moins de cette distance de la courbe simplifiée sont retirés (pression comprise).
+   */
+  @property({ type: Number }) simplify = 0.35;
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
 
   @query("canvas") private canvasEl!: HTMLCanvasElement;
@@ -102,6 +113,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private mode: "none" | "draw" | "erase" | "pan" = "none";
   private stroke: Stroke | null = null;
   private stamper: StrokeStamper | null = null;
+  /** Empreintes du trait en cours quand il a un mode de fusion (fusionnées à l'affichage). */
+  private liveBuf: Surface | null = null;
+  private readonly liveKey = {};
   private erased = new Set<number>();
   private panLast = { x: 0, y: 0 };
   private space = false;
@@ -110,6 +124,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private unsubs: (() => void)[] = [];
   private last: SketchState["last"] = null;
   private error: string | null = null;
+  private lastCompaction = { before: 0, after: 0 };
 
   get frameSeq(): number { return this.seq; }
   getFrameCanvas(): HTMLCanvasElement | null { return this.canvasEl ?? null; }
@@ -120,6 +135,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   brush(): BrushSettings {
     const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness });
     return sanitizeBrush(base, this.live);
+  }
+
+  /** Mode de fusion effectif : réglage en direct, sinon attribut. */
+  currentBlend(): BlendMode {
+    return sanitizeBlend(this.live.blend, sanitizeBlend(this.blend));
   }
 
   private currentTool(): string {
@@ -234,6 +254,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const s = this.layerSurface();
     if (!s) return;
     s.ctx.clearRect(0, 0, s.w, s.h);
+    // Le fond est aussi dans la couche : les modes de fusion le voient sous les traits.
+    const bg = this.backgroundColor();
+    if (bg) { s.ctx.fillStyle = bg; s.ctx.fillRect(0, 0, s.w, s.h); }
     drawStrokes(s, this.doc.strokes, visibleRect(this.layerView, s.w, s.h));
     this.layerDirty = false;
   }
@@ -247,8 +270,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (this.layerDirty && !this.gestureActive()) this.renderLayer();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (this.background && this.background !== "transparent") {
-      ctx.fillStyle = sanitizeBrush({ ...BRUSH_DEFAULTS }, { color: this.background }).color;
+    const bg = this.backgroundColor();
+    if (bg) {
+      ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
     }
     const layer = this.ensureLayer();
@@ -257,7 +281,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const tx = w / 2 - (w / 2) * k + (lv.x - v.x) * v.zoom;
     const ty = h / 2 - (h / 2) * k + (lv.y - v.y) * v.zoom;
     ctx.drawImage(layer, tx, ty, w * k, h * k);
+    // Trait en cours avec fusion : la vue n'a pas bougé depuis son début (sinon il est abandonné).
+    if (this.liveBuf && this.stroke) blitBlend({ ctx, w, h, view: v }, this.liveBuf.ctx.canvas, this.stroke.brush.blend);
     this.seq++;
+  }
+
+  private backgroundColor(): string {
+    if (!this.background || this.background === "transparent") return "";
+    return sanitizeBrush({ ...BRUSH_DEFAULTS }, { color: this.background }).color;
   }
 
   private gestureActive(): boolean {
@@ -423,10 +454,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const lv = this.layerView, v = this.view;
     if (this.layerDirty || lv.x !== v.x || lv.y !== v.y || lv.zoom !== v.zoom) this.renderLayer();
     const b = this.brush();
-    const brush = makeBrush(b, this.worldSize(b));
+    const brush = makeBrush(b, this.worldSize(b), this.currentBlend());
     const seed = (Math.random() * 4294967296) >>> 0;
     this.stroke = { id: this.doc.nextId++, brush, pts: [], seed, bbox: { x: 0, y: 0, w: 0, h: 0 } };
     this.stamper = new StrokeStamper(brush, seed);
+    this.liveBuf = null;
+    if (brush.blend) {
+      const s = this.layerSurface();
+      this.liveBuf = s ? scratchFor(s, this.liveKey) : null;
+    }
     this.stab.reset();
     this.mode = "draw";
     this.extendStroke(p, e);
@@ -451,7 +487,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const n = st.pts.length;
     if (n >= 3 && st.pts[n - 3] === x && st.pts[n - 2] === y) return;
     st.pts.push(x, y, pr);
-    const surface = this.layerSurface();
+    const surface = this.liveBuf ?? this.layerSurface();
     if (!surface) return;
     surface.view = this.layerView;
     for (const stamp of stamper.feed(x, y, pr)) drawStamp(surface, st.brush, stamp);
@@ -469,9 +505,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         }
       }
     }
+    const live = this.liveBuf;
     this.stroke = null;
     this.stamper = null;
+    this.liveBuf = null;
     if (!st || !st.pts.length) return;
+    const raw = st.pts.length / 3;
+    const tol = Math.max(0, Math.min(8, Number(this.simplify) || 0));
+    if (tol > 0) st.pts = compactStroke(st.pts, tol / this.layerView.zoom, st.brush.pressure ? 0.04 : Infinity);
+    this.lastCompaction = { before: raw, after: st.pts.length / 3 };
     st.bbox = strokeBBox(st.pts, strokeMargin(st.brush));
     if (!this.doc.add(st)) {
       this.error = "limite de traits ou de points atteinte";
@@ -479,6 +521,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       return;
     }
     this.error = null;
+    // Trait fusionné : ses empreintes, réunies dans le tampon, sont posées sur la couche avec leur mode.
+    if (live) { const s = this.layerSurface(); if (s) blitBlend(s, live.ctx.canvas, st.brush.blend); }
     this.compose();
   }
 
@@ -487,6 +531,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (!this.stroke) { if (this.mode === "erase") this.endErase(); return; }
     this.stroke = null;
     this.stamper = null;
+    this.liveBuf = null;
     this.layerDirty = true;
   }
 
@@ -570,8 +615,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const b = this.brush();
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y,
-      strokes: this.doc.strokes.length, drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
-      tool: this.currentTool(), color: b.color, size: b.size, bbox: contentBBox(this.doc.strokes), last: this.last,
+      strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
+      tool: this.currentTool(), color: b.color, size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
     };
   }
 

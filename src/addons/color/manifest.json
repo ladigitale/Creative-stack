@@ -1,0 +1,38 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "color",
+  "label": "Palettes d'harmonie",
+  "description": "Palettes calculées selon une règle de théorie des couleurs (monochrome, analogue, complémentaire, complémentaire divisée, triade, rectangle, carré) en OKLCH : clarté perçue homogène, couleurs ramenées dans le gamut sRGB ; pastilles cliquables qui envoient la couleur choisie à un store",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "color.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-palette",
+      "description": "Palette d'harmonie : base (#rrggbb), rule mono|analogous|complementary|split|triadic|tetradic|square, count 1..12 (0 = nombre de teintes de la règle, puis nuances plus claires / plus sombres), spread (° des teintes voisines), step (écart de clarté des nuances) ; pastilles cliquables (direction row|column|grid, columns, shape circle|square, swatch-size ; flèches au clavier) : le choix part vers un store comme sonic-action (target, action défaut set, key défaut color, payload JSON ajouté) ; selected = rang choisi au départ, follow (défaut vrai) renvoie la couleur au même rang quand la palette change ; headless = calcul seul ; params {base, rule, count, spread, step, selected} en direct ; control {random, rotate} compteurs (teinte au hasard, +30°) ; état {base, rule, count, spread, step, colors[], items[{hex, hue, l, c, role}], selected, selectedIndex}",
+      "props": {
+        "base": { "type": "string" },
+        "rule": { "type": "string" },
+        "count": { "type": "number" },
+        "spread": { "type": "number" },
+        "step": { "type": "number" },
+        "selected": { "type": "number" },
+        "target": { "type": "string" },
+        "action": { "type": "string" },
+        "key": { "type": "string" },
+        "payload": { "type": "string" },
+        "follow": { "type": "boolean" },
+        "direction": { "type": "string" },
+        "columns": { "type": "number" },
+        "shape": { "type": "string" },
+        "swatch-size": { "type": "number" },
+        "headless": { "type": "boolean" },
+        "params": { "type": "string" },
+        "control": { "type": "string" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}

@@ -77,8 +77,52 @@ export function strokeStamps(st: Stroke): Stamp[] {
   return v;
 }
 
+/** Opération canvas d'un mode de fusion (`normal` → `source-over`). */
+export function compositeOf(blend: string | undefined): GlobalCompositeOperation {
+  return !blend || blend === "normal" ? "source-over" : (blend as GlobalCompositeOperation);
+}
+
+const scratchByCanvas = new WeakMap<object, HTMLCanvasElement>();
+
+/** Tampon de même taille que la surface, vidé, avec la même transformation (empreintes d'un trait à fusionner). */
+export function scratchFor(s: Surface, key: object = s.ctx.canvas): Surface | null {
+  const target = s.ctx.canvas;
+  let c = scratchByCanvas.get(key);
+  if (!c) scratchByCanvas.set(key, (c = document.createElement("canvas")));
+  if (c.width !== target.width || c.height !== target.height) { c.width = target.width; c.height = target.height; }
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.setTransform(s.ctx.getTransform());
+  return { ctx, w: s.w, h: s.h, view: s.view };
+}
+
+/** Pose un tampon (pixels de la surface) sur la surface avec un mode de fusion. */
+export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | undefined): void {
+  const { ctx } = s;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = compositeOf(blend);
+  ctx.drawImage(buf, 0, 0);
+  ctx.restore();
+}
+
+/**
+ * Dessine un trait. Avec un mode de fusion, ses empreintes sont d'abord réunies dans un tampon (normalement,
+ * pour qu'elles ne se fusionnent pas entre elles) puis le tampon est fusionné avec ce qui est dessous.
+ */
 export function drawStroke(s: Surface, st: Stroke): void {
-  for (const stamp of strokeStamps(st)) drawStamp(s, st.brush, stamp);
+  const blend = st.brush.blend;
+  if (!blend || blend === "normal") {
+    for (const stamp of strokeStamps(st)) drawStamp(s, st.brush, stamp);
+    return;
+  }
+  const buf = scratchFor(s);
+  if (!buf) return;
+  for (const stamp of strokeStamps(st)) drawStamp(buf, st.brush, stamp);
+  blitBlend(s, buf.ctx.canvas, blend);
 }
 
 /** Dessine les traits dont la boîte coupe `viewRect`, dans l'ordre. Retourne leur nombre. */
