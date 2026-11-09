@@ -227,3 +227,64 @@ describe("export SVG : jointure et culling", () => {
     expect((svg.match(/<path /g) ?? []).length).toBe(1);
   });
 });
+
+describe("fusion vectorielle (découpage polygonal)", () => {
+  it("un trait plein devient son contour : aire ≈ capsule", async () => {
+    const { strokeOutline } = await import("./merge");
+    const { multiArea } = await import("../vector");
+    const m = strokeOutline([0, 0, 1, 100, 0, 1], 5, 0.05);
+    expect(m).toHaveLength(1);
+    expect(multiArea(m)).toBeCloseTo(100 * 10 + Math.PI * 25, -1);
+  });
+  it("fonctionne à toute échelle du monde", async () => {
+    const { strokeOutline } = await import("./merge");
+    const { multiArea } = await import("../vector");
+    for (const k of [1e-7, 1e7]) {
+      const m = strokeOutline([0, 0, 1, 100 * k, 0, 1], 5 * k, 0.05 * k);
+      expect(multiArea(m) / (k * k)).toBeCloseTo(1000 + Math.PI * 25, -1);
+    }
+  });
+  it("deux traits qui se croisent : une seule forme, sans double comptage", async () => {
+    const { strokeOutline, mergeShapes, shapeHit } = await import("./merge");
+    const { multiArea } = await import("../vector");
+    const a = strokeOutline([0, 0, 1, 100, 0, 1], 5, 0.05);
+    const b = strokeOutline([50, -50, 1, 50, 50, 1], 5, 0.05);
+    const m = mergeShapes(a, b, 0.05);
+    expect(m).toHaveLength(1);
+    expect(multiArea(m)).toBeLessThan(multiArea(a) + multiArea(b) - 90);
+    expect(shapeHit(m, 50, 30, 0)).toBe(true);
+    expect(shapeHit(m, 20, 30, 0)).toBe(false);
+    expect(shapeHit(m, 20, 7, 2.5)).toBe(true);
+  });
+  it("cible : même style au contact, bloquée par un trait d'un autre style posé dessus", async () => {
+    const { mergeTarget, isSolid } = await import("./merge");
+    const red = brush(10, { color: "#ff0000" }), blue = brush(10, { color: "#0000ff" });
+    const r1 = stroke([[0, 0], [100, 0]], red);
+    const fresh = stroke([[50, -20], [50, 20]], red);
+    expect(isSolid(red, fresh.pts)).toBe(true);
+    expect(mergeTarget([r1], fresh)).toBe(0);
+    expect(mergeTarget([r1, stroke([[0, 200], [100, 200]], blue)], fresh)).toBe(0);
+    expect(mergeTarget([r1, stroke([[40, -30], [60, 30]], blue)], fresh)).toBe(-1);
+    expect(mergeTarget([stroke([[0, 0], [100, 0]], brush(10, { color: "#ff0000", hardness: 0.3 }))], fresh)).toBe(-1);
+    expect(mergeTarget([stroke([[0, 0], [100, 0]], brush(10, { color: "#ff0000", blend: "multiply" }))], fresh)).toBe(-1);
+  });
+  it("swap : une étape d'annulation", () => {
+    const d = new Doc();
+    const a = stroke([[0, 0]]), b = stroke([[5, 5]]), c = stroke([[9, 9]]);
+    d.add(a); d.add(b); d.add(c);
+    const merged = { ...stroke([[1, 1]]), pts: [], shape: [[[[0, 0], [1, 0], [1, 1]] as [number, number][]]] };
+    d.swap(new Set([a.id]), merged, 0);
+    expect(d.strokes).toEqual([merged, b, c]);
+    expect(d.totalPoints).toBe(3 + 2);
+    d.undo();
+    expect(d.strokes).toEqual([a, b, c]);
+    d.redo();
+    expect(d.strokes).toEqual([merged, b, c]);
+  });
+  it("export : une forme = un chemin rempli", () => {
+    const shape = { ...stroke([[0, 0]]), pts: [], shape: [[[[0, 0], [10, 0], [10, 10], [0, 10]] as [number, number][]]], bbox: { x: 0, y: 0, w: 10, h: 10 } };
+    const svg = exportSvg([shape]);
+    expect(svg).toContain('fill-rule="evenodd"');
+    expect((svg.match(/<path /g) ?? []).length).toBe(1);
+  });
+});

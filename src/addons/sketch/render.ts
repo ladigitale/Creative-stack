@@ -115,14 +115,38 @@ export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | un
  */
 export function drawStroke(s: Surface, st: Stroke): void {
   const blend = st.brush.blend;
-  if (!blend || blend === "normal") {
-    for (const stamp of strokeStamps(st)) drawStamp(s, st.brush, stamp);
-    return;
-  }
+  if (!blend || blend === "normal") return paintStroke(s, st);
   const buf = scratchFor(s);
   if (!buf) return;
-  for (const stamp of strokeStamps(st)) drawStamp(buf, st.brush, stamp);
+  paintStroke(buf, st);
   blitBlend(s, buf.ctx.canvas, blend);
+}
+
+function paintStroke(s: Surface, st: Stroke): void {
+  if (st.shape) return fillShape(s, st);
+  for (const stamp of strokeStamps(st)) drawStamp(s, st.brush, stamp);
+}
+
+/**
+ * Forme fusionnée : remplie en pair-impair. Les sommets passent à l'écran en double précision côté JS
+ * (pas de transformation du contexte : le canvas calcule en simple précision, faux aux zooms extrêmes).
+ */
+function fillShape(s: Surface, st: Stroke): void {
+  const { ctx, view, w, h } = s;
+  const path = new Path2D();
+  for (const poly of st.shape ?? []) {
+    for (const ring of poly) {
+      if (ring.length < 3) continue;
+      for (let i = 0; i < ring.length; i++) {
+        const [x, y] = toScreen(view, ring[i][0], ring[i][1], w, h);
+        if (i) path.lineTo(x, y); else path.moveTo(x, y);
+      }
+      path.closePath();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = st.brush.color;
+  ctx.fill(path, "evenodd");
 }
 
 /** Dessine les traits dont la boîte coupe `viewRect`, dans l'ordre. Retourne leur nombre. */

@@ -1,6 +1,5 @@
 import { tipGeometry, tipTransform } from "../paint/tip";
-import { fitCurve } from "../vector/ops";
-import { intersects, type BBox } from "../vector/geometry";
+import { fitCurve, fitMulti, intersects, type BBox } from "../vector";
 import { contentBBox, type Stroke } from "./model";
 import { strokeStamps } from "./render";
 
@@ -58,6 +57,12 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
   }
 
   function emit(st: Stroke, b: Stroke["brush"], op: string): void {
+    if (st.shape) {
+      // Forme fusionnée : un seul chemin de courbes ajustées sur ses contours.
+      const d = fitMulti(st.shape, Math.max(b.size * 0.02, 1e-12), { cornerDeg: 70 });
+      if (d) body.push(`<path d="${d}" fill="${esc(b.color)}" fill-rule="evenodd"/>`);
+      return;
+    }
     if (isPlainLine(st)) {
       const pts: [number, number][] = [];
       for (let i = 0; i < st.pts.length; i += 3) pts.push([st.pts[i], st.pts[i + 1]]);

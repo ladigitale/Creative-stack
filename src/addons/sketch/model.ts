@@ -1,5 +1,6 @@
 import type { BrushSettings } from "../paint/brush";
-import type { BBox } from "../vector/geometry";
+import { simplifyLine, type BBox, type Multi, type Pt } from "../vector";
+import { shapeHit, shapeVertices } from "./merge";
 
 /**
  * Modèle d'un dessin vectoriel à zoom infini : des traits (points en coordonnées du monde, pression,
@@ -39,8 +40,10 @@ export type StrokeBrush = Pick<BrushSettings, "size" | "hardness" | "opacity" | 
 export type Stroke = {
   id: number;
   brush: StrokeBrush;
-  /** x, y, pression : trois nombres par point. */
+  /** x, y, pression : trois nombres par point (vide pour une forme). */
   pts: number[];
+  /** Forme fusionnée (polygones du monde, à trous) : traits pleins de même style unis ; remplace `pts`. */
+  shape?: Multi;
   seed: number;
   bbox: BBox;
 };
@@ -148,7 +151,19 @@ export function compactStroke(pts: number[], tol: number, pressureTol = 0.04): n
   }
   const n = j.length / 3;
   if (n <= 2) return j;
-  // 2. RDP tracé + pression
+  // 2a. Sans pression qui compte : RDP de l'addon vector sur le tracé.
+  if (!Number.isFinite(pressureTol)) {
+    const line: Pt[] = [];
+    for (let i = 0; i < n; i++) line.push([j[i * 3], j[i * 3 + 1]]);
+    const kept = simplifyLine(line, tol);
+    const out: number[] = [];
+    let k = 0;
+    for (let i = 0; i < n && k < kept.length; i++) {
+      if (line[i] === kept[k]) { out.push(j[i * 3], j[i * 3 + 1], j[i * 3 + 2]); k++; }
+    }
+    return out;
+  }
+  // 2b. RDP tracé + pression
   const keep = new Uint8Array(n);
   keep[0] = keep[n - 1] = 1;
   const stack: [number, number][] = [[0, n - 1]];
@@ -184,6 +199,11 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
 
 /** Le trait passe-t-il à moins de `r` (monde) du point ? (épaisseur du trait comprise) */
 export function strokeHit(s: Stroke, px: number, py: number, r: number): boolean {
+  if (s.shape) {
+    const b = s.bbox;
+    if (px < b.x - r || px > b.x + b.w + r || py < b.y - r || py > b.y + b.h + r) return false;
+    return shapeHit(s.shape, px, py, r);
+  }
   const reach = r + s.brush.size / 2;
   const b = s.bbox;
   if (px < b.x - r || px > b.x + b.w + r || py < b.y - r || py > b.y + b.h + r) return false;
@@ -199,6 +219,7 @@ export function strokeHit(s: Stroke, px: number, py: number, r: number): boolean
 
 type Op =
   | { t: "add"; stroke: Stroke }
+  | { t: "swap"; removed: { index: number; stroke: Stroke }[]; added: Stroke; at: number }
   | { t: "remove"; items: { index: number; stroke: Stroke }[] }
   | { t: "clear"; strokes: Stroke[] };
 
@@ -216,7 +237,7 @@ export class Doc {
 
   get totalPoints(): number {
     let n = 0;
-    for (const s of this.strokes) n += s.pts.length / 3;
+    for (const s of this.strokes) n += s.shape ? shapeVertices(s.shape) : s.pts.length / 3;
     return n;
   }
 
@@ -231,6 +252,19 @@ export class Doc {
     this.strokes.push(stroke);
     this.record({ t: "add", stroke });
     return true;
+  }
+
+  /**
+   * Remplace des traits par un seul (fusion) en une étape d'historique : `ids` retirés, `added` inséré au rang
+   * `at` (compté après le retrait).
+   */
+  swap(ids: Set<number>, added: Stroke, at: number): void {
+    const removed: { index: number; stroke: Stroke }[] = [];
+    this.strokes.forEach((stroke, index) => { if (ids.has(stroke.id)) removed.push({ index, stroke }); });
+    this.strokes = this.strokes.filter((s) => !ids.has(s.id));
+    const i = Math.max(0, Math.min(this.strokes.length, at));
+    this.strokes.splice(i, 0, added);
+    this.record({ t: "swap", removed, added, at: i });
   }
 
   /** Retire des traits (par identifiant) en une seule étape d'historique. */
@@ -253,7 +287,10 @@ export class Doc {
     const op = this.past.pop();
     if (!op) return false;
     if (op.t === "add") this.strokes = this.strokes.filter((s) => s !== op.stroke);
-    else if (op.t === "remove") for (const it of op.items) this.strokes.splice(it.index, 0, it.stroke);
+    else if (op.t === "swap") {
+      this.strokes = this.strokes.filter((s) => s !== op.added);
+      for (const it of op.removed) this.strokes.splice(it.index, 0, it.stroke);
+    } else if (op.t === "remove") for (const it of op.items) this.strokes.splice(it.index, 0, it.stroke);
     else this.strokes = op.strokes;
     this.future.push(op);
     return true;
@@ -263,7 +300,11 @@ export class Doc {
     const op = this.future.pop();
     if (!op) return false;
     if (op.t === "add") this.strokes.push(op.stroke);
-    else if (op.t === "remove") { const ids = new Set(op.items.map((i) => i.stroke.id)); this.strokes = this.strokes.filter((s) => !ids.has(s.id)); }
+    else if (op.t === "swap") {
+      const ids = new Set(op.removed.map((i) => i.stroke.id));
+      this.strokes = this.strokes.filter((s) => !ids.has(s.id));
+      this.strokes.splice(op.at, 0, op.added);
+    } else if (op.t === "remove") { const ids = new Set(op.items.map((i) => i.stroke.id)); this.strokes = this.strokes.filter((s) => !ids.has(s.id)); }
     else this.strokes = [];
     this.past.push(op);
     return true;
