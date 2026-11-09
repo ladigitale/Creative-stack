@@ -360,13 +360,14 @@ configureHuggingFace({
 |---|---|
 | `for` | Id de l'image : `sonic-still`, `<img>`, `<canvas>`, `sonic-camera`, `sonic-video`, toute source `getFrameCanvas()` |
 | `model` | Alias de la configuration Hugging Face (`engine: "sam"`) ; défaut `sam2-tiny` |
+| `model-from` | Chemin DataProvider de l'alias (choix de qualité) : remplace `model` ; l'ancien modèle est libéré et l'image réencodée |
 | `click-on` | Id de l'élément cliquable : clic = nouvelle sélection, Maj+clic = ajouter un point, Alt+clic ou clic droit = exclure une zone, glisser = boîte |
 | `points-from`, `box-from` | Chemins DataProvider : `[{x, y, label}]` (label 1 sur l'objet, 0 hors de l'objet) et `{x0, y0, x1, y1}`, en 0..1 |
 | `points` | Points fixes : `"0.5,0.4,1; 0.2,0.2,0"` |
 | `refresh` | `manual` (défaut) : encode à la première invite, puis seulement si l'image a changé ; `frames` : suit une source qui change (caméra, vidéo), au plus `fps` fois par seconde (défaut 2) |
 | `mode`, `invert` | Masque `alpha` (défaut) ou `gray`, inversé à la demande |
 | `mirror` | `auto` (miroir pour une caméra native), `true`, `false` |
-| `load`, `consent-provider` | Politique de chargement (`first-use` défaut, `auto`, `consent`, `manual`) et DataProvider de consentement |
+| `load`, `consent-provider` | Politique de chargement (`first-use` défaut, `auto`, `consent`, `manual`) et DataProvider de consentement : `"accepted"` accepte le modèle courant, l'alias d'un modèle n'accepte que celui-là |
 | `max-side` | Côté maximal de l'image envoyée et du masque produit (défaut 1600 ; le modèle travaille en 1024, le bord est affiné à cette résolution) |
 | `refine` | `edges` (défaut) : le bord du masque est recalé sur les contours de l'image (filtre guidé, environ 0,2 s par clic sur ordinateur) ; `none` : masque brut du modèle, prédit en 256 px puis agrandi |
 | `out-data-provider` | `{ phase, progress, backend, encoded, busy, points, box, present, score, coverage, cx, cy, x0, y0, x1, y1, encodeMs, decodeMs, error }` |
