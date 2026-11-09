@@ -277,7 +277,7 @@ export class SonicSegmentAnything extends LitElement {
           this.encodedSize = { width: r.width, height: r.height };
           this.encodedMirror = frame.mirror;
           this.needEncode = false;
-          this.patch({ encoded: true, encodeMs: r.encodeMs, error: null });
+          this.patch({ encoded: true, encodeMs: r.encodeMs, error: null, ...(r.backend ? { backend: r.backend } : {}) });
         }
         if (!hasPrompt(this.prompts)) break;
         const px = toPixels(this.prompts, this.encodedSize.width, this.encodedSize.height, this.encodedMirror);
@@ -307,6 +307,7 @@ export class SonicSegmentAnything extends LitElement {
     this.patch({
       present: st.coverage > 0 ? 1 : 0, score: round3(res.score), coverage: round3(st.coverage), cx: round3(st.cx), cy: round3(st.cy),
       x0: round3(st.x0), y0: round3(st.y0), x1: round3(st.x1), y1: round3(st.y1), decodeMs: res.decodeMs, error: null,
+      ...(res.backend ? { backend: res.backend } : {}),
     });
   }
 

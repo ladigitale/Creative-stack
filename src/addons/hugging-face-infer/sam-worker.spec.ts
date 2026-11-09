@@ -63,3 +63,56 @@ it("sam-load / encode / decode / dispose avec le processeur SAM 2 réel", async 
   expect(r.ok && seen.disposed, "libération").toBe(true);
 
 }, 30_000);
+
+it("GPU perdu pendant le calcul : rechargement sur WASM avec la précision WASM, image réencodée, masque rendu", async () => {
+  const cfg = { image_processor_type: "Sam2ImageProcessor", do_resize: true, size: { height: 1024, width: 1024 }, resample: 2, do_rescale: true, rescale_factor: 1 / 255, do_normalize: true, image_mean: [0.485, 0.456, 0.406], image_std: [0.229, 0.224, 0.225], do_convert_rgb: true, mask_size: { height: 256, width: 256 } };
+  Object.defineProperty(globalThis.navigator, "gpu", { value: { requestAdapter: async () => ({}) }, configurable: true });
+  const loads: any[] = [];
+  const encodes: string[] = [];
+  const disposed: string[] = [];
+  const make = (device: string) => {
+    const call = async () => {
+      if (device === "webgpu") throw new Error("failed to call OrtRun(). ERROR_CODE: 1, ERROR_MESSAGE: Failed to execute 'mapAsync' on 'GPUBuffer': [Device] is lost.");
+      const plane = 256 * 256, d = new Float32Array(3 * plane).fill(-5);
+      for (let i = 0; i < plane; i++) d[i] = 5;
+      return { pred_masks: new t.Tensor("float32", d, [1, 1, 3, 256, 256]), iou_scores: new t.Tensor("float32", new Float32Array([0.9, 0.1, 0.1]), [1, 1, 3]) };
+    };
+    return Object.assign(call, {
+      async get_image_embeddings() { encodes.push(device); return { "image_embeddings.0": new t.Tensor("float32", new Float32Array(4), [1, 4]) }; },
+      async dispose() { disposed.push(device); },
+    });
+  };
+  const lib = {
+    ...t,
+    AutoProcessor: { from_pretrained: async () => new t.Sam2Processor({}, { image_processor: new t.Sam2ImageProcessor(cfg) }, null) },
+    AutoModelForMaskGeneration: { from_pretrained: async (_repo: string, o: any) => { loads.push({ device: o.device, dtype: o.dtype, extra: o.dtypeByDevice }); return make(o.device); } },
+  };
+  const replies: any[] = [];
+  let listener: any;
+  hfWorkerMain(lib, { postMessage: (m) => replies.push(m), addEventListener: (_, l) => (listener = l) });
+  const ask = (msg: any): Promise<any> => new Promise((res: any) => { const id = Math.random(); listener({ data: { ...msg, id } }); const iv = setInterval(() => { const r = replies.find((x: any) => x.id === id); if (r) { clearInterval(iv); res(r); } }, 5); });
+  try {
+    const ref = { alias: "sam", task: "mask-generation", repo: "r", revision: "v", options: { dtype: "fp32", dtypeByDevice: { webgpu: "q4f16", wasm: "q8" } } };
+    let r = await ask({ type: "sam-load", model: ref, devices: ["webgpu", "wasm"] });
+    expect(r.result.backend).toBe("webgpu");
+    expect(loads[0]).toEqual({ device: "webgpu", dtype: "q4f16", extra: undefined });
+    r = await ask({ type: "sam-encode", alias: "sam", image: { width: 64, height: 32, data: new Uint8ClampedArray(64 * 32 * 4) } });
+    expect(r.ok).toBe(true);
+    expect(r.result.backend).toBe("webgpu");
+    r = await ask({ type: "sam-decode", alias: "sam", points: [{ x: 10, y: 10, label: 1 }], box: null });
+    expect(r.ok).toBe(true);
+    expect(r.result.backend).toBe("wasm");
+    expect(loads[1]).toEqual({ device: "wasm", dtype: "q8", extra: undefined });
+    expect(disposed).toEqual(["webgpu"]);
+    expect(encodes).toEqual(["webgpu", "wasm"]);
+    expect(r.result.mask.length).toBe(64 * 32);
+    expect(r.result.mask.every((v: number) => v === 1)).toBe(true);
+    // une erreur qui n'est pas une panne GPU ne déclenche pas de rechargement
+    const before = loads.length;
+    r = await ask({ type: "sam-decode", alias: "sam", points: [], box: null });
+    expect(r.ok).toBe(true);
+    expect(loads.length).toBe(before);
+  } finally {
+    delete (globalThis.navigator as any).gpu;
+  }
+}, 30_000);

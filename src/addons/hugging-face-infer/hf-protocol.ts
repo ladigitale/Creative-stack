@@ -83,7 +83,7 @@ export type HfSamImage = { width: number; height: number; data: Uint8ClampedArra
 /** Invite : point en px de l'image encodée ; `label` 1 = sur l'objet, 0 = hors de l'objet. */
 export type HfSamPoint = { x: number; y: number; label: 0 | 1 };
 export type HfSamBox = { x0: number; y0: number; x1: number; y1: number };
-export type HfSamEncodeResult = { width: number; height: number; encodeMs: number };
+export type HfSamEncodeResult = { width: number; height: number; encodeMs: number; backend?: string };
 export type HfSamDecodeResult = {
   width: number;
   height: number;
@@ -94,6 +94,8 @@ export type HfSamDecodeResult = {
   scores: number[];
   index: number;
   decodeMs: number;
+  /** Moteur réellement utilisé (peut passer de webgpu à wasm si le GPU lâche). */
+  backend?: string;
 };
 
 export type HfWorkerResponse =
