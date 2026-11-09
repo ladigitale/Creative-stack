@@ -160,6 +160,7 @@ Pointer area (touch, mouse, pen) dispatching actions to `target`. Coordinates ar
 | `pan` | `pan {dx, dy, x, y}` = **px delta** since the previous action (centre of the fingers) ; `pan-end {dx, dy, vx, vy}` (total px, px/s). No swipe when `pan` is on. |
 | `pinch` | `pinch-start {cx, cy}`, `pinch {scale, dScale, rotation, dRotation, cx, cy}` (two fingers; `scale` cumulative, `dScale` since the previous action, radians), `pinch-end {scale, rotation}` |
 | `wheel` | mouse wheel / trackpad → `pinch {source: "wheel", scale, dScale, cx, cy}` (page scroll blocked on the area) |
+| `passthrough` | zone **traversante** : aucune capture de pointeur ; seuls les gestes à deux doigts ou plus (`pan`, `pinch-start`, `pinch` avec `rotation` / `dRotation`, `pinch-end`, `pan-end`) et la molette sont émis. Un doigt seul va aux éléments dessous : autour d'une `sonic-paint`, on dessine d'un doigt et on déplace / zoome / tourne à deux (la toile abandonne alors le trait commencé) |
 | `state-provider="nom"` | DataProvider `{active, pointers, scale, rotation, panX, panY, x, y}` |
 | `params="ui.geste"` | DataProvider of live settings `{swipeThreshold (px, 1..2000), longPressMs (50..10000), doubleTapMs (0..2000), drag, pan, pinch, wheel, press}`, read at each pointer event; each key present overrides the attribute, absent key: attribute applies; unreadable values are ignored |
 

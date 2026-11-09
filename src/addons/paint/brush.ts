@@ -33,7 +33,21 @@ export type BrushSettings = {
   scatter: number;
   /** Aplatissement de la pointe (1 : intacte, 0,2 : très plate). */
   roundness: number;
+  /** Mode de fusion du trait avec la toile (`normal` : par-dessus). Sans effet sur la gomme. */
+  blend: BlendMode;
 };
+
+/** Modes de fusion d'un trait (ceux de `globalCompositeOperation`, `normal` = `source-over`). */
+export const BLEND_MODES = [
+  "normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn",
+  "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity",
+] as const;
+export type BlendMode = (typeof BLEND_MODES)[number];
+
+/** Opération de composition canvas d'un mode de fusion. */
+export function blendOp(m: BlendMode): GlobalCompositeOperation {
+  return m === "normal" ? "source-over" : m;
+}
 
 export const BRUSH_DEFAULTS: BrushSettings = {
   size: 24,
@@ -51,6 +65,7 @@ export const BRUSH_DEFAULTS: BrushSettings = {
   sizeJitter: 0,
   scatter: 0,
   roundness: 1,
+  blend: "normal",
 };
 
 export const MAX_TIP_CHARS = 20_000;
@@ -82,6 +97,7 @@ export function sanitizeBrush(base: BrushSettings, raw: Record<string, unknown> 
   if (Number.isFinite(n(raw.sizeJitter))) o.sizeJitter = clamp(n(raw.sizeJitter), 0, 1);
   if (Number.isFinite(n(raw.scatter))) o.scatter = clamp(n(raw.scatter), 0, 3);
   if (Number.isFinite(n(raw.roundness))) o.roundness = clamp(n(raw.roundness), 0.05, 1);
+  if (typeof raw.blend === "string" && (BLEND_MODES as readonly string[]).includes(raw.blend)) o.blend = raw.blend as BlendMode;
   return o;
 }
 
@@ -232,6 +248,11 @@ export class History<T> {
     if (!e) return null;
     this.future.push({ v: current, cost });
     return e.v;
+  }
+
+  /** Retire la dernière étape enregistrée sans toucher à l'avenir (trait abandonné) : l'état d'avant, ou null. */
+  dropLast(): T | null {
+    return this.past.pop()?.v ?? null;
   }
 
   redo(current: T, cost: number): T | null {

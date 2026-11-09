@@ -21,7 +21,8 @@
 | `angle` `angle-follow` | Rotation de la pointe en degrés ; `angle-follow` y ajoute la direction du tracé (pointe qui suit le geste) |
 | `angle-jitter` `size-jitter` `scatter` | Variation aléatoire de l'angle (± degrés), de la taille (0 à 1) et dispersion autour du tracé (fraction du diamètre) |
 | `roundness` | Aplatissement de la pointe, 1 intacte à 0,05 très plate (pinceau plat, calligraphie avec `angle`) |
-| `brush-from` | DP de réglages en direct `{ color, size, hardness, opacity, spacing, smoothing, tool, pressure, tip, angle… }` : une palette en SDUI écrit dedans |
+| `blend` | Mode de fusion du trait avec la toile : `normal`, `multiply` (produit), `screen` (écran), `overlay` (incrustation), `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity`. Le trait est peint sur un calque puis fusionné : il ne se fusionne pas avec lui-même. Sans effet sur la gomme |
+| `brush-from` | DP de réglages en direct `{ color, size, hardness, opacity, spacing, smoothing, tool, pressure, tip, angle, blend… }` : une palette en SDUI écrit dedans |
 | `control` | DP de commandes à compteur : `{ undo: n, redo: n, clear: n, save: n }` (la commande part quand `n` augmente) |
 | `in-data-provider` | Image de départ (`SonicMediaRef`, par exemple une photo de `sonic-file-open`) : dessinée à la place de la toile |
 | `undo-levels` | Étapes d'annulation gardées (20 par défaut, 0 pour aucune) |
@@ -31,6 +32,27 @@
 État : `{ status, error, width, height, strokes, drawing, canUndo, canRedo, tool, color, size, last }`. `save` enregistre un PNG dans `last` (`{ url blob:, mime, width, height, size }`) : brancher `sonic-media-download source="peintureState.last"`.
 
 Les variations aléatoires sont tirées d'une graine par trait : un trait se dessine de la même façon à chaque fois.
+
+## Toile navigable (`navigable`)
+
+Avec `navigable`, l'élément devient une **fenêtre** (sa taille CSS : lui donner une hauteur, par exemple `height:100%` dans un conteneur plein écran) sur l'image `width × height`. La navigation est **la même que celle de `sonic-sketch`** (code partagé, `src/shared/view2d.ts`) :
+
+| Geste | Effet |
+|---|---|
+| Molette (Ctrl + molette, pincement du pavé) | Zoom sous le curseur |
+| Espace + glisser, bouton du milieu, ou outil main (`tool: "hand"` dans `brush-from`) | Déplacer |
+| Deux doigts | Déplacer, zoomer et **tourner** autour des doigts (le trait commencé au premier doigt est annulé) |
+| `+` `-` `0` `R` / `Maj+R` (toile active) | Zoom avant / arrière / cadrer l'image / tourner de ±15° |
+
+Pixels nets au zoom avant, damier sous la transparence. `view-from` : DP `{ x, y, zoom, rotation }` (centre en pixels d'image, rotation en radians). `control` ajoute `fit`, `reset` (image entière, droite), `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`. L'état publie `x`, `y`, `zoom`, `rotation` et la taille de la fenêtre `viewWidth`, `viewHeight` (de quoi dessiner le cadre visible sur une vignette). La toile reste une source d'images (l'image entière, pas la fenêtre) et `save` exporte l'image entière.
+
+```json
+{ "tagName": "sonic-paint", "attributes": { "navigable": "", "width": "4000", "height": "4000", "background": "transparent", "brush-from": "pinceau", "control": "peintureCtl", "out-data-provider": "peintureState", "style": "height:100%" } }
+```
+
+## Toile déplacée, zoomée, tournée par un parent
+
+La position du pointeur est lue dans le repère propre de la toile : un parent peut la mettre à l'échelle, la déplacer ou la **tourner** (`sonic-stage`, nœud avec `scale` et `rz`) sans fausser le tracé. Au doigt, si un deuxième doigt touche l'écran pendant un trait, le trait est **annulé** (la toile revient à son état d'avant) et la toile ne peint plus jusqu'à ce que tous les doigts soient levés : c'est un geste, à confier à une `sonic-gesture passthrough pan pinch` placée autour de la toile.
 
 ## Limites
 
