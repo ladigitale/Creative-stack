@@ -27,7 +27,8 @@ function parseCameraMode(
   if (
     s === Sonic3dCameraMode.Perspective ||
     s === Sonic3dCameraMode.Ortho ||
-    s === Sonic3dCameraMode.Orbit
+    s === Sonic3dCameraMode.Orbit ||
+    s === Sonic3dCameraMode.Map
   ) {
     return s;
   }

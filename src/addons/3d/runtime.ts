@@ -170,6 +170,34 @@ export class SceneRuntime {
   setOrbitLimits(opts: Parameters<typeof tune.setOrbitLimits>[1]) {
     tune.setOrbitLimits(this.asTuneCtx(), opts);
   }
+  /** Point visé piloté par les données (`lookAt`) : la caméra glisse vers lui en gardant son cadrage. */
+  private lookGoal: THREE.Vector3 | null = null;
+  setLookAt(x: number, y: number, z: number, instant = false) {
+    if (!this.controls) return;
+    const goal = new THREE.Vector3(x, y, z);
+    if (instant) {
+      const d = goal.clone().sub(this.controls.target);
+      this.controls.target.add(d);
+      this.activeCam.position.add(d);
+      this.lookGoal = null;
+      this.controls.update();
+    } else this.lookGoal = goal;
+  }
+  private lookT = 0;
+  private stepLook(now: number) {
+    const dt = this.lookT ? Math.min(0.1, (now - this.lookT) / 1000) : 0.016;
+    this.lookT = now;
+    if (!this.lookGoal || !this.controls) return;
+    const d = this.lookGoal.clone().sub(this.controls.target);
+    if (d.lengthSq() < 1e-6) {
+      this.lookGoal = null;
+      return;
+    }
+    d.multiplyScalar(1 - Math.exp(-dt * 6));
+    this.controls.target.add(d);
+    this.activeCam.position.add(d);
+  }
+
   setOrbitSpherical(yaw: number, pitch: number, distance: number) {
     tune.setOrbitSpherical(this.asTuneCtx(), yaw, pitch, distance);
   }
@@ -265,6 +293,7 @@ export class SceneRuntime {
     const now = performance.now();
     if (this.mondeData) this.monde.step(now);
     this.nodes.step(now);
+    this.stepLook(now);
     this.controls?.update();
     if (this.postFx.isEnabled) {
       this.postFx.render(this.scene, this.activeCam, this.postFrame);

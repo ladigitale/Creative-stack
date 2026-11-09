@@ -30,6 +30,13 @@ function applyCameraMode(ctx: ViewCtx, mode: Sonic3dCameraMode) {
   ctx.controls.dampingFactor = 0.08;
   ctx.controls.target.copy(prevTarget);
   ctx.controls.enablePan = true;
+  if (mode === Sonic3dCameraMode.Map) {
+    // carte : glisser = déplacer sur le sol, pincer / molette = zoom, aucune rotation
+    ctx.controls.enableRotate = false;
+    ctx.controls.screenSpacePanning = false;
+    ctx.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+    ctx.controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
+  }
   orbit.applyLimitsToControls(ctx.controls, ctx.limits);
   ctx.controls.update();
   if (!ctx.unbindWheelRelay) {
