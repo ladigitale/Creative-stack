@@ -38,7 +38,7 @@ export interface HfEngine {
   /** Segmentation interactive (facultatif : un moteur sans ces méthodes ne gère pas `engine: "sam"`). */
   samLoad?(model: HfModelRef, devices: HfDevice[], onProgress: (progress: HfProgress) => void): Promise<HfLoadResult>;
   samEncode?(alias: string, image: HfSamImage): Promise<HfSamEncodeResult>;
-  samDecode?(alias: string, points: HfSamPoint[], box: HfSamBox | null): Promise<HfSamDecodeResult | null>;
+  samDecode?(alias: string, points: HfSamPoint[], box: HfSamBox | null, refine?: boolean): Promise<HfSamDecodeResult | null>;
   samDispose?(alias: string): Promise<void>;
 }
 
@@ -193,8 +193,8 @@ export class HfWorkerEngine implements HfEngine {
     return this.request({ type: "sam-encode", alias, image });
   }
 
-  samDecode(alias: string, points: HfSamPoint[], box: HfSamBox | null): Promise<HfSamDecodeResult | null> {
-    return this.request({ type: "sam-decode", alias, points, box });
+  samDecode(alias: string, points: HfSamPoint[], box: HfSamBox | null, refine = true): Promise<HfSamDecodeResult | null> {
+    return this.request({ type: "sam-decode", alias, points, box, refine });
   }
 
   async samDispose(alias: string): Promise<void> {

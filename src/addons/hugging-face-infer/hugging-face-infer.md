@@ -367,7 +367,8 @@ configureHuggingFace({
 | `mode`, `invert` | Masque `alpha` (défaut) ou `gray`, inversé à la demande |
 | `mirror` | `auto` (miroir pour une caméra native), `true`, `false` |
 | `load`, `consent-provider` | Politique de chargement (`first-use` défaut, `auto`, `consent`, `manual`) et DataProvider de consentement |
-| `max-side` | Côté maximal envoyé au modèle (défaut 1024, la taille de travail de SAM 2) |
+| `max-side` | Côté maximal de l'image envoyée et du masque produit (défaut 1600 ; le modèle travaille en 1024, le bord est affiné à cette résolution) |
+| `refine` | `edges` (défaut) : le bord du masque est recalé sur les contours de l'image (filtre guidé, environ 0,2 s par clic sur ordinateur) ; `none` : masque brut du modèle, prédit en 256 px puis agrandi |
 | `out-data-provider` | `{ phase, progress, backend, encoded, busy, points, box, present, score, coverage, cx, cy, x0, y0, x1, y1, encodeMs, decodeMs, error }` |
 
 Méthodes : `setPrompts({points, box})`, `clear()`, `encode()`, `accept()`, `decline()`, `getState()`.

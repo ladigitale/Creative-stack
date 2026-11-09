@@ -461,8 +461,8 @@ export class HuggingFaceRegistry {
   }
 
   /** Masque pour des invites sur l'image encodée (px de cette image). */
-  samDecode(alias: string, points: HfSamPoint[], box: HfSamBox | null, timeoutMs: number): Promise<HfSamDecodeResult | null> {
-    return this.samCall(alias, timeoutMs, (e) => e.samDecode?.(alias, points, box));
+  samDecode(alias: string, points: HfSamPoint[], box: HfSamBox | null, timeoutMs: number, refine = true): Promise<HfSamDecodeResult | null> {
+    return this.samCall(alias, timeoutMs, (e) => e.samDecode?.(alias, points, box, refine));
   }
 
   /* ---------------- nettoyage ---------------- */

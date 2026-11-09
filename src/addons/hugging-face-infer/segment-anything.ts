@@ -75,7 +75,10 @@ export class SonicSegmentAnything extends LitElement {
   /** Politique de chargement : `first-use` (défaut, à la première invite), `auto`, `consent`, `manual`. */
   @property({ type: String }) load: HfLoadPolicy = "first-use";
   @property({ type: String, attribute: "consent-provider" }) consentProvider = "";
-  @property({ type: Number, attribute: "max-side" }) maxSide = 1024;
+  /** Côté maximal de l'image envoyée au modèle et du masque produit (le modèle travaille en 1024 ; au-delà, le bord est affiné à la résolution de la photo). */
+  @property({ type: Number, attribute: "max-side" }) maxSide = 1600;
+  /** `edges` (défaut) : le bord du masque suit les contours de l'image (filtre guidé) ; `none` : masque brut du modèle. */
+  @property({ type: String }) refine: "edges" | "none" = "edges";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
   private prompts: SamPrompts = { points: [], box: null };
@@ -115,6 +118,7 @@ export class SonicSegmentAnything extends LitElement {
     if (!this.isConnected) return;
     if ([...c.keys()].some((k) => ["for", "model", "clickOn", "pointsFrom", "boxFrom", "points", "refresh", "fps", "consentProvider", "load"].includes(String(k))) || !this.unsubs.length) this.attach();
     if (c.has("mode") || c.has("invert")) this.redraw();
+    if (c.has("refine") && c.get("refine") !== undefined && hasPrompt(this.prompts)) this.schedule();
   }
 
   /* --- API --- */
@@ -281,7 +285,7 @@ export class SonicSegmentAnything extends LitElement {
         }
         if (!hasPrompt(this.prompts)) break;
         const px = toPixels(this.prompts, this.encodedSize.width, this.encodedSize.height, this.encodedMirror);
-        const res = await reg.samDecode(this.model, px.points, px.box, 30_000);
+        const res = await reg.samDecode(this.model, px.points, px.box, 30_000, this.refine !== "none");
         if (gen !== this.generation) return;
         if (!hasPrompt(this.prompts)) break;
         if (res) this.show(res);
@@ -300,8 +304,7 @@ export class SonicSegmentAnything extends LitElement {
 
   private show(res: HfSamDecodeResult): void {
     this.last = res;
-    const data = new Uint8Array(res.mask.length);
-    for (let i = 0; i < data.length; i++) data[i] = res.mask[i] ? 255 : 0;
+    const data = res.mask;
     const st = maskStats(data, res.width, res.height, 128, this.encodedMirror);
     this.draw(data, res.width, res.height);
     this.patch({
@@ -314,9 +317,7 @@ export class SonicSegmentAnything extends LitElement {
   private redraw(): void {
     const res = this.last;
     if (!res || !hasPrompt(this.prompts)) return;
-    const data = new Uint8Array(res.mask.length);
-    for (let i = 0; i < data.length; i++) data[i] = res.mask[i] ? 255 : 0;
-    this.draw(data, res.width, res.height);
+    this.draw(res.mask, res.width, res.height);
   }
 
   private draw(data: Uint8Array, w: number, h: number): void {
@@ -359,7 +360,7 @@ export class SonicSegmentAnything extends LitElement {
     }
     if (!image) return null;
     const mirror = this.mirror === "true" || (this.mirror === "auto" && native && image instanceof HTMLVideoElement);
-    const maxSide = Math.max(64, Math.min(2048, Number(this.maxSide) || 1024));
+    const maxSide = Math.max(64, Math.min(2048, Number(this.maxSide) || 1600));
     return {
       token, mirror,
       read: () => {
