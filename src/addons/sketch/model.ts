@@ -1,5 +1,8 @@
 import type { BrushSettings } from "../paint/brush";
 import type { BBox } from "../vector/geometry";
+import {
+  clampZoomTo, fitBox, panView, sanitizeView2D, screenToWorld, transformAt, visibleBounds, worldToScreen, type View2D,
+} from "../../shared/view2d";
 
 /**
  * Modèle d'un dessin vectoriel à zoom infini : des traits (points en coordonnées du monde, pression,
@@ -12,13 +15,7 @@ export const MAX_STROKES = 20_000;
 export const MAX_POINTS_PER_STROKE = 20_000;
 export const MAX_TOTAL_POINTS = 2_000_000;
 
-export type View = {
-  /** Point du monde au centre de l'écran. */
-  x: number;
-  y: number;
-  /** Pixels d'écran par unité du monde. */
-  zoom: number;
-};
+export type View = View2D;
 
 /** Pinceau mémorisé dans un trait : diamètre en unités du monde. */
 export type StrokeBrush = Pick<BrushSettings, "size" | "hardness" | "opacity" | "spacing" | "color" | "pressure" | "tip" | "angle" | "angleFollow" | "angleJitter" | "sizeJitter" | "scatter" | "roundness">;
@@ -32,41 +29,36 @@ export type Stroke = {
   bbox: BBox;
 };
 
-export const DEFAULT_VIEW: View = { x: 0, y: 0, zoom: 1 };
+export const DEFAULT_VIEW: View = { x: 0, y: 0, zoom: 1, rotation: 0 };
 
-export const clampZoom = (z: number): number => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number.isFinite(z) ? z : 1));
+export const clampZoom = (z: number): number => clampZoomTo(z, MIN_ZOOM, MAX_ZOOM);
 
 export function sanitizeView(v: unknown, base: View = DEFAULT_VIEW): View {
-  if (!v || typeof v !== "object") return { ...base };
-  const o = v as Record<string, unknown>;
-  const n = (k: string, d: number) => (Number.isFinite(Number(o[k])) && o[k] !== "" && o[k] !== null ? Number(o[k]) : d);
-  return { x: n("x", base.x), y: n("y", base.y), zoom: clampZoom(n("zoom", base.zoom)) };
+  return sanitizeView2D(v, { ...DEFAULT_VIEW, ...base }, MIN_ZOOM, MAX_ZOOM);
 }
 
 /** Écran (px, origine en haut à gauche du canvas) → monde. */
 export function toWorld(v: View, sx: number, sy: number, w: number, h: number): [number, number] {
-  return [v.x + (sx - w / 2) / v.zoom, v.y + (sy - h / 2) / v.zoom];
+  return screenToWorld(v, sx, sy, w, h);
 }
 
 export function toScreen(v: View, wx: number, wy: number, w: number, h: number): [number, number] {
-  return [(wx - v.x) * v.zoom + w / 2, (wy - v.y) * v.zoom + h / 2];
+  return worldToScreen(v, wx, wy, w, h);
 }
 
 /** Zoom ×`factor` en gardant fixe le point du monde sous (sx, sy). */
 export function zoomAt(v: View, factor: number, sx: number, sy: number, w: number, h: number): View {
-  const zoom = clampZoom(v.zoom * factor);
-  const [wx, wy] = toWorld(v, sx, sy, w, h);
-  return { zoom, x: wx - (sx - w / 2) / zoom, y: wy - (sy - h / 2) / zoom };
+  return transformAt(v, factor, 0, sx, sy, w, h, MIN_ZOOM, MAX_ZOOM);
 }
 
 /** Glisse la vue de (dx, dy) pixels d'écran. */
 export function panBy(v: View, dx: number, dy: number): View {
-  return { ...v, x: v.x - dx / v.zoom, y: v.y - dy / v.zoom };
+  return panView(v, dx, dy);
 }
 
-/** Rectangle du monde visible. */
+/** Rectangle du monde visible (contient tout l'écran, rotation comprise). */
 export function visibleRect(v: View, w: number, h: number): BBox {
-  return { x: v.x - w / 2 / v.zoom, y: v.y - h / 2 / v.zoom, w: w / v.zoom, h: h / v.zoom };
+  return visibleBounds(v, w, h);
 }
 
 export function strokeBBox(pts: number[], radius: number): BBox {
@@ -103,12 +95,9 @@ export function contentBBox(strokes: Stroke[]): BBox | null {
   return Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
 }
 
-/** Vue qui cadre une boîte dans un écran w × h, avec une marge (fraction). */
-export function fitView(b: BBox | null, w: number, h: number, margin = 0.08): View {
-  if (!b || (b.w <= 0 && b.h <= 0)) return { ...DEFAULT_VIEW };
-  const zw = (w * (1 - 2 * margin)) / Math.max(b.w, 1e-12);
-  const zh = (h * (1 - 2 * margin)) / Math.max(b.h, 1e-12);
-  return { x: b.x + b.w / 2, y: b.y + b.h / 2, zoom: clampZoom(Math.min(zw, zh)) };
+/** Vue qui cadre une boîte dans un écran w × h, avec une marge (fraction) ; `rotation` conservée. */
+export function fitView(b: BBox | null, w: number, h: number, margin = 0.08, rotation = 0): View {
+  return fitBox(b, w, h, rotation, MIN_ZOOM, MAX_ZOOM, margin) ?? { ...DEFAULT_VIEW, rotation };
 }
 
 /** Distance d'un point à un segment. */

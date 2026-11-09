@@ -8,11 +8,12 @@ import { BRUSH_DEFAULTS, Stabilizer, sanitizeBrush, type BrushSettings } from ".
 import { tipFromValue } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
-  Doc, MAX_POINTS_PER_STROKE, contentBBox, fitView, makeBrush, panBy, sanitizeView, strokeBBox, strokeHit, strokeMargin,
-  toWorld, visibleRect, zoomAt, DEFAULT_VIEW, type Stroke, type View,
+  Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, contentBBox, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
+  toWorld, visibleRect, DEFAULT_VIEW, type Stroke, type View,
 } from "./model";
 import { drawStamp, drawStrokes, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
+import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
 
 const MAX_SIDE = 4096;
 
@@ -22,6 +23,8 @@ export type SketchState = {
   zoom: number;
   x: number;
   y: number;
+  /** Rotation de la vue (radians). */
+  rotation: number;
   strokes: number;
   drawing: boolean;
   canUndo: boolean;
@@ -38,11 +41,13 @@ export type SketchState = {
  * Toile de dessin vectoriel à zoom infini. Les traits sont gardés en coordonnées du monde (points, pression,
  * pinceau, graine) et redessinés nets à chaque zoom ; export SVG.
  *
- * Navigation : molette = zoom sous le curseur (Ctrl + molette / pincement tactile aussi), glisser avec
- * Espace, bouton du milieu ou `tool="hand"` = déplacer, deux doigts = zoom et déplacement. Pinceau : tout
+ * Navigation (la même que `sonic-paint navigable`) : molette = zoom sous le curseur (Ctrl + molette /
+ * pincement du pavé aussi), glisser avec Espace, bouton du milieu ou `tool="hand"` = déplacer, deux doigts =
+ * déplacer, zoomer et tourner ; clavier + − 0, R / Maj+R (tourner de 15°). Pinceau : tout
  * ce que sait faire `sonic-paint` (pointes personnalisées par `tip` / `tip-from`, angle, dispersion…).
  * `tool="erase"` efface les traits touchés. Commandes par `control` (compteurs) : `undo`, `redo`, `clear`,
- * `save` (SVG), `savePng`, `fit`, `reset`, `zoomIn`, `zoomOut`. Vue pilotée par `view-from` ({x, y, zoom}).
+ * `save` (SVG), `savePng`, `fit`, `reset`, `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`.
+ * Vue pilotée par `view-from` ({x, y, zoom, rotation}).
  */
 @customElement("sonic-sketch")
 export class SonicSketch extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
@@ -75,7 +80,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Number }) roundness = 1;
   @property({ type: String, attribute: "tip-from" }) tipFrom = "";
   @property({ type: String, attribute: "brush-from" }) brushFrom = "";
-  /** DP de la vue `{ x, y, zoom }` (écrit la vue quand elle diffère de l'actuelle). */
+  /** DP de la vue `{ x, y, zoom, rotation }` (écrit la vue quand elle diffère de l'actuelle). */
   @property({ type: String, attribute: "view-from" }) viewFrom = "";
   @property({ type: String }) control = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
@@ -96,14 +101,18 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private consumers = new Set<object>();
   private live: Record<string, unknown> = {};
   private stab = new Stabilizer();
-  private pointers = new Map<number, { x: number; y: number }>();
   private pointer: number | null = null;
-  private gesture: { d: number; cx: number; cy: number } | null = null;
+  private nav = new ViewGestures({
+    view: () => this.view,
+    setView: (v, settled) => this.setView(v, settled),
+    size: () => this.dims(),
+    zoomRange: () => [MIN_ZOOM, MAX_ZOOM],
+    fit: () => this.fit(),
+  });
   private mode: "none" | "draw" | "erase" | "pan" = "none";
   private stroke: Stroke | null = null;
   private stamper: StrokeStamper | null = null;
   private erased = new Set<number>();
-  private panLast = { x: 0, y: 0 };
   private space = false;
   private hover = false;
   private triggers = new Map<string, CounterTrigger>();
@@ -191,7 +200,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (this.viewFrom) {
       this.unsubs.push(listenDp(this.viewFrom, (v) => {
         const next = sanitizeView(v, this.view);
-        if (next.x === this.view.x && next.y === this.view.y && next.zoom === this.view.zoom) return;
+        if (next.x === this.view.x && next.y === this.view.y && next.zoom === this.view.zoom && next.rotation === this.view.rotation) return;
         this.setView(next);
       }));
     }
@@ -199,7 +208,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.unsubs.push(listenDp(this.control, (v) => {
         if (!v || typeof v !== "object") return;
         const c = v as Record<string, unknown>;
-        for (const cmd of ["undo", "redo", "clear", "save", "savePng", "fit", "reset", "zoomIn", "zoomOut"] as const) {
+        for (const cmd of ["undo", "redo", "clear", "save", "savePng", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten"] as const) {
           if (cmd in c && this.trigger(cmd).feed(c[cmd])) this[cmd]();
         }
       }));
@@ -252,16 +261,16 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       ctx.fillRect(0, 0, w, h);
     }
     const layer = this.ensureLayer();
-    const lv = this.layerView, v = this.view;
-    const k = v.zoom / lv.zoom;
-    const tx = w / 2 - (w / 2) * k + (lv.x - v.x) * v.zoom;
-    const ty = h / 2 - (h / 2) * k + (lv.y - v.y) * v.zoom;
-    ctx.drawImage(layer, tx, ty, w * k, h * k);
+    // Couche dessinée pour layerView, montrée dans la vue courante (déplacée, zoomée, tournée) le temps du geste.
+    const t = multiply(viewMatrix(this.view, w, h), invert(viewMatrix(this.layerView, w, h)));
+    ctx.transform(t[0], t[1], t[2], t[3], t[4], t[5]);
+    ctx.drawImage(layer, 0, 0, w, h);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.seq++;
   }
 
   private gestureActive(): boolean {
-    return this.mode === "pan" || this.gesture !== null;
+    return this.mode === "pan" || this.nav.active;
   }
 
   private schedule(): void {
@@ -302,12 +311,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault();
-    const { w, h } = this.dims();
-    const p = this.local(e);
-    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
-    const k = e.ctrlKey ? 0.01 : 0.0018;
-    const factor = Math.exp(-Math.max(-300, Math.min(300, e.deltaY * unit)) * k);
-    this.setView(zoomAt(this.view, factor, p.x, p.y, w, h));
+    this.nav.wheel(e, this.local(e));
   };
 
   private onSpace = (e: KeyboardEvent): void => {
@@ -318,42 +322,36 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   };
 
   private onKey = (e: KeyboardEvent): void => {
-    if (e.key === "+" || e.key === "=") this.zoomIn();
-    else if (e.key === "-") this.zoomOut();
-    else if (e.key === "0") this.fit();
+    if (this.nav.key(e)) { /* vue */ }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); }
     else return;
     e.preventDefault();
   };
 
-  private pinchState(): { d: number; cx: number; cy: number } {
-    const [a, b] = [...this.pointers.values()];
-    return { d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
-  }
-
   private onDown = (e: PointerEvent): void => {
     if (this.readonly) return;
     this.canvasEl.focus({ preventScroll: true });
     const p = this.local(e);
-    this.pointers.set(e.pointerId, p);
     try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
     e.preventDefault();
-    if (this.pointers.size === 2) {
+    const tool = this.currentTool();
+    const pan = e.button === 1 || this.space || tool === "hand";
+    const r = this.nav.down(e.pointerId, p, this.pointer === null && pan);
+    if (r === "pinch") {
+      // Un second doigt : c'est un geste de vue, le trait commencé est abandonné.
       this.cancelStroke();
       this.mode = "none";
       this.pointer = null;
-      this.gesture = this.pinchState();
       return;
     }
-    if (this.pointers.size > 2 || this.pointer !== null) return;
-    this.pointer = e.pointerId;
-    const tool = this.currentTool();
-    if (e.button === 1 || this.space || tool === "hand") {
+    if (this.pointer !== null || this.nav.count > 1) return;
+    if (r === "pan") {
       this.mode = "pan";
-      this.panLast = p;
+      this.pointer = e.pointerId;
       return;
     }
-    if (e.pointerType === "mouse" && e.button !== 0) { this.pointer = null; return; }
+    if (e.pointerType === "mouse" && e.button !== 0) { this.nav.up(e.pointerId); return; }
+    this.pointer = e.pointerId;
     if (tool === "erase") {
       this.mode = "erase";
       this.erased = new Set();
@@ -364,23 +362,10 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   };
 
   private onMove = (e: PointerEvent): void => {
-    if (!this.pointers.has(e.pointerId)) return;
-    const { w, h } = this.dims();
     const p = this.local(e);
-    this.pointers.set(e.pointerId, p);
-    if (this.gesture && this.pointers.size >= 2) {
-      const g = this.pinchState();
-      let v = panBy(this.view, g.cx - this.gesture.cx, g.cy - this.gesture.cy);
-      v = zoomAt(v, g.d / this.gesture.d, g.cx, g.cy, w, h);
-      this.gesture = g;
-      this.setView(v);
-      return;
-    }
+    if (this.nav.move(e.pointerId, p)) return;
     if (e.pointerId !== this.pointer) return;
-    if (this.mode === "pan") {
-      this.setView(panBy(this.view, p.x - this.panLast.x, p.y - this.panLast.y));
-      this.panLast = p;
-    } else if (this.mode === "erase") {
+    if (this.mode === "erase") {
       this.eraseAt(p);
     } else if (this.mode === "draw") {
       const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
@@ -390,15 +375,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   };
 
   private onUp = (e: PointerEvent): void => {
-    if (!this.pointers.has(e.pointerId)) return;
-    const wasGesture = this.gesture !== null;
-    this.pointers.delete(e.pointerId);
+    this.nav.up(e.pointerId);
     try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
-    if (wasGesture) {
-      if (this.pointers.size < 2) this.gesture = null;
-      this.settleLater();
-      return;
-    }
     if (e.pointerId !== this.pointer) return;
     if (this.mode === "draw") this.endStroke(e);
     else if (this.mode === "erase") this.endErase();
@@ -421,7 +399,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private startStroke(p: { x: number; y: number }, e: PointerEvent): void {
     const lv = this.layerView, v = this.view;
-    if (this.layerDirty || lv.x !== v.x || lv.y !== v.y || lv.zoom !== v.zoom) this.renderLayer();
+    if (this.layerDirty || lv.x !== v.x || lv.y !== v.y || lv.zoom !== v.zoom || lv.rotation !== v.rotation) this.renderLayer();
     const b = this.brush();
     const brush = makeBrush(b, this.worldSize(b));
     const seed = (Math.random() * 4294967296) >>> 0;
@@ -526,13 +504,16 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   fit(): void {
     const { w, h } = this.dims();
-    this.setView(fitView(contentBBox(this.doc.strokes), w, h), true);
+    this.setView(fitView(contentBBox(this.doc.strokes), w, h, 0.08, this.view.rotation), true);
   }
 
   reset(): void { this.setView({ ...DEFAULT_VIEW }, true); }
 
-  zoomIn(): void { const { w, h } = this.dims(); this.setView(zoomAt(this.view, 1.6, w / 2, h / 2, w, h), true); }
-  zoomOut(): void { const { w, h } = this.dims(); this.setView(zoomAt(this.view, 1 / 1.6, w / 2, h / 2, w, h), true); }
+  zoomIn(): void { this.nav.zoomBy(1.6); }
+  zoomOut(): void { this.nav.zoomBy(1 / 1.6); }
+  rotateLeft(): void { this.nav.rotateBy(-ROTATE_STEP); }
+  rotateRight(): void { this.nav.rotateBy(ROTATE_STEP); }
+  straighten(): void { this.nav.straighten(); }
 
   /** Document SVG du dessin (tout le contenu), ou `null` en cas d'erreur (`error` renseignée). */
   toSvg(): string | null {
@@ -569,7 +550,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   getState(): SketchState {
     const b = this.brush();
     return {
-      status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y,
+      status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
       strokes: this.doc.strokes.length, drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
       tool: this.currentTool(), color: b.color, size: b.size, bbox: contentBBox(this.doc.strokes), last: this.last,
     };

@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-sketch",
-      "description": "Dessin vectoriel à zoom infini (width, height, background) : molette = zoom, Espace / bouton du milieu / tool hand = déplacer, deux doigts = pincer ; pinceau color, size, size-space screen|world, hardness, opacity, spacing, smoothing, pressure, tip / tip-from (forme de sonic-vector-library), angle, angle-follow, angle-jitter, size-jitter, scatter, roundness ; tool paint|erase|hand ; brush-from, view-from {x, y, zoom} ; control {undo, redo, clear, save (SVG), savePng, fit, reset, zoomIn, zoomOut} compteurs ; état {zoom, x, y, strokes, canUndo, canRedo, bbox, last}",
+      "description": "Dessin vectoriel à zoom infini (width, height, background) : molette = zoom, Espace / bouton du milieu / tool hand = déplacer, deux doigts = déplacer, zoomer et tourner ; pinceau color, size, size-space screen|world, hardness, opacity, spacing, smoothing, pressure, tip / tip-from (forme de sonic-vector-library), angle, angle-follow, angle-jitter, size-jitter, scatter, roundness ; tool paint|erase|hand ; brush-from, view-from {x, y, zoom, rotation} ; control {undo, redo, clear, save (SVG), savePng, fit, reset, zoomIn, zoomOut, rotateLeft, rotateRight, straighten} compteurs ; état {zoom, x, y, rotation, strokes, canUndo, canRedo, bbox, last}",
       "props": {
         "width": {
           "type": "number"

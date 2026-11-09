@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-paint",
-      "description": "Toile de peinture (width, height, background) : réglages color, size, hardness, opacity, spacing, smoothing, tool paint|erase, pressure, pointe personnalisée tip / tip-from (chemin SVG ou forme de sonic-vector-library) avec angle, angle-follow, angle-jitter, size-jitter, scatter, roundness, mode de fusion blend (multiply, screen, overlay…), ou en direct brush-from {color, size, …} ; control {undo, redo, clear, save} compteurs ; in-data-provider image de départ ; source d'images #id pour sonic-shader ; état {strokes, canUndo, canRedo, drawing, last}",
+      "description": "Toile de peinture (width, height, background) : réglages color, size, hardness, opacity, spacing, smoothing, tool paint|erase, pressure, pointe personnalisée tip / tip-from (chemin SVG ou forme de sonic-vector-library) avec angle, angle-follow, angle-jitter, size-jitter, scatter, roundness, mode de fusion blend (multiply, screen, overlay…), ou en direct brush-from {color, size, …} ; control {undo, redo, clear, save, fit, reset, zoomIn, zoomOut, rotateLeft, rotateRight, straighten} compteurs ; navigable : fenêtre sur l'image avec la navigation de sonic-sketch (molette, Espace / main, deux doigts déplacer-zoomer-tourner, + − 0 R), view-from {x, y, zoom, rotation} ; in-data-provider image de départ ; source d'images #id pour sonic-shader ; état {strokes, canUndo, canRedo, drawing, last, x, y, zoom, rotation}",
       "props": {
         "width": {
           "type": "number"
@@ -93,6 +93,12 @@
         },
         "hidden-preview": {
           "type": "boolean"
+        },
+        "navigable": {
+          "type": "boolean"
+        },
+        "view-from": {
+          "type": "string"
         }
       }
     }

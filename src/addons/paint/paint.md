@@ -33,7 +33,24 @@
 
 Les variations aléatoires sont tirées d'une graine par trait : un trait se dessine de la même façon à chaque fois.
 
-## Toile déplacée, zoomée, tournée
+## Toile navigable (`navigable`)
+
+Avec `navigable`, l'élément devient une **fenêtre** (sa taille CSS : lui donner une hauteur, par exemple `height:100%` dans un conteneur plein écran) sur l'image `width × height`. La navigation est **la même que celle de `sonic-sketch`** (code partagé, `src/shared/view2d.ts`) :
+
+| Geste | Effet |
+|---|---|
+| Molette (Ctrl + molette, pincement du pavé) | Zoom sous le curseur |
+| Espace + glisser, bouton du milieu, ou outil main (`tool: "hand"` dans `brush-from`) | Déplacer |
+| Deux doigts | Déplacer, zoomer et **tourner** autour des doigts (le trait commencé au premier doigt est annulé) |
+| `+` `-` `0` `R` / `Maj+R` (toile active) | Zoom avant / arrière / cadrer l'image / tourner de ±15° |
+
+Pixels nets au zoom avant, damier sous la transparence. `view-from` : DP `{ x, y, zoom, rotation }` (centre en pixels d'image, rotation en radians). `control` ajoute `fit`, `reset` (image entière, droite), `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`. L'état publie `x`, `y`, `zoom`, `rotation`. La toile reste une source d'images (l'image entière, pas la fenêtre) et `save` exporte l'image entière.
+
+```json
+{ "tagName": "sonic-paint", "attributes": { "navigable": "", "width": "4000", "height": "4000", "background": "transparent", "brush-from": "pinceau", "control": "peintureCtl", "out-data-provider": "peintureState", "style": "height:100%" } }
+```
+
+## Toile déplacée, zoomée, tournée par un parent
 
 La position du pointeur est lue dans le repère propre de la toile : un parent peut la mettre à l'échelle, la déplacer ou la **tourner** (`sonic-stage`, nœud avec `scale` et `rz`) sans fausser le tracé. Au doigt, si un deuxième doigt touche l'écran pendant un trait, le trait est **annulé** (la toile revient à son état d'avant) et la toile ne peint plus jusqu'à ce que tous les doigts soient levés : c'est un geste, à confier à une `sonic-gesture passthrough pan pinch` placée autour de la toile.
 
