@@ -133,6 +133,20 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
   const unbatch = (v: any) =>
     Array.isArray(v) && v.length === 1 && Array.isArray(v[0]) ? v[0] : v;
 
+  /** Un module chargé depuis une URL blob: est-il autorisé ici (CSP script-src) ? */
+  const canImportBlob = async (): Promise<boolean> => {
+    let url = "";
+    try {
+      url = URL.createObjectURL(new Blob(["export default 1;"], { type: "text/javascript" }));
+      const m: any = await import(/* @vite-ignore */ url);
+      return m?.default === 1;
+    } catch {
+      return false;
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+    }
+  };
+
   /** Modèles de segmentation interactive : `alias` → modèle, processeur, image encodée courante. */
   const segmenters = new Map<string, { model: any; processor: any; backend: string; image: any | null }>();
 
@@ -244,7 +258,10 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
       e.allowLocalModels = false;
       e.allowRemoteModels = true;
       e.useBrowserCache = true;
-      e.useWasmCache = true;
+      // Le cache WASM de Transformers.js recharge le module .mjs d'ONNX Runtime depuis une URL blob: : une CSP
+      // script-src sans blob: le refuse (« Failed to fetch dynamically imported module: blob:… ») et aucun backend
+      // ne démarre. On ne l'active que si un import blob: passe dans ce worker.
+      e.useWasmCache = await canImportBlob();
       e.cacheKey = env.cacheKey;
       if (env.remoteHost) e.remoteHost = env.remoteHost;
       if (env.remotePathTemplate) e.remotePathTemplate = env.remotePathTemplate;

@@ -3,6 +3,10 @@ import { hfWorkerMain } from "./hf-worker-runtime";
 
 /** `configure` du worker : choix du nombre de fils d'ONNX Runtime selon l'origine des binaires. */
 async function configure(env: Record<string, unknown>) {
+  return (await configureLib(env)).env.backends.onnx.wasm;
+}
+
+async function configureLib(env: Record<string, unknown>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const lib: any = { env: { backends: { onnx: { wasm: {} } } }, pipeline: async () => null };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -13,7 +17,7 @@ async function configure(env: Record<string, unknown>) {
   listener({ data: { id: 1, type: "configure", env: { cacheKey: "k", ...env } } });
   for (let i = 0; i < 50 && !replies.length; i++) await new Promise((r) => setTimeout(r, 2));
   expect(replies[0]?.ok).toBe(true);
-  return lib.env.backends.onnx.wasm;
+  return lib;
 }
 
 describe("configure : fils ONNX Runtime", () => {
@@ -29,6 +33,10 @@ describe("configure : fils ONNX Runtime", () => {
   it("valeur explicite respectée", async () => {
     const w = await configure({ wasmPaths: "https://cdn.jsdelivr.net/x/", numThreads: 4 });
     expect(w.numThreads).toBe(4);
+  });
+  it("import blob: impossible (CSP, Node) : cache WASM de Transformers.js désactivé", async () => {
+    const lib = await configureLib({ wasmPaths: "https://cdn.jsdelivr.net/x/" });
+    expect(lib.env.useWasmCache).toBe(false);
   });
   it("sans wasmPaths : rien d'imposé", async () => {
     const w = await configure({});
