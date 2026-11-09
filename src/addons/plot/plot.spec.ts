@@ -151,6 +151,14 @@ describe("buildChart", () => {
     expect(m.hits.reduce((n, h) => n + h.value, 0)).toBe(50);
   });
 
+  it("histogramme : la marge gauche prévoit le titre par défaut « effectif »", () => {
+    const vals = Array.from({ length: 50 }, (_, i) => ({ v: i % 10 }));
+    const def = buildChart(normalizeSpec({ type: "histogram", x: "v", bins: 5 }).spec, vals, 300, 200);
+    const custom = buildChart(normalizeSpec({ type: "histogram", x: "v", bins: 5, yLabel: "Spectateurs" }).spec, vals, 300, 200);
+    expect(def.yAxis!.title).toBe("effectif");
+    expect(def.inner.x).toBe(custom.inner.x);
+  });
+
   it("carte de chaleur : cellules et bornes du dégradé", () => {
     const cells = [{ a: "x", b: "u", v: 1 }, { a: "y", b: "u", v: 5 }, { a: "x", b: "w", v: 3 }];
     const m = buildChart(normalizeSpec({ type: "heatmap", x: "a", y: "b", value: "v" }).spec, cells, 300, 200);
@@ -167,6 +175,14 @@ describe("buildChart", () => {
   it("sparkline sans axes ; données vides ; lignes de référence", () => {
     const sp = buildChart(normalizeSpec({ type: "sparkline", x: "m", y: "ca" }).spec, rows, 120, 40);
     expect(sp.xAxis).toBeNull();
+    // x numérique (ou chaîne numérique) : pas de grille verticale
+    const nums = [{ i: 0, v: 3 }, { i: 1, v: 5 }, { i: 2, v: 4 }];
+    const strs = nums.map((r) => ({ i: String(r.i), v: r.v }));
+    for (const data of [nums, strs]) {
+      const s = buildChart(normalizeSpec({ type: "sparkline", x: "i", y: "v" }).spec, data, 120, 40);
+      expect(s.gridX).toEqual([]);
+      expect(s.gridY).toEqual([]);
+    }
     expect(buildChart(normalizeSpec({ type: "line" }).spec, [], 100, 100).empty).toBe(true);
     const r = buildChart(normalizeSpec({ type: "line", x: "m", y: "ca", rules: [{ value: 12, label: "cible" }, { value: 9999 }] }).spec, rows, 300, 200);
     expect(r.overlay.some((k) => k.k === "text" && k.text === "cible")).toBe(true);
