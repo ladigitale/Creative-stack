@@ -3,6 +3,8 @@ export const Sonic3dCameraMode = {
   Orbit: "orbit",
   Perspective: "perspective",
   Ortho: "ortho",
+  /** Vue de carte : un doigt / clic gauche fait glisser sur le sol, pincement / molette zoome, pas de rotation. */
+  Map: "map",
 } as const;
 export type Sonic3dCameraMode =
   (typeof Sonic3dCameraMode)[keyof typeof Sonic3dCameraMode];
@@ -57,6 +59,7 @@ export const FORM_CONTROL_KEYS = [
   "pitch",
   "play",
   "damping",
+  "lookAt",
 ] as const;
 
 /**
@@ -78,6 +81,7 @@ export const FORM_INPUT_ONLY_KEYS = [
   "maxPolar",
   "play",
   "damping",
+  "lookAt",
 ] as const;
 
 /**

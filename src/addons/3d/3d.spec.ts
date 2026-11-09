@@ -18,6 +18,7 @@ describe("parseCameraMode", () => {
     expect(parse.cameraMode("orbit")).toBe(Sonic3dCameraMode.Orbit);
     expect(parse.cameraMode("PERSPECTIVE")).toBe(Sonic3dCameraMode.Perspective);
     expect(parse.cameraMode("ortho")).toBe(Sonic3dCameraMode.Ortho);
+    expect(parse.cameraMode("map")).toBe(Sonic3dCameraMode.Map);
     expect(parse.cameraMode("nope")).toBe(Sonic3dCameraMode.Orbit);
     expect(parse.cameraMode("")).toBe(Sonic3dCameraMode.Orbit);
   });

@@ -109,6 +109,18 @@ function pushToRuntime(host: FormBindHost, data: Record<string, unknown>) {
   }
   if (orbitLimitsTouched(data)) reload.applyOrbitLimits(host as never);
   if ("autoRotate" in data) playback.syncAutoRotate(host as never);
+  if ("lookAt" in data) applyLookAt(host, data.lookAt);
+}
+
+/** `lookAt: [x, y, z]` : la caméra glisse vers ce point quand il change (le glisser de l'utilisateur reste sinon). */
+function applyLookAt(host: FormBindHost, v: unknown) {
+  if (!Array.isArray(v) || v.length < 3 || !v.slice(0, 3).every((n) => typeof n === "number" && Number.isFinite(n))) return;
+  const h = host as FormBindHost & { lastLookAt?: string; raf?: number };
+  const sig = v.slice(0, 3).join(",");
+  if (h.lastLookAt === sig) return;
+  const first = h.lastLookAt === undefined;
+  h.lastLookAt = sig;
+  h.runtime?.setLookAt(v[0] as number, v[1] as number, v[2] as number, first || !h.raf);
 }
 
 export const formFields = {
