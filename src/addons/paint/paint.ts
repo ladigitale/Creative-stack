@@ -135,6 +135,9 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   }
 
   disconnectedCallback(): void {
+    this.stopStrokeWatch();
+    window.removeEventListener("pointerup", this.onHeldUp, true);
+    window.removeEventListener("pointercancel", this.onHeldUp, true);
     for (const u of this.unsubs) u();
     this.unsubs = [];
     if (this.last) URL.revokeObjectURL(this.last.url);
@@ -317,11 +320,67 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.blendLayer = null;
   }
 
+  /**
+   * Position du pointeur en pixels de toile. `offsetX/Y` sont exprimés dans le repère propre de la toile,
+   * transformations CSS comprises : la toile peut être tournée, mise à l'échelle ou retournée par un parent
+   * (sonic-stage) sans fausser le tracé. Repli sur le rectangle englobant si la cible n'est pas la toile.
+   */
   private toCanvas(e: PointerEvent): Pt {
-    const r = this.canvasEl.getBoundingClientRect();
     const { w, h } = this.dims();
     const p = e.pointerType === "pen" ? (e.pressure > 0 ? e.pressure : 0.5) : 1;
+    const cw = this.canvasEl.offsetWidth, ch = this.canvasEl.offsetHeight;
+    if (e.target === this.canvasEl && cw > 0 && ch > 0 && Number.isFinite(e.offsetX) && Number.isFinite(e.offsetY)) {
+      return { x: (e.offsetX / cw) * w, y: (e.offsetY / ch) * h, p };
+    }
+    const r = this.canvasEl.getBoundingClientRect();
     return { x: ((e.clientX - r.left) / Math.max(1, r.width)) * w, y: ((e.clientY - r.top) / Math.max(1, r.height)) * h, p };
+  }
+
+  /* ------------------------------------------------------------ deux doigts : le trait cède la place au geste */
+
+  /** Doigts encore posés après un trait abandonné : la toile ne peint plus tant qu'il en reste. */
+  private heldTouches = new Set<number>();
+
+  /** Un autre doigt touche l'écran pendant un trait au doigt : c'est un geste (déplacer, zoomer, tourner). */
+  private onOtherDown = (e: PointerEvent): void => {
+    if (e.pointerType !== "touch" || e.pointerId === this.pointer || !this.drawing || this.pointerType !== "touch") return;
+    this.abortStroke(e.pointerId);
+  };
+
+  private onHeldUp = (e: PointerEvent): void => {
+    this.heldTouches.delete(e.pointerId);
+    if (this.heldTouches.size) return;
+    window.removeEventListener("pointerup", this.onHeldUp, true);
+    window.removeEventListener("pointercancel", this.onHeldUp, true);
+  };
+
+  /** Annule le trait en cours (toile remise comme avant le trait) et attend que tous les doigts se lèvent. */
+  private abortStroke(otherId: number): void {
+    const ctx = this.ctx();
+    const before = this.undoLevels > 0 ? this.history.dropLast() : null;
+    if (ctx && before) ctx.putImageData(before, 0, 0);
+    this.endBlend();
+    if (this.pointer !== null) {
+      try { this.canvasEl.releasePointerCapture(this.pointer); } catch { /* déjà relâché */ }
+      this.heldTouches.add(this.pointer);
+    }
+    this.heldTouches.add(otherId);
+    window.addEventListener("pointerup", this.onHeldUp, true);
+    window.addEventListener("pointercancel", this.onHeldUp, true);
+    this.stopStrokeWatch();
+    this.pointer = null;
+    this.drawing = false;
+    this.touch();
+  }
+
+  private pointerType = "";
+
+  private startStrokeWatch(): void {
+    window.addEventListener("pointerdown", this.onOtherDown, true);
+  }
+
+  private stopStrokeWatch(): void {
+    window.removeEventListener("pointerdown", this.onOtherDown, true);
   }
 
   private pushHistory(): void {
@@ -333,7 +392,13 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
 
   private onDown = (e: PointerEvent): void => {
     if (this.readonly || this.pointer !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
+    if (e.pointerType === "touch" && this.heldTouches.size) {
+      this.heldTouches.add(e.pointerId);
+      return;
+    }
     this.pointer = e.pointerId;
+    this.pointerType = e.pointerType;
+    this.startStrokeWatch();
     try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
     e.preventDefault();
     this.pushHistory();
@@ -374,6 +439,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     }
     this.composeBlend();
     this.endBlend();
+    this.stopStrokeWatch();
     try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
     this.pointer = null;
     this.drawing = false;

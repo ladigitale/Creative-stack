@@ -33,6 +33,10 @@
 
 Les variations aléatoires sont tirées d'une graine par trait : un trait se dessine de la même façon à chaque fois.
 
+## Toile déplacée, zoomée, tournée
+
+La position du pointeur est lue dans le repère propre de la toile : un parent peut la mettre à l'échelle, la déplacer ou la **tourner** (`sonic-stage`, nœud avec `scale` et `rz`) sans fausser le tracé. Au doigt, si un deuxième doigt touche l'écran pendant un trait, le trait est **annulé** (la toile revient à son état d'avant) et la toile ne peint plus jusqu'à ce que tous les doigts soient levés : c'est un geste, à confier à une `sonic-gesture passthrough pan pinch` placée autour de la toile.
+
 ## Limites
 
 L'opacité s'applique à chaque empreinte : un trait lent à faible opacité s'épaissit en s'y superposant. L'annulation garde des copies de la toile : sur une grande toile, le nombre d'étapes est réduit pour rester sous une borne de mémoire. Une image de départ de grande taille est ramenée à la toile en conservant ses proportions.

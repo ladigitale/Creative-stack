@@ -250,6 +250,11 @@ export class History<T> {
     return e.v;
   }
 
+  /** Retire la dernière étape enregistrée sans toucher à l'avenir (trait abandonné) : l'état d'avant, ou null. */
+  dropLast(): T | null {
+    return this.past.pop()?.v ?? null;
+  }
+
   redo(current: T, cost: number): T | null {
     const e = this.future.pop();
     if (!e) return null;

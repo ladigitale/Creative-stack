@@ -172,3 +172,17 @@ describe("pointes personnalisées", () => {
     expect(tipFromValue(42)).toBe("");
   });
 });
+
+describe("historique : trait abandonné", () => {
+  it("dropLast rend l'état d'avant sans toucher à l'avenir", () => {
+    const h = new History<string>(5);
+    h.push("a", 1);
+    h.push("b", 1);
+    expect(h.undo("c", 1)).toBe("b");
+    expect(h.canRedo).toBe(true);
+    h.push("x", 1);
+    expect(h.dropLast()).toBe("x");
+    expect(h.dropLast()).toBe("a");
+    expect(h.dropLast()).toBe(null);
+  });
+});
