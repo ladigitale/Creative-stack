@@ -44,7 +44,7 @@ Avec `navigable`, l'élément devient une **fenêtre** (sa taille CSS : lui donn
 | Deux doigts | Déplacer, zoomer et **tourner** autour des doigts (le trait commencé au premier doigt est annulé) |
 | `+` `-` `0` `R` / `Maj+R` (toile active) | Zoom avant / arrière / cadrer l'image / tourner de ±15° |
 
-Pixels nets au zoom avant, damier sous la transparence. `view-from` : DP `{ x, y, zoom, rotation }` (centre en pixels d'image, rotation en radians). `control` ajoute `fit`, `reset` (image entière, droite), `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`. L'état publie `x`, `y`, `zoom`, `rotation`. La toile reste une source d'images (l'image entière, pas la fenêtre) et `save` exporte l'image entière.
+Pixels nets au zoom avant, damier sous la transparence. `view-from` : DP `{ x, y, zoom, rotation }` (centre en pixels d'image, rotation en radians). `control` ajoute `fit`, `reset` (image entière, droite), `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`. L'état publie `x`, `y`, `zoom`, `rotation` et la taille de la fenêtre `viewWidth`, `viewHeight` (de quoi dessiner le cadre visible sur une vignette). La toile reste une source d'images (l'image entière, pas la fenêtre) et `save` exporte l'image entière.
 
 ```json
 { "tagName": "sonic-paint", "attributes": { "navigable": "", "width": "4000", "height": "4000", "background": "transparent", "brush-from": "pinceau", "control": "peintureCtl", "out-data-provider": "peintureState", "style": "height:100%" } }

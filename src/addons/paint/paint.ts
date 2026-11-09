@@ -35,6 +35,9 @@ export type PaintState = {
   y: number;
   zoom: number;
   rotation: number;
+  /** Toile navigable : taille de la fenêtre en pixels CSS (0 sinon). */
+  viewWidth: number;
+  viewHeight: number;
 };
 
 /**
@@ -341,6 +344,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
     if (this.autoFit) this.fit(); else this.present();
+    this.publish();
   }
 
   private schedulePresent(): void {
@@ -750,7 +754,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   getState(): PaintState {
     const { w, h } = this.dims();
     const b = this.brush();
-    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" ? "hand" : b.tool, color: b.color, size: b.size, last: this.last, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0 };
+    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" ? "hand" : b.tool, color: b.color, size: b.size, last: this.last, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
   }
 
   private publish(): void {
