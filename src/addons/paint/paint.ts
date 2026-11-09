@@ -5,7 +5,7 @@ import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import { safeMediaUrl } from "../../shared/media/urls";
 import type { SonicFrameConsumerHost, SonicFrameSource, SonicMediaRef } from "../../shared/mediaRef";
-import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, place, rng, sanitizeBrush, type BrushSettings, type Pt } from "./brush";
+import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, blendOp, place, rng, sanitizeBrush, type BrushSettings, type Pt } from "./brush";
 import { drawTip, tipFromValue, tipGeometry } from "./tip";
 
 const MAX_SIDE = 4096;
@@ -64,6 +64,8 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   @property({ type: Number, attribute: "size-jitter" }) sizeJitter = 0;
   @property({ type: Number }) scatter = 0;
   @property({ type: Number }) roundness = 1;
+  /** Mode de fusion du trait : normal, multiply, screen, overlay, darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, exclusion, hue, saturation, color, luminosity. */
+  @property({ type: String }) blend = "normal";
   /** DP d'une forme (chaîne `d`, `{ d }` ou forme de `sonic-vector-library`) utilisée comme pointe. */
   @property({ type: String, attribute: "tip-from" }) tipFrom = "";
   /** DP de réglages en direct. */
@@ -94,6 +96,10 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   private last: PaintState["last"] = null;
   private error: string | null = null;
   private loadToken = 0;
+  /** Trait en mode de fusion : image de la toile au début du trait, et calque du trait seul. */
+  private blendBase: HTMLCanvasElement | null = null;
+  private blendLayer: HTMLCanvasElement | null = null;
+  private blendMode: GlobalCompositeOperation = "source-over";
 
   get frameSeq(): number { return this.seq; }
   getFrameCanvas(): HTMLCanvasElement | null { return this.canvasEl ?? null; }
@@ -102,7 +108,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
 
   /** Réglages effectifs : attributs puis réglages en direct. */
   brush(): BrushSettings {
-    const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, tool: this.tool, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness });
+    const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, tool: this.tool, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness, blend: this.blend });
     return sanitizeBrush(base, this.live);
   }
 
@@ -250,7 +256,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   }
 
   private stamp(pt: Pt, b: BrushSettings): void {
-    const ctx = this.ctx();
+    const ctx = this.blendLayer ? this.blendLayer.getContext("2d") : this.ctx();
     if (!ctx) return;
     const pl = place(pt, b, this.draw);
     const erase = b.tool === "erase";
@@ -275,6 +281,40 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
+  }
+
+  /**
+   * Trait en mode de fusion : les empreintes vont sur un calque à part (elles s'y superposent normalement),
+   * puis la toile = image du début du trait + calque fusionné. Ainsi le trait ne se fusionne pas avec lui-même.
+   */
+  private beginBlend(b: BrushSettings): void {
+    this.endBlend();
+    if (b.tool === "erase" || b.blend === "normal" || !this.canvasEl) return;
+    const { w, h } = this.dims();
+    const mk = () => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+    const base = mk(), layer = mk();
+    base.getContext("2d")?.drawImage(this.canvasEl, 0, 0);
+    this.blendBase = base;
+    this.blendLayer = layer;
+    this.blendMode = blendOp(b.blend);
+  }
+
+  private composeBlend(): void {
+    const ctx = this.ctx();
+    if (!ctx || !this.blendBase || !this.blendLayer) return;
+    const { w, h } = this.dims();
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "copy";
+    ctx.drawImage(this.blendBase, 0, 0);
+    ctx.globalCompositeOperation = this.blendMode;
+    ctx.drawImage(this.blendLayer, 0, 0, w, h);
+    ctx.restore();
+  }
+
+  private endBlend(): void {
+    this.blendBase = null;
+    this.blendLayer = null;
   }
 
   private toCanvas(e: PointerEvent): Pt {
@@ -302,8 +342,10 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.walker.reset();
     this.draw = rng((Math.random() * 4294967296) >>> 0);
     const b = this.brush();
+    this.beginBlend(b);
     const pt = this.stab.feed(this.toCanvas(e), b.smoothing);
     for (const s of this.walker.walk(pt, b)) this.stamp(s, b);
+    this.composeBlend();
     this.touch();
   };
 
@@ -315,6 +357,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
       const pt = this.stab.feed(this.toCanvas(ev), b.smoothing);
       for (const s of this.walker.walk(pt, b)) this.stamp(s, b);
     }
+    this.composeBlend();
     this.touch();
   };
 
@@ -329,6 +372,8 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
         for (const s of this.walker.walk(pt, b)) this.stamp(s, b);
       }
     }
+    this.composeBlend();
+    this.endBlend();
     try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
     this.pointer = null;
     this.drawing = false;

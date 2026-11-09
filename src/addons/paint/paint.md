@@ -21,7 +21,8 @@
 | `angle` `angle-follow` | Rotation de la pointe en degrés ; `angle-follow` y ajoute la direction du tracé (pointe qui suit le geste) |
 | `angle-jitter` `size-jitter` `scatter` | Variation aléatoire de l'angle (± degrés), de la taille (0 à 1) et dispersion autour du tracé (fraction du diamètre) |
 | `roundness` | Aplatissement de la pointe, 1 intacte à 0,05 très plate (pinceau plat, calligraphie avec `angle`) |
-| `brush-from` | DP de réglages en direct `{ color, size, hardness, opacity, spacing, smoothing, tool, pressure, tip, angle… }` : une palette en SDUI écrit dedans |
+| `blend` | Mode de fusion du trait avec la toile : `normal`, `multiply` (produit), `screen` (écran), `overlay` (incrustation), `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity`. Le trait est peint sur un calque puis fusionné : il ne se fusionne pas avec lui-même. Sans effet sur la gomme |
+| `brush-from` | DP de réglages en direct `{ color, size, hardness, opacity, spacing, smoothing, tool, pressure, tip, angle, blend… }` : une palette en SDUI écrit dedans |
 | `control` | DP de commandes à compteur : `{ undo: n, redo: n, clear: n, save: n }` (la commande part quand `n` augmente) |
 | `in-data-provider` | Image de départ (`SonicMediaRef`, par exemple une photo de `sonic-file-open`) : dessinée à la place de la toile |
 | `undo-levels` | Étapes d'annulation gardées (20 par défaut, 0 pour aucune) |
