@@ -57,7 +57,7 @@
     },
     {
       "name": "sonic-segment-anything",
-      "description": "Segment Anything (SAM 2) sur une image (for=\"#id\" : sonic-still, img, canvas, caméra, vidéo) : l'image est encodée une fois, puis chaque invite donne un masque en quelques dizaines de ms. Invites : click-on=\"#id\" (clic = nouvelle sélection, Maj+clic = ajouter, Alt+clic ou clic droit = exclure, glisser = boîte), points-from / box-from (DataProvider, 0..1) ou points=\"x,y,1; x,y,0\". Le masque est une source d'images (sonic-mask-replace mask=\"#id\", sonic-shader channelN=\"#id\") ; mode alpha|gray, invert ; refine=\"edges\" (défaut : bord recalé sur les contours de l'image) ou \"none\". refresh=\"frames\" ré-encode une source qui change (fps). État en out-data-provider : {phase, progress, backend, encoded, busy, points, box, present, score, coverage, cx, cy, x0, y0, x1, y1, encodeMs, decodeMs, error}. Modèle via la configuration Hugging Face (engine: \"sam\"), consentement par consent-provider ou accept()",
+      "description": "Segment Anything (SAM 2) sur une image (for=\"#id\" : sonic-still, img, canvas, caméra, vidéo) : l'image est encodée une fois, puis chaque invite donne un masque en quelques dizaines de ms. Invites : click-on=\"#id\" (clic = nouvelle sélection, Maj+clic = ajouter, Alt+clic ou clic droit = exclure, glisser = boîte), points-from / box-from (DataProvider, 0..1) ou points=\"x,y,1; x,y,0\". Le masque est une source d'images (sonic-mask-replace mask=\"#id\", sonic-shader channelN=\"#id\") ; mode alpha|gray, invert ; refine=\"edges\" (défaut : bord recalé sur les contours de l'image) ou \"none\". refresh=\"frames\" ré-encode une source qui change (fps). État en out-data-provider : {phase, progress, backend, encoded, busy, points, box, present, score, coverage, cx, cy, x0, y0, x1, y1, encodeMs, decodeMs, error}. Modèle via la configuration Hugging Face (engine: \"sam\") ; model-from=\"dp.q.model\" change de modèle (choix de qualité, l'ancien est libéré) ; consentement par consent-provider (\"accepted\" ou l'alias du modèle accepté) ou accept()",
       "props": {
         "for": {
           "type": "string"
@@ -105,6 +105,9 @@
           "type": "string"
         },
         "refine": {
+          "type": "string"
+        },
+        "model-from": {
           "type": "string"
         }
       }

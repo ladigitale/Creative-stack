@@ -1,6 +1,6 @@
 import { LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { maskStats, maskToRgba } from "../../shared/ml/mask";
 import type { HfLoadPolicy } from "./hf-config";
@@ -56,6 +56,8 @@ export class SonicSegmentAnything extends LitElement {
   @property({ type: String, attribute: "for" }) for = "";
   /** Alias du modèle dans la configuration Hugging Face (`engine: "sam"`). */
   @property({ type: String }) model = "sam2-tiny";
+  /** Chemin DataProvider de l'alias du modèle (choix de qualité) : remplace `model` ; l'ancien modèle est libéré. */
+  @property({ type: String, attribute: "model-from" }) modelFrom = "";
   /** Id d'un élément dont les clics désignent l'objet : clic = nouvelle sélection, Maj+clic = ajouter, Alt+clic ou clic droit = exclure, glisser = boîte. */
   @property({ type: String, attribute: "click-on" }) clickOn = "";
   /** Chemin DataProvider des points (`[{x, y, label}]`, 0..1). */
@@ -74,6 +76,10 @@ export class SonicSegmentAnything extends LitElement {
   @property({ type: String }) mirror: "auto" | "true" | "false" = "auto";
   /** Politique de chargement : `first-use` (défaut, à la première invite), `auto`, `consent`, `manual`. */
   @property({ type: String }) load: HfLoadPolicy = "first-use";
+  /**
+   * DataProvider du consentement : `"accepted"` (ou `true`) accepte le modèle courant ; la valeur égale à l'alias d'un
+   * modèle n'accepte que celui-là (utile quand on change de modèle : chaque taille demande son propre accord).
+   */
   @property({ type: String, attribute: "consent-provider" }) consentProvider = "";
   /** Côté maximal de l'image envoyée au modèle et du masque produit (le modèle travaille en 1024 ; au-delà, le bord est affiné à la résolution de la photo). */
   @property({ type: Number, attribute: "max-side" }) maxSide = 1600;
@@ -116,7 +122,18 @@ export class SonicSegmentAnything extends LitElement {
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
     if (!this.isConnected) return;
-    if ([...c.keys()].some((k) => ["for", "model", "clickOn", "pointsFrom", "boxFrom", "points", "refresh", "fps", "consentProvider", "load"].includes(String(k))) || !this.unsubs.length) this.attach();
+    const previous = c.get("model");
+    if (c.has("model") && typeof previous === "string" && previous && previous !== this.model) {
+      // l'image encodée appartient à l'ancien modèle : on le libère et on réencodera avec le nouveau
+      void getHuggingFaceRegistry()?.samRelease(previous);
+      this.encodedToken = undefined;
+      this.last = null;
+      this.patch({ encoded: false, backend: null, error: null });
+      this.generation++;
+      this.running = false;
+      if (hasPrompt(this.prompts)) queueMicrotask(() => this.schedule());
+    }
+    if ([...c.keys()].some((k) => ["for", "model", "clickOn", "pointsFrom", "boxFrom", "points", "refresh", "fps", "consentProvider", "load", "modelFrom"].includes(String(k))) || !this.unsubs.length) this.attach();
     if (c.has("mode") || c.has("invert")) this.redraw();
     if (c.has("refine") && c.get("refine") !== undefined && hasPrompt(this.prompts)) this.schedule();
   }
@@ -161,11 +178,21 @@ export class SonicSegmentAnything extends LitElement {
       return;
     }
     this.unsubs.push(reg.subscribe(this.model, (s) => this.patch({ phase: s.phase, progress: s.progress?.percent ?? (s.phase === "ready" ? 100 : 0), backend: s.backend ?? null, error: s.error ? { code: s.error.code, message: s.error.message } : this.state.error?.code === "not-allowed" ? null : this.state.error })));
-    if (this.consentProvider.trim()) {
-      this.unsubs.push(listenDp(this.consentProvider.trim(), (v) => {
-        if (v === true || v === "accepted" || v === "true") reg.accept(this.model);
+    const mf = this.modelFrom.trim();
+    if (mf) {
+      const take = (v: unknown) => { if (typeof v === "string" && v && v !== this.model) this.model = v; };
+      this.unsubs.push(listenDp(mf, take));
+      take(dp(mf).get());
+    }
+    const cp = this.consentProvider.trim();
+    if (cp) {
+      const consent = (v: unknown) => {
+        if (v === true || v === "accepted" || v === "true" || v === this.model) reg.accept(this.model);
         else if (v === "declined" || v === false) reg.decline(this.model);
-      }));
+      };
+      this.unsubs.push(listenDp(cp, consent));
+      const now = dp(cp).get();
+      if (now !== undefined && now !== null && now !== "") consent(now);
     }
     const pf = this.pointsFrom.trim(), bf = this.boxFrom.trim();
     if (pf) this.unsubs.push(listenDp(pf, (v) => { this.prompts = { ...this.prompts, points: parsePoints(v) }; this.onPrompts(); }));

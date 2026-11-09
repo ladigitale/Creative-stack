@@ -465,6 +465,23 @@ export class HuggingFaceRegistry {
     return this.samCall(alias, timeoutMs, (e) => e.samDecode?.(alias, points, box, refine));
   }
 
+  /**
+   * Libère un modèle de segmentation (mémoire GPU / WASM du worker) ; il repasse à `idle` et se recharge à la
+   * prochaine utilisation (depuis le cache du navigateur s'il y est).
+   */
+  async samRelease(alias: string): Promise<void> {
+    if (!this.hasModel(alias) || this.model(alias).engine !== "sam") return;
+    const entry = this.entry(alias);
+    if (entry.state.phase !== "ready") return;
+    try {
+      await this.engine?.samDispose?.(alias);
+    } catch {
+      // déjà libéré ou worker perdu : on remet l'état à zéro quand même
+    }
+    entry.loading = undefined;
+    this.update(alias, { phase: "idle", progress: undefined, backend: undefined, error: undefined });
+  }
+
   /* ---------------- nettoyage ---------------- */
 
   async clearModel(alias: string): Promise<void> {

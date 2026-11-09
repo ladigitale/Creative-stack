@@ -50,16 +50,17 @@ describe("invites SAM", () => {
 
 /* --- composant, moteur simulé --- */
 
-const calls = { load: 0, encode: [] as HfSamImage[], decode: [] as { points: HfSamPoint[]; box: HfSamBox | null }[] };
+const calls = { load: 0, loaded: [] as string[], disposed: [] as string[], encode: [] as HfSamImage[], encodedBy: [] as string[], decode: [] as { points: HfSamPoint[]; box: HfSamBox | null }[] };
 const engine: HfEngine = {
   async configure() {},
-  async inspect() { return { totalBytes: 10 * 1024 * 1024, cached: true }; },
+  async inspect() { return { totalBytes: 10 * 1024 * 1024, cached: false }; },
   async load() { throw new Error("pas de pipeline"); },
   async run() { return []; },
   async clear() {},
   dispose() {},
-  async samLoad(_m, _d, onProgress) { calls.load++; onProgress({ loadedBytes: 1, totalBytes: 2, percent: 50 }); return { backend: "wasm", loadMs: 3 }; },
-  async samEncode(_a, image) { calls.encode.push(image); return { width: image.width, height: image.height, encodeMs: 7 }; },
+  async samLoad(m, _d, onProgress) { calls.load++; calls.loaded.push(m.alias); onProgress({ loadedBytes: 1, totalBytes: 2, percent: 50 }); return { backend: "wasm", loadMs: 3 }; },
+  async samEncode(a, image) { calls.encode.push(image); calls.encodedBy.push(a); return { width: image.width, height: image.height, encodeMs: 7 }; },
+  async samDispose(a) { calls.disposed.push(a); },
   async samDecode(_a, points, box) {
     calls.decode.push({ points, box });
     const w = calls.encode[calls.encode.length - 1].width, h = calls.encode[calls.encode.length - 1].height;
@@ -72,6 +73,7 @@ const engine: HfEngine = {
 
 const models = defineHuggingFaceModels({
   "sam2-tiny": { task: "image-segmentation", engine: "sam", repo: "onnx-community/sam2.1-hiera-tiny-ONNX", revision: "test", sizeBytes: 40_000_000 },
+  "sam2-small": { task: "image-segmentation", engine: "sam", repo: "onnx-community/sam2.1-hiera-small-ONNX", revision: "test", sizeBytes: 70_000_000 },
   depth: { task: "depth-estimation", repo: "Xenova/depth-anything-small-hf", revision: "test" },
 });
 
@@ -80,7 +82,8 @@ const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 describe("sonic-segment-anything", () => {
   beforeEach(() => {
-    calls.load = 0; calls.encode = []; calls.decode = [];
+    localStorage.clear();
+    calls.load = 0; calls.loaded = []; calls.disposed = []; calls.encode = []; calls.encodedBy = []; calls.decode = [];
     (HTMLCanvasElement.prototype as any).getContext = function () {
       const c = this as HTMLCanvasElement;
       return {
@@ -169,5 +172,35 @@ describe("sonic-segment-anything", () => {
     await mk({ for: "absent", points: "0.5,0.5", "out-data-provider": "sam-n" });
     await wait(40);
     expect((dp("sam-n").get() as any).error.code).toBe("no-image");
+  });
+
+  it("changement de modèle par DataProvider : ancien libéré, image réencodée par le nouveau", async () => {
+    dp("sam-q").set({ model: "sam2-tiny" });
+    const el = await mk({ for: "src", "model-from": "sam-q.model", points: "0.5,0.5", "out-data-provider": "sam-m" });
+    await wait(60);
+    expect(calls.loaded).toEqual(["sam2-tiny"]);
+    dp("sam-q").set({ model: "sam2-small" });
+    await wait(120);
+    expect(el.model).toBe("sam2-small");
+    expect(calls.disposed).toEqual(["sam2-tiny"]);
+    expect(calls.loaded).toEqual(["sam2-tiny", "sam2-small"]);
+    expect(calls.encodedBy).toEqual(["sam2-tiny", "sam2-small"]);
+    expect((dp("sam-m").get() as any).present).toBe(1);
+  });
+
+  it("consentement par modèle : l'accord donné à un modèle ne vaut pas pour un autre", async () => {
+    dp("sam-c2").set({ model: "sam2-tiny", ok: "sam2-tiny" });
+    const el = await mk({ for: "src", load: "consent", "model-from": "sam-c2.model", "consent-provider": "sam-c2.ok", points: "0.5,0.5", "out-data-provider": "sam-cs" });
+    await wait(80);
+    expect(calls.loaded).toEqual(["sam2-tiny"]);
+    dp("sam-c2").set({ model: "sam2-small", ok: "sam2-tiny" });
+    await wait(120);
+    expect((dp("sam-cs").get() as any).phase).toBe("awaiting-consent");
+    expect(calls.loaded).toEqual(["sam2-tiny"]);
+    dp("sam-c2").set({ model: "sam2-small", ok: "sam2-small" });
+    await wait(120);
+    expect(calls.loaded).toEqual(["sam2-tiny", "sam2-small"]);
+    expect((dp("sam-cs").get() as any).present).toBe(1);
+    void el;
   });
 });
