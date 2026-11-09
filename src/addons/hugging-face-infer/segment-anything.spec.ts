@@ -65,7 +65,7 @@ const engine: HfEngine = {
     const w = calls.encode[calls.encode.length - 1].width, h = calls.encode[calls.encode.length - 1].height;
     const mask = new Uint8Array(w * h);
     // moitié gauche
-    for (let y = 0; y < h; y++) for (let x = 0; x < w / 2; x++) mask[y * w + x] = 1;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w / 2; x++) mask[y * w + x] = 255;
     return { width: w, height: h, mask, score: 0.91, scores: [0.5, 0.91, 0.2], index: 1, decodeMs: 2 };
   },
 };
@@ -104,13 +104,13 @@ describe("sonic-segment-anything", () => {
     return el;
   };
 
-  it("point → chargement, encodage réduit à 1024 px, masque et statistiques", async () => {
+  it("point → chargement, encodage réduit à 1600 px (max-side), masque et statistiques", async () => {
     const el = await mk({ for: "src", points: "0.25,0.5", "out-data-provider": "sam-a" });
     await wait(60);
     expect(calls.load).toBe(1);
     expect(calls.encode).toHaveLength(1);
-    expect([calls.encode[0].width, calls.encode[0].height]).toEqual([1024, 512]);
-    expect(calls.decode[0].points).toEqual([{ x: 256, y: 256, label: 1 }]);
+    expect([calls.encode[0].width, calls.encode[0].height]).toEqual([1600, 800]);
+    expect(calls.decode[0].points).toEqual([{ x: 400, y: 400, label: 1 }]);
     const s = dp("sam-a").get() as any;
     expect(s.phase).toBe("ready");
     expect(s.present).toBe(1);
@@ -150,7 +150,7 @@ describe("sonic-segment-anything", () => {
     click(20, 20, {}, 120, 80);
     await wait(60);
     expect(el.getPrompts()).toEqual({ points: [], box: { x0: 0.1, y0: 0.2, x1: 0.6, y1: 0.8 } });
-    expect(calls.decode[calls.decode.length - 1].box).toEqual({ x0: 102.4, y0: 102.4, x1: 614.4, y1: 409.6 });
+    expect(calls.decode[calls.decode.length - 1].box).toEqual({ x0: 160, y0: 160, x1: 960, y1: 640 });
     el.clear();
     await wait(20);
     const s = dp("sam-c").get() as any;

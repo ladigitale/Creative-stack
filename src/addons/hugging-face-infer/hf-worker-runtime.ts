@@ -205,7 +205,56 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
     entry.image = { embeddings, original_sizes: inputs.original_sizes, reshaped_input_sizes: inputs.reshaped_input_sizes, width: image.width, height: image.height };
   };
 
-  const samDecode = async (entry: any, points: any, box: any) => {
+  /** Moyenne sur une fenêtre (2r+1)², bords compris (somme glissante séparable, O(n)). */
+  const boxMean = (src: Float32Array, w: number, h: number, r: number): Float32Array => {
+    const tmp = new Float32Array(w * h);
+    const out = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      let acc = 0;
+      for (let x = 0; x <= Math.min(r, w - 1); x++) acc += src[row + x];
+      for (let x = 0; x < w; x++) {
+        const lo = x - r - 1, hi = x + r;
+        if (hi < w && x > 0) acc += src[row + hi];
+        if (lo >= 0) acc -= src[row + lo];
+        tmp[row + x] = acc / (Math.min(w - 1, hi) - Math.max(0, x - r) + 1);
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let y = 0; y <= Math.min(r, h - 1); y++) acc += tmp[y * w + x];
+      for (let y = 0; y < h; y++) {
+        const lo = y - r - 1, hi = y + r;
+        if (hi < h && y > 0) acc += tmp[hi * w + x];
+        if (lo >= 0) acc -= tmp[lo * w + x];
+        out[y * w + x] = acc / (Math.min(h - 1, hi) - Math.max(0, y - r) + 1);
+      }
+    }
+    return out;
+  };
+
+  /**
+   * Filtre guidé (He et al.) : le masque `p` (0..1) épouse les bords de l'image guide `I` (luminance 0..1).
+   * Renvoie l'alpha affiné (0..1).
+   */
+  const guidedFilter = (I: Float32Array, p: Float32Array, w: number, h: number, r: number, eps: number): Float32Array => {
+    const n = w * h;
+    const Ip = new Float32Array(n), II = new Float32Array(n);
+    for (let i = 0; i < n; i++) { Ip[i] = I[i] * p[i]; II[i] = I[i] * I[i]; }
+    const mI = boxMean(I, w, h, r), mp = boxMean(p, w, h, r), mIp = boxMean(Ip, w, h, r), mII = boxMean(II, w, h, r);
+    const a = new Float32Array(n), b = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const varI = mII[i] - mI[i] * mI[i];
+      a[i] = (mIp[i] - mI[i] * mp[i]) / (varI + eps);
+      b[i] = mp[i] - a[i] * mI[i];
+    }
+    const ma = boxMean(a, w, h, r), mb = boxMean(b, w, h, r);
+    const q = new Float32Array(n);
+    for (let i = 0; i < n; i++) q[i] = ma[i] * I[i] + mb[i];
+    return q;
+  };
+
+  const samDecode = async (entry: any, points: any, box: any, refine: boolean) => {
     const ip = entry.processor.image_processor ?? entry.processor;
     const img = entry.image;
     const feed: Record<string, unknown> = { ...img.embeddings };
@@ -218,17 +267,53 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
     if (box) feed.input_boxes = ip.reshape_input_points([[[box.x0, box.y0, box.x1, box.y1]]], img.original_sizes, img.reshaped_input_sizes, true);
     if (!feed.input_points && !feed.input_boxes) return null;
     const out = await entry.model(feed);
-    const masks = await entry.processor.post_process_masks(out.pred_masks, img.original_sizes, img.reshaped_input_sizes);
-    const m = masks[0];
     const scores: number[] = Array.from(out.iou_scores.data as ArrayLike<number>).map(Number);
-    const count = m.dims[1];
+    const count = out.pred_masks.dims[2];
     let best = 0;
     for (let i = 1; i < count; i++) if ((scores[i] ?? -Infinity) > (scores[best] ?? -Infinity)) best = i;
-    const h = m.dims[2], w = m.dims[3];
-    const plane = h * w;
-    const mask = new Uint8Array(plane);
-    const data = m.data as ArrayLike<number | boolean>;
-    for (let i = 0, o = best * plane; i < plane; i++) mask[i] = data[o + i] ? 1 : 0;
+    // seul le meilleur masque est agrandi, en valeurs continues (logits) pour garder un bord exploitable
+    const chosen = out.pred_masks.slice(null, null, [best, best + 1]);
+    const masks = await entry.processor.post_process_masks(chosen, img.original_sizes, img.reshaped_input_sizes, { binarize: false });
+    const m = masks[0];
+    const h = m.dims[m.dims.length - 2], w = m.dims[m.dims.length - 1];
+    const n = h * w;
+    const logits = m.data as ArrayLike<number>;
+    const mask = new Uint8Array(n);
+    for (let i = 0; i < n; i++) mask[i] = logits[i] > 0 ? 255 : 0;
+    if (refine && entry.raw && entry.raw.width === w && entry.raw.height === h) {
+      // le masque du modèle sort en 256 px : sa zone floue fait quelques max(w, h) / 256 px ; la fenêtre la couvre
+      const r = Math.max(2, Math.round(Math.max(w, h) / 128));
+      // le filtre ne change rien loin du bord : on ne calcule que la boîte qui entoure le bord, élargie de 2 fenêtres
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const v = mask[y * w + x];
+        if ((x + 1 < w && mask[y * w + x + 1] !== v) || (y + 1 < h && mask[(y + 1) * w + x] !== v)) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+      if (x1 >= 0) {
+        const m2 = 4 * r + 2;
+        x0 = Math.max(0, x0 - m2); y0 = Math.max(0, y0 - m2); x1 = Math.min(w - 1, x1 + m2); y1 = Math.min(h - 1, y1 + m2);
+        const cw = x1 - x0 + 1, ch = y1 - y0 + 1, cn = cw * ch;
+        const px = entry.raw.data as Uint8ClampedArray;
+        const I = new Float32Array(cn), p = new Float32Array(cn);
+        for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+          const k = (y + y0) * w + (x + x0), o = k * 4, c = y * cw + x;
+          I[c] = (0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2]) / 255;
+          p[c] = mask[k] / 255;
+        }
+        // deux passes : la première rapproche le bord du contour, la seconde le colle (le halo résiduel s'efface)
+        const q = guidedFilter(I, guidedFilter(I, p, cw, ch, r, 1e-4), cw, ch, r, 1e-4);
+        // contraste sur la bande de transition : bord net, transition d'un ou deux pixels
+        for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+          const t = Math.min(1, Math.max(0, (q[y * cw + x] - 0.25) / 0.5));
+          mask[(y + y0) * w + (x + x0)] = Math.round(t * t * (3 - 2 * t) * 255);
+        }
+      }
+    }
     return { width: w, height: h, mask, score: scores[best] ?? 0, scores: scores.slice(0, count), index: best };
   };
 
@@ -281,9 +366,10 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
 
     /**
      * Masque pour des invites en px de l'image encodée : points (`label` 1 objet, 0 hors objet) et/ou une boîte.
-     * Renvoie le meilleur des masques proposés (score IoU estimé) en octets 0/1, à la taille de l'image.
+     * Renvoie le meilleur des masques proposés (score IoU estimé) en alpha 0..255 à la taille de l'image ;
+     * `refine` (défaut) colle le bord aux contours de l'image (filtre guidé).
      */
-    async "sam-decode"({ alias, points, box }) {
+    async "sam-decode"({ alias, points, box, refine }) {
       const entry = samEntry(alias);
       if (!entry.image) {
         const err: any = new Error("Aucune image encodée.");
@@ -293,7 +379,7 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
       const t0 = performance.now();
       const res = await samWithFallback(entry, async (retried) => {
         if (retried && entry.raw) await samEncode(entry, entry.raw);
-        return samDecode(entry, points, box);
+        return samDecode(entry, points, box, refine !== false);
       });
       return res ? { ...res, decodeMs: Math.round(performance.now() - t0), backend: entry.backend } : null;
     },

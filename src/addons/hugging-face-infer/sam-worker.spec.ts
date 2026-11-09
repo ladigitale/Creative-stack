@@ -53,8 +53,8 @@ it("sam-load / encode / decode / dispose avec le processeur SAM 2 réel", async 
   expect(!!f["image_embeddings.0"], "embeddings transmis").toBe(true);
   const res = r.result;
   expect(res.width === W && res.height === H && res.index === 1 && Math.abs(res.score - 0.9) < 1e-6, "masque à la taille de l'image, le meilleur retenu").toBe(true);
-  const on = res.mask.reduce((a: number, b: number) => a + b, 0);
-  expect(res.mask[240 * W + 320] === 1 && res.mask[0] === 0 && Math.abs(on / (W * H) - 1 / 16) < 0.01, "masque : carré central (≈ 1/16 de l'image)").toBe(true);
+  const on = res.mask.reduce((a: number, b: number) => a + b / 255, 0);
+  expect(res.mask[240 * W + 320] === 255 && res.mask[0] === 0 && Math.abs(on / (W * H) - 1 / 16) < 0.01, "masque : carré central (≈ 1/16 de l'image)").toBe(true);
   r = await ask({ type: "sam-decode", alias: "sam", points: [], box: { x0: 100, y0: 50, x1: 300, y1: 200 } });
   expect(r.ok && JSON.stringify(seen.feed.input_boxes.dims) === "[1,1,4]" && Math.abs(seen.feed.input_boxes.data[0] - 160) < 1 && !seen.feed.input_points, "boîte seule : forme [1,1,4], échelle 1024").toBe(true);
   r = await ask({ type: "sam-decode", alias: "sam", points: [], box: null });
@@ -106,7 +106,7 @@ it("GPU perdu pendant le calcul : rechargement sur WASM avec la précision WASM,
     expect(disposed).toEqual(["webgpu"]);
     expect(encodes).toEqual(["webgpu", "wasm"]);
     expect(r.result.mask.length).toBe(64 * 32);
-    expect(r.result.mask.every((v: number) => v === 1)).toBe(true);
+    expect(r.result.mask.every((v: number) => v === 255)).toBe(true);
     // une erreur qui n'est pas une panne GPU ne déclenche pas de rechargement
     const before = loads.length;
     r = await ask({ type: "sam-decode", alias: "sam", points: [], box: null });
@@ -115,4 +115,42 @@ it("GPU perdu pendant le calcul : rechargement sur WASM avec la précision WASM,
   } finally {
     delete (globalThis.navigator as any).gpu;
   }
+}, 30_000);
+
+it("bord affiné : le masque se recale sur le contour réel de l'image", async () => {
+  const cfg = { image_processor_type: "Sam2ImageProcessor", do_resize: true, size: { height: 1024, width: 1024 }, resample: 2, do_rescale: true, rescale_factor: 1 / 255, do_normalize: true, image_mean: [0.485, 0.456, 0.406], image_std: [0.229, 0.224, 0.225], do_convert_rgb: true, mask_size: { height: 256, width: 256 } };
+  // image 1024×512 : sombre à gauche (x < 128), claire à droite ; le masque basse définition du modèle simulé (256 px,
+  // soit 4 px d'image par case) déborde d'une case : bord flou vers x = 132
+  const W = 1024, H = 512, EDGE = 128;
+  const data = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const o = (y * W + x) * 4; data[o] = data[o + 1] = data[o + 2] = x < EDGE ? 40 : 220; data[o + 3] = 255; }
+  const model = Object.assign(async () => {
+    const plane = 256 * 256, d = new Float32Array(3 * plane);
+    for (let k = 0; k < 3; k++) for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) d[k * plane + y * 256 + x] = x < 33 ? 6 : -6;
+    return { pred_masks: new t.Tensor("float32", d, [1, 1, 3, 256, 256]), iou_scores: new t.Tensor("float32", new Float32Array([0.9, 0.1, 0.1]), [1, 1, 3]) };
+  }, { async get_image_embeddings() { return { "image_embeddings.0": new t.Tensor("float32", new Float32Array(4), [1, 4]) }; } });
+  const lib = {
+    ...t,
+    AutoProcessor: { from_pretrained: async () => new t.Sam2Processor({}, { image_processor: new t.Sam2ImageProcessor(cfg) }, null) },
+    AutoModelForMaskGeneration: { from_pretrained: async () => model },
+  };
+  const replies: any[] = [];
+  let listener: any;
+  hfWorkerMain(lib, { postMessage: (m) => replies.push(m), addEventListener: (_, l) => (listener = l) });
+  const ask = (msg: any): Promise<any> => new Promise((res: any) => { const id = Math.random(); listener({ data: { ...msg, id } }); const iv = setInterval(() => { const r = replies.find((x: any) => x.id === id); if (r) { clearInterval(iv); res(r); } }, 5); });
+  await ask({ type: "sam-load", model: { alias: "sam", task: "mask-generation", repo: "r", revision: "v", options: {} }, devices: ["wasm"] });
+  await ask({ type: "sam-encode", alias: "sam", image: { width: W, height: H, data } });
+  const raw = (await ask({ type: "sam-decode", alias: "sam", points: [{ x: 20, y: 256, label: 1 }], box: null, refine: false })).result;
+  const fine = (await ask({ type: "sam-decode", alias: "sam", points: [{ x: 20, y: 256, label: 1 }], box: null })).result;
+  const row = (m: Uint8Array) => Array.from(m.slice(256 * W, 257 * W));
+  const area = (r: number[]) => r.reduce((a, v) => a + v / 255, 0);
+  expect([fine.width, fine.height]).toEqual([W, H]);
+  // brut : bord à 132, tout ou rien
+  expect(area(row(raw.mask))).toBeGreaterThan(EDGE + 2);
+  expect(row(raw.mask).every((v) => v === 0 || v === 255)).toBe(true);
+  // affiné : bord ramené sur le contour réel (à un pixel près), intérieur et extérieur nets
+  expect(Math.abs(area(row(fine.mask)) - EDGE)).toBeLessThanOrEqual(1);
+  expect(row(fine.mask)[EDGE - 6]).toBe(255);
+  expect(row(fine.mask)[EDGE]).toBeLessThan(64);
+  expect(row(fine.mask)[EDGE + 3]).toBeLessThan(16);
 }, 30_000);
