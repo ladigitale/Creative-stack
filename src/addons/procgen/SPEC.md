@@ -130,7 +130,7 @@ Préréglages : `gouache`, `encre`, `bande-dessinée`, `pixel-art`, `nuit-vapeur
 
 ## 9. Interface `sonic-procgen`
 
-Attributs : `dataProvider`, `scene`, `seed`, `scene-style`, `camera`, `interactive`, `target`, `select-action-type`.
+Attributs : `dataProvider`, `scene`, `seed`, `scene-style`, `camera`, `interactive`, `gestures` (`auto` (défaut : coopère avec le défilement si la scène est dans une page ou une zone qui défile : un doigt vertical et la molette font défiler, Ctrl / ⌘ ou pincement pour zoomer), `capture` (la scène prend tout : jeux plein écran), `cooperative`), `target`, `select-action-type`.
 
 Clés **lues** : `scene` (nom de la bibliothèque) ou `recipe` (recette complète), `seed`, `params`, `style` (nom ou jetons), `view` `{camera, yaw, pitch, zoom, cx, cy, cz}`, `anim`, `actors`, `pose`, `select` (id d'objet), `edit` `{id, params}` (édition d'un objet sans réécrire la scène).
 Clés **écrites** : `selection` `{id, generator, params, schema}`, `status` `{phase, items, triangles, drawCalls, ms, fps, issues, error}`, `view`.

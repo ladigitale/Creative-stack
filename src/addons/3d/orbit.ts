@@ -166,6 +166,11 @@ function bindWheelPageScrollRelay(
   const onWheel = (event: WheelEvent) => {
     const controls = getControls();
     if (!controls?.enabled || !controls.enableZoom) return;
+    // mode coopératif (attribut `gestures`) : la molette fait défiler la page, Ctrl / ⌘ (ou pincement) zoome
+    if (canvas.dataset.gestures === "cooperative" && !event.ctrlKey && !event.metaKey) {
+      event.stopImmediatePropagation();
+      return;
+    }
     if (wheelAffectsZoom(controls, event.deltaY)) return;
     event.stopImmediatePropagation();
   };
