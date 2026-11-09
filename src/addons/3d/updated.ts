@@ -22,6 +22,7 @@ function applyCameraProps(
   if (changed.has("camera")) {
     host.runtime.applyCameraMode(parse.cameraMode(host.camera));
   }
+  if (changed.has("camera") || changed.has("gestures")) ensure.syncGestures(host as never);
   if (changed.has("fov")) host.runtime.setFov(host.fov);
   if (changed.has("exposure")) host.runtime.setExposure(host.exposure);
   if (changed.has("dprMax")) {

@@ -230,6 +230,9 @@ export class Sonic2d extends LitElement {
     this.publishOut();
     try {
       await scene.init();
+      // pixi impose `touch-action: none` au canvas : la scène 2D ne fait que des taps, on laisse l'hôte décider
+      // (manipulation par défaut : la page défile ; `style="touch-action:none"` sur sonic-2d pour un jeu).
+      fresh.style.touchAction = "inherit";
     } catch (err) {
       if (this.scene !== scene) return;
       this.status = "error";

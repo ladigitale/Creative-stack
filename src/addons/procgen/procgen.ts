@@ -5,6 +5,7 @@
  * son propre DataProvider n'efface jamais `selection` ni `status`. Envoie les événements de jeu au store `target`.
  * Aucun code n'est évalué : recettes et expressions sont analysées par procgen lui-même.
  */
+import { applyGestures, gestureMode, wheelToPage } from "../../shared/gestures";
 import { PublisherManager } from "@supersoniks/concorde/utils";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch, listStoreIds } from "../interactive";
@@ -41,7 +42,7 @@ const MAX_VIEWS = 2;
 
 export class SonicProcgen extends HTMLElement {
   static get observedAttributes() {
-    return ["dataprovider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target", "render"];
+    return ["dataprovider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target", "render", "gestures"];
   }
   private root: ShadowRoot;
   private canvas: HTMLCanvasElement;
@@ -115,6 +116,7 @@ export class SonicProcgen extends HTMLElement {
   connectedCallback() {
     if (typeof ResizeObserver !== "undefined") {
       this.ro = new ResizeObserver(() => {
+        this.syncGestures();
         this.view?.resize();
         this.view?.kick();
       });
@@ -123,6 +125,7 @@ export class SonicProcgen extends HTMLElement {
     if (typeof IntersectionObserver !== "undefined") {
       this.io = new IntersectionObserver((es) => {
         this.inView = es.some((e) => e.isIntersecting);
+        this.syncGestures();
         this.view?.setVisible(this.inView);
       });
       this.io.observe(this);
@@ -130,7 +133,7 @@ export class SonicProcgen extends HTMLElement {
     this.stage.addEventListener("pointerdown", this.onDown);
     this.stage.addEventListener("pointermove", this.onMove);
     this.stage.addEventListener("pointerup", this.onUp);
-    this.stage.addEventListener("pointercancel", this.onUp);
+    this.stage.addEventListener("pointercancel", this.onCancel);
     this.stage.addEventListener("wheel", this.onWheel, { passive: false });
     this.stage.addEventListener("contextmenu", this.onContext);
     this.bind();
@@ -143,7 +146,7 @@ export class SonicProcgen extends HTMLElement {
     this.stage.removeEventListener("pointerdown", this.onDown);
     this.stage.removeEventListener("pointermove", this.onMove);
     this.stage.removeEventListener("pointerup", this.onUp);
-    this.stage.removeEventListener("pointercancel", this.onUp);
+    this.stage.removeEventListener("pointercancel", this.onCancel);
     this.stage.removeEventListener("wheel", this.onWheel);
     this.stage.removeEventListener("contextmenu", this.onContext);
     this.dropView();
@@ -172,6 +175,7 @@ export class SonicProcgen extends HTMLElement {
     canvas.setAttribute("role", "img");
     this.canvas.replaceWith(canvas);
     this.canvas = canvas;
+    this.syncGestures();
     try {
       if (mode === "vector") this.view = new VectorView(canvas);
       else if (liveViews >= MAX_VIEWS) this.glError = `au plus ${MAX_VIEWS} scènes procgen 3D par document`;
@@ -199,6 +203,19 @@ export class SonicProcgen extends HTMLElement {
 
   attributeChangedCallback() {
     if (this.isConnected) this.bind();
+    this.syncGestures();
+  }
+
+  /** Mode coopératif (attribut `gestures`, voir shared/gestures.ts) : la page garde défilement vertical et molette. */
+  private coop = false;
+  private syncGestures() {
+    if (!this.interactive) {
+      this.coop = false;
+      this.style.touchAction = "";
+      if (this.canvas) this.canvas.style.touchAction = "auto";
+      return;
+    }
+    this.coop = applyGestures(this, [this.canvas], gestureMode(this.getAttribute("gestures")));
   }
 
   private bind() {
@@ -485,8 +502,14 @@ export class SonicProcgen extends HTMLElement {
       this.emit({ type: "select", payload: { objectId: id, generator: o?.generator ?? null, layer: o?.layer ?? null, params: o?.params ?? null } });
     }
   };
+  private onCancel = (ev: PointerEvent) => {
+    // geste repris par le navigateur (défilement) : ni tap ni sélection
+    this.touches.delete(ev.pointerId);
+    if (this.touches.size < 2) this.pinch = null;
+    if (this.pointer?.id === ev.pointerId) this.pointer = null;
+  };
   private onWheel = (ev: WheelEvent) => {
-    if (!this.interactive || !this.view) return;
+    if (!this.interactive || !this.view || wheelToPage(this.coop, ev)) return;
     ev.preventDefault();
     this.view.interact("zoom", ev.deltaY);
     this.queueOut();

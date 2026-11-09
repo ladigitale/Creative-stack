@@ -1,3 +1,4 @@
+import { applyGestures, gestureMode } from "../../shared/gestures";
 import type { Sonic3dCameraMode } from "./constants";
 import { parse } from "./parse";
 import { playback, wantsOffscreenPlay } from "./playback";
@@ -77,6 +78,7 @@ function releaseRuntime(host: EnsureHost) {
 }
 
 function syncVisibility(host: EnsureHost) {
+  syncGestures(host); // la page a pu se mettre à défiler depuis (contenu chargé après coup)
   const keepOffscreen = wantsOffscreenPlay(host);
   if (!host.inView && host.releaseOffscreen && !keepOffscreen) {
     releaseRuntime(host);
@@ -98,7 +100,16 @@ function syncSize(host: EnsureHost) {
   const cssW = Math.max(rect.width, host.clientWidth, 1);
   const cssH = Math.max(rect.height, host.clientHeight, 1);
   host.runtime.resize(cssW, cssH);
+  syncGestures(host);
   if (host.ready) host.runtime.render();
+}
+
+/** Défilement de page / gestes de la scène (attribut `gestures`) ; OrbitControls remet `touch-action: none`. */
+function syncGestures(host: EnsureHost) {
+  const el = host as unknown as HTMLElement & { gestures?: string; renderRoot?: ParentNode };
+  const canvas = (el.renderRoot ?? el).querySelector?.("canvas") as HTMLCanvasElement | null;
+  const coop = applyGestures(el, [canvas], gestureMode(el.gestures));
+  if (canvas) canvas.dataset.gestures = coop ? "cooperative" : "capture";
 }
 
 export const ensure = {
@@ -106,4 +117,5 @@ export const ensure = {
   releaseRuntime,
   syncVisibility,
   syncSize,
+  syncGestures,
 } as const;

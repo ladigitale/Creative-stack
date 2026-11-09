@@ -47,6 +47,8 @@ export class Sonic3dProps extends LitElement {
   @property({ type: Number, attribute: "max-polar" })
   maxPolar = DEFAULT_MAX_POLAR_DEG;
   @property({ type: Boolean, attribute: "auto-rotate" }) autoRotate = false;
+  /** Gestes : `auto` (coopère avec le défilement de la page s'il y en a), `capture`, `cooperative`. */
+  @property({ type: String }) gestures = "auto";
   @property({ type: Boolean }) fit = true;
   @property({ type: Boolean }) pick = false;
   @property({ type: Boolean, reflect: true }) play = true;
