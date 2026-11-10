@@ -65,6 +65,16 @@ describe("vectorisation", () => {
     expect(red.area).toBeCloseTo(400, -1);
     expect(parsePath(red.d)).not.toBeNull();
   });
+  it("palette imposée : les couleurs sont exactement celles données, les absentes ne font pas de couche", () => {
+    const r = trace(square, { palette: ["#ff0000", "#fff", "#00ff00", "pas une couleur"], tolerance: 0.5 });
+    expect(r.layers.map((l) => l.color).sort()).toEqual(["#ff0000", "#ffffff"]);
+    expect(r.layers.find((l) => l.color === "#ff0000")!.area).toBeCloseTo(400, -1);
+  });
+  it("palette lue en tableau, en chaîne ou depuis l'état de sonic-palette", () => {
+    expect(readSettings({ palette: ["#ff0000", "#00ff00"] }).palette).toEqual(["#ff0000", "#00ff00"]);
+    expect(readSettings({ palette: "#ff0000, #00ff00" }).palette).toEqual(["#ff0000", "#00ff00"]);
+    expect(readSettings({ palette: { colors: ["#123456"] } }).palette).toEqual(["#123456"]);
+  });
   it("les couches s'empilent du plus grand au plus petit", () => {
     const r = trace(square, { colors: 2 });
     expect(r.layers[0].area).toBeGreaterThanOrEqual(r.layers[1].area);

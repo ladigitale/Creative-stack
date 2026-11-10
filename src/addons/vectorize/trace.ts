@@ -25,6 +25,11 @@ export type TraceOptions = {
   stack?: boolean;
   /** Plafond de couches × chemins (sécurité de taille). */
   maxChars?: number;
+  /**
+   * Palette imposée (#rgb / #rrggbb) : chaque pixel prend la plus proche de ces couleurs au lieu d'une palette
+   * calculée (`colors` est alors ignoré). Pour vectoriser sur une palette d'harmonie.
+   */
+  palette?: string[];
 };
 
 export type Layer = { color: string; d: string; area: number };
@@ -256,6 +261,23 @@ export function ringToCurve(r: Ring, tol: number): string {
   return d + "Z";
 }
 
+/** Couleurs #rgb / #rrggbb valides d'une palette imposée (32 au plus, doublons retirés). */
+export function parsePalette(list: unknown): number[][] {
+  if (!Array.isArray(list)) return [];
+  const out: number[][] = [];
+  const seen = new Set<string>();
+  for (const c of list) {
+    if (typeof c !== "string") continue;
+    let h = c.trim().toLowerCase();
+    if (/^#[0-9a-f]{3}$/.test(h)) h = "#" + h.slice(1).split("").map((x) => x + x).join("");
+    if (!/^#[0-9a-f]{6}$/.test(h) || seen.has(h)) continue;
+    seen.add(h);
+    out.push([1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+    if (out.length >= 32) break;
+  }
+  return out;
+}
+
 /** Image → couches SVG (de la plus étendue, dessous, à la plus petite, dessus). */
 export function trace(img: RGBA, opts: TraceOptions = {}): TraceResult {
   const { width: w, height: h } = img;
@@ -264,7 +286,8 @@ export function trace(img: RGBA, opts: TraceOptions = {}): TraceResult {
   const tol = Math.max(0.1, opts.tolerance ?? 1);
   const minArea = Math.max(0, opts.minArea ?? 4);
   const maxChars = opts.maxChars ?? 1_500_000;
-  const pal = quantize(img, k);
+  const fixed = parsePalette(opts.palette);
+  const pal = fixed.length ? fixed : quantize(img, k);
   if (!pal.length) return { width: w, height: h, layers: [], palette: [], truncated: false };
   let lab = label(img, pal);
   if ((opts.denoise ?? 1) > 0) lab = denoise(lab, w, h, Math.min(3, Math.round(opts.denoise ?? 1)), pal.length);

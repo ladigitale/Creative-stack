@@ -4,7 +4,8 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger, num } from "../../shared/media/control";
 import { isFrameSource } from "../../shared/mediaRef";
-import { toSvg, type Layer, type TraceResult } from "./trace";
+import { frameToClient } from "../../shared/frame-geometry";
+import { parsePalette, toSvg, type Layer, type TraceResult } from "./trace";
 import { SupersededError, TraceRunner } from "./worker-client";
 
 /** Réglages effectifs (attributs, puis `control`, puis `params` : le dernier l'emporte). */
@@ -16,6 +17,8 @@ export type VectorizeSettings = {
   curves: boolean;
   flat: boolean;
   maxSize: number;
+  /** Palette imposée (#rrggbb) ; vide = palette calculée sur `colors` couleurs. */
+  palette: string[];
 };
 
 export type VectorizeState = {
@@ -29,8 +32,11 @@ export type VectorizeState = {
   sourceHeight: number;
   /** Nombre de couches (une par couleur). */
   layers: number;
-  /** Détail des couches, du dessous au-dessus : couleur, surface (px² analysés) et part de l'image (0..1). */
-  paths: { color: string; area: number; share: number }[];
+  /**
+   * Détail des couches, du dessous au-dessus : couleur, surface (px² analysés), part de l'image (0..1) et
+   * tracé `d` (repère `width` × `height`), lu par `sonic-sketch import-from`.
+   */
+  paths: { color: string; area: number; share: number; d: string }[];
   palette: string[];
   /** Document SVG autonome. */
   svg: string;
@@ -43,12 +49,18 @@ export type VectorizeState = {
   runs: number;
   truncated: boolean;
   settings: VectorizeSettings;
+  /**
+   * Où l'image lue apparaissait à l'écran au moment de la lecture : matrice [a, b, c, d, e, f] des pixels de
+   * l'image analysée vers le viewport (null si la source n'était pas affichée). `sonic-sketch` s'en sert pour
+   * poser les formes à leur place.
+   */
+  frame: number[] | null;
 };
 
-const DEFAULTS: VectorizeSettings = { colors: 8, tolerance: 1, minArea: 4, denoise: 1, curves: false, flat: false, maxSize: 512 };
+const DEFAULTS: VectorizeSettings = { colors: 8, tolerance: 1, minArea: 4, denoise: 1, curves: false, flat: false, maxSize: 512, palette: [] };
 const IDLE: VectorizeState = {
   status: "idle", error: null, width: 0, height: 0, sourceWidth: 0, sourceHeight: 0, layers: 0, paths: [], palette: [],
-  svg: "", file: null, bytes: 0, ms: 0, engine: "main", runs: 0, truncated: false, settings: { ...DEFAULTS },
+  svg: "", file: null, bytes: 0, ms: 0, engine: "main", runs: 0, truncated: false, settings: { ...DEFAULTS }, frame: null,
 };
 
 /**
@@ -84,6 +96,8 @@ export class SonicVectorize extends LitElement {
   @property({ type: Boolean }) flat = DEFAULTS.flat;
   /** Côté max (px) de l'image analysée : borne le temps de calcul. */
   @property({ type: Number, attribute: "max-size" }) maxSize = DEFAULTS.maxSize;
+  /** Palette imposée : couleurs séparées par des virgules (ou clé DP `palette`, tableau ou chaîne). */
+  @property({ type: String }) palette = "";
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
   /** Calcule sur le fil principal plutôt que dans un Web Worker (débogage). */
   @property({ type: Boolean, attribute: "main-thread" }) mainThread = false;
@@ -100,6 +114,7 @@ export class SonicVectorize extends LitElement {
   private image: ImageData | null = null;
   private imageMaxSize = 0;
   private sourceSize = { w: 0, h: 0 };
+  private frame: number[] | null = null;
   private lastSeq = -1;
   private lastRun = 0;
   private runs = 0;
@@ -132,7 +147,7 @@ export class SonicVectorize extends LitElement {
   protected updated(c: Map<string | number | symbol, unknown>): void {
     if (c.has("control") || c.has("params")) this.listen();
     if (c.has("auto") || c.has("interval") || c.has("source")) this.syncAuto();
-    if (["colors", "tolerance", "minArea", "denoise", "curves", "flat", "maxSize"].some((k) => c.has(k)) && this.image) this.schedule();
+    if (["colors", "tolerance", "minArea", "denoise", "curves", "flat", "maxSize", "palette"].some((k) => c.has(k)) && this.image) this.schedule();
   }
 
   private listen(): void {
@@ -175,7 +190,7 @@ export class SonicVectorize extends LitElement {
   settings(): VectorizeSettings {
     const s = {
       colors: this.colors, tolerance: this.tolerance, minArea: this.minArea, denoise: this.denoise,
-      curves: this.curves, flat: this.flat, maxSize: this.maxSize,
+      curves: this.curves, flat: this.flat, maxSize: this.maxSize, palette: paletteList(this.palette),
       ...this.fromControl, ...this.fromParams,
     };
     return {
@@ -186,6 +201,7 @@ export class SonicVectorize extends LitElement {
       curves: !!s.curves,
       flat: !!s.flat,
       maxSize: Math.round(clamp(s.maxSize, 16, 1400, DEFAULTS.maxSize)),
+      palette: parsePalette(s.palette).map((c) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("")),
     };
   }
 
@@ -246,6 +262,9 @@ export class SonicVectorize extends LitElement {
       this.image = ctx.getImageData(0, 0, w, h);
       this.imageMaxSize = maxSize;
       this.sourceSize = { w: src.width, h: src.height };
+      const f = frameToClient(el, src);
+      // Pixels analysés → pixels de la source → viewport.
+      this.frame = f ? [f[0] / scale, f[1] / scale, f[2] / scale, f[3] / scale, f[4], f[5]] : null;
     } catch (e) {
       this.fail(e instanceof Error && e.name === "SecurityError" ? "image non lisible (CORS)" : e instanceof Error ? e.message : "lecture de l'image impossible");
       return true;
@@ -261,13 +280,14 @@ export class SonicVectorize extends LitElement {
     const s = this.settings();
     const job = ++this.job;
     const size = { ...this.sourceSize };
+    const frame = this.frame;
     this.publish({ ...this.stateValue, status: "working", error: null, settings: s });
     if (!this.runner) this.runner = new TraceRunner(!this.mainThread);
     const runner = this.runner;
     const t0 = performance.now();
     let res: TraceResult;
     try {
-      res = await runner.run(img, { colors: s.colors, tolerance: s.tolerance, minArea: s.minArea, denoise: s.denoise, curves: s.curves, stack: !s.flat });
+      res = await runner.run(img, { colors: s.colors, tolerance: s.tolerance, minArea: s.minArea, denoise: s.denoise, curves: s.curves, stack: !s.flat, palette: s.palette });
     } catch (e) {
       if (e instanceof SupersededError || job !== this.job) return;
       this.fail(e instanceof Error ? e.message : "échec de la vectorisation");
@@ -289,9 +309,9 @@ export class SonicVectorize extends LitElement {
       status: "ready", error: null, width: res.width, height: res.height,
       sourceWidth: size.w, sourceHeight: size.h,
       layers: res.layers.length,
-      paths: res.layers.map((l) => ({ color: l.color, area: Math.round(l.area), share: Math.round((l.area / total) * 1e4) / 1e4 })),
+      paths: res.layers.map((l) => ({ color: l.color, area: Math.round(l.area), share: Math.round((l.area / total) * 1e4) / 1e4, d: l.d })),
       palette: res.palette, svg: doc, file, bytes: doc.length,
-      ms: Math.round(performance.now() - t0), engine: runner.engine, runs: this.runs, truncated: res.truncated, settings: s,
+      ms: Math.round(performance.now() - t0), engine: runner.engine, runs: this.runs, truncated: res.truncated, settings: s, frame,
     });
   }
 
@@ -314,6 +334,8 @@ export function readSettings(v: unknown): Partial<VectorizeSettings> {
   n("minArea", "min-area", 0, 1e6);
   n("denoise", "denoise", 0, 3);
   n("maxSize", "max-size", 16, 1400);
+  const pal = p.palette;
+  if (Array.isArray(pal) || typeof pal === "string" || (pal && typeof pal === "object")) o.palette = paletteList(pal);
   for (const key of ["curves", "flat"] as const) {
     const x = p[key];
     if (typeof x === "boolean") o[key] = x;
@@ -324,7 +346,16 @@ export function readSettings(v: unknown): Partial<VectorizeSettings> {
 
 function sameSettings(a: Partial<VectorizeSettings>, b: Partial<VectorizeSettings>): boolean {
   const ka = Object.keys(a) as (keyof VectorizeSettings)[];
-  return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
+  const eq = (x: unknown, y: unknown) => (Array.isArray(x) && Array.isArray(y) ? x.join() === y.join() : x === y);
+  return ka.length === Object.keys(b).length && ka.every((k) => eq(a[k], b[k]));
+}
+
+/** Palette en tableau ou en chaîne « #a, #b » ; aussi `{ colors: [...] }` (état de `sonic-palette`). */
+function paletteList(v: unknown): string[] {
+  if (v && typeof v === "object" && !Array.isArray(v) && Array.isArray((v as { colors?: unknown }).colors)) return paletteList((v as { colors: unknown[] }).colors);
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string").map((x) => x.trim());
+  if (typeof v === "string") return v.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+  return [];
 }
 
 const clamp = (v: unknown, a: number, b: number, d: number) => {

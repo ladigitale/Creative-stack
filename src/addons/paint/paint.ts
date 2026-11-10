@@ -784,6 +784,23 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     return [((clientX - r.left) / r.width) * w, ((clientY - r.top) / r.height) * h];
   }
 
+  /**
+   * Contrat `FrameToClient` (`shared/frame-geometry`) : pixels de l'image (`getFrameCanvas()`) → viewport.
+   * Toile navigable : à travers la vue ; sinon la mise à l'échelle CSS du canvas.
+   */
+  frameToClient(): number[] | null {
+    const c = this.canvasEl;
+    if (!c) return null;
+    const r = c.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return null;
+    if (this.navigable) {
+      const m = viewMatrix(this.view, this.disp.w || 1, this.disp.h || 1);
+      return [m[0], m[1], m[2], m[3], m[4] + r.left, m[5] + r.top];
+    }
+    const { w, h } = this.dims();
+    return [r.width / w, 0, 0, r.height / h, r.left, r.top];
+  }
+
   /** Contrat `PickSource` (`shared/pick`) : le pixel de l'image sous le point (transparent hors de l'image). */
   pickAt(clientX: number, clientY: number): { pixel: Pixel } | null {
     const c = this.canvasEl, img = this.image();
