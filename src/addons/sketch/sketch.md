@@ -27,7 +27,7 @@ Mêmes réglages que `sonic-paint` : `color`, `hardness`, `opacity`, `spacing`, 
 
 `blend` : mode de fusion des nouveaux traits avec ce qui est dessous (fond compris) : `normal` (défaut), `multiply`, `screen`, `overlay`, `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity`. Chaque trait garde son mode ; il fusionne d'un bloc (ses empreintes ne se fusionnent pas entre elles). Réglable en direct dans `brush-from` (`{"blend": "multiply"}`). Un trait fusionné est rendu un peu plus lentement qu’un trait normal (un tampon par trait visible).
 
-`tool` : `paint`, `erase` (vraie gomme : retire sa forme de ce qu'elle touche, à tout zoom ; annulable) ou `hand`.
+`tool` : `paint`, `erase` (vraie gomme : retire sa forme de ce qu'elle touche, à tout zoom ; annulable), `pick` (pipette) ou `hand`.
 
 ## Simplification des traits
 
@@ -47,11 +47,13 @@ Hors des régions, le trait se fusionne avec le fond (`background`) quand rien n
 
 `tool="erase"` est une vraie gomme : disque net de la taille du pinceau. Au lever, sa forme est **retirée** de toutes les cartes d'aplats (un trou exact, à tout zoom) ; si elle touche des traits non aplatis, un masque est posé au-dessus pour les trouer aussi (export SVG : `<mask>`). Pendant le geste, l'aperçu est troué en direct.
 
+`tool="pick"` (ou Alt + clic avec le pinceau) est une pipette : la couleur vue sous le point devient celle du pinceau, même si elle est née d'une fusion et n'est pas dans la palette. Dans un aplat opaque, c'est la couleur exacte de la région ; ailleurs (traits en empreintes, couleurs translucides), le pixel affiché. Glisser fait suivre la couleur ; elle est écrite dans `brush-from` (`color`), si bien que la palette et les nuanciers la montrent, et publiée dans l'état (`picked`) et par l'évènement `sketch-pick` `{color, done}`. Si `pick` venait de `brush-from` (`tool`), l'outil revient à `paint` au lever.
+
 ## Commandes et état
 
 `control` : `{ undo, redo, clear, save, savePng, fit, reset, zoomIn, zoomOut, rotateLeft, rotateRight, straighten }` — compteurs (la commande part quand le nombre augmente). `view-from` : DP `{ x, y, zoom, rotation }` qui règle la vue (centre du monde, zoom, rotation en radians).
 
-État : `{ status, error, blend, zoom, x, y, rotation, strokes, points, lastStroke, regions, colors, flats, masks, flattened, drawing, canUndo, canRedo, tool, color, size, bbox, last }`. `save` enregistre un SVG dans `last` (`savePng` : un PNG de la vue) : brancher `sonic-media-download source="dessinState.last"`.
+État : `{ status, error, blend, zoom, x, y, rotation, strokes, points, lastStroke, regions, colors, flats, masks, flattened, drawing, canUndo, canRedo, tool, color, picked, size, bbox, last }`. `save` enregistre un SVG dans `last` (`savePng` : un PNG de la vue) : brancher `sonic-media-download source="dessinState.last"`.
 
 ## Export SVG
 

@@ -58,6 +58,33 @@ export function safeBoolean(op: "union" | "intersect" | "difference", a: Multi, 
   }
 }
 
+/**
+ * Grille commune (repère local, 1e-9 de la taille du trait) : toutes les entrées et sorties des opérations d'un
+ * même geste y sont alignées. Deux pièces calculées par des opérations différentes partagent alors exactement
+ * leurs sommets de bord, et leur union les recolle au lieu de laisser un interstice de l'ordre de 1e-15.
+ */
+const GRID = 1e-9;
+const local = (f: Frame, m: Multi): Multi => snap(toLocal(f, m), GRID);
+const op = (o: "union" | "intersect" | "difference", a: Multi, ...others: Multi[]): Multi =>
+  clean(snap(safeBoolean(o, a, ...others), GRID));
+/**
+ * Retire les aiguilles : anneaux dont la largeur moyenne (2·aire / périmètre) est sous 1e-5 de la taille du
+ * trait. Ce sont des restes numériques de bords presque confondus, invisibles mais qui empêchent de recoller
+ * les régions et laissent des liserés à l'anticrénelage. Un polygone dont le contour extérieur disparaît part
+ * entier ; un trou-aiguille est simplement bouché.
+ */
+const THIN = 1e-5;
+function ringWidth(r: Pt[]): number {
+  let a = 0, per = 0;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    a += r[j][0] * r[i][1] - r[i][0] * r[j][1];
+    per += Math.hypot(r[i][0] - r[j][0], r[i][1] - r[j][1]);
+  }
+  return per > 0 ? Math.abs(a) / per : 0;
+}
+const clean = (m: Multi): Multi =>
+  m.filter((p) => p.length && ringWidth(p[0]) >= THIN).map((p) => [p[0], ...p.slice(1).filter((r) => ringWidth(r) >= THIN)]);
+
 const region = (rgba: Rgba, shape: Multi, blend?: BlendMode): Region => {
   const r: Region = { rgba, color: toCss(rgba), shape, bbox: multiBBox(shape) };
   if (blend && blend !== "normal") r.blend = blend;
@@ -96,8 +123,8 @@ function mergeSameColor(regions: Region[], fresh: Region[], f: Frame): Region[] 
       }
     }
     if (comp.length === 1) { out.push(seed); continue; }
-    const shapes = comp.map((r) => toLocal(f, r.shape));
-    out.push(...splitRegions(seed.rgba, toWorld(f, safeBoolean("union", shapes[0], ...shapes.slice(1))), seed.blend));
+    const shapes = comp.map((r) => local(f, r.shape));
+    out.push(...splitRegions(seed.rgba, toWorld(f, op("union", shapes[0], ...shapes.slice(1))), seed.blend));
   }
   for (const r of all) if (!used.has(r) && !isFresh.has(r)) out.push(r);
   return out;
@@ -112,24 +139,48 @@ export function paintFlat(regions: Region[], stroke: Multi, src: Rgba, alpha: nu
   if (!stroke.length) return regions;
   const sb = multiBBox(stroke);
   const f = frameOf(sb);
-  const S = toLocal(f, stroke);
+  const S = local(f, stroke);
   const opaqueNormal = mode === "normal" && src[3] * alpha >= 0.999;
   const out: Region[] = [];
   const fresh: Region[] = [];
+  if (opaqueNormal) {
+    // Trait couvrant : il remplace tout ce qu'il touche, d'un seul morceau (pas de découpage par région dessous).
+    for (const r of regions) {
+      if (!overlaps(r.bbox, sb)) { out.push(r); continue; }
+      const rest = op("difference", local(f, r.shape), S);
+      if (rest.length) out.push(...splitRegions(r.rgba, toWorld(f, rest), r.blend));
+    }
+    fresh.push(...splitRegions(quantize(src), toWorld(f, S)));
+    return mergeSameColor(out, fresh, f);
+  }
+  // Sinon : on regroupe les régions sous le trait par couleur résultante, puis une seule intersection par
+  // couleur ; les pièces voisines de même couleur naissent ainsi d'un même calcul.
+  const groups = new Map<string, { rgba: Rgba; blend?: BlendMode; shapes: Multi[] }>();
   const under: Multi[] = [];
   for (const r of regions) {
     if (!overlaps(r.bbox, sb)) { out.push(r); continue; }
-    const R = toLocal(f, r.shape);
-    const inter = safeBoolean("intersect", R, S);
-    if (!inter.length) { out.push(r); continue; }
+    const R = local(f, r.shape);
+    if (!op("intersect", R, S).length) { out.push(r); continue; }
     under.push(R);
-    const rest = safeBoolean("difference", R, S);
+    const g = { rgba: composite(r.rgba, src, alpha, mode), blend: r.blend } as { rgba: Rgba; blend?: BlendMode };
+    if (key(g) === key(r)) {
+      // Le trait ne change pas cette couleur (noir sous multiply, même teinte…) : la région reste entière, sans
+      // être découpée puis recollée ; les pièces neuves de même couleur s'y uniront.
+      out.push(r);
+      continue;
+    }
+    const rest = op("difference", R, S);
     if (rest.length) out.push(...splitRegions(r.rgba, toWorld(f, rest), r.blend));
-    // Région à fusion différée : sous un trait opaque normal elle disparaît ; sinon on garde son mode.
-    const color = composite(r.rgba, src, alpha, mode);
-    fresh.push(...splitRegions(color, toWorld(f, inter), opaqueNormal ? undefined : r.blend));
+    const k = key(g);
+    const e = groups.get(k);
+    if (e) e.shapes.push(R);
+    else groups.set(k, { ...g, shapes: [R] });
   }
-  const outside = under.length ? safeBoolean("difference", S, ...under) : S;
+  for (const g of groups.values()) {
+    const inter = op("intersect", S, g.shapes.length === 1 ? g.shapes[0] : op("union", g.shapes[0], ...g.shapes.slice(1)));
+    if (inter.length) fresh.push(...splitRegions(g.rgba, toWorld(f, inter), g.blend));
+  }
+  const outside = under.length ? op("difference", S, ...under) : S;
   if (outside.length) {
     if (back.known) fresh.push(...splitRegions(composite(back.color, src, alpha, mode), toWorld(f, outside)));
     else fresh.push(...splitRegions(quantize([src[0], src[1], src[2], src[3] * alpha]), toWorld(f, outside), mode));
@@ -142,11 +193,11 @@ export function eraseFlat(regions: Region[], eraser: Multi): Region[] {
   if (!eraser.length) return regions;
   const eb = multiBBox(eraser);
   const f = frameOf(eb);
-  const E = toLocal(f, eraser);
+  const E = local(f, eraser);
   const out: Region[] = [];
   for (const r of regions) {
     if (!overlaps(r.bbox, eb)) { out.push(r); continue; }
-    const rest = safeBoolean("difference", toLocal(f, r.shape), E);
+    const rest = op("difference", local(f, r.shape), E);
     if (rest.length) out.push(...splitRegions(r.rgba, toWorld(f, rest), r.blend));
   }
   return out;

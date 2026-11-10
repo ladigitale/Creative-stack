@@ -14,9 +14,9 @@ import {
 import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
-import { isSolid, solidRadius, strokeOutline } from "./merge";
+import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
 import { MAX_FLAT_VERTICES, eraseFlat, flatBBox, flatVertices, paintFlat, type Backdrop } from "./flat";
-import { parseColor, type Rgba } from "./flat-color";
+import { parseColor, toCss, type Rgba } from "./flat-color";
 import { multiBBox } from "../vector";
 
 const MAX_SIDE = 4096;
@@ -46,6 +46,8 @@ export type SketchState = {
   color: string;
   size: number;
   blend: BlendMode;
+  /** Dernière couleur prélevée à la pipette (`tool="pick"` ou Alt + clic), même absente de la palette. */
+  picked: string | null;
   bbox: { x: number; y: number; w: number; h: number } | null;
   /** Dernier export (`control.save` / `savePng`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
@@ -59,7 +61,8 @@ export type SketchState = {
  * pincement du pavé aussi), glisser avec Espace, bouton du milieu ou `tool="hand"` = déplacer, deux doigts =
  * déplacer, zoomer et tourner ; clavier + − 0, R / Maj+R (tourner de 15°). Pinceau : tout
  * ce que sait faire `sonic-paint` (pointes personnalisées par `tip` / `tip-from`, angle, dispersion…).
- * `tool="erase"` est une vraie gomme (trou exact dans les aplats, masque sur les traits non aplatis). Commandes par `control` (compteurs) : `undo`, `redo`, `clear`,
+ * `tool="pick"` (ou Alt + clic) est une pipette : la couleur vue sous le point, même née d'une fusion, devient
+ * celle du pinceau (écrite aussi dans `brush-from`). `tool="erase"` est une vraie gomme (trou exact dans les aplats, masque sur les traits non aplatis). Commandes par `control` (compteurs) : `undo`, `redo`, `clear`,
  * `save` (SVG), `savePng`, `fit`, `reset`, `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`.
  * Vue pilotée par `view-from` ({x, y, zoom, rotation}).
  */
@@ -82,7 +85,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Number }) opacity = BRUSH_DEFAULTS.opacity;
   @property({ type: Number }) spacing = BRUSH_DEFAULTS.spacing;
   @property({ type: Number }) smoothing = 0.3;
-  /** `paint`, `erase` (vraie gomme) ou `hand` (déplacer la vue). */
+  /** `paint`, `erase` (vraie gomme), `pick` (pipette) ou `hand` (déplacer la vue). */
   @property({ type: String }) tool = "paint";
   @property({ type: Boolean }) pressure = true;
   @property({ type: String }) tip = "";
@@ -139,7 +142,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     zoomRange: () => [MIN_ZOOM, MAX_ZOOM],
     fit: () => this.fit(),
   });
-  private mode: "none" | "draw" | "erase" | "pan" = "none";
+  private mode: "none" | "draw" | "erase" | "pan" | "pick" = "none";
+  /** Dernière couleur prélevée à la pipette (#rrggbb). */
+  private picked: string | null = null;
   private stroke: Stroke | null = null;
   private stamper: StrokeStamper | null = null;
   /** Empreintes du trait en cours quand il a un mode de fusion (fusionnées à l'affichage). */
@@ -176,7 +181,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private currentTool(): string {
     const t = typeof this.live.tool === "string" ? (this.live.tool as string) : this.tool;
-    return t === "erase" || t === "hand" ? t : "paint";
+    return t === "erase" || t === "hand" || t === "pick" ? t : "paint";
   }
 
   private dims(): { w: number; h: number; dpr: number } {
@@ -408,6 +413,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
     if (e.pointerType === "mouse" && e.button !== 0) { this.nav.up(e.pointerId); return; }
     this.pointer = e.pointerId;
+    if (tool === "pick" || (e.altKey && tool === "paint")) {
+      this.mode = "pick";
+      this.pick(p, false);
+      return;
+    }
     this.startStroke(p, e, tool === "erase");
   };
 
@@ -415,6 +425,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const p = this.local(e);
     if (this.nav.move(e.pointerId, p)) return;
     if (e.pointerId !== this.pointer) return;
+    if (this.mode === "pick") { this.pick(p, false); return; }
     if (this.mode === "draw") {
       const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
       for (const ev of events.length ? events : [e]) this.extendStroke(this.local(ev), ev);
@@ -427,6 +438,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
     if (e.pointerId !== this.pointer) return;
     if (this.mode === "draw") this.endStroke(e);
+    else if (this.mode === "pick") this.pick(this.local(e), e.type === "pointerup");
     else if (this.mode === "pan") this.settleLater();
     this.pointer = null;
     this.mode = "none";
@@ -565,16 +577,26 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const r = solidRadius(st.brush, st.pts);
     if (!src || !(r > 0)) return false;
     const strokes = this.doc.strokes;
-    const top = strokes[strokes.length - 1];
-    const onTop = !!top?.flat;
-    const index = onTop ? strokes.length - 1 : strokes.length;
     try {
       const outline = strokeOutline(st.pts, r, this.outlineTol(tolPx, r));
-      const regions = paintFlat(onTop ? top.flat! : [], outline, src, st.brush.opacity, st.brush.blend ?? "normal", this.backdropAt(index));
+      if (!outline.length) return false;
+      // Carte cible : la plus haute dont rien au-dessus (trait en empreintes, masque de gomme) ne touche le trait.
+      // Peindre dedans ne change pas l'ordre visible, et le trait se fusionne avec les aplats déjà là au lieu
+      // d'ouvrir une nouvelle carte qui ne se recollerait jamais avec l'ancienne.
+      const ob = multiBBox(outline);
+      const touches = (b: { x: number; y: number; w: number; h: number }) => b.x <= ob.x + ob.w && b.x + b.w >= ob.x && b.y <= ob.y + ob.h && b.y + b.h >= ob.y;
+      let index = strokes.length;
+      for (let i = strokes.length - 1; i >= 0; i--) {
+        if (strokes[i].flat) { index = i; break; }
+        if (touches(strokes[i].bbox)) break;
+      }
+      const top = index < strokes.length ? strokes[index] : null;
+      const onTop = !!top;
+      const regions = paintFlat(top ? top.flat! : [], outline, src, st.brush.opacity, st.brush.blend ?? "normal", this.backdropAt(index));
       if (flatVertices(regions) > MAX_FLAT_VERTICES) return false;
       const brush = { ...st.brush, blend: undefined, opacity: 1, pressure: false };
-      const item: Stroke = { id: onTop ? top.id : st.id, brush, pts: [], seed: st.seed, flat: regions, bbox: flatBBox(regions) };
-      this.doc.replace(regions.length ? [...strokes.slice(0, index), item] : strokes.slice(0, index));
+      const item: Stroke = { id: onTop ? top!.id : st.id, brush, pts: [], seed: st.seed, flat: regions, bbox: flatBBox(regions) };
+      this.doc.replace([...strokes.slice(0, index), ...(regions.length ? [item] : []), ...strokes.slice(index + (onTop ? 1 : 0))]);
       this.flattened++;
       return true;
     } catch {
@@ -632,6 +654,69 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     x.drawImage(hole, 0, 0);
     x.globalCompositeOperation = "source-over";
     return c;
+  }
+
+  /* ------------------------------------------------------------ pipette */
+
+  /**
+   * Couleur vue au point d'écran (sx, sy), en #rrggbb. Lue dans le modèle quand c'est sûr : le point tombe dans
+   * une région d'aplat opaque sans fusion différée (couleur exacte, y compris une couleur née d'une fusion),
+   * ou sur le fond à travers un trou de gomme ou hors de tout. Sinon (traits en empreintes, couleurs
+   * transparentes, fusions différées) : le pixel affiché, qui est le résultat visible.
+   */
+  colorAt(sx: number, sy: number): string | null {
+    const { w, h, dpr } = this.dims();
+    const [x, y] = toWorld(this.view, sx, sy, w, h);
+    const tol = 0.5 / this.view.zoom;
+    const bg = () => { const c = this.backgroundColor(); const v = c ? this.rgbaOf(c) : null; return v && v[3] >= 0.999 ? toCss(v) : null; };
+    const strokes = this.doc.strokes;
+    let fromModel: string | null | undefined;
+    for (let i = strokes.length - 1; i >= 0 && fromModel === undefined; i--) {
+      const s = strokes[i], b = s.bbox;
+      if (x < b.x - tol || x > b.x + b.w + tol || y < b.y - tol || y > b.y + b.h + tol) continue;
+      if (s.mask) { if (shapeHit(s.mask, x, y, 0)) fromModel = bg(); continue; }
+      if (s.flat) {
+        const hits = s.flat.filter((g) => shapeHit(g.shape, x, y, tol));
+        if (!hits.length) continue;
+        // Sur une frontière (moins d'un demi-pixel), plusieurs régions : la valeur affichée tranchera.
+        const g = hits.length === 1 && shapeHit(hits[0].shape, x, y, 0) ? hits[0] : null;
+        fromModel = g && g.rgba[3] >= 0.999 && !g.blend ? toCss(g.rgba) : null;
+        continue;
+      }
+      if (strokeHit(s, x, y, tol)) fromModel = null;
+    }
+    if (fromModel === undefined) fromModel = bg();
+    if (fromModel) return fromModel;
+    const ctx = this.canvasEl?.getContext("2d");
+    if (!ctx) return null;
+    try {
+      const px = Math.max(0, Math.min(this.canvasEl.width - 1, Math.floor(sx * dpr)));
+      const py = Math.max(0, Math.min(this.canvasEl.height - 1, Math.floor(sy * dpr)));
+      const d = ctx.getImageData(px, py, 1, 1).data;
+      return toCss([d[0] / 255, d[1] / 255, d[2] / 255, 1]);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Pipette : la couleur sous le point devient la couleur du pinceau (aussi écrite dans `brush-from`, pour que
+   * la palette et les nuanciers la montrent). Au lever, l'outil revient au pinceau si la pipette était choisie
+   * par `brush-from`.
+   */
+  private pick(p: { x: number; y: number }, done: boolean): void {
+    const c = this.colorAt(p.x, p.y);
+    if (c) {
+      this.picked = c;
+      this.live = { ...this.live, color: c };
+      if (this.brushFrom) set(`${this.brushFrom}.color`, c);
+      this.dispatchEvent(new CustomEvent("sketch-pick", { detail: { color: c, done }, bubbles: true, composed: true }));
+    }
+    if (done && this.brushFrom && this.live.tool === "pick") {
+      this.live = { ...this.live, tool: "paint" };
+      set(`${this.brushFrom}.tool`, "paint");
+    }
+    this.publish();
   }
 
   /** Statistiques des aplats publiées dans l'état. */
@@ -714,7 +799,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
       strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
-      tool: this.currentTool(), color: b.color, size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
+      tool: this.currentTool(), color: b.color, picked: this.picked, size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
     };
   }
 

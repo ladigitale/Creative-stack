@@ -83,7 +83,9 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
         const rgb = r.color.slice(0, 7);
         const fo = r.rgba[3] < 0.999 ? ` fill-opacity="${f(r.rgba[3])}"` : "";
         const mix = r.blend ? ` style="mix-blend-mode:${r.blend}"` : "";
-        body.push(`<path d="${d}" fill="${rgb}"${fo} fill-rule="evenodd"${mix}/>`);
+        // Région opaque : un trait fin de même couleur (épaisseur fixe à l'écran) scelle les bords communs.
+        const seal = !fo && !mix ? ` stroke="${rgb}" stroke-width="0.75" stroke-linejoin="round" vector-effect="non-scaling-stroke"` : "";
+        body.push(`<path d="${d}" fill="${rgb}"${fo} fill-rule="evenodd"${seal}${mix}/>`);
       }
       return;
     }
