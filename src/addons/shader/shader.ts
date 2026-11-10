@@ -527,8 +527,19 @@ export class SonicShader extends LitElement {
   private pendingRevokeUrls: string[] = [];
   private extractRunning = false;
   private extractSeq = 0;
+  private channelUnsubs: Array<() => void> = [];
   private onFormMutation = () => {
-    const data = (this.formPublisher?.get() ?? {}) as Record<string, unknown>;
+    const data = { ...((this.formPublisher?.get() ?? {}) as Record<string, unknown>) };
+    // Canal branché par sonic-mix : la valeur vit dans le sous-publisher (celui de la source), pas forcément
+    // dans la valeur racine du DP.
+    const pub = this.formPublisher as unknown as Record<string, { get?: () => unknown } | undefined> | null;
+    if (pub) {
+      for (const key of CHANNEL_FORM_KEYS) {
+        const child = pub[key];
+        const v = typeof child?.get === "function" ? child.get() : undefined;
+        if (v !== undefined && v !== null) data[key] = v;
+      }
+    }
     this.applyFormParams(data);
   };
 
@@ -723,6 +734,33 @@ export class SonicShader extends LitElement {
       this.formPublisher.offInternalMutation(this.onFormMutation);
       this.formPublisher = null;
     }
+    for (const off of this.channelUnsubs) off();
+    this.channelUnsubs = [];
+  }
+
+  /**
+   * Canaux branchés par `sonic-mix` (composition `{"channel0": "etat.last"}`) : le sous-publisher du canal est
+   * celui de la source, rattaché à SON parent. Ses changements ne remontent donc pas jusqu'au DP du shader
+   * (`onInternalMutation` muet) : on écoute aussi chaque canal directement, relu en microtâche.
+   */
+  private bindChannelPublishers() {
+    const pub = this.formPublisher as unknown as Record<string, { onAssign?: (fn: () => void, now?: boolean) => void; offAssign?: (fn: () => void) => void } | undefined> | null;
+    if (!pub) return;
+    let queued = false;
+    const reread = () => {
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        this.onFormMutation();
+      });
+    };
+    for (const key of CHANNEL_FORM_KEYS) {
+      const child = pub[key];
+      if (!child || typeof child.onAssign !== "function" || typeof child.offAssign !== "function") continue;
+      child.onAssign(reread, false);
+      this.channelUnsubs.push(() => child.offAssign?.(reread));
+    }
   }
 
   private bindFormProvider() {
@@ -731,6 +769,7 @@ export class SonicShader extends LitElement {
     if (!id) return;
     this.formPublisher = PublisherManager.get(id);
     this.formPublisher.onInternalMutation(this.onFormMutation);
+    this.bindChannelPublishers();
     this.onFormMutation();
   }
 
