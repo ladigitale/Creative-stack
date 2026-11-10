@@ -1,7 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import jsonata from "jsonata";
-import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { registerInteractiveHelpers } from "./helpers";
 import {
   dispatch as registryDispatch,
@@ -114,7 +114,10 @@ export class SonicStore extends LitElement {
     const handle: StoreHandle = {
       id: this.id,
       dispatch: (action) => this.enqueue(action),
-      getState: () => this.state,
+      getState: () => {
+        this.syncFromProvider();
+        return this.state;
+      },
       reset: () => this.reset(),
     };
     registerStore(handle);
@@ -172,8 +175,24 @@ export class SonicStore extends LitElement {
     }
   }
 
+  /**
+   * L'état d'un store est aussi son DataProvider : des composants de formulaire (radios, cases, bascules avec
+   * `formDataProvider` = ce store) y écrivent directement. On repart donc de la valeur publiée avant chaque action,
+   * sinon la première action suivante (tick, pick, clic carte) écraserait ces choix avec l'état interne.
+   */
+  private syncFromProvider(): void {
+    const id = this.dpId();
+    if (!id) return;
+    try {
+      this.state = syncedState(this.state, get(id));
+    } catch {
+      /* DataProvider indisponible : on garde l'état interne */
+    }
+  }
+
   private async apply(action: SonicActionMessage): Promise<void> {
     if (!this.compiled) return;
+    this.syncFromProvider();
     const started = performance.now();
     const env = {
       width: typeof window !== "undefined" ? window.innerWidth : 0,
@@ -296,4 +315,16 @@ export function errorMessage(err: unknown): string {
     }
   }
   return String(err);
+}
+
+/**
+ * État à réduire : la valeur courante du DataProvider (sans `lastError`) quand l'état et cette valeur sont des
+ * objets ; sinon l'état interne. Copie simple (pas de proxy de DataProvider dans l'évaluation JSONata).
+ */
+export function syncedState(state: unknown, current: unknown): unknown {
+  if (!state || typeof state !== "object" || Array.isArray(state)) return state;
+  if (!current || typeof current !== "object" || Array.isArray(current)) return state;
+  const rest = { ...(current as Record<string, unknown>) };
+  delete rest.lastError;
+  return JSON.parse(JSON.stringify(rest));
 }
