@@ -56,3 +56,10 @@ describe("extensionFor", () => {
       .toEqual(["webm", "webm", "mp4", "m4a", "ogg", "jpg", "png", "wav"]);
   });
 });
+describe("extensionFor : autres formats", () => {
+  it("SVG, JSON, texte et types inconnus ne deviennent pas des .webm", () => {
+    expect(["image/svg+xml", "image/svg+xml;charset=utf-8", "application/json", "text/plain", "application/pdf", "audio/mpeg", "image/avif", "model/gltf-binary", "application/x-inconnu", ""].map(extensionFor))
+      .toEqual(["svg", "svg", "json", "txt", "pdf", "mp3", "avif", "glb", "bin", "webm"]);
+  });
+});
+

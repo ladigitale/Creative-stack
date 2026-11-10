@@ -35,12 +35,23 @@ export function pickMime(kind: "audio" | "video", hasAudio = true): string | nul
 }
 
 export function extensionFor(mime: string): string {
-  const image = /^image\/(jpeg|png|webp|gif)/.exec(mime);
+  const m = (mime || "").toLowerCase().split(";")[0].trim();
+  const image = /^image\/(jpeg|png|webp|gif|avif|bmp)$/.exec(m);
   if (image) return image[1] === "jpeg" ? "jpg" : image[1];
-  if (/^audio\/(wav|wave|x-wav)/.test(mime)) return "wav";
-  if (/mp4/.test(mime)) return mime.startsWith("audio") ? "m4a" : "mp4";
-  if (/ogg/.test(mime)) return "ogg";
-  return "webm";
+  if (m === "image/svg+xml") return "svg";
+  if (/^audio\/(wav|wave|x-wav)$/.test(m)) return "wav";
+  if (m === "audio/mpeg") return "mp3";
+  if (/mp4/.test(m)) return m.startsWith("audio") ? "m4a" : "mp4";
+  if (/ogg/.test(m)) return "ogg";
+  if (/webm/.test(m)) return "webm";
+  if (m === "application/json") return "json";
+  if (m === "application/pdf") return "pdf";
+  if (m === "model/gltf-binary") return "glb";
+  if (m === "text/plain") return "txt";
+  if (m === "text/csv") return "csv";
+  if (m === "text/markdown") return "md";
+  // Un enregistrement sans type (MediaRecorder sans mime) reste un webm ; un type inconnu garde un fichier binaire.
+  return m ? "bin" : "webm";
 }
 
 /**
