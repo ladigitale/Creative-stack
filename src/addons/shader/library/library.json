@@ -497,6 +497,56 @@
           "default": 2
         }
       ]
+    },
+    {
+      "id": "pile-effets",
+      "kind": "shader",
+      "file": "pile-effets.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Pile d'effets",
+      "description": "23 effets cumulables en une passe, dans un ordre fixe (géométrie → lumière → couleur → matière), indépendants de la résolution : miroir, kaléido, tourbillon, ondes, pixels ; prisme, halo, flou, encre ; éclat, teinte, bichromie, sépia, aplats, négatif, thermique ; papier, trame, points, hachures, balayage, grain, vignette. uParam0 est un masque : somme de 2^i des effets actifs (ex. riso = 2^11 + 2^16 + 2^18 + 2^21).",
+      "tags": [
+        "effet",
+        "post-traitement",
+        "finition",
+        "export",
+        "image",
+        "pile"
+      ],
+      "channels": [
+        "iChannel0 : image à traiter (toile sonic-sketch / sonic-paint, caméra, export PNG)"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Effets actifs (masque : somme de 2^i, i de 0 à 22)",
+          "min": 0,
+          "max": 8388607,
+          "default": 2426880
+        },
+        {
+          "name": "uParam1",
+          "label": "Intensité",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        },
+        {
+          "name": "uParam2",
+          "label": "Échelle du grain",
+          "min": 0.5,
+          "max": 8,
+          "default": 2
+        },
+        {
+          "name": "uParam3",
+          "label": "Teinte (teinte, bichromie)",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        }
+      ]
     }
   ]
 }
