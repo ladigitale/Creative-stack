@@ -1,7 +1,8 @@
+import { blendOp } from "../paint/brush";
 import { drawTip, tipGeometry } from "../paint/tip";
 import { intersects } from "../vector/geometry";
 import { stampsOf, type Stamp } from "./stamps";
-import { toScreen, type Stroke, type StrokeBrush, type View } from "./model";
+import { sanitizeBlend, toScreen, type Stroke, type StrokeBrush, type View } from "./model";
 
 /** Surface de dessin : contexte en pixels logiques (la mise à l'échelle écran est déjà dans le contexte). */
 export type Surface = { ctx: CanvasRenderingContext2D; w: number; h: number; view: View };
@@ -78,8 +79,76 @@ export function strokeStamps(st: Stroke): Stamp[] {
   return v;
 }
 
+/** Opération canvas d'un mode de fusion (`normal` → `source-over`). */
+export function compositeOf(blend: string | undefined): GlobalCompositeOperation {
+  return blendOp(sanitizeBlend(blend));
+}
+
+const scratchByCanvas = new WeakMap<object, HTMLCanvasElement>();
+
+/** Tampon de même taille que la surface, vidé, avec la même transformation (empreintes d'un trait à fusionner). */
+export function scratchFor(s: Surface, key: object = s.ctx.canvas): Surface | null {
+  const target = s.ctx.canvas;
+  let c = scratchByCanvas.get(key);
+  if (!c) scratchByCanvas.set(key, (c = document.createElement("canvas")));
+  if (c.width !== target.width || c.height !== target.height) { c.width = target.width; c.height = target.height; }
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.setTransform(s.ctx.getTransform());
+  return { ctx, w: s.w, h: s.h, view: s.view };
+}
+
+/** Pose un tampon (pixels de la surface) sur la surface avec un mode de fusion. */
+export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | undefined): void {
+  const { ctx } = s;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = compositeOf(blend);
+  ctx.drawImage(buf, 0, 0);
+  ctx.restore();
+}
+
+/**
+ * Dessine un trait. Avec un mode de fusion, ses empreintes sont d'abord réunies dans un tampon (normalement,
+ * pour qu'elles ne se fusionnent pas entre elles) puis le tampon est fusionné avec ce qui est dessous.
+ */
 export function drawStroke(s: Surface, st: Stroke): void {
+  const blend = st.brush.blend;
+  if (!blend || blend === "normal") return paintStroke(s, st);
+  const buf = scratchFor(s);
+  if (!buf) return;
+  paintStroke(buf, st);
+  blitBlend(s, buf.ctx.canvas, blend);
+}
+
+function paintStroke(s: Surface, st: Stroke): void {
+  if (st.shape) return fillShape(s, st);
   for (const stamp of strokeStamps(st)) drawStamp(s, st.brush, stamp);
+}
+
+/**
+ * Forme fusionnée : remplie en pair-impair. Les sommets passent à l'écran en double précision côté JS
+ * (pas de transformation du contexte : le canvas calcule en simple précision, faux aux zooms extrêmes).
+ */
+function fillShape(s: Surface, st: Stroke): void {
+  const { ctx, view, w, h } = s;
+  const path = new Path2D();
+  for (const poly of st.shape ?? []) {
+    for (const ring of poly) {
+      if (ring.length < 3) continue;
+      for (let i = 0; i < ring.length; i++) {
+        const [x, y] = toScreen(view, ring[i][0], ring[i][1], w, h);
+        if (i) path.lineTo(x, y); else path.moveTo(x, y);
+      }
+      path.closePath();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = st.brush.color;
+  ctx.fill(path, "evenodd");
 }
 
 /** Dessine les traits dont la boîte coupe `viewRect`, dans l'ordre. Retourne leur nombre. */

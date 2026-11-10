@@ -33,6 +33,7 @@
     "./ocr": "./src/addons/ocr/index.ts",
     "./paint": "./src/addons/paint/index.ts",
     "./sketch": "./src/addons/sketch/index.ts",
+    "./color": "./src/addons/color/index.ts",
     "./predict": "./src/addons/predict/index.ts",
     "./scroll": "./src/addons/scroll/index.ts",
     "./cursor": "./src/addons/cursor/index.ts",

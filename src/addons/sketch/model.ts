@@ -1,8 +1,9 @@
-import type { BrushSettings } from "../paint/brush";
-import type { BBox } from "../vector/geometry";
+import { BLEND_MODES, type BlendMode, type BrushSettings } from "../paint/brush";
+import { simplifyLine, type BBox, type Multi, type Pt } from "../vector";
 import {
   clampZoomTo, fitBox, panView, sanitizeView2D, screenToWorld, transformAt, visibleBounds, worldToScreen, type View2D,
 } from "../../shared/view2d";
+import { shapeHit, shapeVertices } from "./merge";
 
 /**
  * Modèle d'un dessin vectoriel à zoom infini : des traits (points en coordonnées du monde, pression,
@@ -17,14 +18,25 @@ export const MAX_TOTAL_POINTS = 2_000_000;
 
 export type View = View2D;
 
-/** Pinceau mémorisé dans un trait : diamètre en unités du monde. */
-export type StrokeBrush = Pick<BrushSettings, "size" | "hardness" | "opacity" | "spacing" | "color" | "pressure" | "tip" | "angle" | "angleFollow" | "angleJitter" | "sizeJitter" | "scatter" | "roundness">;
+/** Modes de fusion : ceux du pinceau de `sonic-paint` (noms CSS `mix-blend-mode`, communs au canvas et au SVG). */
+export { BLEND_MODES, type BlendMode } from "../paint/brush";
+
+/** Mode de fusion valide, sinon `fallback`. */
+export function sanitizeBlend(v: unknown, fallback: BlendMode = "normal"): BlendMode {
+  const s = typeof v === "string" ? v.trim().toLowerCase() : "";
+  return (BLEND_MODES as readonly string[]).includes(s) ? (s as BlendMode) : fallback;
+}
+
+/** Pinceau mémorisé dans un trait : diamètre en unités du monde ; `blend` absent = `normal`. */
+export type StrokeBrush = Pick<BrushSettings, "size" | "hardness" | "opacity" | "spacing" | "color" | "pressure" | "tip" | "angle" | "angleFollow" | "angleJitter" | "sizeJitter" | "scatter" | "roundness"> & { blend?: BlendMode };
 
 export type Stroke = {
   id: number;
   brush: StrokeBrush;
-  /** x, y, pression : trois nombres par point. */
+  /** x, y, pression : trois nombres par point (vide pour une forme). */
   pts: number[];
+  /** Forme fusionnée (polygones du monde, à trous) : traits pleins de même style unis ; remplace `pts`. */
+  shape?: Multi;
   seed: number;
   bbox: BBox;
 };
@@ -78,9 +90,11 @@ export function strokeMargin(b: StrokeBrush): number {
   return (b.size / 2) * (1 + b.scatter * 2) + 1e-9;
 }
 
-export function makeBrush(b: BrushSettings, size: number): StrokeBrush {
+export function makeBrush(b: BrushSettings, size: number, blend: BlendMode = "normal"): StrokeBrush {
   const { hardness, opacity, spacing, color, pressure, tip, angle, angleFollow, angleJitter, sizeJitter, scatter, roundness } = b;
-  return { size, hardness, opacity, spacing, color, pressure, tip, angle, angleFollow, angleJitter, sizeJitter, scatter, roundness };
+  const out: StrokeBrush = { size, hardness, opacity, spacing, color, pressure, tip, angle, angleFollow, angleJitter, sizeJitter, scatter, roundness };
+  if (blend !== "normal") out.blend = blend;
+  return out;
 }
 
 /** Boîte de tout le contenu, ou `null` si vide. */
@@ -100,6 +114,67 @@ export function fitView(b: BBox | null, w: number, h: number, margin = 0.08, rot
   return fitBox(b, w, h, rotation, MIN_ZOOM, MAX_ZOOM, margin) ?? { ...DEFAULT_VIEW, rotation };
 }
 
+/**
+ * Compacte les points d'un trait terminé (x, y, pression par point) :
+ * 1. jointure des points trop proches (moins de `tol / 2` du dernier gardé) ;
+ * 2. Ramer–Douglas–Peucker sur le tracé **et** la pression : un point reste s'il s'écarte de plus de `tol`
+ *    (monde) de la corde, ou si sa pression s'écarte de plus de `pressureTol` de la pression interpolée.
+ * Extrémités toujours gardées. Itératif (pas de récursion). Retourne un nouveau tableau.
+ */
+export function compactStroke(pts: number[], tol: number, pressureTol = 0.04): number[] {
+  const n0 = Math.floor(pts.length / 3);
+  if (n0 <= 2 || !(tol > 0)) return pts.slice(0, n0 * 3);
+  // 1. jointure
+  const j: number[] = [pts[0], pts[1], pts[2]];
+  const near = tol / 2;
+  for (let i = 3; i < n0 * 3; i += 3) {
+    const k = j.length - 3;
+    const last = i === n0 * 3 - 3;
+    if (!last && Math.hypot(pts[i] - j[k], pts[i + 1] - j[k + 1]) < near && Math.abs(pts[i + 2] - j[k + 2]) <= pressureTol) continue;
+    if (last && j.length > 3 && Math.hypot(pts[i] - j[k], pts[i + 1] - j[k + 1]) < near) j.length -= 3;
+    j.push(pts[i], pts[i + 1], pts[i + 2]);
+  }
+  const n = j.length / 3;
+  if (n <= 2) return j;
+  // 2a. Sans pression qui compte : RDP de l'addon vector sur le tracé.
+  if (!Number.isFinite(pressureTol)) {
+    const line: Pt[] = [];
+    for (let i = 0; i < n; i++) line.push([j[i * 3], j[i * 3 + 1]]);
+    const kept = simplifyLine(line, tol);
+    const out: number[] = [];
+    let k = 0;
+    for (let i = 0; i < n && k < kept.length; i++) {
+      if (line[i] === kept[k]) { out.push(j[i * 3], j[i * 3 + 1], j[i * 3 + 2]); k++; }
+    }
+    return out;
+  }
+  // 2b. RDP tracé + pression
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    if (b - a < 2) continue;
+    const ax = j[a * 3], ay = j[a * 3 + 1], ap = j[a * 3 + 2];
+    const bx = j[b * 3], by = j[b * 3 + 1], bp = j[b * 3 + 2];
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    let worst = -1, score = 1;
+    for (let i = a + 1; i < b; i++) {
+      const px = j[i * 3], py = j[i * 3 + 1];
+      const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+      const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) / tol;
+      // Pression interpolée selon la position le long de la corde (indice si la corde est nulle).
+      const u = l2 === 0 ? (i - a) / (b - a) : t;
+      const e = Math.max(d, Math.abs(j[i * 3 + 2] - (ap + u * (bp - ap))) / pressureTol);
+      if (e > score) { score = e; worst = i; }
+    }
+    if (worst >= 0) { keep[worst] = 1; stack.push([a, worst], [worst, b]); }
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(j[i * 3], j[i * 3 + 1], j[i * 3 + 2]);
+  return out;
+}
+
 /** Distance d'un point à un segment. */
 function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
@@ -109,6 +184,11 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
 
 /** Le trait passe-t-il à moins de `r` (monde) du point ? (épaisseur du trait comprise) */
 export function strokeHit(s: Stroke, px: number, py: number, r: number): boolean {
+  if (s.shape) {
+    const b = s.bbox;
+    if (px < b.x - r || px > b.x + b.w + r || py < b.y - r || py > b.y + b.h + r) return false;
+    return shapeHit(s.shape, px, py, r);
+  }
   const reach = r + s.brush.size / 2;
   const b = s.bbox;
   if (px < b.x - r || px > b.x + b.w + r || py < b.y - r || py > b.y + b.h + r) return false;
@@ -124,6 +204,7 @@ export function strokeHit(s: Stroke, px: number, py: number, r: number): boolean
 
 type Op =
   | { t: "add"; stroke: Stroke }
+  | { t: "swap"; removed: { index: number; stroke: Stroke }[]; added: Stroke; at: number }
   | { t: "remove"; items: { index: number; stroke: Stroke }[] }
   | { t: "clear"; strokes: Stroke[] };
 
@@ -141,7 +222,7 @@ export class Doc {
 
   get totalPoints(): number {
     let n = 0;
-    for (const s of this.strokes) n += s.pts.length / 3;
+    for (const s of this.strokes) n += s.shape ? shapeVertices(s.shape) : s.pts.length / 3;
     return n;
   }
 
@@ -156,6 +237,19 @@ export class Doc {
     this.strokes.push(stroke);
     this.record({ t: "add", stroke });
     return true;
+  }
+
+  /**
+   * Remplace des traits par un seul (fusion) en une étape d'historique : `ids` retirés, `added` inséré au rang
+   * `at` (compté après le retrait).
+   */
+  swap(ids: Set<number>, added: Stroke, at: number): void {
+    const removed: { index: number; stroke: Stroke }[] = [];
+    this.strokes.forEach((stroke, index) => { if (ids.has(stroke.id)) removed.push({ index, stroke }); });
+    this.strokes = this.strokes.filter((s) => !ids.has(s.id));
+    const i = Math.max(0, Math.min(this.strokes.length, at));
+    this.strokes.splice(i, 0, added);
+    this.record({ t: "swap", removed, added, at: i });
   }
 
   /** Retire des traits (par identifiant) en une seule étape d'historique. */
@@ -178,7 +272,10 @@ export class Doc {
     const op = this.past.pop();
     if (!op) return false;
     if (op.t === "add") this.strokes = this.strokes.filter((s) => s !== op.stroke);
-    else if (op.t === "remove") for (const it of op.items) this.strokes.splice(it.index, 0, it.stroke);
+    else if (op.t === "swap") {
+      this.strokes = this.strokes.filter((s) => s !== op.added);
+      for (const it of op.removed) this.strokes.splice(it.index, 0, it.stroke);
+    } else if (op.t === "remove") for (const it of op.items) this.strokes.splice(it.index, 0, it.stroke);
     else this.strokes = op.strokes;
     this.future.push(op);
     return true;
@@ -188,7 +285,11 @@ export class Doc {
     const op = this.future.pop();
     if (!op) return false;
     if (op.t === "add") this.strokes.push(op.stroke);
-    else if (op.t === "remove") { const ids = new Set(op.items.map((i) => i.stroke.id)); this.strokes = this.strokes.filter((s) => !ids.has(s.id)); }
+    else if (op.t === "swap") {
+      const ids = new Set(op.removed.map((i) => i.stroke.id));
+      this.strokes = this.strokes.filter((s) => !ids.has(s.id));
+      this.strokes.splice(op.at, 0, op.added);
+    } else if (op.t === "remove") { const ids = new Set(op.items.map((i) => i.stroke.id)); this.strokes = this.strokes.filter((s) => !ids.has(s.id)); }
     else this.strokes = [];
     this.past.push(op);
     return true;

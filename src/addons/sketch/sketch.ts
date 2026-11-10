@@ -8,12 +8,13 @@ import { BRUSH_DEFAULTS, Stabilizer, sanitizeBrush, type BrushSettings } from ".
 import { tipFromValue } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
-  Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, contentBBox, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
-  toWorld, visibleRect, DEFAULT_VIEW, type Stroke, type View,
+  Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
+  toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type View,
 } from "./model";
-import { drawStamp, drawStrokes, type Surface } from "./render";
+import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
+import { MAX_SHAPE_VERTICES, isSolid, mergeShapes, mergeTarget, shapeBBox, shapeVertices, solidRadius, strokeOutline } from "./merge";
 
 const MAX_SIDE = 4096;
 
@@ -26,12 +27,19 @@ export type SketchState = {
   /** Rotation de la vue (radians). */
   rotation: number;
   strokes: number;
+  /** Points de tous les traits (après simplification), et ceux du dernier trait avant / après. */
+  points: number;
+  lastStroke: { before: number; after: number };
+  /** Formes fusionnées parmi les traits, et nombre de fusions depuis le chargement. */
+  shapes: number;
+  merges: number;
   drawing: boolean;
   canUndo: boolean;
   canRedo: boolean;
   tool: string;
   color: string;
   size: number;
+  blend: BlendMode;
   bbox: { x: number; y: number; w: number; h: number } | null;
   /** Dernier export (`control.save` / `savePng`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
@@ -78,6 +86,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Number, attribute: "size-jitter" }) sizeJitter = 0;
   @property({ type: Number }) scatter = 0;
   @property({ type: Number }) roundness = 1;
+  /** Mode de fusion des nouveaux traits (`normal`, `multiply`, `screen`, `overlay`… noms CSS `mix-blend-mode`). */
+  @property({ type: String }) blend: string = "normal";
   @property({ type: String, attribute: "tip-from" }) tipFrom = "";
   @property({ type: String, attribute: "brush-from" }) brushFrom = "";
   /** DP de la vue `{ x, y, zoom, rotation }` (écrit la vue quand elle diffère de l'actuelle). */
@@ -85,6 +95,17 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: String }) control = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
   @property({ type: Boolean }) readonly = false;
+  /**
+   * Tolérance de simplification des traits terminés, en pixels d'écran au moment du tracé (0 : aucune).
+   * Les points à moins de cette distance de la courbe simplifiée sont retirés (pression comprise).
+   */
+  @property({ type: Number }) simplify = 0.35;
+  /**
+   * Fusion vectorielle : un trait plein (net, opaque, sans pointe) est uni par découpage polygonal à la forme
+   * de même couleur et même mode qu'il touche (si rien d'un autre style n'est posé entre les deux sur lui).
+   * Une région d'une couleur devient une seule forme. La gomme efface alors la forme entière.
+   */
+  @property({ type: Boolean }) merge = true;
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
 
   @query("canvas") private canvasEl!: HTMLCanvasElement;
@@ -112,6 +133,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private mode: "none" | "draw" | "erase" | "pan" = "none";
   private stroke: Stroke | null = null;
   private stamper: StrokeStamper | null = null;
+  /** Empreintes du trait en cours quand il a un mode de fusion (fusionnées à l'affichage). */
+  private liveBuf: Surface | null = null;
+  private readonly liveKey = {};
   private erased = new Set<number>();
   private space = false;
   private hover = false;
@@ -119,6 +143,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private unsubs: (() => void)[] = [];
   private last: SketchState["last"] = null;
   private error: string | null = null;
+  private lastCompaction = { before: 0, after: 0 };
+  private mergeStats = { merged: 0 };
 
   get frameSeq(): number { return this.seq; }
   getFrameCanvas(): HTMLCanvasElement | null { return this.canvasEl ?? null; }
@@ -129,6 +155,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   brush(): BrushSettings {
     const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness });
     return sanitizeBrush(base, this.live);
+  }
+
+  /** Mode de fusion effectif : réglage en direct, sinon attribut. */
+  currentBlend(): BlendMode {
+    return sanitizeBlend(this.live.blend, sanitizeBlend(this.blend));
   }
 
   private currentTool(): string {
@@ -243,6 +274,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const s = this.layerSurface();
     if (!s) return;
     s.ctx.clearRect(0, 0, s.w, s.h);
+    // Le fond est aussi dans la couche : les modes de fusion le voient sous les traits.
+    const bg = this.backgroundColor();
+    if (bg) { s.ctx.fillStyle = bg; s.ctx.fillRect(0, 0, s.w, s.h); }
     drawStrokes(s, this.doc.strokes, visibleRect(this.layerView, s.w, s.h));
     this.layerDirty = false;
   }
@@ -256,8 +290,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (this.layerDirty && !this.gestureActive()) this.renderLayer();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (this.background && this.background !== "transparent") {
-      ctx.fillStyle = sanitizeBrush({ ...BRUSH_DEFAULTS }, { color: this.background }).color;
+    const bg = this.backgroundColor();
+    if (bg) {
+      ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
     }
     const layer = this.ensureLayer();
@@ -266,7 +301,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     ctx.transform(t[0], t[1], t[2], t[3], t[4], t[5]);
     ctx.drawImage(layer, 0, 0, w, h);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Trait en cours avec fusion : la vue n'a pas bougé depuis son début (sinon il est abandonné).
+    if (this.liveBuf && this.stroke) blitBlend({ ctx, w, h, view: this.view }, this.liveBuf.ctx.canvas, this.stroke.brush.blend);
     this.seq++;
+  }
+
+  private backgroundColor(): string {
+    if (!this.background || this.background === "transparent") return "";
+    return sanitizeBrush({ ...BRUSH_DEFAULTS }, { color: this.background }).color;
   }
 
   private gestureActive(): boolean {
@@ -401,10 +443,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const lv = this.layerView, v = this.view;
     if (this.layerDirty || lv.x !== v.x || lv.y !== v.y || lv.zoom !== v.zoom || lv.rotation !== v.rotation) this.renderLayer();
     const b = this.brush();
-    const brush = makeBrush(b, this.worldSize(b));
+    const brush = makeBrush(b, this.worldSize(b), this.currentBlend());
     const seed = (Math.random() * 4294967296) >>> 0;
     this.stroke = { id: this.doc.nextId++, brush, pts: [], seed, bbox: { x: 0, y: 0, w: 0, h: 0 } };
     this.stamper = new StrokeStamper(brush, seed);
+    this.liveBuf = null;
+    if (brush.blend) {
+      const s = this.layerSurface();
+      this.liveBuf = s ? scratchFor(s, this.liveKey) : null;
+    }
     this.stab.reset();
     this.mode = "draw";
     this.extendStroke(p, e);
@@ -429,7 +476,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const n = st.pts.length;
     if (n >= 3 && st.pts[n - 3] === x && st.pts[n - 2] === y) return;
     st.pts.push(x, y, pr);
-    const surface = this.layerSurface();
+    const surface = this.liveBuf ?? this.layerSurface();
     if (!surface) return;
     surface.view = this.layerView;
     for (const stamp of stamper.feed(x, y, pr)) drawStamp(surface, st.brush, stamp);
@@ -447,17 +494,57 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         }
       }
     }
+    const live = this.liveBuf;
     this.stroke = null;
     this.stamper = null;
+    this.liveBuf = null;
     if (!st || !st.pts.length) return;
+    const raw = st.pts.length / 3;
+    const tol = Math.max(0, Math.min(8, Number(this.simplify) || 0));
+    if (tol > 0) st.pts = compactStroke(st.pts, tol / this.layerView.zoom, st.brush.pressure ? 0.04 : Infinity);
+    this.lastCompaction = { before: raw, after: st.pts.length / 3 };
     st.bbox = strokeBBox(st.pts, strokeMargin(st.brush));
+    if (this.merge && this.mergeInto(st, tol)) {
+      this.error = null;
+      this.invalidate();
+      return;
+    }
     if (!this.doc.add(st)) {
       this.error = "limite de traits ou de points atteinte";
       this.invalidate();
       return;
     }
     this.error = null;
+    // Trait fusionné : ses empreintes, réunies dans le tampon, sont posées sur la couche avec leur mode.
+    if (live) { const s = this.layerSurface(); if (s) blitBlend(s, live.ctx.canvas, st.brush.blend); }
     this.compose();
+  }
+
+  /**
+   * Unit un trait plein terminé à la forme de même style qu'il touche (une étape d'annulation). Les deux doivent
+   * avoir été tracés à des échelles proches (diamètres dans un rapport ≤ 4) : la simplification ne doit pas
+   * effacer le détail d'un trait tracé bien plus profond.
+   */
+  private mergeInto(st: Stroke, tolPx: number): boolean {
+    if (!isSolid(st.brush, st.pts)) return false;
+    const i = mergeTarget(this.doc.strokes, st);
+    if (i < 0) return false;
+    const other = this.doc.strokes[i];
+    const rNew = solidRadius(st.brush, st.pts);
+    const rOther = other.shape ? other.brush.size / 2 : solidRadius(other.brush, other.pts);
+    if (!(rNew > 0) || !(rOther > 0) || Math.max(rNew, rOther) / Math.min(rNew, rOther) > 4) return false;
+    const tol = Math.min(Math.max(tolPx, 0.25) / this.layerView.zoom, 0.08 * Math.min(rNew, rOther));
+    try {
+      const a = other.shape ?? strokeOutline(other.pts, rOther, tol);
+      const m = mergeShapes(a, strokeOutline(st.pts, rNew, tol), tol);
+      if (!m.length || shapeVertices(m) > MAX_SHAPE_VERTICES) return false;
+      const brush = { ...other.brush, size: 2 * Math.min(rNew, rOther), pressure: false };
+      this.doc.swap(new Set([other.id]), { id: st.id, brush, pts: [], seed: st.seed, shape: m, bbox: shapeBBox(m) }, i);
+      this.mergeStats = { merged: this.mergeStats.merged + 1 };
+      return true;
+    } catch {
+      return false; // découpage impossible : le trait reste à part
+    }
   }
 
   /** Abandonne le trait en cours (un second doigt arrive : c'est un geste de vue). */
@@ -465,6 +552,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (!this.stroke) { if (this.mode === "erase") this.endErase(); return; }
     this.stroke = null;
     this.stamper = null;
+    this.liveBuf = null;
     this.layerDirty = true;
   }
 
@@ -551,8 +639,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const b = this.brush();
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
-      strokes: this.doc.strokes.length, drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
-      tool: this.currentTool(), color: b.color, size: b.size, bbox: contentBBox(this.doc.strokes), last: this.last,
+      strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, shapes: this.doc.strokes.filter((x) => x.shape).length, merges: this.mergeStats.merged, drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
+      tool: this.currentTool(), color: b.color, size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
     };
   }
 
