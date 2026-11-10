@@ -244,6 +244,24 @@ describe("sonic-shader : état publié et pilotage par params", () => {
     return { el, internal, rt };
   }
 
+  it("control : écouté avant que le runtime existe, premier `save: 1` (clé absente au départ) → save()", async () => {
+    const ctl = "shader-state-ctl";
+    PublisherManager.get(ctl).set({ n: 0 });
+    const { el } = mount(`control="${ctl}"`);
+    await el.updateComplete;
+    const calls: number[] = [];
+    (el as unknown as { save: () => Promise<null> }).save = async () => { calls.push(1); return null; };
+    PublisherManager.get(ctl).set({ n: 0, save: 1 });
+    await Promise.resolve();
+    expect(calls.length).toBe(1);
+    PublisherManager.get(ctl).set({ n: 1, save: 1 });
+    await Promise.resolve();
+    expect(calls.length).toBe(1);
+    PublisherManager.get(ctl).set({ n: 1, save: 2 });
+    await Promise.resolve();
+    expect(calls.length).toBe(2);
+  });
+
   it("publie idle, compiling puis ready dans le DP de sortie (sans écraser le reste)", async () => {
     const out = "shader-state-out";
     PublisherManager.get(out).set({ keep: 1 });
