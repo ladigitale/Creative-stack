@@ -20,6 +20,7 @@ Concorde reste le design system (composants UI, DataProviders, `sonic-sdui`, `so
 | `device` | `sonic-fullscreen`, `sonic-pointer-lock`, `sonic-wake-lock`, `sonic-orientation`, `sonic-clipboard`, `sonic-share`, `sonic-vibrate`, `sonic-page-state`, `sonic-capabilities` : API appareil du navigateur en DataProviders (voir [`device.md`](src/addons/device/device.md)) | — |
 | `animation` | `sonic-animate` (recettes), `sonic-clock`, `sonic-timeline` : le temps est une valeur de DataProvider (voir [`animation.md`](src/addons/animation/animation.md)) | — |
 | `media` | `sonic-camera`, `sonic-screen`, `sonic-video`, `sonic-media-start`, `sonic-media-recorder`, `sonic-media-download` | — |
+| `markdown` | `sonic-markdown` : Markdown (GFM) en DOM natif sans `innerHTML`, rendu incrémental en flux, prompts à variables, plan et blocs de code publiés en DataProvider (voir [`markdown.md`](src/addons/markdown/markdown.md)) | `markdown-it`, `markdown-it-footnote` (dépendances) ; Prism et KaTeX chargés à la demande |
 
 `3d`, `shader`, `webgpu`, `hugging-face-infer` et `interactive` sont portés depuis `@supersoniks/concorde@4.9.98-visual-stack.4`. `sound` est nouveau : musiques, jingles, bruitages et sons d'interface synthétisés en WebAudio depuis une banque JSON de quelques Ko, pilotés par DataProvider (voir [`src/addons/sound/sound.md`](src/addons/sound/sound.md)).
 
