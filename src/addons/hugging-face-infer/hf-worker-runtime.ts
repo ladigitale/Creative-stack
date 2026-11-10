@@ -254,6 +254,24 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
     return q;
   };
 
+  /** Demi-flottant IEEE 754 (bits) → nombre. */
+  const halfToFloat = (h: number): number => {
+    const s = h & 0x8000 ? -1 : 1, e = (h >> 10) & 0x1f, f = h & 0x3ff;
+    if (e === 0) return s * f * 2 ** -24;
+    if (e === 31) return f ? NaN : s * Infinity;
+    return s * (1 + f / 1024) * 2 ** (e - 15);
+  };
+
+  /** Tenseur float16 → float32 (les données sont un Float16Array, ou les bits bruts dans un Uint16Array). */
+  const toFloat32 = (t: any): any => {
+    if (!t || t.type !== "float16") return t;
+    const d = t.data;
+    const out = new Float32Array(d.length);
+    if (d instanceof Uint16Array) for (let i = 0; i < d.length; i++) out[i] = halfToFloat(d[i]);
+    else for (let i = 0; i < d.length; i++) out[i] = Number(d[i]);
+    return new (lib as any).Tensor("float32", out, t.dims);
+  };
+
   const samDecode = async (entry: any, points: any, box: any, refine: boolean) => {
     const ip = entry.processor.image_processor ?? entry.processor;
     const img = entry.image;
@@ -266,7 +284,16 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
     }
     if (box) feed.input_boxes = ip.reshape_input_points([[[box.x0, box.y0, box.x1, box.y1]]], img.original_sizes, img.reshaped_input_sizes, true);
     if (!feed.input_points && !feed.input_boxes) return null;
-    const out = await entry.model(feed);
+    let out: any;
+    try {
+      out = await entry.model(feed);
+    } catch (err) {
+      // encodeur en fp16 et décodeur en fp32 (précision mixte) : les embeddings sont convertis une fois pour toutes
+      if (!/Unexpected input data type/i.test(String((err as any)?.message ?? err))) throw err;
+      for (const k of Object.keys(img.embeddings)) img.embeddings[k] = toFloat32(img.embeddings[k]);
+      out = await entry.model({ ...feed, ...img.embeddings });
+    }
+    out = { ...out, pred_masks: toFloat32(out.pred_masks), iou_scores: toFloat32(out.iou_scores) };
     const scores: number[] = Array.from(out.iou_scores.data as ArrayLike<number>).map(Number);
     // un GPU en précision réduite peut déborder (valeurs infinies ou NaN) : on le traite comme une panne GPU,
     // ce qui fait basculer sur le moteur suivant
