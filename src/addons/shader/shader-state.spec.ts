@@ -244,6 +244,19 @@ describe("sonic-shader : état publié et pilotage par params", () => {
     return { el, internal, rt };
   }
 
+  it("canal branché par sonic-mix (sous-publisher d'une autre source) : suit ses changements", async () => {
+    const target = PublisherManager.get("shader-state-mix") as unknown as { _proxies_: Map<string, unknown> };
+    const source = PublisherManager.get("shader-state-src") as unknown as { last: { set: (v: unknown) => void } };
+    // Ce que fait sonic-mix pour {"channel0": "shader-state-src.last"}.
+    target._proxies_.set("channel0", source.last);
+    const { el } = mount(`dataProvider="shader-state-mix"`);
+    await el.updateComplete;
+    source.last.set({ url: "blob:abysse-1", mime: "image/png", width: 8, height: 8 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect((el as unknown as { channel0: string }).channel0).toBe("blob:abysse-1");
+  });
+
   it("control : écouté avant que le runtime existe, premier `save: 1` (clé absente au départ) → save()", async () => {
     const ctl = "shader-state-ctl";
     PublisherManager.get(ctl).set({ n: 0 });
