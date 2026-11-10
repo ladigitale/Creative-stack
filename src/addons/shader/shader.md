@@ -195,7 +195,7 @@ Repli auto en `rgba8` si `EXT_color_buffer_float` est absent (`console.warn` une
 - `render-size="2048x2048"` : le canvas est rendu à cette taille (16 à 8192 px de côté), indépendamment de sa taille d'affichage. Il reste affiché à la taille de l'élément.
 - `render-size="channel0"` : il prend la taille de l'image branchée sur channel0, et la suit quand elle change. La source peut être un élément (`#id`) ou une SonicMediaRef `{url, width, height}` venue d'un DP, par exemple le `last` d'un export `sonic-sketch` / `sonic-paint`.
 
-On s'en sert pour post-traiter une image en pleine résolution (voir le shader de bibliothèque `finition`) ou pour fournir une source nette à `sonic-vectorize`.
+On s'en sert pour post-traiter une image en pleine résolution (voir les shaders de bibliothèque `finition`, un effet à la fois, et `pile-effets`, 23 effets cumulables choisis par un masque dans `param0`) ou pour fournir une source nette à `sonic-vectorize`.
 
 `control="dp.fxCtl"` : `{ save: n }` enregistre l'image rendue en PNG dans l'état, sous `last` (`{url, mime, width, height, size}`), à brancher sur `sonic-media-download source="fxState.last"`.
 
