@@ -10,7 +10,7 @@
   "components": [
     {
       "name": "sonic-shader",
-      "description": "Shader fragment Shadertoy (passes image, buffer A–D, common ; canaux image/vidéo/#id). dataProvider : param0…3 → uParam0…3, canaux (string | MediaRef) ; params (DP) {play, playOnHover, mouse, mouseMode, mouseSpeed, hoverSpeed, dprMax, image, bufferA…D, common, bufferFormat} prioritaire sur les attributs (sources et bufferFormat recompilent) ; état {status idle|compiling|ready|error, error (passe + ligne), errors[{pass, line, column, message}], passes, activeBufferFormat, playing} dans le DP de sortie (out-data-provider, sinon dataProvider), plus time, frame, mouseX/Y, hovering, sample* (paresseux)",
+      "description": "Shader fragment Shadertoy (passes image, buffer A–D, common ; canaux image/vidéo/#id). dataProvider : param0…3 → uParam0…3, canaux (string | MediaRef) ; params (DP) {play, playOnHover, mouse, mouseMode, mouseSpeed, hoverSpeed, dprMax, image, bufferA…D, common, bufferFormat} prioritaire sur les attributs (sources et bufferFormat recompilent) ; état {status idle|compiling|ready|error, error (passe + ligne), errors[{pass, line, column, message}], passes, activeBufferFormat, playing} dans le DP de sortie (out-data-provider, sinon dataProvider), plus time, frame, mouseX/Y, hovering, sample* (paresseux) ; render-size \"2048x2048\" ou channel0 (rendu à taille fixe, indépendante de l'affichage : post-traitement en pleine résolution, ex. bibliothèque « finition ») ; control {save: n} → PNG dans l'état last (sonic-media-download)",
       "props": {
         "image": {
           "type": "string"
@@ -85,6 +85,12 @@
         "params": {
           "type": "string",
           "description": "DP de réglages en direct {play, playOnHover, mouse, mouseMode, mouseSpeed, hoverSpeed, dprMax, image, bufferA…bufferD, common, bufferFormat}"
+        },
+        "render-size": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
         }
       }
     }

@@ -27,6 +27,8 @@ export type SonicShaderState = {
   activeBufferFormat: ShaderBufferFormat;
   /** Vrai si la boucle d'animation tourne (`play`, visibilité, survol, mouvement réduit). */
   playing: boolean;
+  /** Dernier enregistrement (`control.save`) : PNG à brancher sur `sonic-media-download source="…last"`. */
+  last?: { url: string; mime: string; width: number; height: number; size: number } | null;
 };
 
 export const SHADER_STATE_KEYS = [

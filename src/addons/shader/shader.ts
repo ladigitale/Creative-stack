@@ -1,7 +1,8 @@
 import { css, html, LitElement } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import HTML from "@supersoniks/concorde/core/utils/HTML";
-import { revokeMediaUrls, toMediaUrl, mediaElementKey, lookupLiveElement, FrameConsumerRegistry } from "../../shared/mediaRef";
+import { revokeMediaUrls, toMediaUrl, mediaElementKey, lookupLiveElement, FrameConsumerRegistry, isFrameSource } from "../../shared/mediaRef";
+import { CounterTrigger } from "../../shared/media/control";
 import { PublisherManager } from "@supersoniks/concorde/utils";
 import { listenDp } from "../../shared/audio/dp";
 import { describeShaderError } from "./errors";
@@ -238,6 +239,14 @@ async function rgbaToBlobUrl(
   }
 }
 
+/** `"2048x2048"` → [2048, 2048] (côtés bornés à 16..8192) ; autre valeur → null. */
+export function parseRenderSize(v: string): [number, number] | null {
+  const m = /^\s*(\d+)\s*[x×]\s*(\d+)\s*$/i.exec(v || "");
+  if (!m) return null;
+  const side = (n: number) => Math.round(Math.min(8192, Math.max(16, n)));
+  return [side(Number(m[1])), side(Number(m[2]))];
+}
+
 function assignExtractMediaUrls(item: ShaderExtractItem, url: string): void {
   item.blobUrl = url;
   item.url = url;
@@ -367,6 +376,15 @@ export class SonicShader extends LitElement {
   })
   releaseOffscreen: ReleaseOffscreen = "auto";
   @property({ type: Number, attribute: "dpr-max" }) dprMax = 2;
+  /**
+   * Taille de rendu fixe, indépendante de l'affichage : `"2048x2048"` (16 à 8192 px de côté) ou `channel0`
+   * (la taille de l'image de la source branchée sur channel0, suivie quand elle change). Le canvas reste
+   * affiché à la taille de l'élément. Pour un post-traitement en pleine résolution (finition d'une toile
+   * `sonic-paint`, export) ou une source nette pour `sonic-vectorize`.
+   */
+  @property({ type: String, attribute: "render-size" }) renderSize = "";
+  /** DP de commandes à compteur : `{ save: n }` enregistre l'image rendue en PNG dans `last` (état). */
+  @property({ type: String }) control = "";
   /**
    * Format des buffers A–D : `rgba8` (défaut) | `rgba16f` | `rgba32f`.
    * Attribut reflété `active-buffer-format` = format réellement utilisé.
@@ -516,6 +534,7 @@ export class SonicShader extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    if (this.control && this.hasUpdated) this.listenControl();
     this.addEventListener("pointermove", this.onPointerMove as EventListener);
     this.addEventListener("pointerdown", this.onPointerDown as EventListener);
     this.addEventListener("pointerup", this.onPointerUp as EventListener);
@@ -559,6 +578,8 @@ export class SonicShader extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    this.controlUnsub?.();
+    this.controlUnsub = null;
     this.removeEventListener("pointermove", this.onPointerMove as EventListener);
     this.removeEventListener("pointerdown", this.onPointerDown as EventListener);
     this.removeEventListener("pointerup", this.onPointerUp as EventListener);
@@ -642,9 +663,10 @@ export class SonicShader extends LitElement {
     if (changed.has("play") || changed.has("playOnHover")) {
       this.syncPlayback();
     }
-    if (changed.has("dprMax")) {
+    if (changed.has("dprMax") || changed.has("renderSize") || (changed.has("channel0") && this.renderSize.trim().toLowerCase() === "channel0")) {
       this.syncSize();
     }
+    if (changed.has("control")) this.listenControl();
     if (changed.has("releaseOffscreen") || channelChanged) {
       this.syncVisibility();
     }
@@ -1071,8 +1093,71 @@ export class SonicShader extends LitElement {
     this.syncPlayback();
   }
 
+  /** Taille de rendu imposée par `render-size`, ou null (taille d'affichage). */
+  private fixedRenderSize(): [number, number] | null {
+    const v = (this.renderSize || "").trim().toLowerCase();
+    if (!v) return null;
+    const clampSide = (n: number) => Math.round(Math.min(8192, Math.max(16, n)));
+    if (v === "channel0") {
+      const ref = this.channel0 as unknown;
+      // Image venue d'un DP (SonicMediaRef { url, width, height }, ex. `last` d'un export) : ses dimensions.
+      if (ref && typeof ref === "object") {
+        const { width, height } = ref as { width?: unknown; height?: unknown };
+        if (typeof width === "number" && typeof height === "number" && width > 0 && height > 0) return [clampSide(width), clampSide(height)];
+      }
+      const key = typeof ref === "string" ? ref : "";
+      const el = key ? this.lookupElement(key) : null;
+      const c = el && isFrameSource(el) ? el.getFrameCanvas() : null;
+      return c && c.width > 0 && c.height > 0 ? [clampSide(c.width), clampSide(c.height)] : null;
+    }
+    return parseRenderSize(v);
+  }
+
+  private renderedSize = "";
+  private controlUnsub: (() => void) | null = null;
+  private saveTrigger = new CounterTrigger();
+  private lastUrl: string | null = null;
+
+  private listenControl(): void {
+    this.controlUnsub?.();
+    this.controlUnsub = null;
+    this.saveTrigger.reset();
+    if (!this.control) return;
+    this.controlUnsub = listenDp(this.control, (v) => {
+      const c = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+      if ("save" in c && this.saveTrigger.feed(c.save)) void this.save();
+    });
+  }
+
+  /**
+   * Enregistre l'image rendue (à la taille de rendu : `render-size` le cas échéant) en PNG dans `last` :
+   * `{ url (blob:), mime, width, height, size }`, à brancher sur `sonic-media-download source="…last"`.
+   * Retourne l'URL, ou null si le shader n'est pas prêt.
+   */
+  async save(): Promise<string | null> {
+    const canvas = this.getFrameCanvas();
+    if (!canvas) return null;
+    this.drawFrame(performance.now());
+    const blob = await new Promise<Blob | null>((resolve) => {
+      try { canvas.toBlob((b) => resolve(b), "image/png"); } catch { resolve(null); }
+    });
+    if (!blob) return null;
+    if (this.lastUrl) URL.revokeObjectURL(this.lastUrl);
+    this.lastUrl = URL.createObjectURL(blob);
+    this.publishState({ last: { url: this.lastUrl, mime: "image/png", width: canvas.width, height: canvas.height, size: blob.size } });
+    return this.lastUrl;
+  }
+
   private syncSize() {
     if (!this.runtime) return;
+    const fixed = this.fixedRenderSize();
+    if (fixed) {
+      this.renderedSize = fixed.join("x");
+      this.runtime.resize(fixed[0], fixed[1]);
+      if (this.ready) this.drawFrame(performance.now());
+      return;
+    }
+    this.renderedSize = "";
     const rect = this.getBoundingClientRect();
     const cssW = Math.max(rect.width, this.clientWidth, 1);
     const cssH = Math.max(rect.height, this.clientHeight, 1);
@@ -1336,6 +1421,11 @@ export class SonicShader extends LitElement {
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
+    // render-size="channel0" : suit la taille de la source.
+    if (this.renderSize.trim().toLowerCase() === "channel0") {
+      const f = this.fixedRenderSize();
+      if (f && f.join("x") !== this.renderedSize) this.syncSize();
+    }
     this.drawFrame(performance.now());
     // play-on-hover : arrêter une fois la transition terminée
     if (this.effPlayOnHover && !this.hovering && this.hoverSettled()) {
