@@ -334,6 +334,36 @@ describe("carte d'aplats (découpage polygonal)", async () => {
     const m = eraseFlat(paintFlat([], strokeOutline([0, 0, 1, 10, 0, 1], 2, 0.02), red, 1, "normal", white), strokeOutline([-20, 0, 1, 30, 0, 1], 10, 0.05));
     expect(m).toHaveLength(0);
   });
+  it("un trait qui retraverse sa propre couleur la rejoint en une seule région", () => {
+    // Jaune, puis deux traits cyan (produit) qui se rejoignent en bas en traversant le jaune deux fois.
+    let m = paintFlat([], strokeOutline([0, 0, 1, 100, 0, 1], 10, 0.02), parseColor("#ffff00")!, 1, "normal", white);
+    m = paintFlat(m, strokeOutline([30, -40, 1, 30, 40, 1], 5, 0.02), parseColor("#00ffff")!, 1, "multiply", white);
+    m = paintFlat(m, strokeOutline([30, 40, 1, 60, 40, 1, 60, -40, 1], 5, 0.02), parseColor("#00ffff")!, 1, "multiply", white);
+    // Cyan : le U du bas (un seul tenant) et les deux bras du haut, séparés par le jaune.
+    expect(m.filter((r) => r.color === "#00ffff")).toHaveLength(3);
+    expect(m.filter((r) => r.color === "#00ff00")).toHaveLength(2);
+  });
+  it("traits au hasard : aucune paire de régions de même couleur qui se touchent, aucune aiguille", async () => {
+    const { boolean } = await import("../vector");
+    const cols = ["#ff0000", "#0000ff", "#00aa00", "#ffff00"].map((c) => parseColor(c)!);
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    let m: import("./flat").Region[] = [];
+    for (let s = 0; s < 40; s++) {
+      const pts: number[] = [];
+      let x = rnd() * 200, y = rnd() * 200;
+      for (let k = 0; k < 6; k++) { x += (rnd() - 0.5) * 80; y += (rnd() - 0.5) * 80; pts.push(x, y, 1); }
+      const sh = strokeOutline(pts, 3 + rnd() * 15, 0.05);
+      m = rnd() < 0.1 ? eraseFlat(m, sh) : paintFlat(m, sh, cols[Math.floor(rnd() * 4)], 1, s % 2 ? "multiply" : "normal", white);
+    }
+    let touching = 0;
+    for (let i = 0; i < m.length; i++) for (let j = i + 1; j < m.length; j++) {
+      if (m[i].color !== m[j].color) continue;
+      try { if (boolean("union", m[i].shape, m[j].shape).length < 2) touching++; } catch { /* sommets dégénérés : ignoré */ }
+    }
+    expect(touching).toBe(0);
+    expect(m.filter((r) => multiArea(r.shape) < 0.05).length).toBe(0);
+  });
   it("à toute échelle du monde", () => {
     for (const k of [1e-6, 1e6]) {
       const a = strokeOutline([0, 0, 1, 100 * k, 0, 1], 5 * k, 0.02 * k), b = strokeOutline([50 * k, -50 * k, 1, 50 * k, 50 * k, 1], 5 * k, 0.02 * k);
@@ -376,5 +406,8 @@ describe("export SVG : aplats et gomme", async () => {
     expect(svg).toContain('<mask id="m1"');
     expect(svg).toContain('mask="url(#m1)"');
     expect(svg).toMatch(/fill-opacity="/);
+    // Régions opaques : bord scellé par un trait fin de même couleur ; la translucide n'en a pas (double alpha).
+    expect(svg).toMatch(/fill="#ff0000" fill-rule="evenodd" stroke="#ff0000"[^>]*vector-effect="non-scaling-stroke"/);
+    expect(svg).not.toMatch(/fill-opacity="[^"]*" fill-rule="evenodd" stroke=/);
   });
 });

@@ -27,7 +27,7 @@ Mêmes réglages que `sonic-paint` : `color`, `hardness`, `opacity`, `spacing`, 
 
 `blend` : mode de fusion des nouveaux traits avec ce qui est dessous (fond compris) : `normal` (défaut), `multiply`, `screen`, `overlay`, `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity`. Chaque trait garde son mode ; il fusionne d'un bloc (ses empreintes ne se fusionnent pas entre elles). Réglable en direct dans `brush-from` (`{"blend": "multiply"}`). Un trait fusionné est rendu un peu plus lentement qu’un trait normal (un tampon par trait visible).
 
-`tool` : `paint`, `erase` (vraie gomme : retire sa forme de ce qu'elle touche, à tout zoom ; annulable) ou `hand`.
+`tool` : `paint`, `erase` (vraie gomme : retire sa forme de ce qu'elle touche, à tout zoom ; annulable), `pick` (pipette) ou `hand`.
 
 ## Simplification des traits
 
@@ -47,11 +47,13 @@ Hors des régions, le trait se fusionne avec le fond (`background`) quand rien n
 
 `tool="erase"` est une vraie gomme : disque net de la taille du pinceau. Au lever, sa forme est **retirée** de toutes les cartes d'aplats (un trou exact, à tout zoom) ; si elle touche des traits non aplatis, un masque est posé au-dessus pour les trouer aussi (export SVG : `<mask>`). Pendant le geste, l'aperçu est troué en direct.
 
+`tool="pick"` (ou Alt + clic avec le pinceau) est une pipette : la couleur vue sous le point devient celle du pinceau, même si elle est née d'une fusion et n'est pas dans la palette. Dans un aplat opaque, c'est la couleur exacte de la région ; ailleurs (traits en empreintes, couleurs translucides), le pixel affiché. Elle traverse les calques : avec un fond transparent, ce qui est dessous (une toile `sonic-paint`, un shader, une scène) est composé. Glisser fait suivre la couleur ; elle est écrite dans `brush-from` (`color`), si bien que la palette et les nuanciers la montrent, et publiée dans l'état (`picked`) et par l'évènement `sketch-pick` `{color, done}`. Si `pick` venait de `brush-from` (`tool`), l'outil revient à `paint` au lever.
+
 ## Commandes et état
 
 `control` : `{ undo, redo, clear, save, savePng, fit, reset, zoomIn, zoomOut, rotateLeft, rotateRight, straighten }` — compteurs (la commande part quand le nombre augmente). `view-from` : DP `{ x, y, zoom, rotation }` qui règle la vue (centre du monde, zoom, rotation en radians).
 
-État : `{ status, error, blend, zoom, x, y, rotation, strokes, points, lastStroke, regions, colors, flats, masks, flattened, drawing, canUndo, canRedo, tool, color, size, bbox, last }`. `save` enregistre un SVG dans `last` (`savePng` : un PNG de la vue) : brancher `sonic-media-download source="dessinState.last"`.
+État : `{ status, error, blend, zoom, x, y, rotation, strokes, points, lastStroke, regions, colors, flats, masks, flattened, drawing, canUndo, canRedo, tool, color, picked, size, bbox, last }`. `save` enregistre un SVG dans `last` (`savePng` : un PNG de la vue) : brancher `sonic-media-download source="dessinState.last"`.
 
 ## Export SVG
 
@@ -62,3 +64,7 @@ Traits nets, opaques, à pression constante → un tracé de courbes lissé. Poi
 20 000 traits, 20 000 points par trait, 2 millions de points au total ; l'export SVG s'arrête à 100 000 empreintes (erreur dans `error`). Le rendu parcourt les traits visibles : au-delà de quelques milliers de traits très étendus, le redessin devient sensible. Traits non aplatis : le mode de fusion s'applique au trait entier (pas de fusion d'une empreinte avec les précédentes du même trait).
 
 Le découpage est rendu robuste aux géométries accumulées : en cas d'échec de polygon-clipping, l'opération est rejouée avec les sommets alignés sur une grille très fine (repère local, invisible). Si elle échoue encore, le trait reste en empreintes.
+
+## Calques : vectoriel sur pixels
+
+`sonic-sketch background="transparent"` posé sur une `sonic-paint navigable` avec le même `view-sync` forme un dessin à deux calques alignés. `view-sync` est un DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit ; une unité du monde y vaut un pixel de l'image. On rend le calque inactif transparent au pointeur avec `pointer-events:none`. La pipette traverse les calques. `sonic-paint` peut fondre le calque vectoriel dans ses pixels avec `stamp-from="#id"` et la commande `stamp`. Voir l'addon `paint`, section « Calques ». La toile est aussi une source d'images pour `sonic-shader channel0="#id"`, `sonic-2d` et `sonic-3d`.

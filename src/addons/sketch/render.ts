@@ -127,7 +127,7 @@ export function drawStroke(s: Surface, st: Stroke): void {
 
 function paintStroke(s: Surface, st: Stroke): void {
   if (st.flat) {
-    for (const r of st.flat) fillMulti(s, r.shape, r.color, r.blend ? blendOp(r.blend) : "source-over");
+    for (const r of st.flat) fillMulti(s, r.shape, r.color, r.blend ? blendOp(r.blend) : "source-over", !r.blend && r.rgba[3] >= 0.999);
     return;
   }
   if (st.mask) return fillMulti(s, st.mask, "#000", "destination-out");
@@ -138,7 +138,12 @@ function paintStroke(s: Surface, st: Stroke): void {
  * Polygones du monde remplis en pair-impair. Les sommets passent à l'écran en double précision côté JS
  * (pas de transformation du contexte : le canvas calcule en simple précision, faux aux zooms extrêmes).
  */
-function fillMulti(s: Surface, shape: Multi, color: string, op: GlobalCompositeOperation): void {
+/**
+ * Remplit une forme. `seal` (régions opaques sans fusion) : le contour est aussi tracé de la même couleur sur
+ * ~1 px. Deux régions voisines remplies séparément laissent sinon passer le fond par l'anticrénelage de leur
+ * bord commun (un liseré clair, très visible quand la couche est agrandie pendant un zoom).
+ */
+function fillMulti(s: Surface, shape: Multi, color: string, op: GlobalCompositeOperation, seal = false): void {
   const { ctx, view, w, h } = s;
   // Découpe à la vue (outil de clipping de l'addon vector) : aux forts zooms, pas de coordonnées gigantesques.
   let m = shape;
@@ -159,6 +164,12 @@ function fillMulti(s: Surface, shape: Multi, color: string, op: GlobalCompositeO
   ctx.globalCompositeOperation = op;
   ctx.fillStyle = color;
   ctx.fill(path, "evenodd");
+  if (seal) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 0.9;
+    ctx.lineJoin = "round";
+    ctx.stroke(path);
+  }
   ctx.restore();
 }
 

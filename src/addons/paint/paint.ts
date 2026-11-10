@@ -4,10 +4,12 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import { safeMediaUrl } from "../../shared/media/urls";
-import type { SonicFrameConsumerHost, SonicFrameSource, SonicMediaRef } from "../../shared/mediaRef";
+import { isFrameSource, type SonicFrameConsumerHost, type SonicFrameSource, type SonicMediaRef } from "../../shared/mediaRef";
 import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, blendOp, place, rng, sanitizeBrush, type BrushSettings, type Pt } from "./brush";
 import { drawTip, tipFromValue, tipGeometry } from "./tip";
-import { ROTATE_STEP, ViewGestures, fitBox, sanitizeView2D, screenToWorld, viewMatrix, type View2D } from "../../shared/view2d";
+import { ROTATE_STEP, ViewGestures, fitBox, invert, multiply, sanitizeView2D, screenToWorld, viewMatrix, type View2D } from "../../shared/view2d";
+import { ViewSync } from "../../shared/view-sync";
+import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
 
 /** Zoom de la vue d'une toile navigable (pixels d'écran par pixel de toile). */
 const NAV_MIN_ZOOM = 0.01;
@@ -28,6 +30,8 @@ export type PaintState = {
   tool: string;
   color: string;
   size: number;
+  /** Dernière couleur prélevée à la pipette (`tool="pick"` ou Alt + clic), calques compris. */
+  picked: string | null;
   /** Dernier enregistrement (`control.save`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
   /** Toile navigable : vue (centre en pixels de toile, zoom, rotation en radians). Sinon zoom 1, rotation 0. */
@@ -86,6 +90,12 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   @property({ type: String, attribute: "tip-from" }) tipFrom = "";
   /** DP de réglages en direct. */
   @property({ type: String, attribute: "brush-from" }) brushFrom = "";
+  /**
+   * Sources d'images à fondre dans la toile à la commande `stamp` (sélecteurs `#id` séparés par des virgules,
+   * du dessous vers le dessus) : un calque `sonic-sketch` posé au-dessus, un `sonic-shader`, une scène
+   * `sonic-2d` / `sonic-3d`… Chacune est peinte telle qu'elle apparaît à l'écran, à sa place sous la toile.
+   */
+  @property({ type: String, attribute: "stamp-from" }) stampFrom = "";
   @property({ type: String }) control = "";
   @property({ type: String, attribute: "in-data-provider" }) inDataProvider = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
@@ -100,10 +110,15 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   @property({ type: Boolean, reflect: true }) navigable = false;
   /** DP de la vue `{ x, y, zoom, rotation }` (toile navigable). */
   @property({ type: String, attribute: "view-from" }) viewFrom = "";
+  /** DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit : des toiles superposées restent alignées. */
+  @property({ type: String, attribute: "view-sync" }) viewSync = "";
+  private sync: ViewSync | null = null;
 
   @query("canvas") private canvasEl!: HTMLCanvasElement;
 
   private seq = 0;
+  private picking = false;
+  private picked: string | null = null;
   private consumers = new Set<object>();
   private strokes = 0;
   private drawing = false;
@@ -229,7 +244,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
       if (this.canvasEl && (c.has("width") || c.has("height")) && !c.has("background")) this.fillBackground();
       else if (c.has("background") && this.strokes === 0) this.fillBackground();
     }
-    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("inDataProvider") || c.has("viewFrom")) this.listen();
+    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("inDataProvider") || c.has("viewFrom") || c.has("viewSync")) this.listen();
     if (c.has("tool") || c.has("color") || c.has("size")) this.publish();
     if (c.has("undoLevels")) this.history = new History<ImageData>(Math.max(0, Math.min(100, this.undoLevels)));
   }
@@ -252,12 +267,24 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
       this.unsubs.push(listenDp(this.control, (v) => {
         if (!v || typeof v !== "object") return;
         const c = v as Record<string, unknown>;
+        if ("stamp" in c && this.trigger("stamp").feed(c.stamp)) this.stampSources();
         for (const cmd of ["undo", "redo", "clear", "save", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten"] as const) {
           if (cmd in c && this.trigger(cmd).feed(c[cmd])) this[cmd]();
         }
       }));
     }
     if (this.inDataProvider) this.unsubs.push(listenDp(this.inDataProvider, (v) => void this.loadBase(v)));
+    this.sync = this.viewSync ? new ViewSync(this.viewSync) : null;
+    if (this.sync) {
+      this.unsubs.push(this.sync.listen((v) => {
+        if (!this.navigable) return;
+        const next = sanitizeView2D(v, this.view, NAV_MIN_ZOOM, NAV_MAX_ZOOM);
+        const c = this.view;
+        // Vue bornée par cette toile (zoom) : réécrite pour que les autres calques l'adoptent.
+        if (next.x === c.x && next.y === c.y && next.zoom === c.zoom && next.rotation === c.rotation) { this.sync?.write(next); return; }
+        this.setView(next);
+      }));
+    }
     if (this.viewFrom) {
       this.unsubs.push(listenDp(this.viewFrom, (v) => {
         if (!this.navigable) return;
@@ -391,6 +418,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
 
   private setView(v: View2D, auto = false): void {
     this.view = v;
+    if (this.navigable) this.sync?.write(v);
     this.autoFit = auto;
     this.schedulePresent();
     this.publish();
@@ -398,7 +426,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
 
   private toolName(): string {
     const t = typeof this.live.tool === "string" ? this.live.tool : this.tool;
-    return t === "hand" || t === "erase" ? t : "paint";
+    return t === "hand" || t === "erase" || t === "pick" ? t : "paint";
   }
 
   private local(e: { clientX: number; clientY: number }): { x: number; y: number } {
@@ -618,6 +646,12 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     }
     this.pointer = e.pointerId;
     this.pointerType = e.pointerType;
+    if (this.wantsPick(e)) {
+      try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
+      e.preventDefault();
+      this.startPick(e);
+      return;
+    }
     this.startStrokeWatch();
     try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
     e.preventDefault();
@@ -642,6 +676,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     if (e.pointerType === "mouse" && e.button !== 0) { this.nav.up(e.pointerId); return; }
     this.pointer = e.pointerId;
     this.pointerType = e.pointerType;
+    if (this.wantsPick(e)) { this.startPick(e); return; }
     this.beginStroke(e);
   }
 
@@ -671,6 +706,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
 
   private onMove = (e: PointerEvent): void => {
     if (this.navigable && this.nav.move(e.pointerId, this.local(e))) return;
+    if (this.picking && e.pointerId === this.pointer) { this.pick(e, false); return; }
     if (!this.drawing || e.pointerId !== this.pointer) return;
     const b = this.brush();
     const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
@@ -683,6 +719,14 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   };
 
   private onUp = (e: PointerEvent): void => {
+    if (this.picking && e.pointerId === this.pointer) {
+      if (this.navigable) this.nav.up(e.pointerId);
+      try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
+      this.picking = false;
+      this.pointer = null;
+      this.pick(e, e.type === "pointerup");
+      return;
+    }
     if (this.navigable) {
       this.nav.up(e.pointerId);
       if (this.panning === e.pointerId) {
@@ -717,7 +761,101 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.touch();
   };
 
+  /* ------------------------------------------------------------ pipette */
+
+  private wantsPick(e: PointerEvent): boolean {
+    const t = this.toolName();
+    return t === "pick" || (e.altKey && t === "paint");
+  }
+
+  private startPick(e: PointerEvent): void {
+    this.picking = true;
+    this.pick(e, false);
+  }
+
+  /** Point du viewport → pixel de l'image (vue de la toile navigable, ou mise à l'échelle CSS). */
+  private imagePoint(clientX: number, clientY: number): [number, number] | null {
+    const c = this.canvasEl;
+    if (!c) return null;
+    const r = c.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return null;
+    const { w, h } = this.dims();
+    if (this.navigable) return screenToWorld(this.view, clientX - r.left, clientY - r.top, this.disp.w || 1, this.disp.h || 1);
+    return [((clientX - r.left) / r.width) * w, ((clientY - r.top) / r.height) * h];
+  }
+
+  /** Contrat `PickSource` (`shared/pick`) : le pixel de l'image sous le point (transparent hors de l'image). */
+  pickAt(clientX: number, clientY: number): { pixel: Pixel } | null {
+    const c = this.canvasEl, img = this.image();
+    if (!c || !img) return null;
+    const r = c.getBoundingClientRect();
+    if (clientX < r.left || clientX >= r.right || clientY < r.top || clientY >= r.bottom) return null;
+    const p = this.imagePoint(clientX, clientY);
+    if (!p) return null;
+    return { pixel: readCanvasPixel(img, p[0], p[1]) ?? [0, 0, 0, 0] };
+  }
+
+  /**
+   * Pipette : la couleur vue sous le point (calques au-dessus et en dessous compris : `sonic-sketch`, shaders,
+   * scènes…) devient celle du pinceau, écrite aussi dans `brush-from`. Au lever, l'outil revient au pinceau
+   * si la pipette venait de `brush-from`.
+   */
+  private pick(e: { clientX: number; clientY: number }, done: boolean): void {
+    const c = pickColorAt(e.clientX, e.clientY);
+    if (c) {
+      this.picked = c;
+      this.live = { ...this.live, color: c };
+      if (this.brushFrom) set(`${this.brushFrom}.color`, c);
+      this.dispatchEvent(new CustomEvent("paint-pick", { detail: { color: c, done }, bubbles: true, composed: true }));
+    }
+    if (done && this.brushFrom && this.live.tool === "pick") {
+      this.live = { ...this.live, tool: "paint" };
+      set(`${this.brushFrom}.tool`, "paint");
+    }
+    this.publish();
+  }
+
   /* ------------------------------------------------------------ commandes */
+
+  /**
+   * Fond dans la toile les sources de `stamp-from`, telles qu'elles apparaissent à l'écran par-dessus elle
+   * (aplatir un calque vectoriel, capturer une image de shader ou de scène). Une étape d'annulation.
+   */
+  stampSources(): void {
+    const ctx = this.ctx(), c = this.canvasEl;
+    if (!ctx || !c || !this.stampFrom) return;
+    const cr = c.getBoundingClientRect();
+    if (!(cr.width > 0 && cr.height > 0)) return;
+    const { w, h } = this.dims();
+    // Viewport → image : inverse de la vue (toile navigable) ou de la mise à l'échelle CSS.
+    const m = this.navigable
+      ? multiply(invert(viewMatrix(this.view, this.disp.w || 1, this.disp.h || 1)), [1, 0, 0, 1, -cr.left, -cr.top])
+      : [w / cr.width, 0, 0, h / cr.height, (-cr.left * w) / cr.width, (-cr.top * h) / cr.height];
+    const root = this.getRootNode() as Document | ShadowRoot;
+    const sources: { canvas: HTMLCanvasElement; r: DOMRect }[] = [];
+    for (const sel of this.stampFrom.split(",").map((x) => x.trim()).filter(Boolean)) {
+      let el: Element | null = null;
+      try { el = root.querySelector(sel) ?? document.querySelector(sel); } catch { el = null; }
+      if (!el || el === this || !isFrameSource(el)) continue;
+      const canvas = el.getFrameCanvas();
+      if (!canvas) continue;
+      const r = canvas.isConnected ? canvas.getBoundingClientRect() : el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) sources.push({ canvas, r });
+    }
+    if (!sources.length) return;
+    this.pushHistory();
+    ctx.save();
+    ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    ctx.imageSmoothingEnabled = true;
+    for (const { canvas, r } of sources) {
+      try { ctx.drawImage(canvas, r.left, r.top, r.width, r.height); } catch { /* source illisible */ }
+    }
+    ctx.restore();
+    this.strokes++;
+    this.touch();
+  }
 
   undo(): void {
     const ctx = this.ctx();
@@ -754,7 +892,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   getState(): PaintState {
     const { w, h } = this.dims();
     const b = this.brush();
-    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" ? "hand" : b.tool, color: b.color, size: b.size, last: this.last, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
+    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" || this.toolName() === "pick" ? this.toolName() : b.tool, color: b.color, picked: this.picked, size: b.size, last: this.last, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
   }
 
   private publish(): void {
