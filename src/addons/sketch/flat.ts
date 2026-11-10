@@ -214,3 +214,25 @@ export function flatBBox(regions: Region[]): BBox {
 }
 
 export { sameColor };
+
+/**
+ * Recolore des régions de la carte (`targets`, par référence) : elles prennent la vraie couleur `rgba` (mode de
+ * fusion retiré), puis se ressoudent à leurs voisines de même couleur. Renvoie la nouvelle carte et les régions
+ * issues des cibles (pour garder la sélection) ; les régions non touchées gardent leur identité.
+ */
+export function recolorFlat(regions: Region[], targets: Set<Region>, rgba: Rgba): { regions: Region[]; fresh: Region[] } {
+  const hit = regions.filter((r) => targets.has(r));
+  if (!hit.length) return { regions, fresh: [] };
+  const c = quantize(rgba);
+  const f = frameOf(flatBBox(hit));
+  const recolored = hit.map((r) => region(c, r.shape));
+  const rest = regions.filter((r) => !targets.has(r));
+  const out = mergeSameColor(rest, recolored, f);
+  const kept = new Set(rest);
+  return { regions: out, fresh: out.filter((r) => !kept.has(r)) };
+}
+
+/** Retire des régions de la carte (par référence). */
+export function deleteFlat(regions: Region[], targets: Set<Region>): Region[] {
+  return regions.filter((r) => !targets.has(r));
+}
