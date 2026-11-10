@@ -1,5 +1,13 @@
 import { tipGeometry, tipTransform } from "../paint/tip";
-import { fitCurve, fitMulti, intersects, type BBox } from "../vector";
+import { fitCurve, intersects, type BBox, type Multi } from "../vector";
+
+/**
+ * Polygones exacts, coordonnées en double précision (pas d'ajustement de courbes ni d'arrondi : le détail
+ * tracé à un zoom extrême doit survivre à l'export).
+ */
+const fx = (n: number) => String(+n.toPrecision(15));
+const multiPath = (m: Multi): string =>
+  m.flat().filter((r) => r.length >= 3).map((r) => "M" + r.map(([x, y]) => fx(x) + "," + fx(y)).join("L") + "Z").join("");
 import { contentBBox, type Stroke } from "./model";
 import { strokeStamps } from "./render";
 
@@ -43,9 +51,19 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
   const body: string[] = [];
   let count = 0;
 
+  let masks = 0;
   for (const st of strokes) {
     // Culling : hors de la zone exportée, le trait ne produit rien.
     if (opts.area && !intersects(st.bbox, opts.area)) continue;
+    if (st.mask) {
+      // Gomme : tout ce qui est dessous passe dans un groupe masqué (trou net, traits non aplatis compris).
+      const d = multiPath(st.mask);
+      if (!d || !body.length) continue;
+      const id = `m${++masks}`;
+      defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}"><rect x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}" fill="#fff"/><path d="${d}" fill="#000" fill-rule="evenodd"/></mask>`);
+      body.splice(0, body.length, `<g mask="url(#${id})">${body.join("")}</g>`);
+      continue;
+    }
     const b = st.brush;
     const op = b.opacity < 0.999 ? ` opacity="${f(b.opacity)}"` : "";
     const at = body.length;
@@ -57,10 +75,16 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
   }
 
   function emit(st: Stroke, b: Stroke["brush"], op: string): void {
-    if (st.shape) {
-      // Forme fusionnée : un seul chemin de courbes ajustées sur ses contours.
-      const d = fitMulti(st.shape, Math.max(b.size * 0.02, 1e-12), { cornerDeg: 70 });
-      if (d) body.push(`<path d="${d}" fill="${esc(b.color)}" fill-rule="evenodd"/>`);
+    if (st.flat) {
+      // Carte d'aplats : un chemin par couleur (régions disjointes).
+      for (const r of st.flat) {
+        const d = multiPath(r.shape);
+        if (!d) continue;
+        const rgb = r.color.slice(0, 7);
+        const fo = r.rgba[3] < 0.999 ? ` fill-opacity="${f(r.rgba[3])}"` : "";
+        const mix = r.blend ? ` style="mix-blend-mode:${r.blend}"` : "";
+        body.push(`<path d="${d}" fill="${rgb}"${fo} fill-rule="evenodd"${mix}/>`);
+      }
       return;
     }
     if (isPlainLine(st)) {

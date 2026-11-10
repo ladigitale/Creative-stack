@@ -240,63 +240,141 @@ describe("export SVG : jointure et culling", () => {
   });
 });
 
-describe("fusion vectorielle (découpage polygonal)", () => {
-  it("un trait plein devient son contour : aire ≈ capsule", async () => {
-    const { strokeOutline } = await import("./merge");
-    const { multiArea } = await import("../vector");
-    const m = strokeOutline([0, 0, 1, 100, 0, 1], 5, 0.05);
-    expect(m).toHaveLength(1);
-    expect(multiArea(m)).toBeCloseTo(100 * 10 + Math.PI * 25, -1);
+describe("couleurs d'aplat (W3C compositing)", async () => {
+  const { composite, parseColor, toCss, blendRgb } = await import("./flat-color");
+  const red = parseColor("#ff0000")!, blue = parseColor("#0000ff")!, white = parseColor("#ffffff")!;
+  it("lit les couleurs CSS", () => {
+    expect(parseColor("#f00")).toEqual([1, 0, 0, 1]);
+    expect(parseColor("rgba(255, 0, 0, 0.5)")).toEqual([1, 0, 0, 0.5]);
+    expect(toCss(parseColor("hsl(120, 100%, 50%)")!)).toBe("#00ff00");
+    expect(parseColor("rebeccapurple")).toBeNull();
   });
-  it("fonctionne à toute échelle du monde", async () => {
-    const { strokeOutline } = await import("./merge");
-    const { multiArea } = await import("../vector");
-    for (const k of [1e-7, 1e7]) {
-      const m = strokeOutline([0, 0, 1, 100 * k, 0, 1], 5 * k, 0.05 * k);
-      expect(multiArea(m) / (k * k)).toBeCloseTo(1000 + Math.PI * 25, -1);
+  it("normal opaque : la couleur du trait", () => {
+    expect(toCss(composite(red, blue, 1, "normal"))).toBe("#0000ff");
+  });
+  it("produit, écran, différence entre aplats", () => {
+    expect(toCss(composite(red, parseColor("#808080")!, 1, "multiply"))).toBe("#800000");
+    expect(toCss(composite(red, blue, 1, "screen"))).toBe("#ff00ff");
+    expect(toCss(composite(white, red, 1, "difference"))).toBe("#00ffff");
+  });
+  it("opacité : mélange avec le fond", () => {
+    expect(toCss(composite(white, red, 0.5, "normal"))).toBe("#ff8080");
+  });
+  it("sur fond transparent : la couleur avec son opacité", () => {
+    expect(toCss(composite(null, red, 0.5, "multiply"))).toBe("#ff000080");
+  });
+  it("modes non séparables : couleur garde la luminance du fond", () => {
+    const [r, g, b] = blendRgb("color", [0.5, 0.5, 0.5], [1, 0, 0]);
+    expect(0.3 * r + 0.59 * g + 0.11 * b).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe("carte d'aplats (découpage polygonal)", async () => {
+  const { strokeOutline } = await import("./merge");
+  const { paintFlat, eraseFlat, flatBBox } = await import("./flat");
+  const { parseColor } = await import("./flat-color");
+  const { multiArea } = await import("../vector");
+  const red = parseColor("#ff0000")!, blue = parseColor("#0000ff")!;
+  const white = { known: true as const, color: parseColor("#ffffff") };
+  const area = (rs: { shape: import("../vector").Multi }[]) => rs.reduce((n, r) => n + multiArea(r.shape), 0);
+  const h = strokeOutline([0, 0, 1, 100, 0, 1], 5, 0.02);
+  const v = strokeOutline([50, -50, 1, 50, 50, 1], 5, 0.02);
+
+  it("un trait plein devient son contour : aire ≈ capsule", () => {
+    expect(multiArea(h)).toBeCloseTo(100 * 10 + Math.PI * 25, -1);
+  });
+  it("même couleur : une seule région, sans double comptage", () => {
+    let m = paintFlat([], h, red, 1, "normal", white);
+    m = paintFlat(m, v, red, 1, "normal", white);
+    expect(m).toHaveLength(1);
+    expect(area(m)).toBeLessThan(multiArea(h) + multiArea(v) - 90);
+  });
+  it("couleur opaque par-dessus : ce qui est recouvert disparaît, les régions restent disjointes", () => {
+    let m = paintFlat([], h, red, 1, "normal", white);
+    m = paintFlat(m, v, blue, 1, "normal", white);
+    // Le bleu coupe le rouge en deux morceaux disjoints (une région par morceau d'un seul tenant).
+    expect(m.map((r) => r.color).sort()).toEqual(["#0000ff", "#ff0000", "#ff0000"]);
+    expect(area(m)).toBeCloseTo(multiArea(h) + multiArea(v) - 100, -1);
+    // Le rouge a perdu le carré du croisement.
+    expect(area(m.filter((r) => r.color === "#ff0000"))).toBeCloseTo(multiArea(h) - 100, -1);
+  });
+  it("trait recouvert entièrement : il disparaît", () => {
+    let m = paintFlat([], strokeOutline([40, 0, 1, 60, 0, 1], 3, 0.02), red, 1, "normal", white);
+    m = paintFlat(m, h, blue, 1, "normal", white);
+    expect(m).toHaveLength(1);
+    expect(m[0].color).toBe("#0000ff");
+  });
+  it("produit : le croisement devient une vraie couleur", () => {
+    let m = paintFlat([], h, parseColor("#ffff00")!, 1, "normal", white);
+    m = paintFlat(m, v, parseColor("#00ffff")!, 1, "multiply", white);
+    // Jaune × cyan = vert au croisement ; cyan × blanc = cyan ailleurs (deux bras) ; le jaune coupé en deux.
+    expect([...new Set(m.map((r) => r.color))].sort()).toEqual(["#00ff00", "#00ffff", "#ffff00"]);
+    expect(m.filter((r) => r.color === "#00ff00")).toHaveLength(1);
+    expect(m.every((r) => !r.blend)).toBe(true);
+  });
+  it("fond inconnu : le mode est gardé hors des régions", () => {
+    const m = paintFlat([], h, red, 1, "multiply", { known: false });
+    expect(m[0].blend).toBe("multiply");
+  });
+  it("gomme : un vrai trou, pas la forme entière", () => {
+    let m = paintFlat([], h, red, 1, "normal", white);
+    const before = area(m);
+    m = eraseFlat(m, v);
+    // Le trait coupé en travers : deux morceaux, l'aire du croisement en moins.
+    expect(m).toHaveLength(2);
+    expect(area(m)).toBeCloseTo(before - 100, -1);
+    expect(flatBBox(m).w).toBeGreaterThan(100);
+    // Un coup de gomme au milieu d'un trait épais : un trou dans une seule région.
+    const thick = paintFlat([], strokeOutline([0, 0, 1, 100, 0, 1], 20, 0.05), red, 1, "normal", white);
+    const holed = eraseFlat(thick, strokeOutline([50, 0, 1], 4, 0.02));
+    expect(holed).toHaveLength(1);
+    expect(holed[0].shape[0].length).toBe(2);
+  });
+  it("gomme qui couvre tout : plus rien", () => {
+    const m = eraseFlat(paintFlat([], strokeOutline([0, 0, 1, 10, 0, 1], 2, 0.02), red, 1, "normal", white), strokeOutline([-20, 0, 1, 30, 0, 1], 10, 0.05));
+    expect(m).toHaveLength(0);
+  });
+  it("à toute échelle du monde", () => {
+    for (const k of [1e-6, 1e6]) {
+      const a = strokeOutline([0, 0, 1, 100 * k, 0, 1], 5 * k, 0.02 * k), b = strokeOutline([50 * k, -50 * k, 1, 50 * k, 50 * k, 1], 5 * k, 0.02 * k);
+      const m = eraseFlat(paintFlat(paintFlat([], a, red, 1, "normal", white), b, blue, 1, "normal", white), strokeOutline([0, 0, 1, 0, 1 * k, 1], 2 * k, 0.01 * k));
+      expect(new Set(m.map((r) => r.color)).size).toBe(2);
+      expect(area(m) / (k * k)).toBeGreaterThan(1500);
     }
   });
-  it("deux traits qui se croisent : une seule forme, sans double comptage", async () => {
-    const { strokeOutline, mergeShapes, shapeHit } = await import("./merge");
-    const { multiArea } = await import("../vector");
-    const a = strokeOutline([0, 0, 1, 100, 0, 1], 5, 0.05);
-    const b = strokeOutline([50, -50, 1, 50, 50, 1], 5, 0.05);
-    const m = mergeShapes(a, b, 0.05);
-    expect(m).toHaveLength(1);
-    expect(multiArea(m)).toBeLessThan(multiArea(a) + multiArea(b) - 90);
-    expect(shapeHit(m, 50, 30, 0)).toBe(true);
-    expect(shapeHit(m, 20, 30, 0)).toBe(false);
-    expect(shapeHit(m, 20, 7, 2.5)).toBe(true);
-  });
-  it("cible : même style au contact, bloquée par un trait d'un autre style posé dessus", async () => {
-    const { mergeTarget, isSolid } = await import("./merge");
-    const red = brush(10, { color: "#ff0000" }), blue = brush(10, { color: "#0000ff" });
-    const r1 = stroke([[0, 0], [100, 0]], red);
-    const fresh = stroke([[50, -20], [50, 20]], red);
-    expect(isSolid(red, fresh.pts)).toBe(true);
-    expect(mergeTarget([r1], fresh)).toBe(0);
-    expect(mergeTarget([r1, stroke([[0, 200], [100, 200]], blue)], fresh)).toBe(0);
-    expect(mergeTarget([r1, stroke([[40, -30], [60, 30]], blue)], fresh)).toBe(-1);
-    expect(mergeTarget([stroke([[0, 0], [100, 0]], brush(10, { color: "#ff0000", hardness: 0.3 }))], fresh)).toBe(-1);
-    expect(mergeTarget([stroke([[0, 0], [100, 0]], brush(10, { color: "#ff0000", blend: "multiply" }))], fresh)).toBe(-1);
-  });
-  it("swap : une étape d'annulation", () => {
+});
+
+describe("historique : remplacement d'un bloc", () => {
+  it("replace : une étape d'annulation", () => {
     const d = new Doc();
-    const a = stroke([[0, 0]]), b = stroke([[5, 5]]), c = stroke([[9, 9]]);
-    d.add(a); d.add(b); d.add(c);
-    const merged = { ...stroke([[1, 1]]), pts: [], shape: [[[[0, 0], [1, 0], [1, 1]] as [number, number][]]] };
-    d.swap(new Set([a.id]), merged, 0);
-    expect(d.strokes).toEqual([merged, b, c]);
-    expect(d.totalPoints).toBe(3 + 2);
+    const a = stroke([[0, 0]]), b = stroke([[5, 5]]);
+    d.add(a); d.add(b);
+    const flat = { ...stroke([[1, 1]]), pts: [], flat: [] };
+    d.replace([flat]);
+    expect(d.strokes).toEqual([flat]);
     d.undo();
-    expect(d.strokes).toEqual([a, b, c]);
+    expect(d.strokes).toEqual([a, b]);
     d.redo();
-    expect(d.strokes).toEqual([merged, b, c]);
+    expect(d.strokes).toEqual([flat]);
   });
-  it("export : une forme = un chemin rempli", () => {
-    const shape = { ...stroke([[0, 0]]), pts: [], shape: [[[[0, 0], [10, 0], [10, 10], [0, 10]] as [number, number][]]], bbox: { x: 0, y: 0, w: 10, h: 10 } };
-    const svg = exportSvg([shape]);
-    expect(svg).toContain('fill-rule="evenodd"');
-    expect((svg.match(/<path /g) ?? []).length).toBe(1);
+});
+
+describe("export SVG : aplats et gomme", async () => {
+  const { paintFlat } = await import("./flat");
+  const { strokeOutline } = await import("./merge");
+  const { parseColor } = await import("./flat-color");
+  it("une carte = un chemin par couleur ; une gomme = un masque", () => {
+    // Fond transparent : le bleu à 50 % reste translucide (sur un fond connu, il deviendrait une couleur opaque).
+    const white = { known: true as const, color: null };
+    let m = paintFlat([], strokeOutline([0, 0, 1, 100, 0, 1], 5, 0.05), parseColor("#ff0000")!, 1, "normal", white);
+    m = paintFlat(m, strokeOutline([50, -50, 1, 50, 50, 1], 5, 0.05), parseColor("#0000ff")!, 0.5, "normal", white);
+    const flatItem = { ...stroke([[0, 0]]), pts: [], flat: m, bbox: { x: -10, y: -60, w: 120, h: 120 } };
+    const soft = stroke([[0, 20], [100, 20]], brush(10, { hardness: 0.3 }));
+    const mask = { ...stroke([[0, 0]]), pts: [], mask: strokeOutline([20, -10, 1, 20, 30, 1], 3, 0.05), bbox: { x: 17, y: -13, w: 6, h: 46 } };
+    const svg = exportSvg([flatItem, soft, mask]);
+    expect((svg.match(/fill-rule="evenodd"/g) ?? []).length).toBe(m.length + 1);
+    expect(svg).toContain('<mask id="m1"');
+    expect(svg).toContain('mask="url(#m1)"');
+    expect(svg).toMatch(/fill-opacity="/);
   });
 });

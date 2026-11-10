@@ -14,7 +14,10 @@ import {
 import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
-import { MAX_SHAPE_VERTICES, isSolid, mergeShapes, mergeTarget, shapeBBox, shapeVertices, solidRadius, strokeOutline } from "./merge";
+import { isSolid, solidRadius, strokeOutline } from "./merge";
+import { MAX_FLAT_VERTICES, eraseFlat, flatBBox, flatVertices, paintFlat, type Backdrop } from "./flat";
+import { parseColor, type Rgba } from "./flat-color";
+import { multiBBox } from "../vector";
 
 const MAX_SIDE = 4096;
 
@@ -30,9 +33,12 @@ export type SketchState = {
   /** Points de tous les traits (après simplification), et ceux du dernier trait avant / après. */
   points: number;
   lastStroke: { before: number; after: number };
-  /** Formes fusionnées parmi les traits, et nombre de fusions depuis le chargement. */
-  shapes: number;
-  merges: number;
+  /** Régions d'aplat (une par couleur et par carte), couleurs distinctes, cartes, masques de gomme, aplatissements. */
+  regions: number;
+  colors: number;
+  flats: number;
+  masks: number;
+  flattened: number;
   drawing: boolean;
   canUndo: boolean;
   canRedo: boolean;
@@ -53,7 +59,7 @@ export type SketchState = {
  * pincement du pavé aussi), glisser avec Espace, bouton du milieu ou `tool="hand"` = déplacer, deux doigts =
  * déplacer, zoomer et tourner ; clavier + − 0, R / Maj+R (tourner de 15°). Pinceau : tout
  * ce que sait faire `sonic-paint` (pointes personnalisées par `tip` / `tip-from`, angle, dispersion…).
- * `tool="erase"` efface les traits touchés. Commandes par `control` (compteurs) : `undo`, `redo`, `clear`,
+ * `tool="erase"` est une vraie gomme (trou exact dans les aplats, masque sur les traits non aplatis). Commandes par `control` (compteurs) : `undo`, `redo`, `clear`,
  * `save` (SVG), `savePng`, `fit`, `reset`, `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`.
  * Vue pilotée par `view-from` ({x, y, zoom, rotation}).
  */
@@ -76,7 +82,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Number }) opacity = BRUSH_DEFAULTS.opacity;
   @property({ type: Number }) spacing = BRUSH_DEFAULTS.spacing;
   @property({ type: Number }) smoothing = 0.3;
-  /** `paint`, `erase` (efface les traits touchés) ou `hand` (déplacer la vue). */
+  /** `paint`, `erase` (vraie gomme) ou `hand` (déplacer la vue). */
   @property({ type: String }) tool = "paint";
   @property({ type: Boolean }) pressure = true;
   @property({ type: String }) tip = "";
@@ -101,10 +107,13 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    */
   @property({ type: Number }) simplify = 0.35;
   /**
-   * Fusion vectorielle : un trait plein (net, opaque, sans pointe) est uni par découpage polygonal à la forme
-   * de même couleur et même mode qu'il touche (si rien d'un autre style n'est posé entre les deux sur lui).
-   * Une région d'une couleur devient une seule forme. La gomme efface alors la forme entière.
+   * Aplatissement à chaque fin de geste : un trait plein (net, sans pointe ni variation ; opacité et mode de
+   * fusion permis) est découpé dans la carte d'aplats du dessus. Sous le trait, chaque région prend la vraie
+   * couleur calculée ; ce qui est entièrement recouvert disparaît ; les régions de même couleur sont unies.
+   * Les autres traits (doux, pointes) restent en empreintes. `flatten="false"` garde chaque trait tel quel.
    */
+  @property({ type: Boolean }) flatten = true;
+  /** Ancien nom de `flatten` (faux : pas d'aplatissement). */
   @property({ type: Boolean }) merge = true;
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
 
@@ -144,7 +153,10 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private last: SketchState["last"] = null;
   private error: string | null = null;
   private lastCompaction = { before: 0, after: 0 };
-  private mergeStats = { merged: 0 };
+  private flattened = 0;
+  /** Le trait en cours est une gomme (aperçu en trou, appliquée au lever). */
+  private erasing = false;
+  private eraseBuf: HTMLCanvasElement | null = null;
 
   get frameSeq(): number { return this.seq; }
   getFrameCanvas(): HTMLCanvasElement | null { return this.canvasEl ?? null; }
@@ -295,14 +307,16 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
     }
-    const layer = this.ensureLayer();
+    let layer: HTMLCanvasElement = this.ensureLayer();
+    // Gomme en cours : la couche est montrée trouée par le tracé de la gomme.
+    if (this.erasing && this.liveBuf) layer = this.holed(layer, this.liveBuf.ctx.canvas);
     // Couche dessinée pour layerView, montrée dans la vue courante (déplacée, zoomée, tournée) le temps du geste.
     const t = multiply(viewMatrix(this.view, w, h), invert(viewMatrix(this.layerView, w, h)));
     ctx.transform(t[0], t[1], t[2], t[3], t[4], t[5]);
     ctx.drawImage(layer, 0, 0, w, h);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Trait en cours avec fusion : la vue n'a pas bougé depuis son début (sinon il est abandonné).
-    if (this.liveBuf && this.stroke) blitBlend({ ctx, w, h, view: this.view }, this.liveBuf.ctx.canvas, this.stroke.brush.blend);
+    if (this.liveBuf && this.stroke && !this.erasing) blitBlend({ ctx, w, h, view: this.view }, this.liveBuf.ctx.canvas, this.stroke.brush.blend);
     this.seq++;
   }
 
@@ -394,22 +408,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
     if (e.pointerType === "mouse" && e.button !== 0) { this.nav.up(e.pointerId); return; }
     this.pointer = e.pointerId;
-    if (tool === "erase") {
-      this.mode = "erase";
-      this.erased = new Set();
-      this.eraseAt(p);
-      return;
-    }
-    this.startStroke(p, e);
+    this.startStroke(p, e, tool === "erase");
   };
 
   private onMove = (e: PointerEvent): void => {
     const p = this.local(e);
     if (this.nav.move(e.pointerId, p)) return;
     if (e.pointerId !== this.pointer) return;
-    if (this.mode === "erase") {
-      this.eraseAt(p);
-    } else if (this.mode === "draw") {
+    if (this.mode === "draw") {
       const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
       for (const ev of events.length ? events : [e]) this.extendStroke(this.local(ev), ev);
       this.compose();
@@ -421,7 +427,6 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
     if (e.pointerId !== this.pointer) return;
     if (this.mode === "draw") this.endStroke(e);
-    else if (this.mode === "erase") this.endErase();
     else if (this.mode === "pan") this.settleLater();
     this.pointer = null;
     this.mode = "none";
@@ -439,16 +444,20 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return e.pointerType === "pen" ? (e.pressure > 0 ? e.pressure : 0.5) : 1;
   }
 
-  private startStroke(p: { x: number; y: number }, e: PointerEvent): void {
+  private startStroke(p: { x: number; y: number }, e: PointerEvent, erase = false): void {
     const lv = this.layerView, v = this.view;
     if (this.layerDirty || lv.x !== v.x || lv.y !== v.y || lv.zoom !== v.zoom || lv.rotation !== v.rotation) this.renderLayer();
-    const b = this.brush();
-    const brush = makeBrush(b, this.worldSize(b), this.currentBlend());
+    this.erasing = erase;
+    // Gomme : disque net de la taille du pinceau, tracé dans un tampon qui troue l'aperçu.
+    const b = erase
+      ? { ...this.brush(), hardness: 1, opacity: 1, tip: "", scatter: 0, sizeJitter: 0, roundness: 1, angleJitter: 0, color: "#000000" }
+      : this.brush();
+    const brush = makeBrush(b, this.worldSize(b), erase ? "normal" : this.currentBlend());
     const seed = (Math.random() * 4294967296) >>> 0;
     this.stroke = { id: this.doc.nextId++, brush, pts: [], seed, bbox: { x: 0, y: 0, w: 0, h: 0 } };
     this.stamper = new StrokeStamper(brush, seed);
     this.liveBuf = null;
-    if (brush.blend) {
+    if (brush.blend || erase) {
       const s = this.layerSurface();
       this.liveBuf = s ? scratchFor(s, this.liveKey) : null;
     }
@@ -495,16 +504,19 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       }
     }
     const live = this.liveBuf;
+    const erasing = this.erasing;
     this.stroke = null;
     this.stamper = null;
     this.liveBuf = null;
+    this.erasing = false;
     if (!st || !st.pts.length) return;
+    if (erasing) return this.endErase(st);
     const raw = st.pts.length / 3;
     const tol = Math.max(0, Math.min(8, Number(this.simplify) || 0));
     if (tol > 0) st.pts = compactStroke(st.pts, tol / this.layerView.zoom, st.brush.pressure ? 0.04 : Infinity);
     this.lastCompaction = { before: raw, after: st.pts.length / 3 };
     st.bbox = strokeBBox(st.pts, strokeMargin(st.brush));
-    if (this.merge && this.mergeInto(st, tol)) {
+    if (this.flatten && this.merge && this.flattenStroke(st, tol)) {
       this.error = null;
       this.invalidate();
       return;
@@ -520,68 +532,130 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.compose();
   }
 
+  /** Couleur CSS → Rgba (formes non reconnues : passage par le canvas, qui normalise les noms de couleurs). */
+  private rgbaOf(css: string): Rgba | null {
+    const direct = parseColor(css);
+    if (direct) return direct;
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#000000";
+    ctx.fillStyle = css;
+    return parseColor(String(ctx.fillStyle));
+  }
+
+  /** Ce qu'il y a sous une carte au rang `index` : le fond s'il n'y a rien dessous, sinon inconnu. */
+  private backdropAt(index: number): Backdrop {
+    if (index > 0) return { known: false };
+    const bg = this.backgroundColor();
+    return { known: true, color: bg ? this.rgbaOf(bg) : null };
+  }
+
+  /** Tolérance des contours (monde) pour un trait de rayon r tracé au zoom courant. */
+  private outlineTol(tolPx: number, r: number): number {
+    return Math.min(Math.max(tolPx, 0.25) / this.layerView.zoom, 0.08 * r);
+  }
+
   /**
-   * Unit un trait plein terminé à la forme de même style qu'il touche (une étape d'annulation). Les deux doivent
-   * avoir été tracés à des échelles proches (diamètres dans un rapport ≤ 4) : la simplification ne doit pas
-   * effacer le détail d'un trait tracé bien plus profond.
+   * Aplatit un trait plein terminé dans la carte du dessus (créée au besoin), en une étape d'annulation.
+   * Faux si le trait ne s'aplatit pas (pas plein, couleur illisible, découpage impossible, carte trop lourde).
    */
-  private mergeInto(st: Stroke, tolPx: number): boolean {
+  private flattenStroke(st: Stroke, tolPx: number): boolean {
     if (!isSolid(st.brush, st.pts)) return false;
-    const i = mergeTarget(this.doc.strokes, st);
-    if (i < 0) return false;
-    const other = this.doc.strokes[i];
-    const rNew = solidRadius(st.brush, st.pts);
-    const rOther = other.shape ? other.brush.size / 2 : solidRadius(other.brush, other.pts);
-    if (!(rNew > 0) || !(rOther > 0) || Math.max(rNew, rOther) / Math.min(rNew, rOther) > 4) return false;
-    const tol = Math.min(Math.max(tolPx, 0.25) / this.layerView.zoom, 0.08 * Math.min(rNew, rOther));
+    const src = this.rgbaOf(st.brush.color);
+    const r = solidRadius(st.brush, st.pts);
+    if (!src || !(r > 0)) return false;
+    const strokes = this.doc.strokes;
+    const top = strokes[strokes.length - 1];
+    const onTop = !!top?.flat;
+    const index = onTop ? strokes.length - 1 : strokes.length;
     try {
-      const a = other.shape ?? strokeOutline(other.pts, rOther, tol);
-      const m = mergeShapes(a, strokeOutline(st.pts, rNew, tol), tol);
-      if (!m.length || shapeVertices(m) > MAX_SHAPE_VERTICES) return false;
-      const brush = { ...other.brush, size: 2 * Math.min(rNew, rOther), pressure: false };
-      this.doc.swap(new Set([other.id]), { id: st.id, brush, pts: [], seed: st.seed, shape: m, bbox: shapeBBox(m) }, i);
-      this.mergeStats = { merged: this.mergeStats.merged + 1 };
+      const outline = strokeOutline(st.pts, r, this.outlineTol(tolPx, r));
+      const regions = paintFlat(onTop ? top.flat! : [], outline, src, st.brush.opacity, st.brush.blend ?? "normal", this.backdropAt(index));
+      if (flatVertices(regions) > MAX_FLAT_VERTICES) return false;
+      const brush = { ...st.brush, blend: undefined, opacity: 1, pressure: false };
+      const item: Stroke = { id: onTop ? top.id : st.id, brush, pts: [], seed: st.seed, flat: regions, bbox: flatBBox(regions) };
+      this.doc.replace(regions.length ? [...strokes.slice(0, index), item] : strokes.slice(0, index));
+      this.flattened++;
       return true;
     } catch {
-      return false; // découpage impossible : le trait reste à part
+      return false; // découpage impossible : le trait reste en empreintes
     }
+  }
+
+  /**
+   * Gomme (au lever) : sa forme est retirée de toutes les cartes d'aplats ; si elle touche des traits non aplatis,
+   * un masque est posé au-dessus pour les trouer aussi. Une étape d'annulation.
+   */
+  private endErase(st: Stroke): void {
+    const r = st.brush.size / 2;
+    const tolPx = Math.max(0, Math.min(8, Number(this.simplify) || 0));
+    let outline;
+    try {
+      outline = strokeOutline(st.pts, r, this.outlineTol(tolPx, r));
+    } catch {
+      this.error = "gomme : découpage impossible";
+      this.invalidate();
+      return;
+    }
+    if (!outline.length) { this.invalidate(); return; }
+    const eb = multiBBox(outline);
+    const touches = (b: { x: number; y: number; w: number; h: number }) => b.x <= eb.x + eb.w && b.x + b.w >= eb.x && b.y <= eb.y + eb.h && b.y + b.h >= eb.y;
+    const after: Stroke[] = [];
+    let changed = false, needMask = false;
+    for (const s of this.doc.strokes) {
+      if (s.flat) {
+        if (!touches(s.bbox)) { after.push(s); continue; }
+        const regions = eraseFlat(s.flat, outline);
+        changed = true;
+        if (regions.length) after.push({ ...s, flat: regions, bbox: flatBBox(regions) });
+      } else {
+        after.push(s);
+        if (!s.mask && touches(s.bbox)) needMask = true;
+      }
+    }
+    if (needMask) after.push({ id: st.id, brush: st.brush, pts: [], seed: st.seed, mask: outline, bbox: eb });
+    if (changed || needMask) this.doc.replace(after);
+    this.error = null;
+    this.invalidate();
+  }
+
+  /** Couche trouée par le tampon de la gomme (aperçu pendant le geste). */
+  private holed(layer: HTMLCanvasElement, hole: HTMLCanvasElement): HTMLCanvasElement {
+    const c = (this.eraseBuf ??= document.createElement("canvas"));
+    if (c.width !== layer.width || c.height !== layer.height) { c.width = layer.width; c.height = layer.height; }
+    const x = c.getContext("2d");
+    if (!x) return layer;
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.globalCompositeOperation = "copy";
+    x.drawImage(layer, 0, 0);
+    x.globalCompositeOperation = "destination-out";
+    x.drawImage(hole, 0, 0);
+    x.globalCompositeOperation = "source-over";
+    return c;
+  }
+
+  /** Statistiques des aplats publiées dans l'état. */
+  private flatStats(): { regions: number; colors: number; flats: number; masks: number; flattened: number } {
+    let regions = 0, flats = 0, masks = 0;
+    const colors = new Set<string>();
+    for (const s of this.doc.strokes) {
+      if (s.mask) masks++;
+      if (!s.flat) continue;
+      flats++;
+      regions += s.flat.length;
+      for (const r of s.flat) colors.add(r.color);
+    }
+    return { regions, colors: colors.size, flats, masks, flattened: this.flattened };
   }
 
   /** Abandonne le trait en cours (un second doigt arrive : c'est un geste de vue). */
   private cancelStroke(): void {
-    if (!this.stroke) { if (this.mode === "erase") this.endErase(); return; }
+    this.erasing = false;
+    if (!this.stroke) return;
     this.stroke = null;
     this.stamper = null;
     this.liveBuf = null;
     this.layerDirty = true;
-  }
-
-  private eraseAt(p: { x: number; y: number }): void {
-    const { w, h } = this.dims();
-    const b = this.brush();
-    const [x, y] = toWorld(this.view, p.x, p.y, w, h);
-    const r = this.worldSize(b) / 2;
-    let hit = false;
-    for (const s of this.doc.strokes) {
-      if (!this.erased.has(s.id) && strokeHit(s, x, y, r)) { this.erased.add(s.id); hit = true; }
-    }
-    if (hit) {
-      // Aperçu immédiat : la couche est redessinée sans les traits touchés.
-      this.layerView = { ...this.view };
-      const s = this.layerSurface();
-      if (s) {
-        s.ctx.clearRect(0, 0, s.w, s.h);
-        drawStrokes(s, this.doc.strokes.filter((st) => !this.erased.has(st.id)), visibleRect(this.view, s.w, s.h));
-        this.layerDirty = false;
-      }
-      this.compose();
-    }
-  }
-
-  private endErase(): void {
-    if (this.erased.size) this.doc.remove(this.erased);
-    this.erased = new Set();
-    this.invalidate();
   }
 
   /* ------------------------------------------------------------ commandes */
@@ -639,7 +713,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const b = this.brush();
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
-      strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, shapes: this.doc.strokes.filter((x) => x.shape).length, merges: this.mergeStats.merged, drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
+      strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
       tool: this.currentTool(), color: b.color, size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
     };
   }
