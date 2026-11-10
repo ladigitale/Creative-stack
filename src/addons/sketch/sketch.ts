@@ -9,13 +9,14 @@ import { tipFromValue } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
   Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
-  toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type View,
+  toScreen, toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type View,
 } from "./model";
 import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
-import { MAX_FLAT_VERTICES, eraseFlat, flatBBox, flatVertices, paintFlat, type Backdrop } from "./flat";
+import { MAX_FLAT_VERTICES, deleteFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, type Backdrop, type Region } from "./flat";
+import { allRegions, regionAt, selectionInfo, similarRegions, type SelectionInfo } from "./select";
 import { parseColor, type Rgba } from "./flat-color";
 import { ViewSync } from "../../shared/view-sync";
 import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
@@ -50,6 +51,8 @@ export type SketchState = {
   blend: BlendMode;
   /** Dernière couleur prélevée à la pipette (`tool="pick"` ou Alt + clic), même absente de la palette. */
   picked: string | null;
+  /** Régions d'aplat sélectionnées (`tool="select"` / `"select-color"`) : nombre, couleurs, boîte, aire. */
+  selection: SelectionInfo;
   bbox: { x: number; y: number; w: number; h: number } | null;
   /** Dernier export (`control.save` / `savePng`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
@@ -64,7 +67,10 @@ export type SketchState = {
  * déplacer, zoomer et tourner ; clavier + − 0, R / Maj+R (tourner de 15°). Pinceau : tout
  * ce que sait faire `sonic-paint` (pointes personnalisées par `tip` / `tip-from`, angle, dispersion…).
  * `tool="pick"` (ou Alt + clic) est une pipette : la couleur vue sous le point, même née d'une fusion, devient
- * celle du pinceau (écrite aussi dans `brush-from`). `tool="erase"` est une vraie gomme (trou exact dans les aplats, masque sur les traits non aplatis). Commandes par `control` (compteurs) : `undo`, `redo`, `clear`,
+ * celle du pinceau (écrite aussi dans `brush-from`). `tool="select"` sélectionne la région d'aplat sous le point (Maj :
+ * ajouter / retirer), `tool="select-color"` toutes les régions de cette couleur (`tolerance`, `contiguous`) ;
+ * une couleur choisie ensuite (`brush-from.color`) recolore la sélection, Suppr la retire, Échap la vide.
+ * `tool="erase"` est une vraie gomme (trou exact dans les aplats, masque sur les traits non aplatis). Commandes par `control` (compteurs) : `undo`, `redo`, `clear`,
  * `save` (SVG), `savePng`, `fit`, `reset`, `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`.
  * Vue pilotée par `view-from` ({x, y, zoom, rotation}).
  */
@@ -74,6 +80,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     :host { display: block; position: relative; line-height: 0; touch-action: none; }
     :host([hidden-preview]) { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; overflow: hidden; }
     canvas { display: block; width: 100%; height: auto; touch-action: none; outline: none; }
+    canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   `;
 
   @property({ type: Number }) width = 800;
@@ -87,8 +94,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Number }) opacity = BRUSH_DEFAULTS.opacity;
   @property({ type: Number }) spacing = BRUSH_DEFAULTS.spacing;
   @property({ type: Number }) smoothing = 0.3;
-  /** `paint`, `erase` (vraie gomme), `pick` (pipette) ou `hand` (déplacer la vue). */
+  /**
+   * `paint`, `erase` (vraie gomme), `pick` (pipette), `select` (régions d'aplat au clic), `select-color` (régions
+   * d'une couleur) ou `hand` (déplacer la vue).
+   */
   @property({ type: String }) tool = "paint";
+  /** Sélection par couleur : écart de couleur accepté (OKLab ×100 ; 0 = couleur exacte, ~2 à peine visible). */
+  @property({ type: Number }) tolerance = 0;
+  /** Sélection par couleur : seulement les régions reliées à celle cliquée (sinon tout le dessin). */
+  @property({ type: Boolean }) contiguous = false;
   @property({ type: Boolean }) pressure = true;
   @property({ type: String }) tip = "";
   @property({ type: Number }) angle = 0;
@@ -126,6 +140,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
 
   @query("canvas") private canvasEl!: HTMLCanvasElement;
+  @query("canvas.overlay") private overlayEl!: HTMLCanvasElement;
 
   private doc = new Doc();
   private view: View = { ...DEFAULT_VIEW };
@@ -147,7 +162,10 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     zoomRange: () => [MIN_ZOOM, MAX_ZOOM],
     fit: () => this.fit(),
   });
-  private mode: "none" | "draw" | "erase" | "pan" | "pick" = "none";
+  private mode: "none" | "draw" | "erase" | "pan" | "pick" | "select" = "none";
+  /** Régions d'aplat sélectionnées (par référence : une région remplacée sort de la sélection). */
+  private selected = new Set<Region>();
+  private selectStart: { x: number; y: number } | null = null;
   /** Dernière couleur prélevée à la pipette (#rrggbb). */
   private picked: string | null = null;
   private stroke: Stroke | null = null;
@@ -186,7 +204,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private currentTool(): string {
     const t = typeof this.live.tool === "string" ? (this.live.tool as string) : this.tool;
-    return t === "erase" || t === "hand" || t === "pick" ? t : "paint";
+    return t === "erase" || t === "hand" || t === "pick" || t === "select" || t === "select-color" ? t : "paint";
   }
 
   private dims(): { w: number; h: number; dpr: number } {
@@ -201,7 +219,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return html`<canvas width=${Math.round(w * dpr)} height=${Math.round(h * dpr)} part="canvas" tabindex="0"
       @pointerdown=${this.onDown} @pointermove=${this.onMove} @pointerup=${this.onUp} @pointercancel=${this.onUp}
       @lostpointercapture=${this.onUp} @pointerenter=${() => (this.hover = true)} @pointerleave=${() => (this.hover = false)}
-      @keydown=${this.onKey} @contextmenu=${(e: Event) => e.preventDefault()}></canvas>`;
+      @keydown=${this.onKey} @contextmenu=${(e: Event) => e.preventDefault()}></canvas><canvas class="overlay" aria-hidden="true"
+      width=${Math.round(w * dpr)} height=${Math.round(h * dpr)}></canvas>`;
   }
 
   connectedCallback(): void {
@@ -233,6 +252,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync")) this.listen();
     if (c.has("width") || c.has("height")) { this.layer = null; this.layerDirty = true; this.compose(); }
     if (c.has("background")) this.compose();
+    if (c.has("tool") && c.get("tool") !== undefined && this.tool !== "select" && this.tool !== "select-color" && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
     if (c.has("tool") || c.has("color") || c.has("size")) this.publish();
   }
 
@@ -248,7 +268,18 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.triggers.clear();
-    if (this.brushFrom) this.unsubs.push(listenDp(this.brushFrom, (v) => { this.live = { ...(v && typeof v === "object" ? (v as Record<string, unknown>) : {}), ...(this.live.tip !== undefined && this.tipFrom ? { tip: this.live.tip } : {}) }; this.publish(); }));
+    if (this.brushFrom) this.unsubs.push(listenDp(this.brushFrom, (v) => {
+      const before = this.live.color;
+      this.live = { ...(v && typeof v === "object" ? (v as Record<string, unknown>) : {}), ...(this.live.tip !== undefined && this.tipFrom ? { tip: this.live.tip } : {}) };
+      // Outil de sélection : une couleur choisie (palette, nuancier) recolore la sélection.
+      const tool = this.currentTool();
+      if ((tool === "select" || tool === "select-color") && this.selected.size && typeof this.live.color === "string" && this.live.color !== before) {
+        this.recolor(this.live.color);
+        return;
+      }
+      if (tool !== "select" && tool !== "select-color" && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
+      this.publish();
+    }));
     if (this.tipFrom) this.unsubs.push(listenDp(this.tipFrom, (v) => { this.live = { ...this.live, tip: tipFromValue(v) }; this.publish(); }));
     this.sync = this.viewSync ? new ViewSync(this.viewSync) : null;
     if (this.sync) {
@@ -269,9 +300,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.unsubs.push(listenDp(this.control, (v) => {
         if (!v || typeof v !== "object") return;
         const c = v as Record<string, unknown>;
-        for (const cmd of ["undo", "redo", "clear", "save", "savePng", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten"] as const) {
+        for (const cmd of ["undo", "redo", "clear", "save", "savePng", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten", "selectAll", "deselect", "deleteSelection"] as const) {
           if (cmd in c && this.trigger(cmd).feed(c[cmd])) this[cmd]();
         }
+        // `{recolor: n, color: "#…"}` : recolore la sélection (couleur du pinceau si `color` est absente).
+        if ("recolor" in c && this.trigger("recolor").feed(c.recolor)) this.recolor(typeof c.color === "string" ? c.color : this.brush().color);
       }));
     }
   }
@@ -336,6 +369,42 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     // Trait en cours avec fusion : la vue n'a pas bougé depuis son début (sinon il est abandonné).
     if (this.liveBuf && this.stroke && !this.erasing) blitBlend({ ctx, w, h, view: this.view }, this.liveBuf.ctx.canvas, this.stroke.brush.blend);
     this.seq++;
+    this.drawOverlay();
+  }
+
+  /**
+   * Contour de la sélection, sur une toile à part (jamais dans l'image : ni export, ni source d'images) : trait
+   * clair puis pointillés sombres, lisible sur toutes les couleurs, à épaisseur constante à l'écran.
+   */
+  private drawOverlay(): void {
+    const c = this.overlayEl;
+    const ctx = c?.getContext("2d");
+    if (!c || !ctx) return;
+    const { w, h, dpr } = this.dims();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+    if (!this.selected.size) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const path = new Path2D();
+    for (const r of this.selected) {
+      for (const poly of r.shape) for (const ring of poly) {
+        ring.forEach(([x, y], i) => {
+          const [sx, sy] = toScreen(this.view, x, y, w, h);
+          if (i === 0) path.moveTo(sx, sy); else path.lineTo(sx, sy);
+        });
+        path.closePath();
+      }
+    }
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.setLineDash([]);
+    ctx.stroke(path);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(17,17,17,0.95)";
+    ctx.setLineDash([5, 4]);
+    ctx.stroke(path);
+    ctx.setLineDash([]);
   }
 
   private backgroundColor(): string {
@@ -371,6 +440,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   private invalidate(): void {
+    this.pruneSelection();
     this.layerDirty = true;
     this.compose();
     this.publish();
@@ -399,6 +469,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private onKey = (e: KeyboardEvent): void => {
     if (this.nav.key(e)) { /* vue */ }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") this.selectAll();
+    else if ((e.key === "Delete" || e.key === "Backspace") && this.selected.size && !this.readonly) this.deleteSelection();
+    else if (e.key === "Escape" && this.selected.size) this.deselect();
     else return;
     e.preventDefault();
   };
@@ -427,6 +500,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
     if (e.pointerType === "mouse" && e.button !== 0) { this.nav.up(e.pointerId); return; }
     this.pointer = e.pointerId;
+    if (tool === "select" || tool === "select-color") {
+      this.mode = "select";
+      this.selectStart = p;
+      return;
+    }
     if (tool === "pick" || (e.altKey && tool === "paint")) {
       this.mode = "pick";
       this.pick(e, false);
@@ -453,6 +531,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (e.pointerId !== this.pointer) return;
     if (this.mode === "draw") this.endStroke(e);
     else if (this.mode === "pick") this.pick(e, e.type === "pointerup");
+    else if (this.mode === "select" && e.type === "pointerup") this.selectAt(this.local(e), e.shiftKey);
     else if (this.mode === "pan") this.settleLater();
     this.pointer = null;
     this.mode = "none";
@@ -731,6 +810,105 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.publish();
   }
 
+  /* ------------------------------------------------------------ sélection */
+
+  private selectionTolerance(): number {
+    const v = this.live.tolerance ?? this.tolerance;
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+  }
+
+  private selectionContiguous(): boolean {
+    return typeof this.live.contiguous === "boolean" ? (this.live.contiguous as boolean) : this.contiguous;
+  }
+
+  /**
+   * Clic de sélection (un glissé de plus de 6 px est ignoré) : la région sous le point, ou toutes celles de sa
+   * couleur ; Maj ajoute (ou retire, si tout y est déjà). Un clic dans le vide sans Maj vide la sélection.
+   */
+  private selectAt(p: { x: number; y: number }, additive: boolean): void {
+    const start = this.selectStart;
+    this.selectStart = null;
+    if (start && Math.hypot(p.x - start.x, p.y - start.y) > 6) return;
+    const { w, h } = this.dims();
+    const [x, y] = toWorld(this.view, p.x, p.y, w, h);
+    const hit = regionAt(this.doc.strokes, x, y, 3 / this.view.zoom);
+    const picked = !hit ? [] : this.currentTool() === "select-color"
+      ? similarRegions(this.doc.strokes, hit, { tolerance: this.selectionTolerance(), contiguous: this.selectionContiguous() })
+      : [hit];
+    if (!additive) this.selected = new Set(picked);
+    else if (picked.length && picked.every((r) => this.selected.has(r))) for (const r of picked) this.selected.delete(r);
+    else for (const r of picked) this.selected.add(r);
+    this.selectionChanged();
+  }
+
+  /** Retire de la sélection les régions qui n'existent plus (remplacées par un trait, une gomme, annulées). */
+  private pruneSelection(): void {
+    if (!this.selected.size) return;
+    const present = new Set(allRegions(this.doc.strokes));
+    for (const r of [...this.selected]) if (!present.has(r)) this.selected.delete(r);
+  }
+
+  private selectionChanged(): void {
+    this.drawOverlay();
+    this.publish();
+    this.dispatchEvent(new CustomEvent("sketch-select", { detail: selectionInfo(this.selected), bubbles: true, composed: true }));
+  }
+
+  /** Sélectionne toutes les régions d'aplat. */
+  selectAll(): void {
+    this.selected = new Set(allRegions(this.doc.strokes));
+    this.selectionChanged();
+  }
+
+  deselect(): void {
+    if (!this.selected.size) return;
+    this.selected.clear();
+    this.selectionChanged();
+  }
+
+  /**
+   * Recolore la sélection (une étape d'annulation) : chaque région prend la vraie couleur donnée et se ressoude
+   * à ses voisines de même couleur ; la sélection suit les régions obtenues.
+   */
+  recolor(color: string): boolean {
+    if (!this.selected.size || this.readonly) return false;
+    const rgba = this.rgbaOf(color);
+    if (!rgba) { this.error = `couleur illisible : ${color}`; this.publish(); return false; }
+    try {
+      const next = new Set<Region>();
+      const after = this.doc.strokes.map((s) => {
+        if (!s.flat || !s.flat.some((r) => this.selected.has(r))) return s;
+        const { regions, fresh } = recolorFlat(s.flat, this.selected, rgba);
+        for (const r of fresh) next.add(r);
+        return { ...s, flat: regions, bbox: flatBBox(regions) };
+      });
+      this.doc.replace(after);
+      this.selected = next;
+      this.error = null;
+    } catch {
+      this.error = "recoloration impossible";
+    }
+    this.invalidate();
+    this.dispatchEvent(new CustomEvent("sketch-select", { detail: selectionInfo(this.selected), bubbles: true, composed: true }));
+    return !this.error;
+  }
+
+  /** Supprime les régions sélectionnées (une étape d'annulation). */
+  deleteSelection(): void {
+    if (!this.selected.size || this.readonly) return;
+    const after: Stroke[] = [];
+    for (const s of this.doc.strokes) {
+      if (!s.flat || !s.flat.some((r) => this.selected.has(r))) { after.push(s); continue; }
+      const regions = deleteFlat(s.flat, this.selected);
+      if (regions.length) after.push({ ...s, flat: regions, bbox: flatBBox(regions) });
+    }
+    this.doc.replace(after);
+    this.selected.clear();
+    this.invalidate();
+    this.dispatchEvent(new CustomEvent("sketch-select", { detail: selectionInfo(this.selected), bubbles: true, composed: true }));
+  }
+
   /** Statistiques des aplats publiées dans l'état. */
   private flatStats(): { regions: number; colors: number; flats: number; masks: number; flattened: number } {
     let regions = 0, flats = 0, masks = 0;
@@ -811,7 +989,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
       strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
-      tool: this.currentTool(), color: b.color, picked: this.picked, size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
+      tool: this.currentTool(), color: b.color, picked: this.picked, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
     };
   }
 
