@@ -411,3 +411,72 @@ describe("export SVG : aplats et gomme", async () => {
     expect(svg).not.toMatch(/fill-opacity="[^"]*" fill-rule="evenodd" stroke=/);
   });
 });
+
+describe("sélection d'aplats et recoloration", async () => {
+  const { strokeOutline } = await import("./merge");
+  const { paintFlat, recolorFlat, deleteFlat } = await import("./flat");
+  const { parseColor } = await import("./flat-color");
+  const { regionAt, similarRegions, selectionInfo, colorDistance, touching } = await import("./select");
+  const { multiArea } = await import("../vector");
+  const white = { known: true as const, color: parseColor("#ffffff") };
+  const red = parseColor("#ff0000")!, blue = parseColor("#0000ff")!, green = parseColor("#00aa00")!;
+  // Rouge horizontal coupé en deux par un bleu vertical ; un rouge isolé plus loin ; un vert qui touche le bleu.
+  let m = paintFlat([], strokeOutline([0, 0, 1, 100, 0, 1], 5, 0.02), red, 1, "normal", white);
+  m = paintFlat(m, strokeOutline([50, -50, 1, 50, 50, 1], 5, 0.02), blue, 1, "normal", white);
+  m = paintFlat(m, strokeOutline([0, 100, 1, 40, 100, 1], 5, 0.02), red, 1, "normal", white);
+  m = paintFlat(m, strokeOutline([50, 50, 1, 90, 50, 1], 5, 0.02), green, 1, "normal", white);
+  const map = { ...stroke([[0, 0]]), pts: [], flat: m, bbox: { x: -10, y: -60, w: 120, h: 170 } };
+  const at = (x: number, y: number) => regionAt([map], x, y, 0.5);
+
+  it("clic : la région visible sous le point", () => {
+    expect(at(20, 0)?.color).toBe("#ff0000");
+    expect(at(50, 20)?.color).toBe("#0000ff");
+    expect(at(20, 50)).toBeNull();
+    // Un trou de gomme ou un trait non aplati par-dessus : rien à sélectionner.
+    const hole = { ...stroke([[0, 0]]), pts: [], mask: strokeOutline([20, -10, 1, 20, 10, 1], 3, 0.05), bbox: { x: 17, y: -13, w: 6, h: 26 } };
+    expect(regionAt([map, hole], 20, 0, 0.5)).toBeNull();
+    expect(regionAt([map, stroke([[10, 0], [30, 0]], brush(6, { hardness: 0.3 }))], 20, 0, 0.5)).toBeNull();
+  });
+
+  it("par couleur : tout le dessin, ou seulement ce qui touche", () => {
+    const left = at(20, 0)!;
+    expect(similarRegions([map], left, { tolerance: 0, contiguous: false }).map((r) => r.color)).toEqual(["#ff0000", "#ff0000", "#ff0000"]);
+    // Les morceaux rouges ne se touchent pas (séparés par le bleu) : la sélection contiguë s'arrête au morceau cliqué.
+    expect(similarRegions([map], left, { tolerance: 0, contiguous: true })).toEqual([left]);
+    // Tolérance : le vert n'est pas proche du bleu ; un bleu à peine différent l'est.
+    expect(colorDistance(blue, parseColor("#0000f8")!)).toBeLessThan(3);
+    expect(colorDistance(blue, green)).toBeGreaterThan(30);
+    expect(similarRegions([map], at(50, 20)!, { tolerance: 10, contiguous: false })).toHaveLength(1);
+  });
+
+  it("contigu avec tolérance : de proche en proche à travers les régions voisines", () => {
+    const blueR = at(50, 20)!, greenR = at(70, 50)!;
+    expect(touching(blueR, greenR, 1e-4)).toBe(true);
+    expect(similarRegions([map], blueR, { tolerance: 100, contiguous: true })).toContain(greenR);
+    expect(similarRegions([map], blueR, { tolerance: 100, contiguous: true })).not.toContain(at(20, 100));
+  });
+
+  it("recolorer : vraie couleur, ressoudée à la voisine de même couleur", () => {
+    const blueR = at(50, 20)!;
+    const { regions, fresh } = recolorFlat(m, new Set([blueR]), red);
+    // Le bleu devenu rouge relie les deux moitiés du trait rouge : une seule région rouge (plus l'isolée).
+    expect(regions.filter((r) => r.color === "#ff0000")).toHaveLength(2);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0].color).toBe("#ff0000");
+    expect(multiArea(fresh[0].shape)).toBeGreaterThan(multiArea(blueR.shape));
+    // Les régions non touchées gardent leur identité.
+    expect(regions).toContain(at(20, 100));
+    expect(regions).toContain(at(70, 50));
+  });
+
+  it("supprimer et décrire la sélection", () => {
+    const reds = similarRegions([map], at(20, 0)!, { tolerance: 0, contiguous: false });
+    const info = selectionInfo(reds);
+    expect(info.count).toBe(3);
+    expect(info.colors).toEqual(["#ff0000"]);
+    expect(info.area).toBeGreaterThan(0);
+    expect(info.bbox!.h).toBeGreaterThan(100);
+    expect(deleteFlat(m, new Set(reds)).map((r) => r.color).sort()).toEqual(["#0000ff", "#00aa00"]);
+    expect(selectionInfo([]).bbox).toBeNull();
+  });
+});
