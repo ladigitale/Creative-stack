@@ -3,7 +3,8 @@ import { simplifyLine, type BBox, type Multi, type Pt } from "../vector";
 import {
   clampZoomTo, fitBox, panView, sanitizeView2D, screenToWorld, transformAt, visibleBounds, worldToScreen, type View2D,
 } from "../../shared/view2d";
-import { shapeHit, shapeVertices } from "./merge";
+import { shapeHit } from "./merge";
+import { flatVertices, vertexCount, type Region } from "./flat";
 
 /**
  * Modèle d'un dessin vectoriel à zoom infini : des traits (points en coordonnées du monde, pression,
@@ -35,8 +36,13 @@ export type Stroke = {
   brush: StrokeBrush;
   /** x, y, pression : trois nombres par point (vide pour une forme). */
   pts: number[];
-  /** Forme fusionnée (polygones du monde, à trous) : traits pleins de même style unis ; remplace `pts`. */
-  shape?: Multi;
+  /**
+   * Carte d'aplats (remplace `pts`) : régions disjointes d'une seule vraie couleur, résultat des traits pleins
+   * aplatis (fusions calculées, parties recouvertes retirées, régions de même couleur unies).
+   */
+  flat?: Region[];
+  /** Masque de gomme (remplace `pts`) : efface ce qui est dessous, traits non aplatis compris. */
+  mask?: Multi;
   seed: number;
   bbox: BBox;
 };
@@ -184,10 +190,10 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
 
 /** Le trait passe-t-il à moins de `r` (monde) du point ? (épaisseur du trait comprise) */
 export function strokeHit(s: Stroke, px: number, py: number, r: number): boolean {
-  if (s.shape) {
+  if (s.flat || s.mask) {
     const b = s.bbox;
     if (px < b.x - r || px > b.x + b.w + r || py < b.y - r || py > b.y + b.h + r) return false;
-    return shapeHit(s.shape, px, py, r);
+    return s.mask ? false : s.flat!.some((g) => shapeHit(g.shape, px, py, r));
   }
   const reach = r + s.brush.size / 2;
   const b = s.bbox;
@@ -200,11 +206,14 @@ export function strokeHit(s: Stroke, px: number, py: number, r: number): boolean
   return false;
 }
 
+/** Points d'un élément : sommets d'une carte ou d'un masque, sinon points du trait. */
+export const strokePoints = (s: Stroke): number => (s.flat ? flatVertices(s.flat) : s.mask ? vertexCount(s.mask) : s.pts.length / 3);
+
 /* ------------------------------------------------------------ document et historique */
 
 type Op =
   | { t: "add"; stroke: Stroke }
-  | { t: "swap"; removed: { index: number; stroke: Stroke }[]; added: Stroke; at: number }
+  | { t: "replace"; before: Stroke[]; after: Stroke[] }
   | { t: "remove"; items: { index: number; stroke: Stroke }[] }
   | { t: "clear"; strokes: Stroke[] };
 
@@ -222,7 +231,7 @@ export class Doc {
 
   get totalPoints(): number {
     let n = 0;
-    for (const s of this.strokes) n += s.shape ? shapeVertices(s.shape) : s.pts.length / 3;
+    for (const s of this.strokes) n += strokePoints(s);
     return n;
   }
 
@@ -240,16 +249,13 @@ export class Doc {
   }
 
   /**
-   * Remplace des traits par un seul (fusion) en une étape d'historique : `ids` retirés, `added` inséré au rang
-   * `at` (compté après le retrait).
+   * Remplace toute la liste en une étape d'historique (aplatissement, gomme) : les éléments ne sont jamais
+   * modifiés en place, l'étape garde les deux listes (références partagées, pas de copie profonde).
    */
-  swap(ids: Set<number>, added: Stroke, at: number): void {
-    const removed: { index: number; stroke: Stroke }[] = [];
-    this.strokes.forEach((stroke, index) => { if (ids.has(stroke.id)) removed.push({ index, stroke }); });
-    this.strokes = this.strokes.filter((s) => !ids.has(s.id));
-    const i = Math.max(0, Math.min(this.strokes.length, at));
-    this.strokes.splice(i, 0, added);
-    this.record({ t: "swap", removed, added, at: i });
+  replace(after: Stroke[]): void {
+    const before = this.strokes;
+    this.strokes = after;
+    this.record({ t: "replace", before, after });
   }
 
   /** Retire des traits (par identifiant) en une seule étape d'historique. */
@@ -272,10 +278,8 @@ export class Doc {
     const op = this.past.pop();
     if (!op) return false;
     if (op.t === "add") this.strokes = this.strokes.filter((s) => s !== op.stroke);
-    else if (op.t === "swap") {
-      this.strokes = this.strokes.filter((s) => s !== op.added);
-      for (const it of op.removed) this.strokes.splice(it.index, 0, it.stroke);
-    } else if (op.t === "remove") for (const it of op.items) this.strokes.splice(it.index, 0, it.stroke);
+    else if (op.t === "replace") this.strokes = op.before;
+    else if (op.t === "remove") for (const it of op.items) this.strokes.splice(it.index, 0, it.stroke);
     else this.strokes = op.strokes;
     this.future.push(op);
     return true;
@@ -285,11 +289,8 @@ export class Doc {
     const op = this.future.pop();
     if (!op) return false;
     if (op.t === "add") this.strokes.push(op.stroke);
-    else if (op.t === "swap") {
-      const ids = new Set(op.removed.map((i) => i.stroke.id));
-      this.strokes = this.strokes.filter((s) => !ids.has(s.id));
-      this.strokes.splice(op.at, 0, op.added);
-    } else if (op.t === "remove") { const ids = new Set(op.items.map((i) => i.stroke.id)); this.strokes = this.strokes.filter((s) => !ids.has(s.id)); }
+    else if (op.t === "replace") this.strokes = op.after;
+    else if (op.t === "remove") { const ids = new Set(op.items.map((i) => i.stroke.id)); this.strokes = this.strokes.filter((s) => !ids.has(s.id)); }
     else this.strokes = [];
     this.past.push(op);
     return true;

@@ -1,8 +1,9 @@
 import { blendOp } from "../paint/brush";
 import { drawTip, tipGeometry } from "../paint/tip";
-import { intersects } from "../vector/geometry";
+import { intersects, type Multi } from "../vector/geometry";
 import { stampsOf, type Stamp } from "./stamps";
-import { sanitizeBlend, toScreen, type Stroke, type StrokeBrush, type View } from "./model";
+import { clipToView } from "../vector";
+import { sanitizeBlend, toScreen, visibleRect, type Stroke, type StrokeBrush, type View } from "./model";
 
 /** Surface de dessin : contexte en pixels logiques (la mise à l'échelle écran est déjà dans le contexte). */
 export type Surface = { ctx: CanvasRenderingContext2D; w: number; h: number; view: View };
@@ -125,18 +126,25 @@ export function drawStroke(s: Surface, st: Stroke): void {
 }
 
 function paintStroke(s: Surface, st: Stroke): void {
-  if (st.shape) return fillShape(s, st);
+  if (st.flat) {
+    for (const r of st.flat) fillMulti(s, r.shape, r.color, r.blend ? blendOp(r.blend) : "source-over");
+    return;
+  }
+  if (st.mask) return fillMulti(s, st.mask, "#000", "destination-out");
   for (const stamp of strokeStamps(st)) drawStamp(s, st.brush, stamp);
 }
 
 /**
- * Forme fusionnée : remplie en pair-impair. Les sommets passent à l'écran en double précision côté JS
+ * Polygones du monde remplis en pair-impair. Les sommets passent à l'écran en double précision côté JS
  * (pas de transformation du contexte : le canvas calcule en simple précision, faux aux zooms extrêmes).
  */
-function fillShape(s: Surface, st: Stroke): void {
+function fillMulti(s: Surface, shape: Multi, color: string, op: GlobalCompositeOperation): void {
   const { ctx, view, w, h } = s;
+  // Découpe à la vue (outil de clipping de l'addon vector) : aux forts zooms, pas de coordonnées gigantesques.
+  let m = shape;
+  try { m = clipToView(shape, visibleRect(view, w, h), 2 / view.zoom); } catch { /* forme laissée entière */ }
   const path = new Path2D();
-  for (const poly of st.shape ?? []) {
+  for (const poly of m) {
     for (const ring of poly) {
       if (ring.length < 3) continue;
       for (let i = 0; i < ring.length; i++) {
@@ -146,9 +154,12 @@ function fillShape(s: Surface, st: Stroke): void {
       path.closePath();
     }
   }
+  ctx.save();
   ctx.globalAlpha = 1;
-  ctx.fillStyle = st.brush.color;
+  ctx.globalCompositeOperation = op;
+  ctx.fillStyle = color;
   ctx.fill(path, "evenodd");
+  ctx.restore();
 }
 
 /** Dessine les traits dont la boîte coupe `viewRect`, dans l'ordre. Retourne leur nombre. */

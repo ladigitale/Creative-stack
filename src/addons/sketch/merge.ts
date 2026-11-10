@@ -1,17 +1,17 @@
 import { boolean, multiBBox, simplifyLine, simplifyMulti, type BBox, type Multi, type Pt, type Ring } from "../vector";
-import type { Stroke, StrokeBrush } from "./model";
+import type { StrokeBrush } from "./model";
 
 /**
- * Fusion vectorielle des traits (outils de l'addon `vector` : union par polygon-clipping, simplification) :
- * un trait net et opaque devient son contour polygonal, uni à la forme de même style qu'il touche.
+ * Contours exacts des traits pleins (outils de l'addon `vector` : union par polygon-clipping, simplification),
+ * matière première de la carte d'aplats et de la gomme.
  */
 
-/** Plafond de sommets d'une forme fusionnée (au-delà, le trait reste à part). */
-export const MAX_SHAPE_VERTICES = 60_000;
-
-/** Trait « plein » : disque net, opaque, sans pointe ni variation ni pression variable → son contour est exact. */
+/**
+ * Trait « plein » : disque net, sans pointe ni variation ni pression variable → son contour est exact et sa couleur
+ * uniforme (l'opacité est permise : elle s'aplatit en couleur). Les autres traits restent en empreintes.
+ */
 export function isSolid(b: StrokeBrush, pts: number[]): boolean {
-  if (b.tip || b.hardness < 0.999 || b.opacity < 0.999 || b.scatter > 0 || b.sizeJitter > 0 || b.roundness !== 1) return false;
+  if (b.tip || b.hardness < 0.999 || b.scatter > 0 || b.sizeJitter > 0 || b.roundness !== 1) return false;
   if (b.pressure) {
     let lo = 1, hi = 0;
     for (let i = 2; i < pts.length; i += 3) { lo = Math.min(lo, pts[i]); hi = Math.max(hi, pts[i]); }
@@ -19,9 +19,6 @@ export function isSolid(b: StrokeBrush, pts: number[]): boolean {
   }
   return true;
 }
-
-/** Même couleur et même mode de fusion : deux formes peuvent n'en faire qu'une. */
-export const sameStyle = (a: StrokeBrush, b: StrokeBrush): boolean => a.color === b.color && (a.blend ?? "normal") === (b.blend ?? "normal");
 
 /** Rayon effectif d'un trait plein (la pression, constante, réduit le diamètre comme `dabSize`). */
 export function solidRadius(b: StrokeBrush, pts: number[]): number {
@@ -37,7 +34,6 @@ export function discSides(r: number, tol: number): number {
 
 /* Repère local : les coordonnées du monde peuvent valoir 1e-6 ou 1e6 ; le découpage travaille près de 1. */
 type Frame = { ox: number; oy: number; k: number };
-const toLocal = (f: Frame, m: Multi): Multi => m.map((p) => p.map((r) => r.map(([x, y]): Pt => [(x - f.ox) / f.k, (y - f.oy) / f.k])));
 const toWorld = (f: Frame, m: Multi): Multi => m.map((p) => p.map((r) => r.map(([x, y]): Pt => [x * f.k + f.ox, y * f.k + f.oy])));
 
 function disc(cx: number, cy: number, r: number, n: number): Ring {
@@ -94,21 +90,6 @@ export function strokeOutline(pts: number[], r: number, tol: number): Multi {
   throw lastErr instanceof Error ? lastErr : new Error("contour impossible");
 }
 
-/** Union de deux formes du monde, dans le repère de la plus petite, simplifiée à `tol`. */
-export function mergeShapes(a: Multi, b: Multi, tol: number): Multi {
-  const bb = multiBBox(b);
-  const k = Math.max(bb.w, bb.h, tol, 1e-300);
-  const f: Frame = { ox: bb.x, oy: bb.y, k };
-  let lastErr: unknown;
-  for (const step of [1e-9, 1e-7, 1e-5]) {
-    try {
-      const u = boolean("union", snap(toLocal(f, a), step), snap(toLocal(f, b), step));
-      return toWorld(f, simplifyMulti(u, (tol / k) * 0.5));
-    } catch (e) { lastErr = e; }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("fusion impossible");
-}
-
 export const shapeVertices = (m: Multi): number => m.reduce((n, p) => n + p.reduce((k, r) => k + r.length, 0), 0);
 
 export function shapeBBox(m: Multi): BBox {
@@ -132,21 +113,3 @@ export function shapeHit(m: Multi, px: number, py: number, r: number): boolean {
   }
   return inside;
 }
-
-/**
- * Cherche la forme avec laquelle fusionner un nouveau trait plein : en remontant depuis le dessus, la première
- * de même style dont la boîte touche la sienne, à condition qu'aucun trait d'un autre style posé entre les
- * deux ne le chevauche (la superposition visible ne change pas). Retourne son indice, ou -1.
- */
-export function mergeTarget(strokes: Stroke[], st: Stroke): number {
-  for (let i = strokes.length - 1; i >= 0; i--) {
-    const s = strokes[i];
-    if (!overlaps(s.bbox, st.bbox)) continue;
-    if (sameStyle(s.brush, st.brush) && (s.shape || isSolid(s.brush, s.pts))) return i;
-    return -1;
-  }
-  return -1;
-}
-
-const overlaps = (a: BBox, b: BBox): boolean => a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
-
