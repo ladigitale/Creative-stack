@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstForbiddenUrl, hostAllowed, readPointsSpec, sameCamera, styleUrls, toGeoJSON } from "./map-core";
+import { firstForbiddenUrl, hostAllowed, plain, readPointsSpec, sameCamera, styleUrls, toGeoJSON } from "./map-core";
 
 const ORIGIN = "https://artifacts.tadaaa.space/x";
 
@@ -55,5 +55,19 @@ describe("sameCamera", () => {
   it("différente dès qu'un champ change", () => {
     expect(sameCamera({ zoom: 10 }, have)).toBe(false);
     expect(sameCamera({ pitch: 30 }, have)).toBe(false);
+  });
+});
+
+describe("plain", () => {
+  it("copie un style venu d'un proxy en objets simples", () => {
+    const style = { version: 8, layers: [{ id: "bg", type: "background", filter: ["in", ["get", "class"], ["literal", ["a"]]] }] };
+    const proxied = new Proxy(style, { get: (t, k) => Reflect.get(t, k) });
+    expect(() => structuredClone(proxied)).toThrow(); // ce que fait postMessage vers le worker
+    const out = plain(proxied);
+    expect(out).toEqual(style);
+    expect(out).not.toBe(proxied);
+    expect(structuredClone(out)).toEqual(style);
+    expect(plain("https://x/style.json")).toBe("https://x/style.json");
+    expect(plain(null)).toBeNull();
   });
 });

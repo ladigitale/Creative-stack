@@ -19,7 +19,7 @@ import mlCss from "maplibre-gl/dist/maplibre-gl.css?inline";
 import { PublisherManager } from "@supersoniks/concorde/utils";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch } from "../interactive";
-import { firstForbiddenUrl, hostAllowed as hostAllowedCore, readPointsSpec, round, sameCamera, toGeoJSON } from "./map-core";
+import { firstForbiddenUrl, plain, hostAllowed as hostAllowedCore, readPointsSpec, round, sameCamera, toGeoJSON } from "./map-core";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -293,8 +293,9 @@ export default class SonicMap extends LitElement {
 
   // ---------- Style ----------
 
-  private applyStyleDp(v: Any) {
-    if (!v || typeof v !== "object") return;
+  private applyStyleDp(raw: Any) {
+    if (!raw || typeof raw !== "object") return;
+    const v = plain(raw);
     if (v.pointStyle !== undefined && !same(v.pointStyle, this.pointStyle)) {
       this.pointStyle = v.pointStyle || {};
       if (this.styleLoaded) this.ensurePoints(true);

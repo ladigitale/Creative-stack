@@ -95,3 +95,11 @@ export function sameCamera(want: Camera, have: Required<Camera>): boolean {
 }
 
 export const round = (n: number, d: number) => Math.round(n * 10 ** d) / 10 ** d;
+
+/**
+ * Copie en objets simples d'une valeur venue d'un DataProvider (proxy) : MapLibre envoie le style,
+ * les filtres et les layouts à son worker, qui ne sait pas sérialiser un proxy.
+ */
+export function plain<T>(v: T): T {
+  return v && typeof v === "object" ? (JSON.parse(JSON.stringify(v)) as T) : v;
+}
