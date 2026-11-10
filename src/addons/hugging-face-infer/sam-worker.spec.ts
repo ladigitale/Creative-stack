@@ -184,3 +184,42 @@ it("sortie GPU invalide (NaN) : bascule sur WASM", async () => {
     delete (globalThis.navigator as any).gpu;
   }
 }, 30_000);
+
+it("précision mixte : embeddings fp16 convertis pour un décodeur fp32, sorties fp16 relues correctement", async () => {
+  const cfg = { image_processor_type: "Sam2ImageProcessor", do_resize: true, size: { height: 1024, width: 1024 }, resample: 2, do_rescale: true, rescale_factor: 1 / 255, do_normalize: true, image_mean: [0.485, 0.456, 0.406], image_std: [0.229, 0.224, 0.225], do_convert_rgb: true, mask_size: { height: 256, width: 256 } };
+  const half = (v: number) => { const f = new Float32Array([v]); const i = new Uint32Array(f.buffer)[0]; const sgn = (i >>> 16) & 0x8000; const e = ((i >>> 23) & 0xff) - 127 + 15; const m = (i >>> 13) & 0x3ff; if (e <= 0) return sgn; if (e >= 31) return sgn | 0x7c00; return sgn | (e << 10) | m; };
+  let calls = 0;
+  let seenType = "";
+  const model = Object.assign(async (feed: any) => {
+    calls++;
+    seenType = feed["image_embeddings.0"].type;
+    if (seenType !== "float32") throw new Error("Unexpected input data type. Actual: (tensor(float16)) , expected: (tensor(float))");
+    // sorties en float16 (bits bruts) : +6 sur la moitié gauche, -6 ailleurs
+    const plane = 256 * 256, d = new Uint16Array(3 * plane);
+    for (let k = 0; k < 3; k++) for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) d[k * plane + y * 256 + x] = half(x < 128 ? 6 : -6);
+    return { pred_masks: new t.Tensor("float16", d, [1, 1, 3, 256, 256]), iou_scores: new t.Tensor("float16", new Uint16Array([half(0.9), half(0.2), half(0.1)]), [1, 1, 3]) };
+  }, { async get_image_embeddings() { return { "image_embeddings.0": new t.Tensor("float16", new Uint16Array([half(1.5), half(-2)]), [1, 2]) }; } });
+  const lib = {
+    ...t,
+    AutoProcessor: { from_pretrained: async () => new t.Sam2Processor({}, { image_processor: new t.Sam2ImageProcessor(cfg) }, null) },
+    AutoModelForMaskGeneration: { from_pretrained: async () => model },
+  };
+  const replies: any[] = [];
+  let listener: any;
+  hfWorkerMain(lib, { postMessage: (m) => replies.push(m), addEventListener: (_, l) => (listener = l) });
+  const ask = (msg: any): Promise<any> => new Promise((res: any) => { const id = Math.random(); listener({ data: { ...msg, id } }); const iv = setInterval(() => { const r = replies.find((x: any) => x.id === id); if (r) { clearInterval(iv); res(r); } }, 5); });
+  await ask({ type: "sam-load", model: { alias: "sam", repo: "r", revision: "v", options: {} }, devices: ["wasm"] });
+  await ask({ type: "sam-encode", alias: "sam", image: { width: 64, height: 32, data: new Uint8ClampedArray(64 * 32 * 4) } });
+  let r = await ask({ type: "sam-decode", alias: "sam", points: [{ x: 5, y: 5, label: 1 }], box: null, refine: false });
+  expect(r.ok).toBe(true);
+  expect(seenType).toBe("float32");
+  expect(r.result.score).toBeCloseTo(0.9, 2);
+  const row = Array.from(r.result.mask.slice(16 * 64, 17 * 64) as Uint8Array);
+  expect(row.slice(0, 30).every((v) => v === 255)).toBe(true);
+  expect(row.slice(34).every((v) => v === 0)).toBe(true);
+  // conversion faite une fois : le décodage suivant passe directement
+  const before = calls;
+  r = await ask({ type: "sam-decode", alias: "sam", points: [{ x: 5, y: 5, label: 1 }], box: null, refine: false });
+  expect(r.ok).toBe(true);
+  expect(calls).toBe(before + 1);
+}, 30_000);
