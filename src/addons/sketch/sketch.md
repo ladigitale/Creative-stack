@@ -68,3 +68,21 @@ Le découpage est rendu robuste aux géométries accumulées : en cas d'échec d
 ## Calques : vectoriel sur pixels
 
 `sonic-sketch background="transparent"` posé sur une `sonic-paint navigable` avec le même `view-sync` forme un dessin à deux calques alignés. `view-sync` est un DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit ; une unité du monde y vaut un pixel de l'image. On rend le calque inactif transparent au pointeur avec `pointer-events:none`. La pipette traverse les calques. `sonic-paint` peut fondre le calque vectoriel dans ses pixels avec `stamp-from="#id"` et la commande `stamp`. Voir l'addon `paint`, section « Calques ». La toile est aussi une source d'images pour `sonic-shader channel0="#id"`, `sonic-2d` et `sonic-3d`.
+
+## Importer des formes (pixels, photo, shader → vectoriel)
+
+`import-from` lit l'état d'un `sonic-vectorize`. Chaque couche y devient un aplat opaque peint dans la carte d'aplats, du dessous au dessus : les couches empilées recouvrent les précédentes, et les morceaux de même couleur s'unissent entre eux et avec l'existant. L'import est une seule étape d'annulation. On s'en sert pour faire une base qu'on retravaille en vectoriel simplifié : une esquisse peinte en pixels, une photo, ou un shader générateur dont on fige une image.
+
+```json
+{ "tagName": "sonic-vectorize", "attributes": { "id": "vecto", "source": "#pixels", "hidden-preview": "", "control": "vecCtl", "palette": "#c2410c,#0f766e,#1e293b", "out-data-provider": "vectoState" } }
+{ "tagName": "sonic-sketch", "attributes": { "import-from": "vectoState", "import-auto": "", "import-skip": "#ffffff", "…": "…" } }
+```
+
+| Attribut | Rôle |
+|---|---|
+| `import-from` | DP d'état de `sonic-vectorize` (`paths[{color, d}]`, `width`, `height`, `frame`) |
+| `import-auto` | Importe chaque nouveau résultat prêt. Un résultat déjà présent au branchement n'est pas réimporté. Sans cet attribut : commande `import` du DP `control` |
+| `import-place` | `auto` (défaut), `screen` ou `view`. `screen` pose les formes là où la source apparaissait à l'écran : calque pixel ou shader posé sur le dessin, aligné au pixel près avec `view-sync`. `view` les ajuste dans la vue courante (source masquée : shader `hidden-preview`, fichier). `auto` choisit `screen` si la source était visible sur la toile |
+| `import-skip` | Couleurs ignorées, séparées par des virgules. `background` (défaut) désigne le fond opaque de la toile ; mettre `#ffffff` quand on vectorise un calque pixel sur papier blanc sous une toile transparente. Vide : tout garder |
+
+Les formes sont simplifiées à `simplify` px d'écran. Pour une base plus simple, on joue sur les réglages de `sonic-vectorize` : moins de couleurs ou une `palette` imposée (la palette d'harmonie), une `tolerance` plus haute, une `min-area` plus grande. Un import qui dépasserait la limite de sommets des aplats est refusé. Résultat dans l'état (`imported` : `{ layers, regions, ms }` ou `{ error }`) et par l'évènement `sketch-import`.

@@ -21,6 +21,7 @@ Store `vec` piloté par des `sonic-action` : `{ "n": 0, "colors": 8, "tolerance"
 | `auto` | — | Vectorise dès que l'image est prête, puis à chaque nouvelle image |
 | `interval` | — | Écart minimal entre deux calculs en `auto` (défaut 500 ms) |
 | `colors` | `colors` | 2 à 32 couleurs (défaut 8) |
+| `palette` | `palette` | Palette imposée : couleurs séparées par des virgules, ou tableau dans le DP (l'état d'un `sonic-palette`, `{ colors }`, convient aussi). Chaque pixel prend la plus proche ; `colors` est alors ignoré. Pour vectoriser sur une palette d'harmonie |
 | `tolerance` | `tolerance` | Simplification en pixels (défaut 1 ; plus bas = plus fidèle et plus lourd) |
 | `min-area` | `minArea` | Taches plus petites ignorées (défaut 4 px²) |
 | `denoise` | `denoise` | Passes de filtre majoritaire 3×3 (0 à 3, défaut 1) ; retire aussi les liserés d'un pixel laissés par l'anticrénelage. `0` garde les traits fins |
@@ -38,13 +39,18 @@ Store `vec` piloté par des `sonic-action` : `{ "n": 0, "colors": 8, "tolerance"
 | `width`, `height` | Image analysée (repère du `viewBox`) |
 | `sourceWidth`, `sourceHeight` | Image d'origine (taille d'affichage du SVG) |
 | `layers` | Nombre de couches |
-| `paths` | `[{ color, area, share }]` du dessous au-dessus (`share` : part de l'image, 0..1) |
+| `paths` | `[{ color, area, share, d }]` du dessous au-dessus (`share` : part de l'image, 0..1 ; `d` : tracé dans le repère `width` × `height`) |
+| `frame` | Où l'image lue apparaissait à l'écran : matrice `[a, b, c, d, e, f]` des pixels analysés vers le viewport, `null` si la source n'était pas affichée. `sonic-sketch import-from` s'en sert pour poser les formes à leur place |
 | `palette` | Couleurs, de la plus étendue à la plus rare |
 | `svg` | Document SVG autonome (une couche = un `path` rempli) |
 | `file` | Le même SVG en SonicMediaRef `blob:` (`sonic-media-download`, `sonic-image`, `sonic-still`) |
 | `bytes`, `ms`, `runs`, `truncated` | Taille du SVG, durée du calcul, nombre de calculs, résultat plafonné |
 | `engine` | `worker` (calcul hors du fil principal) ou `main` (repli) |
 | `settings` | Réglages effectivement appliqués (à afficher plutôt que ceux du store) |
+
+## Vers le dessin vectoriel
+
+`sonic-sketch import-from="vecState"` importe le résultat en aplats retravaillables : esquisse peinte dans un calque `sonic-paint`, photo, ou image d'un `sonic-shader` générateur (motifs, bruit, fractales) figée puis vectorisée. Avec `palette` sur la palette d'harmonie, les formes importées sont directement dans les couleurs du dessin. Voir l'addon `sketch`, section « Importer des formes ».
 
 ## Limites
 

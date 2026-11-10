@@ -1,7 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, query } from "lit/decorators.js";
-import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
-import { listenDp } from "../../shared/audio/dp";
+import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
 import { BRUSH_DEFAULTS, Stabilizer, sanitizeBrush, type BrushSettings } from "../paint/brush";
@@ -19,7 +19,8 @@ import { MAX_FLAT_VERTICES, eraseFlat, flatBBox, flatVertices, paintFlat, type B
 import { parseColor, type Rgba } from "./flat-color";
 import { ViewSync } from "../../shared/view-sync";
 import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
-import { multiBBox } from "../vector";
+import { multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt } from "../vector";
+import { applyAffine } from "../../shared/frame-geometry";
 
 const MAX_SIDE = 4096;
 
@@ -50,6 +51,8 @@ export type SketchState = {
   blend: BlendMode;
   /** Dernière couleur prélevée à la pipette (`tool="pick"` ou Alt + clic), même absente de la palette. */
   picked: string | null;
+  /** Dernier import de formes (`import-from`) : `{ layers, regions, ms }` ou `{ error }`. */
+  imported: { layers: number; regions: number; ms: number } | { error: string } | null;
   bbox: { x: number; y: number; w: number; h: number } | null;
   /** Dernier export (`control.save` / `savePng`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
@@ -103,9 +106,31 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: String, attribute: "brush-from" }) brushFrom = "";
   /** DP de la vue `{ x, y, zoom, rotation }` (écrit la vue quand elle diffère de l'actuelle). */
   @property({ type: String, attribute: "view-from" }) viewFrom = "";
+  /**
+   * Import de formes : DP d'état de `sonic-vectorize` (`paths[{color, d}]`, `width`, `height`, `frame`). Les
+   * couches deviennent des aplats (une étape d'annulation) à la commande `import` (DP `control`) ou, avec
+   * `import-auto`, à chaque nouveau résultat. Pour retravailler en vectoriel une esquisse pixel, une photo
+   * ou l'image d'un shader générateur.
+   */
+  @property({ type: String, attribute: "import-from" }) importFrom = "";
+  @property({ type: Boolean, attribute: "import-auto" }) importAuto = false;
+  /**
+   * Placement : `screen` (là où la source apparaît à l'écran : calque pixel ou shader posé sur le dessin),
+   * `view` (ajusté dans la vue courante), `auto` (défaut : `screen` si la source était visible sur la toile).
+   */
+  @property({ type: String, attribute: "import-place" }) importPlace: "auto" | "screen" | "view" = "auto";
+  /**
+   * Couleurs ignorées à l'import, séparées par des virgules ; `background` (défaut) = la couleur de fond de
+   * la toile (le papier vectorisé ne devient pas une forme) ; vide = tout garder.
+   */
+  @property({ type: String, attribute: "import-skip" }) importSkip = "background";
   /** DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit : des toiles superposées restent alignées. */
   @property({ type: String, attribute: "view-sync" }) viewSync = "";
   private sync: ViewSync | null = null;
+  private importRuns = -1;
+  private importState: unknown = null;
+  /** Dernier import : `{ layers, regions, ms }`, ou `{ error }`. */
+  private imported: { layers: number; regions: number; ms: number } | { error: string } | null = null;
   @property({ type: String }) control = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
   @property({ type: Boolean }) readonly = false;
@@ -230,7 +255,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync")) this.listen();
+    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom")) this.listen();
     if (c.has("width") || c.has("height")) { this.layer = null; this.layerDirty = true; this.compose(); }
     if (c.has("background")) this.compose();
     if (c.has("tool") || c.has("color") || c.has("size")) this.publish();
@@ -250,6 +275,28 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.triggers.clear();
     if (this.brushFrom) this.unsubs.push(listenDp(this.brushFrom, (v) => { this.live = { ...(v && typeof v === "object" ? (v as Record<string, unknown>) : {}), ...(this.live.tip !== undefined && this.tipFrom ? { tip: this.live.tip } : {}) }; this.publish(); }));
     if (this.tipFrom) this.unsubs.push(listenDp(this.tipFrom, (v) => { this.live = { ...this.live, tip: tipFromValue(v) }; this.publish(); }));
+    if (this.importFrom) {
+      // Un objet publié arrive clé par clé : on relit la valeur complète après la publication (microtâche).
+      const path = this.importFrom;
+      let first = true, queued = false;
+      this.unsubs.push(listenDp(path, () => {
+        if (queued) return;
+        queued = true;
+        queueMicrotask(() => {
+          queued = false;
+          if (this.importFrom !== path) return;
+          const v = plain(get(path));
+          this.importState = v;
+          const o = (v && typeof v === "object" ? v : {}) as { status?: unknown; runs?: unknown };
+          const runs = typeof o.runs === "number" ? o.runs : -1;
+          // Un résultat déjà là au branchement n'est pas réimporté ; chaque nouveau calcul prêt l'est (import-auto).
+          if (first) { first = false; this.importRuns = runs; return; }
+          if (o.status !== "ready" || runs === this.importRuns) return;
+          this.importRuns = runs;
+          if (this.importAuto) this.importShapes();
+        });
+      }));
+    }
     this.sync = this.viewSync ? new ViewSync(this.viewSync) : null;
     if (this.sync) {
       this.unsubs.push(this.sync.listen((v) => {
@@ -269,6 +316,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.unsubs.push(listenDp(this.control, (v) => {
         if (!v || typeof v !== "object") return;
         const c = v as Record<string, unknown>;
+        if ("import" in c && this.trigger("import").feed(c.import)) this.importShapes();
         for (const cmd of ["undo", "redo", "clear", "save", "savePng", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten"] as const) {
           if (cmd in c && this.trigger(cmd).feed(c[cmd])) this[cmd]();
         }
@@ -585,6 +633,108 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * Aplatit un trait plein terminé dans la carte du dessus (créée au besoin), en une étape d'annulation.
    * Faux si le trait ne s'aplatit pas (pas plein, couleur illisible, découpage impossible, carte trop lourde).
    */
+  /**
+   * Importe le dernier résultat de `import-from` (`sonic-vectorize`) en aplats : chaque couche, du dessous au
+   * dessus, est peinte opaque dans la carte d'aplats (les couches empilées recouvrent les précédentes), les
+   * morceaux de même couleur s'unissent. Formes placées selon `import-place`, simplifiées à `simplify` px
+   * d'écran, couleurs de `import-skip` ignorées. Une étape d'annulation. Retourne le nombre de couches importées.
+   */
+  importShapes(): number {
+    const t0 = performance.now();
+    const fail = (error: string) => { this.imported = { error }; this.publish(); return 0; };
+    if (this.importFrom) this.importState = plain(get(this.importFrom));
+    const v = (this.importState && typeof this.importState === "object" ? this.importState : {}) as {
+      status?: unknown; width?: unknown; height?: unknown; paths?: unknown; frame?: unknown;
+    };
+    const W = Number(v.width), H = Number(v.height);
+    const paths = Array.isArray(v.paths) ? v.paths.filter((p): p is { color: string; d: string } => !!p && typeof p.color === "string" && typeof p.d === "string" && p.d.length > 0) : [];
+    if (v.status !== "ready" || !(W > 0 && H > 0) || !paths.length) return fail("rien à importer");
+    const canvas = this.canvasEl;
+    if (!canvas) return fail("toile pas prête");
+    const cr = canvas.getBoundingClientRect();
+    if (!(cr.width > 0 && cr.height > 0)) return fail("toile non affichée");
+    const { w, h } = this.dims();
+    // Image analysée → viewport : là où la source était affichée, ou ajustée dans la toile.
+    const frame = Array.isArray(v.frame) && v.frame.length === 6 && v.frame.every((n) => Number.isFinite(n)) ? (v.frame as number[]) : null;
+    const corners = frame ? [[0, 0], [W, 0], [0, H], [W, H]].map(([x, y]) => applyAffine(frame, x, y)) : [];
+    const onCanvas = corners.length > 0 &&
+      Math.min(...corners.map((c) => c[0])) < cr.right && Math.max(...corners.map((c) => c[0])) > cr.left &&
+      Math.min(...corners.map((c) => c[1])) < cr.bottom && Math.max(...corners.map((c) => c[1])) > cr.top;
+    let m: number[];
+    if (frame && (this.importPlace === "screen" || (this.importPlace !== "view" && onCanvas))) m = frame;
+    else {
+      const k = Math.min((cr.width * 0.9) / W, (cr.height * 0.9) / H);
+      m = [k, 0, 0, k, cr.left + (cr.width - W * k) / 2, cr.top + (cr.height - H * k) / 2];
+    }
+    const toW = (x: number, y: number): Pt => {
+      const [cx, cy] = applyAffine(m, x, y);
+      return toWorld(this.view, ((cx - cr.left) / cr.width) * w, ((cy - cr.top) / cr.height) * h, w, h) as Pt;
+    };
+    // Tolérance : `simplify` px d'écran, ramenés aux pixels de l'image (courbes aplaties) puis au monde.
+    const pxPerImage = Math.hypot(m[0], m[1]) * (w / cr.width) || 1;
+    const tolPx = Math.max(0.25, Math.min(8, Number(this.simplify) || 0.35));
+    const skip = this.skipColors();
+    const near = (a: Rgba, b: Rgba) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < 0.06;
+    const layers: { rgba: Rgba; shape: Multi }[] = [];
+    for (const p of paths) {
+      const rgba = parseColor(p.color);
+      if (!rgba || skip.some((c) => near(c, rgba))) continue;
+      const local = pathToMulti(p.d, tolPx / pxPerImage);
+      if (!local?.length) continue;
+      const world = local.map((poly) => poly.map((ring) => ring.map(([x, y]) => toW(x, y))));
+      const shape = simplifyMulti(world, tolPx / this.view.zoom);
+      if (shape.length) layers.push({ rgba: [rgba[0], rgba[1], rgba[2], 1], shape });
+    }
+    if (!layers.length) return fail("aucune forme à importer");
+    try {
+      const all = layers.map((l) => multiBBox(l.shape));
+      const x0 = Math.min(...all.map((b) => b.x)), y0 = Math.min(...all.map((b) => b.y));
+      const ob = { x: x0, y: y0, w: Math.max(...all.map((b) => b.x + b.w)) - x0, h: Math.max(...all.map((b) => b.y + b.h)) - y0 };
+      const strokes = this.doc.strokes;
+      const index = this.targetFlat(ob);
+      const top = index < strokes.length ? strokes[index] : null;
+      const back = this.backdropAt(index);
+      let regions = top ? top.flat! : [];
+      for (const l of layers) {
+        regions = paintFlat(regions, l.shape, l.rgba, 1, "normal", back);
+        if (flatVertices(regions) > MAX_FLAT_VERTICES) return fail("trop de sommets : réduire les couleurs ou augmenter la tolérance");
+      }
+      const id = top ? top.id : this.doc.nextId++;
+      const brush = { ...BRUSH_DEFAULTS, hardness: 1, opacity: 1, pressure: false, blend: undefined };
+      const item: Stroke = { id, brush, pts: [], seed: 1, flat: regions, bbox: flatBBox(regions) };
+      this.doc.replace([...strokes.slice(0, index), ...(regions.length ? [item] : []), ...strokes.slice(index + (top ? 1 : 0))]);
+      this.imported = { layers: layers.length, regions: regions.length, ms: Math.round(performance.now() - t0) };
+      this.invalidate();
+      this.dispatchEvent(new CustomEvent("sketch-import", { detail: this.imported, bubbles: true, composed: true }));
+      return layers.length;
+    } catch (e) {
+      return fail(e instanceof Error ? e.message : "import impossible");
+    }
+  }
+
+  /** Couleurs ignorées à l'import (`import-skip`). */
+  private skipColors(): Rgba[] {
+    return this.importSkip.split(",").map((x) => x.trim()).filter(Boolean).flatMap((x) => {
+      if (x === "background") {
+        const c = this.rgbaOf(this.backgroundColor());
+        return c && c[3] >= 0.999 ? [c] : [];
+      }
+      const c = parseColor(x);
+      return c ? [c] : [];
+    });
+  }
+
+  /** Index de la carte d'aplats où peindre une forme de boîte `ob` (ou `strokes.length` : nouvelle carte au-dessus). */
+  private targetFlat(ob: { x: number; y: number; w: number; h: number }): number {
+    const strokes = this.doc.strokes;
+    const touches = (b: { x: number; y: number; w: number; h: number }) => b.x <= ob.x + ob.w && b.x + b.w >= ob.x && b.y <= ob.y + ob.h && b.y + b.h >= ob.y;
+    for (let i = strokes.length - 1; i >= 0; i--) {
+      if (strokes[i].flat) return i;
+      if (touches(strokes[i].bbox)) break;
+    }
+    return strokes.length;
+  }
+
   private flattenStroke(st: Stroke, tolPx: number): boolean {
     if (!isSolid(st.brush, st.pts)) return false;
     const src = this.rgbaOf(st.brush.color);
@@ -597,13 +747,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       // Carte cible : la plus haute dont rien au-dessus (trait en empreintes, masque de gomme) ne touche le trait.
       // Peindre dedans ne change pas l'ordre visible, et le trait se fusionne avec les aplats déjà là au lieu
       // d'ouvrir une nouvelle carte qui ne se recollerait jamais avec l'ancienne.
-      const ob = multiBBox(outline);
-      const touches = (b: { x: number; y: number; w: number; h: number }) => b.x <= ob.x + ob.w && b.x + b.w >= ob.x && b.y <= ob.y + ob.h && b.y + b.h >= ob.y;
-      let index = strokes.length;
-      for (let i = strokes.length - 1; i >= 0; i--) {
-        if (strokes[i].flat) { index = i; break; }
-        if (touches(strokes[i].bbox)) break;
-      }
+      const index = this.targetFlat(multiBBox(outline));
       const top = index < strokes.length ? strokes[index] : null;
       const onTop = !!top;
       const regions = paintFlat(top ? top.flat! : [], outline, src, st.brush.opacity, st.brush.blend ?? "normal", this.backdropAt(index));
@@ -811,7 +955,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
       strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
-      tool: this.currentTool(), color: b.color, picked: this.picked, size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
+      tool: this.currentTool(), color: b.color, picked: this.picked, imported: this.imported, size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
     };
   }
 
