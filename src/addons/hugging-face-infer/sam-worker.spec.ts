@@ -154,3 +154,33 @@ it("bord affiné : le masque se recale sur le contour réel de l'image", async (
   expect(row(fine.mask)[EDGE]).toBeLessThan(64);
   expect(row(fine.mask)[EDGE + 3]).toBeLessThan(16);
 }, 30_000);
+
+it("sortie GPU invalide (NaN) : bascule sur WASM", async () => {
+  const cfg = { image_processor_type: "Sam2ImageProcessor", do_resize: true, size: { height: 1024, width: 1024 }, resample: 2, do_rescale: true, rescale_factor: 1 / 255, do_normalize: true, image_mean: [0.485, 0.456, 0.406], image_std: [0.229, 0.224, 0.225], do_convert_rgb: true, mask_size: { height: 256, width: 256 } };
+  Object.defineProperty(globalThis.navigator, "gpu", { value: { requestAdapter: async () => ({}) }, configurable: true });
+  const loads: string[] = [];
+  const make = (device: string) => Object.assign(async () => {
+    const plane = 256 * 256, d = new Float32Array(3 * plane).fill(device === "webgpu" ? NaN : 5);
+    return { pred_masks: new t.Tensor("float32", d, [1, 1, 3, 256, 256]), iou_scores: new t.Tensor("float32", new Float32Array([0.9, 0.1, 0.1]), [1, 1, 3]) };
+  }, { async get_image_embeddings() { return { "image_embeddings.0": new t.Tensor("float32", new Float32Array(4), [1, 4]) }; }, async dispose() {} });
+  const lib = {
+    ...t,
+    AutoProcessor: { from_pretrained: async () => new t.Sam2Processor({}, { image_processor: new t.Sam2ImageProcessor(cfg) }, null) },
+    AutoModelForMaskGeneration: { from_pretrained: async (_r: string, o: any) => { loads.push(o.device); return make(o.device); } },
+  };
+  const replies: any[] = [];
+  let listener: any;
+  hfWorkerMain(lib, { postMessage: (m) => replies.push(m), addEventListener: (_, l) => (listener = l) });
+  const ask = (msg: any): Promise<any> => new Promise((res: any) => { const id = Math.random(); listener({ data: { ...msg, id } }); const iv = setInterval(() => { const r = replies.find((x: any) => x.id === id); if (r) { clearInterval(iv); res(r); } }, 5); });
+  try {
+    await ask({ type: "sam-load", model: { alias: "sam", repo: "r", revision: "v", options: {} }, devices: ["webgpu", "wasm"] });
+    await ask({ type: "sam-encode", alias: "sam", image: { width: 32, height: 32, data: new Uint8ClampedArray(32 * 32 * 4) } });
+    const r = await ask({ type: "sam-decode", alias: "sam", points: [{ x: 5, y: 5, label: 1 }], box: null, refine: false });
+    expect(r.ok).toBe(true);
+    expect(r.result.backend).toBe("wasm");
+    expect(loads).toEqual(["webgpu", "wasm"]);
+    expect(r.result.mask.every((v: number) => v === 255)).toBe(true);
+  } finally {
+    delete (globalThis.navigator as any).gpu;
+  }
+}, 30_000);

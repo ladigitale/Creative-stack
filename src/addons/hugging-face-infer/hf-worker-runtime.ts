@@ -268,6 +268,14 @@ export function hfWorkerMain(lib: HfLibrary, scope: HfWorkerScope): void {
     if (!feed.input_points && !feed.input_boxes) return null;
     const out = await entry.model(feed);
     const scores: number[] = Array.from(out.iou_scores.data as ArrayLike<number>).map(Number);
+    // un GPU en précision réduite peut déborder (valeurs infinies ou NaN) : on le traite comme une panne GPU,
+    // ce qui fait basculer sur le moteur suivant
+    if (entry.backend !== "wasm") {
+      const raw = out.pred_masks.data as ArrayLike<number>;
+      let bad = scores.some((v) => !Number.isFinite(v));
+      for (let i = 0; !bad && i < raw.length; i += 61) if (!Number.isFinite(Number(raw[i]))) bad = true;
+      if (bad) throw new Error("webgpu : sortie invalide du modèle (NaN ou infini)");
+    }
     const count = out.pred_masks.dims[2];
     let best = 0;
     for (let i = 1; i < count; i++) if ((scores[i] ?? -Infinity) > (scores[best] ?? -Infinity)) best = i;
