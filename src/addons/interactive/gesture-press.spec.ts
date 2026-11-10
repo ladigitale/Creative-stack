@@ -29,4 +29,37 @@ describe("sonic-gesture press", () => {
     expect(pr[0].payload).toMatchObject({ u: 0.25, v: 0.25 });
     el.remove();
   });
+
+  it("passthrough : rien à un doigt, pinch et pan à deux, sans capture", async () => {
+    const el = document.createElement("sonic-gesture") as HTMLElement & { passthrough: boolean; pan: boolean; pinch: boolean; dispatchEventFlag: boolean };
+    el.passthrough = true;
+    el.pan = true;
+    el.pinch = true;
+    el.dispatchEventFlag = true;
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 100, right: 200, bottom: 100, x: 0, y: 0, toJSON() {} });
+    let captured = 0;
+    (el as unknown as { setPointerCapture: () => void }).setPointerCapture = () => { captured++; };
+    document.body.appendChild(el);
+    await (el as unknown as { updateComplete: Promise<unknown> }).updateComplete;
+    const got: { type: string; payload: Record<string, number> }[] = [];
+    el.addEventListener("sonic-action", (e) => got.push((e as CustomEvent).detail));
+    el.dispatchEvent(pointer("pointerdown", 1, 50, 50));
+    el.dispatchEvent(pointer("pointermove", 1, 90, 50));
+    el.dispatchEvent(pointer("pointerup", 1, 90, 50));
+    expect(got).toEqual([]);
+    el.dispatchEvent(pointer("pointerdown", 1, 50, 50));
+    el.dispatchEvent(pointer("pointerdown", 2, 150, 50));
+    el.dispatchEvent(pointer("pointermove", 2, 150, 90));
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    el.dispatchEvent(pointer("pointerup", 2, 150, 90));
+    el.dispatchEvent(pointer("pointerup", 1, 50, 50));
+    const types = got.map((a) => a.type);
+    expect(types).toContain("pinch-start");
+    expect(types).toContain("pinch");
+    expect(types).not.toContain("tap");
+    expect(types.some((t) => t.startsWith("swipe"))).toBe(false);
+    expect(got.find((a) => a.type === "pinch")?.payload.dRotation).not.toBe(0);
+    expect(captured).toBe(0);
+    el.remove();
+  });
 });

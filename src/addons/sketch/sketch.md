@@ -12,8 +12,10 @@
 |---|---|
 | Molette (ou Ctrl + molette, pincement du pavé tactile) | Zoom sous le curseur |
 | Espace + glisser, bouton du milieu, ou `tool="hand"` | Déplacer la vue |
-| Deux doigts | Zoom et déplacement ensemble (le trait en cours est abandonné) |
-| `+` `-` `0` (toile active) | Zoom avant / arrière / cadrer le dessin |
+| Deux doigts | Déplacer, zoomer et **tourner** autour des doigts (le trait en cours est abandonné) |
+| `+` `-` `0` `R` / `Maj+R` (toile active) | Zoom avant / arrière / cadrer le dessin / tourner de ±15° |
+
+Même navigation que `sonic-paint navigable` (code partagé, `src/shared/view2d.ts`).
 
 Pendant un geste, l'image est transformée en direct, puis redessinée nette une fois la vue stable.
 
@@ -37,9 +39,9 @@ Avec `merge` (défaut vrai), un trait **plein** (net, opaque, sans pointe person
 
 ## Commandes et état
 
-`control` : `{ undo, redo, clear, save, savePng, fit, reset, zoomIn, zoomOut }` — compteurs (la commande part quand le nombre augmente). `view-from` : DP `{ x, y, zoom }` qui règle la vue (centre du monde et zoom).
+`control` : `{ undo, redo, clear, save, savePng, fit, reset, zoomIn, zoomOut, rotateLeft, rotateRight, straighten }` — compteurs (la commande part quand le nombre augmente). `view-from` : DP `{ x, y, zoom, rotation }` qui règle la vue (centre du monde, zoom, rotation en radians).
 
-État : `{ status, error, blend, zoom, x, y, strokes, points, lastStroke, shapes, merges, drawing, canUndo, canRedo, tool, color, size, bbox, last }`. `save` enregistre un SVG dans `last` (`savePng` : un PNG de la vue) : brancher `sonic-media-download source="dessinState.last"`.
+État : `{ status, error, blend, zoom, x, y, rotation, strokes, points, lastStroke, shapes, merges, drawing, canUndo, canRedo, tool, color, size, bbox, last }`. `save` enregistre un SVG dans `last` (`savePng` : un PNG de la vue) : brancher `sonic-media-download source="dessinState.last"`.
 
 ## Export SVG
 

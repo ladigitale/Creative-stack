@@ -1,7 +1,8 @@
+import { blendOp } from "../paint/brush";
 import { drawTip, tipGeometry } from "../paint/tip";
 import { intersects } from "../vector/geometry";
 import { stampsOf, type Stamp } from "./stamps";
-import { toScreen, type Stroke, type StrokeBrush, type View } from "./model";
+import { sanitizeBlend, toScreen, type Stroke, type StrokeBrush, type View } from "./model";
 
 /** Surface de dessin : contexte en pixels logiques (la mise à l'échelle écran est déjà dans le contexte). */
 export type Surface = { ctx: CanvasRenderingContext2D; w: number; h: number; view: View };
@@ -48,6 +49,7 @@ export function drawStamp(s: Surface, b: StrokeBrush, st: Stamp): void {
   const { ctx, view, w, h } = s;
   const [sx, sy] = toScreen(view, st.x, st.y, w, h);
   const px = st.size * view.zoom;
+  const rot = st.rot + (view.rotation || 0);
   if (px < 0.3 || sx < -px - 2 || sy < -px - 2 || sx > w + px + 2 || sy > h + px + 2) return;
   ctx.globalAlpha = b.opacity;
   const geo = b.tip ? tipGeometry(b.tip) : null;
@@ -58,12 +60,12 @@ export function drawStamp(s: Surface, b: StrokeBrush, st: Stamp): void {
       pathCache.set(b.tip, (path = new Path2D(b.tip)));
     }
     ctx.fillStyle = b.color;
-    drawTip(ctx, path, geo, sx, sy, px, st.rot, st.squash);
+    drawTip(ctx, path, geo, sx, sy, px, rot, st.squash);
   } else {
     const d = dab(px, b.hardness, b.color);
     ctx.save();
     ctx.translate(sx, sy);
-    if (st.rot) ctx.rotate(st.rot);
+    if (rot) ctx.rotate(rot);
     ctx.drawImage(d, (-px * st.squash) / 2, -px / 2, px * st.squash, px);
     ctx.restore();
   }
@@ -79,7 +81,7 @@ export function strokeStamps(st: Stroke): Stamp[] {
 
 /** Opération canvas d'un mode de fusion (`normal` → `source-over`). */
 export function compositeOf(blend: string | undefined): GlobalCompositeOperation {
-  return !blend || blend === "normal" ? "source-over" : (blend as GlobalCompositeOperation);
+  return blendOp(sanitizeBlend(blend));
 }
 
 const scratchByCanvas = new WeakMap<object, HTMLCanvasElement>();

@@ -4,6 +4,7 @@ import { stampsOf } from "./stamps";
 import { exportSvg } from "./export";
 import { BRUSH_DEFAULTS } from "../paint/brush";
 import { makeBrush } from "./model";
+import { transformAt } from "../../shared/view2d";
 
 const brush = (size = 10, extra: Record<string, unknown> = {}) => ({ ...makeBrush({ ...BRUSH_DEFAULTS, hardness: 1, pressure: false }, size), ...extra }) as ReturnType<typeof makeBrush>;
 let id = 0;
@@ -14,14 +15,14 @@ const stroke = (pts: number[][], b = brush()): Stroke => {
 
 describe("vue", () => {
   it("écran ↔ monde est une bijection", () => {
-    const v = { x: 12, y: -3, zoom: 7.5 };
+    const v = { x: 12, y: -3, zoom: 7.5, rotation: 0.7 };
     const [wx, wy] = toWorld(v, 120, 80, 400, 300);
     const [sx, sy] = toScreen(v, wx, wy, 400, 300);
     expect(sx).toBeCloseTo(120);
     expect(sy).toBeCloseTo(80);
   });
   it("le zoom garde fixe le point sous le curseur, même très profond", () => {
-    let v = { x: 0, y: 0, zoom: 1 };
+    let v = { x: 0, y: 0, zoom: 1, rotation: -0.4 };
     const before = toWorld(v, 100, 60, 400, 300);
     for (let i = 0; i < 20; i++) v = zoomAt(v, 4, 100, 60, 400, 300);
     expect(v.zoom).toBe(MAX_ZOOM);
@@ -33,17 +34,28 @@ describe("vue", () => {
     expect(clampZoom(0)).toBe(MIN_ZOOM);
     expect(clampZoom(1e99)).toBe(MAX_ZOOM);
     expect(clampZoom(NaN)).toBe(1);
-    expect(sanitizeView({ x: "3", y: null, zoom: "abc" }, { x: 1, y: 2, zoom: 5 })).toEqual({ x: 3, y: 2, zoom: 5 });
+    expect(sanitizeView({ x: "3", y: null, zoom: "abc", rotation: 7 }, { x: 1, y: 2, zoom: 5, rotation: 0 })).toEqual({ x: 3, y: 2, zoom: 5, rotation: expect.closeTo(7 - 2 * Math.PI, 9) });
   });
   it("le déplacement suit les pixels", () => {
-    const v = panBy({ x: 0, y: 0, zoom: 4 }, 40, -8);
+    const v = panBy({ x: 0, y: 0, zoom: 4, rotation: 0 }, 40, -8);
     expect(v.x).toBe(-10);
     expect(v.y).toBe(2);
   });
   it("cadre le contenu", () => {
     const v = fitView({ x: 0, y: 0, w: 100, h: 50 }, 400, 300, 0);
-    expect(v).toEqual({ x: 50, y: 25, zoom: 4 });
-    expect(fitView(null, 400, 300)).toEqual({ x: 0, y: 0, zoom: 1 });
+    expect(v).toEqual({ x: 50, y: 25, zoom: 4, rotation: 0 });
+    expect(fitView(null, 400, 300)).toEqual({ x: 0, y: 0, zoom: 1, rotation: 0 });
+    // Tournée d'un quart de tour, la boîte 100 × 50 devient 50 × 100 à l'écran.
+    expect(fitView({ x: 0, y: 0, w: 100, h: 50 }, 400, 300, 0, Math.PI / 2).zoom).toBeCloseTo(3);
+  });
+  it("tourner et zoomer à deux doigts garde le point sous les doigts", () => {
+    const v = { x: 30, y: 40, zoom: 2, rotation: 0.3 };
+    const before = toWorld(v, 250, 90, 400, 300);
+    const t = transformAt(v, 1.7, 0.9, 250, 90, 400, 300, MIN_ZOOM, MAX_ZOOM);
+    const [sx, sy] = toScreen(t, before[0], before[1], 400, 300);
+    expect(sx).toBeCloseTo(250, 6);
+    expect(sy).toBeCloseTo(90, 6);
+    expect(t.rotation).toBeCloseTo(1.2);
   });
 });
 

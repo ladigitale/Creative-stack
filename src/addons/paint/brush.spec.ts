@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, dabSize, sanitizeBrush, type Pt } from "./brush";
+import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, blendOp, dabSize, sanitizeBrush, type Pt } from "./brush";
 
 const pt = (x: number, y: number, p = 1): Pt => ({ x, y, p });
 const B = { ...BRUSH_DEFAULTS, size: 20, spacing: 0.5, pressure: false };
 
 describe("réglages", () => {
+  it("mode de fusion : liste fermée, normal par défaut", () => {
+    expect(BRUSH_DEFAULTS.blend).toBe("normal");
+    expect(sanitizeBrush(BRUSH_DEFAULTS, { blend: "multiply" }).blend).toBe("multiply");
+    expect(sanitizeBrush(BRUSH_DEFAULTS, { blend: "copy" }).blend).toBe("normal");
+    expect(sanitizeBrush(BRUSH_DEFAULTS, { blend: 3 }).blend).toBe("normal");
+    expect(blendOp("normal")).toBe("source-over");
+    expect(blendOp("screen")).toBe("screen");
+  });
+
   it("borne et ignore l'invalide", () => {
     const o = sanitizeBrush(BRUSH_DEFAULTS, { size: 9999, hardness: -3, opacity: 0, smoothing: 5, spacing: "x", color: "red", tool: "erase", pressure: false });
     expect(o).toMatchObject({ size: 512, hardness: 0, opacity: 0.01, smoothing: 0.95, spacing: BRUSH_DEFAULTS.spacing, color: "red", tool: "erase", pressure: false });
@@ -161,5 +170,19 @@ describe("pointes personnalisées", () => {
     expect(tipFromValue({ d: "M0 0L2 2" })).toBe("M0 0L2 2");
     expect(tipFromValue({ shape: { d: "M0 0L3 3" } })).toBe("M0 0L3 3");
     expect(tipFromValue(42)).toBe("");
+  });
+});
+
+describe("historique : trait abandonné", () => {
+  it("dropLast rend l'état d'avant sans toucher à l'avenir", () => {
+    const h = new History<string>(5);
+    h.push("a", 1);
+    h.push("b", 1);
+    expect(h.undo("c", 1)).toBe("b");
+    expect(h.canRedo).toBe(true);
+    h.push("x", 1);
+    expect(h.dropLast()).toBe("x");
+    expect(h.dropLast()).toBe("a");
+    expect(h.dropLast()).toBe(null);
   });
 });

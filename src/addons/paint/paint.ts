@@ -5,8 +5,13 @@ import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import { safeMediaUrl } from "../../shared/media/urls";
 import type { SonicFrameConsumerHost, SonicFrameSource, SonicMediaRef } from "../../shared/mediaRef";
-import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, place, rng, sanitizeBrush, type BrushSettings, type Pt } from "./brush";
+import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, blendOp, place, rng, sanitizeBrush, type BrushSettings, type Pt } from "./brush";
 import { drawTip, tipFromValue, tipGeometry } from "./tip";
+import { ROTATE_STEP, ViewGestures, fitBox, sanitizeView2D, screenToWorld, viewMatrix, type View2D } from "../../shared/view2d";
+
+/** Zoom de la vue d'une toile navigable (pixels d'écran par pixel de toile). */
+const NAV_MIN_ZOOM = 0.01;
+const NAV_MAX_ZOOM = 64;
 
 const MAX_SIDE = 4096;
 const MAX_PIXELS = 16_000_000;
@@ -25,6 +30,14 @@ export type PaintState = {
   size: number;
   /** Dernier enregistrement (`control.save`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
+  /** Toile navigable : vue (centre en pixels de toile, zoom, rotation en radians). Sinon zoom 1, rotation 0. */
+  x: number;
+  y: number;
+  zoom: number;
+  rotation: number;
+  /** Toile navigable : taille de la fenêtre en pixels CSS (0 sinon). */
+  viewWidth: number;
+  viewHeight: number;
 };
 
 /**
@@ -42,6 +55,9 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     :host { display: block; position: relative; line-height: 0; touch-action: none; }
     :host([hidden-preview]) { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; overflow: hidden; }
     canvas { display: block; width: 100%; height: auto; cursor: crosshair; touch-action: none; }
+    :host([navigable]) { height: 100%; min-height: 160px; overflow: hidden; }
+    :host([navigable]) canvas { height: 100%; outline: none; }
+    :host([navigable]) canvas.pan { cursor: grab; }
   `;
 
   @property({ type: Number }) width = 1024;
@@ -64,6 +80,8 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   @property({ type: Number, attribute: "size-jitter" }) sizeJitter = 0;
   @property({ type: Number }) scatter = 0;
   @property({ type: Number }) roundness = 1;
+  /** Mode de fusion du trait : normal, multiply, screen, overlay, darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, exclusion, hue, saturation, color, luminosity. */
+  @property({ type: String }) blend = "normal";
   /** DP d'une forme (chaîne `d`, `{ d }` ou forme de `sonic-vector-library`) utilisée comme pointe. */
   @property({ type: String, attribute: "tip-from" }) tipFrom = "";
   /** DP de réglages en direct. */
@@ -74,6 +92,14 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   @property({ type: Number, attribute: "undo-levels" }) undoLevels = 20;
   @property({ type: Boolean }) readonly = false;
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
+  /**
+   * Toile navigable : l'élément devient une fenêtre (sa taille CSS) sur l'image width × height, avec la même
+   * navigation que `sonic-sketch` — molette, Espace / bouton du milieu / outil main pour déplacer, deux doigts
+   * pour déplacer, zoomer et tourner, clavier + − 0 R. Pixels nets au zoom avant.
+   */
+  @property({ type: Boolean, reflect: true }) navigable = false;
+  /** DP de la vue `{ x, y, zoom, rotation }` (toile navigable). */
+  @property({ type: String, attribute: "view-from" }) viewFrom = "";
 
   @query("canvas") private canvasEl!: HTMLCanvasElement;
 
@@ -94,15 +120,48 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   private last: PaintState["last"] = null;
   private error: string | null = null;
   private loadToken = 0;
+  /** Trait en mode de fusion : image de la toile au début du trait, et calque du trait seul. */
+  private blendBase: HTMLCanvasElement | null = null;
+  private blendLayer: HTMLCanvasElement | null = null;
+  private blendMode: GlobalCompositeOperation = "source-over";
+
+  /* ---- toile navigable : image hors écran + vue */
+  private buf: HTMLCanvasElement | null = null;
+  private view: View2D = { x: 512, y: 512, zoom: 1, rotation: 0 };
+  /** Vue cadrée automatiquement (tant que personne n'a navigué). */
+  private autoFit = true;
+  private disp = { w: 0, h: 0, dpr: 1 };
+  private ro: ResizeObserver | null = null;
+  private presentRaf = 0;
+  private space = false;
+  private hover = false;
+  private panning: number | null = null;
+  private checker: CanvasPattern | null = null;
+  private nav = new ViewGestures({
+    view: () => this.view,
+    setView: (v) => this.setView(v),
+    size: () => ({ w: this.disp.w || 1, h: this.disp.h || 1 }),
+    zoomRange: () => [NAV_MIN_ZOOM, NAV_MAX_ZOOM],
+    fit: () => this.fit(),
+  });
+
+  /** Image peinte : la toile elle-même, ou l'image hors écran d'une toile navigable. */
+  private image(): HTMLCanvasElement | null {
+    if (!this.navigable) return this.canvasEl ?? null;
+    const { w, h } = this.dims();
+    if (!this.buf) this.buf = document.createElement("canvas");
+    if (this.buf.width !== w || this.buf.height !== h) { this.buf.width = w; this.buf.height = h; }
+    return this.buf;
+  }
 
   get frameSeq(): number { return this.seq; }
-  getFrameCanvas(): HTMLCanvasElement | null { return this.canvasEl ?? null; }
+  getFrameCanvas(): HTMLCanvasElement | null { return this.image(); }
   registerFrameConsumer(token: object = {}): void { this.consumers.add(token); }
   unregisterFrameConsumer(token: object = {}): void { this.consumers.delete(token); }
 
   /** Réglages effectifs : attributs puis réglages en direct. */
   brush(): BrushSettings {
-    const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, tool: this.tool, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness });
+    const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, tool: this.tool, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness, blend: this.blend });
     return sanitizeBrush(base, this.live);
   }
 
@@ -114,10 +173,16 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   }
 
   private ctx(): CanvasRenderingContext2D | null {
-    return this.canvasEl?.getContext("2d", { willReadFrequently: false }) ?? null;
+    return this.image()?.getContext("2d", { willReadFrequently: false }) ?? null;
   }
 
   render() {
+    if (this.navigable) {
+      return html`<canvas part="canvas" tabindex="0" class=${this.panning !== null || this.space || this.toolName() === "hand" ? "pan" : ""}
+        @pointerdown=${this.onDown} @pointermove=${this.onMove} @pointerup=${this.onUp} @pointercancel=${this.onUp} @lostpointercapture=${this.onUp}
+        @pointerenter=${() => (this.hover = true)} @pointerleave=${() => (this.hover = false)}
+        @keydown=${this.onKey} @contextmenu=${(e: Event) => e.preventDefault()}></canvas>`;
+    }
     const { w, h } = this.dims();
     return html`<canvas width=${w} height=${h} part="canvas"
       @pointerdown=${this.onDown} @pointermove=${this.onMove} @pointerup=${this.onUp} @pointercancel=${this.onUp} @lostpointercapture=${this.onUp}></canvas>`;
@@ -126,9 +191,19 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   connectedCallback(): void {
     super.connectedCallback();
     this.listen();
+    window.addEventListener("keydown", this.onSpace);
+    window.addEventListener("keyup", this.onSpace);
   }
 
   disconnectedCallback(): void {
+    window.removeEventListener("keydown", this.onSpace);
+    window.removeEventListener("keyup", this.onSpace);
+    this.ro?.disconnect();
+    this.ro = null;
+    cancelAnimationFrame(this.presentRaf);
+    this.stopStrokeWatch();
+    window.removeEventListener("pointerup", this.onHeldUp, true);
+    window.removeEventListener("pointercancel", this.onHeldUp, true);
     for (const u of this.unsubs) u();
     this.unsubs = [];
     if (this.last) URL.revokeObjectURL(this.last.url);
@@ -137,15 +212,24 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
 
   protected firstUpdated(): void {
     this.fillBackground();
+    if (this.navigable) this.setupDisplay();
     this.publish();
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
+    if (c.has("navigable") && c.get("navigable") !== undefined) {
+      // Passage navigable ↔ simple : l'image est recopiée sur la nouvelle surface.
+      const from = this.navigable ? (this.renderRoot.querySelector("canvas") as HTMLCanvasElement | null) : this.buf;
+      if (this.navigable) { this.setupDisplay(); }
+      const to = this.image();
+      if (from && to && from !== to) to.getContext("2d")?.drawImage(from, 0, 0);
+    }
+    if ((c.has("width") || c.has("height")) && this.navigable && this.autoFit) this.fit();
     if (c.has("width") || c.has("height") || c.has("background")) {
       if (this.canvasEl && (c.has("width") || c.has("height")) && !c.has("background")) this.fillBackground();
       else if (c.has("background") && this.strokes === 0) this.fillBackground();
     }
-    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("inDataProvider")) this.listen();
+    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("inDataProvider") || c.has("viewFrom")) this.listen();
     if (c.has("tool") || c.has("color") || c.has("size")) this.publish();
     if (c.has("undoLevels")) this.history = new History<ImageData>(Math.max(0, Math.min(100, this.undoLevels)));
   }
@@ -168,12 +252,21 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
       this.unsubs.push(listenDp(this.control, (v) => {
         if (!v || typeof v !== "object") return;
         const c = v as Record<string, unknown>;
-        for (const cmd of ["undo", "redo", "clear", "save"] as const) {
+        for (const cmd of ["undo", "redo", "clear", "save", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten"] as const) {
           if (cmd in c && this.trigger(cmd).feed(c[cmd])) this[cmd]();
         }
       }));
     }
     if (this.inDataProvider) this.unsubs.push(listenDp(this.inDataProvider, (v) => void this.loadBase(v)));
+    if (this.viewFrom) {
+      this.unsubs.push(listenDp(this.viewFrom, (v) => {
+        if (!this.navigable) return;
+        const next = sanitizeView2D(v, this.view, NAV_MIN_ZOOM, NAV_MAX_ZOOM);
+        const c = this.view;
+        if (next.x === c.x && next.y === c.y && next.zoom === c.zoom && next.rotation === c.rotation) return;
+        this.setView(next);
+      }));
+    }
   }
 
   private async loadBase(v: unknown): Promise<void> {
@@ -187,7 +280,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
       img.crossOrigin = "anonymous";
       img.src = url;
       await img.decode();
-      if (token !== this.loadToken || !this.canvasEl) return;
+      if (token !== this.loadToken || !this.image()) return;
       this.pushHistory();
       this.fillBackground();
       const ctx = this.ctx();
@@ -222,8 +315,137 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
 
   private touch(): void {
     this.seq++;
+    this.schedulePresent();
     this.publish();
   }
+
+  /* ------------------------------------------------------------ toile navigable : affichage */
+
+  private setupDisplay(): void {
+    const canvas = this.renderRoot.querySelector("canvas") as HTMLCanvasElement | null;
+    if (!canvas || !this.navigable) return;
+    canvas.addEventListener("wheel", this.onWheel, { passive: false });
+    this.ro?.disconnect();
+    if (typeof ResizeObserver === "function") {
+      this.ro = new ResizeObserver(() => this.measure());
+      this.ro.observe(canvas);
+    }
+    this.measure();
+  }
+
+  private measure(): void {
+    const canvas = this.canvasEl;
+    if (!canvas || !this.navigable) return;
+    const r = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, Math.min(3, (typeof devicePixelRatio === "number" && devicePixelRatio) || 1));
+    const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+    if (w === this.disp.w && h === this.disp.h && dpr === this.disp.dpr) return;
+    this.disp = { w, h, dpr };
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    if (this.autoFit) this.fit(); else this.present();
+    this.publish();
+  }
+
+  private schedulePresent(): void {
+    if (!this.navigable || this.presentRaf) return;
+    this.presentRaf = requestAnimationFrame(() => { this.presentRaf = 0; this.present(); });
+  }
+
+  /** Dessine l'image dans la fenêtre selon la vue : damier sous la transparence, pixels nets au zoom avant. */
+  private present(): void {
+    const canvas = this.canvasEl, img = this.image();
+    const g = canvas?.getContext("2d");
+    if (!canvas || !img || !g || !this.navigable) return;
+    const { w, h, dpr } = this.disp;
+    const { w: iw, h: ih } = this.dims();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, canvas.width, canvas.height);
+    const m = viewMatrix(this.view, w, h);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.save();
+    g.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    g.beginPath();
+    g.rect(0, 0, iw, ih);
+    g.restore();
+    g.save();
+    g.clip();
+    if (!this.checker) {
+      const c = document.createElement("canvas");
+      c.width = c.height = 16;
+      const cg = c.getContext("2d");
+      if (cg) { cg.fillStyle = "#f2f2f4"; cg.fillRect(0, 0, 16, 16); cg.fillStyle = "#d8d8de"; cg.fillRect(0, 0, 8, 8); cg.fillRect(8, 8, 8, 8); }
+      this.checker = g.createPattern(c, "repeat");
+    }
+    if (this.checker) { g.fillStyle = this.checker; g.fillRect(0, 0, w, h); }
+    g.restore();
+    g.save();
+    g.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    g.imageSmoothingEnabled = this.view.zoom < 1;
+    g.drawImage(img, 0, 0);
+    g.lineWidth = 1 / this.view.zoom;
+    g.strokeStyle = "rgba(0,0,0,.25)";
+    g.strokeRect(0, 0, iw, ih);
+    g.restore();
+  }
+
+  private setView(v: View2D, auto = false): void {
+    this.view = v;
+    this.autoFit = auto;
+    this.schedulePresent();
+    this.publish();
+  }
+
+  private toolName(): string {
+    const t = typeof this.live.tool === "string" ? this.live.tool : this.tool;
+    return t === "hand" || t === "erase" ? t : "paint";
+  }
+
+  private local(e: { clientX: number; clientY: number }): { x: number; y: number } {
+    const r = this.canvasEl.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  private onWheel = (e: WheelEvent): void => {
+    if (!this.navigable) return;
+    e.preventDefault();
+    this.nav.wheel(e, this.local(e));
+  };
+
+  private onSpace = (e: KeyboardEvent): void => {
+    if (!this.navigable || e.code !== "Space") return;
+    if (e.type === "keydown" && !this.hover && this.shadowRoot?.activeElement !== this.canvasEl) return;
+    if (e.type === "keydown") e.preventDefault();
+    const was = this.space;
+    this.space = e.type === "keydown";
+    if (was !== this.space) this.requestUpdate();
+  };
+
+  private onKey = (e: KeyboardEvent): void => {
+    if (this.nav.key(e)) { e.preventDefault(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); }
+  };
+
+  /** Cadre toute l'image dans la fenêtre (rotation conservée). */
+  fit(): void {
+    if (!this.navigable) return;
+    const { w, h } = this.dims();
+    const v = fitBox({ x: 0, y: 0, w, h }, this.disp.w || w, this.disp.h || h, this.view.rotation, NAV_MIN_ZOOM, NAV_MAX_ZOOM, 0.04);
+    if (v) this.setView(v, true);
+  }
+
+  /** Image entière, droite. */
+  reset(): void {
+    if (!this.navigable) return;
+    this.view = { ...this.view, rotation: 0 };
+    this.fit();
+  }
+
+  zoomIn(): void { if (this.navigable) this.nav.zoomBy(1.6); }
+  zoomOut(): void { if (this.navigable) this.nav.zoomBy(1 / 1.6); }
+  rotateLeft(): void { if (this.navigable) this.nav.rotateBy(-ROTATE_STEP); }
+  rotateRight(): void { if (this.navigable) this.nav.rotateBy(ROTATE_STEP); }
+  straighten(): void { if (this.navigable) this.nav.straighten(); }
 
   /** Empreinte (cercle à bord progressif) pré-dessinée, mise en cache par diamètre, dureté et couleur. */
   private dab(diameter: number, hardness: number, color: string): HTMLCanvasElement {
@@ -250,7 +472,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   }
 
   private stamp(pt: Pt, b: BrushSettings): void {
-    const ctx = this.ctx();
+    const ctx = this.blendLayer ? this.blendLayer.getContext("2d") : this.ctx();
     if (!ctx) return;
     const pl = place(pt, b, this.draw);
     const erase = b.tool === "erase";
@@ -277,11 +499,107 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     ctx.globalCompositeOperation = "source-over";
   }
 
+  /**
+   * Trait en mode de fusion : les empreintes vont sur un calque à part (elles s'y superposent normalement),
+   * puis la toile = image du début du trait + calque fusionné. Ainsi le trait ne se fusionne pas avec lui-même.
+   */
+  private beginBlend(b: BrushSettings): void {
+    this.endBlend();
+    const img = this.image();
+    if (b.tool === "erase" || b.blend === "normal" || !img) return;
+    const { w, h } = this.dims();
+    const mk = () => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+    const base = mk(), layer = mk();
+    base.getContext("2d")?.drawImage(img, 0, 0);
+    this.blendBase = base;
+    this.blendLayer = layer;
+    this.blendMode = blendOp(b.blend);
+  }
+
+  private composeBlend(): void {
+    const ctx = this.ctx();
+    if (!ctx || !this.blendBase || !this.blendLayer) return;
+    const { w, h } = this.dims();
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "copy";
+    ctx.drawImage(this.blendBase, 0, 0);
+    ctx.globalCompositeOperation = this.blendMode;
+    ctx.drawImage(this.blendLayer, 0, 0, w, h);
+    ctx.restore();
+  }
+
+  private endBlend(): void {
+    this.blendBase = null;
+    this.blendLayer = null;
+  }
+
+  /**
+   * Position du pointeur en pixels de toile. `offsetX/Y` sont exprimés dans le repère propre de la toile,
+   * transformations CSS comprises : la toile peut être tournée, mise à l'échelle ou retournée par un parent
+   * (sonic-stage) sans fausser le tracé. Repli sur le rectangle englobant si la cible n'est pas la toile.
+   */
   private toCanvas(e: PointerEvent): Pt {
-    const r = this.canvasEl.getBoundingClientRect();
     const { w, h } = this.dims();
     const p = e.pointerType === "pen" ? (e.pressure > 0 ? e.pressure : 0.5) : 1;
+    if (this.navigable) {
+      const l = this.local(e);
+      const [x, y] = screenToWorld(this.view, l.x, l.y, this.disp.w || 1, this.disp.h || 1);
+      return { x, y, p };
+    }
+    const cw = this.canvasEl.offsetWidth, ch = this.canvasEl.offsetHeight;
+    if (e.target === this.canvasEl && cw > 0 && ch > 0 && Number.isFinite(e.offsetX) && Number.isFinite(e.offsetY)) {
+      return { x: (e.offsetX / cw) * w, y: (e.offsetY / ch) * h, p };
+    }
+    const r = this.canvasEl.getBoundingClientRect();
     return { x: ((e.clientX - r.left) / Math.max(1, r.width)) * w, y: ((e.clientY - r.top) / Math.max(1, r.height)) * h, p };
+  }
+
+  /* ------------------------------------------------------------ deux doigts : le trait cède la place au geste */
+
+  /** Doigts encore posés après un trait abandonné : la toile ne peint plus tant qu'il en reste. */
+  private heldTouches = new Set<number>();
+
+  /** Un autre doigt touche l'écran pendant un trait au doigt : c'est un geste (déplacer, zoomer, tourner). */
+  private onOtherDown = (e: PointerEvent): void => {
+    if (e.pointerType !== "touch" || e.pointerId === this.pointer || !this.drawing || this.pointerType !== "touch") return;
+    this.abortStroke(e.pointerId);
+  };
+
+  private onHeldUp = (e: PointerEvent): void => {
+    this.heldTouches.delete(e.pointerId);
+    if (this.heldTouches.size) return;
+    window.removeEventListener("pointerup", this.onHeldUp, true);
+    window.removeEventListener("pointercancel", this.onHeldUp, true);
+  };
+
+  /** Annule le trait en cours (toile remise comme avant le trait) et attend que tous les doigts se lèvent. */
+  private abortStroke(otherId: number): void {
+    const ctx = this.ctx();
+    const before = this.undoLevels > 0 ? this.history.dropLast() : null;
+    if (ctx && before) ctx.putImageData(before, 0, 0);
+    this.endBlend();
+    if (this.pointer !== null) {
+      try { this.canvasEl.releasePointerCapture(this.pointer); } catch { /* déjà relâché */ }
+      this.heldTouches.add(this.pointer);
+    }
+    this.heldTouches.add(otherId);
+    window.addEventListener("pointerup", this.onHeldUp, true);
+    window.addEventListener("pointercancel", this.onHeldUp, true);
+    this.stopStrokeWatch();
+    this.pointer = null;
+    this.drawing = false;
+    this.touch();
+  }
+
+  private pointerType = "";
+
+  private startStrokeWatch(): void {
+    window.addEventListener("pointerdown", this.onOtherDown, true);
+  }
+
+  private stopStrokeWatch(): void {
+    window.removeEventListener("pointerdown", this.onOtherDown, true);
   }
 
   private pushHistory(): void {
@@ -292,22 +610,67 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   }
 
   private onDown = (e: PointerEvent): void => {
+    if (this.navigable) { this.onNavDown(e); return; }
     if (this.readonly || this.pointer !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
+    if (e.pointerType === "touch" && this.heldTouches.size) {
+      this.heldTouches.add(e.pointerId);
+      return;
+    }
     this.pointer = e.pointerId;
+    this.pointerType = e.pointerType;
+    this.startStrokeWatch();
     try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
     e.preventDefault();
+    this.beginStroke(e);
+  };
+
+  /** Toile navigable : un doigt / la souris peint, deux doigts, Espace, le bouton du milieu ou la main naviguent. */
+  private onNavDown(e: PointerEvent): void {
+    this.canvasEl.focus({ preventScroll: true });
+    try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
+    e.preventDefault();
+    const pan = e.button === 1 || this.space || this.toolName() === "hand" || this.readonly;
+    const r = this.nav.down(e.pointerId, this.local(e), this.pointer === null && pan);
+    if (r === "pinch") {
+      if (this.drawing) this.cancelStroke();
+      this.pointer = null;
+      this.panning = null;
+      return;
+    }
+    if (this.pointer !== null || this.panning !== null || this.nav.count > 1) return;
+    if (r === "pan") { this.panning = e.pointerId; this.requestUpdate(); return; }
+    if (e.pointerType === "mouse" && e.button !== 0) { this.nav.up(e.pointerId); return; }
+    this.pointer = e.pointerId;
+    this.pointerType = e.pointerType;
+    this.beginStroke(e);
+  }
+
+  /** Abandonne le trait en cours : la toile revient comme avant le trait. */
+  private cancelStroke(): void {
+    const ctx = this.ctx();
+    const before = this.undoLevels > 0 ? this.history.dropLast() : null;
+    if (ctx && before) ctx.putImageData(before, 0, 0);
+    this.endBlend();
+    this.drawing = false;
+    this.touch();
+  }
+
+  private beginStroke(e: PointerEvent): void {
     this.pushHistory();
     this.drawing = true;
     this.stab.reset();
     this.walker.reset();
     this.draw = rng((Math.random() * 4294967296) >>> 0);
     const b = this.brush();
+    this.beginBlend(b);
     const pt = this.stab.feed(this.toCanvas(e), b.smoothing);
     for (const s of this.walker.walk(pt, b)) this.stamp(s, b);
+    this.composeBlend();
     this.touch();
-  };
+  }
 
   private onMove = (e: PointerEvent): void => {
+    if (this.navigable && this.nav.move(e.pointerId, this.local(e))) return;
     if (!this.drawing || e.pointerId !== this.pointer) return;
     const b = this.brush();
     const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
@@ -315,10 +678,25 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
       const pt = this.stab.feed(this.toCanvas(ev), b.smoothing);
       for (const s of this.walker.walk(pt, b)) this.stamp(s, b);
     }
+    this.composeBlend();
     this.touch();
   };
 
   private onUp = (e: PointerEvent): void => {
+    if (this.navigable) {
+      this.nav.up(e.pointerId);
+      if (this.panning === e.pointerId) {
+        this.panning = null;
+        try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
+        this.requestUpdate();
+        return;
+      }
+      if (e.pointerId !== this.pointer) {
+        try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
+        return;
+      }
+      if (!this.drawing) { this.pointer = null; return; }
+    }
     if (!this.drawing || (e.pointerId !== undefined && e.pointerId !== this.pointer)) return;
     const b = this.brush();
     // Le lissage laisse la pointe en retard : on la ramène sur le pointeur pour finir le trait.
@@ -329,6 +707,9 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
         for (const s of this.walker.walk(pt, b)) this.stamp(s, b);
       }
     }
+    this.composeBlend();
+    this.endBlend();
+    this.stopStrokeWatch();
     try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
     this.pointer = null;
     this.drawing = false;
@@ -361,7 +742,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
 
   /** Enregistre l'image courante en PNG (URL `blob:`) dans `last`. */
   save(): void {
-    this.canvasEl?.toBlob((blob) => {
+    this.image()?.toBlob((blob) => {
       if (!blob) return;
       if (this.last) URL.revokeObjectURL(this.last.url);
       const { w, h } = this.dims();
@@ -373,7 +754,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   getState(): PaintState {
     const { w, h } = this.dims();
     const b = this.brush();
-    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: b.tool, color: b.color, size: b.size, last: this.last };
+    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" ? "hand" : b.tool, color: b.color, size: b.size, last: this.last, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
   }
 
   private publish(): void {

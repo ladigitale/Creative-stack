@@ -25,6 +25,8 @@ const NUM_KEYS: Array<[keyof GestureSettings, number, number]> = [
   ["doubleTapMs", 0, 2000],
 ];
 const BOOL_KEYS = ["drag", "pan", "pinch", "wheel", "press"] as const;
+/** Actions transmises par une zone traversante pendant un geste à plusieurs doigts. */
+export const PASSTHROUGH_TYPES = new Set(["pan", "pan-end", "pinch-start", "pinch", "pinch-end"]);
 
 /**
  * Lit le DP `params` : `{ swipeThreshold (px, 1..2000), longPressMs (50..10000), doubleTapMs (0..2000), drag, pan,
@@ -62,6 +64,8 @@ export function readGestureParams(v: unknown): { settings: Partial<GestureSettin
  * Les actions continues (drag, pan, pinch) sont regroupées : au plus une de chaque par image.
  * `press` : press {id, x, y, u, v} dès qu'un doigt touche, release {id, x, y, u, v} quand il se lève
  *   (ou que le geste est annulé), pour chaque doigt : jeu instrumental (note tenue tant que le doigt reste).
+ * `passthrough` : ne capture rien et n'émet que les gestes à deux doigts (pan, pinch) et la molette : un doigt seul
+ *   va aux éléments dessous (dessiner d'un doigt, déplacer / zoomer / tourner à deux).
  * `state-provider` : DataProvider qui reçoit {active, pointers, scale, rotation, panX, panY, x, y}.
  * `params` : DP de réglages en direct {swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press},
  *   prioritaires sur les attributs (clé retirée : retour à l'attribut).
@@ -103,6 +107,14 @@ export class SonicGesture extends LitElement {
   /** Émet press / release par doigt (pointerdown / pointerup), en plus des gestes. */
   @property({ type: Boolean })
   press = false;
+
+  /**
+   * Zone traversante : ne capture pas les pointeurs et n'émet que les gestes à deux doigts ou plus
+   * (pan, pinch avec rotation) et la molette. Un doigt seul reste aux éléments dessous (toile de
+   * dessin, boutons) : poser une zone traversante autour d'une toile pour déplacer / zoomer / tourner.
+   */
+  @property({ type: Boolean })
+  passthrough = false;
 
   @property({ type: String, attribute: "state-provider" })
   stateProvider = "";
@@ -205,10 +217,12 @@ export class SonicGesture extends LitElement {
   }
 
   private onDown = (e: PointerEvent) => {
-    try {
-      this.setPointerCapture(e.pointerId);
-    } catch {
-      /* pointeur déjà relâché */
+    if (!this.passthrough) {
+      try {
+        this.setPointerCapture(e.pointerId);
+      } catch {
+        /* pointeur déjà relâché */
+      }
     }
     if (this.settings().press) {
       // tout de suite, avant toute analyse de geste : la note part au contact
@@ -253,8 +267,12 @@ export class SonicGesture extends LitElement {
     this.handle([this.tracker.wheel(e.deltaY, e.clientX - r.left, e.clientY - r.top)]);
   };
 
+  /** Mode traversant : un geste à plusieurs doigts est en cours (jusqu'à ce que le dernier doigt se lève). */
+  private multi = false;
+
   /** Actions ponctuelles : envoyées tout de suite (après les continues en attente) ; continues : par image. */
   private handle(actions: GestureAction[]): void {
+    if (this.passthrough) actions = this.passthroughFilter(actions);
     if (!actions.length) return;
     for (const a of actions) {
       if (CONTINUOUS.has(a.type)) {
@@ -266,6 +284,18 @@ export class SonicGesture extends LitElement {
         this.publishState();
       }
     }
+  }
+
+  /** Ne garde que les gestes à deux doigts (et ceux qui les prolongent jusqu'au dernier doigt levé) et la molette. */
+  private passthroughFilter(actions: GestureAction[]): GestureAction[] {
+    if (this.tracker.size >= 2) this.multi = true;
+    const out = actions.filter((a) => {
+      const p = a.payload as Record<string, unknown> | undefined;
+      if (a.type === "pinch" && p?.source === "wheel") return true;
+      return this.multi && PASSTHROUGH_TYPES.has(a.type);
+    });
+    if (this.tracker.size === 0) this.multi = false;
+    return out;
   }
 
   private flush(): void {
