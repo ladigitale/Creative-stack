@@ -14,7 +14,7 @@
 | `color` `size` `hardness` `opacity` | Couleur CSS, diamètre (1 à 512), bord net (0 flou, 1 net), opacité de chaque empreinte |
 | `spacing` | Écart entre empreintes, en fraction du diamètre (0,12) |
 | `smoothing` | Lissage du tracé, 0 à 0,95 : plus haut, plus stable et plus en retard |
-| `tool` | `paint` ou `erase` (gomme : rend transparent) |
+| `tool` | `paint`, `erase` (gomme : rend transparent) ou `pick` (pipette, voir plus bas) |
 | `pressure` | La pression du stylet module le diamètre (par défaut oui) |
 | `tip` | Pointe personnalisée : un chemin SVG `d` (étoile, feuille, tampon…), dessinée à la taille du pinceau et nette à toute taille. Vide : disque doux |
 | `tip-from` | DP d'une forme utilisée comme pointe : chaîne `d`, `{ d }` ou une forme de `sonic-vector-library` (choisir une forme change le pinceau) |
@@ -23,13 +23,15 @@
 | `roundness` | Aplatissement de la pointe, 1 intacte à 0,05 très plate (pinceau plat, calligraphie avec `angle`) |
 | `blend` | Mode de fusion du trait avec la toile : `normal`, `multiply` (produit), `screen` (écran), `overlay` (incrustation), `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity`. Le trait est peint sur un calque puis fusionné : il ne se fusionne pas avec lui-même. Sans effet sur la gomme |
 | `brush-from` | DP de réglages en direct `{ color, size, hardness, opacity, spacing, smoothing, tool, pressure, tip, angle, blend… }` : une palette en SDUI écrit dedans |
-| `control` | DP de commandes à compteur : `{ undo: n, redo: n, clear: n, save: n }` (la commande part quand `n` augmente) |
+| `control` | DP de commandes à compteur : `{ undo: n, redo: n, clear: n, save: n, stamp: n }` (la commande part quand `n` augmente) |
+| `stamp-from` | Sources d'images fondues dans la toile à la commande `stamp` (sélecteurs `#id` séparés par des virgules, du dessous vers le dessus) : voir « Calques » |
+| `view-sync` | Toile navigable : DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit (voir « Calques ») |
 | `in-data-provider` | Image de départ (`SonicMediaRef`, par exemple une photo de `sonic-file-open`) : dessinée à la place de la toile |
 | `undo-levels` | Étapes d'annulation gardées (20 par défaut, 0 pour aucune) |
 | `readonly` | Ne peint plus (affichage seul) |
 | `hidden-preview` | Toile invisible : elle ne sert que de source d'images |
 
-État : `{ status, error, width, height, strokes, drawing, canUndo, canRedo, tool, color, size, last }`. `save` enregistre un PNG dans `last` (`{ url blob:, mime, width, height, size }`) : brancher `sonic-media-download source="peintureState.last"`.
+État : `{ status, error, width, height, strokes, drawing, canUndo, canRedo, tool, color, picked, size, last }`. `save` enregistre un PNG dans `last` (`{ url blob:, mime, width, height, size }`) : brancher `sonic-media-download source="peintureState.last"`.
 
 Les variations aléatoires sont tirées d'une graine par trait : un trait se dessine de la même façon à chaque fois.
 
@@ -53,6 +55,27 @@ Pixels nets au zoom avant, damier sous la transparence. `view-from` : DP `{ x, y
 ## Toile déplacée, zoomée, tournée par un parent
 
 La position du pointeur est lue dans le repère propre de la toile : un parent peut la mettre à l'échelle, la déplacer ou la **tourner** (`sonic-stage`, nœud avec `scale` et `rz`) sans fausser le tracé. Au doigt, si un deuxième doigt touche l'écran pendant un trait, le trait est **annulé** (la toile revient à son état d'avant) et la toile ne peint plus jusqu'à ce que tous les doigts soient levés : c'est un geste, à confier à une `sonic-gesture passthrough pan pinch` placée autour de la toile.
+
+## Pipette
+
+`tool="pick"` (ou Alt + clic avec le pinceau) : la couleur **vue** sous le point devient celle du pinceau. Elle est écrite dans `brush-from` (`color`), si bien que la palette et les nuanciers la montrent, et publiée dans l'état (`picked`) et par l'évènement `paint-pick` `{color, done}`. Glisser fait suivre la couleur. Si `pick` venait de `brush-from` (`tool`), l'outil revient à `paint` au lever.
+
+La pipette voit **tous les calques** sous le point : les sources d'images visibles (`sonic-sketch`, `sonic-paint`, `sonic-shader`, `sonic-2d`, `sonic-3d`, caméra…) sont composées du dessus vers le dessous, l'ordre étant celui du document (un frère placé après est au-dessus). Un aplat vectoriel donne sa couleur exacte. Ce qui reste transparent tout en bas est pris sur blanc. Un canvas WebGL sans `preserveDrawingBuffer` peut se lire transparent hors de son rendu : il est alors ignoré.
+
+## Calques : pixels et vectoriel
+
+Une toile `sonic-paint navigable` et un `sonic-sketch` à fond transparent superposés (même boîte, `position:absolute;inset:0`) forment un dessin à deux calques :
+
+```json
+{ "tagName": "sonic-paint", "attributes": { "id": "pixels", "navigable": "", "width": "2048", "height": "2048", "view-sync": "vue", "brush-from": "pinceau", "control": "pixCtl", "stamp-from": "#vecteurs", "style": "position:absolute;inset:0" } }
+{ "tagName": "sonic-sketch", "attributes": { "id": "vecteurs", "background": "transparent", "view-sync": "vue", "brush-from": "pinceau", "data-bind": "", "::width": "$w", "::height": "$h", "style": "position:absolute;inset:0" } }
+```
+
+- **Vue partagée.** Les deux toiles lisent et écrivent la même vue `view-sync`. Une unité du monde vectoriel vaut alors un pixel de l'image, et les deux calques restent alignés en zoomant, en déplaçant et en tournant. La toile pixel borne le zoom : la vue bornée est réécrite et le vectoriel l'adopte. Au départ, le cadrage de l'image est adopté par le vectoriel, sauf si le DP de vue a déjà une valeur.
+- **Calque actif.** Seul le calque actif reçoit le pointeur : on donne à l'autre `pointer-events:none`. La molette et les gestes de vue passent par le calque actif et la vue suit sur l'autre.
+- **Pipette.** Elle traverse les calques, depuis l'une ou l'autre toile.
+- **Aplatir.** La commande `stamp` (DP `control`) fond les sources de `stamp-from` dans l'image telles qu'elles apparaissent à l'écran, à leur place. On peut y fondre le calque vectoriel, mais aussi une image de `sonic-shader`, de `sonic-2d` ou de `sonic-3d` posée au-dessus. C'est une étape d'annulation. La résolution est celle de l'écran au moment de la fusion : zoomer avant de fondre donne plus de détail.
+- **Rendu.** Chaque toile est une source d'images : `sonic-shader channel0="#vecteurs"` (ou `#pixels`) la lit en texture, comme un `sonic-2d` ou un `sonic-3d` qui accepte des canaux d'images.
 
 ## Limites
 

@@ -16,7 +16,9 @@ import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
 import { MAX_FLAT_VERTICES, eraseFlat, flatBBox, flatVertices, paintFlat, type Backdrop } from "./flat";
-import { parseColor, toCss, type Rgba } from "./flat-color";
+import { parseColor, type Rgba } from "./flat-color";
+import { ViewSync } from "../../shared/view-sync";
+import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
 import { multiBBox } from "../vector";
 
 const MAX_SIDE = 4096;
@@ -101,6 +103,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: String, attribute: "brush-from" }) brushFrom = "";
   /** DP de la vue `{ x, y, zoom, rotation }` (écrit la vue quand elle diffère de l'actuelle). */
   @property({ type: String, attribute: "view-from" }) viewFrom = "";
+  /** DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit : des toiles superposées restent alignées. */
+  @property({ type: String, attribute: "view-sync" }) viewSync = "";
+  private sync: ViewSync | null = null;
   @property({ type: String }) control = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
   @property({ type: Boolean }) readonly = false;
@@ -225,7 +230,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom")) this.listen();
+    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync")) this.listen();
     if (c.has("width") || c.has("height")) { this.layer = null; this.layerDirty = true; this.compose(); }
     if (c.has("background")) this.compose();
     if (c.has("tool") || c.has("color") || c.has("size")) this.publish();
@@ -245,6 +250,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.triggers.clear();
     if (this.brushFrom) this.unsubs.push(listenDp(this.brushFrom, (v) => { this.live = { ...(v && typeof v === "object" ? (v as Record<string, unknown>) : {}), ...(this.live.tip !== undefined && this.tipFrom ? { tip: this.live.tip } : {}) }; this.publish(); }));
     if (this.tipFrom) this.unsubs.push(listenDp(this.tipFrom, (v) => { this.live = { ...this.live, tip: tipFromValue(v) }; this.publish(); }));
+    this.sync = this.viewSync ? new ViewSync(this.viewSync) : null;
+    if (this.sync) {
+      this.unsubs.push(this.sync.listen((v) => {
+        const next = sanitizeView(v, this.view);
+        if (next.x === this.view.x && next.y === this.view.y && next.zoom === this.view.zoom && next.rotation === this.view.rotation) return;
+        this.setView(next);
+      }));
+    }
     if (this.viewFrom) {
       this.unsubs.push(listenDp(this.viewFrom, (v) => {
         const next = sanitizeView(v, this.view);
@@ -352,6 +365,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private setView(v: View, immediate = false): void {
     this.view = v;
+    this.sync?.write(v);
     if (immediate) { this.layerDirty = true; this.compose(); } else { this.schedule(); this.settleLater(); }
     this.publish();
   }
@@ -415,7 +429,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.pointer = e.pointerId;
     if (tool === "pick" || (e.altKey && tool === "paint")) {
       this.mode = "pick";
-      this.pick(p, false);
+      this.pick(e, false);
       return;
     }
     this.startStroke(p, e, tool === "erase");
@@ -425,7 +439,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const p = this.local(e);
     if (this.nav.move(e.pointerId, p)) return;
     if (e.pointerId !== this.pointer) return;
-    if (this.mode === "pick") { this.pick(p, false); return; }
+    if (this.mode === "pick") { this.pick(e, false); return; }
     if (this.mode === "draw") {
       const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
       for (const ev of events.length ? events : [e]) this.extendStroke(this.local(ev), ev);
@@ -438,7 +452,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
     if (e.pointerId !== this.pointer) return;
     if (this.mode === "draw") this.endStroke(e);
-    else if (this.mode === "pick") this.pick(this.local(e), e.type === "pointerup");
+    else if (this.mode === "pick") this.pick(e, e.type === "pointerup");
     else if (this.mode === "pan") this.settleLater();
     this.pointer = null;
     this.mode = "none";
@@ -659,53 +673,51 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /* ------------------------------------------------------------ pipette */
 
   /**
-   * Couleur vue au point d'écran (sx, sy), en #rrggbb. Lue dans le modèle quand c'est sûr : le point tombe dans
-   * une région d'aplat opaque sans fusion différée (couleur exacte, y compris une couleur née d'une fusion),
-   * ou sur le fond à travers un trou de gomme ou hors de tout. Sinon (traits en empreintes, couleurs
-   * transparentes, fusions différées) : le pixel affiché, qui est le résultat visible.
+   * Pipette (contrat `PickSource` de `shared/pick`) : couleur de ce calque sous le point du viewport. Lue dans
+   * le modèle quand c'est sûr — le point tombe dans une région d'aplat opaque sans fusion différée (couleur
+   * exacte, y compris une couleur née d'une fusion), ou sur le fond à travers un trou de gomme ou hors de
+   * tout. Sinon (traits en empreintes, couleurs translucides, fusions différées) : le pixel affiché.
    */
-  colorAt(sx: number, sy: number): string | null {
-    const { w, h, dpr } = this.dims();
+  pickAt(clientX: number, clientY: number): { pixel: Pixel; exact?: boolean } | null {
+    const canvas = this.canvasEl;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (!(rect.width > 0) || clientX < rect.left || clientX >= rect.right || clientY < rect.top || clientY >= rect.bottom) return null;
+    const { w, h } = this.dims();
+    const sx = ((clientX - rect.left) / rect.width) * w, sy = ((clientY - rect.top) / rect.height) * h;
     const [x, y] = toWorld(this.view, sx, sy, w, h);
     const tol = 0.5 / this.view.zoom;
-    const bg = () => { const c = this.backgroundColor(); const v = c ? this.rgbaOf(c) : null; return v && v[3] >= 0.999 ? toCss(v) : null; };
+    const px = (c: Rgba): Pixel => [c[0] * 255, c[1] * 255, c[2] * 255, c[3] * 255].map(Math.round) as Pixel;
+    const bgRgba = (): Rgba => { const c = this.backgroundColor(); return (c ? this.rgbaOf(c) : null) ?? [0, 0, 0, 0]; };
     const strokes = this.doc.strokes;
-    let fromModel: string | null | undefined;
-    for (let i = strokes.length - 1; i >= 0 && fromModel === undefined; i--) {
+    let exact: Rgba | null | undefined;
+    for (let i = strokes.length - 1; i >= 0 && exact === undefined; i--) {
       const s = strokes[i], b = s.bbox;
       if (x < b.x - tol || x > b.x + b.w + tol || y < b.y - tol || y > b.y + b.h + tol) continue;
-      if (s.mask) { if (shapeHit(s.mask, x, y, 0)) fromModel = bg(); continue; }
+      if (s.mask) { if (shapeHit(s.mask, x, y, 0)) exact = bgRgba(); continue; }
       if (s.flat) {
         const hits = s.flat.filter((g) => shapeHit(g.shape, x, y, tol));
         if (!hits.length) continue;
         // Sur une frontière (moins d'un demi-pixel), plusieurs régions : la valeur affichée tranchera.
         const g = hits.length === 1 && shapeHit(hits[0].shape, x, y, 0) ? hits[0] : null;
-        fromModel = g && g.rgba[3] >= 0.999 && !g.blend ? toCss(g.rgba) : null;
+        exact = g && g.rgba[3] >= 0.999 && !g.blend ? g.rgba : null;
         continue;
       }
-      if (strokeHit(s, x, y, tol)) fromModel = null;
+      if (strokeHit(s, x, y, tol)) exact = null;
     }
-    if (fromModel === undefined) fromModel = bg();
-    if (fromModel) return fromModel;
-    const ctx = this.canvasEl?.getContext("2d");
-    if (!ctx) return null;
-    try {
-      const px = Math.max(0, Math.min(this.canvasEl.width - 1, Math.floor(sx * dpr)));
-      const py = Math.max(0, Math.min(this.canvasEl.height - 1, Math.floor(sy * dpr)));
-      const d = ctx.getImageData(px, py, 1, 1).data;
-      return toCss([d[0] / 255, d[1] / 255, d[2] / 255, 1]);
-    } catch {
-      return null;
-    }
+    if (exact === undefined) exact = bgRgba();
+    if (exact) return { pixel: px(exact), exact: true };
+    const pixel = readCanvasPixel(canvas, ((clientX - rect.left) / rect.width) * canvas.width, ((clientY - rect.top) / rect.height) * canvas.height);
+    return pixel ? { pixel } : null;
   }
 
   /**
-   * Pipette : la couleur sous le point devient la couleur du pinceau (aussi écrite dans `brush-from`, pour que
-   * la palette et les nuanciers la montrent). Au lever, l'outil revient au pinceau si la pipette était choisie
-   * par `brush-from`.
+   * Pipette : la couleur vue sous le point (calques et autres sources d'images en dessous compris) devient
+   * celle du pinceau (aussi écrite dans `brush-from`, pour que la palette et les nuanciers la montrent). Au
+   * lever, l'outil revient au pinceau si la pipette était choisie par `brush-from`.
    */
-  private pick(p: { x: number; y: number }, done: boolean): void {
-    const c = this.colorAt(p.x, p.y);
+  private pick(e: { clientX: number; clientY: number }, done: boolean): void {
+    const c = pickColorAt(e.clientX, e.clientY);
     if (c) {
       this.picked = c;
       this.live = { ...this.live, color: c };
