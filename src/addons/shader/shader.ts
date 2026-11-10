@@ -652,6 +652,8 @@ export class SonicShader extends LitElement {
       this.lastStateJson = "";
       this.publishState({});
     }
+    // Indépendant du runtime (pas encore prêt au premier rendu).
+    if (changed.has("control")) this.listenControl();
     if (!this.runtime) return;
     const programChanged = PROGRAM_KEYS.some((k) => changed.has(k));
     const channelChanged = CHANNEL_KEYS.some((k) => changed.has(k));
@@ -666,7 +668,6 @@ export class SonicShader extends LitElement {
     if (changed.has("dprMax") || changed.has("renderSize") || (changed.has("channel0") && this.renderSize.trim().toLowerCase() === "channel0")) {
       this.syncSize();
     }
-    if (changed.has("control")) this.listenControl();
     if (changed.has("releaseOffscreen") || channelChanged) {
       this.syncVisibility();
     }
@@ -1105,8 +1106,14 @@ export class SonicShader extends LitElement {
         const { width, height } = ref as { width?: unknown; height?: unknown };
         if (typeof width === "number" && typeof height === "number" && width > 0 && height > 0) return [clampSide(width), clampSide(height)];
       }
-      const key = typeof ref === "string" ? ref : "";
-      const el = key ? this.lookupElement(key) : null;
+      const key = typeof ref === "string" ? ref.trim() : "";
+      if (!key) return null;
+      if (!key.startsWith("#")) {
+        // URL (image chargée) : dimensions de la texture une fois chargée.
+        const size = this.runtime?.getTextureSize(key);
+        return size && size.width > 0 && size.height > 0 ? [clampSide(size.width), clampSide(size.height)] : null;
+      }
+      const el = this.lookupElement(key);
       const c = el && isFrameSource(el) ? el.getFrameCanvas() : null;
       return c && c.width > 0 && c.height > 0 ? [clampSide(c.width), clampSide(c.height)] : null;
     }
@@ -1125,7 +1132,8 @@ export class SonicShader extends LitElement {
     if (!this.control) return;
     this.controlUnsub = listenDp(this.control, (v) => {
       const c = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
-      if ("save" in c && this.saveTrigger.feed(c.save)) void this.save();
+      // Clé absente = 0 : le premier `save: 1` déclenche bien.
+      if (this.saveTrigger.feed(c.save ?? 0)) void this.save();
     });
   }
 
