@@ -138,6 +138,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * la toile (le papier vectorisé ne devient pas une forme) ; vide = tout garder.
    */
   @property({ type: String, attribute: "import-skip" }) importSkip = "background";
+  /**
+   * Recoloration à l'import : DP d'une palette (liste, chaîne « #a, #b » ou état de `sonic-palette` `{colors}`).
+   * Les couleurs distinctes de la source, de la plus étendue à la plus rare, prennent tour à tour les couleurs
+   * de la palette. Pour poser les formes d'un shader générateur (couleurs arbitraires) dans l'harmonie du dessin.
+   */
+  @property({ type: String, attribute: "import-colors-from" }) importColorsFrom = "";
   /** DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit : des toiles superposées restent alignées. */
   @property({ type: String, attribute: "view-sync" }) viewSync = "";
   private sync: ViewSync | null = null;
@@ -753,11 +759,19 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const pxPerImage = Math.hypot(m[0], m[1]) * (w / cr.width) || 1;
     const tolPx = Math.max(0.25, Math.min(8, Number(this.simplify) || 0.35));
     const skip = this.skipColors();
+    const recolor = this.importColorsFrom ? paletteOf(plain(get(this.importColorsFrom))) : [];
+    const rank = new Map<string, number>();
     const near = (a: Rgba, b: Rgba) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < 0.06;
     const layers: { rgba: Rgba; shape: Multi }[] = [];
     for (const p of paths) {
       const rgba = parseColor(p.color);
       if (!rgba || skip.some((c) => near(c, rgba))) continue;
+      if (recolor.length) {
+        const key = p.color.toLowerCase();
+        if (!rank.has(key)) rank.set(key, rank.size);
+        const c = recolor[rank.get(key)! % recolor.length];
+        rgba[0] = c[0]; rgba[1] = c[1]; rgba[2] = c[2];
+      }
       const local = pathToMulti(p.d, tolPx / pxPerImage);
       if (!local?.length) continue;
       const world = local.map((poly) => poly.map((ring) => ring.map(([x, y]) => toW(x, y))));
@@ -1142,4 +1156,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (this.outDataProvider) set(this.outDataProvider, s);
     this.dispatchEvent(new CustomEvent("sketch-state", { detail: s, bubbles: true, composed: true }));
   }
+}
+
+/** Palette lue dans un DP : liste, chaîne « #a, #b » ou `{ colors }` (état de `sonic-palette`). */
+export function paletteOf(v: unknown): Rgba[] {
+  if (v && typeof v === "object" && !Array.isArray(v) && Array.isArray((v as { colors?: unknown }).colors)) return paletteOf((v as { colors: unknown }).colors);
+  const list = Array.isArray(v) ? v : typeof v === "string" ? v.split(/[\s,;]+/) : [];
+  return list.flatMap((x) => {
+    const c = typeof x === "string" ? parseColor(x.trim()) : null;
+    return c ? [c] : [];
+  });
 }

@@ -75,6 +75,23 @@ describe("sonic-sketch : import de formes vectorisées", () => {
     el.remove();
   });
 
+  it("import-colors-from : les couleurs de la source, par étendue, prennent celles de la palette", async () => {
+    set("palImport5", { colors: ["#112233", "#445566"] });
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport5", "import-colors-from": "palImport5", "import-skip": "#000000", control: "skCtl5", "out-data-provider": "skState5" });
+    // Fond noir ignoré ; rouge (le plus étendu) → 1re couleur, vert → 2e, bleu → 1re à nouveau (palette de 2).
+    set("vecImport5", result(1, [
+      { color: "#000000", d: sq(0, 0, 100) }, { color: "#ff0000", d: sq(0, 0, 40) },
+      { color: "#00ff00", d: sq(50, 0, 30) }, { color: "#0000ff", d: sq(0, 60, 20) },
+    ]));
+    set("skCtl5", { import: 1 });
+    const svg = el.toSvg() ?? "";
+    expect(el.getState().colors).toBe(2);
+    expect(svg).toContain("#112233");
+    expect(svg).toContain("#445566");
+    expect(svg).not.toMatch(/#ff0000|#00ff00|#0000ff|fill="#000000"/);
+    el.remove();
+  });
+
   it("rien d'importable : erreur dans l'état, document intact", async () => {
     const el = await mount({ width: "400", height: "300", "import-from": "vecImport4", control: "skCtl4", "out-data-provider": "skState4" });
     set("vecImport4", { status: "working" });
