@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>markdown</title>
+  <script type="module" src="./markdown.ts"></script>
+</head>
+<body style="margin:0">
+  <sonic-theme theme="default">
+    <main style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;padding:1.5rem;max-width:80rem;margin:auto">
+      <section>
+        <h2 style="font-family:system-ui">Prompt à compléter</h2>
+        <sonic-markdown id="prompt" source="demoMd.prompt" vars="demoMd.vars" features="gfm copy vars highlight" out-data-provider="demoMd.promptState"></sonic-markdown>
+      </section>
+      <section>
+        <h2 style="font-family:system-ui">Flux simulé</h2>
+        <sonic-markdown id="flux" source="demoMd.answer" streaming features="gfm highlight math copy toc anchors" out-data-provider="demoMd.answerState"></sonic-markdown>
+      </section>
+    </main>
+  </sonic-theme>
+</body>
+</html>

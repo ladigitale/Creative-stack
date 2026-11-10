@@ -38,6 +38,7 @@
     "./scroll": "./src/addons/scroll/index.ts",
     "./cursor": "./src/addons/cursor/index.ts",
     "./text": "./src/addons/text/index.ts",
+    "./markdown": "./src/addons/markdown/index.ts",
     "./map": "./src/addons/map/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",
@@ -86,6 +87,8 @@
   },
   "dependencies": {
     "jsonata": "^2.2.2",
+    "markdown-it": "15.0.3",
+    "markdown-it-footnote": "4.0.0",
     "planck": "1.4.2",
     "polygon-clipping": "0.15.7"
   },

@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "markdown",
+  "label": "Markdown",
+  "description": "Rendu Markdown (GFM : tableaux, tâches, barré, notes) en DOM natif sans innerHTML, aux couleurs du thème Concorde : texte, DataProvider ou fichier https, rendu incrémental des réponses LLM en flux, prompts à variables {{nom}} avec copie, plan, coloration syntaxique (Prism) et formules (KaTeX) chargées à la demande ; sortie complète (plan, frontmatter, blocs de code, liens, variables, texte résolu) en DataProvider",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "markdown.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-markdown",
+      "description": "Markdown → DOM : source par text (ou contenu de l'élément), source (chemin DP d'une chaîne ou de {text, done}) ou src (URL https:, relue toutes les refresh s, min 10) ; priorité source > src > text > contenu ; streaming : le texte grandit par la fin, seul le dernier bloc est ré-analysé, done:true finalise (liens par référence, notes) ; features=\"gfm highlight math copy vars toc anchors\" (défaut \"gfm copy anchors\") ; vars (DP {nom: valeur}) remplit les {{nom}} / {{nom|défaut}} (\\{{ échappe) ; link-target _blank|_self, heading-offset 0..5, max-length (défaut 200000) ; control (DP) {n, action: copy|copy-rendered|scroll-to|refresh, id} : la hausse de n lance l'action (copy copie le Markdown résolu) ; params (DP) {text, features, linkTarget, headingOffset, streaming} en direct ; out-data-provider reçoit {status: idle|loading|streaming|ready|error, error, source, length, truncated, stats{words, readingMinutes, blocks}, frontmatter, title, toc[{level, text, id}], code[{index, lang, info, text, lines}], links[{text, href, external}], vars[{name, default, value, filled}], missingVars, resolved, lastAction{n, action, ok, error}, settings} ; liens limités à https/http/mailto/#, images à https/blob/data:image, HTML brut affiché comme texte ; ::part(heading|code|table|blockquote|copy-button|var|toc)",
+      "props": {
+        "text": { "type": "string" },
+        "source": { "type": "string" },
+        "src": { "type": "string" },
+        "refresh": { "type": "number" },
+        "streaming": { "type": "boolean" },
+        "features": { "type": "string" },
+        "vars": { "type": "string" },
+        "link-target": { "type": "string" },
+        "heading-offset": { "type": "number" },
+        "max-length": { "type": "number" },
+        "control": { "type": "string" },
+        "params": { "type": "string" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
