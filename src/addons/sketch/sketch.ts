@@ -160,6 +160,13 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    */
   @property({ type: Number }) simplify = 0.35;
   /**
+   * Export PNG (`savePng`) : `export-scale` multiplie la résolution (1 à 8 ; les traits sont redessinés nets à
+   * cette taille, ce n'est pas un agrandissement) ; `export-area` = `view` (la vue courante, défaut) ou
+   * `content` (tout le dessin, cadré). Aussi en direct dans le DP `control` : `{ savePng: n, exportScale, exportArea }`.
+   */
+  @property({ type: Number, attribute: "export-scale" }) exportScale = 1;
+  @property({ type: String, attribute: "export-area" }) exportArea: "view" | "content" = "view";
+  /**
    * Aplatissement à chaque fin de geste : un trait plein (net, sans pointe ni variation ; opacité et mode de
    * fusion permis) est découpé dans la carte d'aplats du dessus. Sous le trait, chaque région prend la vraie
    * couleur calculée ; ce qui est entièrement recouvert disparaît ; les régions de même couleur sont unies.
@@ -354,6 +361,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         if (!v || typeof v !== "object") return;
         const c = v as Record<string, unknown>;
         if ("import" in c && this.trigger("import").feed(c.import)) this.importShapes();
+        if (typeof c.exportScale === "number" || typeof c.exportScale === "string") this.liveExport.scale = Number(c.exportScale);
+        if (c.exportArea === "view" || c.exportArea === "content") this.liveExport.area = c.exportArea;
         for (const cmd of ["undo", "redo", "clear", "save", "savePng", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten", "selectAll", "deselect", "deleteSelection"] as const) {
           if (cmd in c && this.trigger(cmd).feed(c[cmd])) this[cmd]();
         }
@@ -1137,9 +1146,44 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.setLast(new Blob([svg], { type: "image/svg+xml" }), Math.round(b?.w ?? 0), Math.round(b?.h ?? 0));
   }
 
-  /** Enregistre la vue courante en PNG dans `last`. */
+  private liveExport: { scale?: number; area?: "view" | "content" } = {};
+
+  /**
+   * Rend le dessin dans un canvas neuf, net à la résolution demandée : `scale` × la taille de la vue
+   * (`area: "view"`) ou du cadre du dessin (`area: "content"`, côté long = `scale` × le côté long de la vue).
+   * 8192 px de côté au plus. Fond compris (sauf `transparent`).
+   */
+  renderImage(opts: { scale?: number; area?: "view" | "content" } = {}): HTMLCanvasElement | null {
+    const { w, h } = this.dims();
+    const scale = Math.min(8, Math.max(0.25, Number(opts.scale) || 1));
+    let lw = w, lh = h, view: View = { ...this.view };
+    if (opts.area === "content") {
+      const b = contentBBox(this.doc.strokes);
+      if (b && b.w > 0 && b.h > 0) {
+        const long = Math.max(w, h);
+        const k = long / Math.max(b.w, b.h);
+        lw = Math.max(1, b.w * k);
+        lh = Math.max(1, b.h * k);
+        view = fitView(b, lw, lh, 0.04, 0);
+      }
+    }
+    const f = Math.min(scale, 8192 / Math.max(lw, lh));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(lw * f));
+    c.height = Math.max(1, Math.round(lh * f));
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    ctx.setTransform(f, 0, 0, f, 0, 0);
+    const bg = this.backgroundColor();
+    if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, lw, lh); }
+    drawStrokes({ ctx, w: lw, h: lh, view }, this.doc.strokes, visibleRect(view, lw, lh));
+    return c;
+  }
+
+  /** Enregistre un PNG dans `last` : la vue courante, ou tout le dessin, à `export-scale` (voir `renderImage`). */
   savePng(): void {
-    this.canvasEl?.toBlob((blob) => { if (blob) this.setLast(blob, this.canvasEl.width, this.canvasEl.height); }, "image/png");
+    const c = this.renderImage({ scale: this.liveExport.scale ?? this.exportScale, area: this.liveExport.area ?? this.exportArea });
+    c?.toBlob((blob) => { if (blob) this.setLast(blob, c.width, c.height); }, "image/png");
   }
 
   getState(): SketchState {

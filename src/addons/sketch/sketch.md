@@ -64,7 +64,7 @@ Les aplats se sélectionnent : une forme est une **région** de la carte, d'une 
 
 `control` : `{ undo, redo, clear, save, savePng, fit, reset, zoomIn, zoomOut, rotateLeft, rotateRight, straighten, selectAll, deselect, deleteSelection, recolor }` — compteurs (la commande part quand le nombre augmente). `view-from` : DP `{ x, y, zoom, rotation }` qui règle la vue (centre du monde, zoom, rotation en radians).
 
-État : `{ status, error, blend, zoom, x, y, rotation, strokes, points, lastStroke, regions, colors, flats, masks, flattened, drawing, canUndo, canRedo, tool, color, picked, selection, size, bbox, last }`. `save` enregistre un SVG dans `last` (`savePng` : un PNG de la vue) : brancher `sonic-media-download source="dessinState.last"`.
+État : `{ status, error, blend, zoom, x, y, rotation, strokes, points, lastStroke, regions, colors, flats, masks, flattened, drawing, canUndo, canRedo, tool, color, picked, selection, size, bbox, last }`. `save` enregistre un SVG dans `last` (`savePng` : un PNG) : brancher `sonic-media-download source="dessinState.last"`. Le PNG est redessiné net à `export-scale` (1 à 8 ; 8192 px de côté au plus) : de la vue courante (`export-area="view"`, défaut) ou de tout le dessin cadré (`export-area="content"`). Ces réglages se donnent aussi en direct dans le DP `control` : `{ savePng: n, exportScale: 4, exportArea: "content" }`.
 
 ## Export SVG
 
@@ -100,3 +100,13 @@ Le découpage est rendu robuste aux géométries accumulées : en cas d'échec d
 Les formes sont simplifiées à `simplify` px d'écran. Pour une base plus simple, on joue sur les réglages de `sonic-vectorize` : moins de couleurs ou une `palette` imposée (la palette d'harmonie), une `tolerance` plus haute, une `min-area` plus grande. Un import qui dépasserait la limite de sommets des aplats est refusé. **Shader générateur.** La bibliothèque du shader contient `formes`, une image fixe en aplats nets de 2 à 6 couleurs sur fond noir. Ses réglages sont le motif (cellules, courbes de niveau, rosace, entrelacs, taches), la graine, la densité et le nombre de couleurs. On le vectorise avec `curves`, puis on l'importe avec `import-skip="#000000"`, `import-place="view"` et `import-colors-from` branché sur la palette d'harmonie. Le shader est rendu à sa taille d'affichage : on lui donne au moins 400 px de côté pour des contours fins, quitte à le réduire en aperçu par une transformation CSS. Ne pas donner à un composant l'`id` d'un store : `source="#nom"` trouverait le store.
 
 Résultat dans l'état (`imported` : `{ layers, regions, ms }` ou `{ error }`) et par l'évènement `sketch-import`.
+
+## Finition et export pixel (post-traitement)
+
+Le dessin reste vectoriel. La finition est une étape qu'on peut défaire, appliquée à l'image exportée :
+
+1. `savePng` avec `exportScale` (et `exportArea`) rend un PNG net à haute résolution dans `last`.
+2. Un `sonic-shader` lit ce PNG en texture : un `sonic-jsonata` recopie `dessinState.last` dans la clé `channel0` du store du shader. Avec `render-size="channel0"`, le shader se rend à la taille de cette image et non à sa taille d'affichage. Le shader de bibliothèque `finition` (papier, trame, sérigraphie, objectif) donne le même aspect quelle que soit la résolution.
+3. La commande `save` du `control` du shader enregistre le résultat en PNG dans son `last` (`sonic-media-download source="fxState.last"`).
+
+Pour un aperçu en direct, un second `sonic-shader` `channel0="#dessin"` posé par-dessus la toile (`pointer-events:none`) applique le même effet à la vue.

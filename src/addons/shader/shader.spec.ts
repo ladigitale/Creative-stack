@@ -633,3 +633,14 @@ describe("SonicShader", () => {
     expect(internal.runtime).toBeNull();
   });
 });
+
+describe("render-size", () => {
+  it("lit LxH et borne les côtés", async () => {
+    const { parseRenderSize } = await import("./shader");
+    expect(parseRenderSize("2048x1024")).toEqual([2048, 1024]);
+    expect(parseRenderSize(" 640 × 480 ")).toEqual([640, 480]);
+    expect(parseRenderSize("99999x4")).toEqual([8192, 16]);
+    expect(parseRenderSize("channel0")).toBeNull();
+    expect(parseRenderSize("")).toBeNull();
+  });
+});

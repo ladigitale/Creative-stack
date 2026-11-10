@@ -455,6 +455,48 @@
           "default": 4
         }
       ]
+    },
+    {
+      "id": "finition",
+      "kind": "shader",
+      "file": "finition.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Finition",
+      "description": "Post-traitement d'une image, indépendant de la résolution (même aspect à l'écran et dans un export render-size) : papier (grain, fibres), trame ordonnée, sérigraphie (repérage décalé, encres posterisées), objectif (aberration chromatique, vignette).",
+      "tags": [
+        "effet",
+        "post-traitement",
+        "finition",
+        "export",
+        "image"
+      ],
+      "channels": [
+        "iChannel0 : image à finir (toile sonic-sketch / sonic-paint, export PNG)"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Effet (0 aucun, 1 papier, 2 trame, 3 sérigraphie, 4 objectif)",
+          "min": 0,
+          "max": 4,
+          "default": 1
+        },
+        {
+          "name": "uParam1",
+          "label": "Intensité",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        },
+        {
+          "name": "uParam2",
+          "label": "Échelle du grain",
+          "min": 0.5,
+          "max": 8,
+          "default": 2
+        }
+      ]
     }
   ]
 }
