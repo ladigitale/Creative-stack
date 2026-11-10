@@ -409,6 +409,52 @@
           "default": 0.2
         }
       ]
+    },
+    {
+      "id": "formes",
+      "kind": "shader",
+      "file": "formes.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Formes génératives",
+      "description": "Image fixe en aplats nets de 2 à 6 couleurs très distinctes sur fond noir, à vectoriser (sonic-vectorize) puis importer dans sonic-sketch (import-skip=\"#000000\", import-colors-from pour recolorer selon la palette) : cellules, courbes de niveau, rosace, entrelacs, taches.",
+      "tags": [
+        "génératif",
+        "formes",
+        "vectorisation",
+        "motif"
+      ],
+      "channels": [],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Motif (0 cellules, 1 niveaux, 2 rosace, 3 entrelacs, 4 taches)",
+          "min": 0,
+          "max": 4,
+          "default": 0
+        },
+        {
+          "name": "uParam1",
+          "label": "Graine",
+          "min": 0,
+          "max": 999,
+          "default": 1
+        },
+        {
+          "name": "uParam2",
+          "label": "Densité",
+          "min": 1,
+          "max": 10,
+          "default": 3
+        },
+        {
+          "name": "uParam3",
+          "label": "Couleurs",
+          "min": 2,
+          "max": 6,
+          "default": 4
+        }
+      ]
     }
   ]
 }

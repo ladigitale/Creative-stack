@@ -99,6 +99,12 @@
         },
         "view-from": {
           "type": "string"
+        },
+        "view-sync": {
+          "type": "string"
+        },
+        "stamp-from": {
+          "type": "string"
         }
       }
     }

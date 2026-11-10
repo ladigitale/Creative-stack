@@ -19,6 +19,7 @@
         "auto": { "type": "boolean" },
         "interval": { "type": "number" },
         "colors": { "type": "number" },
+        "palette": { "type": "string" },
         "tolerance": { "type": "number" },
         "min-area": { "type": "number" },
         "denoise": { "type": "number" },
