@@ -142,14 +142,27 @@ export function readMeta(v: unknown): DrawingMeta | null {
 export const readView = (v: unknown): View => sanitizeView(v, DEFAULT_VIEW);
 
 /** Copie sérialisable d'une liste de traits (les régions perdent leur couleur CSS et leur boîte, recalculées). */
+const written = new WeakMap<Stroke, unknown>();
+
+/** (Les traits sont immuables une fois posés : leur copie est mise en cache.) */
 export function writeStrokes(strokes: Stroke[]): unknown {
   return strokes.map((s) => {
+    const hit = written.get(s);
+    if (hit) return hit;
+    const o = writeStroke(s);
+    written.set(s, o);
+    return o;
+  });
+}
+
+function writeStroke(s: Stroke): unknown {
+  {
     const o: Record<string, unknown> = { brush: s.brush, seed: s.seed };
     if (s.flat) o.flat = s.flat.map((r) => (r.blend ? { rgba: r.rgba, shape: r.shape, blend: r.blend } : { rgba: r.rgba, shape: r.shape }));
     else if (s.mask) o.mask = s.mask;
     else o.pts = s.pts;
     return o;
-  });
+  }
 }
 
 /* ------------------------------------------------------------ stockage */

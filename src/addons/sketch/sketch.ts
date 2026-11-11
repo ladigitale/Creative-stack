@@ -29,6 +29,9 @@ import { multiArea, multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt }
 import { applyAffine } from "../../shared/frame-geometry";
 
 const MAX_SIDE = 4096;
+/** Pause sans trait avant l'enregistrement automatique ; intervalle minimal entre deux vignettes. */
+const SAVE_IDLE_MS = 2000;
+const THUMB_EVERY_MS = 30_000;
 
 /** Retouches : formes (flat.ts) et conversions de couleurs vers la palette (colormap.ts). */
 export type SketchEdit = FlatEdit | "palette" | "levels" | "gradient";
@@ -1378,40 +1381,66 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private dirty(): boolean { return this.savedRef.ref !== this.doc.strokes || this.savedRef.len !== this.doc.strokes.length; }
 
+  /**
+   * Enregistrement automatique quand l'utilisateur marque une vraie pause (aucun trait ni geste de vue depuis
+   * SAVE_IDLE_MS), puis au premier moment libre du navigateur : jamais entre deux traits rapprochés.
+   */
   private queueSave(): void {
-    if (!this.persist || this.libStatus === "loading" || this.libStatus === "off" || !this.dirty() || this.saveTimer) return;
-    this.saveTimer = window.setTimeout(() => { this.saveTimer = 0; void this.saveNow(); }, 800);
+    if (!this.persist || this.libStatus === "loading" || this.libStatus === "off" || !this.dirty()) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => {
+      if (this.stroke || this.gestureActive()) { this.saveTimer = 0; this.queueSave(); return; }
+      const run = () => { this.saveTimer = 0; if (this.stroke || this.gestureActive()) this.queueSave(); else void this.saveNow(); };
+      const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      if (ric) ric(run, { timeout: 4000 }); else run();
+    }, SAVE_IDLE_MS);
   }
 
   private flushSave = (): void => {
     if (!this.saveTimer) return;
     clearTimeout(this.saveTimer);
     this.saveTimer = 0;
-    void this.saveNow();
+    void this.saveNow(true);
   };
 
   private onVisibility = (): void => { if (document.visibilityState === "hidden") this.flushSave(); };
 
   /** Vignette PNG du dessin entier (~240 px), ou `null`. */
-  private thumbnail(): Promise<Blob | null> {
-    if (!this.doc.strokes.length) return Promise.resolve(null);
+  private thumbBlob: Blob | null = null;
+  private thumbAt = 0;
+  private thumbFor = "";
+
+  /**
+   * Vignette du dessin : refaite au plus toutes les THUMB_EVERY_MS pendant qu'on dessine (le rendu du dessin
+   * entier coûte cher), et toujours si `fresh` (fermeture de page, changement de dessin).
+   */
+  private async thumbnail(fresh = false): Promise<Blob | null> {
+    if (!this.doc.strokes.length) return null;
+    const key = this.drawingId ?? "";
+    if (!fresh && this.thumbBlob && this.thumbFor === key && Date.now() - this.thumbAt < THUMB_EVERY_MS) return this.thumbBlob;
+    const blob = await this.renderThumbnail();
+    this.thumbBlob = blob; this.thumbAt = Date.now(); this.thumbFor = key;
+    return blob;
+  }
+
+  private renderThumbnail(): Promise<Blob | null> {
     const { w, h } = this.dims();
-    const c = this.renderImage({ area: "content", scale: Math.max(0.25, 240 / Math.max(w, h, 1)) });
+    const c = this.renderImage({ area: "content", scale: Math.max(0.25, 160 / Math.max(w, h, 1)) });
     return new Promise((resolve) => { if (!c || typeof c.toBlob !== "function") resolve(null); else c.toBlob((b) => resolve(b), "image/png"); });
   }
 
   /** Enregistre le dessin ouvert (le crée au premier trait). */
-  async saveNow(): Promise<boolean> {
+  async saveNow(fresh = false): Promise<boolean> {
     if (!this.persist) return false;
     const ns = this.persist;
     const strokes = this.doc.strokes, len = strokes.length;
     if (!this.drawingId && !len) { this.markSaved(); return true; }
     if (!this.drawingId) { this.drawingId = newDrawingId(); this.drawingName = this.drawingName || this.defaultName(); this.drawingCreated = Date.now(); }
     const id = this.drawingId;
+    // Pas de publication « saving » : chaque publication réveille tous les abonnés de l'état.
     this.libStatus = "saving";
-    this.publish();
     try {
-      const thumb = await this.thumbnail();
+      const thumb = await this.thumbnail(fresh);
       const rec: DrawingRecord = {
         ns, id, name: this.drawingName, created: this.drawingCreated || Date.now(), updated: Date.now(), strokes: len,
         thumb, view: { ...this.view }, nextId: this.doc.nextId, data: writeStrokes(strokes.slice(0, len)),
@@ -1433,7 +1462,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   /** Enregistre le dessin ouvert puis montre une toile vierge (un nouveau dessin, créé au premier trait). */
   async newDrawing(): Promise<void> {
-    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(); }
+    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
     this.cancelStroke();
     this.pending = null;
     this.selected.clear();
@@ -1452,7 +1481,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   async openDrawing(id: string): Promise<boolean> {
     if (!this.persist || !isDrawingId(id) || id === CURRENT) return false;
     if (id === this.drawingId) return true;
-    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(); }
+    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
     try {
       const rec = await this.backend.get(this.persist, id);
       if (!rec) return false;
@@ -1469,7 +1498,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** Copie du dessin ouvert, qui devient le dessin ouvert. */
   async duplicateDrawing(): Promise<void> {
     if (!this.persist || !this.doc.strokes.length) return;
-    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(); }
+    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
     this.drawingId = null;
     this.drawingName = cleanName(`${this.drawingName || "Dessin"} (copie)`, "Copie");
     this.drawingCreated = 0;

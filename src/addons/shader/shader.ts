@@ -2209,7 +2209,9 @@ const VIDEO_URL = /\.(mp4|webm|mov|m4v|ogv|m3u8)(\?|#|$)/i;
  * redessiner), sinon null (on redessine à chaque image).
  */
 export function staticFrameKeys(sources: ShaderSources, channels: Map<ShaderPassId, PassChannels>): string[] | null {
-  if (DYNAMIC_UNIFORMS.test(sources.common) || DYNAMIC_UNIFORMS.test(sources.image)) return null;
+  // Les commentaires ne comptent pas (« iTime non lu » dans un en-tête ne rend pas le shader animé).
+  const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  if (DYNAMIC_UNIFORMS.test(code(sources.common)) || DYNAMIC_UNIFORMS.test(code(sources.image))) return null;
   if ([sources.bufferA, sources.bufferB, sources.bufferC, sources.bufferD].some((b) => b && b.trim())) return null;
   const keys: string[] = [];
   for (const c of channels.get("image") ?? []) {
