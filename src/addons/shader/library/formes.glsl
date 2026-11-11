@@ -1,7 +1,9 @@
 // Formes génératives à vectoriser (sonic-vectorize → sonic-sketch import-from). Image fixe (iTime non lu) :
 // chaque réglage donne une image nette en aplats de quelques couleurs très distinctes sur fond noir (le
 // vide : import-skip="#000000"), recolorées ensuite par la palette (import-colors-from).
-// uParam0 motif : 0 cellules, 1 courbes de niveau, 2 rosace, 3 entrelacs (Truchet), 4 taches.
+// uParam0 motif : 0 cellules, 1 courbes de niveau, 2 rosace, 3 entrelacs (Truchet), 4 taches,
+// 5 rayures ondulées, 6 spirale, 7 écailles, 8 labyrinthe, 9 bouquet, 10 triangles, 11 damier ondulé,
+// 12 ondes (interférences).
 // uParam1 graine. uParam2 densité (1..10). uParam3 nombre de couleurs (2..6).
 
 float hash1(vec2 p, float s) {
@@ -97,6 +99,76 @@ void mainImage(out vec4 o, in vec2 f) {
     float da = abs(length(fr - vec2(0.5)) - 0.5);
     float db = abs(length(fr + vec2(0.5)) - 0.5);
     if (min(da, db) < 0.16) idx = int(hash1(g + (da < db ? vec2(0.3) : vec2(0.7)), seed + 5.0) * nf);
+  } else if (motif == 5) {
+    // Rayures ondulées : bandes déformées par un bruit, séparées par un trait vide.
+    float w = fbm(uv * 2.0 + seed * 1.3, seed) * 1.6;
+    float t = (uv.y + 0.18 * sin(uv.x * 6.0 + seed) + w * 0.25) * dens * 2.2;
+    if (fract(t) > 0.14) idx = int(mod(floor(t) + 100.0, nf));
+  } else if (motif == 6) {
+    // Spirale : bras logarithmiques.
+    float r = length(uv) + 1e-4;
+    float a = atan(uv.y, uv.x);
+    // Nombre de bras multiple du nombre de couleurs : pas de couture à l'angle ±π.
+    float arms = nf * floor(1.0 + dens * 0.25);
+    float t = (a / 6.2831853) * arms + log(r) * (1.2 + 0.25 * mod(seed, 5.0)) * 2.0;
+    if (r < 0.62 && fract(t) > 0.16) idx = int(mod(floor(t) + 100.0, nf));
+  } else if (motif == 7) {
+    // Écailles : rangées de disques décalées, chaque rangée recouvre celle du dessus ; joint vide.
+    vec2 p = uv * dens * 2.4;
+    float j = floor(p.y);
+    for (int dy = -1; dy <= 1; dy++) {
+      float row = j + float(dy);
+      float off = mod(row, 2.0) * 0.5;
+      float cx = floor(p.x - off + 0.5) + off;
+      vec2 ctr = vec2(cx, row);
+      float d = length(p - ctr);
+      if (d < 0.7) idx = d < 0.62 ? int(hash1(ctr, seed + 2.0) * nf) : -1;
+    }
+  } else if (motif == 8) {
+    // Labyrinthe : diagonales épaisses de Truchet, une couleur par case.
+    vec2 p = uv * dens * 2.6;
+    vec2 g = floor(p);
+    vec2 fr = fract(p);
+    float s = hash1(g, seed) > 0.5 ? fr.x - fr.y : fr.x + fr.y - 1.0;
+    if (abs(s) < 0.22) idx = int(hash1(g + 0.37, seed + 4.0) * nf);
+  } else if (motif == 9) {
+    // Bouquet : fleurs éparses à pétales, cœur d'une autre couleur.
+    for (int i = 0; i < 18; i++) {
+      vec2 c = (hash2(vec2(float(i), 11.0), seed) - 0.5) * 0.9;
+      float sz = (0.08 + 0.09 * hash1(vec2(float(i), 5.0), seed)) * (4.0 / (2.0 + dens * 0.4));
+      vec2 d = uv - c;
+      float r = length(d) / sz;
+      float a = atan(d.y, d.x);
+      float k = 5.0 + floor(hash1(vec2(float(i), 2.0), seed) * 4.0);
+      float pet = 0.65 + 0.35 * cos(k * a);
+      if (r < 0.32) idx = int(mod(float(i) + 1.0, nf));
+      else if (r < pet && r > 0.4) idx = int(mod(float(i), nf));
+    }
+  } else if (motif == 10) {
+    // Triangles : pavage triangulaire, joints vides.
+    vec2 p = uv * dens * 2.4;
+    vec2 q = vec2(p.x - p.y * 0.57735, p.y * 1.1547);
+    vec2 g = floor(q);
+    vec2 fr = fract(q);
+    float up = step(fr.x + fr.y, 1.0);
+    float e = up > 0.5 ? min(min(fr.x, fr.y), 1.0 - fr.x - fr.y) : min(min(1.0 - fr.x, 1.0 - fr.y), fr.x + fr.y - 1.0);
+    if (e > 0.06) idx = int(hash1(g + up * 0.5, seed + 6.0) * nf);
+  } else if (motif == 11) {
+    // Damier ondulé : damier déformé par un bruit.
+    vec2 p = uv * dens * 1.8;
+    p += vec2(fbm(p * 0.6 + seed, seed), fbm(p * 0.6 - seed, seed + 1.0)) * 1.4;
+    vec2 g = floor(p);
+    vec2 fr = fract(p);
+    if (min(min(fr.x, fr.y), min(1.0 - fr.x, 1.0 - fr.y)) > 0.07) idx = int(mod(g.x + g.y * 2.0 + 64.0, nf));
+  } else if (motif == 12) {
+    // Ondes : interférences de trois sources circulaires.
+    float v = 0.0;
+    for (int i = 0; i < 3; i++) {
+      vec2 c = (hash2(vec2(float(i), 21.0), seed) - 0.5) * 0.9;
+      v += sin(length(uv - c) * dens * 9.0);
+    }
+    float t = (v + 3.0) / 6.0 * (nf + 0.999);
+    if (fract(t) > 0.12) idx = int(min(floor(t), nf - 1.0));
   } else {
     // Taches : champ de métaballes en anneaux.
     float v = 0.0;
