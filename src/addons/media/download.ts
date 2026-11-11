@@ -47,6 +47,17 @@ export class SonicMediaDownload extends LitElement {
   @property({ type: Boolean })
   auto = false;
 
+  /**
+   * Comme `auto`, mais seulement pour le média demandé par un clic sur le contenu (slot) : le clic arme le
+   * téléchargement, une action autour produit le média, le PROCHAIN publié dans `source` part. Plusieurs boutons
+   * peuvent ainsi partager une même production (télécharger, partager) sans que chacun ne parte à chaque fois.
+   */
+  @property({ type: Boolean })
+  wait = false;
+
+  private pendingUntil = 0;
+  private onClick = (): void => { if (this.wait) this.pendingUntil = Date.now() + 20000; };
+
   private seen: string | null | undefined = undefined;
 
   @state()
@@ -56,10 +67,12 @@ export class SonicMediaDownload extends LitElement {
 
   connectedCallback(): void {
     super.connectedCallback();
+    this.addEventListener("click", this.onClick);
     if (this.hasUpdated) this.listen();
   }
 
   disconnectedCallback(): void {
+    this.removeEventListener("click", this.onClick);
     this.unsub?.();
     this.unsub = null;
     super.disconnectedCallback();
@@ -80,6 +93,10 @@ export class SonicMediaDownload extends LitElement {
           const fresh = url !== this.seen;
           this.seen = url;
           if (this.auto && !first && fresh && this.ref) this.download(this.ref);
+          else if (this.wait && !first && fresh && this.ref && Date.now() < this.pendingUntil) {
+            this.pendingUntil = 0;
+            this.download(this.ref);
+          }
         })
       : null;
   }
@@ -101,6 +118,7 @@ export class SonicMediaDownload extends LitElement {
   }
 
   render() {
+    if (this.wait) return html`<slot></slot>`;
     if (!this.ref || this.auto) return nothing;
     const name = this.fileName(this.ref.mime);
     return html`<a part="link" href=${this.ref.url} download=${name}><slot>${this.label}</slot></a>`;

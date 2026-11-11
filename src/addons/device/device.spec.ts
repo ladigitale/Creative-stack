@@ -612,6 +612,77 @@ describe("sonic-share", () => {
   });
 });
 
+describe("sonic-share : fichier (file-from)", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  let shared: ShareData[] = [];
+  beforeEach(() => {
+    shared = [];
+    stub(navigator, "share", val(vi.fn(async (d: ShareData) => { shared.push(d); })));
+    stub(navigator, "canShare", val((d: ShareData) => !d.files || d.files.every((f) => f.type === "image/png")));
+    stub(navigator, "userActivation", val(undefined));
+    vi.stubGlobal("fetch", vi.fn(async () => ({ blob: async () => new Blob(["png"], { type: "image/png" }) })));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("partage le fichier présent, préparé d'avance (nom, type), avec le titre", async () => {
+    set("shf1", { last: { url: "blob:png1", mime: "image/png" } });
+    const el = await mount<SonicShare>(`<sonic-share id="shf1el" file-from="shf1.last" filename="mon dessin" title="Abysse"></sonic-share>`, "sonic-share");
+    await tick(); await tick();
+    expect(el.getState().canShareFiles).toBe(true);
+    expect(await el.run("share")).toBe(true);
+    expect(shared).toHaveLength(1);
+    expect(shared[0].title).toBe("Abysse");
+    expect(shared[0].files![0].name).toBe("mon-dessin.png");
+    expect(shared[0].files![0].type).toBe("image/png");
+  });
+
+  it("wait : le clic attend le prochain export, partagé dès qu'il arrive", async () => {
+    set("shf2", { last: { url: "blob:ancien", mime: "image/png" } });
+    const el = await mount<SonicShare>(`<sonic-share id="shf2el" file-from="shf2.last" wait></sonic-share>`, "sonic-share");
+    await tick(); await tick();
+    expect(await el.run("share")).toBe(true);
+    expect(shared).toHaveLength(0);
+    expect(el.getState().status).toBe("requesting");
+    set("shf2", { last: { url: "blob:nouveau", mime: "image/png" } });
+    await tick(); await tick();
+    expect(shared).toHaveLength(1);
+    expect(el.getState()).toMatchObject({ shared: 1, status: "idle", ready: false });
+    // Un nouvel export sans clic ne part pas.
+    set("shf2", { last: { url: "blob:autre", mime: "image/png" } });
+    await tick(); await tick();
+    expect(shared).toHaveLength(1);
+  });
+
+  it("wait : geste trop ancien à l'arrivée de l'export → ready, le clic suivant partage sans attendre", async () => {
+    stub(navigator, "userActivation", val({ isActive: false }));
+    set("shf3", { last: null });
+    const el = await mount<SonicShare>(`<sonic-share id="shf3el" file-from="shf3.last" wait></sonic-share>`, "sonic-share");
+    await el.run("share");
+    set("shf3", { last: { url: "blob:long", mime: "image/png" } });
+    await tick(); await tick();
+    expect(shared).toHaveLength(0);
+    expect(el.getState().ready).toBe(true);
+    expect(await el.run("share")).toBe(true);
+    expect(shared).toHaveLength(1);
+    expect(el.getState().ready).toBe(false);
+  });
+
+  it("type de fichier refusé par le système : unsupported, rien n'est envoyé ; URL non blob refusée", async () => {
+    set("shf4", { last: { url: "blob:svg", mime: "image/svg+xml" } });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ blob: async () => new Blob(["<svg/>"], { type: "image/svg+xml" }) })));
+    const el = await mount<SonicShare>(`<sonic-share id="shf4el" file-from="shf4.last"></sonic-share>`, "sonic-share");
+    await tick(); await tick();
+    expect(el.getState().canShareFiles).toBe(false);
+    expect(await el.run("share")).toBe(false);
+    expect(el.getState().status).toBe("unsupported");
+    expect(shared).toHaveLength(0);
+    set("shf4", { last: { url: "https://ailleurs.org/x.png", mime: "image/png" } });
+    await tick(); await tick();
+    expect(await el.run("share")).toBe(false);
+    expect(el.getState().error).toContain("aucun fichier");
+  });
+});
+
 // ─── sonic-vibrate ───────────────────────────────────────────────────────────────────────────────────────────────
 describe("sonic-vibrate", () => {
   it("parsePattern : nombre, texte, liste ; bornes et valeurs invalides", () => {

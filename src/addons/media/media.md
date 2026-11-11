@@ -266,6 +266,8 @@ Lien `<a download>` vers le SonicMediaRef lu dans `source` (`exportState.last`, 
 
 `auto` : aucun lien affiché ; chaque **nouveau** média publié dans `source` est téléchargé aussitôt (pas celui déjà présent au branchement). Pour un bouton « Télécharger » qui produit puis télécharge : le bouton déclenche la production (`save` d'un `sonic-shader`, `savePng` d'un `sonic-sketch`…) et un `sonic-media-download auto` branché sur l'état de sortie envoie le fichier dès qu'il est prêt.
 
+`wait` : comme `auto`, mais seulement pour le média demandé par un clic sur le contenu du composant (son slot, le bouton). Utile quand plusieurs boutons déclenchent la même production : « Télécharger » (`sonic-media-download wait`) et « Partager » (`sonic-share wait`, addon device) ne partent chacun que pour leur propre clic.
+
 ## `sonic-still` (image fixe)
 
 ```json
