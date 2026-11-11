@@ -101,7 +101,35 @@ export type PaletteOptions = {
   step?: number;
 };
 
-export type PaletteColor = { hex: string; hue: number; l: number; c: number; role: "base" | "harmony" | "shade" };
+export type PaletteColor = { hex: string; hue: number; l: number; c: number; role: "base" | "harmony" | "shade" | "custom" };
+
+/** Couleurs d'une palette libre (`#rrggbb`), dédoublonnées, au plus `MAX_COLORS` : liste JSON, tableau ou `a, b, c`. */
+export function parseColorList(v: unknown): string[] {
+  let list: unknown = v;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (t.startsWith("[")) { try { list = JSON.parse(t); } catch { list = []; } } else list = t.split(/[\s,;]+/);
+  }
+  if (!Array.isArray(list)) return [];
+  const out: string[] = [];
+  for (const x of list) {
+    const rgb = parseHex(x);
+    if (!rgb) continue;
+    const hex = toHex(rgb);
+    if (!out.includes(hex)) out.push(hex);
+    if (out.length >= MAX_COLORS) break;
+  }
+  return out;
+}
+
+/** Palette libre : les couleurs données telles quelles, éventuellement tournées de `shift` degrés de teinte (OKLCH). */
+export function customPalette(colors: string[], shift = 0): PaletteColor[] {
+  return parseColorList(colors).map((hex) => {
+    const o = rgbToOklch(parseHex(hex)!);
+    const t = shift ? { ...o, h: mod360(o.h + shift) } : o;
+    return { hex: shift ? oklchToHex(t) : hex, hue: Math.round(t.h * 10) / 10, l: Math.round(t.l * 1000) / 1000, c: Math.round(t.c * 1000) / 1000, role: "custom" as const };
+  });
+}
 
 /**
  * Palette d'une harmonie : d'abord les teintes de la règle à la clarté et à la saturation de la base, puis,
