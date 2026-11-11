@@ -9,7 +9,7 @@ import { tipFromValue } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
   Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
-  toScreen, toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type View,
+  toScreen, toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type StrokeBrush, type View,
 } from "./model";
 import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
@@ -17,7 +17,8 @@ import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../s
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
 import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, recolorManyFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, safeBoolean, type Backdrop, type FlatEdit, type Region } from "./flat";
 import { allRegions, regionAt, selectionInfo, similarRegions, type SelectionInfo } from "./select";
-import { PassDetector, nearestIndex, splitPasses } from "./turns";
+import { PassDetector, splitPasses } from "./turns";
+import { HEAVY_VERTICES, PIECE_BUDGET_MS, StrokeFlattener, capDisc, type Joint, type Target } from "./flatten-inc";
 import { deriveColor, parseColor, toCss, type Rgba } from "./flat-color";
 import { colorMap, type ColorMapMode } from "./colormap";
 import {
@@ -31,12 +32,11 @@ import { applyAffine } from "../../shared/frame-geometry";
 
 const MAX_SIDE = 4096;
 /** Le cumul des passes ne se voit qu'avec un mode de fusion ou une opacité partielle. */
-/** Disque polygonal (bout arrondi d'une passe). */
-const capDisc = (x: number, y: number, r: number): Pt[] => {
-  const out: Pt[] = [];
-  for (let i = 0; i < 48; i++) out.push([x + Math.cos((i / 48) * Math.PI * 2) * r, y + Math.sin((i / 48) * Math.PI * 2) * r]);
-  return out;
-};
+/** Morceau d'aplatissement progressif : au moins tant de points et tant de diamètres de long. */
+const CHUNK_POINTS = 48;
+const CHUNK_DIAMETERS = 6;
+/** Tranche de temps de l'aplatissement progressif pendant le geste (ms). */
+const FLAT_SLICE_MS = 6;
 const multiPass = (b: { blend?: string; opacity: number }) => (!!b.blend && b.blend !== "normal") || b.opacity < 0.999;
 /** Pause sans trait avant l'enregistrement automatique ; intervalle minimal entre deux vignettes. */
 const SAVE_IDLE_MS = 2000;
@@ -274,7 +274,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private trembler = new Trembler(0);
   /** Passes du trait en cours (coupé aux changements de direction francs) : détecteur et points de coupe. */
   private turns: PassDetector | null = null;
-  private cutAt: [number, number][] = [];
+  private cutIdx: number[] = [];
+  /** Aplatissement progressif du trait en cours (trait plein seulement) et morceau en cours. */
+  private flatInc: StrokeFlattener | null = null;
+  private flatDoc: { arr: Stroke[]; len: number } | null = null;
+  private flatTimer = 0;
+  private pieceStart = 0;
+  private pieceJoint: Joint = "start";
+  private pieceLen = 0;
   /** Empreintes du trait en cours quand il a un mode de fusion (fusionnées à l'affichage). */
   private liveBuf: Surface | null = null;
   private readonly liveKey = {};
@@ -746,8 +753,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.stroke = { id: this.doc.nextId++, brush, pts: [], seed, bbox: { x: 0, y: 0, w: 0, h: 0 } };
     this.stamper = new StrokeStamper(brush, seed);
     this.trembler = new Trembler(seed);
-    this.cutAt = [];
+    this.cutIdx = [];
     this.turns = !erase && this.passes && multiPass(brush) ? new PassDetector(brush.size) : null;
+    this.startFlatInc(brush, erase);
     this.liveBuf = null;
     if (brush.blend || erase) {
       const s = this.layerSurface();
@@ -779,8 +787,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (n >= 3 && st.pts[n - 3] === x && st.pts[n - 2] === y) return;
     // Le segment qui arrive revient sur une partie déjà tracée : ce qui est tracé se pose (avec son mode) et la
     // passe suivante, ce segment compris, repart d'un tampon vide — les passes se cumulent à l'écran comme dans l'aplat final.
+    if (n >= 3) this.pieceLen += Math.hypot(x - st.pts[n - 3], y - st.pts[n - 2]);
     if (n >= 3 && this.turns?.feed(x, y)) {
-      this.cutAt.push([st.pts[n - 3], st.pts[n - 2]]);
+      const c = n / 3 - 1;
+      this.cutIdx.push(c);
+      this.pieceBoundary(c, "pass");
+      this.pieceLen = Math.hypot(x - st.pts[n - 3], y - st.pts[n - 2]);
       const layer = this.layerSurface();
       if (this.liveBuf && layer) {
         blitBlend(layer, this.liveBuf.ctx.canvas, st.brush.blend);
@@ -788,6 +800,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       }
     } else if (n < 3) this.turns?.feed(x, y);
     st.pts.push(x, y, pr);
+    // Trait long d'une seule passe (ou trait couvrant) : il est aussi livré par tronçons à l'aplatissement progressif.
+    const last = st.pts.length / 3 - 1;
+    if (this.flatInc && last - this.pieceStart >= CHUNK_POINTS && this.pieceLen >= CHUNK_DIAMETERS * st.brush.size) {
+      this.pieceBoundary(last, "chunk");
+      this.pieceLen = 0;
+    }
     const surface = this.liveBuf ?? this.layerSurface();
     if (!surface) return;
     surface.view = this.layerView;
@@ -814,13 +832,21 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.liveBuf = null;
     this.erasing = false;
     if (!st || !st.pts.length) return;
+    const inc = this.stopFlatInc();
     if (erasing) return this.endErase(st);
     const raw = st.pts.length / 3;
     const tol = this.simplifyPx();
-    // Coupes repérées sur les points bruts, puis compaction passe par passe : les points de coupe restent.
-    let cuts = [...new Set(this.cutAt.map(([x, y]) => nearestIndex(st.pts, x, y)))]
-      .filter((i) => i > 0 && i < raw - 1)
-      .sort((a, b) => a - b);
+    // Aplatissement progressif : il ne reste que le dernier morceau à peindre.
+    if (inc && this.finishFlatInc(inc, st)) {
+      this.lastCompaction = { before: raw, after: inc.points };
+      this.cutIdx = [];
+      this.turns = null;
+      this.error = null;
+      this.invalidate();
+      return;
+    }
+    // Sinon, d'un bloc : coupes repérées sur les points bruts, puis compaction passe par passe (les coupes restent).
+    let cuts = [...new Set(this.cutIdx)].filter((i) => i > 0 && i < raw - 1).sort((a, b) => a - b);
     if (tol > 0) {
       const ztol = tol / this.layerView.zoom, ptol = st.brush.pressure ? 0.04 : Infinity;
       const parts = splitPasses(st.pts, cuts).map((p) => compactStroke(p, ztol, ptol));
@@ -833,11 +859,27 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       st.pts = joined;
       cuts = next;
     }
-    this.cutAt = [];
+    this.cutIdx = [];
     this.turns = null;
     this.lastCompaction = { before: raw, after: st.pts.length / 3 };
     st.bbox = strokeBBox(st.pts, strokeMargin(st.brush));
-    if (this.flatten && this.merge && this.flattenStroke(st, tol, cuts)) {
+    // Trop coûteux à aplatir (carte morcelée) : le trait reste en empreintes, une par passe pour que les
+    // recouvrements se cumulent comme à l'écran pendant le geste — en une étape d'annulation.
+    if (inc?.heavy) {
+      if (cuts.length && multiPass(st.brush)) {
+        const passes = splitPasses(st.pts, cuts).map((pts, k): Stroke => {
+          const id = k ? this.doc.nextId++ : st.id;
+          return { id, brush: st.brush, pts, seed: st.seed + k, bbox: strokeBBox(pts, strokeMargin(st.brush)) };
+        });
+        if (this.doc.addMany(passes)) {
+          this.error = null;
+          // Les passes précédentes sont déjà posées sur la couche (à chaque coupe) ; reste la dernière.
+          if (live) { const s = this.layerSurface(); if (s) blitBlend(s, live.ctx.canvas, st.brush.blend); }
+          this.compose();
+          return;
+        }
+      }
+    } else if (this.flatten && this.merge && this.flattenStroke(st, tol, cuts)) {
       this.error = null;
       this.invalidate();
       return;
@@ -990,6 +1032,103 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return strokes.length;
   }
 
+  /** Pose les régions calculées pour `st` dans la carte de rang `index` (créée au besoin) : une étape d'annulation. */
+  private commitFlat(st: Stroke, index: number, regions: Region[]): boolean {
+    if (flatVertices(regions) > MAX_FLAT_VERTICES) return false;
+    const strokes = this.doc.strokes;
+    const top = index < strokes.length ? strokes[index] : null;
+    const brush = { ...st.brush, blend: undefined, opacity: 1, pressure: false };
+    const item: Stroke = { id: top ? top.id : st.id, brush, pts: [], seed: st.seed, flat: regions, bbox: flatBBox(regions) };
+    this.doc.replace([...strokes.slice(0, index), ...(regions.length ? [item] : []), ...strokes.slice(index + (top ? 1 : 0))]);
+    this.flattened++;
+    return true;
+  }
+
+  /** Carte cible d'un trait d'emprise `bbox` (voir `targetFlat`), avec ses régions et ce qu'il y a dessous. */
+  private flatTarget(bbox: { x: number; y: number; w: number; h: number }): Target {
+    const index = this.targetFlat(bbox);
+    const top = index < this.doc.strokes.length ? this.doc.strokes[index] : null;
+    return { index, regions: top?.flat ?? [], back: this.backdropAt(index) };
+  }
+
+  /**
+   * Prépare l'aplatissement progressif d'un trait qui commence (trait plein seulement ; avec un pinceau à pression,
+   * tant qu'elle reste constante — souris, doigt). Sinon, ou en cas d'échec, le trait s'aplatit d'un bloc au lever.
+   */
+  private startFlatInc(brush: StrokeBrush, erase: boolean): void {
+    this.stopFlatInc();
+    this.pieceStart = 0;
+    this.pieceJoint = "start";
+    this.pieceLen = 0;
+    if (erase || !this.flatten || !this.merge || !isSolid(brush, [])) return;
+    const src = this.rgbaOf(brush.color);
+    if (!src) return;
+    const tolPx = this.simplifyPx();
+    this.flatInc = new StrokeFlattener(
+      {
+        radius: (pts) => solidRadius(brush, pts),
+        tolerance: (r) => this.outlineTol(tolPx, r),
+        pressure: !!brush.pressure,
+        ztol: tolPx > 0 ? tolPx / this.layerView.zoom : 0,
+        ptol: brush.pressure ? 0.04 : Infinity,
+        src,
+        alpha: brush.opacity,
+        mode: brush.blend ?? "normal",
+        multi: multiPass(brush),
+        budgetMs: PIECE_BUDGET_MS,
+        heavyVertices: HEAVY_VERTICES,
+      },
+      (bb) => this.flatTarget(bb),
+    );
+    this.flatDoc = { arr: this.doc.strokes, len: this.doc.strokes.length };
+  }
+
+  /** Fin du morceau en cours au point `c` ; le suivant repart de ce point avec la jonction `joint`. */
+  private pieceBoundary(c: number, joint: Joint): void {
+    const st = this.stroke, f = this.flatInc;
+    if (st && f && c > this.pieceStart) {
+      f.push({ pts: st.pts.slice(this.pieceStart * 3, (c + 1) * 3), joint: this.pieceJoint });
+      this.scheduleFlat();
+    }
+    this.pieceStart = c;
+    this.pieceJoint = joint;
+  }
+
+  private scheduleFlat(): void {
+    if (this.flatTimer) return;
+    this.flatTimer = window.setTimeout(() => {
+      this.flatTimer = 0;
+      const f = this.flatInc;
+      if (!f) return;
+      const end = performance.now() + FLAT_SLICE_MS;
+      f.step(() => performance.now() > end, true);
+      if (f.pending) this.scheduleFlat();
+    }, 0);
+  }
+
+  private stopFlatInc(): StrokeFlattener | null {
+    const f = this.flatInc;
+    this.flatInc = null;
+    if (this.flatTimer) window.clearTimeout(this.flatTimer);
+    this.flatTimer = 0;
+    return f;
+  }
+
+  /** Lever : dernier morceau, puis pose du résultat si rien n'a bougé dans le dessin entre-temps. */
+  private finishFlatInc(f: StrokeFlattener, st: Stroke): boolean {
+    const snap = this.flatDoc;
+    this.flatDoc = null;
+    f.push({ pts: st.pts.slice(this.pieceStart * 3), joint: this.pieceJoint });
+    const t = f.finish();
+    if (!t || !snap || this.doc.strokes !== snap.arr || this.doc.strokes.length !== snap.len) return false;
+    if (!isSolid(st.brush, st.pts)) return false;
+    try {
+      return this.commitFlat(st, t.index, t.regions);
+    } catch {
+      return false;
+    }
+  }
+
   private flattenStroke(st: Stroke, tolPx: number, cuts: number[] = []): boolean {
     if (!isSolid(st.brush, st.pts)) return false;
     const src = this.rgbaOf(st.brush.color);
@@ -1019,12 +1158,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       const back = this.backdropAt(index);
       let regions = top ? top.flat! : [];
       for (const shape of shapes) regions = paintFlat(regions, shape, src, st.brush.opacity, st.brush.blend ?? "normal", back);
-      if (flatVertices(regions) > MAX_FLAT_VERTICES) return false;
-      const brush = { ...st.brush, blend: undefined, opacity: 1, pressure: false };
-      const item: Stroke = { id: onTop ? top!.id : st.id, brush, pts: [], seed: st.seed, flat: regions, bbox: flatBBox(regions) };
-      this.doc.replace([...strokes.slice(0, index), ...(regions.length ? [item] : []), ...strokes.slice(index + (onTop ? 1 : 0))]);
-      this.flattened++;
-      return true;
+      return this.commitFlat(st, index, regions);
     } catch {
       return false; // découpage impossible : le trait reste en empreintes
     }
