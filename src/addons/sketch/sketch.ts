@@ -81,6 +81,10 @@ export type SketchState = {
     status: "off" | "loading" | "saving" | "saved" | "error";
     id: string | null;
     name: string;
+    /** Changements non enregistrés ; progression du dernier enregistrement (0..100) ; mode d'enregistrement. */
+    dirty: boolean;
+    progress: number;
+    mode: "auto" | "manual";
     drawings: { id: string; name: string; created: number; updated: number; strokes: number; thumb: string; current: boolean }[];
   };
 };
@@ -211,6 +215,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * `deleteDrawing` (+ `drawingId`, défaut : le dessin ouvert), `renameDrawing` (+ `drawingName`).
    */
   @property({ type: String }) persist = "";
+  /**
+   * `auto` (défaut) : le dessin ouvert est enregistré pendant les pauses. `manual` : rien n'est enregistré sans
+   * commande (`saveDrawing`, `saveDrawingAs`) ; l'état `library.dirty` dit s'il y a des changements non enregistrés,
+   * et changer de dessin n'enregistre pas l'ouvert (à l'interface de prévenir).
+   */
+  @property({ type: String, attribute: "save-mode" }) saveMode: "auto" | "manual" = "auto";
+  /** DP où lire le nom d'« Enregistrer sous » (clé `name`), ex. celui d'un champ de saisie ; défaut : `control.drawingName`. */
+  @property({ type: String, attribute: "name-from" }) nameFrom = "";
   /** Stockage du carnet (remplaçable pour les tests). */
   static drawingBackend: DrawingBackend = new IdbBackend();
 
@@ -454,6 +466,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         if ("duplicateDrawing" in c && this.trigger("duplicateDrawing").feed(c.duplicateDrawing)) void this.duplicateDrawing();
         if ("deleteDrawing" in c && this.trigger("deleteDrawing").feed(c.deleteDrawing)) void this.deleteDrawing(id ?? this.drawingId);
         if ("renameDrawing" in c && this.trigger("renameDrawing").feed(c.renameDrawing)) void this.renameDrawing(c.drawingName);
+        if ("saveDrawing" in c && this.trigger("saveDrawing").feed(c.saveDrawing)) void this.saveDrawing();
+        if ("saveDrawingAs" in c && this.trigger("saveDrawingAs").feed(c.saveDrawingAs)) void this.saveDrawingAs(this.nameFrom ? (plain(get(this.nameFrom)) as { name?: unknown } | null)?.name : c.drawingName);
       }));
     }
   }
@@ -1385,8 +1399,10 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * Enregistrement automatique quand l'utilisateur marque une vraie pause (aucun trait ni geste de vue depuis
    * SAVE_IDLE_MS), puis au premier moment libre du navigateur : jamais entre deux traits rapprochés.
    */
+  private manual(): boolean { return this.saveMode === "manual"; }
+
   private queueSave(): void {
-    if (!this.persist || this.libStatus === "loading" || this.libStatus === "off" || !this.dirty()) return;
+    if (this.manual() || !this.persist || this.libStatus === "loading" || this.libStatus === "off" || !this.dirty()) return;
     clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
       if (this.stroke || this.gestureActive()) { this.saveTimer = 0; this.queueSave(); return; }
@@ -1397,7 +1413,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   private flushSave = (): void => {
-    if (!this.saveTimer) return;
+    if (!this.saveTimer || this.manual()) return;
     clearTimeout(this.saveTimer);
     this.saveTimer = 0;
     void this.saveNow(true);
@@ -1437,16 +1453,30 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (!this.drawingId && !len) { this.markSaved(); return true; }
     if (!this.drawingId) { this.drawingId = newDrawingId(); this.drawingName = this.drawingName || this.defaultName(); this.drawingCreated = Date.now(); }
     const id = this.drawingId;
-    // Pas de publication « saving » : chaque publication réveille tous les abonnés de l'état.
+    // En automatique, pas de publication intermédiaire : chaque publication réveille tous les abonnés de l'état.
+    // Sur commande, la progression est publiée étape par étape (vignette, préparation, écriture).
+    const report = this.manual() || fresh;
+    const step = async (p: number) => {
+      this.libProgress = p;
+      if (!report) return;
+      this.publish();
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    };
     this.libStatus = "saving";
     try {
+      await step(5);
       const thumb = await this.thumbnail(fresh);
+      await step(40);
+      const data = writeStrokes(strokes.slice(0, len));
+      await step(65);
       const rec: DrawingRecord = {
         ns, id, name: this.drawingName, created: this.drawingCreated || Date.now(), updated: Date.now(), strokes: len,
-        thumb, view: { ...this.view }, nextId: this.doc.nextId, data: writeStrokes(strokes.slice(0, len)),
+        thumb, view: { ...this.view }, nextId: this.doc.nextId, data,
       };
       await this.backend.put(rec);
+      await step(90);
       await writeCurrent(this.backend, ns, id);
+      this.libProgress = 100;
       if (ns !== this.persist) return false;
       this.savedRef = { ref: strokes, len };
       const meta: DrawingMeta = { id, name: rec.name, created: rec.created, updated: rec.updated, strokes: len, thumb };
@@ -1460,9 +1490,32 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return this.libStatus === "saved";
   }
 
+  private libProgress = 0;
+
+  /** Enregistre le dessin ouvert (commande « Enregistrer »). */
+  async saveDrawing(): Promise<boolean> {
+    if (!this.persist) return false;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = 0;
+    if (!this.drawingId && !this.doc.strokes.length) return false;
+    return this.saveNow(true);
+  }
+
+  /** « Enregistrer sous » : une copie sous un autre nom, qui devient le dessin ouvert ; l'original reste tel qu'enregistré. */
+  async saveDrawingAs(name: unknown): Promise<boolean> {
+    if (!this.persist || !this.doc.strokes.length) return false;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = 0;
+    this.drawingId = null;
+    this.drawingName = cleanName(name, cleanName(`${this.drawingName || "Dessin"} (copie)`, "Copie"));
+    this.drawingCreated = 0;
+    this.savedRef = { ref: null, len: -1 };
+    return this.saveNow(true);
+  }
+
   /** Enregistre le dessin ouvert puis montre une toile vierge (un nouveau dessin, créé au premier trait). */
   async newDrawing(): Promise<void> {
-    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
+    if (!this.manual() && (this.saveTimer || this.dirty())) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
     this.cancelStroke();
     this.pending = null;
     this.selected.clear();
@@ -1481,7 +1534,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   async openDrawing(id: string): Promise<boolean> {
     if (!this.persist || !isDrawingId(id) || id === CURRENT) return false;
     if (id === this.drawingId) return true;
-    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
+    if (!this.manual() && (this.saveTimer || this.dirty())) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
     try {
       const rec = await this.backend.get(this.persist, id);
       if (!rec) return false;
@@ -1498,7 +1551,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** Copie du dessin ouvert, qui devient le dessin ouvert. */
   async duplicateDrawing(): Promise<void> {
     if (!this.persist || !this.doc.strokes.length) return;
-    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
+    if (!this.manual() && (this.saveTimer || this.dirty())) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
     this.drawingId = null;
     this.drawingName = cleanName(`${this.drawingName || "Dessin"} (copie)`, "Copie");
     this.drawingCreated = 0;
@@ -1668,6 +1721,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       edit: { op: this.editOp(), preview: !!this.pending, error: this.editError, scope: this.selected.size ? "selection" : "all" },
       library: {
         enabled: !!this.persist, status: this.libStatus, id: this.drawingId, name: this.drawingName,
+        dirty: !!this.persist && this.dirty() && (this.doc.strokes.length > 0 || !!this.drawingId), progress: this.libProgress, mode: this.saveMode,
         drawings: this.drawings.map((d) => ({ id: d.id, name: d.name, created: d.created, updated: d.updated, strokes: d.strokes, thumb: this.thumbUrl(d.thumb), current: d.id === this.drawingId })),
       },
     };
