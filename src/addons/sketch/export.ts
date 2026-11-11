@@ -62,12 +62,24 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
       const d = multiPath(st.mask);
       if (!d || !body.length) continue;
       const id = `m${++masks}`;
-      defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}"><rect x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}" fill="#fff"/><path d="${d}" fill="#000" fill-rule="evenodd"/></mask>`);
+      const fo = st.brush.opacity < 0.999 ? ` fill-opacity="${f(st.brush.opacity)}"` : "";
+      defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}"><rect x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}" fill="#fff"/><path d="${d}" fill="#000"${fo} fill-rule="evenodd"/></mask>`);
       body.splice(0, body.length, `<g mask="url(#${id})">${body.join("")}</g>`);
       continue;
     }
     const b = st.brush;
     const op = b.opacity < 0.999 ? ` opacity="${f(b.opacity)}"` : "";
+    if (st.erase) {
+      // Gomme en empreintes : ses empreintes, en noir, forment un masque sur tout ce qui est dessous.
+      const at = body.length;
+      emit(st, { ...b, color: "#000000" }, op);
+      const inner = body.splice(at).join("");
+      if (!inner || !body.length) continue;
+      const id = `m${++masks}`;
+      defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}"><rect x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}" fill="#fff"/>${inner}</mask>`);
+      body.splice(0, body.length, `<g mask="url(#${id})">${body.join("")}</g>`);
+      continue;
+    }
     const at = body.length;
     emit(st, b, op);
     // Mode de fusion : le trait entier (ses empreintes réunies) fusionne avec ce qui est dessous.

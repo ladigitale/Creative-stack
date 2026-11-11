@@ -203,6 +203,31 @@ export function eraseFlat(regions: Region[], eraser: Multi): Region[] {
   return out;
 }
 
+/**
+ * Gomme partielle : sous `eraser`, chaque région garde sa couleur mais perd `amount` de son opacité (elle laisse
+ * voir ce qui est dessous) ; une région devenue invisible disparaît. `amount` ≥ 1 : trou net (`eraseFlat`).
+ */
+export function fadeFlat(regions: Region[], eraser: Multi, amount: number): Region[] {
+  if (amount >= 0.999) return eraseFlat(regions, eraser);
+  if (!eraser.length || !(amount > 0)) return regions;
+  const eb = multiBBox(eraser);
+  const f = frameOf(eb);
+  const E = local(f, eraser);
+  const out: Region[] = [];
+  const fresh: Region[] = [];
+  for (const r of regions) {
+    if (!overlaps(r.bbox, eb)) { out.push(r); continue; }
+    const R = local(f, r.shape);
+    const inside = op("intersect", R, E);
+    if (!inside.length) { out.push(r); continue; }
+    const rest = op("difference", R, E);
+    if (rest.length) out.push(...splitRegions(r.rgba, toWorld(f, rest), r.blend));
+    const a = r.rgba[3] * (1 - amount);
+    if (a >= 1 / 255) fresh.push(...splitRegions(quantize([r.rgba[0], r.rgba[1], r.rgba[2], a]), toWorld(f, inside), r.blend));
+  }
+  return mergeSameColor(out, fresh, f);
+}
+
 /** Boîte de la carte. */
 export function flatBBox(regions: Region[]): BBox {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;

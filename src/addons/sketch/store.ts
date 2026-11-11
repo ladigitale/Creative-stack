@@ -117,6 +117,7 @@ export function readStrokes(v: unknown): Stroke[] | null {
     budget.n -= pts.length / 3;
     if (budget.n < 0) break;
     const s: Stroke = { ...base, pts: pts.slice(), bbox: { x: 0, y: 0, w: 0, h: 0 } };
+    if (o.erase === true) s.erase = true;
     s.bbox = strokeBBox(s.pts, strokeMargin(brush));
     out.push(s);
   }
@@ -160,7 +161,10 @@ function writeStroke(s: Stroke): unknown {
     const o: Record<string, unknown> = { brush: s.brush, seed: s.seed };
     if (s.flat) o.flat = s.flat.map((r) => (r.blend ? { rgba: r.rgba, shape: r.shape, blend: r.blend } : { rgba: r.rgba, shape: r.shape }));
     else if (s.mask) o.mask = s.mask;
-    else o.pts = s.pts;
+    else {
+      o.pts = s.pts;
+      if (s.erase) o.erase = true;
+    }
     return o;
   }
 }
