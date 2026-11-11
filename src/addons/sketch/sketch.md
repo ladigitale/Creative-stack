@@ -154,3 +154,7 @@ Tourner longtemps au même endroit avec un mode de fusion morcelle la carte en c
 L'opacité est celle du trait entier, comme dans les logiciels de dessin : ses empreintes sont réunies à pleine force, puis le trait est posé (ou ôté, pour la gomme) à l'opacité du pinceau, avec son mode de fusion. Des empreintes qui se chevauchent ne foncent donc pas le trait ; seules les passes (voir plus haut) se cumulent. C'est vrai pendant le geste, à la mise à plat, au rendu des traits gardés en empreintes et à l'export SVG (groupe `opacity`). À opacité 0, un trait ne montre rien, quel que soit son mode.
 
 Le mode de fusion se calcule contre ce qui est dessous : le fond (`background`) là où rien n'est dessiné. Sur un fond transparent, il n'y a rien avec quoi fusionner : la couleur est posée telle quelle (règle de composition standard).
+
+## Fond et damier
+
+`background` est la couleur du papier : ce qui n'est pas dessiné, ce que la gomme fait réapparaître, ce contre quoi se calculent les modes de fusion, et le fond des exports. `background="transparent"` : rien dessous (export PNG transparent, fusions posées telles quelles). `checker` dessine alors un damier sous le dessin, à l'écran seulement, pour voir ce qui est vide ou à moitié effacé : deux couleurs (`checker="#f4f1ea #e7e1d4"`) ou `true` ; `checker-size` en px d'écran (défaut 8). Les traits déjà aplatis gardent les couleurs calculées contre le fond de l'époque.
