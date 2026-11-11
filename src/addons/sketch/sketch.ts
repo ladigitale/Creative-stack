@@ -15,12 +15,16 @@ import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./r
 import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
-import { MAX_FLAT_VERTICES, deleteFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, type Backdrop, type Region } from "./flat";
+import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, type Backdrop, type FlatEdit, type Region } from "./flat";
 import { allRegions, regionAt, selectionInfo, similarRegions, type SelectionInfo } from "./select";
-import { parseColor, type Rgba } from "./flat-color";
+import { deriveColor, parseColor, type Rgba } from "./flat-color";
+import {
+  CURRENT, IdbBackend, cleanName, isDrawingId, listDrawings, newDrawingId, readCurrent, readStrokes, readView, writeCurrent, writeStrokes,
+  type DrawingBackend, type DrawingMeta, type DrawingRecord,
+} from "./store";
 import { ViewSync } from "../../shared/view-sync";
 import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
-import { multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt } from "../vector";
+import { multiArea, multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt } from "../vector";
 import { applyAffine } from "../../shared/frame-geometry";
 
 const MAX_SIDE = 4096;
@@ -59,6 +63,16 @@ export type SketchState = {
   bbox: { x: number; y: number; w: number; h: number } | null;
   /** Dernier export (`control.save` / `savePng`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
+  /** Retouche de la sélection en aperçu (`control.edit`) : opération, aperçu affiché, erreur. */
+  edit: { op: FlatEdit | null; preview: boolean; error: string | null };
+  /** Carnet (`persist`) : état, dessin ouvert, dessins enregistrés (vignette = URL `blob:`), le plus récent d'abord. */
+  library: {
+    enabled: boolean;
+    status: "off" | "loading" | "saving" | "saved" | "error";
+    id: string | null;
+    name: string;
+    drawings: { id: string; name: string; created: number; updated: number; strokes: number; thumb: string; current: boolean }[];
+  };
 };
 
 /**
@@ -178,6 +192,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** Ancien nom de `flatten` (faux : pas d'aplatissement). */
   @property({ type: Boolean }) merge = true;
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
+  /**
+   * Carnet de dessins local (IndexedDB) : espace de noms sous lequel les dessins sont rangés (vide : aucune
+   * persistance). Le dessin ouvert est réenregistré peu après chaque changement et rouvert au chargement.
+   * Commandes du DP `control` : `newDrawing`, `openDrawing` (+ `drawingId`), `duplicateDrawing`,
+   * `deleteDrawing` (+ `drawingId`, défaut : le dessin ouvert), `renameDrawing` (+ `drawingName`).
+   */
+  @property({ type: String }) persist = "";
+  /** Stockage du carnet (remplaçable pour les tests). */
+  static drawingBackend: DrawingBackend = new IdbBackend();
 
   @query("canvas") private canvasEl!: HTMLCanvasElement;
   @query("canvas.overlay") private overlayEl!: HTMLCanvasElement;
@@ -226,6 +249,23 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** Le trait en cours est une gomme (aperçu en trou, appliquée au lever). */
   private erasing = false;
   private eraseBuf: HTMLCanvasElement | null = null;
+  /** Retouche en aperçu : traits calculés (non enregistrés), régions issues, liste de départ. */
+  private pending: { strokes: Stroke[]; fresh: Set<Region>; base: Stroke[]; len: number } | null = null;
+  private liveEdit: { op?: unknown; amount?: unknown; colors?: unknown } = {};
+  private editSig = "";
+  private editTimer = 0;
+  private editError: string | null = null;
+  private selVersion = 0;
+  /** Carnet. */
+  private libStatus: SketchState["library"]["status"] = "off";
+  private drawingId: string | null = null;
+  private drawingName = "";
+  private drawingCreated = 0;
+  private drawings: DrawingMeta[] = [];
+  private thumbUrls = new Map<Blob, string>();
+  private savedRef: { ref: Stroke[] | null; len: number } = { ref: null, len: 0 };
+  private saveTimer = 0;
+  private libToken = 0;
 
   get frameSeq(): number { return this.seq; }
   getFrameCanvas(): HTMLCanvasElement | null { return this.canvasEl ?? null; }
@@ -279,6 +319,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.listen();
     window.addEventListener("keydown", this.onSpace);
     window.addEventListener("keyup", this.onSpace);
+    window.addEventListener("pagehide", this.flushSave);
+    document.addEventListener("visibilitychange", this.onVisibility);
   }
 
   disconnectedCallback(): void {
@@ -288,7 +330,13 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     window.removeEventListener("keyup", this.onSpace);
     cancelAnimationFrame(this.raf);
     clearTimeout(this.settle);
+    clearTimeout(this.editTimer);
+    window.removeEventListener("pagehide", this.flushSave);
+    document.removeEventListener("visibilitychange", this.onVisibility);
+    if (this.saveTimer) this.flushSave();
     if (this.last) URL.revokeObjectURL(this.last.url);
+    for (const u of this.thumbUrls.values()) URL.revokeObjectURL(u);
+    this.thumbUrls.clear();
     super.disconnectedCallback();
   }
 
@@ -305,6 +353,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (c.has("background")) this.compose();
     if (c.has("tool") && c.get("tool") !== undefined && this.tool !== "select" && this.tool !== "select-color" && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
     if (c.has("tool") || c.has("color") || c.has("size")) this.publish();
+    if (c.has("persist")) void this.openLibrary();
   }
 
   /* ------------------------------------------------------------ DataProviders */
@@ -381,6 +430,18 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         }
         // `{recolor: n, color: "#…"}` : recolore la sélection (couleur du pinceau si `color` est absente).
         if ("recolor" in c && this.trigger("recolor").feed(c.recolor)) this.recolor(typeof c.color === "string" ? c.color : this.brush().color);
+        // Retouches : `edit` + `editAmount` (px d'écran) + `editColors` → aperçu ; `editApply` / `editCancel` (compteurs).
+        if ("editApply" in c && this.trigger("editApply").feed(c.editApply)) this.applyEdit();
+        if ("editCancel" in c && this.trigger("editCancel").feed(c.editCancel)) this.cancelEdit();
+        this.liveEdit = { op: c.edit, amount: c.editAmount, colors: c.editColors };
+        this.queueEdit();
+        // Carnet.
+        const id = isDrawingId(c.drawingId) ? c.drawingId : null;
+        if ("newDrawing" in c && this.trigger("newDrawing").feed(c.newDrawing)) void this.newDrawing();
+        if ("openDrawing" in c && this.trigger("openDrawing").feed(c.openDrawing) && id) void this.openDrawing(id);
+        if ("duplicateDrawing" in c && this.trigger("duplicateDrawing").feed(c.duplicateDrawing)) void this.duplicateDrawing();
+        if ("deleteDrawing" in c && this.trigger("deleteDrawing").feed(c.deleteDrawing)) void this.deleteDrawing(id ?? this.drawingId);
+        if ("renameDrawing" in c && this.trigger("renameDrawing").feed(c.renameDrawing)) void this.renameDrawing(c.drawingName);
       }));
     }
   }
@@ -416,7 +477,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     // Le fond est aussi dans la couche : les modes de fusion le voient sous les traits.
     const bg = this.backgroundColor();
     if (bg) { s.ctx.fillStyle = bg; s.ctx.fillRect(0, 0, s.w, s.h); }
-    drawStrokes(s, this.doc.strokes, visibleRect(this.layerView, s.w, s.h));
+    drawStrokes(s, this.pending?.strokes ?? this.doc.strokes, visibleRect(this.layerView, s.w, s.h));
     this.layerDirty = false;
   }
 
@@ -459,10 +520,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const { w, h, dpr } = this.dims();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
-    if (!this.selected.size) return;
+    const shown = this.pending ? this.pending.fresh : this.selected;
+    if (!shown.size) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const path = new Path2D();
-    for (const r of this.selected) {
+    for (const r of shown) {
       for (const poly of r.shape) for (const ring of poly) {
         ring.forEach(([x, y], i) => {
           const [sx, sy] = toScreen(this.view, x, y, w, h);
@@ -516,6 +578,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   private invalidate(): void {
+    // Le dessin a changé sous l'aperçu (trait, annulation…) : l'aperçu ne vaut plus.
+    if (this.pending && (this.pending.base !== this.doc.strokes || this.pending.len !== this.doc.strokes.length)) this.pending = null;
     this.pruneSelection();
     this.layerDirty = true;
     this.compose();
@@ -547,6 +611,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") this.selectAll();
     else if ((e.key === "Delete" || e.key === "Backspace") && this.selected.size && !this.readonly) this.deleteSelection();
+    else if (e.key === "Escape" && this.pending) this.cancelEdit();
     else if (e.key === "Escape" && this.selected.size) this.deselect();
     else return;
     e.preventDefault();
@@ -1033,6 +1098,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   private selectionChanged(): void {
+    this.selVersion++;
+    this.queueEdit();
     this.drawOverlay();
     this.publish();
     this.dispatchEvent(new CustomEvent("sketch-select", { detail: selectionInfo(this.selected), bubbles: true, composed: true }));
@@ -1090,6 +1157,289 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.selected.clear();
     this.invalidate();
     this.dispatchEvent(new CustomEvent("sketch-select", { detail: selectionInfo(this.selected), bubbles: true, composed: true }));
+  }
+
+
+  /* ------------------------------------------------------------ retouches de la sélection */
+
+  private editOp(): FlatEdit | null {
+    const op = this.liveEdit.op;
+    return typeof op === "string" && (FLAT_EDITS as readonly string[]).includes(op) ? (op as FlatEdit) : null;
+  }
+
+  /** Relance l'aperçu quand l'opération, ses réglages ou la sélection changent (regroupé sur ~40 ms). */
+  private queueEdit(): void {
+    const op = this.editOp();
+    const sig = `${op}|${String(this.liveEdit.amount)}|${JSON.stringify(this.liveEdit.colors ?? null)}|${this.selVersion}`;
+    if (sig === this.editSig) return;
+    this.editSig = sig;
+    clearTimeout(this.editTimer);
+    if (!op) { if (this.pending) this.cancelEdit(); return; }
+    this.editTimer = window.setTimeout(() => this.previewEdit(op, Number(this.liveEdit.amount), this.liveEdit.colors), 40);
+  }
+
+  /** Couleurs des anneaux : liste ou chaîne « #a, darker » ; mots-clés déduits de la couleur dominante. */
+  private editColors(raw: unknown): Rgba[] {
+    const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[\s,;]+/) : [];
+    let base: Rgba = [0, 0, 0, 1], best = -1;
+    for (const r of this.selected) {
+      const a = multiArea(r.shape);
+      if (a > best) { best = a; base = r.rgba; }
+    }
+    const out = list.map((c) => deriveColor(c, base)).filter((c): c is Rgba => !!c).slice(0, 8);
+    return out.length ? out : [deriveColor("darker", base)!];
+  }
+
+  /**
+   * Montre le résultat d'une retouche de la sélection sans l'enregistrer : `simplify` (tolérance), `grow`
+   * (décalage signé : négatif = réduire), `smooth` (rayon d'arrondi), `outline` (épaisseur de chaque anneau,
+   * `colors` : un anneau par couleur, CSS ou `darker`, `lighter`, `complement`, `muted`, `vivid`, `black`, `white`
+   * déduites de la couleur dominante). `amount` en pixels d'écran. `applyEdit` l'enregistre, `cancelEdit` l'abandonne.
+   */
+  previewEdit(op: FlatEdit, amount: number, colors?: unknown): boolean {
+    this.pending = null;
+    this.editError = null;
+    if (!this.selected.size || this.readonly || !(FLAT_EDITS as readonly string[]).includes(op) || !Number.isFinite(amount) || amount === 0) {
+      this.layerDirty = true; this.compose(); this.publish();
+      return false;
+    }
+    const px = op === "grow" ? Math.max(-400, Math.min(400, amount)) : Math.max(0.1, Math.min(400, Math.abs(amount)));
+    const world = px / this.view.zoom;
+    const rings = op === "outline" ? this.editColors(colors) : undefined;
+    try {
+      const fresh = new Set<Region>();
+      const base = this.doc.strokes;
+      const strokes = base.map((s) => {
+        if (!s.flat || !s.flat.some((r) => this.selected.has(r))) return s;
+        const res = editFlat(s.flat, this.selected, op, { amount: world, colors: rings });
+        for (const r of res.fresh) fresh.add(r);
+        return res.regions.length ? { ...s, flat: res.regions, bbox: flatBBox(res.regions) } : null;
+      }).filter((s): s is Stroke => !!s);
+      this.pending = { strokes, fresh, base, len: base.length };
+    } catch {
+      this.editError = "retouche impossible";
+    }
+    this.layerDirty = true;
+    this.compose();
+    this.publish();
+    return !!this.pending;
+  }
+
+  /** Enregistre la retouche en aperçu (une étape d'annulation) ; la sélection suit les régions obtenues. */
+  applyEdit(): boolean {
+    const p = this.pending;
+    if (!p || p.base !== this.doc.strokes) { this.pending = null; return false; }
+    this.pending = null;
+    this.doc.replace(p.strokes);
+    this.selected = new Set(p.fresh);
+    this.invalidate();
+    this.dispatchEvent(new CustomEvent("sketch-select", { detail: selectionInfo(this.selected), bubbles: true, composed: true }));
+    return true;
+  }
+
+  /** Abandonne l'aperçu (le même réglage n'est pas remontré tant qu'il ne change pas). */
+  cancelEdit(): void {
+    clearTimeout(this.editTimer);
+    if (!this.pending && !this.editError) return;
+    this.pending = null;
+    this.editError = null;
+    this.layerDirty = true;
+    this.compose();
+    this.publish();
+  }
+
+  /* ------------------------------------------------------------ carnet de dessins */
+
+  private get backend(): DrawingBackend { return (this.constructor as typeof SonicSketch).drawingBackend; }
+
+  private thumbUrl(b: Blob | null): string {
+    if (!b) return "";
+    let u = this.thumbUrls.get(b);
+    if (!u) { u = URL.createObjectURL(b); this.thumbUrls.set(b, u); }
+    return u;
+  }
+
+  private setDrawings(list: DrawingMeta[]): void {
+    const keep = new Set(list.map((d) => d.thumb).filter((b): b is Blob => !!b));
+    for (const [b, u] of this.thumbUrls) if (!keep.has(b)) { URL.revokeObjectURL(u); this.thumbUrls.delete(b); }
+    this.drawings = list;
+  }
+
+  private defaultName(): string {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `Dessin du ${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  /** Branche le carnet (`persist`) : liste les dessins et rouvre le dernier ouvert si la toile est vide. */
+  private async openLibrary(): Promise<void> {
+    const token = ++this.libToken;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = 0;
+    if (!this.persist) { this.libStatus = "off"; this.setDrawings([]); this.publish(); return; }
+    this.libStatus = "loading";
+    this.publish();
+    try {
+      const ns = this.persist;
+      const list = await listDrawings(this.backend, ns);
+      const cur = await readCurrent(this.backend, ns);
+      if (token !== this.libToken) return;
+      this.setDrawings(list);
+      const rec = cur && !this.doc.strokes.length ? await this.backend.get(ns, cur) : null;
+      if (token !== this.libToken) return;
+      if (rec) this.load(rec);
+      else this.markSaved();
+      this.libStatus = "saved";
+    } catch {
+      if (token === this.libToken) this.libStatus = "error";
+    }
+    this.publish();
+  }
+
+  /** Montre un enregistrement : traits relus, historique neuf, vue rendue. */
+  private load(rec: DrawingRecord): void {
+    const strokes = readStrokes(rec.data) ?? [];
+    this.cancelStroke();
+    this.pending = null;
+    this.selected.clear();
+    this.doc = new Doc();
+    this.doc.strokes = strokes;
+    this.doc.nextId = strokes.length + 1;
+    this.drawingId = rec.id;
+    this.drawingName = rec.name;
+    this.drawingCreated = rec.created;
+    this.markSaved();
+    this.setView(readView(rec.view), true);
+    this.invalidate();
+    this.selectionChanged();
+  }
+
+  private markSaved(): void { this.savedRef = { ref: this.doc.strokes, len: this.doc.strokes.length }; }
+
+  private dirty(): boolean { return this.savedRef.ref !== this.doc.strokes || this.savedRef.len !== this.doc.strokes.length; }
+
+  private queueSave(): void {
+    if (!this.persist || this.libStatus === "loading" || this.libStatus === "off" || !this.dirty() || this.saveTimer) return;
+    this.saveTimer = window.setTimeout(() => { this.saveTimer = 0; void this.saveNow(); }, 800);
+  }
+
+  private flushSave = (): void => {
+    if (!this.saveTimer) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = 0;
+    void this.saveNow();
+  };
+
+  private onVisibility = (): void => { if (document.visibilityState === "hidden") this.flushSave(); };
+
+  /** Vignette PNG du dessin entier (~240 px), ou `null`. */
+  private thumbnail(): Promise<Blob | null> {
+    if (!this.doc.strokes.length) return Promise.resolve(null);
+    const { w, h } = this.dims();
+    const c = this.renderImage({ area: "content", scale: Math.max(0.25, 240 / Math.max(w, h, 1)) });
+    return new Promise((resolve) => { if (!c || typeof c.toBlob !== "function") resolve(null); else c.toBlob((b) => resolve(b), "image/png"); });
+  }
+
+  /** Enregistre le dessin ouvert (le crée au premier trait). */
+  async saveNow(): Promise<boolean> {
+    if (!this.persist) return false;
+    const ns = this.persist;
+    const strokes = this.doc.strokes, len = strokes.length;
+    if (!this.drawingId && !len) { this.markSaved(); return true; }
+    if (!this.drawingId) { this.drawingId = newDrawingId(); this.drawingName = this.drawingName || this.defaultName(); this.drawingCreated = Date.now(); }
+    const id = this.drawingId;
+    this.libStatus = "saving";
+    this.publish();
+    try {
+      const thumb = await this.thumbnail();
+      const rec: DrawingRecord = {
+        ns, id, name: this.drawingName, created: this.drawingCreated || Date.now(), updated: Date.now(), strokes: len,
+        thumb, view: { ...this.view }, nextId: this.doc.nextId, data: writeStrokes(strokes.slice(0, len)),
+      };
+      await this.backend.put(rec);
+      await writeCurrent(this.backend, ns, id);
+      if (ns !== this.persist) return false;
+      this.savedRef = { ref: strokes, len };
+      const meta: DrawingMeta = { id, name: rec.name, created: rec.created, updated: rec.updated, strokes: len, thumb };
+      this.setDrawings([meta, ...this.drawings.filter((d) => d.id !== id)]);
+      this.libStatus = "saved";
+    } catch {
+      this.libStatus = "error";
+    }
+    this.publish();
+    if (this.dirty()) this.queueSave();
+    return this.libStatus === "saved";
+  }
+
+  /** Enregistre le dessin ouvert puis montre une toile vierge (un nouveau dessin, créé au premier trait). */
+  async newDrawing(): Promise<void> {
+    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(); }
+    this.cancelStroke();
+    this.pending = null;
+    this.selected.clear();
+    this.doc = new Doc();
+    this.drawingId = null;
+    this.drawingName = this.defaultName();
+    this.drawingCreated = 0;
+    this.markSaved();
+    if (this.persist) await writeCurrent(this.backend, this.persist, null).catch(() => undefined);
+    this.setView({ ...DEFAULT_VIEW }, true);
+    this.invalidate();
+    this.selectionChanged();
+  }
+
+  /** Enregistre le dessin ouvert puis ouvre `id`. */
+  async openDrawing(id: string): Promise<boolean> {
+    if (!this.persist || !isDrawingId(id) || id === CURRENT) return false;
+    if (id === this.drawingId) return true;
+    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(); }
+    try {
+      const rec = await this.backend.get(this.persist, id);
+      if (!rec) return false;
+      this.load(rec);
+      await writeCurrent(this.backend, this.persist, id);
+      return true;
+    } catch {
+      this.libStatus = "error";
+      this.publish();
+      return false;
+    }
+  }
+
+  /** Copie du dessin ouvert, qui devient le dessin ouvert. */
+  async duplicateDrawing(): Promise<void> {
+    if (!this.persist || !this.doc.strokes.length) return;
+    if (this.saveTimer || this.dirty()) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(); }
+    this.drawingId = null;
+    this.drawingName = cleanName(`${this.drawingName || "Dessin"} (copie)`, "Copie");
+    this.drawingCreated = 0;
+    this.savedRef = { ref: null, len: -1 };
+    await this.saveNow();
+  }
+
+  /** Supprime un dessin du carnet ; supprimer le dessin ouvert montre une toile vierge. */
+  async deleteDrawing(id: string | null): Promise<void> {
+    if (!this.persist || !id || !isDrawingId(id) || id === CURRENT) return;
+    try {
+      await this.backend.remove(this.persist, id);
+    } catch {
+      this.libStatus = "error";
+    }
+    this.setDrawings(this.drawings.filter((d) => d.id !== id));
+    if (id === this.drawingId) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = 0;
+      this.drawingId = null;
+      this.markSaved();
+      await this.newDrawing();
+    } else this.publish();
+  }
+
+  /** Renomme le dessin ouvert. */
+  async renameDrawing(name: unknown): Promise<void> {
+    this.drawingName = cleanName(name, this.drawingName || this.defaultName());
+    if (this.drawingId) this.savedRef = { ref: null, len: -1 };
+    this.publish();
   }
 
   /** Statistiques des aplats publiées dans l'état. */
@@ -1226,10 +1576,16 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
       strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
       tool: this.currentTool(), color: b.color, picked: this.picked, imported: this.imported, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
+      edit: { op: this.editOp(), preview: !!this.pending, error: this.editError },
+      library: {
+        enabled: !!this.persist, status: this.libStatus, id: this.drawingId, name: this.drawingName,
+        drawings: this.drawings.map((d) => ({ id: d.id, name: d.name, created: d.created, updated: d.updated, strokes: d.strokes, thumb: this.thumbUrl(d.thumb), current: d.id === this.drawingId })),
+      },
     };
   }
 
   private publish(): void {
+    this.queueSave();
     const s = this.getState();
     if (this.outDataProvider) set(this.outDataProvider, s);
     this.dispatchEvent(new CustomEvent("sketch-state", { detail: s, bubbles: true, composed: true }));

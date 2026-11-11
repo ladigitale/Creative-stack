@@ -1,4 +1,4 @@
-import { boolean, multiBBox, type BBox, type Multi, type Pt } from "../vector";
+import { boolean, multiBBox, offset, simplifyMulti, type BBox, type Multi, type Pt } from "../vector";
 import type { BlendMode } from "../paint/brush";
 import { composite, quantize, sameColor, toCss, type Rgba } from "./flat-color";
 
@@ -235,4 +235,112 @@ export function recolorFlat(regions: Region[], targets: Set<Region>, rgba: Rgba)
 /** Retire des régions de la carte (par référence). */
 export function deleteFlat(regions: Region[], targets: Set<Region>): Region[] {
   return regions.filter((r) => !targets.has(r));
+}
+
+/* ------------------------------------------------------------ retouches de la sélection */
+
+/** Retouches d'une sélection de régions : simplifier, étendre (ou réduire), adoucir, entourer. */
+export type FlatEdit = "simplify" | "grow" | "smooth" | "outline";
+export const FLAT_EDITS: readonly FlatEdit[] = ["simplify", "grow", "smooth", "outline"];
+
+export type FlatEditOptions = {
+  /**
+   * Ampleur en unités du monde : tolérance (simplify), décalage signé (grow : négatif = réduire), rayon
+   * d'arrondi (smooth), épaisseur de chaque anneau (outline).
+   */
+  amount: number;
+  /** outline : couleur de chaque anneau, de l'intérieur vers l'extérieur (au moins une). */
+  colors?: Rgba[];
+};
+
+/** Décalage dans le repère local, borné en nombre de segments par disque selon la taille des contours. */
+const offsetLocal = (m: Multi, d: number): Multi => (d === 0 || !m.length ? m : clean(snap(offset(m, d, 12), GRID)));
+
+/** Arrondi morphologique : fermeture (bouche les creux) puis ouverture (émousse les pointes) de rayon `r`. */
+function smoothShape(m: Multi, r: number): Multi {
+  const pre = simplifyMulti(m, r * 0.15);
+  const closed = offsetLocal(offsetLocal(pre, r), -r);
+  const opened = offsetLocal(offsetLocal(closed, -r), r);
+  const out = opened.length ? opened : closed;
+  return clean(snap(simplifyMulti(out, r * 0.02), GRID));
+}
+
+/**
+ * Pose des formes couvrantes sur la carte (ordre donné, chacune par-dessus la précédente) : comme un trait
+ * plein opaque, elles remplacent ce qu'elles touchent ; les régions de même couleur qui se touchent sont unies.
+ */
+function layOver(rest: Region[], pieces: { rgba: Rgba; blend?: BlendMode; shape: Multi }[], f: Frame): { regions: Region[]; fresh: Region[] } {
+  let out = rest;
+  let fresh = new Set<Region>();
+  for (const p of pieces) {
+    if (!p.shape.length) continue;
+    const pb = multiBBox(toWorld(f, p.shape));
+    const next: Region[] = [];
+    const nextFresh = new Set<Region>();
+    for (const r of out) {
+      const wasFresh = fresh.has(r);
+      if (!overlaps(r.bbox, pb)) { next.push(r); if (wasFresh) nextFresh.add(r); continue; }
+      const left = op("difference", local(f, r.shape), p.shape);
+      if (!left.length) continue;
+      const parts = splitRegions(r.rgba, toWorld(f, left), r.blend);
+      next.push(...parts);
+      if (wasFresh) for (const q of parts) nextFresh.add(q);
+    }
+    const laid = splitRegions(quantize(p.rgba), toWorld(f, p.shape), p.blend);
+    for (const q of laid) nextFresh.add(q);
+    out = [...next, ...laid];
+    fresh = nextFresh;
+  }
+  return { regions: out, fresh: out.filter((r) => fresh.has(r)) };
+}
+
+/**
+ * Retouche les régions `targets` (par référence) d'une carte : `simplify` (Ramer–Douglas–Peucker), `grow`
+ * (décalage à joints ronds ; négatif = réduire, la place libérée devient vide), `smooth` (arrondi des creux et
+ * des pointes), `outline` (anneaux concentriques autour de l'union des cibles, une couleur par anneau). Les formes
+ * obtenues passent par-dessus leurs voisines, qu'elles découpent. Renvoie la nouvelle carte et les régions issues
+ * de l'opération (cibles retouchées et anneaux), pour garder la sélection. Lève une erreur si le calcul échoue.
+ */
+export function editFlat(regions: Region[], targets: Set<Region>, edit: FlatEdit, o: FlatEditOptions): { regions: Region[]; fresh: Region[] } {
+  const hit = regions.filter((r) => targets.has(r));
+  const amount = Number(o.amount);
+  if (!hit.length || !Number.isFinite(amount) || amount === 0) return { regions, fresh: hit };
+  const box = flatBBox(hit);
+  const reach = Math.abs(amount) * ((o.colors?.length ?? 1) + 1);
+  const f = frameOf({ x: box.x - reach, y: box.y - reach, w: box.w + 2 * reach, h: box.h + 2 * reach });
+  const d = amount / f.k;
+  const rest = regions.filter((r) => !targets.has(r));
+  if (edit === "outline") {
+    const colors = (o.colors?.length ? o.colors : [[0, 0, 0, 1] as Rgba]).slice(0, 8);
+    const shapes = hit.map((r) => local(f, r.shape));
+    const core = shapes.length === 1 ? shapes[0] : op("union", shapes[0], ...shapes.slice(1));
+    const w = Math.abs(d);
+    let inner = core;
+    const rings: { rgba: Rgba; shape: Multi }[] = [];
+    for (const c of colors) {
+      const outer = offsetLocal(inner, w);
+      rings.push({ rgba: c, shape: op("difference", outer, inner) });
+      inner = outer;
+    }
+    // Les cibles restent intactes (les anneaux ne les touchent pas) ; les anneaux recouvrent le reste.
+    const laid = finishEdit(layOver(rest, rings, f), f);
+    return { regions: [...laid.regions, ...hit], fresh: [...hit, ...laid.fresh] };
+  }
+  const pieces = hit.map((r) => {
+    const L = local(f, r.shape);
+    const shape = edit === "simplify" ? clean(snap(simplifyMulti(L, Math.abs(d)), GRID))
+      : edit === "grow" ? offsetLocal(L, d)
+      : smoothShape(L, Math.abs(d));
+    return { rgba: r.rgba, blend: r.blend, shape };
+  });
+  return finishEdit(layOver(rest, pieces, f), f);
+}
+
+/** Ressoude les pièces retouchées à leurs voisines de même couleur ; la sélection suit les régions obtenues. */
+function finishEdit(laid: { regions: Region[]; fresh: Region[] }, f: Frame): { regions: Region[]; fresh: Region[] } {
+  const isFresh = new Set(laid.fresh);
+  const before = laid.regions.filter((r) => !isFresh.has(r));
+  const out = mergeSameColor(before, laid.fresh, f);
+  const kept = new Set(before);
+  return { regions: out, fresh: out.filter((r) => !kept.has(r)) };
 }

@@ -385,6 +385,9 @@ function createPingPong(
   return { textures, framebuffers, index: 0 };
 }
 
+/** Aire de rendu maximale (≈ 4096 × 4096) : au-delà, la mémoire GPU des passes et tampons fait perdre le contexte. */
+export const MAX_RENDER_PIXELS = 4096 * 4096;
+
 function destroyPingPong(gl: WebGL2RenderingContext, pp: PingPong) {
   for (const t of pp.textures) gl.deleteTexture(t);
   for (const f of pp.framebuffers) gl.deleteFramebuffer(f);
@@ -528,9 +531,29 @@ export class ShaderToyRuntime {
     gl.bindVertexArray(null);
   }
 
+  /**
+   * Plus grand côté rendable : limites du GPU (texture, renderbuffer, viewport). Au-delà, le contexte peut être
+   * perdu (mémoire), et le navigateur finit par refuser WebGL à la page.
+   */
+  get maxSide(): number {
+    const gl = this.gl;
+    const dims = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array | null;
+    const vals = [gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), dims?.[0], dims?.[1]]
+      .map(Number).filter((n) => Number.isFinite(n) && n > 0);
+    return Math.min(8192, ...vals);
+  }
+
+  /** Taille effectivement rendue pour une taille demandée : côtés bornés, aire ≤ MAX_RENDER_PIXELS (proportions gardées). */
+  fitSize(width: number, height: number): [number, number] {
+    let w = Math.max(1, Math.floor(width)), h = Math.max(1, Math.floor(height));
+    const side = this.maxSide;
+    let k = Math.min(1, side / w, side / h, Math.sqrt(MAX_RENDER_PIXELS / (w * h)));
+    if (k < 1) { w = Math.max(1, Math.floor(w * k)); h = Math.max(1, Math.floor(h * k)); }
+    return [w, h];
+  }
+
   resize(width: number, height: number) {
-    const w = Math.max(1, Math.floor(width));
-    const h = Math.max(1, Math.floor(height));
+    const [w, h] = this.fitSize(width, height);
     if (w === this.width && h === this.height) return;
     this.width = w;
     this.height = h;
@@ -736,6 +759,17 @@ export class ShaderToyRuntime {
       }
       if (decision.nextSrc !== undefined) ext.lastSrc = decision.nextSrc;
     }
+  }
+
+  /** Sources vivantes branchées : clés `#id` et présence d'une vidéo (qui change à chaque image). */
+  liveSources(): { keys: string[]; video: boolean } {
+    const keys: string[] = [];
+    let video = false;
+    for (const [key, ext] of this.external) {
+      if (ext.video) video = true;
+      if (key.startsWith("#")) keys.push(key);
+    }
+    return { keys, video };
   }
 
   /** @deprecated alias — préférer `updateElementTextures`. */
