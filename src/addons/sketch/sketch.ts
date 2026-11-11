@@ -217,7 +217,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit : des toiles superposées restent alignées. */
   @property({ type: String, attribute: "view-sync" }) viewSync = "";
   private sync: ViewSync | null = null;
-  private importRuns = -1;
+  private importRuns = new Map<string, number>();
+  /** Source d'import la plus récemment changée (relue par la commande `import`). */
+  private importLast: string | null = null;
   private importState: unknown = null;
   /** Dernier import : `{ layers, regions, ms }`, ou `{ error }`. */
   private imported: { layers: number; regions: number; ms: number } | { error: string } | null = null;
@@ -473,25 +475,27 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.publish();
     }));
     if (this.tipFrom) this.unsubs.push(listenDp(this.tipFrom, (v) => { this.live = { ...this.live, tip: tipFromValue(v) }; this.publish(); }));
-    if (this.importFrom) {
+    // Plusieurs sources d'import possibles (liste séparée par des espaces), suivies chacune avec ses propres calculs.
+    this.importRuns.clear();
+    for (const path of this.importSources()) {
       // Un objet publié arrive clé par clé : on relit la valeur complète après la publication (microtâche).
-      const path = this.importFrom;
       let first = true, queued = false;
       this.unsubs.push(listenDp(path, () => {
+        if (!first) this.importLast = path;
         if (queued) return;
         queued = true;
         queueMicrotask(() => {
           queued = false;
-          if (this.importFrom !== path) return;
+          if (!this.importSources().includes(path)) return;
           const v = plain(get(path));
           this.importState = v;
           const o = (v && typeof v === "object" ? v : {}) as { status?: unknown; runs?: unknown };
           const runs = typeof o.runs === "number" ? o.runs : -1;
           // Un résultat déjà là au branchement n'est pas réimporté ; chaque nouveau calcul prêt l'est (import-auto).
-          if (first) { first = false; this.importRuns = runs; return; }
-          if (o.status !== "ready" || runs === this.importRuns) return;
-          this.importRuns = runs;
-          if (this.importAuto) this.importShapes();
+          if (first) { first = false; this.importRuns.set(path, runs); return; }
+          if (o.status !== "ready" || runs === this.importRuns.get(path)) return;
+          this.importRuns.set(path, runs);
+          if (this.importAuto) this.importShapes(v);
         });
       }));
     }
@@ -1017,15 +1021,26 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * morceaux de même couleur s'unissent. Formes placées selon `import-place`, simplifiées à `simplify` px
    * d'écran, couleurs de `import-skip` ignorées. Une étape d'annulation. Retourne le nombre de couches importées.
    */
-  importShapes(): number {
+  /** Sources d'import (`import-from`, liste séparée par des espaces). */
+  private importSources(): string[] {
+    return String(this.importFrom ?? "").split(/\s+/).filter(Boolean).slice(0, 8);
+  }
+
+  /** Importe `state` (un état de `sonic-vectorize`), à défaut le dernier résultat reçu d'une des sources. */
+  importShapes(state?: unknown): number {
     const t0 = performance.now();
     const fail = (error: string) => { this.imported = { error }; this.publish(); return 0; };
-    if (this.importFrom) this.importState = plain(get(this.importFrom));
+    if (state !== undefined) this.importState = state;
+    else {
+      const sources = this.importSources();
+      const src = this.importLast && sources.includes(this.importLast) ? this.importLast : sources[0];
+      if (src) this.importState = plain(get(src));
+    }
     const v = (this.importState && typeof this.importState === "object" ? this.importState : {}) as {
-      status?: unknown; width?: unknown; height?: unknown; paths?: unknown; frame?: unknown;
+      status?: unknown; width?: unknown; height?: unknown; paths?: unknown; frame?: unknown; keepColors?: unknown;
     };
     const W = Number(v.width), H = Number(v.height);
-    const paths = Array.isArray(v.paths) ? v.paths.filter((p): p is { color: string; d: string } => !!p && typeof p.color === "string" && typeof p.d === "string" && p.d.length > 0) : [];
+    const paths = Array.isArray(v.paths) ? v.paths.filter((p): p is { color: string; d: string; opacity?: unknown } => !!p && typeof p.color === "string" && typeof p.d === "string" && p.d.length > 0) : [];
     if (v.status !== "ready" || !(W > 0 && H > 0) || !paths.length) return fail("rien à importer");
     const canvas = this.canvasEl;
     if (!canvas) return fail("toile pas prête");
@@ -1052,10 +1067,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const pxPerImage = Math.hypot(m[0], m[1]) * (w / cr.width) || 1;
     const tolPx = Math.max(0.25, Math.min(8, Number(this.simplify) || 0.35));
     const skip = this.skipColors();
-    const recolor = this.importColorsFrom ? paletteOf(plain(get(this.importColorsFrom))) : [];
+    // Couleurs d'origine gardées si la source le demande (`keepColors`, ex. un SVG importé tel quel).
+    const recolor = this.importColorsFrom && v.keepColors !== true ? paletteOf(plain(get(this.importColorsFrom))) : [];
     const rank = new Map<string, number>();
     const near = (a: Rgba, b: Rgba) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < 0.06;
-    const layers: { rgba: Rgba; shape: Multi }[] = [];
+    const layers: { rgba: Rgba; shape: Multi; alpha: number }[] = [];
     for (const p of paths) {
       const rgba = parseColor(p.color);
       if (!rgba || skip.some((c) => near(c, rgba))) continue;
@@ -1069,7 +1085,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       if (!local?.length) continue;
       const world = local.map((poly) => poly.map((ring) => ring.map(([x, y]) => toW(x, y))));
       const shape = simplifyMulti(world, tolPx / this.view.zoom);
-      if (shape.length) layers.push({ rgba: [rgba[0], rgba[1], rgba[2], 1], shape });
+      const alpha = typeof p.opacity === "number" && Number.isFinite(p.opacity) ? Math.max(0, Math.min(1, p.opacity)) : 1;
+      if (shape.length && alpha > 0) layers.push({ rgba: [rgba[0], rgba[1], rgba[2], 1], shape, alpha });
     }
     if (!layers.length) return fail("aucune forme à importer");
     try {
@@ -1082,7 +1099,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       const back = this.backdropAt(index);
       let regions = top ? top.flat! : [];
       for (const l of layers) {
-        regions = paintFlat(regions, l.shape, l.rgba, 1, "normal", back);
+        regions = paintFlat(regions, l.shape, l.rgba, l.alpha, "normal", back);
         if (flatVertices(regions) > MAX_FLAT_VERTICES) return fail("trop de sommets : réduire les couleurs ou augmenter la tolérance");
       }
       const id = top ? top.id : this.doc.nextId++;

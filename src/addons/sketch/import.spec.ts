@@ -22,6 +22,25 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const sq = (x: number, y: number, s: number) => `M${x} ${y}L${x + s} ${y}L${x + s} ${y + s}L${x} ${y + s}Z`;
 
 describe("sonic-sketch : import de formes vectorisées", () => {
+  it("plusieurs sources (formes générées, fichier ouvert), suivies à part ; keepColors et opacité de couche", async () => {
+    set("palImp", { colors: ["#00ff00"] });
+    set("genImp", result(1, [{ color: "#ff0000", d: sq(0, 0, 10) }]));
+    set("fileImp", result(1, []));
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "genImp fileImp", "import-auto": "", "import-colors-from": "palImp", "out-data-provider": "skStateMulti" });
+    await tick();
+    // Même numéro de calcul dans deux sources différentes : chacune est importée.
+    set("genImp", result(2, [{ color: "#ff0000", d: sq(0, 0, 10) }]));
+    await tick();
+    set("fileImp", { ...result(2, [{ color: "#0000ff", d: sq(50, 50, 10) }]), keepColors: true, paths: [{ color: "#0000ff", d: sq(50, 50, 10), area: 0, share: 0, opacity: 0.5 }] });
+    await tick();
+    const flat = (el as unknown as { doc: { strokes: { flat?: { color: string; rgba: number[] }[] }[] } }).doc.strokes.flatMap((s) => s.flat ?? []);
+    const colors = flat.map((r) => r.color).sort();
+    // Formes générées : recolorées par la palette (vert) ; fichier : bleu d'origine, à moitié opaque sur blanc.
+    expect(colors).toContain("#00ff00");
+    expect(flat.some((r) => r.rgba[2] > 0.9 && r.rgba[0] > 0.45 && r.rgba[0] < 0.55)).toBe(true);
+    el.remove();
+  });
+
   it("importe les couches en aplats, sans le papier, en une étape d'annulation", async () => {
     const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport1", control: "skCtl1", "out-data-provider": "skState1" });
     set("vecImport1", result(0, []));
