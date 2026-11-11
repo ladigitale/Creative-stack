@@ -48,4 +48,30 @@ describe("sonic-media-download auto", () => {
     expect(click).not.toHaveBeenCalled();
     expect(el.shadowRoot?.querySelector("a[part=link]")?.getAttribute("download")).toBe("creation.svg");
   });
+
+  it("wait : seul le média demandé par un clic sur le contenu est téléchargé", async () => {
+    const clicks: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicks.push(String(this.getAttribute("href")));
+    });
+    PublisherManager.get("dlWait").set({ last: { url: "blob:a", mime: "image/png" } });
+    const el = document.createElement("sonic-media-download") as SonicMediaDownload;
+    el.setAttribute("source", "dlWait.last");
+    el.setAttribute("wait", "");
+    const btn = document.createElement("button");
+    el.appendChild(btn);
+    document.body.appendChild(el);
+    await el.updateComplete;
+    await flush();
+    PublisherManager.get("dlWait").set({ last: { url: "blob:b", mime: "image/png" } });
+    await flush();
+    expect(clicks).toEqual([]);
+    btn.click();
+    PublisherManager.get("dlWait").set({ last: { url: "blob:c", mime: "image/png" } });
+    await flush();
+    expect(clicks).toEqual(["blob:c"]);
+    PublisherManager.get("dlWait").set({ last: { url: "blob:d", mime: "image/png" } });
+    await flush();
+    expect(clicks).toEqual(["blob:c"]);
+  });
 });

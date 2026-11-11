@@ -141,7 +141,7 @@
     },
     {
       "name": "sonic-share",
-      "description": "Partage natif (titre, texte, URL http(s)) avec repli par copie. Commandes control {share:{n, title, text, url}} ; for = partage les attributs. Annulation = cancelled, pas une erreur. État <id>State {status, error, supported, allowed, active, canShare, shared, cancelled, via}. Iframe : allow=\"web-share\"",
+      "description": "Partage natif (titre, texte, URL http(s), fichier) avec repli par copie. Commandes control {share:{n, title, text, url}} ; for = partage les attributs. file-from = DP d'un SonicMediaRef (blob: seulement, ex. état d'export .last) : le fichier est joint (filename sans extension), préparé d'avance ; wait = le clic attend le prochain média publié dans file-from (produit par une action autour du bouton), et si le geste est alors trop ancien, ready passe à vrai et le clic suivant partage aussitôt. Annulation = cancelled, pas une erreur. État <id>State {status, error, supported, allowed, active, canShare, canShareFiles, ready, shared, cancelled, via}. Iframe : allow=\"web-share\"",
       "props": {
         "control": {
           "type": "string",
@@ -168,6 +168,18 @@
         "fallback": {
           "type": "string",
           "description": "copy (défaut) ou none"
+        },
+        "file-from": {
+          "type": "string",
+          "description": "DP d'un SonicMediaRef (URL blob:) à joindre"
+        },
+        "filename": {
+          "type": "string",
+          "description": "nom du fichier, sans extension"
+        },
+        "wait": {
+          "type": "boolean",
+          "description": "le clic attend le prochain média de file-from"
         }
       }
     },

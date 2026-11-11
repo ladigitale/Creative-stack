@@ -128,7 +128,9 @@ Clés : `fullscreen`, `pointerLock`, `wakeLock`, `gamepad`, `midi`, `orientation
 
 **`sonic-clipboard`** — `text` : texte copié par défaut. La lecture (`read`) n'a lieu que sur commande, avec la permission du navigateur ; le texte lu (tronqué à 10 000 caractères) est publié dans le DataProvider : ne pas s'en servir pour des données sensibles.
 
-**`sonic-share`** — `title`, `text`, `url` (http ou https seulement : `javascript:` et `data:` sont refusés). Sans partage natif, `fallback="copy"` (défaut) copie `texte + url`. Annuler la feuille de partage incrémente `cancelled`, ce n'est pas une erreur. Pas de partage de fichiers.
+**`sonic-share`** — `title`, `text`, `url` (http ou https seulement : `javascript:` et `data:` sont refusés). Sans partage natif, `fallback="copy"` (défaut) copie `texte + url`. Annuler la feuille de partage incrémente `cancelled`, ce n'est pas une erreur.
+
+Partage d'un fichier : `file-from` désigne un SonicMediaRef (URL `blob:` seulement, ce que la page a créé : `fxState.last`, `camState.snapshot`…) ; le fichier est joint (`filename`, extension déduite du format), préparé d'avance pour que la feuille s'ouvre dans le geste. `canShareFiles` dit si le système accepte ce type de fichier (souvent vrai sur mobile, faux sur certains navigateurs de bureau) : s'en servir pour n'afficher le bouton que là où il marche. Avec `wait`, le clic attend le **prochain** média publié dans `file-from`, produit par une action autour du bouton (un export, par exemple) ; si le navigateur juge alors le geste trop ancien (export long, Safari), `ready` passe à vrai et le clic suivant partage aussitôt le fichier prêt (30 s), sans relancer d'attente.
 
 **`sonic-vibrate`** — `pattern` : `"200"` ou `"100,50,100"` (vibration, pause, vibration…), 20 éléments au plus, 5 s chacun. Absent sous iOS (`supported: false`) : prévoir un autre retour (son, animation).
 
