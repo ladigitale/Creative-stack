@@ -10,7 +10,7 @@ Addon opt-in `@supersoniks/creative-stack/interactive` for **declarative** playa
 | `sonic-keyboard` | Keymap → actions — see below |
 | `sonic-gamepad` | Standard gamepad buttons → actions (for analog sticks, triggers, several pads: `sonic-controller`) — see below |
 | `sonic-gesture` | Tap / swipe / long-press, drag, pan, pinch (multipoint), wheel — see below |
-| `sonic-action` | `pointerdown` (default: games, touch d-pads, `hold-repeat`) or `trigger="click"` (UI buttons: tabs, details, filters) → action |
+| `sonic-action` | `pointerdown` (default: games, touch d-pads, `hold-repeat`) or `trigger="click"` (UI buttons: tabs, details, filters) → action ; any other `trigger` is an event name emitted by a direct child (captured, even if it does not bubble): `trigger="hide"` around a `sonic-modal` tells a store it was closed (close button, backdrop, Escape) |
 | `sonic-ticker` | Clock `tick` with `dt` |
 | `sonic-trigger` | Sensor → action: watches a DataProvider value and dispatches an action to a store, or plays a MIDI note — see below |
 | `sonic-motion` | Speed / acceleration / peak speed of a sensor value (velocity for MIDI) — see below |

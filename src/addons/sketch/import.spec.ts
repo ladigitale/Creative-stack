@@ -174,3 +174,23 @@ describe("sonic-sketch : retouches et carnet", async () => {
     again.remove();
   });
 });
+
+describe("sonic-sketch : retouches sur tout le dessin et couleurs de palette", () => {
+  it("sans sélection : la retouche vise tout ; conversion vers la palette (palette-from)", async () => {
+    set("palX", { colors: ["#000000", "#ffffff"] });
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport11", control: "skCtl11", "palette-from": "palX" });
+    set("vecImport11", result(0, []));
+    set("vecImport11", result(1, [{ color: "#ff0000", d: sq(10, 10, 50) }, { color: "#3344cc", d: sq(60, 10, 40) }]));
+    set("skCtl11", { import: 1 });
+    expect(el.getState().edit.scope).toBe("all");
+    expect(el.previewEdit("palette", 100)).toBe(true);
+    expect(el.applyEdit()).toBe(true);
+    const st = el.getState();
+    expect(st.colors).toBeLessThanOrEqual(2);
+    expect(st.selection.count).toBe(0);
+    el.undo();
+    expect(el.previewEdit("grow", 4)).toBe(true);
+    el.cancelEdit();
+    el.remove();
+  });
+});

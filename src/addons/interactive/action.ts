@@ -9,6 +9,9 @@ const tagName = "sonic-action";
  * Par défaut au `pointerdown` (réactivité des croix directionnelles et des jeux ; `hold-repeat="170,50"` pour d-pad tactile).
  * `trigger="click"` : au clic, comme un bouton Concorde (interfaces : onglets, « Détails », filtres), donc annulable
  * en sortant du bouton avant de relâcher et sans déclenchement à l'appui d'un doigt qui défile.
+ * Tout autre nom (ex. `trigger="hide"`) : l'action part quand un ENFANT DIRECT émet cet évènement, même s'il ne
+ * remonte pas (écouté en capture) — garder un store au courant de la fermeture d'un `sonic-modal` (croix, fond,
+ * Échap) : `<sonic-action trigger="hide" target="ui" type="close"><sonic-modal …>`.
  */
 @customElement(tagName)
 export class SonicAction extends LitElement {
@@ -30,9 +33,41 @@ export class SonicAction extends LitElement {
   @property({ type: String, attribute: "hold-repeat" })
   holdRepeat = "";
 
-  /** "pointerdown" (défaut, jeux et manettes tactiles) ou "click" (interfaces). */
+  /** "pointerdown" (défaut, jeux et manettes tactiles), "click" (interfaces) ou un nom d'évènement d'un enfant direct. */
   @property({ type: String })
-  trigger: "pointerdown" | "click" = "pointerdown";
+  trigger: string = "pointerdown";
+
+  private customTrigger = "";
+
+  private onCustom = (e: Event) => {
+    // Seul un enfant direct compte : les pops, boutons… plus profonds émettent parfois le même nom.
+    if (e.target instanceof Element && e.target.parentElement === this) this.emit();
+  };
+
+  private syncCustomTrigger(): void {
+    const t = this.trigger === "click" || this.trigger === "pointerdown" ? "" : (this.trigger || "").trim();
+    if (t === this.customTrigger) return;
+    if (this.customTrigger) this.removeEventListener(this.customTrigger, this.onCustom, true);
+    this.customTrigger = t;
+    if (t && this.isConnected) this.addEventListener(t, this.onCustom, true);
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback();
+    this.customTrigger = "";
+    this.syncCustomTrigger();
+  }
+
+  disconnectedCallback(): void {
+    if (this.customTrigger) this.removeEventListener(this.customTrigger, this.onCustom, true);
+    this.customTrigger = "";
+    this.clearHold();
+    super.disconnectedCallback();
+  }
+
+  protected updated(): void {
+    this.syncCustomTrigger();
+  }
 
   @property({ type: Boolean, attribute: "dispatch-event" })
   dispatchEventFlag = false;
@@ -45,7 +80,7 @@ export class SonicAction extends LitElement {
   };
 
   private onPointerDown = (e: PointerEvent) => {
-    if (this.trigger === "click") return;
+    if (this.trigger !== "pointerdown" && this.trigger) return;
     if (e.button != null && e.button !== 0) return;
     this.emit();
     const parts = this.holdRepeat.split(",").map((s) => Number(s.trim()));

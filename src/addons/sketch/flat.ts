@@ -344,3 +344,18 @@ function finishEdit(laid: { regions: Region[]; fresh: Region[] }, f: Frame): { r
   const kept = new Set(before);
   return { regions: out, fresh: out.filter((r) => !kept.has(r)) };
 }
+
+/**
+ * Recolore plusieurs régions à la fois (`next` : nouvelle couleur par région ciblée), puis ressoude chaque
+ * région à ses voisines de même couleur. Renvoie la carte et les régions issues des cibles.
+ */
+export function recolorManyFlat(regions: Region[], next: Map<Region, Rgba>): { regions: Region[]; fresh: Region[] } {
+  const hit = regions.filter((r) => next.has(r));
+  if (!hit.length) return { regions, fresh: [] };
+  const f = frameOf(flatBBox(hit));
+  const recolored = hit.map((r) => region(quantize(next.get(r)!), r.shape, r.blend));
+  const rest = regions.filter((r) => !next.has(r));
+  const out = mergeSameColor(rest, recolored, f);
+  const kept = new Set(rest);
+  return { regions: out, fresh: out.filter((r) => !kept.has(r)) };
+}
