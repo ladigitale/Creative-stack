@@ -15,9 +15,10 @@ import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./r
 import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
-import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, type Backdrop, type FlatEdit, type Region } from "./flat";
+import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, recolorManyFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, type Backdrop, type FlatEdit, type Region } from "./flat";
 import { allRegions, regionAt, selectionInfo, similarRegions, type SelectionInfo } from "./select";
-import { deriveColor, parseColor, type Rgba } from "./flat-color";
+import { deriveColor, parseColor, toCss, type Rgba } from "./flat-color";
+import { colorMap, type ColorMapMode } from "./colormap";
 import {
   CURRENT, IdbBackend, cleanName, isDrawingId, listDrawings, newDrawingId, readCurrent, readStrokes, readView, writeCurrent, writeStrokes,
   type DrawingBackend, type DrawingMeta, type DrawingRecord,
@@ -28,6 +29,12 @@ import { multiArea, multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt }
 import { applyAffine } from "../../shared/frame-geometry";
 
 const MAX_SIDE = 4096;
+
+/** Retouches : formes (flat.ts) et conversions de couleurs vers la palette (colormap.ts). */
+export type SketchEdit = FlatEdit | "palette" | "levels" | "gradient";
+export const SKETCH_EDITS: readonly SketchEdit[] = [...FLAT_EDITS, "palette", "levels", "gradient"];
+const COLOR_EDIT_MODE: Record<"palette" | "levels" | "gradient", ColorMapMode> = { palette: "nearest", levels: "levels", gradient: "gradient" };
+const isColorEdit = (op: SketchEdit): op is "palette" | "levels" | "gradient" => op in COLOR_EDIT_MODE;
 
 export type SketchState = {
   status: "ready" | "error";
@@ -64,7 +71,7 @@ export type SketchState = {
   /** Dernier export (`control.save` / `savePng`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
   /** Retouche de la sélection en aperçu (`control.edit`) : opération, aperçu affiché, erreur. */
-  edit: { op: FlatEdit | null; preview: boolean; error: string | null };
+  edit: { op: SketchEdit | null; preview: boolean; error: string | null; scope: "selection" | "all" };
   /** Carnet (`persist`) : état, dessin ouvert, dessins enregistrés (vignette = URL `blob:`), le plus récent d'abord. */
   library: {
     enabled: boolean;
@@ -160,6 +167,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * de la palette. Pour poser les formes d'un shader générateur (couleurs arbitraires) dans l'harmonie du dessin.
    */
   @property({ type: String, attribute: "import-colors-from" }) importColorsFrom = "";
+  /** DP de palette (liste, chaîne ou état de `sonic-palette`) des conversions de couleurs ; défaut : `import-colors-from`. */
+  @property({ type: String, attribute: "palette-from" }) paletteFrom = "";
   /** DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit : des toiles superposées restent alignées. */
   @property({ type: String, attribute: "view-sync" }) viewSync = "";
   private sync: ViewSync | null = null;
@@ -250,7 +259,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private erasing = false;
   private eraseBuf: HTMLCanvasElement | null = null;
   /** Retouche en aperçu : traits calculés (non enregistrés), régions issues, liste de départ. */
-  private pending: { strokes: Stroke[]; fresh: Set<Region>; base: Stroke[]; len: number } | null = null;
+  private pending: { strokes: Stroke[]; fresh: Set<Region>; base: Stroke[]; len: number; global: boolean } | null = null;
   private liveEdit: { op?: unknown; amount?: unknown; colors?: unknown } = {};
   private editSig = "";
   private editTimer = 0;
@@ -1162,9 +1171,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   /* ------------------------------------------------------------ retouches de la sélection */
 
-  private editOp(): FlatEdit | null {
+  private editOp(): SketchEdit | null {
     const op = this.liveEdit.op;
-    return typeof op === "string" && (FLAT_EDITS as readonly string[]).includes(op) ? (op as FlatEdit) : null;
+    return typeof op === "string" && (SKETCH_EDITS as readonly string[]).includes(op) ? (op as SketchEdit) : null;
+  }
+
+  /** Régions visées : la sélection, ou tout le dessin quand rien n'est sélectionné. */
+  private editTargets(): Set<Region> {
+    return this.selected.size ? this.selected : new Set(allRegions(this.doc.strokes));
   }
 
   /** Relance l'aperçu quand l'opération, ses réglages ou la sélection changent (regroupé sur ~40 ms). */
@@ -1196,26 +1210,37 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * `colors` : un anneau par couleur, CSS ou `darker`, `lighter`, `complement`, `muted`, `vivid`, `black`, `white`
    * déduites de la couleur dominante). `amount` en pixels d'écran. `applyEdit` l'enregistre, `cancelEdit` l'abandonne.
    */
-  previewEdit(op: FlatEdit, amount: number, colors?: unknown): boolean {
+  previewEdit(op: SketchEdit, amount: number, colors?: unknown): boolean {
     this.pending = null;
     this.editError = null;
-    if (!this.selected.size || this.readonly || !(FLAT_EDITS as readonly string[]).includes(op) || !Number.isFinite(amount) || amount === 0) {
+    const targets = this.editTargets();
+    const global = !this.selected.size;
+    if (!targets.size && !(isColorEdit(op) && this.doc.strokes.some((s) => !s.flat && !s.mask))) {
       this.layerDirty = true; this.compose(); this.publish();
       return false;
     }
-    const px = op === "grow" ? Math.max(-400, Math.min(400, amount)) : Math.max(0.1, Math.min(400, Math.abs(amount)));
-    const world = px / this.view.zoom;
-    const rings = op === "outline" ? this.editColors(colors) : undefined;
+    if (this.readonly || !(SKETCH_EDITS as readonly string[]).includes(op) || !Number.isFinite(amount) || amount === 0) {
+      this.layerDirty = true; this.compose(); this.publish();
+      return false;
+    }
     try {
       const fresh = new Set<Region>();
       const base = this.doc.strokes;
-      const strokes = base.map((s) => {
-        if (!s.flat || !s.flat.some((r) => this.selected.has(r))) return s;
-        const res = editFlat(s.flat, this.selected, op, { amount: world, colors: rings });
-        for (const r of res.fresh) fresh.add(r);
-        return res.regions.length ? { ...s, flat: res.regions, bbox: flatBBox(res.regions) } : null;
-      }).filter((s): s is Stroke => !!s);
-      this.pending = { strokes, fresh, base, len: base.length };
+      let strokes: Stroke[];
+      if (isColorEdit(op)) {
+        strokes = this.mapColors(base, targets, COLOR_EDIT_MODE[op], Math.max(0, Math.min(100, amount)) / 100, global, fresh);
+      } else {
+        const px = op === "grow" ? Math.max(-400, Math.min(400, amount)) : Math.max(0.1, Math.min(400, Math.abs(amount)));
+        const world = px / this.view.zoom;
+        const rings = op === "outline" ? this.editColors(colors) : undefined;
+        strokes = base.map((s) => {
+          if (!s.flat || !s.flat.some((r) => targets.has(r))) return s;
+          const res = editFlat(s.flat, targets, op, { amount: world, colors: rings });
+          for (const r of res.fresh) fresh.add(r);
+          return res.regions.length ? { ...s, flat: res.regions, bbox: flatBBox(res.regions) } : null;
+        }).filter((s): s is Stroke => !!s);
+      }
+      this.pending = { strokes, fresh, base, len: base.length, global };
     } catch {
       this.editError = "retouche impossible";
     }
@@ -1225,13 +1250,48 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return !!this.pending;
   }
 
+  /** Palette des conversions (`palette-from`, sinon `import-colors-from`). */
+  private conversionPalette(): Rgba[] {
+    const dp = this.paletteFrom || this.importColorsFrom;
+    return dp ? paletteOf(plain(get(dp))) : [];
+  }
+
+  /**
+   * Convertit les couleurs (régions visées ; tout le dessin : aussi la couleur des traits non aplatis) vers la
+   * palette : `nearest`, `levels` ou `gradient` (voir colormap.ts), `amount` 0..1 = force du mélange.
+   */
+  private mapColors(base: Stroke[], targets: Set<Region>, mode: ColorMapMode, amount: number, global: boolean, fresh: Set<Region>): Stroke[] {
+    const palette = this.conversionPalette();
+    if (!palette.length) throw new Error("palette vide");
+    const colors: Rgba[] = [];
+    for (const s of base) {
+      if (s.flat) { for (const r of s.flat) if (targets.has(r)) colors.push(r.rgba); }
+      else if (global && !s.mask) { const c = parseColor(s.brush.color); if (c) colors.push(c); }
+    }
+    const table = colorMap(colors, palette, mode, amount);
+    return base.map((s) => {
+      if (s.flat) {
+        const next = new Map<Region, Rgba>();
+        for (const r of s.flat) if (targets.has(r)) { const c = table.get(r.rgba.join(",")); if (c) next.set(r, c); }
+        if (!next.size) return s;
+        const res = recolorManyFlat(s.flat, next);
+        for (const r of res.fresh) fresh.add(r);
+        return { ...s, flat: res.regions, bbox: flatBBox(res.regions) };
+      }
+      if (!global || s.mask) return s;
+      const c = parseColor(s.brush.color);
+      const to = c ? table.get(c.join(",")) : undefined;
+      return to ? { ...s, brush: { ...s.brush, color: toCss([to[0], to[1], to[2], 1]) } } : s;
+    });
+  }
+
   /** Enregistre la retouche en aperçu (une étape d'annulation) ; la sélection suit les régions obtenues. */
   applyEdit(): boolean {
     const p = this.pending;
     if (!p || p.base !== this.doc.strokes) { this.pending = null; return false; }
     this.pending = null;
     this.doc.replace(p.strokes);
-    this.selected = new Set(p.fresh);
+    this.selected = p.global ? new Set() : new Set(p.fresh);
     this.invalidate();
     this.dispatchEvent(new CustomEvent("sketch-select", { detail: selectionInfo(this.selected), bubbles: true, composed: true }));
     return true;
@@ -1576,7 +1636,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
       strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
       tool: this.currentTool(), color: b.color, picked: this.picked, imported: this.imported, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
-      edit: { op: this.editOp(), preview: !!this.pending, error: this.editError },
+      edit: { op: this.editOp(), preview: !!this.pending, error: this.editError, scope: this.selected.size ? "selection" : "all" },
       library: {
         enabled: !!this.persist, status: this.libStatus, id: this.drawingId, name: this.drawingName,
         drawings: this.drawings.map((d) => ({ id: d.id, name: d.name, created: d.created, updated: d.updated, strokes: d.strokes, thumb: this.thumbUrl(d.thumb), current: d.id === this.drawingId })),

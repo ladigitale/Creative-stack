@@ -158,3 +158,37 @@ describe("calque guide", async () => {
     }
   });
 });
+
+describe("conversion des couleurs vers la palette", async () => {
+  const { colorMap, fromOklab } = await import("./colormap");
+  const { oklab } = await import("./select");
+  const pal = ["#000000", "#ffffff", "#c2410c"].map((c) => parseColor(c)!);
+  const grey = parseColor("#777777")!, light = parseColor("#dddddd")!, orange = parseColor("#d9480f")!;
+
+  it("OKLab aller-retour", () => {
+    const c = parseColor("#3366aa")!;
+    const back = fromOklab(oklab(c) as [number, number, number]);
+    for (let i = 0; i < 3; i++) expect(back[i]).toBeCloseTo(c[i], 3);
+  });
+  it("au plus proche : vraies couleurs de la palette", () => {
+    const m = colorMap([light, orange], pal, "nearest");
+    expect(m.get(light.join(","))).toEqual([1, 1, 1, 1]);
+    expect(m.get(orange.join(","))).toEqual(pal[2]);
+  });
+  it("paliers : l'ordre des clartés est gardé ; dégradé : couleurs intermédiaires ; force partielle", () => {
+    const lv = colorMap([grey, light], [pal[0], pal[1]], "levels");
+    expect(lv.get(grey.join(","))).toEqual([0, 0, 0, 1]);
+    expect(lv.get(light.join(","))).toEqual([1, 1, 1, 1]);
+    const mid = parseColor("#999999")!;
+    const gr = colorMap([grey, mid, light], [pal[0], pal[1]], "gradient");
+    const g = gr.get(mid.join(","))!;
+    expect(g[0]).toBeGreaterThan(0.1);
+    expect(g[0]).toBeLessThan(0.9);
+    const half = colorMap([light], [pal[0]], "nearest", 0.5).get(light.join(","))!;
+    expect(half[0]).toBeGreaterThan(0.2);
+    expect(half[0]).toBeLessThan(0.8);
+  });
+  it("palette vide : rien", () => {
+    expect(colorMap([grey], [], "nearest").size).toBe(0);
+  });
+});

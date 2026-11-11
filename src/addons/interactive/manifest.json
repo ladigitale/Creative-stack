@@ -161,7 +161,7 @@
     },
     {
       "name": "sonic-action",
-      "description": "Clic / hold -> action",
+      "description": "Clic / hold -> action ; trigger = nom d'un évènement d'un enfant direct (écouté en capture, même s'il ne remonte pas) : trigger=\"hide\" autour d'un sonic-modal garde un store au courant de sa fermeture (croix, fond, Échap)",
       "props": {
         "target": {
           "type": "string"
