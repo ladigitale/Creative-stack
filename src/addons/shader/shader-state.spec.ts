@@ -401,6 +401,10 @@ describe("image fixe : pas de rendu inutile", async () => {
   it("sans temps ni rétroaction : fixe, avec ses sources vivantes", () => {
     expect(staticFrameKeys(src("void mainImage(out vec4 c, in vec2 p){ c = texture(iChannel0, p); }"), ch([{ kind: "element", key: "#toile" }, none, none, none]))).toEqual(["#toile"]);
   });
+  it("un uniforme cité en commentaire ne compte pas", () => {
+    expect(staticFrameKeys(src("// Image fixe (iTime non lu)\n/* iFrame */ void mainImage(out vec4 c, in vec2 p){ c = vec4(1.0); }"), ch([none, none, none, none]))).toEqual([]);
+    expect(staticFrameKeys(src("// commentaire\nfloat t = iTime;"), ch([none, none, none, none]))).toBeNull();
+  });
   it("temps, tampons, vidéo : animé", () => {
     expect(staticFrameKeys(src("float t = iTime;"), ch([none, none, none, none]))).toBeNull();
     expect(staticFrameKeys(src("x", { bufferA: "y" }), ch([none, none, none, none]))).toBeNull();
