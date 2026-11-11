@@ -264,6 +264,8 @@ Export = SonicMediaRef `{ url, mime, durS, size, width, height }` (WebM VP9/Opus
 
 Lien `<a download>` vers le SonicMediaRef lu dans `source` (`exportState.last`, `recState.last`, `camState.snapshot`…). Seules les URL `blob:` créées dans la page sont acceptées. Caché tant qu'il n'y a rien ; contenu libre en slot (sinon `label`) ; extension déduite du format (`.webm`, `.mp4`, `.m4a`, `.jpg`…).
 
+`auto` : aucun lien affiché ; chaque **nouveau** média publié dans `source` est téléchargé aussitôt (pas celui déjà présent au branchement). Pour un bouton « Télécharger » qui produit puis télécharge : le bouton déclenche la production (`save` d'un `sonic-shader`, `savePng` d'un `sonic-sketch`…) et un `sonic-media-download auto` branché sur l'état de sortie envoie le fichier dès qu'il est prêt.
+
 ## `sonic-still` (image fixe)
 
 ```json
