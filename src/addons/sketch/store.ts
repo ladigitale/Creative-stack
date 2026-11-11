@@ -15,7 +15,7 @@ import {
  */
 
 export type DrawingMeta = { id: string; name: string; created: number; updated: number; strokes: number; thumb: Blob | null };
-export type DrawingRecord = DrawingMeta & { ns: string; view: View; nextId: number; data: unknown };
+export type DrawingRecord = DrawingMeta & { ns: string; view: View; nextId: number; data: unknown; settings?: unknown };
 
 export interface DrawingBackend {
   all(ns: string): Promise<DrawingRecord[]>;
@@ -236,7 +236,7 @@ export class MemoryBackend implements DrawingBackend {
 export async function listDrawings(b: DrawingBackend, ns: string): Promise<DrawingMeta[]> {
   const all = await b.all(ns);
   return all
-    .filter((r) => r.id !== CURRENT)
+    .filter((r) => !isReserved(r.id))
     .map(readMeta)
     .filter((m): m is DrawingMeta => !!m)
     .sort((a, b2) => b2.updated - a.updated)
@@ -245,6 +245,19 @@ export async function listDrawings(b: DrawingBackend, ns: string): Promise<Drawi
 
 /** Identifiant réservé : l'enregistrement qui retient le dessin ouvert en dernier. */
 export const CURRENT = "_current";
+/** Identifiant réservé : les préférences de l'utilisateur (`prefs-from`), gardées d'une session à l'autre. */
+export const PREFS = "_prefs";
+/** Enregistrements du carnet qui ne sont pas des dessins (`_current`, `_prefs`…). */
+export const isReserved = (id: unknown): boolean => typeof id !== "string" || id.startsWith("_");
+
+export async function readPrefs(b: DrawingBackend, ns: string): Promise<unknown> {
+  const r = await b.get(ns, PREFS);
+  return (r as { prefs?: unknown } | null)?.prefs ?? null;
+}
+
+export async function writePrefs(b: DrawingBackend, ns: string, prefs: unknown): Promise<void> {
+  await b.put({ ns, id: PREFS, prefs } as unknown as DrawingRecord);
+}
 
 export async function readCurrent(b: DrawingBackend, ns: string): Promise<string | null> {
   const r = await b.get(ns, CURRENT);

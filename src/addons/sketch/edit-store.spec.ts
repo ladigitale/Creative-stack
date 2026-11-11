@@ -366,3 +366,48 @@ describe("gomme comme un pinceau", async () => {
     expect(svg).toContain('fill-opacity="0.5"');
   });
 });
+
+describe("réglages du dessin et préférences", async () => {
+  const { parseSettingsRefs, snapshotSettings, readSettings, settingsKey } = await import("./settings");
+  const { readPrefs, writePrefs } = await import("./store");
+
+  it("liste de stores et de clés", () => {
+    expect(parseSettingsRefs("harmonie  fxVue.fond,gType fx fxVue.gMirror bad.name! 1x")).toEqual([
+      { dp: "harmonie", keys: null },
+      { dp: "fxVue", keys: ["fond", "gType", "gMirror"] },
+      { dp: "fx", keys: null },
+    ]);
+    expect(parseSettingsRefs("")).toEqual([]);
+    expect(parseSettingsRefs(undefined)).toEqual([]);
+  });
+
+  it("instantané : clés retenues seulement, pas lastError, valeurs JSON simples", () => {
+    const refs = parseSettingsRefs("fxVue.fond,gType pinceau");
+    const snap = snapshotSettings(refs, {
+      fxVue: { fond: "transparent", gType: "grid", vS: true },
+      pinceau: { size: 18, color: "#2f6fd8", lastError: null, fn: () => 1, bad: Number.NaN },
+      autre: { x: 1 },
+    });
+    expect(snap).toEqual({ fxVue: { fond: "transparent", gType: "grid" }, pinceau: { size: 18, color: "#2f6fd8", bad: null } });
+    expect(settingsKey({ a: { y: 1, x: 2 } })).toBe(settingsKey({ a: { x: 2, y: 1 } }));
+  });
+
+  it("relecture : stores et clés inconnus écartés, taille bornée", () => {
+    const refs = parseSettingsRefs("fxVue.fond");
+    expect(readSettings({ fxVue: { fond: "papier", vX: true }, intrus: { a: 1 } }, refs)).toEqual({ fxVue: { fond: "papier" } });
+    expect(readSettings({ fxVue: { fond: "x".repeat(70000) } }, refs)).toEqual({});
+    expect(readSettings("n'importe quoi", refs)).toEqual({});
+  });
+
+  it("préférences dans le carnet, hors de la liste des dessins ; réglages enregistrés avec un dessin", async () => {
+    const b = new MemoryBackend();
+    await writePrefs(b, "abysse", { pinceau: { size: 32 } });
+    expect(await readPrefs(b, "abysse")).toEqual({ pinceau: { size: 32 } });
+    expect(await readPrefs(b, "autre")).toBeNull();
+    await b.put({ ns: "abysse", id: "d1", name: "Dessin", created: 1, updated: 2, strokes: 0, thumb: null, view: { x: 0, y: 0, zoom: 1, rotation: 0 }, nextId: 1, data: [], settings: { fxVue: { fond: "transparent" } } });
+    await writeCurrent(b, "abysse", "d1");
+    const list = await listDrawings(b, "abysse");
+    expect(list.map((d) => d.id)).toEqual(["d1"]);
+    expect((await b.get("abysse", "d1"))!.settings).toEqual({ fxVue: { fond: "transparent" } });
+  });
+});

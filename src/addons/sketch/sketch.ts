@@ -13,6 +13,7 @@ import {
 } from "./model";
 import { blitBlend, clearDisc, drawStamp, drawStrokes, punch, scratchFor, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
+import { parseSettingsRefs, readSettings, settingsKey, snapshotSettings, type SettingsRef, type SettingsSnapshot } from "./settings";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
 import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, recolorManyFlat, eraseFlat, fadeFlat, flatBBox, flatVertices, paintFlat, recolorFlat, safeBoolean, type Backdrop, type FlatEdit, type Region } from "./flat";
@@ -22,7 +23,7 @@ import { HEAVY_VERTICES, PIECE_BUDGET_MS, StrokeFlattener, capDisc, type Joint, 
 import { deriveColor, parseColor, toCss, type Rgba } from "./flat-color";
 import { colorMap, type ColorMapMode } from "./colormap";
 import {
-  CURRENT, IdbBackend, cleanName, isDrawingId, listDrawings, newDrawingId, readCurrent, readStrokes, readView, writeCurrent, writeStrokes,
+  IdbBackend, cleanName, isDrawingId, isReserved, listDrawings, newDrawingId, readCurrent, readPrefs, readStrokes, readView, writeCurrent, writePrefs, writeStrokes,
   type DrawingBackend, type DrawingMeta, type DrawingRecord,
 } from "./store";
 import { ViewSync } from "../../shared/view-sync";
@@ -37,6 +38,8 @@ const CHUNK_POINTS = 48;
 const CHUNK_DIAMETERS = 6;
 /** Tranche de temps de l'aplatissement progressif pendant le geste (ms). */
 const FLAT_SLICE_MS = 6;
+/** Délai d'enregistrement des préférences après un changement (ms). */
+const PREFS_SAVE_MS = 800;
 const multiPass = (b: { blend?: string; opacity: number }) => (!!b.blend && b.blend !== "normal") || b.opacity < 0.999;
 /** Pause sans trait avant l'enregistrement automatique ; intervalle minimal entre deux vignettes. */
 const SAVE_IDLE_MS = 2000;
@@ -133,6 +136,23 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * `checker-size` (défaut 8).
    */
   @property({ type: String }) checker = "";
+  /**
+   * Réglages du dessin pris dans d'autres DataProviders (fond, palette, guides, effets…), enregistrés avec chaque
+   * dessin du carnet (`persist`) et remis en place à son ouverture. Liste séparée par des espaces de `store`
+   * (tout son état) ou `store.clé1,clé2` (ces clés seulement). Les changer rend le dessin « non enregistré ».
+   */
+  @property({ type: String, attribute: "settings-from" }) settingsFrom = "";
+  /**
+   * Préférences de l'utilisateur prises dans d'autres DataProviders (pinceau, outil…), gardées dans le carnet
+   * d'une session à l'autre quel que soit le dessin ouvert. Même syntaxe que `settings-from`.
+   */
+  @property({ type: String, attribute: "prefs-from" }) prefsFrom = "";
+  private settingsVals: Record<string, unknown> = {};
+  /** Réglages du dessin actuels et tels qu'enregistrés (instantanés sérialisés). */
+  private settingsNow = "";
+  private savedSettings = "";
+  private prefsReady = false;
+  private prefsTimer = 0;
   @property({ type: Number, attribute: "checker-size" }) checkerSize = 8;
   private checkerCache: { key: string; pattern: CanvasPattern } | null = null;
   @property({ type: String }) color = BRUSH_DEFAULTS.color;
@@ -416,7 +436,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom")) this.listen();
+    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom") || c.has("settingsFrom") || c.has("prefsFrom")) this.listen();
     if (c.has("width") || c.has("height")) { this.layer = null; this.layerDirty = true; this.compose(); }
     if (c.has("background") || c.has("checker") || c.has("checkerSize")) this.compose();
     if (c.has("tool") && c.get("tool") !== undefined && this.tool !== "select" && this.tool !== "select-color" && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
@@ -436,6 +456,10 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.triggers.clear();
+    this.settingsVals = {};
+    for (const dp of new Set([...this.settingsRefs(), ...this.prefsRefs()].map((r) => r.dp))) {
+      this.unsubs.push(listenDp(dp, (v) => this.onSettingsValue(dp, v)));
+    }
     if (this.brushFrom) this.unsubs.push(listenDp(this.brushFrom, (v) => {
       const before = this.live.color;
       this.live = { ...(v && typeof v === "object" ? (v as Record<string, unknown>) : {}), ...(this.live.tip !== undefined && this.tipFrom ? { tip: this.live.tip } : {}) };
@@ -1652,6 +1676,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const token = ++this.libToken;
     clearTimeout(this.saveTimer);
     this.saveTimer = 0;
+    this.prefsReady = false;
     if (!this.persist) { this.libStatus = "off"; this.setDrawings([]); this.publish(); return; }
     this.libStatus = "loading";
     this.publish();
@@ -1659,8 +1684,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       const ns = this.persist;
       const list = await listDrawings(this.backend, ns);
       const cur = await readCurrent(this.backend, ns);
+      const prefs = this.prefsRefs().length ? await readPrefs(this.backend, ns).catch(() => null) : null;
       if (token !== this.libToken) return;
       this.setDrawings(list);
+      // Préférences d'abord : les réglages du dessin rouvert l'emportent s'ils touchent les mêmes stores.
+      if (prefs) this.applySettings(readSettings(prefs, this.prefsRefs()));
+      this.prefsReady = true;
       const rec = cur && !this.doc.strokes.length ? await this.backend.get(ns, cur) : null;
       if (token !== this.libToken) return;
       if (rec) this.load(rec);
@@ -1684,15 +1713,59 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.drawingId = rec.id;
     this.drawingName = rec.name;
     this.drawingCreated = rec.created;
+    if (rec.settings !== undefined) this.applySettings(readSettings(rec.settings, this.settingsRefs()));
     this.markSaved();
     this.setView(readView(rec.view), true);
     this.invalidate();
     this.selectionChanged();
   }
 
-  private markSaved(): void { this.savedRef = { ref: this.doc.strokes, len: this.doc.strokes.length }; }
+  private markSaved(): void {
+    this.savedRef = { ref: this.doc.strokes, len: this.doc.strokes.length };
+    this.savedSettings = this.settingsNow;
+  }
 
-  private dirty(): boolean { return this.savedRef.ref !== this.doc.strokes || this.savedRef.len !== this.doc.strokes.length; }
+  private dirty(): boolean {
+    return this.savedRef.ref !== this.doc.strokes || this.savedRef.len !== this.doc.strokes.length || this.savedSettings !== this.settingsNow;
+  }
+
+  /* ------------------------------------------------------------ réglages et préférences */
+
+  private settingsRefs(): SettingsRef[] { return parseSettingsRefs(this.settingsFrom); }
+  private prefsRefs(): SettingsRef[] { return parseSettingsRefs(this.prefsFrom); }
+
+  private onSettingsValue(dp: string, v: unknown): void {
+    this.settingsVals[dp] = v;
+    if (this.settingsRefs().some((r) => r.dp === dp)) {
+      const before = this.dirty();
+      this.settingsNow = settingsKey(snapshotSettings(this.settingsRefs(), this.settingsVals));
+      if (this.dirty() !== before) this.publish();
+      this.queueSave();
+    }
+    if (this.prefsReady && this.prefsRefs().some((r) => r.dp === dp)) this.queuePrefs();
+  }
+
+  /** Remet des réglages enregistrés dans leurs DataProviders (fusionnés avec leur état actuel). */
+  private applySettings(snap: SettingsSnapshot): void {
+    for (const [dp, vals] of Object.entries(snap)) {
+      const cur = this.settingsVals[dp] ?? plain(get(dp));
+      const merged = { ...(cur && typeof cur === "object" && !Array.isArray(cur) ? (cur as Record<string, unknown>) : {}), ...vals };
+      this.settingsVals[dp] = merged;
+      try { set(dp, merged); } catch { /* DataProvider indisponible : ignoré */ }
+    }
+    this.settingsNow = settingsKey(snapshotSettings(this.settingsRefs(), this.settingsVals));
+  }
+
+  private queuePrefs(): void {
+    if (!this.persist) return;
+    clearTimeout(this.prefsTimer);
+    this.prefsTimer = window.setTimeout(() => {
+      this.prefsTimer = 0;
+      const ns = this.persist;
+      if (!ns) return;
+      void writePrefs(this.backend, ns, snapshotSettings(this.prefsRefs(), this.settingsVals)).catch(() => undefined);
+    }, PREFS_SAVE_MS);
+  }
 
   /**
    * Enregistrement automatique quand l'utilisateur marque une vraie pause (aucun trait ni geste de vue depuis
@@ -1718,7 +1791,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     void this.saveNow(true);
   };
 
-  private onVisibility = (): void => { if (document.visibilityState === "hidden") this.flushSave(); };
+  private onVisibility = (): void => {
+    if (document.visibilityState !== "hidden") return;
+    this.flushSave();
+    if (this.prefsTimer && this.persist) {
+      clearTimeout(this.prefsTimer);
+      this.prefsTimer = 0;
+      void writePrefs(this.backend, this.persist, snapshotSettings(this.prefsRefs(), this.settingsVals)).catch(() => undefined);
+    }
+  };
 
   /** Vignette PNG du dessin entier (~240 px), ou `null`. */
   private thumbBlob: Blob | null = null;
@@ -1765,6 +1846,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     // Tout ce qui décrit le dessin est capturé avant la première attente : une commande suivante (nouveau
     // dessin, ouverture) peut remplacer le dessin pendant l'enregistrement.
     const view = { ...this.view }, nextId = this.doc.nextId, name = this.drawingName, created = this.drawingCreated || Date.now();
+    const refs = this.settingsRefs();
+    const settings = refs.length ? snapshotSettings(refs, this.settingsVals) : undefined;
+    const settingsAt = this.settingsNow;
     const thumbP = this.thumbnail(fresh);
     let done!: () => void;
     this.savingP = new Promise<void>((r) => (done = r));
@@ -1774,13 +1858,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       await step(40);
       const data = writeStrokes(strokes.slice(0, len));
       await step(65);
-      const rec: DrawingRecord = { ns, id, name, created, updated: Date.now(), strokes: len, thumb, view, nextId, data };
+      const rec: DrawingRecord = { ns, id, name, created, updated: Date.now(), strokes: len, thumb, view, nextId, data, ...(settings ? { settings } : {}) };
       await this.backend.put(rec);
       await step(90);
       await writeCurrent(this.backend, ns, id);
       this.libProgress = 100;
       if (ns !== this.persist) return false;
       if (this.doc.strokes === strokes) this.savedRef = { ref: strokes, len };
+      this.savedSettings = settingsAt;
       const meta: DrawingMeta = { id, name: rec.name, created: rec.created, updated: rec.updated, strokes: len, thumb };
       this.setDrawings([meta, ...this.drawings.filter((d) => d.id !== id)]);
       this.libStatus = "saved";
@@ -1839,7 +1924,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   /** Enregistre le dessin ouvert puis ouvre `id`. */
   async openDrawing(id: string): Promise<boolean> {
-    if (!this.persist || !isDrawingId(id) || id === CURRENT) return false;
+    if (!this.persist || !isDrawingId(id) || isReserved(id)) return false;
     if (id === this.drawingId) return true;
     if (this.savingP) await this.savingP;
     if (!this.manual() && (this.saveTimer || this.dirty())) { clearTimeout(this.saveTimer); this.saveTimer = 0; await this.saveNow(true); }
@@ -1870,7 +1955,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   /** Supprime un dessin du carnet ; supprimer le dessin ouvert montre une toile vierge. */
   async deleteDrawing(id: string | null): Promise<void> {
-    if (!this.persist || !id || !isDrawingId(id) || id === CURRENT) return;
+    if (!this.persist || !id || !isDrawingId(id) || isReserved(id)) return;
     try {
       await this.backend.remove(this.persist, id);
     } catch {
