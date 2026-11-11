@@ -6,12 +6,25 @@
 //   lumière    5 prisme, 6 halo, 7 flou, 8 encre (contours)
 //   couleur    9 éclat, 10 teinte, 11 bichromie, 12 sépia, 13 aplats, 14 négatif, 15 thermique
 //   matière   16 papier, 17 trame, 18 points, 19 hachures, 20 balayage, 21 grain, 22 vignette
-// uParam1 intensité (0..1), uParam2 échelle du grain (millièmes du petit côté, 0.5..8), uParam3 teinte (0..1).
+// uParam2 : second masque (somme de 2^i) :
+//   matière picturale  0 peinture (huile, Kuwahara), 1 mosaïque, 2 pointillisme
+//   traits             3 contour (dessin au trait), 4 néon, 5 gaufrage
+//   médiums            6 aquarelle, 7 crayonné
+// uParam1 intensité (0..1). uParam3 = grain + teinte : partie entière = échelle du grain × 2 (1..16, soit
+// 0,5..8 millièmes du petit côté ; 0 = défaut 2), partie fractionnaire = teinte (0..1).
 
 const float PI = 3.14159265;
 
 bool fxOn(int i) {
   return mod(floor((uParam0 + 0.5) / exp2(float(i))), 2.0) >= 1.0;
+}
+
+bool fxB(int i) {
+  return mod(floor((uParam2 + 0.5) / exp2(float(i))), 2.0) >= 1.0;
+}
+
+vec2 h22(vec2 p) {
+  return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)))) * 43758.5453);
 }
 
 float h12(vec2 p) {
@@ -46,12 +59,48 @@ vec3 tap(vec2 uv) {
   return texture(iChannel0, clamp(uv, 0.0, 1.0)).rgb;
 }
 
+// Peinture : filtre de Kuwahara (4 quadrants, on garde la moyenne du plus homogène) — aplats « coup de pinceau ».
+vec3 kuwahara(vec2 uv, vec2 st) {
+  vec3 m0 = vec3(0.0), m1 = vec3(0.0), m2 = vec3(0.0), m3 = vec3(0.0);
+  vec3 s0 = vec3(0.0), s1 = vec3(0.0), s2 = vec3(0.0), s3 = vec3(0.0);
+  for (int j = -3; j <= 3; j++) {
+    for (int i = -3; i <= 3; i++) {
+      vec3 c = tap(uv + vec2(float(i), float(j)) * st);
+      vec3 c2 = c * c;
+      if (i <= 0 && j <= 0) { m0 += c; s0 += c2; }
+      if (i >= 0 && j <= 0) { m1 += c; s1 += c2; }
+      if (i <= 0 && j >= 0) { m2 += c; s2 += c2; }
+      if (i >= 0 && j >= 0) { m3 += c; s3 += c2; }
+    }
+  }
+  m0 /= 16.0; m1 /= 16.0; m2 /= 16.0; m3 /= 16.0;
+  vec3 v0 = abs(s0 / 16.0 - m0 * m0), v1 = abs(s1 / 16.0 - m1 * m1), v2 = abs(s2 / 16.0 - m2 * m2), v3 = abs(s3 / 16.0 - m3 * m3);
+  float a = v0.r + v0.g + v0.b, b = v1.r + v1.g + v1.b, c = v2.r + v2.g + v2.b, d = v3.r + v3.g + v3.b;
+  vec3 best = m0; float bv = a;
+  if (b < bv) { bv = b; best = m1; }
+  if (c < bv) { bv = c; best = m2; }
+  if (d < bv) { best = m3; }
+  return best;
+}
+
+// Gradient de luminance (Sobel léger) autour de uv, pas e (coordonnées de texture).
+float edgeAt(vec2 uv, vec2 e) {
+  float tl = luma(tap(uv + vec2(-e.x, e.y))), t = luma(tap(uv + vec2(0.0, e.y))), tr = luma(tap(uv + e));
+  float l = luma(tap(uv - vec2(e.x, 0.0))), r = luma(tap(uv + vec2(e.x, 0.0)));
+  float bl = luma(tap(uv - e)), b = luma(tap(uv - vec2(0.0, e.y))), br = luma(tap(uv + vec2(e.x, -e.y)));
+  float gx = (tr + 2.0 * r + br) - (tl + 2.0 * l + bl);
+  float gy = (tl + 2.0 * t + tr) - (bl + 2.0 * b + br);
+  return length(vec2(gx, gy));
+}
+
 void mainImage(out vec4 o, in vec2 f) {
   vec2 R = iResolution.xy;
   float side = min(R.x, R.y);
   float k = clamp(uParam1, 0.0, 1.0);
-  float scale = clamp(uParam2, 0.5, 8.0);
+  float gi = floor(uParam3);
+  float scale = gi < 0.5 ? 2.0 : clamp(gi * 0.5, 0.5, 8.0);
   float hue = fract(uParam3);
+  vec3 paperC = vec3(0.97, 0.955, 0.92);
   // Grain : en millièmes du petit côté (identique à toute résolution).
   vec2 g = f / side * 1000.0 / scale;
   // Un millième du petit côté, en coordonnées de texture.
@@ -78,8 +127,45 @@ void mainImage(out vec4 o, in vec2 f) {
   }
   vec2 uv = p * side / R + 0.5;
 
-  // --- Lumière.
+  // --- Matière picturale : la couleur de base vient d'un voisinage (après la géométrie).
   vec3 c = tap(uv);
+  vec2 fw = uv * R;
+  if (fxB(0)) c = kuwahara(uv, mil * (1.2 + 2.3 * k));
+  if (fxB(1)) {
+    float cell = mix(14.0, 55.0, k);
+    vec2 q = fw / side * 1000.0 / cell;
+    vec2 ip = floor(q), fp = fract(q);
+    float d1 = 8.0, d2 = 8.0;
+    vec2 best = ip;
+    for (int j = -1; j <= 1; j++) {
+      for (int i = -1; i <= 1; i++) {
+        vec2 o = vec2(float(i), float(j));
+        vec2 pt = o + 0.1 + 0.8 * h22(ip + o);
+        float d = length(pt - fp);
+        if (d < d1) { d2 = d1; d1 = d; best = ip + pt; } else if (d < d2) { d2 = d; }
+      }
+    }
+    vec3 cc = tap(best * cell / 1000.0 * side / R);
+    c = mix(cc * 0.55, cc, smoothstep(0.0, 0.07, d2 - d1));
+  }
+  if (fxB(2)) {
+    float cell = mix(4.0, 12.0, k);
+    vec2 q = fw / side * 1000.0 / cell;
+    vec2 ip = floor(q);
+    vec3 col = paperC;
+    for (int j = -1; j <= 1; j++) {
+      for (int i = -1; i <= 1; i++) {
+        vec2 o = vec2(float(i), float(j));
+        vec2 hh = h22(ip + o + 17.0);
+        vec2 ctr = ip + o + 0.5 + (hh - 0.5) * 0.7;
+        float rad = 0.5 + 0.3 * hh.x;
+        if (length(q - ctr) < rad) col = tap(ctr * cell / 1000.0 * side / R) * (0.92 + 0.16 * hh.y);
+      }
+    }
+    c = col;
+  }
+
+  // --- Lumière.
   if (fxOn(5)) {
     vec2 d = (uv - 0.5) * (0.004 + 0.016 * k);
     c.r = tap(uv + d).r;
@@ -103,6 +189,26 @@ void mainImage(out vec4 o, in vec2 f) {
     float gy = luma(tap(uv + vec2(0.0, e.y))) - luma(tap(uv - vec2(0.0, e.y)));
     float edge = smoothstep(0.05, 0.2, length(vec2(gx, gy)));
     c *= 1.0 - edge * (0.5 + 0.45 * k);
+  }
+
+  // --- Traits.
+  if (fxB(3) || fxB(4)) {
+    float ed = edgeAt(uv, mil * (1.0 + 1.5 * k));
+    if (fxB(3)) {
+      float ink = smoothstep(0.12, 0.45, ed);
+      vec3 inkC = mix(vec3(0.08, 0.07, 0.07), c * 0.35, 0.35);
+      c = mix(paperC, inkC, ink);
+    }
+    if (fxB(4)) {
+      float glow = smoothstep(0.08, 0.6, ed);
+      vec3 neon = mix(normalize(c + 0.05) * 1.25, hueColor(hue), 0.35);
+      c = vec3(0.015, 0.012, 0.03) + neon * glow * (0.9 + 0.6 * k) + c * 0.06;
+    }
+  }
+  if (fxB(5)) {
+    vec2 e = mil * (1.5 + 2.0 * k);
+    float em = 0.5 + (luma(tap(uv - e)) - luma(tap(uv + e))) * (2.5 + 3.0 * k);
+    c = mix(c, vec3(em) * vec3(1.0, 0.98, 0.94), 0.75);
   }
 
   // --- Couleur.
@@ -172,6 +278,32 @@ void mainImage(out vec4 o, in vec2 f) {
   }
   if (fxOn(20)) c *= 1.0 - (0.12 + 0.25 * k) * (0.5 + 0.5 * cos(g.y * PI / 2.0));
   if (fxOn(21)) c += (h12(floor(g * 2.0) + 0.37) - 0.5) * (0.06 + 0.16 * k);
+  if (fxB(6)) {
+    vec3 b = vec3(0.0);
+    float rr = 6.0 + 6.0 * k;
+    for (int i = 0; i < 8; i++) {
+      float a = float(i) * PI / 4.0;
+      b += tap(uv + vec2(cos(a), sin(a)) * rr * mil);
+    }
+    b /= 8.0;
+    vec3 wash = mix(c, b, 0.55);
+    float ed = edgeAt(uv, mil * 2.5);
+    wash *= 1.0 - smoothstep(0.05, 0.4, ed) * 0.3;
+    wash = mix(wash, vec3(1.0), 0.14);
+    wash *= 0.9 + 0.2 * vn(g * 0.55) - 0.05 * vn(g * 2.3);
+    c = mix(c, wash * paperC * 1.04, 0.7 + 0.3 * k);
+  }
+  if (fxB(7)) {
+    float l = luma(c);
+    vec2 d1 = vec2(0.86, 0.5), d2 = vec2(-0.5, 0.86);
+    float s1 = vn(vec2(dot(g, d1) * 0.08, dot(g, d2) * 1.6));
+    float s2 = vn(vec2(dot(g, d2) * 0.08, dot(g, d1) * 1.6) + 9.0);
+    float dark = smoothstep(l - 0.05, l + 0.25, s1 * 0.85) * 0.75 + smoothstep(l * 0.6, l * 0.6 + 0.25, s2 * 0.7) * 0.45;
+    float ed = smoothstep(0.1, 0.5, edgeAt(uv, mil * 1.5));
+    vec3 graphite = vec3(0.24, 0.24, 0.27);
+    vec3 pencil = mix(paperC, graphite, clamp(dark * (1.0 - l) * 1.4 + ed * 0.7, 0.0, 1.0));
+    c = mix(c, pencil, 0.75 + 0.25 * k);
+  }
   if (fxOn(22)) {
     float vig = 1.0 - smoothstep(0.3, 0.95, length((f / R - 0.5) * R / side) * 1.15);
     c *= mix(1.0, 0.35 + 0.65 * vig, 0.5 + 0.5 * k);

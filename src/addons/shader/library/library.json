@@ -502,17 +502,21 @@
       "id": "pile-effets",
       "kind": "shader",
       "file": "pile-effets.glsl",
-      "version": 1,
+      "version": 2,
       "license": "MIT",
       "title": "Pile d'effets",
-      "description": "23 effets cumulables en une passe, dans un ordre fixe (géométrie → lumière → couleur → matière), indépendants de la résolution : miroir, kaléido, tourbillon, ondes, pixels ; prisme, halo, flou, encre ; éclat, teinte, bichromie, sépia, aplats, négatif, thermique ; papier, trame, points, hachures, balayage, grain, vignette. uParam0 est un masque : somme de 2^i des effets actifs (ex. riso = 2^11 + 2^16 + 2^18 + 2^21).",
+      "description": "31 effets cumulables en une passe, dans un ordre fixe (géométrie → matière picturale → lumière → traits → couleur → matière), indépendants de la résolution. Masque A (uParam0, somme de 2^i) : miroir, kaléido, tourbillon, ondes, pixels ; prisme, halo, flou, encre ; éclat, teinte, bichromie, sépia, aplats, négatif, thermique ; papier, trame, points, hachures, balayage, grain, vignette. Masque B (uParam2) : peinture (Kuwahara), mosaïque, pointillisme, contour, néon, gaufrage, aquarelle, crayonné. uParam3 = grain × 2 (partie entière) + teinte (partie fractionnaire).",
       "tags": [
+        "aquarelle",
+        "contour",
+        "crayon",
         "effet",
-        "post-traitement",
-        "finition",
         "export",
+        "finition",
         "image",
-        "pile"
+        "peinture",
+        "pile",
+        "post-traitement"
       ],
       "channels": [
         "iChannel0 : image à traiter (toile sonic-sketch / sonic-paint, caméra, export PNG)"
@@ -520,7 +524,7 @@
       "params": [
         {
           "name": "uParam0",
-          "label": "Effets actifs (masque : somme de 2^i, i de 0 à 22)",
+          "label": "Effets actifs, masque A (somme de 2^i, i de 0 à 22)",
           "min": 0,
           "max": 8388607,
           "default": 2426880
@@ -534,17 +538,17 @@
         },
         {
           "name": "uParam2",
-          "label": "Échelle du grain",
-          "min": 0.5,
-          "max": 8,
-          "default": 2
+          "label": "Effets actifs, masque B (somme de 2^i, i de 0 à 7)",
+          "min": 0,
+          "max": 255,
+          "default": 0
         },
         {
           "name": "uParam3",
-          "label": "Teinte (teinte, bichromie)",
+          "label": "Grain × 2 (partie entière, 1..16) + teinte (partie fractionnaire)",
           "min": 0,
-          "max": 1,
-          "default": 0.6
+          "max": 16.99,
+          "default": 4.6
         }
       ]
     }
