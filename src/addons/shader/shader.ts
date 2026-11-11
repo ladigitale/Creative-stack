@@ -463,7 +463,8 @@ export class SonicShader extends LitElement {
 
   /**
    * Force CSS aspect-ratio (e.g. `"16/9"`, `"1"`).
-   * When empty, uses channel0 (or first texture) dimensions.
+   * When empty, uses channel0 (or first texture) dimensions — an image URL, or a frame source of the page
+   * (`#id`: the proportions of its current image, read when the channels are bound).
    */
   @property({ type: String, attribute: "aspect-ratio" })
   aspectRatio = "";
@@ -706,6 +707,16 @@ export class SonicShader extends LitElement {
         "--sonic-shader-ar",
         forced.includes("/") ? forced : forced.replace(":", " / "),
       );
+      return;
+    }
+    // Source d'images de la page (`#toile`, `#camera`…) : les proportions de son image (sa texture n'a pas encore
+    // la bonne taille au branchement).
+    const key = typeof this.channel0 === "string" ? this.channel0.trim() : "";
+    if (!textureUrl && key.startsWith("#")) {
+      const el = this.lookupElement(key);
+      const c = el && isFrameSource(el) ? el.getFrameCanvas() : null;
+      if (c && c.width > 0 && c.height > 0) this.style.setProperty("--sonic-shader-ar", `${c.width} / ${c.height}`);
+      else this.style.removeProperty("--sonic-shader-ar");
       return;
     }
     const url = textureUrl || this.channel0;

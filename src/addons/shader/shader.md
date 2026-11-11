@@ -186,7 +186,7 @@ Repli auto en `rgba8` si `EXT_color_buffer_float` est absent (`console.warn` une
 | `extractPatch` / `extract-patch` | `number` | Patch px par défaut (défaut `16`, max 128) |
 | `extractBitmaps` / `extract-bitmaps` | `boolean` | Génère `blobUrl` par item |
 | `extractDataProvider` / `extract-data-provider` | `string` | Publisher extract (défaut = out) |
-| `aspectRatio` / `aspect-ratio` | `string` | Ratio CSS forcé |
+| `aspectRatio` / `aspect-ratio` | `string` | Ratio CSS forcé ; vide : celui de `channel0` (image par URL, ou source d'images de la page `#id`) |
 | `dprMax` / `dpr-max` | `number` | Plafond DPR (défaut `2`) |
 | `releaseOffscreen` / `release-offscreen` | `boolean` \| `"auto"` | Hors viewport : libère textures/FBO (garde le contexte). `auto` (défaut) : ne libère pas si une passe lit `self`. `dispose` + loseContext au disconnect |
 
