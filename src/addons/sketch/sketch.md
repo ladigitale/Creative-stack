@@ -135,3 +135,7 @@ Repères de dessin posés par-dessus la toile, jamais exportés, transparents au
   <sonic-sketch-guide settings-from="guide" view-from="vue"></sonic-sketch-guide>
 </div>
 ```
+
+## Passes
+
+Un trait en mode de fusion (autre que `normal`) ou à opacité inférieure à 1 est coupé en passes à chaque changement de direction franc (110° ou plus). Chaque passe se pose sur la précédente, en direct comme à la mise à plat : une hachure en aller-retour ou un remplissage en zigzag fonce là où il se recouvre, comme au crayon. `passes="false"` revient à un trait d'un seul tenant (les recouvrements d'un même trait ne comptent qu'une fois).
