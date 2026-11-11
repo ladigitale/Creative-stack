@@ -215,3 +215,37 @@ describe("composant", () => {
     still.remove();
   });
 });
+
+describe("sonic-vectorize svg-from", () => {
+  it("un SVG ouvert est lu tel quel (source svg, opacités, keep-colors), une seule fois par fichier", async () => {
+    const { vi } = await import("vitest");
+    const { svgRefOf } = await import("./vectorize");
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (u: string) => {
+      fetched.push(u);
+      return { text: async () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 40"><rect width="10" height="10" fill="#ff0000" fill-opacity=".5"/><circle cx="30" cy="20" r="5" fill="navy"/></svg>' };
+    }));
+    expect(svgRefOf({ url: "blob:a", mime: "image/svg+xml" })).toEqual({ url: "blob:a" });
+    expect(svgRefOf({ url: "blob:a", mime: "image/png" })).toBeNull();
+    expect(svgRefOf({ url: "https://x/a.svg", mime: "image/svg+xml" })).toBeNull();
+    set("svgFichier", null);
+    const el = document.createElement("sonic-vectorize");
+    el.setAttribute("svg-from", "svgFichier");
+    el.setAttribute("auto", "");
+    el.setAttribute("keep-colors", "");
+    el.setAttribute("out-data-provider", "svgVec");
+    document.body.appendChild(el);
+    await (el as unknown as { updateComplete: Promise<unknown> }).updateComplete;
+    set("svgFichier", { url: "blob:fichier1", mime: "image/svg+xml" });
+    await new Promise((r) => setTimeout(r, 20));
+    const s = dp("svgVec").get() as { status: string; source: string; width: number; height: number; keepColors: boolean; paths: { color: string; opacity?: number }[] };
+    expect(s).toMatchObject({ status: "ready", source: "svg", width: 50, height: 40, keepColors: true });
+    expect(s.paths.map((p) => [p.color, p.opacity])).toEqual([["#ff0000", 0.5], ["#000080", 1]]);
+    // Le même fichier relu par une source d'images : pas de nouvelle lecture.
+    (el as unknown as { run(q: boolean): boolean }).run(true);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetched).toEqual(["blob:fichier1"]);
+    el.remove();
+    vi.unstubAllGlobals();
+  });
+});

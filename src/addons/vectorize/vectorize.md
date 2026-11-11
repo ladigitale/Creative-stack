@@ -57,3 +57,17 @@ Store `vec` piloté par des `sonic-action` : `{ "n": 0, "colors": 8, "tolerance"
 Le calcul tourne dans un Web Worker (script en `blob:`) : la page reste fluide pendant qu'on règle, et un nouveau réglage interrompt le calcul en cours. Sans Worker disponible, repli sur le fil principal (`engine: "main"`). L'image est réduite à `max-size` (environ 1 s pour une image chargée en 1024 px).
 
 Le script du worker est généré à partir de `trace.ts` : après toute modification du tracé, lancer `yarn worker:vectorize` (`test:ci` vérifie qu'il est à jour). L'image d'un autre site doit autoriser CORS pour être lisible. Convient aux logos, dessins, affiches et photos posterisées, pas au rendu photographique fidèle. Les dégradés deviennent des aplats.
+
+## Lire un SVG tel quel (`svg-from`)
+
+Un fichier SVG n'a pas besoin d'être tracé : ses formes sont déjà vectorielles. `svg-from` désigne un SonicMediaRef (URL `blob:`, par exemple le `ref-provider` d'un `sonic-file-open`) : quand c'est un SVG, ses formes sont lues telles quelles et publiées dans le même état que la vectorisation (`paths[{color, d, opacity}]`, `width`, `height`), avec `source: "svg"`. Sinon la source d'images (`source`) est tracée comme d'habitude : un même branchement accepte donc un SVG ou une photo.
+
+```json
+{ "tagName": "sonic-file-open", "attributes": { "accept": "image/*,.svg", "ref-provider": "fichier" } }
+{ "tagName": "sonic-still", "attributes": { "id": "image-ouverte", "in-data-provider": "fichier", "hidden-preview": "" } }
+{ "tagName": "sonic-vectorize", "attributes": { "source": "#image-ouverte", "svg-from": "fichier", "auto": "", "keep-colors": "", "flat": "", "hidden-preview": "", "out-data-provider": "importState" } }
+```
+
+Lu : `path`, `rect` (coins arrondis), `circle`, `ellipse`, `polygon`, `polyline`, `line`, groupes, `use` interne et symboles, `transform`, `viewBox` (à défaut `width` / `height`, sinon la boîte du contenu), couleurs CSS (noms, hex, `rgb()`, `hsl()`, `currentColor`), opacités (`opacity`, `fill-opacity`, `stroke-opacity`), `fill-rule`, styles en attribut, en `style=""` et en `<style>` (sélecteurs simples `.classe`, `#id`, `balise`). Les contours deviennent des formes pleines (bouts et jointures arrondis) ; un dégradé devient sa couleur moyenne. Ignorés et comptés dans `skipped` : textes, images, filtres, masques, découpes. Le document est analysé sans être inséré dans la page : aucun script ne s'exécute, aucune ressource n'est chargée. 5 Mo et 20 000 éléments au plus.
+
+`keep-colors` ajoute `keepColors: true` à l'état : `sonic-sketch` garde alors les couleurs d'origine même avec `import-colors-from`.

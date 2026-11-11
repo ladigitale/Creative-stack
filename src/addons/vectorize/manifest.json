@@ -11,24 +11,64 @@
   "components": [
     {
       "name": "sonic-vectorize",
-      "description": "Image → SVG : source (#id d'une source d'images) ; control {n, …réglages} ou auto (relance à chaque nouvelle image) ; réglages colors, palette (couleurs imposées, ex. la palette d'harmonie : #a,#b… ou tableau / état de sonic-palette dans le DP), tolerance, min-area, denoise, curves (courbes à coins vifs), flat, max-size en attributs ou en direct par DP (control / params : colors, palette, tolerance, minArea, denoise, curves, flat, maxSize) ; état {status, error, width, height, sourceWidth, sourceHeight, layers, paths[{color, area, share, d}], frame (où la source apparaissait à l'écran ; sonic-sketch import-from pose les formes à leur place), palette, svg, file (SonicMediaRef blob: pour sonic-media-download), bytes, ms, engine (worker|main), runs, truncated, settings} ; calcul dans un Web Worker (page fluide, un nouveau réglage interrompt le calcul en cours)",
+      "description": "Image → SVG : source (#id d'une source d'images) ; control {n, …réglages} ou auto (relance à chaque nouvelle image) ; réglages colors, palette (couleurs imposées, ex. la palette d'harmonie : #a,#b… ou tableau / état de sonic-palette dans le DP), tolerance, min-area, denoise, curves (courbes à coins vifs), flat, max-size en attributs ou en direct par DP (control / params : colors, palette, tolerance, minArea, denoise, curves, flat, maxSize) ; état {status, error, width, height, sourceWidth, sourceHeight, layers, paths[{color, area, share, d, opacity}], frame (où la source apparaissait à l'écran ; sonic-sketch import-from pose les formes à leur place), palette, svg, file (SonicMediaRef blob: pour sonic-media-download), bytes, ms, engine (worker|main), runs, truncated, settings, source (image|svg), keepColors, skipped (éléments SVG ignorés par type)} ; calcul dans un Web Worker (page fluide, un nouveau réglage interrompt le calcul en cours) ; svg-from (DP d'un SonicMediaRef, ex. ref-provider de sonic-file-open) : un fichier SVG y est lu tel quel, formes exactes (path, rect, circle, ellipse, polygon, polyline, line, groupes, use, transform, viewBox, couleurs, opacités, fill-rule, styles en attribut / style / <style> simple ; contours changés en formes pleines ; dégradés = couleur moyenne ; textes, images, filtres, masques ignorés), sans être inséré dans la page ; sinon la source est tracée ; avec auto, chaque nouveau fichier est lu dès qu'il arrive",
       "props": {
-        "source": { "type": "string" },
-        "control": { "type": "string" },
-        "params": { "type": "string" },
-        "auto": { "type": "boolean" },
-        "interval": { "type": "number" },
-        "colors": { "type": "number" },
-        "palette": { "type": "string" },
-        "tolerance": { "type": "number" },
-        "min-area": { "type": "number" },
-        "denoise": { "type": "number" },
-        "curves": { "type": "boolean" },
-        "flat": { "type": "boolean" },
-        "max-size": { "type": "number" },
-        "hidden-preview": { "type": "boolean" },
-        "main-thread": { "type": "boolean" },
-        "out-data-provider": { "type": "string" }
+        "source": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "params": {
+          "type": "string"
+        },
+        "auto": {
+          "type": "boolean"
+        },
+        "interval": {
+          "type": "number"
+        },
+        "colors": {
+          "type": "number"
+        },
+        "palette": {
+          "type": "string"
+        },
+        "tolerance": {
+          "type": "number"
+        },
+        "min-area": {
+          "type": "number"
+        },
+        "denoise": {
+          "type": "number"
+        },
+        "curves": {
+          "type": "boolean"
+        },
+        "flat": {
+          "type": "boolean"
+        },
+        "max-size": {
+          "type": "number"
+        },
+        "hidden-preview": {
+          "type": "boolean"
+        },
+        "main-thread": {
+          "type": "boolean"
+        },
+        "out-data-provider": {
+          "type": "string"
+        },
+        "svg-from": {
+          "type": "string",
+          "description": "DP d'un SonicMediaRef (blob:) : un fichier SVG est lu tel quel au lieu d'être tracé"
+        },
+        "keep-colors": {
+          "type": "boolean",
+          "description": "marque le résultat : couleurs d'origine à garder (sonic-sketch ne les remplace pas par sa palette)"
+        }
       }
     }
   ]

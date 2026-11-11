@@ -7,6 +7,7 @@ import { isFrameSource } from "../../shared/mediaRef";
 import { frameToClient } from "../../shared/frame-geometry";
 import { parsePalette, toSvg, type Layer, type TraceResult } from "./trace";
 import { SupersededError, TraceRunner } from "./worker-client";
+import { parseSvgDocument } from "./svgdoc";
 
 /** Réglages effectifs (attributs, puis `control`, puis `params` : le dernier l'emporte). */
 export type VectorizeSettings = {
@@ -36,7 +37,7 @@ export type VectorizeState = {
    * Détail des couches, du dessous au-dessus : couleur, surface (px² analysés), part de l'image (0..1) et
    * tracé `d` (repère `width` × `height`), lu par `sonic-sketch import-from`.
    */
-  paths: { color: string; area: number; share: number; d: string }[];
+  paths: { color: string; area: number; share: number; d: string; opacity?: number }[];
   palette: string[];
   /** Document SVG autonome. */
   svg: string;
@@ -55,13 +56,28 @@ export type VectorizeState = {
    * poser les formes à leur place.
    */
   frame: number[] | null;
+  /** D'où viennent les couches : image tracée, ou SVG lu tel quel (`svg-from`). */
+  source: "image" | "svg";
+  /** `keep-colors` : les couleurs d'origine sont à garder (`sonic-sketch` ne les remplace pas par sa palette). */
+  keepColors: boolean;
+  /** SVG lu tel quel : éléments ignorés par type (textes, images, filtres…). */
+  skipped: Record<string, number>;
 };
 
 const DEFAULTS: VectorizeSettings = { colors: 8, tolerance: 1, minArea: 4, denoise: 1, curves: false, flat: false, maxSize: 512, palette: [] };
 const IDLE: VectorizeState = {
   status: "idle", error: null, width: 0, height: 0, sourceWidth: 0, sourceHeight: 0, layers: 0, paths: [], palette: [],
   svg: "", file: null, bytes: 0, ms: 0, engine: "main", runs: 0, truncated: false, settings: { ...DEFAULTS }, frame: null,
+  source: "image", keepColors: false, skipped: {},
 };
+
+/** SonicMediaRef d'un SVG (`blob:` seulement : un fichier ouvert dans la page), ou null. */
+export function svgRefOf(v: unknown): { url: string } | null {
+  const r = v as { url?: unknown; mime?: unknown; name?: unknown } | null;
+  if (!r || typeof r.url !== "string" || !/^blob:/.test(r.url)) return null;
+  const mime = String(r.mime ?? "").toLowerCase();
+  return mime === "image/svg+xml" || (!mime && /\.svgz?$/i.test(String(r.name ?? ""))) ? { url: r.url } : null;
+}
 
 /**
  * Image → vecteurs : lit une source d'images (`sonic-still`, `sonic-camera`… par `#id`), quantifie les
@@ -71,6 +87,11 @@ const IDLE: VectorizeState = {
  * `colors, tolerance, minArea, denoise, curves, flat, maxSize` lues dans `control` et dans `params`
  * relancent le calcul sur l'image déjà lue.
  * Résultat complet dans `out-data-provider` (voir `VectorizeState`).
+ *
+ * `svg-from` (DP d'un SonicMediaRef, ex. `ref-provider` de `sonic-file-open`) : quand il désigne un fichier SVG,
+ * ses formes sont lues telles quelles (courbes, couleurs et opacités exactes ; voir `parseSvgDocument`) au lieu
+ * d'être tracées depuis l'image ; sinon la source d'images est tracée comme d'habitude. Avec `auto`, chaque
+ * nouveau fichier est lu dès qu'il arrive. `keep-colors` marque le résultat : couleurs d'origine à garder.
  */
 @customElement("sonic-vectorize")
 export class SonicVectorize extends LitElement {
@@ -102,6 +123,8 @@ export class SonicVectorize extends LitElement {
   /** Calcule sur le fil principal plutôt que dans un Web Worker (débogage). */
   @property({ type: Boolean, attribute: "main-thread" }) mainThread = false;
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
+  @property({ type: String, attribute: "svg-from" }) svgFrom = "";
+  @property({ type: Boolean, attribute: "keep-colors" }) keepColors = false;
 
   @state() private layerList: Layer[] = [];
   @state() private box = { w: 0, h: 0 };
@@ -123,6 +146,9 @@ export class SonicVectorize extends LitElement {
   private timer: ReturnType<typeof setInterval> | null = null;
   private pending: ReturnType<typeof setTimeout> | null = null;
   private fileUrl: string | null = null;
+  private svgRef: { url: string } | null = null;
+  /** Dernier SVG lu (URL) : la source d'images qui affiche le même fichier ne le fait pas retracer. */
+  private svgDone: string | null = null;
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -145,7 +171,7 @@ export class SonicVectorize extends LitElement {
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("control") || c.has("params")) this.listen();
+    if (c.has("control") || c.has("params") || c.has("svgFrom")) this.listen();
     if (c.has("auto") || c.has("interval") || c.has("source")) this.syncAuto();
     if (["colors", "tolerance", "minArea", "denoise", "curves", "flat", "maxSize", "palette"].some((k) => c.has(k)) && this.image) this.schedule();
   }
@@ -161,6 +187,16 @@ export class SonicVectorize extends LitElement {
       if (this.trigger.feed(v)) this.run();
       else if (changed && this.image) this.schedule();
     }));
+    if (this.svgFrom) {
+      let first = true;
+      this.unsubs.push(listenDp(this.svgFrom, (v) => {
+        const ref = svgRefOf(v);
+        const fresh = ref?.url !== this.svgRef?.url;
+        this.svgRef = ref;
+        if (!first && fresh && ref && this.auto) this.run(true);
+        first = false;
+      }));
+    }
     if (this.params) this.unsubs.push(listenDp(this.params, (v) => {
       const next = readSettings(v);
       if (sameSettings(next, this.fromParams)) return;
@@ -239,6 +275,12 @@ export class SonicVectorize extends LitElement {
 
   /** Lit l'image courante de la source puis la vectorise. Retourne faux si la source n'est pas prête (mode silencieux). */
   run(quiet = false): boolean {
+    // Fichier SVG désigné par `svg-from` : lu tel quel (une seule fois par fichier en mode auto).
+    if (this.svgRef) {
+      if (quiet && this.svgDone === this.svgRef.url) return true;
+      void this.readSvg(this.svgRef.url);
+      return true;
+    }
     const el = this.resolve();
     if (!el || !isFrameSource(el)) {
       if (!quiet) this.fail("source introuvable ou sans image");
@@ -271,6 +313,45 @@ export class SonicVectorize extends LitElement {
     }
     void this.recompute();
     return true;
+  }
+
+  /** Lit les formes d'un fichier SVG telles quelles et les publie comme des couches. */
+  private async readSvg(url: string): Promise<void> {
+    const job = ++this.job;
+    const s = this.settings();
+    this.svgDone = url;
+    this.lastRun = performance.now();
+    this.publish({ ...this.stateValue, status: "working", error: null, settings: s });
+    const t0 = performance.now();
+    let res;
+    try {
+      const text = await (await fetch(url)).text();
+      if (job !== this.job) return;
+      res = parseSvgDocument(text);
+    } catch (e) {
+      if (job !== this.job) return;
+      this.fail(e instanceof Error ? e.message : "SVG illisible");
+      return;
+    }
+    if (job !== this.job || !this.isConnected) return;
+    if (!res.paths.length) { this.fail("aucune forme remplie dans ce SVG"); return; }
+    const total = res.width * res.height || 1;
+    const layers: Layer[] = res.paths.map((p) => ({ color: p.color, d: p.d, area: p.area }));
+    const body = res.paths.map((p) => `<path fill="${p.color}"${p.opacity < 1 ? ` fill-opacity="${p.opacity}"` : ""} fill-rule="evenodd" d="${p.d}"/>`).join("");
+    const doc = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${res.width} ${res.height}" width="${res.width}" height="${res.height}">${body}</svg>`;
+    this.layerList = layers;
+    this.box = { w: res.width, h: res.height };
+    this.image = null;
+    this.runs++;
+    this.revoke();
+    this.publish({
+      status: "ready", error: null, width: res.width, height: res.height, sourceWidth: res.width, sourceHeight: res.height,
+      layers: layers.length,
+      paths: res.paths.map((p) => ({ color: p.color, area: p.area, share: Math.round((p.area / total) * 1e4) / 1e4, d: p.d, opacity: p.opacity })),
+      palette: [...new Set(res.paths.map((p) => p.color))], svg: doc, file: null, bytes: doc.length,
+      ms: Math.round(performance.now() - t0), engine: "main", runs: this.runs, truncated: res.truncated, settings: s, frame: null,
+      source: "svg", keepColors: this.keepColors, skipped: res.skipped,
+    });
   }
 
   /** Vectorise la dernière image lue avec les réglages courants (dans un Web Worker si possible). */
@@ -312,6 +393,7 @@ export class SonicVectorize extends LitElement {
       paths: res.layers.map((l) => ({ color: l.color, area: Math.round(l.area), share: Math.round((l.area / total) * 1e4) / 1e4, d: l.d })),
       palette: res.palette, svg: doc, file, bytes: doc.length,
       ms: Math.round(performance.now() - t0), engine: runner.engine, runs: this.runs, truncated: res.truncated, settings: s, frame,
+      source: "image", keepColors: this.keepColors, skipped: {},
     });
   }
 
