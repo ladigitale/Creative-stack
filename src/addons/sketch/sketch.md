@@ -158,3 +158,14 @@ Le mode de fusion se calcule contre ce qui est dessous : le fond (`background`) 
 ## Fond et damier
 
 `background` est la couleur du papier : ce qui n'est pas dessiné, ce que la gomme fait réapparaître, ce contre quoi se calculent les modes de fusion, et le fond des exports. `background="transparent"` : rien dessous (export PNG transparent, fusions posées telles quelles). `checker` dessine alors un damier sous le dessin, à l'écran seulement, pour voir ce qui est vide ou à moitié effacé : deux couleurs (`checker="#f4f1ea #e7e1d4"`) ou `true` ; `checker-size` en px d'écran (défaut 8). Les traits déjà aplatis gardent les couleurs calculées contre le fond de l'époque.
+
+## Réglages et préférences
+
+Le carnet (`persist`) garde aussi des réglages pris dans d'autres stores, en deux familles :
+
+- `settings-from` : les **réglages du dessin** (fond, palette, guides, effets…). Ils sont enregistrés avec chaque dessin et remis en place quand on l'ouvre — donc aussi au rechargement de la page, qui rouvre le dernier dessin. Les changer rend le dessin « non enregistré ». Un nouveau dessin garde les réglages en cours.
+- `prefs-from` : les **préférences de l'utilisateur** (pinceau, outil…), gardées d'une session à l'autre quel que soit le dessin ouvert (enregistrées peu après chaque changement, et à la fermeture de la page).
+
+Syntaxe : une liste séparée par des espaces de `store` (tout son état) ou `store.clé1,clé2` (ces clés seulement, pour ne pas garder l'état d'interface d'un store, comme une modale ouverte). Exemple : `settings-from="harmonie fx fxVue.fond,gType,gSpacing"` `prefs-from="pinceau"`. Au chargement, les préférences sont posées d'abord, puis les réglages du dessin rouvert. Valeurs JSON simples, 64 Ko au plus par instantané.
+
+Avec `sonic-palette`, l'attribut `write-base` écrit aussi la teinte tirée au hasard dans le store `params` : toute la palette tient alors dans ce store, qu'on peut mettre dans `settings-from`.

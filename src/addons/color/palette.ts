@@ -87,6 +87,11 @@ export class SonicPalette extends LitElement {
   @property({ type: Boolean, reflect: true }) headless = false;
   @property({ type: String }) params = "";
   @property({ type: String }) control = "";
+  /**
+   * La base tirée par `random` / `rotate` est aussi écrite dans `params` (action `set`, clé `base`) : toute la
+   * palette tient alors dans ce store, qu'on peut enregistrer et restaurer (ex. `settings-from` de sonic-sketch).
+   */
+  @property({ type: Boolean, attribute: "write-base" }) writeBase = false;
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
   private live: Record<string, unknown> = {};
@@ -148,6 +153,7 @@ export class SonicPalette extends LitElement {
     const s = this.settings();
     const o = rgbToOklch(parseHex(s.base)!);
     this.override = oklchToHex({ ...o, h: o.h + deg });
+    if (this.writeBase && this.params) dispatch(this.params, { type: "set", payload: { base: this.override } });
     this.recompute();
     this.requestUpdate();
   }
