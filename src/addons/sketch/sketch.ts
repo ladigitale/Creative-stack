@@ -126,6 +126,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Number }) width = 800;
   @property({ type: Number }) height = 600;
   @property({ type: String }) background = "#ffffff";
+  /**
+   * Damier sous le dessin quand le fond est transparent (`background="transparent"`), pour voir ce qui n'est pas
+   * dessiné ou à moitié effacé : vide = aucun ; sinon deux couleurs (`"#f4f1ea #e7e1d4"`) ou `true` (gris clairs).
+   * Affichage seulement : ni dans les exports, ni dans la toile comme source d'images. Côté en px d'écran :
+   * `checker-size` (défaut 8).
+   */
+  @property({ type: String }) checker = "";
+  @property({ type: Number, attribute: "checker-size" }) checkerSize = 8;
+  private checkerCache: { key: string; pattern: CanvasPattern } | null = null;
   @property({ type: String }) color = BRUSH_DEFAULTS.color;
   /** Diamètre du pinceau : en pixels d'écran (`size-space="screen"`, défaut) ou en unités du monde. */
   @property({ type: Number }) size = BRUSH_DEFAULTS.size;
@@ -409,7 +418,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   protected updated(c: Map<string | number | symbol, unknown>): void {
     if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom")) this.listen();
     if (c.has("width") || c.has("height")) { this.layer = null; this.layerDirty = true; this.compose(); }
-    if (c.has("background")) this.compose();
+    if (c.has("background") || c.has("checker") || c.has("checkerSize")) this.compose();
     if (c.has("tool") && c.get("tool") !== undefined && this.tool !== "select" && this.tool !== "select-color" && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
     if (c.has("tool") || c.has("color") || c.has("size")) this.publish();
     if (c.has("persist")) void this.openLibrary();
@@ -555,6 +564,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (bg) {
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
+    } else {
+      const pattern = this.checkerPattern(ctx, dpr);
+      if (pattern) {
+        ctx.fillStyle = pattern;
+        ctx.fillRect(0, 0, w, h);
+      }
     }
     let layer: HTMLCanvasElement = this.ensureLayer();
     // Gomme en cours : la couche est montrée trouée par le tracé de la gomme.
@@ -610,6 +625,34 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private backgroundColor(): string {
     if (!this.background || this.background === "transparent") return "";
     return sanitizeBrush({ ...BRUSH_DEFAULTS }, { color: this.background }).color;
+  }
+
+  /** Motif du damier (`checker`), en pixels de l'appareil ; null si aucun. */
+  private checkerPattern(ctx: CanvasRenderingContext2D, dpr: number): CanvasPattern | null {
+    const raw = String(this.checker ?? "").trim();
+    if (!raw || raw === "false") return null;
+    const parts = raw === "true" ? [] : raw.split(/[\s,]+/).filter(Boolean);
+    const col = (c: string | undefined, d: string) => (c ? sanitizeBrush({ ...BRUSH_DEFAULTS }, { color: c }).color : d);
+    const a = col(parts[0], "#ffffff"), b = col(parts[1], "#e6e6e6");
+    const cell = Math.max(2, Math.min(64, Number(this.checkerSize) || 8));
+    const key = `${a}|${b}|${cell}|${dpr}`;
+    if (this.checkerCache?.key === key) return this.checkerCache.pattern;
+    const px = Math.max(1, Math.round(cell * dpr));
+    const tile = document.createElement("canvas");
+    tile.width = tile.height = px * 2;
+    const t = tile.getContext("2d");
+    if (!t) return null;
+    t.fillStyle = a;
+    t.fillRect(0, 0, px * 2, px * 2);
+    t.fillStyle = b;
+    t.fillRect(px, 0, px, px);
+    t.fillRect(0, px, px, px);
+    const pattern = ctx.createPattern(tile, "repeat");
+    if (!pattern) return null;
+    // Le contexte dessine en px CSS (échelle dpr) : le motif, en px de l'appareil, est ramené à 1/dpr.
+    pattern.setTransform?.(new DOMMatrix([1 / dpr, 0, 0, 1 / dpr, 0, 0]));
+    this.checkerCache = { key, pattern };
+    return pattern;
   }
 
   private gestureActive(): boolean {
