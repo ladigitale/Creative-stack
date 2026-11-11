@@ -414,17 +414,19 @@
       "id": "formes",
       "kind": "shader",
       "file": "formes.glsl",
-      "version": 2,
+      "version": 3,
       "license": "MIT",
       "title": "Formes génératives",
-      "description": "Image fixe en aplats nets de 2 à 6 couleurs très distinctes sur fond noir, à vectoriser (sonic-vectorize) puis importer dans sonic-sketch (import-skip=\"#000000\", import-colors-from pour recolorer selon la palette) : cellules, courbes de niveau, rosace, entrelacs, taches, rayures ondulées, spirale, écailles, labyrinthe, bouquet, triangles, damier ondulé, ondes.",
+      "description": "Image fixe en aplats nets de 2 à 6 couleurs très distinctes sur fond noir, à vectoriser (sonic-vectorize) puis importer dans sonic-sketch (import-skip=\"#000000\", import-colors-from pour recolorer selon la palette ; ou iChannel1 = bande de couleurs pour dessiner directement aux couleurs de la palette) : cellules, courbes de niveau, rosace, entrelacs, taches, rayures ondulées, spirale, écailles, labyrinthe, bouquet, triangles, damier ondulé, ondes.",
       "tags": [
         "génératif",
         "formes",
         "vectorisation",
         "motif"
       ],
-      "channels": [],
+      "channels": [
+        "iChannel1 : bande de couleurs facultative (une colonne par couleur de la palette)"
+      ],
       "params": [
         {
           "name": "uParam0",
