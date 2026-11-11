@@ -69,10 +69,15 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
     }
     const b = st.brush;
     const op = b.opacity < 0.999 ? ` opacity="${f(b.opacity)}"` : "";
+    // Opacité du trait entier (empreintes à pleine force, groupe translucide) — comme à l'écran.
+    const group = (at: number) => {
+      if (body.length > at && b.opacity < 0.999 && !st.flat) body.splice(at, body.length - at, `<g opacity="${f(b.opacity)}">${body.slice(at).join("")}</g>`);
+    };
     if (st.erase) {
       // Gomme en empreintes : ses empreintes, en noir, forment un masque sur tout ce qui est dessous.
       const at = body.length;
-      emit(st, { ...b, color: "#000000" }, op);
+      emit(st, { ...b, color: "#000000" }, "");
+      group(at);
       const inner = body.splice(at).join("");
       if (!inner || !body.length) continue;
       const id = `m${++masks}`;
@@ -81,7 +86,8 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
       continue;
     }
     const at = body.length;
-    emit(st, b, op);
+    emit(st, b, st.flat ? op : "");
+    group(at);
     // Mode de fusion : le trait entier (ses empreintes réunies) fusionne avec ce qui est dessous.
     if (b.blend && b.blend !== "normal" && body.length > at) {
       body.splice(at, body.length - at, `<g style="mix-blend-mode:${b.blend}">${body.slice(at).join("")}</g>`);
