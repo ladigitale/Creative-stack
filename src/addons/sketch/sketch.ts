@@ -11,7 +11,7 @@ import {
   Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
   toScreen, toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type StrokeBrush, type View,
 } from "./model";
-import { blitBlend, drawStamp, drawStrokes, punch, scratchFor, type Surface } from "./render";
+import { blitBlend, clearDisc, drawStamp, drawStrokes, punch, scratchFor, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
@@ -297,12 +297,16 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** Le trait en cours est une gomme (aperçu en trou, appliquée au lever). */
   private erasing = false;
   /**
-   * Gomme pleine (disque net) : ses empreintes vont au tampon à pleine opacité et le tampon troue l'aperçu à
-   * hauteur de l'opacité, comme l'effacement final (uniforme sur le trait). Gomme en empreintes : opacité par
-   * empreinte, tampon appliqué en entier.
+   * Opacité du trait entier : pendant le geste, ses empreintes vont au tampon à pleine force et le tampon est
+   * posé (ou ôté, pour la gomme) à l'opacité du pinceau — comme le rendu final et l'aplatissement.
    */
   private liveBrush: StrokeBrush | null = null;
-  private eraseAlpha = 1;
+  private liveAlpha = 1;
+  /**
+   * Jonction de la passe en cours avec la précédente (monde, rayon) : son disque est ôté du tampon avant chaque
+   * affichage, comme le bout arrondi de départ est ôté de la passe à l'aplatissement — la jonction ne fonce pas.
+   */
+  private liveJoint: [number, number, number] | null = null;
   private eraseBuf: HTMLCanvasElement | null = null;
   /** Retouche en aperçu : traits calculés (non enregistrés), régions issues, liste de départ. */
   private pending: { strokes: Stroke[]; fresh: Set<Region>; base: Stroke[]; len: number; global: boolean } | null = null;
@@ -554,14 +558,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
     let layer: HTMLCanvasElement = this.ensureLayer();
     // Gomme en cours : la couche est montrée trouée par le tracé de la gomme.
-    if (this.erasing && this.liveBuf) layer = this.holed(layer, this.liveBuf.ctx.canvas, this.eraseAlpha);
+    this.clearLiveJoint();
+    if (this.erasing && this.liveBuf) layer = this.holed(layer, this.liveBuf.ctx.canvas, this.liveAlpha);
     // Couche dessinée pour layerView, montrée dans la vue courante (déplacée, zoomée, tournée) le temps du geste.
     const t = multiply(viewMatrix(this.view, w, h), invert(viewMatrix(this.layerView, w, h)));
     ctx.transform(t[0], t[1], t[2], t[3], t[4], t[5]);
     ctx.drawImage(layer, 0, 0, w, h);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Trait en cours avec fusion : la vue n'a pas bougé depuis son début (sinon il est abandonné).
-    if (this.liveBuf && this.stroke && !this.erasing) blitBlend({ ctx, w, h, view: this.view }, this.liveBuf.ctx.canvas, this.stroke.brush.blend);
+    if (this.liveBuf && this.stroke && !this.erasing) blitBlend({ ctx, w, h, view: this.view }, this.liveBuf.ctx.canvas, this.stroke.brush.blend, this.liveAlpha);
     this.seq++;
     this.drawOverlay();
   }
@@ -756,8 +761,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const b = erase ? { ...this.brush(), color: "#000000" } : this.brush();
     const brush = makeBrush(b, this.worldSize(b), erase ? "normal" : this.currentBlend());
     const solidEraser = erase && isSolid(brush, []);
-    this.liveBrush = solidEraser ? { ...brush, opacity: 1 } : brush;
-    this.eraseAlpha = solidEraser ? brush.opacity : 1;
+    this.liveBrush = { ...brush, opacity: 1 };
+    this.liveJoint = null;
+    this.liveAlpha = brush.opacity;
     const seed = (Math.random() * 4294967296) >>> 0;
     this.stroke = { id: this.doc.nextId++, brush, pts: [], seed, bbox: { x: 0, y: 0, w: 0, h: 0 } };
     this.stamper = new StrokeStamper(brush, seed);
@@ -767,7 +773,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.turns = this.passes && multiPass(brush) && (!erase || solidEraser) ? new PassDetector(brush.size) : null;
     this.startFlatInc(brush, erase);
     this.liveBuf = null;
-    if (brush.blend || erase) {
+    if (brush.blend || erase || brush.opacity < 0.999) {
       const s = this.layerSurface();
       this.liveBuf = s ? scratchFor(s, this.liveKey) : null;
     }
@@ -801,14 +807,16 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (n >= 3 && this.turns?.feed(x, y)) {
       const c = n / 3 - 1;
       this.cutIdx.push(c);
+      this.clearLiveJoint();
       this.pieceBoundary(c, "pass");
       this.pieceLen = Math.hypot(x - st.pts[n - 3], y - st.pts[n - 2]);
       const layer = this.layerSurface();
       if (this.liveBuf && layer) {
-        if (this.erasing) punch(layer, this.liveBuf.ctx.canvas, this.eraseAlpha);
-        else blitBlend(layer, this.liveBuf.ctx.canvas, st.brush.blend);
+        if (this.erasing) punch(layer, this.liveBuf.ctx.canvas, this.liveAlpha);
+        else blitBlend(layer, this.liveBuf.ctx.canvas, st.brush.blend, this.liveAlpha);
         this.liveBuf = scratchFor(layer, this.liveKey);
       }
+      this.liveJoint = [st.pts[n - 3], st.pts[n - 2], solidRadius(st.brush, [0, 0, st.pts[n - 1]])];
     } else if (n < 3) this.turns?.feed(x, y);
     st.pts.push(x, y, pr);
     // Trait long d'une seule passe (ou trait couvrant) : il est aussi livré par tronçons à l'aplatissement progressif.
@@ -837,6 +845,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         }
       }
     }
+    this.clearLiveJoint();
+    this.liveJoint = null;
     const live = this.liveBuf;
     const erasing = this.erasing;
     this.stroke = null;
@@ -886,7 +896,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         if (this.doc.addMany(passes)) {
           this.error = null;
           // Les passes précédentes sont déjà posées sur la couche (à chaque coupe) ; reste la dernière.
-          if (live) { const s = this.layerSurface(); if (s) blitBlend(s, live.ctx.canvas, st.brush.blend); }
+          if (live) { const s = this.layerSurface(); if (s) blitBlend(s, live.ctx.canvas, st.brush.blend, st.brush.opacity); }
           this.compose();
           return;
         }
@@ -903,7 +913,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
     this.error = null;
     // Trait fusionné : ses empreintes, réunies dans le tampon, sont posées sur la couche avec leur mode.
-    if (live) { const s = this.layerSurface(); if (s) blitBlend(s, live.ctx.canvas, st.brush.blend); }
+    if (live) { const s = this.layerSurface(); if (s) blitBlend(s, live.ctx.canvas, st.brush.blend, st.brush.opacity); }
     this.compose();
   }
 
@@ -1244,6 +1254,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (changed || needMask) this.doc.replace(after);
     this.error = null;
     this.invalidate();
+  }
+
+  private clearLiveJoint(): void {
+    const j = this.liveJoint;
+    if (j && this.liveBuf) clearDisc(this.liveBuf, j[0], j[1], j[2]);
   }
 
   /** Couche trouée par le tampon de la gomme (aperçu pendant le geste). */

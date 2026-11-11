@@ -148,3 +148,9 @@ Un trait en mode de fusion (autre que `normal`) ou à opacité inférieure à 1 
 Un trait plein s'aplatit pendant le geste : chaque passe, ou chaque tronçon d'une passe longue (au moins 48 points et 6 diamètres), est contouré et peint dans la carte d'aplats par tranches de quelques millisecondes dès qu'il est terminé. Au lever, il ne reste que le dernier morceau à calculer. Le résultat est le même que d'un bloc.
 
 Tourner longtemps au même endroit avec un mode de fusion morcelle la carte en centaines de régions, et chaque passe coûte alors plus que la précédente. Au-delà d'un budget (un morceau de plus de 40 ms sur une carte de plus de 1 500 sommets), l'aplatissement s'arrête : le trait est gardé en empreintes, une par passe, pour que les recouvrements restent cumulés comme pendant le geste. Le tout fait une seule étape d'annulation. Un trait à pression variable (stylet) s'aplatit d'un bloc au lever, comme avant.
+
+## Opacité
+
+L'opacité est celle du trait entier, comme dans les logiciels de dessin : ses empreintes sont réunies à pleine force, puis le trait est posé (ou ôté, pour la gomme) à l'opacité du pinceau, avec son mode de fusion. Des empreintes qui se chevauchent ne foncent donc pas le trait ; seules les passes (voir plus haut) se cumulent. C'est vrai pendant le geste, à la mise à plat, au rendu des traits gardés en empreintes et à l'export SVG (groupe `opacity`). À opacité 0, un trait ne montre rien, quel que soit son mode.
+
+Le mode de fusion se calcule contre ce qui est dessous : le fond (`background`) là où rien n'est dessiné. Sur un fond transparent, il n'y a rien avec quoi fusionner : la couleur est posée telle quelle (règle de composition standard).

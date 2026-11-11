@@ -115,36 +115,45 @@ export function punch(s: Surface, buf: CanvasImageSource, alpha: number): void {
   ctx.restore();
 }
 
+/** Vide un disque (monde : centre x, y, rayon r) d'une surface : jonction de passes dans le tampon du geste. */
+export function clearDisc(s: Surface, x: number, y: number, r: number): void {
+  const { ctx, view, w, h } = s;
+  const [sx, sy] = toScreen(view, x, y, w, h);
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.beginPath();
+  ctx.arc(sx, sy, Math.max(0, r * view.zoom), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 /** Pose un tampon (pixels de la surface) sur la surface avec un mode de fusion. */
-export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | undefined): void {
+export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | undefined, alpha = 1): void {
   const { ctx } = s;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
   ctx.globalCompositeOperation = compositeOf(blend);
   ctx.drawImage(buf, 0, 0);
   ctx.restore();
 }
 
 /**
- * Dessine un trait. Avec un mode de fusion, ses empreintes sont d'abord réunies dans un tampon (normalement,
- * pour qu'elles ne se fusionnent pas entre elles) puis le tampon est fusionné avec ce qui est dessous.
+ * Dessine un trait. L'opacité est celle du trait entier (comme dans les logiciels de dessin) : ses empreintes
+ * sont réunies à pleine force dans un tampon, sans se fusionner entre elles, puis le tampon est posé sur ce qui
+ * est dessous avec l'opacité et le mode du trait — des empreintes qui se chevauchent ne foncent pas le trait.
+ * Gomme en empreintes : le tampon est ôté de ce qui est dessous, à hauteur de l'opacité.
  */
 export function drawStroke(s: Surface, st: Stroke): void {
-  if (st.erase) {
-    // Gomme en empreintes : réunies dans un tampon, puis ôtées de ce qui est dessous.
-    const buf = scratchFor(s);
-    if (!buf) return;
-    paintStroke(buf, st);
-    punch(s, buf.ctx.canvas, 1);
-    return;
-  }
+  const a = st.brush.opacity;
   const blend = st.brush.blend;
-  if (!blend || blend === "normal") return paintStroke(s, st);
+  if (st.flat || st.mask || (!st.erase && (!blend || blend === "normal") && a >= 0.999)) return paintStroke(s, st);
   const buf = scratchFor(s);
   if (!buf) return;
-  paintStroke(buf, st);
-  blitBlend(s, buf.ctx.canvas, blend);
+  paintStroke(buf, { ...st, brush: { ...st.brush, opacity: 1 } });
+  if (st.erase) punch(s, buf.ctx.canvas, a);
+  else blitBlend(s, buf.ctx.canvas, blend, a);
 }
 
 function paintStroke(s: Surface, st: Stroke): void {
