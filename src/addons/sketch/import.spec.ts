@@ -22,6 +22,17 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const sq = (x: number, y: number, s: number) => `M${x} ${y}L${x + s} ${y}L${x + s} ${y + s}L${x} ${y + s}Z`;
 
 describe("sonic-sketch : import de formes vectorisées", () => {
+  it("commande import avec importSource : importe ce DP-là sur demande, hors de import-from", async () => {
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "genSrcX", "import-auto": "", control: "skCtlSrc", "out-data-provider": "skStateSrc" });
+    set("fichierSrcX", { ...result(7, [{ color: "#ff0000", d: sq(0, 0, 10) }]), keepColors: true });
+    await tick();
+    expect(el.getState().strokes).toBe(0); // pas dans import-from : rien d'automatique
+    set("skCtlSrc", { import: 1, importSource: "fichierSrcX" });
+    expect(el.getState().imported).toMatchObject({ layers: 1 });
+    expect(el.getState().strokes).toBe(1);
+    el.remove();
+  });
+
   it("plusieurs sources (formes générées, fichier ouvert), suivies à part ; keepColors et opacité de couche", async () => {
     set("palImp", { colors: ["#00ff00"] });
     set("genImp", result(1, [{ color: "#ff0000", d: sq(0, 0, 10) }]));

@@ -249,3 +249,33 @@ describe("sonic-vectorize svg-from", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("sonic-vectorize : palette imposée et fond retiré sur un SVG lu", () => {
+  it("couleurs ramenées à la palette, couche du dessous retirée, sans relire le fichier", async () => {
+    const { vi } = await import("vitest");
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      reads++;
+      return { text: async () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#fafafa"/><rect width="4" height="4" fill="#e01010"/><rect x="5" width="4" height="4" fill="#1010d0"/></svg>' };
+    }));
+    set("svgOpt", null);
+    set("svgOptParams", {});
+    const el = document.createElement("sonic-vectorize");
+    for (const [k, v] of Object.entries({ "svg-from": "svgOpt", auto: "", params: "svgOptParams", "out-data-provider": "svgOptVec" })) el.setAttribute(k, v);
+    document.body.appendChild(el);
+    await (el as unknown as { updateComplete: Promise<unknown> }).updateComplete;
+    set("svgOpt", { url: "blob:opt", mime: "image/svg+xml" });
+    await new Promise((r) => setTimeout(r, 20));
+    const cols = () => (dp("svgOptVec").get() as { paths: { color: string }[] }).paths.map((p) => p.color);
+    expect(cols()).toEqual(["#fafafa", "#e01010", "#1010d0"]);
+    set("svgOptParams", { palette: ["#ff0000", "#0000ff", "#ffffff"], dropBase: true });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(cols()).toEqual(["#ff0000", "#0000ff"]);
+    set("svgOptParams", { palette: [], dropBase: false });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(cols()).toEqual(["#fafafa", "#e01010", "#1010d0"]);
+    expect(reads).toBe(1);
+    el.remove();
+    vi.unstubAllGlobals();
+  });
+});

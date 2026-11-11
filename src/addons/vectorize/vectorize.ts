@@ -5,9 +5,9 @@ import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger, num } from "../../shared/media/control";
 import { isFrameSource } from "../../shared/mediaRef";
 import { frameToClient } from "../../shared/frame-geometry";
-import { parsePalette, toSvg, type Layer, type TraceResult } from "./trace";
+import { nearest, parsePalette, toSvg, type Layer, type TraceResult } from "./trace";
 import { SupersededError, TraceRunner } from "./worker-client";
-import { parseSvgDocument } from "./svgdoc";
+import { parseSvgDocument, type SvgImport } from "./svgdoc";
 
 /** Réglages effectifs (attributs, puis `control`, puis `params` : le dernier l'emporte). */
 export type VectorizeSettings = {
@@ -18,8 +18,10 @@ export type VectorizeSettings = {
   curves: boolean;
   flat: boolean;
   maxSize: number;
-  /** Palette imposée (#rrggbb) ; vide = palette calculée sur `colors` couleurs. */
+  /** Palette imposée (#rrggbb) ; vide = palette calculée sur `colors` couleurs. SVG lu tel quel : chaque couleur devient la plus proche de la palette. */
   palette: string[];
+  /** Retire la couche du dessous (le fond : papier d'une photo, rectangle de fond d'un SVG). */
+  dropBase: boolean;
 };
 
 export type VectorizeState = {
@@ -64,7 +66,7 @@ export type VectorizeState = {
   skipped: Record<string, number>;
 };
 
-const DEFAULTS: VectorizeSettings = { colors: 8, tolerance: 1, minArea: 4, denoise: 1, curves: false, flat: false, maxSize: 512, palette: [] };
+const DEFAULTS: VectorizeSettings = { colors: 8, tolerance: 1, minArea: 4, denoise: 1, curves: false, flat: false, maxSize: 512, palette: [], dropBase: false };
 const IDLE: VectorizeState = {
   status: "idle", error: null, width: 0, height: 0, sourceWidth: 0, sourceHeight: 0, layers: 0, paths: [], palette: [],
   svg: "", file: null, bytes: 0, ms: 0, engine: "main", runs: 0, truncated: false, settings: { ...DEFAULTS }, frame: null,
@@ -115,6 +117,8 @@ export class SonicVectorize extends LitElement {
   @property({ type: Number }) denoise = DEFAULTS.denoise;
   @property({ type: Boolean }) curves = DEFAULTS.curves;
   @property({ type: Boolean }) flat = DEFAULTS.flat;
+  /** Retire la couche du dessous (le fond). Aussi `dropBase` dans `control` / `params`. */
+  @property({ type: Boolean, attribute: "drop-base" }) dropBase = DEFAULTS.dropBase;
   /** Côté max (px) de l'image analysée : borne le temps de calcul. */
   @property({ type: Number, attribute: "max-size" }) maxSize = DEFAULTS.maxSize;
   /** Palette imposée : couleurs séparées par des virgules (ou clé DP `palette`, tableau ou chaîne). */
@@ -128,6 +132,7 @@ export class SonicVectorize extends LitElement {
 
   @state() private layerList: Layer[] = [];
   @state() private box = { w: 0, h: 0 };
+  @state() private layerOpacity: number[] = [];
 
   stateValue: VectorizeState = { ...IDLE };
   private trigger = new CounterTrigger();
@@ -149,6 +154,7 @@ export class SonicVectorize extends LitElement {
   private svgRef: { url: string } | null = null;
   /** Dernier SVG lu (URL) : la source d'images qui affiche le même fichier ne le fait pas retracer. */
   private svgDone: string | null = null;
+  private svgParsed: SvgImport | null = null;
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -173,7 +179,7 @@ export class SonicVectorize extends LitElement {
   protected updated(c: Map<string | number | symbol, unknown>): void {
     if (c.has("control") || c.has("params") || c.has("svgFrom")) this.listen();
     if (c.has("auto") || c.has("interval") || c.has("source")) this.syncAuto();
-    if (["colors", "tolerance", "minArea", "denoise", "curves", "flat", "maxSize", "palette"].some((k) => c.has(k)) && this.image) this.schedule();
+    if (["colors", "tolerance", "minArea", "denoise", "curves", "flat", "maxSize", "palette", "dropBase"].some((k) => c.has(k)) && (this.image || this.svgParsed)) this.schedule();
   }
 
   private listen(): void {
@@ -185,7 +191,7 @@ export class SonicVectorize extends LitElement {
       const changed = !sameSettings(next, this.fromControl);
       this.fromControl = next;
       if (this.trigger.feed(v)) this.run();
-      else if (changed && this.image) this.schedule();
+      else if (changed && (this.image || this.svgParsed)) this.schedule();
     }));
     if (this.svgFrom) {
       let first = true;
@@ -201,7 +207,7 @@ export class SonicVectorize extends LitElement {
       const next = readSettings(v);
       if (sameSettings(next, this.fromParams)) return;
       this.fromParams = next;
-      if (this.image) this.schedule();
+      if (this.image || this.svgParsed) this.schedule();
     }));
   }
 
@@ -226,7 +232,7 @@ export class SonicVectorize extends LitElement {
   settings(): VectorizeSettings {
     const s = {
       colors: this.colors, tolerance: this.tolerance, minArea: this.minArea, denoise: this.denoise,
-      curves: this.curves, flat: this.flat, maxSize: this.maxSize, palette: paletteList(this.palette),
+      curves: this.curves, flat: this.flat, maxSize: this.maxSize, palette: paletteList(this.palette), dropBase: this.dropBase,
       ...this.fromControl, ...this.fromParams,
     };
     return {
@@ -238,6 +244,7 @@ export class SonicVectorize extends LitElement {
       flat: !!s.flat,
       maxSize: Math.round(clamp(s.maxSize, 16, 1400, DEFAULTS.maxSize)),
       palette: parsePalette(s.palette).map((c) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("")),
+      dropBase: !!s.dropBase,
     };
   }
 
@@ -246,6 +253,8 @@ export class SonicVectorize extends LitElement {
     if (this.pending) clearTimeout(this.pending);
     this.pending = setTimeout(() => {
       this.pending = null;
+      // SVG lu tel quel : les réglages (palette, fond) s'appliquent au résultat déjà lu, sans relire le fichier.
+      if (this.svgParsed && this.svgRef && this.svgDone === this.svgRef.url) { this.publishSvg(this.svgParsed, 0); return; }
       if (this.settings().maxSize !== this.imageMaxSize) this.run(true);
       else void this.recompute();
     }, 30);
@@ -302,6 +311,7 @@ export class SonicVectorize extends LitElement {
       if (!ctx) throw new Error("canvas 2D indisponible");
       ctx.drawImage(src, 0, 0, w, h);
       this.image = ctx.getImageData(0, 0, w, h);
+      this.svgParsed = null;
       this.imageMaxSize = maxSize;
       this.sourceSize = { w: src.width, h: src.height };
       const f = frameToClient(el, src);
@@ -334,12 +344,28 @@ export class SonicVectorize extends LitElement {
       return;
     }
     if (job !== this.job || !this.isConnected) return;
-    if (!res.paths.length) { this.fail("aucune forme remplie dans ce SVG"); return; }
+    if (!res.paths.length) { this.svgParsed = null; this.fail("aucune forme remplie dans ce SVG"); return; }
+    this.svgParsed = res;
+    this.publishSvg(res, performance.now() - t0);
+  }
+
+  /** Publie un SVG lu, avec les réglages courants : palette imposée (couleur la plus proche), fond retiré. */
+  private publishSvg(res: SvgImport, ms: number): void {
+    const s = this.settings();
+    const pal = parsePalette(s.palette);
+    const hex = (c: number[]) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
+    let paths = res.paths.map((p) => {
+      if (!pal.length) return p;
+      const [r, g, b] = [1, 3, 5].map((k) => parseInt(p.color.slice(k, k + 2), 16));
+      return { ...p, color: hex(pal[nearest(pal, r, g, b)]) };
+    });
+    if (s.dropBase && paths.length > 1) paths = paths.slice(1);
     const total = res.width * res.height || 1;
-    const layers: Layer[] = res.paths.map((p) => ({ color: p.color, d: p.d, area: p.area }));
-    const body = res.paths.map((p) => `<path fill="${p.color}"${p.opacity < 1 ? ` fill-opacity="${p.opacity}"` : ""} fill-rule="evenodd" d="${p.d}"/>`).join("");
+    const layers: Layer[] = paths.map((p) => ({ color: p.color, d: p.d, area: p.area }));
+    const body = paths.map((p) => `<path fill="${p.color}"${p.opacity < 1 ? ` fill-opacity="${p.opacity}"` : ""} fill-rule="evenodd" d="${p.d}"/>`).join("");
     const doc = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${res.width} ${res.height}" width="${res.width}" height="${res.height}">${body}</svg>`;
     this.layerList = layers;
+    this.layerOpacity = paths.map((p) => p.opacity);
     this.box = { w: res.width, h: res.height };
     this.image = null;
     this.runs++;
@@ -347,9 +373,9 @@ export class SonicVectorize extends LitElement {
     this.publish({
       status: "ready", error: null, width: res.width, height: res.height, sourceWidth: res.width, sourceHeight: res.height,
       layers: layers.length,
-      paths: res.paths.map((p) => ({ color: p.color, area: p.area, share: Math.round((p.area / total) * 1e4) / 1e4, d: p.d, opacity: p.opacity })),
-      palette: [...new Set(res.paths.map((p) => p.color))], svg: doc, file: null, bytes: doc.length,
-      ms: Math.round(performance.now() - t0), engine: "main", runs: this.runs, truncated: res.truncated, settings: s, frame: null,
+      paths: paths.map((p) => ({ color: p.color, area: p.area, share: Math.round((p.area / total) * 1e4) / 1e4, d: p.d, opacity: p.opacity })),
+      palette: [...new Set(paths.map((p) => p.color))], svg: doc, file: null, bytes: doc.length,
+      ms: Math.round(ms), engine: "main", runs: this.runs, truncated: res.truncated, settings: s, frame: null,
       source: "svg", keepColors: this.keepColors, skipped: res.skipped,
     });
   }
@@ -375,7 +401,10 @@ export class SonicVectorize extends LitElement {
       return;
     }
     if (job !== this.job || !this.isConnected) return;
+    // Fond retiré : la couche du dessous (la plus étendue en mode empilé).
+    if (s.dropBase && res.layers.length > 1) res = { ...res, layers: res.layers.slice(1) };
     const doc = toSvg(res, { width: size.w, height: size.h });
+    this.layerOpacity = [];
     this.layerList = res.layers;
     this.box = { w: res.width, h: res.height };
     this.runs++;
@@ -399,7 +428,7 @@ export class SonicVectorize extends LitElement {
 
   render(): TemplateResult | typeof nothing {
     if (!this.layerList.length || this.hiddenPreview) return nothing;
-    return svg`<svg viewBox="0 0 ${this.box.w} ${this.box.h}" role="img" aria-label="Image vectorisée">${this.layerList.map((l) => svg`<path fill=${l.color} fill-rule="evenodd" d=${l.d}></path>`)}</svg>`;
+    return svg`<svg viewBox="0 0 ${this.box.w} ${this.box.h}" role="img" aria-label="Image vectorisée">${this.layerList.map((l, i) => svg`<path fill=${l.color} fill-opacity=${this.layerOpacity[i] ?? 1} fill-rule="evenodd" d=${l.d}></path>`)}</svg>`;
   }
 }
 
@@ -418,6 +447,10 @@ export function readSettings(v: unknown): Partial<VectorizeSettings> {
   n("maxSize", "max-size", 16, 1400);
   const pal = p.palette;
   if (Array.isArray(pal) || typeof pal === "string" || (pal && typeof pal === "object")) o.palette = paletteList(pal);
+  if (p.dropBase !== undefined || p["drop-base"] !== undefined) {
+    const x = p.dropBase ?? p["drop-base"];
+    o.dropBase = typeof x === "boolean" ? x : typeof x === "number" ? x !== 0 : x === "true" || x === "oui";
+  }
   for (const key of ["curves", "flat"] as const) {
     const x = p[key];
     if (typeof x === "boolean") o[key] = x;

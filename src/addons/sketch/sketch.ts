@@ -518,7 +518,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.unsubs.push(listenDp(this.control, (v) => {
         if (!v || typeof v !== "object") return;
         const c = v as Record<string, unknown>;
-        if ("import" in c && this.trigger("import").feed(c.import)) this.importShapes();
+        // `{import: n}` : dernier résultat reçu ; avec `importSource`, celui de ce DP (ex. un fichier à importer
+        // seulement sur demande, hors de `import-from`).
+        if ("import" in c && this.trigger("import").feed(c.import)) {
+          const src = typeof c.importSource === "string" && c.importSource.trim() ? c.importSource.trim() : "";
+          this.importShapes(src ? plain(get(src)) : undefined);
+        }
         if (typeof c.exportScale === "number" || typeof c.exportScale === "string") this.liveExport.scale = Number(c.exportScale);
         if (c.exportArea === "view" || c.exportArea === "content") this.liveExport.area = c.exportArea;
         for (const cmd of ["undo", "redo", "clear", "save", "savePng", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten", "selectAll", "deselect", "deleteSelection"] as const) {
