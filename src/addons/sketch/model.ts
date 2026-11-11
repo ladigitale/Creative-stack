@@ -41,8 +41,16 @@ export type Stroke = {
    * aplatis (fusions calculées, parties recouvertes retirées, régions de même couleur unies).
    */
   flat?: Region[];
-  /** Masque de gomme (remplace `pts`) : efface ce qui est dessous, traits non aplatis compris. */
+  /**
+   * Masque de gomme (remplace `pts`) : efface ce qui est dessous, traits non aplatis compris, à hauteur de
+   * l'opacité de son pinceau (1 : trou net ; moins : ce qui est dessous s'estompe).
+   */
   mask?: Multi;
+  /**
+   * Gomme en empreintes (pointe, bord doux, dispersion… : pas de contour net possible) : ses empreintes
+   * effacent ce qui est dessous comme le pinceau peindrait, opacité comprise.
+   */
+  erase?: boolean;
   seed: number;
   bbox: BBox;
 };
@@ -190,6 +198,7 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
 
 /** Le trait passe-t-il à moins de `r` (monde) du point ? (épaisseur du trait comprise) */
 export function strokeHit(s: Stroke, px: number, py: number, r: number): boolean {
+  if (s.erase) return false;
   if (s.flat || s.mask) {
     const b = s.bbox;
     if (px < b.x - r || px > b.x + b.w + r || py < b.y - r || py > b.y + b.h + r) return false;

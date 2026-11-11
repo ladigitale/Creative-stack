@@ -11,11 +11,11 @@ import {
   Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
   toScreen, toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type StrokeBrush, type View,
 } from "./model";
-import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./render";
+import { blitBlend, drawStamp, drawStrokes, punch, scratchFor, type Surface } from "./render";
 import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
-import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, recolorManyFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, safeBoolean, type Backdrop, type FlatEdit, type Region } from "./flat";
+import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, recolorManyFlat, eraseFlat, fadeFlat, flatBBox, flatVertices, paintFlat, recolorFlat, safeBoolean, type Backdrop, type FlatEdit, type Region } from "./flat";
 import { allRegions, regionAt, selectionInfo, similarRegions, type SelectionInfo } from "./select";
 import { PassDetector, splitPasses } from "./turns";
 import { HEAVY_VERTICES, PIECE_BUDGET_MS, StrokeFlattener, capDisc, type Joint, type Target } from "./flatten-inc";
@@ -110,7 +110,7 @@ export type SketchState = {
  * celle du pinceau (écrite aussi dans `brush-from`). `tool="select"` sélectionne la région d'aplat sous le point (Maj :
  * ajouter / retirer), `tool="select-color"` toutes les régions de cette couleur (`tolerance`, `contiguous`) ;
  * une couleur choisie ensuite (`brush-from.color`) recolore la sélection, Suppr la retire, Échap la vide.
- * `tool="erase"` est une vraie gomme (trou exact dans les aplats, masque sur les traits non aplatis). Commandes par `control` (compteurs) : `undo`, `redo`, `clear`,
+ * `tool="erase"` est une gomme au pinceau courant (trou exact ou estompé dans les aplats, masque sur les traits non aplatis ; en empreintes pour une pointe ou un bord doux). Commandes par `control` (compteurs) : `undo`, `redo`, `clear`,
  * `save` (SVG), `savePng`, `fit`, `reset`, `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`.
  * Vue pilotée par `view-from` ({x, y, zoom, rotation}).
  */
@@ -137,7 +137,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** Tremblement du tracé 0..1 (contours vivants ; voir `BrushSettings.tremble`). Aussi en direct dans `brush-from`. */
   @property({ type: Number }) tremble = 0;
   /**
-   * `paint`, `erase` (vraie gomme), `pick` (pipette), `select` (régions d'aplat au clic), `select-color` (régions
+   * `paint`, `erase` (gomme au pinceau courant), `pick` (pipette), `select` (régions d'aplat au clic), `select-color` (régions
    * d'une couleur) ou `hand` (déplacer la vue).
    */
   @property({ type: String }) tool = "paint";
@@ -296,6 +296,13 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private flattened = 0;
   /** Le trait en cours est une gomme (aperçu en trou, appliquée au lever). */
   private erasing = false;
+  /**
+   * Gomme pleine (disque net) : ses empreintes vont au tampon à pleine opacité et le tampon troue l'aperçu à
+   * hauteur de l'opacité, comme l'effacement final (uniforme sur le trait). Gomme en empreintes : opacité par
+   * empreinte, tampon appliqué en entier.
+   */
+  private liveBrush: StrokeBrush | null = null;
+  private eraseAlpha = 1;
   private eraseBuf: HTMLCanvasElement | null = null;
   /** Retouche en aperçu : traits calculés (non enregistrés), régions issues, liste de départ. */
   private pending: { strokes: Stroke[]; fresh: Set<Region>; base: Stroke[]; len: number; global: boolean } | null = null;
@@ -547,7 +554,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
     let layer: HTMLCanvasElement = this.ensureLayer();
     // Gomme en cours : la couche est montrée trouée par le tracé de la gomme.
-    if (this.erasing && this.liveBuf) layer = this.holed(layer, this.liveBuf.ctx.canvas);
+    if (this.erasing && this.liveBuf) layer = this.holed(layer, this.liveBuf.ctx.canvas, this.eraseAlpha);
     // Couche dessinée pour layerView, montrée dans la vue courante (déplacée, zoomée, tournée) le temps du geste.
     const t = multiply(viewMatrix(this.view, w, h), invert(viewMatrix(this.layerView, w, h)));
     ctx.transform(t[0], t[1], t[2], t[3], t[4], t[5]);
@@ -745,16 +752,19 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (this.layerDirty || lv.x !== v.x || lv.y !== v.y || lv.zoom !== v.zoom || lv.rotation !== v.rotation) this.renderLayer();
     this.erasing = erase;
     // Gomme : disque net de la taille du pinceau, tracé dans un tampon qui troue l'aperçu.
-    const b = erase
-      ? { ...this.brush(), hardness: 1, opacity: 1, tip: "", scatter: 0, sizeJitter: 0, roundness: 1, angleJitter: 0, color: "#000000" }
-      : this.brush();
+    // Gomme : le pinceau courant (taille, forme, dureté, opacité…), en noir et sans fusion.
+    const b = erase ? { ...this.brush(), color: "#000000" } : this.brush();
     const brush = makeBrush(b, this.worldSize(b), erase ? "normal" : this.currentBlend());
+    const solidEraser = erase && isSolid(brush, []);
+    this.liveBrush = solidEraser ? { ...brush, opacity: 1 } : brush;
+    this.eraseAlpha = solidEraser ? brush.opacity : 1;
     const seed = (Math.random() * 4294967296) >>> 0;
     this.stroke = { id: this.doc.nextId++, brush, pts: [], seed, bbox: { x: 0, y: 0, w: 0, h: 0 } };
     this.stamper = new StrokeStamper(brush, seed);
     this.trembler = new Trembler(seed);
     this.cutIdx = [];
-    this.turns = !erase && this.passes && multiPass(brush) ? new PassDetector(brush.size) : null;
+    // Passes : trait en fusion ou translucide, gomme pleine partielle (repasser efface davantage).
+    this.turns = this.passes && multiPass(brush) && (!erase || solidEraser) ? new PassDetector(brush.size) : null;
     this.startFlatInc(brush, erase);
     this.liveBuf = null;
     if (brush.blend || erase) {
@@ -795,7 +805,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.pieceLen = Math.hypot(x - st.pts[n - 3], y - st.pts[n - 2]);
       const layer = this.layerSurface();
       if (this.liveBuf && layer) {
-        blitBlend(layer, this.liveBuf.ctx.canvas, st.brush.blend);
+        if (this.erasing) punch(layer, this.liveBuf.ctx.canvas, this.eraseAlpha);
+        else blitBlend(layer, this.liveBuf.ctx.canvas, st.brush.blend);
         this.liveBuf = scratchFor(layer, this.liveKey);
       }
     } else if (n < 3) this.turns?.feed(x, y);
@@ -809,7 +820,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const surface = this.liveBuf ?? this.layerSurface();
     if (!surface) return;
     surface.view = this.layerView;
-    for (const stamp of stamper.feed(x, y, pr)) drawStamp(surface, st.brush, stamp);
+    const drawn = this.liveBrush ?? st.brush;
+    for (const stamp of stamper.feed(x, y, pr)) drawStamp(surface, drawn, stamp);
   }
 
   private endStroke(e: PointerEvent): void {
@@ -833,7 +845,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.erasing = false;
     if (!st || !st.pts.length) return;
     const inc = this.stopFlatInc();
-    if (erasing) return this.endErase(st);
+    if (erasing) return this.endErase(st, [...new Set(this.cutIdx)].sort((a, b) => a - b));
     const raw = st.pts.length / 3;
     const tol = this.simplifyPx();
     // Aplatissement progressif : il ne reste que le dernier morceau à peindre.
@@ -1165,44 +1177,77 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   /**
-   * Gomme (au lever) : sa forme est retirée de toutes les cartes d'aplats ; si elle touche des traits non aplatis,
-   * un masque est posé au-dessus pour les trouer aussi. Une étape d'annulation.
+   * Gomme (au lever), une étape d'annulation.
+   * - Gomme pleine (disque net) : sa forme est retirée des cartes d'aplats — à opacité partielle, les régions
+   *   dessous s'estompent d'autant, et chaque passe (aller-retour, boucle) efface encore ; si elle touche des
+   *   traits non aplatis, un masque (de la même opacité) est posé au-dessus pour les effacer aussi.
+   * - Gomme en empreintes (pointe, bord doux, dispersion, pression variable) : un trait qui efface ce qui est
+   *   dessous comme le pinceau peindrait.
    */
-  private endErase(st: Stroke): void {
-    const r = st.brush.size / 2;
+  private endErase(st: Stroke, cuts: number[] = []): void {
     const tolPx = Math.max(0, Math.min(8, Number(this.simplify) || 0));
-    let outline;
+    if (!isSolid(st.brush, st.pts)) {
+      const tol = this.simplifyPx();
+      if (tol > 0) st.pts = compactStroke(st.pts, tol / this.layerView.zoom, st.brush.pressure ? 0.04 : Infinity);
+      st.erase = true;
+      st.bbox = strokeBBox(st.pts, strokeMargin(st.brush));
+      this.error = this.doc.add(st) ? null : "limite de traits ou de points atteinte";
+      this.invalidate();
+      return;
+    }
+    const r = solidRadius(st.brush, st.pts);
+    const amount = st.brush.opacity;
+    const partial = amount < 0.999;
+    let shapes: Multi[];
     try {
-      outline = strokeOutline(st.pts, r, this.outlineTol(tolPx, r));
+      const otol = this.outlineTol(tolPx, r);
+      const passes = partial ? splitPasses(st.pts, cuts) : [st.pts];
+      shapes = passes
+        .map((p, k) => {
+          const m = strokeOutline(p, r, otol);
+          return k > 0 && m.length ? safeBoolean("difference", m, [[capDisc(p[0], p[1], r)]]) : m;
+        })
+        .filter((m) => m.length);
     } catch {
       this.error = "gomme : découpage impossible";
       this.invalidate();
       return;
     }
-    if (!outline.length) { this.invalidate(); return; }
-    const eb = multiBBox(outline);
+    if (!shapes.length) { this.invalidate(); return; }
+    const eb = multiBBox(shapes.flat());
     const touches = (b: { x: number; y: number; w: number; h: number }) => b.x <= eb.x + eb.w && b.x + b.w >= eb.x && b.y <= eb.y + eb.h && b.y + b.h >= eb.y;
     const after: Stroke[] = [];
     let changed = false, needMask = false;
-    for (const s of this.doc.strokes) {
-      if (s.flat) {
-        if (!touches(s.bbox)) { after.push(s); continue; }
-        const regions = eraseFlat(s.flat, outline);
-        changed = true;
-        if (regions.length) after.push({ ...s, flat: regions, bbox: flatBBox(regions) });
-      } else {
-        after.push(s);
-        if (!s.mask && touches(s.bbox)) needMask = true;
+    try {
+      for (const s of this.doc.strokes) {
+        if (s.flat) {
+          if (!touches(s.bbox)) { after.push(s); continue; }
+          let regions = s.flat;
+          for (const shape of shapes) regions = partial ? fadeFlat(regions, shape, amount) : eraseFlat(regions, shape);
+          changed = true;
+          if (regions.length) after.push({ ...s, flat: regions, bbox: flatBBox(regions) });
+        } else {
+          after.push(s);
+          if (!s.mask && !s.erase && touches(s.bbox)) needMask = true;
+        }
       }
+    } catch {
+      this.error = "gomme : découpage impossible";
+      this.invalidate();
+      return;
     }
-    if (needMask) after.push({ id: st.id, brush: st.brush, pts: [], seed: st.seed, mask: outline, bbox: eb });
+    if (needMask) {
+      shapes.forEach((mask, k) => {
+        after.push({ id: k ? this.doc.nextId++ : st.id, brush: st.brush, pts: [], seed: st.seed, mask, bbox: multiBBox(mask) });
+      });
+    }
     if (changed || needMask) this.doc.replace(after);
     this.error = null;
     this.invalidate();
   }
 
   /** Couche trouée par le tampon de la gomme (aperçu pendant le geste). */
-  private holed(layer: HTMLCanvasElement, hole: HTMLCanvasElement): HTMLCanvasElement {
+  private holed(layer: HTMLCanvasElement, hole: HTMLCanvasElement, alpha = 1): HTMLCanvasElement {
     const c = (this.eraseBuf ??= document.createElement("canvas"));
     if (c.width !== layer.width || c.height !== layer.height) { c.width = layer.width; c.height = layer.height; }
     const x = c.getContext("2d");
@@ -1211,7 +1256,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     x.globalCompositeOperation = "copy";
     x.drawImage(layer, 0, 0);
     x.globalCompositeOperation = "destination-out";
+    x.globalAlpha = alpha;
     x.drawImage(hole, 0, 0);
+    x.globalAlpha = 1;
     x.globalCompositeOperation = "source-over";
     return c;
   }
@@ -1240,7 +1287,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     for (let i = strokes.length - 1; i >= 0 && exact === undefined; i--) {
       const s = strokes[i], b = s.bbox;
       if (x < b.x - tol || x > b.x + b.w + tol || y < b.y - tol || y > b.y + b.h + tol) continue;
-      if (s.mask) { if (shapeHit(s.mask, x, y, 0)) exact = bgRgba(); continue; }
+      if (s.erase) { exact = null; continue; }
+      if (s.mask) { if (shapeHit(s.mask, x, y, 0)) exact = s.brush.opacity >= 0.999 ? bgRgba() : null; continue; }
       if (s.flat) {
         const hits = s.flat.filter((g) => shapeHit(g.shape, x, y, tol));
         if (!hits.length) continue;
@@ -1425,7 +1473,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.editError = null;
     const targets = this.editTargets();
     const global = !this.selected.size;
-    if (!targets.size && !(isColorEdit(op) && this.doc.strokes.some((s) => !s.flat && !s.mask))) {
+    if (!targets.size && !(isColorEdit(op) && this.doc.strokes.some((s) => !s.flat && !s.mask && !s.erase))) {
       this.layerDirty = true; this.compose(); this.publish();
       return false;
     }
@@ -1476,7 +1524,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const colors: Rgba[] = [];
     for (const s of base) {
       if (s.flat) { for (const r of s.flat) if (targets.has(r)) colors.push(r.rgba); }
-      else if (global && !s.mask) { const c = parseColor(s.brush.color); if (c) colors.push(c); }
+      else if (global && !s.mask && !s.erase) { const c = parseColor(s.brush.color); if (c) colors.push(c); }
     }
     const table = colorMap(colors, palette, mode, amount);
     return base.map((s) => {
@@ -1488,7 +1536,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         for (const r of res.fresh) fresh.add(r);
         return { ...s, flat: res.regions, bbox: flatBBox(res.regions) };
       }
-      if (!global || s.mask) return s;
+      if (!global || s.mask || s.erase) return s;
       const c = parseColor(s.brush.color);
       const to = c ? table.get(c.join(",")) : undefined;
       return to ? { ...s, brush: { ...s.brush, color: toCss([to[0], to[1], to[2], 1]) } } : s;

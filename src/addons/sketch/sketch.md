@@ -27,7 +27,7 @@ Mêmes réglages que `sonic-paint` : `color`, `hardness`, `opacity`, `spacing`, 
 
 `blend` : mode de fusion des nouveaux traits avec ce qui est dessous (fond compris) : `normal` (défaut), `multiply`, `screen`, `overlay`, `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity`. Chaque trait garde son mode ; il fusionne d'un bloc (ses empreintes ne se fusionnent pas entre elles). Réglable en direct dans `brush-from` (`{"blend": "multiply"}`). Un trait fusionné est rendu un peu plus lentement qu’un trait normal (un tampon par trait visible).
 
-`tool` : `paint`, `erase` (vraie gomme : retire sa forme de ce qu'elle touche, à tout zoom ; annulable), `pick` (pipette), `select` / `select-color` (sélection des aplats, voir plus bas) ou `hand`.
+`tool` : `paint`, `erase` (gomme au pinceau courant : taille, forme, dureté et opacité ; annulable), `pick` (pipette), `select` / `select-color` (sélection des aplats, voir plus bas) ou `hand`.
 
 ## Simplification des traits
 
@@ -45,7 +45,10 @@ Hors des régions, le trait se fusionne avec le fond (`background`) quand rien n
 
 ## Gomme
 
-`tool="erase"` est une vraie gomme : disque net de la taille du pinceau. Au lever, sa forme est **retirée** de toutes les cartes d'aplats (un trou exact, à tout zoom) ; si elle touche des traits non aplatis, un masque est posé au-dessus pour les trouer aussi (export SVG : `<mask>`). Pendant le geste, l'aperçu est troué en direct.
+`tool="erase"` gomme avec le pinceau courant : sa taille, sa forme, sa dureté et son opacité. L'opacité règle à quel point elle efface. Pendant le geste, l'aperçu est effacé en direct, comme le résultat final.
+
+- **Disque net** (dureté 1, sans pointe ni dispersion) : au lever, sa forme est **retirée** de toutes les cartes d'aplats (un trou exact, à tout zoom). À opacité inférieure à 1, les régions dessous gardent leur couleur et perdent cette part de leur opacité ; comme pour le pinceau, le trait est coupé en passes là où il revient sur lui-même, et chaque passe efface encore (frotter en aller-retour efface de plus en plus). Si elle touche des traits non aplatis, un masque de la même opacité est posé au-dessus (export SVG : `<mask>`).
+- **Pointe, bord doux, dispersion, pression variable** : la gomme devient un trait d'empreintes qui efface ce qui est dessous comme le pinceau peindrait (bord dégradé, forme de la pointe). Il est gardé tel quel (export SVG : `<mask>` fait des empreintes).
 
 `tool="pick"` (ou Alt + clic avec le pinceau) est une pipette : la couleur vue sous le point devient celle du pinceau, même si elle est née d'une fusion et n'est pas dans la palette. Dans un aplat opaque, c'est la couleur exacte de la région ; ailleurs (traits en empreintes, couleurs translucides), le pixel affiché. Elle traverse les calques : avec un fond transparent, ce qui est dessous (une toile `sonic-paint`, un shader, une scène) est composé. Glisser fait suivre la couleur ; elle est écrite dans `brush-from` (`color`), si bien que la palette et les nuanciers la montrent, et publiée dans l'état (`picked`) et par l'évènement `sketch-pick` `{color, done}`. Si `pick` venait de `brush-from` (`tool`), l'outil revient à `paint` au lever.
 

@@ -311,3 +311,58 @@ describe("aplatissement progressif", async () => {
     expect(f.failed).toBe(true);
   });
 });
+
+describe("gomme comme un pinceau", async () => {
+  const { strokeOutline } = await import("./merge");
+  const { paintFlat, fadeFlat, eraseFlat } = await import("./flat");
+  const { parseColor } = await import("./flat-color");
+  const { multiArea } = await import("../vector");
+  const { exportSvg } = await import("./export");
+  const { makeBrush } = await import("./model");
+  const { BRUSH_DEFAULTS } = await import("../paint/brush");
+  const red = parseColor("#ff0000")!;
+  const white = { known: true as const, color: parseColor("#ffffff") };
+  const h = strokeOutline([0, 0, 1, 100, 0, 1], 5, 0.02);
+  const v = strokeOutline([50, -50, 1, 50, 50, 1], 5, 0.02);
+
+  it("gomme partielle : la partie gommée garde sa couleur à opacité réduite, le reste est intact", () => {
+    const m = fadeFlat(paintFlat([], h, red, 1, "normal", white), v, 0.4);
+    const faded = m.filter((r) => r.rgba[3] < 0.999);
+    const full = m.filter((r) => r.rgba[3] >= 0.999);
+    expect(faded.length).toBeGreaterThan(0);
+    for (const r of faded) {
+      expect(r.rgba[3]).toBeCloseTo(0.6, 2);
+      expect(r.rgba.slice(0, 3)).toEqual(red.slice(0, 3));
+    }
+    expect(faded.reduce((n, r) => n + multiArea(r.shape), 0)).toBeCloseTo(100, -1);
+    expect(full.reduce((n, r) => n + multiArea(r.shape), 0) + faded.reduce((n, r) => n + multiArea(r.shape), 0)).toBeCloseTo(multiArea(h), -1);
+  });
+
+  it("repasser efface davantage, jusqu'à faire disparaître la région ; opacité 1 = trou net", () => {
+    let m = paintFlat([], h, red, 1, "normal", white);
+    for (let i = 0; i < 12; i++) m = fadeFlat(m, v, 0.5);
+    expect(m.every((r) => r.rgba[3] >= 0.999)).toBe(true);
+    const net = eraseFlat(paintFlat([], h, red, 1, "normal", white), v);
+    expect(fadeFlat(paintFlat([], h, red, 1, "normal", white), v, 1).reduce((n, r) => n + multiArea(r.shape), 0)).toBeCloseTo(net.reduce((n, r) => n + multiArea(r.shape), 0), 3);
+  });
+
+  it("gomme en empreintes et masque partiel : enregistrés, relus, exportés en masques SVG", () => {
+    const soft = makeBrush({ ...BRUSH_DEFAULTS, hardness: 0.3, opacity: 0.7, color: "#000000" }, 12, "normal");
+    const half = makeBrush({ ...BRUSH_DEFAULTS, opacity: 0.5, color: "#000000" }, 10, "normal");
+    const paint = makeBrush({ ...BRUSH_DEFAULTS, color: "#2f6fd8" }, 10, "normal");
+    const strokes = [
+      { id: 1, brush: paint, pts: [0, 0, 1, 100, 0, 1], seed: 1, bbox: { x: -5, y: -5, w: 110, h: 10 } },
+      { id: 2, brush: soft, pts: [50, -20, 1, 50, 20, 1], seed: 2, erase: true, bbox: { x: 44, y: -26, w: 12, h: 52 } },
+      { id: 3, brush: half, pts: [], seed: 3, mask: v, bbox: { x: 45, y: -55, w: 10, h: 110 } },
+    ];
+    const back = readStrokes(JSON.parse(JSON.stringify(writeStrokes(strokes))))!;
+    expect(back[1].erase).toBe(true);
+    expect(back[1].brush.opacity).toBeCloseTo(0.7);
+    expect(back[0].erase).toBeUndefined();
+    expect(back[2].mask).toBeTruthy();
+    expect(back[2].brush.opacity).toBeCloseTo(0.5);
+    const svg = exportSvg(back);
+    expect(svg.match(/<mask /g)).toHaveLength(2);
+    expect(svg).toContain('fill-opacity="0.5"');
+  });
+});

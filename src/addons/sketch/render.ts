@@ -101,6 +101,20 @@ export function scratchFor(s: Surface, key: object = s.ctx.canvas): Surface | nu
   return { ctx, w: s.w, h: s.h, view: s.view };
 }
 
+/** Couleur d'un masque de gomme d'opacité `a` (ôtée de ce qui est dessous). */
+export const maskColor = (a: number): string => (a >= 0.999 ? "#000" : `rgba(0,0,0,${Math.max(0, Math.min(1, a)).toFixed(4)})`);
+
+/** Ôte d'une surface un tampon (pixels de la surface), à hauteur de `alpha` : aperçu et rendu de la gomme. */
+export function punch(s: Surface, buf: CanvasImageSource, alpha: number): void {
+  const { ctx } = s;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.drawImage(buf, 0, 0);
+  ctx.restore();
+}
+
 /** Pose un tampon (pixels de la surface) sur la surface avec un mode de fusion. */
 export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | undefined): void {
   const { ctx } = s;
@@ -117,6 +131,14 @@ export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | un
  * pour qu'elles ne se fusionnent pas entre elles) puis le tampon est fusionné avec ce qui est dessous.
  */
 export function drawStroke(s: Surface, st: Stroke): void {
+  if (st.erase) {
+    // Gomme en empreintes : réunies dans un tampon, puis ôtées de ce qui est dessous.
+    const buf = scratchFor(s);
+    if (!buf) return;
+    paintStroke(buf, st);
+    punch(s, buf.ctx.canvas, 1);
+    return;
+  }
   const blend = st.brush.blend;
   if (!blend || blend === "normal") return paintStroke(s, st);
   const buf = scratchFor(s);
@@ -130,7 +152,7 @@ function paintStroke(s: Surface, st: Stroke): void {
     for (const r of st.flat) fillMulti(s, r.shape, r.color, r.blend ? blendOp(r.blend) : "source-over", !r.blend && r.rgba[3] >= 0.999);
     return;
   }
-  if (st.mask) return fillMulti(s, st.mask, "#000", "destination-out");
+  if (st.mask) return fillMulti(s, st.mask, maskColor(st.brush.opacity), "destination-out");
   for (const stamp of strokeStamps(st)) drawStamp(s, st.brush, stamp);
 }
 

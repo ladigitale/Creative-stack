@@ -40,7 +40,8 @@ export function regionAt(strokes: Stroke[], x: number, y: number, tol: number): 
   for (let i = strokes.length - 1; i >= 0; i--) {
     const s = strokes[i];
     if (!inBox(s.bbox, x, y, tol)) continue;
-    if (s.mask) { if (shapeHit(s.mask, x, y, 0)) return null; continue; }
+    if (s.mask) { if (s.brush.opacity >= 0.999 && shapeHit(s.mask, x, y, 0)) return null; continue; }
+    if (s.erase) continue;
     if (s.flat) {
       const inside = s.flat.find((g) => inBox(g.bbox, x, y, 0) && shapeHit(g.shape, x, y, 0));
       if (inside) return inside;
