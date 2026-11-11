@@ -1,6 +1,8 @@
 // Formes génératives à vectoriser (sonic-vectorize → sonic-sketch import-from). Image fixe (iTime non lu) :
 // chaque réglage donne une image nette en aplats de quelques couleurs très distinctes sur fond noir (le
 // vide : import-skip="#000000"), recolorées ensuite par la palette (import-colors-from).
+// iChannel1 facultatif : bande de couleurs (une colonne de pixels par couleur, ex. image SVG de N×1) ; la
+// couleur d'index i est alors la i-ème de la bande (modulo sa largeur) : aperçu et formes aux couleurs de la palette.
 // uParam0 motif : 0 cellules, 1 courbes de niveau, 2 rosace, 3 entrelacs (Truchet), 4 taches,
 // 5 rayures ondulées, 6 spirale, 7 écailles, 8 labyrinthe, 9 bouquet, 10 triangles, 11 damier ondulé,
 // 12 ondes (interférences).
@@ -185,5 +187,12 @@ void mainImage(out vec4 o, in vec2 f) {
     }
   }
 
-  o = idx < 0 ? vec4(0.0, 0.0, 0.0, 1.0) : vec4(bandColor(idx), 1.0);
+  if (idx < 0) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  float pw = floor(iChannelResolution[1].x + 0.5);
+  if (pw >= 1.0) {
+    float k = mod(float(idx), pw);
+    o = vec4(texture(iChannel1, vec2((k + 0.5) / pw, 0.5)).rgb, 1.0);
+  } else {
+    o = vec4(bandColor(idx), 1.0);
+  }
 }
