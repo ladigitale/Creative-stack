@@ -101,3 +101,19 @@ describe("sonic-sketch : import de formes vectorisées", () => {
     el.remove();
   });
 });
+
+describe("précision du tracé en direct", () => {
+  it("simplify lu dans brush-from, sinon l'attribut, borné 0..8", async () => {
+    const el = document.createElement("sonic-sketch") as HTMLElement & { simplifyPx(): number; live: Record<string, unknown>; simplify: number };
+    el.simplify = 0.35;
+    expect(el.simplifyPx()).toBeCloseTo(0.35);
+    el.live = { simplify: 2 };
+    expect(el.simplifyPx()).toBe(2);
+    el.live = { simplify: 0 };
+    expect(el.simplifyPx()).toBe(0);
+    el.live = { simplify: 40 };
+    expect(el.simplifyPx()).toBe(8);
+    el.live = { simplify: "" };
+    expect(el.simplifyPx()).toBeCloseTo(0.35);
+  });
+});

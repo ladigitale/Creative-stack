@@ -110,3 +110,9 @@ Le dessin reste vectoriel. La finition est une étape qu'on peut défaire, appli
 3. La commande `save` du `control` du shader enregistre le résultat en PNG dans son `last` (`sonic-media-download source="fxState.last"`).
 
 Pour un aperçu en direct, un second `sonic-shader` `channel0="#dessin"` posé par-dessus la toile (`pointer-events:none`) applique le même effet à la vue.
+
+### Tracé vivant et précision
+
+- `tremble` (0..1, aussi en direct dans `brush-from`) : le tracé ondule doucement de part et d'autre de la main et son épaisseur respire (bruit lent, propre à chaque trait). Un trait plein tremblé reste un trait plein : il se fond en aplat avec des contours vivants.
+- Orientation : `angle`, `angle-follow` (la pointe suit la direction du geste) et `angle-jitter` (± ° au hasard par empreinte) ; dispersion `scatter`, taille `size-jitter`, aplatissement `roundness`, espacement `spacing`.
+- Précision du tracé : `simplify` (px d'écran, 0..8) — 0 garde chaque point, plus haut épure le trait ; lissage de la main `smoothing` (0..0,95). Les deux se règlent aussi en direct dans `brush-from` (`{ simplify, smoothing }`).
