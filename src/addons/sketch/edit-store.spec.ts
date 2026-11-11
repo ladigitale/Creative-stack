@@ -230,3 +230,84 @@ describe("passes d'un trait (le trait revient sur lui-même)", async () => {
     expect(passCuts(wobbly, 6)).toEqual([]);
   });
 });
+
+describe("aplatissement progressif", async () => {
+  const { StrokeFlattener, capDisc } = await import("./flatten-inc");
+  const { strokeOutline } = await import("./merge");
+  const { paintFlat, safeBoolean } = await import("./flat");
+  const { passCuts, splitPasses } = await import("./turns");
+  const { multiArea } = await import("../vector");
+  const back = { known: true as const, color: [244 / 255, 241 / 255, 234 / 255, 1] as [number, number, number, number] };
+  const src: [number, number, number, number] = [47 / 255, 111 / 255, 216 / 255, 1];
+  const areas = (regions: { rgba: number[]; shape: never }[]) => {
+    const m = new Map<string, number>();
+    for (const r of regions) m.set(r.rgba.join(","), (m.get(r.rgba.join(",")) ?? 0) + multiArea(r.shape));
+    return m;
+  };
+  // Tourner en rond autour d'un point : beaucoup de passes, beaucoup de recouvrements.
+  const pts: number[] = [];
+  for (let i = 0; i < 300; i++) { const a = i * 0.12, rr = 30 + 8 * Math.sin(i * 0.013); pts.push(400 + Math.cos(a) * rr + i * 0.02, 300 + Math.sin(a) * rr, 1); }
+
+  for (const [mode, alpha] of [["multiply", 0.5], ["normal", 1], ["normal", 0.6]] as const) {
+    it(`même résultat que d'un bloc (${mode}, ${alpha})`, () => {
+      const r = 9, otol = 0.25, multi = mode !== "normal" || alpha < 1;
+      const cuts = multi ? passCuts(pts, 18) : [];
+      // D'un bloc.
+      let block: never[] = [];
+      splitPasses(pts, cuts).forEach((p, k) => {
+        const m = strokeOutline(p, r, otol);
+        const s = k > 0 ? safeBoolean("difference", m, [[capDisc(p[0], p[1], r)]]) : m;
+        block = paintFlat(block, s, src, alpha, mode, back) as never[];
+      });
+      // Par morceaux : passes, et tronçons de 40 points dans chaque passe.
+      const f = new StrokeFlattener({ radius: () => r, tolerance: () => otol, pressure: false, ztol: 0, ptol: Infinity, src, alpha, mode, multi }, () => ({ index: 0, regions: [], back }));
+      splitPasses(pts, cuts).forEach((p, k) => {
+        const n = p.length / 3;
+        for (let s = 0; s < n - 1; s += 40) {
+          const e = Math.min(n - 1, s + 40);
+          f.push({ pts: p.slice(s * 3, (e + 1) * 3), joint: s > 0 ? "chunk" : k > 0 ? "pass" : "start" });
+        }
+      });
+      const inc = f.finish();
+      expect(inc).not.toBeNull();
+      const a = areas(block as never), b = areas(inc!.regions as never);
+      const total = (m: Map<string, number>) => [...m.values()].reduce((x, y) => x + y, 0);
+      expect(Math.abs(total(a) - total(b)) / total(a)).toBeLessThan(0.01);
+      for (const [c, v] of a) if (v > total(a) * 0.02) expect(Math.abs((b.get(c) ?? 0) - v) / v).toBeLessThan(0.05);
+    });
+  }
+
+  it("budget dépassé sur une carte complexe : arrêt (heavy), sans recalcul d'un bloc", () => {
+    const spec = { radius: () => 9, tolerance: () => 0.25, pressure: false, ztol: 0, ptol: Infinity, src, alpha: 0.5, mode: "multiply" as const, multi: true };
+    const cuts = passCuts(pts, 18);
+    const run = (budgetMs: number, heavyVertices: number) => {
+      const f = new StrokeFlattener({ ...spec, budgetMs, heavyVertices }, () => ({ index: 0, regions: [], back }));
+      splitPasses(pts, cuts).forEach((p, k) => f.push({ pts: p, joint: k ? "pass" : "start" }));
+      return f;
+    };
+    const tight = run(0, 0);
+    expect(tight.finish()).toBeNull();
+    expect(tight.heavy).toBe(true);
+    // Carte encore simple : le budget ne s'applique pas (la compilation à chaud du premier morceau ne compte pas).
+    const simple = run(0, 1e9);
+    expect(simple.finish()).not.toBeNull();
+    expect(simple.heavy).toBe(false);
+  });
+
+  it("pression variable (stylet) : échec, le trait n'est pas plein", () => {
+    const f = new StrokeFlattener({ radius: () => 5, tolerance: () => 0.25, pressure: true, ztol: 0, ptol: 0.04, src, alpha: 1, mode: "normal", multi: false }, () => ({ index: 0, regions: [], back }));
+    f.push({ pts: [0, 0, 0.5, 50, 0, 0.5], joint: "start" });
+    f.push({ pts: [50, 0, 0.5, 100, 0, 0.9], joint: "chunk" });
+    expect(f.finish()).toBeNull();
+    expect(f.heavy).toBe(false);
+  });
+
+  it("carte cible remise en cause en cours de trait : échec, recalcul d'un bloc", () => {
+    let n = 0;
+    const f = new StrokeFlattener({ radius: () => 5, tolerance: () => 0.25, pressure: false, ztol: 0, ptol: Infinity, src, alpha: 1, mode: "normal", multi: false }, () => ({ index: n++ ? 1 : 0, regions: [], back }));
+    f.push({ pts: [0, 0, 1, 50, 0, 1], joint: "start" });
+    f.push({ pts: [50, 0, 1, 100, 0, 1], joint: "chunk" });
+    expect(f.finish()).toBeNull();
+    expect(f.failed).toBe(true);
+  });
+});

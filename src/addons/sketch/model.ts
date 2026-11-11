@@ -248,6 +248,14 @@ export class Doc {
     return true;
   }
 
+  /** Ajoute plusieurs traits en une seule étape d'historique (faux si les limites seraient dépassées). */
+  addMany(strokes: Stroke[]): boolean {
+    const pts = strokes.reduce((n, s) => n + s.pts.length / 3, 0);
+    if (this.strokes.length + strokes.length > MAX_STROKES || this.totalPoints + pts > MAX_TOTAL_POINTS) return false;
+    this.replace([...this.strokes, ...strokes]);
+    return true;
+  }
+
   /**
    * Remplace toute la liste en une étape d'historique (aplatissement, gomme) : les éléments ne sont jamais
    * modifiés en place, l'étape garde les deux listes (références partagées, pas de copie profonde).

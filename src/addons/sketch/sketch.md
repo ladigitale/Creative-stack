@@ -139,3 +139,9 @@ Repères de dessin posés par-dessus la toile, jamais exportés, transparents au
 ## Passes
 
 Un trait en mode de fusion (autre que `normal`) ou à opacité inférieure à 1 est coupé en passes là où il revient sur lui-même : aller-retour de hachure, zigzag de remplissage, boucle, gribouillis, croisement. La pointe qui entre dans l'empreinte d'une partie déjà tracée du même trait (au-delà des deux derniers diamètres) ouvre une nouvelle passe. Chaque passe se pose sur la précédente, en direct comme à la mise à plat : les recouvrements foncent comme au crayon, sans marque à la jonction entre deux passes. Un virage franc qui ne repasse sur rien ne coupe pas. `passes="false"` revient à un trait d'un seul tenant (ses recouvrements ne comptent qu'une fois).
+
+## Aplatissement progressif
+
+Un trait plein s'aplatit pendant le geste : chaque passe, ou chaque tronçon d'une passe longue (au moins 48 points et 6 diamètres), est contouré et peint dans la carte d'aplats par tranches de quelques millisecondes dès qu'il est terminé. Au lever, il ne reste que le dernier morceau à calculer. Le résultat est le même que d'un bloc.
+
+Tourner longtemps au même endroit avec un mode de fusion morcelle la carte en centaines de régions, et chaque passe coûte alors plus que la précédente. Au-delà d'un budget (un morceau de plus de 40 ms sur une carte de plus de 1 500 sommets), l'aplatissement s'arrête : le trait est gardé en empreintes, une par passe, pour que les recouvrements restent cumulés comme pendant le geste. Le tout fait une seule étape d'annulation. Un trait à pression variable (stylet) s'aplatit d'un bloc au lever, comme avant.
