@@ -240,6 +240,14 @@ describe("export SVG : jointure et culling", () => {
   });
 });
 
+describe("export SVG : marge", () => {
+  it("zone de vue sans marge : viewBox = la zone exacte ; défaut 2 %", () => {
+    const st = [stroke([[0, 0], [10, 0]])];
+    expect(exportSvg(st, { area: { x: 0, y: 0, w: 100, h: 50 }, margin: 0 })).toMatch(/viewBox="0 0 100 50"/);
+    expect(exportSvg(st, { area: { x: 0, y: 0, w: 100, h: 50 } })).toMatch(/viewBox="-2 -2 104 54"/);
+  });
+});
+
 describe("couleurs d'aplat (W3C compositing)", async () => {
   const { composite, parseColor, toCss, blendRgb } = await import("./flat-color");
   const red = parseColor("#ff0000")!, blue = parseColor("#0000ff")!, white = parseColor("#ffffff")!;

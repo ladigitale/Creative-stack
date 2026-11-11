@@ -22,6 +22,8 @@ export type SvgOptions = {
   /** Fond (couleur CSS) ou vide pour transparent. */
   background?: string;
   maxStamps?: number;
+  /** Marge autour de la zone, en fraction de son grand côté. Défaut 0.02 (aucune pour une zone de vue). */
+  margin?: number;
 };
 
 /** Trait « plein » : disque net, opaque, sans variation → un seul tracé lissé au lieu d'une empreinte par pas. */
@@ -43,7 +45,7 @@ function isPlainLine(s: Stroke): boolean {
 export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
   const max = opts.maxStamps ?? MAX_SVG_STAMPS;
   const area = opts.area ?? contentBBox(strokes) ?? { x: 0, y: 0, w: 1, h: 1 };
-  const m = Math.max(area.w, area.h) * 0.02;
+  const m = Math.max(area.w, area.h) * Math.max(0, opts.margin ?? 0.02);
   const vb = { x: area.x - m, y: area.y - m, w: Math.max(area.w + 2 * m, 1e-9), h: Math.max(area.h + 2 * m, 1e-9) };
   const defs: string[] = [];
   const tipIds = new Map<string, string>();

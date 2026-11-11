@@ -1138,8 +1138,26 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.publish();
   }
 
-  /** Enregistre le dessin en SVG (URL `blob:`) dans `last`. */
+  /**
+   * Enregistre le dessin en SVG (URL `blob:`) dans `last` : tout le dessin, ou la vue courante quand la zone
+   * d'export est DONNÉE et vaut `view` (attribut `export-area` posé, ou `exportArea` du DP `control`). Sans
+   * zone donnée, le SVG reste le dessin entier (comportement historique).
+   */
   save(): void {
+    const area = this.liveExport.area ?? (this.hasAttribute("export-area") ? this.exportArea : "content");
+    if (area === "view") {
+      const { w, h } = this.dims();
+      const r = visibleRect(this.view, w, h);
+      try {
+        const svg = exportSvg(this.doc.strokes, { background: this.background, area: r, margin: 0 });
+        this.error = null;
+        this.setLast(new Blob([svg], { type: "image/svg+xml" }), Math.round(w), Math.round(h));
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : "export impossible";
+        this.publish();
+      }
+      return;
+    }
     const svg = this.toSvg();
     if (svg === null) return;
     const b = contentBBox(this.doc.strokes);
