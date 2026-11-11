@@ -537,7 +537,9 @@ export class SonicShader extends LitElement {
       for (const key of CHANNEL_FORM_KEYS) {
         const child = pub[key];
         const v = typeof child?.get === "function" ? child.get() : undefined;
-        if (v !== undefined && v !== null) data[key] = v;
+        // Un sous-publisher est créé à la volée par le proxy : vide, il ne dit rien (ne pas effacer l'attribut).
+        const usable = typeof v === "string" ? v.trim() !== "" : !!v && typeof v === "object" && Object.keys(v as object).length > 0;
+        if (usable) data[key] = v;
       }
     }
     this.applyFormParams(data);
@@ -589,6 +591,7 @@ export class SonicShader extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    clearTimeout(this.recoverTimer);
     this.controlUnsub?.();
     this.controlUnsub = null;
     this.removeEventListener("pointermove", this.onPointerMove as EventListener);
@@ -827,6 +830,8 @@ export class SonicShader extends LitElement {
     }
     for (const key of CHANNEL_FORM_KEYS) {
       if (!(key in data)) continue;
+      // Vide (null, "") : clé créée à la volée par le proxy du DP (sous-publisher), pas une consigne. L'attribut reste.
+      if (data[key] === null || data[key] === undefined || data[key] === "") continue;
       const next = channelFormValue(data[key]);
       if (next === undefined) continue;
       if ((this as unknown as Record<string, string>)[key] !== next) {
@@ -1089,12 +1094,45 @@ export class SonicShader extends LitElement {
     this.ready = false;
     this.runtime = null;
     this.publishState({ status: "idle", error: null, errors: [], passes: [], playing: false });
+    // Le navigateur ne rend pas toujours le contexte (trop de contextes, plantage du GPU) : passé un délai,
+    // on repart d'une toile neuve, quelques fois au plus.
+    clearTimeout(this.recoverTimer);
+    this.recoverTimer = window.setTimeout(() => this.recover(), 1500);
   };
 
   private onContextRestored = () => {
+    clearTimeout(this.recoverTimer);
+    this.recoverTries = 0;
     if (this.releasing || !this.inView) return;
     void this.ensureRuntime();
   };
+
+  private recoverTimer = 0;
+  private recoverTries = 0;
+
+  /** Remplace la toile par une neuve (nouveau contexte WebGL possible). */
+  private freshCanvas(old: HTMLCanvasElement): HTMLCanvasElement {
+    this.unbindContextEvents();
+    const fresh = document.createElement("canvas");
+    fresh.setAttribute("part", "canvas");
+    old.replaceWith(fresh);
+    return fresh;
+  }
+
+  /** Remplace la toile perdue par une neuve (nouveau contexte) et relance le rendu. */
+  private recover(): void {
+    if (!this.isConnected || this.releasing || (this.runtime && !this.runtime.isLost)) return;
+    if (this.recoverTries >= 3) {
+      this.emitError(new Error("WebGL indisponible : contexte perdu (mémoire graphique) ; recharger la page"));
+      return;
+    }
+    this.recoverTries++;
+    const old = this.getCanvas();
+    if (old) this.freshCanvas(old);
+    if (this.inView || !this.wantsReleaseOffscreen()) void this.ensureRuntime();
+    // Si le nouveau contexte n'arrive pas non plus, on réessaie plus tard.
+    this.recoverTimer = window.setTimeout(() => { if (!this.runtime || this.runtime.isLost) this.recover(); }, 2000 * this.recoverTries);
+  }
 
   private async ensureRuntime() {
     if (this.runtime && !this.runtime.isLost) return;
@@ -1108,7 +1146,13 @@ export class SonicShader extends LitElement {
 
     try {
       this.errorMessage = "";
-      this.runtime = new ShaderToyRuntime(canvas);
+      try {
+        this.runtime = new ShaderToyRuntime(canvas);
+      } catch {
+        // Toile dont le contexte a été perdu (rendu au navigateur à un débranchement, `dispose(true)`, puis
+        // élément rebranché : déplacé par une pop, un sonic-if…) : getContext rend ce contexte perdu. Toile neuve.
+        this.runtime = new ShaderToyRuntime(this.freshCanvas(canvas));
+      }
       this.runtime.setElementResolver((key) => this.lookupElement(key));
       this.activeBufferFormat = this.runtime.setBufferFormat(
         this.effBufferFormat,
@@ -1116,6 +1160,7 @@ export class SonicShader extends LitElement {
       this.bindContextEvents();
       this.syncSize();
       await this.rebuild();
+      if (this.runtime && !this.runtime.isLost) this.recoverTries = 0;
     } catch (err) {
       this.emitError(err);
     }
@@ -1379,6 +1424,8 @@ export class SonicShader extends LitElement {
       if (token !== this.rebuildToken || !this.runtime || this.runtime.isLost) {
         return;
       }
+      this.staticKeys = staticFrameKeys(sources, channels);
+      this.lastFrameSig = "";
       this.ready = true;
       this.publishState({
         status: "ready",
@@ -1473,7 +1520,11 @@ export class SonicShader extends LitElement {
       const f = this.fixedRenderSize();
       if (f && f.join("x") !== this.renderedSize) this.syncSize();
     }
-    this.drawFrame(performance.now());
+    // Image fixe (ni temps ni rétroaction) : on ne redessine que si une entrée a changé.
+    if (this.staticKeys) {
+      const sig = this.frameSig(this.staticKeys);
+      if (sig !== this.lastFrameSig) { this.lastFrameSig = sig; this.drawFrame(performance.now()); }
+    } else this.drawFrame(performance.now());
     // play-on-hover : arrêter une fois la transition terminée
     if (this.effPlayOnHover && !this.hovering && this.hoverSettled()) {
       this.stopLoop();
@@ -1481,6 +1532,25 @@ export class SonicShader extends LitElement {
       this.notePlaying(false);
     }
   };
+
+  /** Clés des sources d'images du shader quand il est fixe (voir `staticFrameKeys`), sinon null. */
+  private staticKeys: string[] | null = null;
+  private lastFrameSig = "";
+
+  /** Signature des entrées d'une image fixe : réglages, souris, survol, taille, images des sources vivantes. */
+  private frameSig(extra: string[]): string {
+    const live = this.runtime?.liveSources?.() ?? { keys: [], video: false };
+    if (live.video) return String(Math.random());
+    const keys = [...new Set([...extra, ...live.keys])];
+    const seqs = keys.map((k) => {
+      const el = this.lookupElement(k);
+      // Élément sans compteur d'images (vidéo, <img> changeante…) : toujours redessiner.
+      return el && isFrameSource(el) ? el.frameSeq : NaN;
+    });
+    if (seqs.some((n) => Number.isNaN(n))) return String(Math.random());
+    const c = this.getCanvas();
+    return JSON.stringify([this.effectiveParams(), this.mouseVec, this.hoverMix, c?.width, c?.height, seqs]);
+  }
 
   private stopLoop() {
     if (this.raf) {
@@ -2128,4 +2198,24 @@ declare global {
   interface HTMLElementTagNameMap {
     [tagName]: SonicShader;
   }
+}
+
+const DYNAMIC_UNIFORMS = /\b(iTime|iTimeDelta|iFrame|iFrameRate|iDate|iChannelTime)\b/;
+const VIDEO_URL = /\.(mp4|webm|mov|m4v|ogv|m3u8)(\?|#|$)/i;
+
+/**
+ * Le shader donne-t-il une image fixe pour des entrées fixes ? Oui sans uniforme de temps, sans passes tampons
+ * (rétroaction) ni vidéo. Renvoie alors les clés `#id` des sources vivantes (leur `frameSeq` dit quand
+ * redessiner), sinon null (on redessine à chaque image).
+ */
+export function staticFrameKeys(sources: ShaderSources, channels: Map<ShaderPassId, PassChannels>): string[] | null {
+  if (DYNAMIC_UNIFORMS.test(sources.common) || DYNAMIC_UNIFORMS.test(sources.image)) return null;
+  if ([sources.bufferA, sources.bufferB, sources.bufferC, sources.bufferD].some((b) => b && b.trim())) return null;
+  const keys: string[] = [];
+  for (const c of channels.get("image") ?? []) {
+    if (c.kind === "buffer" || c.kind === "self") return null;
+    if (c.kind === "url" && (VIDEO_URL.test(c.url) || /^(mic|camera|webcam)/i.test(c.url))) return null;
+    if (c.kind === "element") keys.push(c.key);
+  }
+  return keys;
 }

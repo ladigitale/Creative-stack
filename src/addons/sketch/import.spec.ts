@@ -117,3 +117,60 @@ describe("précision du tracé en direct", () => {
     expect(el.simplifyPx()).toBeCloseTo(0.35);
   });
 });
+
+describe("sonic-sketch : retouches et carnet", async () => {
+  const { MemoryBackend } = await import("./store");
+  const { SonicSketch: Sketch } = await import("./sketch");
+
+  it("aperçu d'une retouche, puis validation (une étape d'annulation) ou abandon", async () => {
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport9", control: "skCtl9", "out-data-provider": "skState9" });
+    set("vecImport9", result(0, []));
+    set("vecImport9", result(1, [{ color: "#ff0000", d: sq(10, 10, 50) }, { color: "#0000ff", d: sq(60, 10, 40) }]));
+    set("skCtl9", { import: 1 });
+    el.selectAll();
+    expect(el.previewEdit("outline", 4, "black")).toBe(true);
+    expect(el.getState().edit.preview).toBe(true);
+    // L'aperçu n'est pas enregistré.
+    expect(el.getState().colors).toBe(2);
+    el.cancelEdit();
+    expect(el.getState().edit.preview).toBe(false);
+    el.previewEdit("outline", 4, ["black"]);
+    expect(el.applyEdit()).toBe(true);
+    expect(el.getState().colors).toBe(3);
+    expect(el.getState().selection.count).toBe(3);
+    el.undo();
+    expect(el.getState().colors).toBe(2);
+    el.remove();
+  });
+
+  it("enregistre le dessin ouvert, le rouvre, en crée un autre, le supprime", async () => {
+    const mem = new MemoryBackend();
+    Sketch.drawingBackend = mem;
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport10", control: "skCtl10", persist: "test" });
+    await tick(); await tick();
+    expect(el.getState().library).toMatchObject({ enabled: true, status: "saved", id: null, drawings: [] });
+    set("vecImport10", result(0, []));
+    set("vecImport10", result(1, [{ color: "#ff0000", d: sq(10, 10, 50) }]));
+    set("skCtl10", { import: 1 });
+    expect(await el.saveNow()).toBe(true);
+    const first = el.getState().library.id!;
+    expect(el.getState().library.drawings).toHaveLength(1);
+    await el.newDrawing();
+    expect(el.getState().strokes).toBe(0);
+    expect(el.getState().library.id).toBeNull();
+    el.remove();
+    // Une autre toile du même carnet rouvre le dernier dessin ouvert.
+    const again = await mount({ width: "400", height: "300", persist: "test" });
+    await tick(); await tick(); await tick();
+    expect(again.getState().strokes).toBe(0);
+    expect(await again.openDrawing(first)).toBe(true);
+    expect(again.getState().regions).toBe(1);
+    await again.renameDrawing("Rouge");
+    await again.saveNow();
+    expect(again.getState().library.drawings[0]).toMatchObject({ id: first, name: "Rouge", current: true });
+    await again.deleteDrawing(first);
+    expect(again.getState().library.drawings).toEqual([]);
+    expect(again.getState().strokes).toBe(0);
+    again.remove();
+  });
+});

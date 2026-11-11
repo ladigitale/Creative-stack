@@ -392,3 +392,19 @@ describe("sonic-shader : état publié et pilotage par params", () => {
     el.remove();
   });
 });
+
+describe("image fixe : pas de rendu inutile", async () => {
+  const { staticFrameKeys } = await import("./shader");
+  const none = { kind: "none" } as const;
+  const ch = (image: unknown[]) => new Map([["image", image]]) as never;
+  const src = (image: string, extra: Record<string, string> = {}) => ({ common: "", image, bufferA: "", bufferB: "", bufferC: "", bufferD: "", ...extra }) as never;
+  it("sans temps ni rétroaction : fixe, avec ses sources vivantes", () => {
+    expect(staticFrameKeys(src("void mainImage(out vec4 c, in vec2 p){ c = texture(iChannel0, p); }"), ch([{ kind: "element", key: "#toile" }, none, none, none]))).toEqual(["#toile"]);
+  });
+  it("temps, tampons, vidéo : animé", () => {
+    expect(staticFrameKeys(src("float t = iTime;"), ch([none, none, none, none]))).toBeNull();
+    expect(staticFrameKeys(src("x", { bufferA: "y" }), ch([none, none, none, none]))).toBeNull();
+    expect(staticFrameKeys(src("x"), ch([{ kind: "url", url: "a.mp4" }, none, none, none]))).toBeNull();
+    expect(staticFrameKeys(src("x"), ch([{ kind: "self" }, none, none, none]))).toBeNull();
+  });
+});

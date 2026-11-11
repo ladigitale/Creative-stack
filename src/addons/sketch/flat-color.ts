@@ -128,3 +128,39 @@ export function composite(back: Rgba | null, src: Rgba, alpha: number, mode: Ble
 }
 
 export const sameColor = (a: Rgba, b: Rgba): boolean => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+
+const hsl = ([r, g, b]: Rgba): [number, number, number] => {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  if (d === 0) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+};
+const fromHsl = (h: number, s: number, l: number, a: number): Rgba => {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return quantize([r + m, g + m, b + m, a]);
+};
+
+/** Mots-clés de couleurs déduites d'une couleur de base (contours, accents). */
+export const DERIVED_COLORS = ["darker", "lighter", "complement", "muted", "vivid", "black", "white"] as const;
+
+/**
+ * Couleur CSS, ou mot-clé déduit de `base` : `darker` / `lighter` (même teinte, plus sombre / plus claire),
+ * `complement` (teinte opposée), `muted` (désaturée), `vivid` (saturée), `black`, `white`. Sinon `null`.
+ */
+export function deriveColor(spec: unknown, base: Rgba): Rgba | null {
+  if (typeof spec !== "string") return null;
+  const k = spec.trim().toLowerCase();
+  const [h, s, l] = hsl(base);
+  switch (k) {
+    case "darker": return fromHsl(h, s, Math.max(0, l * 0.45), 1);
+    case "lighter": return fromHsl(h, s, l + (1 - l) * 0.6, 1);
+    case "complement": return fromHsl((h + 180) % 360, Math.max(s, 0.35), Math.min(0.75, Math.max(0.3, l)), 1);
+    case "muted": return fromHsl(h, s * 0.3, l, 1);
+    case "vivid": return fromHsl(h, Math.min(1, s * 1.6 + 0.2), Math.min(0.65, Math.max(0.35, l)), 1);
+    case "black": return [0, 0, 0, 1];
+    case "white": return [1, 1, 1, 1];
+    default: return parseColor(k);
+  }
+}

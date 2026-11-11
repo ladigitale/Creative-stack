@@ -116,3 +116,22 @@ Pour un aperçu en direct, un second `sonic-shader` `channel0="#dessin"` posé p
 - `tremble` (0..1, aussi en direct dans `brush-from`) : le tracé ondule doucement de part et d'autre de la main et son épaisseur respire (bruit lent, propre à chaque trait). Un trait plein tremblé reste un trait plein : il se fond en aplat avec des contours vivants.
 - Orientation : `angle`, `angle-follow` (la pointe suit la direction du geste) et `angle-jitter` (± ° au hasard par empreinte) ; dispersion `scatter`, taille `size-jitter`, aplatissement `roundness`, espacement `spacing`.
 - Précision du tracé : `simplify` (px d'écran, 0..8) — 0 garde chaque point, plus haut épure le trait ; lissage de la main `smoothing` (0..0,95). Les deux se règlent aussi en direct dans `brush-from` (`{ simplify, smoothing }`).
+
+## Retouches de la sélection (aperçu puis validation)
+
+Avec des régions sélectionnées, le DP `control` décrit une retouche qui s'affiche en aperçu (rien n'est enregistré) : `{ edit: "grow", editAmount: 6 }`. Opérations : `simplify` (tolérance), `grow` (décalage à joints ronds ; négatif = réduire, la place libérée devient vide), `smooth` (rayon d'arrondi des creux et des pointes), `outline` (anneaux concentriques autour de la sélection, d'épaisseur `editAmount`, un par couleur de `editColors` : CSS ou `darker`, `lighter`, `complement`, `muted`, `vivid`, `black`, `white`, déduites de la couleur dominante de la sélection). `editAmount` est en pixels d'écran. Changer un réglage ou la sélection recalcule l'aperçu ; `editApply` (compteur) l'enregistre en une étape d'annulation, `editCancel` ou Échap l'abandonne ; `edit: ""` aussi. Les formes retouchées passent par-dessus leurs voisines. État : `edit { op, preview, error }`. En JS : `previewEdit(op, amountPx, colors)`, `applyEdit()`, `cancelEdit()`.
+
+## Carnet de dessins (persistance locale)
+
+`persist="mon-app"` range les dessins dans le navigateur (IndexedDB, sous cet espace de noms). Le dessin ouvert est réenregistré moins d'une seconde après chaque changement (et quand la page est masquée), puis rouvert au chargement. Le premier trait d'une toile vierge crée un nouveau dessin. Commandes du DP `control` (compteurs) : `newDrawing` (enregistre puis montre une toile vierge), `openDrawing` + `drawingId`, `duplicateDrawing`, `deleteDrawing` (+ `drawingId`, défaut : le dessin ouvert), `renameDrawing` + `drawingName`. État : `library { enabled, status (loading|saving|saved|error), id, name, drawings: [{ id, name, created, updated, strokes, thumb, current }] }` (le plus récent d'abord ; `thumb` = vignette PNG en URL `blob:`). Les enregistrements relus sont vérifiés (structure, nombres, couleurs, pointes) : la même origine peut héberger d'autres pages.
+
+## Calque guide (`sonic-sketch-guide`)
+
+Repères de dessin posés par-dessus la toile, jamais exportés, transparents aux pointeurs : `type` grid, iso, perspective1, perspective2, perspective3, thirds, golden, diagonals, radial, face (proportions du visage, `yaw` / `pitch` pour le tourner), figure (mannequin en `heads` têtes, `pose` debout, contrapposto, marche, course, assis, bras-leves, danse, accroupi ; `mirror`). `anchor="screen"` (défaut) : fixe sur l'écran ; `anchor="world"` : attaché au dessin à partir de la vue courante (lue dans `view-from`, le DP `view-sync` de la toile), les grilles s'affinent ou s'espacent avec le zoom pour garder un pas lisible. Réglages en direct par `settings-from` (DP) : `{ type, color, opacity, anchor, spacing, subdiv, rotation, angle, horizon, vp1, vp2, vp3, rays, yaw, pitch, pose, heads, mirror }`.
+
+```html
+<div style="position:relative">
+  <sonic-sketch view-sync="vue"></sonic-sketch>
+  <sonic-sketch-guide settings-from="guide" view-from="vue"></sonic-sketch-guide>
+</div>
+```
