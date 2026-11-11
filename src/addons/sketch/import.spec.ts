@@ -194,3 +194,44 @@ describe("sonic-sketch : retouches sur tout le dessin et couleurs de palette", (
     el.remove();
   });
 });
+
+describe("sonic-sketch : enregistrement manuel", async () => {
+  const { MemoryBackend } = await import("./store");
+  const { SonicSketch: Sketch } = await import("./sketch");
+  it("save-mode=manual : rien sans commande ; Enregistrer, Enregistrer sous (nom lu dans name-from)", async () => {
+    Sketch.drawingBackend = new MemoryBackend();
+    set("nomX", { name: "Variante" });
+    const el = await mount({ width: "400", height: "300", "import-from": "vecImport12", control: "skCtl12", persist: "manuel", "save-mode": "manual", "name-from": "nomX" });
+    await tick(); await tick();
+    set("vecImport12", result(0, []));
+    set("vecImport12", result(1, [{ color: "#ff0000", d: sq(10, 10, 50) }]));
+    set("skCtl12", { import: 1, saveDrawingAs: 0 });
+    await new Promise((r) => setTimeout(r, 2300));
+    expect(el.getState().library.drawings).toHaveLength(0);
+    expect(el.getState().library.dirty).toBe(true);
+    expect(await el.saveDrawing()).toBe(true);
+    const lib = el.getState().library;
+    expect(lib).toMatchObject({ dirty: false, progress: 100, mode: "manual" });
+    expect(lib.drawings).toHaveLength(1);
+    set("skCtl12", { import: 1, saveDrawingAs: 1 });
+    await new Promise((r) => setTimeout(r, 100));
+    const after = el.getState().library;
+    expect(after.drawings.map((d: { name: string }) => d.name).sort()).toEqual([lib.name, "Variante"].sort());
+    expect(after.name).toBe("Variante");
+    // « Enregistrer puis nouveau » dans la même commande : l'enregistrement porte sur l'ancien dessin.
+    const before = el.getState().library.drawings.find((d: { name: string }) => d.name === "Variante").updated;
+    await new Promise((r) => setTimeout(r, 5));
+    set("vecImport12", result(2, [{ color: "#00ff00", d: sq(80, 80, 30) }]));
+    set("skCtl12", { import: 2, saveDrawingAs: 1, saveDrawing: 0, newDrawing: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    set("skCtl12", { import: 2, saveDrawingAs: 1, saveDrawing: 1, newDrawing: 1 });
+    await new Promise((r) => setTimeout(r, 200));
+    const fin = el.getState();
+    expect(fin.strokes).toBe(0);
+    const saved = fin.library.drawings.find((d: { name: string; strokes: number; updated: number }) => d.name === "Variante");
+    expect(saved.strokes).toBeGreaterThan(0);
+    expect(saved.updated).toBeGreaterThan(before);
+    expect(fin.library.id).toBeNull();
+    el.remove();
+  }, 10000);
+});
