@@ -137,6 +137,9 @@
         },
         "export-area": {
           "type": "string"
+        },
+        "tremble": {
+          "type": "number"
         }
       }
     }

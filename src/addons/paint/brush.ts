@@ -33,6 +33,11 @@ export type BrushSettings = {
   scatter: number;
   /** Aplatissement de la pointe (1 : intacte, 0,2 : très plate). */
   roundness: number;
+  /**
+   * Tremblement 0..1 : le tracé ondule doucement de part et d'autre de la main et son épaisseur respire
+   * (bruit lent, propre à chaque trait) ; contours vivants, même pour un trait plein fondu en aplat.
+   */
+  tremble: number;
   /** Mode de fusion du trait avec la toile (`normal` : par-dessus). Sans effet sur la gomme. */
   blend: BlendMode;
 };
@@ -65,6 +70,7 @@ export const BRUSH_DEFAULTS: BrushSettings = {
   sizeJitter: 0,
   scatter: 0,
   roundness: 1,
+  tremble: 0,
   blend: "normal",
 };
 
@@ -97,6 +103,7 @@ export function sanitizeBrush(base: BrushSettings, raw: Record<string, unknown> 
   if (Number.isFinite(n(raw.sizeJitter))) o.sizeJitter = clamp(n(raw.sizeJitter), 0, 1);
   if (Number.isFinite(n(raw.scatter))) o.scatter = clamp(n(raw.scatter), 0, 3);
   if (Number.isFinite(n(raw.roundness))) o.roundness = clamp(n(raw.roundness), 0.05, 1);
+  if (Number.isFinite(n(raw.tremble))) o.tremble = clamp(n(raw.tremble), 0, 1);
   if (typeof raw.blend === "string" && (BLEND_MODES as readonly string[]).includes(raw.blend)) o.blend = raw.blend as BlendMode;
   return o;
 }
@@ -265,5 +272,40 @@ export class History<T> {
   clear(): void {
     this.past = [];
     this.future = [];
+  }
+}
+
+/** Bruit de valeur 1D lissé (0..1), déterministe pour une graine donnée. */
+export function noise1(x: number, seed: number): number {
+  const h = (i: number) => {
+    let v = (i * 374761393 + seed * 668265263) | 0;
+    v = Math.imul(v ^ (v >>> 13), 1274126177);
+    return ((v ^ (v >>> 16)) >>> 0) / 4294967296;
+  };
+  const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
+  return h(i) * (1 - u) + h(i + 1) * u;
+}
+
+/**
+ * Tremblement d'un tracé (pixels écran) : à chaque point brut, décalage perpendiculaire à la direction et
+ * facteur d'épaisseur. Longueur d'onde liée au diamètre, amplitude ≤ la moitié du diamètre.
+ */
+export class Trembler {
+  private dist = 0;
+  private prev: { x: number; y: number } | null = null;
+  private dir = { x: 1, y: 0 };
+  constructor(private seed: number) {}
+  apply(x: number, y: number, p: number, amount: number, size: number): { x: number; y: number; p: number } {
+    if (!(amount > 0)) { this.prev = { x, y }; return { x, y, p }; }
+    if (this.prev) {
+      const dx = x - this.prev.x, dy = y - this.prev.y, d = Math.hypot(dx, dy);
+      if (d > 1e-6) { this.dist += d; this.dir = { x: dx / d, y: dy / d }; }
+    }
+    this.prev = { x, y };
+    const wave = Math.max(6, size * 1.6);
+    const t = this.dist / wave;
+    const off = (noise1(t, this.seed) * 2 - 1 + (noise1(t * 3.1, this.seed + 7) * 2 - 1) * 0.35) * amount * size * 0.5;
+    const breathe = 1 - amount * 0.55 * noise1(t * 1.7, this.seed + 13);
+    return { x: x - this.dir.y * off, y: y + this.dir.x * off, p: p * breathe };
   }
 }

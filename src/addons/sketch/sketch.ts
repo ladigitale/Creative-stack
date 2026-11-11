@@ -4,7 +4,7 @@ import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
-import { BRUSH_DEFAULTS, Stabilizer, sanitizeBrush, type BrushSettings } from "../paint/brush";
+import { BRUSH_DEFAULTS, Stabilizer, Trembler, sanitizeBrush, type BrushSettings } from "../paint/brush";
 import { tipFromValue } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
@@ -97,6 +97,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Number }) opacity = BRUSH_DEFAULTS.opacity;
   @property({ type: Number }) spacing = BRUSH_DEFAULTS.spacing;
   @property({ type: Number }) smoothing = 0.3;
+  /** Tremblement du tracé 0..1 (contours vivants ; voir `BrushSettings.tremble`). Aussi en direct dans `brush-from`. */
+  @property({ type: Number }) tremble = 0;
   /**
    * `paint`, `erase` (vraie gomme), `pick` (pipette), `select` (régions d'aplat au clic), `select-color` (régions
    * d'une couleur) ou `hand` (déplacer la vue).
@@ -208,6 +210,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private picked: string | null = null;
   private stroke: Stroke | null = null;
   private stamper: StrokeStamper | null = null;
+  private trembler = new Trembler(0);
   /** Empreintes du trait en cours quand il a un mode de fusion (fusionnées à l'affichage). */
   private liveBuf: Surface | null = null;
   private readonly liveKey = {};
@@ -231,8 +234,18 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   /** Réglages effectifs : attributs puis réglages en direct. */
   brush(): BrushSettings {
-    const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness });
+    const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness, tremble: this.tremble });
     return sanitizeBrush(base, this.live);
+  }
+
+  /**
+   * Précision du tracé : tolérance de simplification (px d'écran, 0..8) ; `simplify` de `brush-from` en direct,
+   * sinon l'attribut. 0 = chaque point gardé (tracé le plus fidèle), plus haut = tracé plus épuré.
+   */
+  simplifyPx(): number {
+    const v = Number(this.live.simplify);
+    const raw = this.live.simplify !== undefined && this.live.simplify !== "" && Number.isFinite(v) ? v : Number(this.simplify);
+    return Math.max(0, Math.min(8, raw || 0));
   }
 
   /** Mode de fusion effectif : réglage en direct, sinon attribut. */
@@ -624,6 +637,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const seed = (Math.random() * 4294967296) >>> 0;
     this.stroke = { id: this.doc.nextId++, brush, pts: [], seed, bbox: { x: 0, y: 0, w: 0, h: 0 } };
     this.stamper = new StrokeStamper(brush, seed);
+    this.trembler = new Trembler(seed);
     this.liveBuf = null;
     if (brush.blend || erase) {
       const s = this.layerSurface();
@@ -642,7 +656,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (st.pts.length >= MAX_POINTS_PER_STROKE * 3) return;
     const b = this.brush();
     const s = this.stab.feed({ x: p.x, y: p.y, p: this.pressureOf(e) }, b.smoothing);
-    this.addPoint(s.x, s.y, s.p);
+    const t = this.trembler.apply(s.x, s.y, s.p, b.tremble, b.size);
+    this.addPoint(t.x, t.y, t.p);
   }
 
   private addPoint(sx: number, sy: number, pr: number): void {
@@ -667,7 +682,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         const target = this.local(e);
         for (let i = 0; i < 8; i++) {
           const s = this.stab.feed({ x: target.x, y: target.y, p: this.pressureOf(e) }, b.smoothing);
-          this.addPoint(s.x, s.y, s.p);
+          const t = this.trembler.apply(s.x, s.y, s.p, b.tremble, b.size);
+          this.addPoint(t.x, t.y, t.p);
         }
       }
     }
@@ -680,7 +696,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (!st || !st.pts.length) return;
     if (erasing) return this.endErase(st);
     const raw = st.pts.length / 3;
-    const tol = Math.max(0, Math.min(8, Number(this.simplify) || 0));
+    const tol = this.simplifyPx();
     if (tol > 0) st.pts = compactStroke(st.pts, tol / this.layerView.zoom, st.brush.pressure ? 0.04 : Infinity);
     this.lastCompaction = { before: raw, after: st.pts.length / 3 };
     st.bbox = strokeBBox(st.pts, strokeMargin(st.brush));
