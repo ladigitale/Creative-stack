@@ -308,6 +308,60 @@ function patchValue(ctor: CustomElementConstructor): void {
 }
 
 // ---------------------------------------------------------------------------
+// sonic-pop imbriqués : `data-on-select` résolu POUR CHAQUE pop.
+//
+// Concorde lit `data-on-select` sur l'ancêtre le plus proche de la cible, une seule fois pour tous les pops
+// ouverts : une liste de choix (pop) posée dans un panneau `data-on-select="keep"` reste alors ouverte après
+// le choix, et la passer en "close" referme aussi le panneau. Ici chaque pop ne regarde que le chemin entre
+// la cible et SON contenu : le panneau garde "keep", la liste imbriquée se ferme au choix.
+
+type PopLike = HTMLElement & { open?: boolean; hide?: () => void };
+type PopCtor = CustomElementConstructor & { pops?: Set<PopLike>; prototype: { _handleClosePop?: (e: Event) => void } };
+
+/** Décision d'un pop ouvert pour un clic ou un appui (exportée pour les tests). */
+export function popShouldClose(pop: HTMLElement, path: EventTarget[], type: string): boolean {
+  const popContainsTarget = path.includes(pop);
+  if (type === "pointerdown") return !popContainsTarget;
+  if (type !== "click") return false;
+  const content = pop.querySelector(":scope > [slot=\"content\"]");
+  const idx = content ? path.indexOf(content) : -1;
+  // Clic hors du contenu : la fermeture « en dehors » se fait au pointerdown.
+  if (idx === -1) return false;
+  for (let i = 0; i <= idx; i++) {
+    const el = path[i];
+    if (!(el instanceof Element)) continue;
+    const v = el.getAttribute("data-on-select");
+    if (v === "keep") return false;
+    if (v) return true;
+  }
+  return true;
+}
+
+function patchPop(ctor: PopCtor): void {
+  const proto = ctor.prototype;
+  const old = proto._handleClosePop;
+  if (!old || (proto as { __sonicNestedPop?: boolean }).__sonicNestedPop) return;
+  (proto as { __sonicNestedPop?: boolean }).__sonicNestedPop = true;
+  const handler = (e: Event): void => {
+    const pops = ctor.pops;
+    if (!pops) return;
+    const path = e.composedPath();
+    for (const pop of [...pops]) {
+      if (!pop.open) continue;
+      if (popShouldClose(pop, path, e.type)) pop.hide?.();
+    }
+  };
+  proto._handleClosePop = handler;
+  // Écouteurs déjà posés par un pop connecté avant le correctif : on les remplace.
+  if (ctor.pops && ctor.pops.size > 0 && typeof document !== "undefined") {
+    document.removeEventListener("pointerdown", old);
+    document.removeEventListener("click", old);
+    document.addEventListener("pointerdown", handler);
+    document.addEventListener("click", handler);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 let installed = false;
 
@@ -321,6 +375,9 @@ export function installConcordeCompat(): void {
   const valueCtor = customElements.get("sonic-value");
   if (valueCtor) patchValue(valueCtor);
   else void customElements.whenDefined("sonic-value").then((c) => patchValue(c));
+  const popCtor = customElements.get("sonic-pop");
+  if (popCtor) patchPop(popCtor as PopCtor);
+  else void customElements.whenDefined("sonic-pop").then((c) => patchPop(c as PopCtor));
 }
 
 installConcordeCompat();
