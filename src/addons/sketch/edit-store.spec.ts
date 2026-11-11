@@ -193,25 +193,40 @@ describe("conversion des couleurs vers la palette", async () => {
   });
 });
 
-describe("passes d'un trait (changements de direction francs)", async () => {
-  const { turnCuts, splitPasses } = await import("./turns");
+describe("passes d'un trait (le trait revient sur lui-même)", async () => {
+  const { passCuts, splitPasses } = await import("./turns");
   const line = (xs: [number, number][]) => xs.flatMap(([x, y]) => [x, y, 1]);
   const seg = (a: [number, number], b: [number, number], n = 20): [number, number][] =>
     Array.from({ length: n }, (_, i) => [a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n] as [number, number]);
 
-  it("hachure aller-retour : une coupe à chaque retournement ; courbe douce : aucune", () => {
-    const zig = line([...seg([0, 0], [100, 4]), ...seg([100, 4], [0, 10]), ...seg([0, 10], [100, 14]), [100, 14]]);
-    const cuts = turnCuts(zig, 6);
+  it("hachure serrée en aller-retour : une passe par recouvrement", () => {
+    const zig = line([...seg([0, 0], [100, 4]), ...seg([100, 4], [0, 8]), ...seg([0, 8], [100, 12]), [100, 12]]);
+    const cuts = passCuts(zig, 8);
     expect(cuts).toHaveLength(2);
     const passes = splitPasses(zig, cuts);
     expect(passes).toHaveLength(3);
     expect(passes.reduce((n, p) => n + p.length / 3, 0)).toBe(zig.length / 3 + 2);
-    const arc = line(Array.from({ length: 60 }, (_, i) => [Math.cos(i / 20) * 80, Math.sin(i / 20) * 80] as [number, number]));
-    expect(turnCuts(arc, 6)).toEqual([]);
   });
 
-  it("le tremblement ne coupe pas", () => {
+  it("boucle qui se croise : coupée au croisement, même sans angle vif", () => {
+    const loop = line(Array.from({ length: 90 }, (_, i) => {
+      const a = (i / 60) * Math.PI * 2;
+      return [Math.cos(a) * 40 + i * 0.3, Math.sin(a) * 40] as [number, number];
+    }));
+    expect(passCuts(loop, 6)).toHaveLength(1);
+  });
+
+  it("geste rapide (points espacés) qui traverse une partie posée : vu", () => {
+    const cross = line([[0, 0], [100, 0], [100, 60], [50, 60], [50, -60], [20, -60]]);
+    expect(passCuts(cross, 6)).toHaveLength(1);
+  });
+
+  it("virages francs sans recouvrement, courbe douce, tremblement : aucune coupe", () => {
+    const square = line([...seg([0, 0], [100, 0]), ...seg([100, 0], [100, 30]), ...seg([100, 30], [0, 30]), ...seg([0, 30], [0, 60]), [0, 60]]);
+    expect(passCuts(square, 6)).toEqual([]);
+    const arc = line(Array.from({ length: 60 }, (_, i) => [Math.cos(i / 20) * 80, Math.sin(i / 20) * 80] as [number, number]));
+    expect(passCuts(arc, 6)).toEqual([]);
     const wobbly = line(Array.from({ length: 80 }, (_, i) => [i * 2, Math.sin(i * 1.7) * 0.8] as [number, number]));
-    expect(turnCuts(wobbly, 6)).toEqual([]);
+    expect(passCuts(wobbly, 6)).toEqual([]);
   });
 });
