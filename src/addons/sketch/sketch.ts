@@ -15,9 +15,9 @@ import { blitBlend, drawStamp, drawStrokes, scratchFor, type Surface } from "./r
 import { StrokeStamper } from "./stamps";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
-import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, recolorManyFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, type Backdrop, type FlatEdit, type Region } from "./flat";
+import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, recolorManyFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, safeBoolean, type Backdrop, type FlatEdit, type Region } from "./flat";
 import { allRegions, regionAt, selectionInfo, similarRegions, type SelectionInfo } from "./select";
-import { TurnDetector, nearestIndex, splitPasses } from "./turns";
+import { PassDetector, nearestIndex, splitPasses } from "./turns";
 import { deriveColor, parseColor, toCss, type Rgba } from "./flat-color";
 import { colorMap, type ColorMapMode } from "./colormap";
 import {
@@ -31,6 +31,12 @@ import { applyAffine } from "../../shared/frame-geometry";
 
 const MAX_SIDE = 4096;
 /** Le cumul des passes ne se voit qu'avec un mode de fusion ou une opacité partielle. */
+/** Disque polygonal (bout arrondi d'une passe). */
+const capDisc = (x: number, y: number, r: number): Pt[] => {
+  const out: Pt[] = [];
+  for (let i = 0; i < 48; i++) out.push([x + Math.cos((i / 48) * Math.PI * 2) * r, y + Math.sin((i / 48) * Math.PI * 2) * r]);
+  return out;
+};
 const multiPass = (b: { blend?: string; opacity: number }) => (!!b.blend && b.blend !== "normal") || b.opacity < 0.999;
 /** Pause sans trait avant l'enregistrement automatique ; intervalle minimal entre deux vignettes. */
 const SAVE_IDLE_MS = 2000;
@@ -267,7 +273,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private stamper: StrokeStamper | null = null;
   private trembler = new Trembler(0);
   /** Passes du trait en cours (coupé aux changements de direction francs) : détecteur et points de coupe. */
-  private turns: TurnDetector | null = null;
+  private turns: PassDetector | null = null;
   private cutAt: [number, number][] = [];
   /** Empreintes du trait en cours quand il a un mode de fusion (fusionnées à l'affichage). */
   private liveBuf: Surface | null = null;
@@ -741,7 +747,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.stamper = new StrokeStamper(brush, seed);
     this.trembler = new Trembler(seed);
     this.cutAt = [];
-    this.turns = !erase && this.passes && multiPass(brush) ? new TurnDetector(brush.size) : null;
+    this.turns = !erase && this.passes && multiPass(brush) ? new PassDetector(brush.size) : null;
     this.liveBuf = null;
     if (brush.blend || erase) {
       const s = this.layerSurface();
@@ -771,21 +777,21 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const [x, y] = toWorld(this.view, sx, sy, w, h);
     const n = st.pts.length;
     if (n >= 3 && st.pts[n - 3] === x && st.pts[n - 2] === y) return;
-    st.pts.push(x, y, pr);
-    const surface = this.liveBuf ?? this.layerSurface();
-    if (!surface) return;
-    surface.view = this.layerView;
-    for (const stamp of stamper.feed(x, y, pr)) drawStamp(surface, st.brush, stamp);
-    // Fin d'une passe : ce qui est déjà tracé se pose (avec son mode) et la passe suivante repart d'un tampon vide,
-    // pour que les passes se cumulent à l'écran comme dans l'aplat final.
-    if (this.turns?.feed(x, y)) {
-      this.cutAt.push([x, y]);
+    // Le segment qui arrive revient sur une partie déjà tracée : ce qui est tracé se pose (avec son mode) et la
+    // passe suivante, ce segment compris, repart d'un tampon vide — les passes se cumulent à l'écran comme dans l'aplat final.
+    if (n >= 3 && this.turns?.feed(x, y)) {
+      this.cutAt.push([st.pts[n - 3], st.pts[n - 2]]);
       const layer = this.layerSurface();
       if (this.liveBuf && layer) {
         blitBlend(layer, this.liveBuf.ctx.canvas, st.brush.blend);
         this.liveBuf = scratchFor(layer, this.liveKey);
       }
-    }
+    } else if (n < 3) this.turns?.feed(x, y);
+    st.pts.push(x, y, pr);
+    const surface = this.liveBuf ?? this.layerSurface();
+    if (!surface) return;
+    surface.view = this.layerView;
+    for (const stamp of stamper.feed(x, y, pr)) drawStamp(surface, st.brush, stamp);
   }
 
   private endStroke(e: PointerEvent): void {
@@ -811,8 +817,22 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (erasing) return this.endErase(st);
     const raw = st.pts.length / 3;
     const tol = this.simplifyPx();
-    if (tol > 0) st.pts = compactStroke(st.pts, tol / this.layerView.zoom, st.brush.pressure ? 0.04 : Infinity);
-    const cuts = [...new Set(this.cutAt.map(([x, y]) => nearestIndex(st.pts, x, y)))].sort((a, b) => a - b);
+    // Coupes repérées sur les points bruts, puis compaction passe par passe : les points de coupe restent.
+    let cuts = [...new Set(this.cutAt.map(([x, y]) => nearestIndex(st.pts, x, y)))]
+      .filter((i) => i > 0 && i < raw - 1)
+      .sort((a, b) => a - b);
+    if (tol > 0) {
+      const ztol = tol / this.layerView.zoom, ptol = st.brush.pressure ? 0.04 : Infinity;
+      const parts = splitPasses(st.pts, cuts).map((p) => compactStroke(p, ztol, ptol));
+      const joined: number[] = [];
+      const next: number[] = [];
+      parts.forEach((p, k) => {
+        if (k > 0) next.push(joined.length / 3 - 1);
+        joined.push(...(k > 0 ? p.slice(3) : p));
+      });
+      st.pts = joined;
+      cuts = next;
+    }
     this.cutAt = [];
     this.turns = null;
     this.lastCompaction = { before: raw, after: st.pts.length / 3 };
@@ -980,7 +1000,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       const otol = this.outlineTol(tolPx, r);
       // Passes : chacune est posée à son tour, leurs recouvrements se cumulent (fusion, opacité partielle).
       const passes = multiPass(st.brush) ? splitPasses(st.pts, cuts) : [st.pts];
-      const shapes = passes.map((p) => strokeOutline(p, r, otol)).filter((m) => m.length);
+      // Une passe repart du point où la précédente s'arrête : sans son bout arrondi (déjà couvert par celui de la
+      // précédente), la jonction ne fonce pas — seuls les vrais recouvrements se cumulent.
+      const shapes = passes
+        .map((p, k) => {
+          const m = strokeOutline(p, r, otol);
+          return k > 0 && m.length ? safeBoolean("difference", m, [[capDisc(p[0], p[1], r)]]) : m;
+        })
+        .filter((m) => m.length);
       const outline = shapes.length === 1 ? shapes[0] : shapes.flat();
       if (!outline.length) return false;
       // Carte cible : la plus haute dont rien au-dessus (trait en empreintes, masque de gomme) ne touche le trait.
