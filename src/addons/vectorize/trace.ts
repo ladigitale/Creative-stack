@@ -119,7 +119,8 @@ export function quantize(img: RGBA, k: number): number[][] {
   return out;
 }
 
-function nearest(pal: number[][], r: number, g: number, b: number): number {
+/** Indice de la couleur de `pal` ([r, g, b] 0..255) la plus proche. */
+export function nearest(pal: number[][], r: number, g: number, b: number): number {
   let bj = 0, bd = Infinity;
   for (let j = 0; j < pal.length; j++) {
     const dr = pal[j][0] - r, dg = pal[j][1] - g, db = pal[j][2] - b;
