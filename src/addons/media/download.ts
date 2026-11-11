@@ -39,6 +39,16 @@ export class SonicMediaDownload extends LitElement {
   @property({ type: String })
   label = "Télécharger";
 
+  /**
+   * Téléchargement automatique : chaque NOUVEAU média publié dans `source` (url différente de la précédente)
+   * est téléchargé tout de suite ; la valeur présente au branchement ne l'est pas. Sans lien affiché :
+   * un bouton à côté déclenche la production (ex. `save` d'un sonic-shader), le fichier part dès qu'il est prêt.
+   */
+  @property({ type: Boolean })
+  auto = false;
+
+  private seen: string | null | undefined = undefined;
+
   @state()
   private ref: { url: string; mime: string } | null = null;
 
@@ -65,13 +75,34 @@ export class SonicMediaDownload extends LitElement {
       ? listenDp(this.source, (v) => {
           const r = v as { url?: unknown; mime?: unknown } | null;
           this.ref = r && typeof r.url === "string" && /^blob:/.test(r.url) ? { url: r.url, mime: String(r.mime ?? "") } : null;
+          const url = this.ref?.url ?? null;
+          const first = this.seen === undefined;
+          const fresh = url !== this.seen;
+          this.seen = url;
+          if (this.auto && !first && fresh && this.ref) this.download(this.ref);
         })
       : null;
   }
 
+  private fileName(mime: string): string {
+    return `${(this.filename || "creation").replace(/[^\w.-]+/g, "-")}.${extensionFor(mime)}`;
+  }
+
+  /** Lance le téléchargement d'un média (lien temporaire, hors du DOM visible). */
+  download(ref: { url: string; mime: string } | null = this.ref): void {
+    if (!ref) return;
+    const a = document.createElement("a");
+    a.href = ref.url;
+    a.download = this.fileName(ref.mime);
+    a.style.display = "none";
+    (this.shadowRoot ?? this).appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   render() {
-    if (!this.ref) return nothing;
-    const name = `${(this.filename || "creation").replace(/[^\w.-]+/g, "-")}.${extensionFor(this.ref.mime)}`;
+    if (!this.ref || this.auto) return nothing;
+    const name = this.fileName(this.ref.mime);
     return html`<a part="link" href=${this.ref.url} download=${name}><slot>${this.label}</slot></a>`;
   }
 }
