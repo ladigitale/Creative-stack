@@ -5,6 +5,7 @@ import {
   formatValue,
   isUnparsableJsonLike,
   pathGet,
+  popShouldClose,
 } from "./concorde-compat";
 import jsonata from "./jsonata-shim";
 
@@ -158,5 +159,35 @@ describe("fonctions JSONata creative-stack", () => {
       '$rankBySimilarity(["a","b"], [[1,0],[0,1]], [0,1], 1)',
     ).evaluate({})) as unknown;
     expect(JSON.stringify(ranked)).toContain("b");
+  });
+});
+
+describe("sonic-pop imbriqués : data-on-select par pop", () => {
+  function build() {
+    const host = document.createElement("div");
+    host.innerHTML = `<div id="outer"><button>panneau</button><div slot="content" data-on-select="keep">
+      <div id="inner"><button>liste</button><div slot="content"><button id="opt">choix</button></div></div>
+      <button id="free">ailleurs</button></div></div>`;
+    document.body.appendChild(host);
+    const q = (s: string) => host.querySelector(s) as HTMLElement;
+    const pathOf = (el: HTMLElement) => { const p: EventTarget[] = []; for (let n: HTMLElement | null = el; n; n = n.parentElement) p.push(n); p.push(document, window); return p; };
+    return { outer: q("#outer"), inner: q("#inner"), opt: q("#opt"), free: q("#free"), pathOf };
+  }
+  it("un choix dans la liste ferme la liste, pas le panneau", () => {
+    const { outer, inner, opt, pathOf } = build();
+    expect(popShouldClose(inner, pathOf(opt), "click")).toBe(true);
+    expect(popShouldClose(outer, pathOf(opt), "click")).toBe(false);
+  });
+  it("clic hors de la liste dans le panneau : le panneau reste ; appui hors de la liste la ferme", () => {
+    const { outer, inner, free, pathOf } = build();
+    expect(popShouldClose(outer, pathOf(free), "click")).toBe(false);
+    expect(popShouldClose(inner, pathOf(free), "click")).toBe(false);
+    expect(popShouldClose(inner, pathOf(free), "pointerdown")).toBe(true);
+    expect(popShouldClose(outer, pathOf(free), "pointerdown")).toBe(false);
+  });
+  it("data-on-select=close explicite dans le panneau : le panneau se ferme", () => {
+    const { outer, free, pathOf } = build();
+    free.setAttribute("data-on-select", "close");
+    expect(popShouldClose(outer, pathOf(free), "click")).toBe(true);
   });
 });
