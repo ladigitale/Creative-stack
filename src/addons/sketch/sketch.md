@@ -168,4 +168,8 @@ Le carnet (`persist`) garde aussi des réglages pris dans d'autres stores, en de
 
 Syntaxe : une liste séparée par des espaces de `store` (tout son état) ou `store.clé1,clé2` (ces clés seulement, pour ne pas garder l'état d'interface d'un store, comme une modale ouverte). Exemple : `settings-from="harmonie fx fxVue.fond,gType,gSpacing"` `prefs-from="pinceau"`. Au chargement, les préférences sont posées d'abord, puis les réglages du dessin rouvert. Valeurs JSON simples, 64 Ko au plus par instantané.
 
+### Échantillonner une palette
+
+Commande `samplePalette` (compteur du DP `control`, avec `sampleCount`, défaut 6, 1..12) : les **couleurs dominantes** de la sélection s'il y en a une, sinon de tout le dessin — aplats pondérés par leur surface, traits non aplatis par leur encre (longueur × épaisseur²), masques et gomme ignorés —, sans la couleur du fond. Les couleurs voisines (OKLab) sont regroupées ; chaque groupe garde sa couleur réelle la plus présente. Résultat dans l'état `sampled { colors, from: selection|drawing }`, et en action `{ type: sample-action (défaut "sampled"), payload: { colors, from } }` vers le store `sample-to` : par exemple un réducteur qui range la palette dans une liste et l'active dans une `sonic-palette rule="custom"`.
+
 Avec `sonic-palette`, l'attribut `write-base` écrit aussi la teinte tirée au hasard dans le store `params` : toute la palette tient alors dans ce store, qu'on peut mettre dans `settings-from`.

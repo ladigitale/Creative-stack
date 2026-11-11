@@ -74,3 +74,57 @@ export function colorMap(colors: Rgba[], palette: Rgba[], mode: ColorMapMode, am
   }
   return out;
 }
+
+/**
+ * Couleurs dominantes d'un dessin (échantillonnage pour une palette) : `entries` = couleurs pondérées (surface
+ * des aplats, encre des traits). Les couleurs proches de `exclude` (le papier) sont écartées ; les autres sont
+ * regroupées en OKLab (fusion de Ward : on réunit à chaque pas les deux groupes qu'il coûte le moins de
+ * confondre) jusqu'à `n` groupes. Chaque groupe garde sa couleur réelle la plus présente (pas une moyenne :
+ * la palette reprend des couleurs du dessin). Résultat rangé du groupe le plus présent au moins présent.
+ */
+export function samplePalette(entries: { rgba: Rgba; weight: number }[], n: number, exclude: Rgba[] = []): Rgba[] {
+  const count = Math.max(1, Math.min(12, Math.round(n) || 1));
+  const ex = exclude.map((c) => oklab(c));
+  type Group = { lab: Lab; w: number; best: { rgba: Rgba; w: number } };
+  const byKey = new Map<string, { rgba: Rgba; w: number }>();
+  for (const { rgba, weight } of entries) {
+    if (!(weight > 0) || rgba[3] < 0.05) continue;
+    const c = quantize([rgba[0], rgba[1], rgba[2], 1]);
+    const k = c.join(",");
+    const e = byKey.get(k);
+    if (e) e.w += weight * rgba[3];
+    else byKey.set(k, { rgba: c, w: weight * rgba[3] });
+  }
+  let groups: Group[] = [...byKey.values()]
+    .filter((e) => !ex.some((x) => dist2(x, oklab(e.rgba)) < 0.02 ** 2))
+    .sort((a, b) => b.w - a.w)
+    .map((e) => ({ lab: oklab(e.rgba), w: e.w, best: { rgba: e.rgba, w: e.w } }));
+  if (!groups.length) return [];
+  // Beaucoup de couleurs (nuances de fusion, dégradés) : les moins présentes rejoignent d'abord la plus proche.
+  const MAX = 96;
+  if (groups.length > MAX) {
+    const head = groups.slice(0, MAX);
+    for (const g of groups.slice(MAX)) {
+      let bi = 0, bd = Infinity;
+      for (let i = 0; i < head.length; i++) { const d = dist2(head[i].lab, g.lab); if (d < bd) { bd = d; bi = i; } }
+      const h = head[bi], w = h.w + g.w;
+      h.lab = mixLab(h.lab, g.lab, g.w / w);
+      h.w = w;
+    }
+    groups = head;
+  }
+  while (groups.length > count) {
+    let bi = 0, bj = 1, bc = Infinity;
+    for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        const a = groups[i], b = groups[j];
+        const cost = ((a.w * b.w) / (a.w + b.w)) * dist2(a.lab, b.lab);
+        if (cost < bc) { bc = cost; bi = i; bj = j; }
+      }
+    }
+    const a = groups[bi], b = groups[bj], w = a.w + b.w;
+    groups[bi] = { lab: mixLab(a.lab, b.lab, b.w / w), w, best: a.best.w >= b.best.w ? a.best : b.best };
+    groups.splice(bj, 1);
+  }
+  return groups.sort((a, b) => b.w - a.w).map((g) => g.best.rgba);
+}

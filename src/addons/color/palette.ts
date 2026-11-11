@@ -5,12 +5,20 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import { dispatch } from "../interactive";
-import { MAX_COLORS, harmony, oklchToHex, parseHex, rgbToOklch, sanitizeRule, type HarmonyRule, type PaletteColor } from "./core";
+import { MAX_COLORS, customPalette, harmony, oklchToHex, parseColorList, parseHex, rgbToOklch, sanitizeRule, type HarmonyRule, type PaletteColor } from "./core";
+
+/** Règle d'harmonie, ou `custom` : la liste `colors` telle quelle. */
+export type PaletteRule = HarmonyRule | "custom";
+const sanitizePaletteRule = (v: unknown, fallback: PaletteRule): PaletteRule => {
+  if (typeof v === "string" && ["custom", "perso", "libre"].includes(v.trim().toLowerCase())) return "custom";
+  const r = sanitizeRule(v, "mono");
+  return r === "mono" && sanitizeRule(v, "square") === "square" ? fallback : r;
+};
 
 export type PaletteState = {
   status: "ready";
   base: string;
-  rule: HarmonyRule;
+  rule: PaletteRule;
   count: number;
   spread: number;
   step: number;
@@ -33,7 +41,8 @@ const num = (v: unknown, lo: number, hi: number): number | undefined => {
  * (`rule` : mono, analogous, complementary, split, triadic, tetradic, square), en OKLCH. Pastilles
  * cliquables : la couleur choisie part en action vers un store (`target`, `action`, `key`), comme
  * `sonic-action`. Réglages en direct par `params`, commandes par `control` ({ random, rotate } compteurs),
- * état complet dans `out-data-provider`.
+ * état complet dans `out-data-provider`. Palette libre : `rule="custom"` et `colors` (attribut ou `params.colors`,
+ * jusqu'à 12 `#rrggbb`) — random / rotate en tournent alors toutes les teintes.
  */
 @customElement("sonic-palette")
 export class SonicPalette extends LitElement {
@@ -61,6 +70,8 @@ export class SonicPalette extends LitElement {
   /** Couleur de base (`#rrggbb`). */
   @property({ type: String }) base = "#2f6fdb";
   @property({ type: String }) rule: string = "complementary";
+  /** Couleurs de la palette libre (`rule="custom"`) : liste JSON ou `#a, #b…`. */
+  @property({ type: String }) colors = "";
   /** Nombre de couleurs (1..12) ; 0 : celui de la règle (5 en monochrome). */
   @property({ type: Number }) count = 0;
   /** Écart des teintes voisines (analogue, complémentaire divisée, rectangle), en degrés. */
@@ -90,6 +101,7 @@ export class SonicPalette extends LitElement {
   /**
    * La base tirée par `random` / `rotate` est aussi écrite dans `params` (action `set`, clé `base`) : toute la
    * palette tient alors dans ce store, qu'on peut enregistrer et restaurer (ex. `settings-from` de sonic-sketch).
+   * En palette libre, ce sont les couleurs tournées qui y sont écrites (clé `colors`).
    */
   @property({ type: Boolean, attribute: "write-base" }) writeBase = false;
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
@@ -101,6 +113,8 @@ export class SonicPalette extends LitElement {
   private triggers = { random: new CounterTrigger(), rotate: new CounterTrigger() };
   /** Base effective après `random` / `rotate` (prioritaire tant que `base` / `params.base` ne changent pas). */
   private override: string | null = null;
+  /** Couleurs libres effectives après `random` / `rotate` (prioritaires tant que `colors` ne change pas). */
+  private overrideColors: string[] | null = null;
 
   disconnectedCallback(): void {
     for (const u of this.unsubs) u();
@@ -111,8 +125,9 @@ export class SonicPalette extends LitElement {
   protected willUpdate(c: Map<string | number | symbol, unknown>): void {
     if (c.has("params") || c.has("control")) this.listen();
     if (c.has("base")) this.override = null;
+    if (c.has("colors")) this.overrideColors = null;
     if (c.has("selected") && this.index < 0) this.index = Math.round(this.selected);
-    if (["base", "rule", "count", "spread", "step", "selected"].some((k) => c.has(k))) this.recompute();
+    if (["base", "rule", "colors", "count", "spread", "step", "selected"].some((k) => c.has(k))) this.recompute();
   }
 
   private listen(): void {
@@ -124,6 +139,7 @@ export class SonicPalette extends LitElement {
       this.unsubs.push(listenDp(this.params, (v) => {
         const next = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
         if (next.base !== this.live.base) this.override = null;
+        if (JSON.stringify(next.colors) !== JSON.stringify(this.live.colors)) this.overrideColors = null;
         this.live = next;
         if (typeof next.selected === "number") this.index = Math.round(next.selected);
         this.recompute();
@@ -141,16 +157,32 @@ export class SonicPalette extends LitElement {
   }
 
   /** Réglages effectifs : `params` puis attributs. */
-  settings(): { base: string; rule: HarmonyRule; count: number; spread: number; step: number } {
+  settings(): { base: string; rule: PaletteRule; count: number; spread: number; step: number } {
     const L = this.live;
     const base = this.override ?? (parseHex(L.base) ? String(L.base) : parseHex(this.base) ? this.base : "#2f6fdb");
-    const rule = sanitizeRule(L.rule, sanitizeRule(this.rule));
+    const rule = sanitizePaletteRule(L.rule, sanitizePaletteRule(this.rule, "complementary"));
     const count = Math.round(num(L.count, 0, MAX_COLORS) ?? num(this.count, 0, MAX_COLORS) ?? 0);
     return { base, rule, count, spread: num(L.spread, 5, 90) ?? num(this.spread, 5, 90) ?? 30, step: num(L.step, 0.04, 0.4) ?? num(this.step, 0.04, 0.4) ?? 0.14 };
   }
 
+  /** Couleurs de la palette libre : rotation en cours, puis `params.colors`, puis l'attribut. */
+  customColors(): string[] {
+    if (this.overrideColors) return this.overrideColors;
+    const live = parseColorList(this.live.colors);
+    return live.length ? live : parseColorList(this.colors);
+  }
+
   private shiftHue(deg: number): void {
     const s = this.settings();
+    if (s.rule === "custom") {
+      const cols = this.customColors();
+      if (!cols.length) return;
+      this.overrideColors = customPalette(cols, deg).map((c) => c.hex);
+      if (this.writeBase && this.params) dispatch(this.params, { type: "set", payload: { colors: this.overrideColors } });
+      this.recompute();
+      this.requestUpdate();
+      return;
+    }
     const o = rgbToOklch(parseHex(s.base)!);
     this.override = oklchToHex({ ...o, h: o.h + deg });
     if (this.writeBase && this.params) dispatch(this.params, { type: "set", payload: { base: this.override } });
@@ -162,7 +194,11 @@ export class SonicPalette extends LitElement {
   private recompute(): void {
     const s = this.settings();
     const before = this.items[this.index]?.hex;
-    this.items = harmony({ base: s.base, rule: s.rule, count: s.count || undefined, spread: s.spread, step: s.step });
+    if (s.rule === "custom") {
+      const cols = this.customColors();
+      // Sans couleurs, la palette libre retombe sur l'harmonie complémentaire de la base.
+      this.items = cols.length ? customPalette(cols) : harmony({ base: s.base, rule: "complementary", count: s.count || undefined, spread: s.spread, step: s.step });
+    } else this.items = harmony({ base: s.base, rule: s.rule, count: s.count || undefined, spread: s.spread, step: s.step });
     if (this.index >= this.items.length) this.index = this.items.length - 1;
     const after = this.items[this.index]?.hex;
     if (this.follow && after && after !== before) this.send(after);

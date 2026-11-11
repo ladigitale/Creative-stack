@@ -21,7 +21,8 @@ import { allRegions, regionAt, selectionInfo, similarRegions, type SelectionInfo
 import { PassDetector, splitPasses } from "./turns";
 import { HEAVY_VERTICES, PIECE_BUDGET_MS, StrokeFlattener, capDisc, type Joint, type Target } from "./flatten-inc";
 import { deriveColor, parseColor, toCss, type Rgba } from "./flat-color";
-import { colorMap, type ColorMapMode } from "./colormap";
+import { colorMap, samplePalette, type ColorMapMode } from "./colormap";
+import { dispatch } from "../interactive";
 import {
   IdbBackend, cleanName, isDrawingId, isReserved, listDrawings, newDrawingId, readCurrent, readPrefs, readStrokes, readView, writeCurrent, writePrefs, writeStrokes,
   type DrawingBackend, type DrawingMeta, type DrawingRecord,
@@ -78,6 +79,8 @@ export type SketchState = {
   blend: BlendMode;
   /** Dernière couleur prélevée à la pipette (`tool="pick"` ou Alt + clic), même absente de la palette. */
   picked: string | null;
+  /** Dernier échantillonnage de palette (`samplePalette`) : couleurs dominantes et leur provenance. */
+  sampled: { colors: string[]; from: "selection" | "drawing" } | null;
   /** Dernier import de formes (`import-from`) : `{ layers, regions, ms }` ou `{ error }`. */
   imported: { layers: number; regions: number; ms: number } | { error: string } | null;
   /** Régions d'aplat sélectionnées (`tool="select"` / `"select-color"`) : nombre, couleurs, boîte, aire. */
@@ -147,6 +150,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * d'une session à l'autre quel que soit le dessin ouvert. Même syntaxe que `settings-from`.
    */
   @property({ type: String, attribute: "prefs-from" }) prefsFrom = "";
+  /**
+   * Échantillonnage d'une palette (commande `samplePalette` du DP `control`, avec `sampleCount`, défaut 6) : les
+   * couleurs dominantes du dessin — de la sélection s'il y en a une —, pondérées par leur surface, sans le fond,
+   * sont publiées dans l'état (`sampled`) et envoyées en action `{type: sample-action, payload: {colors, from}}`
+   * au store `sample-to` (s'il est donné).
+   */
+  @property({ type: String, attribute: "sample-to" }) sampleTo = "";
+  @property({ type: String, attribute: "sample-action" }) sampleAction = "sampled";
+  private sampled: { colors: string[]; from: "selection" | "drawing" } | null = null;
   private settingsVals: Record<string, unknown> = {};
   /** Réglages du dessin actuels et tels qu'enregistrés (instantanés sérialisés). */
   private settingsNow = "";
@@ -531,6 +543,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         }
         // `{recolor: n, color: "#…"}` : recolore la sélection (couleur du pinceau si `color` est absente).
         if ("recolor" in c && this.trigger("recolor").feed(c.recolor)) this.recolor(typeof c.color === "string" ? c.color : this.brush().color);
+        if ("samplePalette" in c && this.trigger("samplePalette").feed(c.samplePalette)) this.samplePalette(Number(c.sampleCount) || 6);
         // Retouches : `edit` + `editAmount` (px d'écran) + `editColors` → aperçu ; `editApply` / `editCancel` (compteurs).
         if ("editApply" in c && this.trigger("editApply").feed(c.editApply)) this.applyEdit();
         if ("editCancel" in c && this.trigger("editCancel").feed(c.editCancel)) this.cancelEdit();
@@ -2000,6 +2013,32 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.publish();
   }
 
+  /**
+   * Couleurs dominantes du dessin (ou de la sélection), pondérées par leur surface, sans le fond : voir
+   * `sample-to`. Retourne les couleurs (#rrggbb), du plus présent au moins présent.
+   */
+  samplePalette(n = 6): string[] {
+    const entries: { rgba: Rgba; weight: number }[] = [];
+    const from: "selection" | "drawing" = this.selected.size ? "selection" : "drawing";
+    if (this.selected.size) {
+      for (const r of this.selected) entries.push({ rgba: r.rgba, weight: multiArea(r.shape) });
+    } else {
+      for (const s of this.doc.strokes) {
+        if (s.flat) { for (const r of s.flat) entries.push({ rgba: r.rgba, weight: multiArea(r.shape) }); continue; }
+        if (s.mask || s.erase) continue;
+        const c = parseColor(s.brush.color);
+        // Trait en empreintes : son encre, à peu près sa longueur × son épaisseur.
+        if (c) entries.push({ rgba: [c[0], c[1], c[2], s.brush.opacity], weight: (s.pts.length / 3) * s.brush.size * s.brush.size * 0.5 });
+      }
+    }
+    const bg = this.rgbaOf(this.backgroundColor());
+    const colors = samplePalette(entries, n, bg && bg[3] > 0 ? [bg] : []).map((c) => toCss([c[0], c[1], c[2], 1]));
+    this.sampled = { colors, from };
+    if (this.sampleTo && colors.length) dispatch(this.sampleTo, { type: this.sampleAction || "sampled", payload: { colors, from } });
+    this.publish();
+    return colors;
+  }
+
   /** Statistiques des aplats publiées dans l'état. */
   private flatStats(): { regions: number; colors: number; flats: number; masks: number; flattened: number } {
     let regions = 0, flats = 0, masks = 0;
@@ -2133,7 +2172,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
       strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
-      tool: this.currentTool(), color: b.color, picked: this.picked, imported: this.imported, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
+      tool: this.currentTool(), color: b.color, picked: this.picked, sampled: this.sampled, imported: this.imported, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
       edit: { op: this.editOp(), preview: !!this.pending, error: this.editError, scope: this.selected.size ? "selection" : "all" },
       library: {
         enabled: !!this.persist, status: this.libStatus, id: this.drawingId, name: this.drawingName,
