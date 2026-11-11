@@ -17,6 +17,7 @@ import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../s
 import { isSolid, shapeHit, solidRadius, strokeOutline } from "./merge";
 import { FLAT_EDITS, MAX_FLAT_VERTICES, deleteFlat, editFlat, recolorManyFlat, eraseFlat, flatBBox, flatVertices, paintFlat, recolorFlat, type Backdrop, type FlatEdit, type Region } from "./flat";
 import { allRegions, regionAt, selectionInfo, similarRegions, type SelectionInfo } from "./select";
+import { TurnDetector, nearestIndex, splitPasses } from "./turns";
 import { deriveColor, parseColor, toCss, type Rgba } from "./flat-color";
 import { colorMap, type ColorMapMode } from "./colormap";
 import {
@@ -29,6 +30,8 @@ import { multiArea, multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt }
 import { applyAffine } from "../../shared/frame-geometry";
 
 const MAX_SIDE = 4096;
+/** Le cumul des passes ne se voit qu'avec un mode de fusion ou une opacité partielle. */
+const multiPass = (b: { blend?: string; opacity: number }) => (!!b.blend && b.blend !== "normal") || b.opacity < 0.999;
 /** Pause sans trait avant l'enregistrement automatique ; intervalle minimal entre deux vignettes. */
 const SAVE_IDLE_MS = 2000;
 const THUMB_EVERY_MS = 30_000;
@@ -220,6 +223,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * commande (`saveDrawing`, `saveDrawingAs`) ; l'état `library.dirty` dit s'il y a des changements non enregistrés,
    * et changer de dessin n'enregistre pas l'ouvert (à l'interface de prévenir).
    */
+  /**
+   * Un trait se pose passe par passe, coupé à chaque changement de direction franc (aller-retour de hachure),
+   * quand son mode de fusion ou son opacité partielle rend le cumul visible. `false` : une seule forme par trait.
+   */
+  @property({ type: Boolean, attribute: "passes", converter: { fromAttribute: (v) => v !== "false" } }) passes = true;
   @property({ type: String, attribute: "save-mode" }) saveMode: "auto" | "manual" = "auto";
   /** DP où lire le nom d'« Enregistrer sous » (clé `name`), ex. celui d'un champ de saisie ; défaut : `control.drawingName`. */
   @property({ type: String, attribute: "name-from" }) nameFrom = "";
@@ -258,6 +266,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private stroke: Stroke | null = null;
   private stamper: StrokeStamper | null = null;
   private trembler = new Trembler(0);
+  /** Passes du trait en cours (coupé aux changements de direction francs) : détecteur et points de coupe. */
+  private turns: TurnDetector | null = null;
+  private cutAt: [number, number][] = [];
   /** Empreintes du trait en cours quand il a un mode de fusion (fusionnées à l'affichage). */
   private liveBuf: Surface | null = null;
   private readonly liveKey = {};
@@ -729,6 +740,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.stroke = { id: this.doc.nextId++, brush, pts: [], seed, bbox: { x: 0, y: 0, w: 0, h: 0 } };
     this.stamper = new StrokeStamper(brush, seed);
     this.trembler = new Trembler(seed);
+    this.cutAt = [];
+    this.turns = !erase && this.passes && multiPass(brush) ? new TurnDetector(brush.size) : null;
     this.liveBuf = null;
     if (brush.blend || erase) {
       const s = this.layerSurface();
@@ -763,6 +776,16 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (!surface) return;
     surface.view = this.layerView;
     for (const stamp of stamper.feed(x, y, pr)) drawStamp(surface, st.brush, stamp);
+    // Fin d'une passe : ce qui est déjà tracé se pose (avec son mode) et la passe suivante repart d'un tampon vide,
+    // pour que les passes se cumulent à l'écran comme dans l'aplat final.
+    if (this.turns?.feed(x, y)) {
+      this.cutAt.push([x, y]);
+      const layer = this.layerSurface();
+      if (this.liveBuf && layer) {
+        blitBlend(layer, this.liveBuf.ctx.canvas, st.brush.blend);
+        this.liveBuf = scratchFor(layer, this.liveKey);
+      }
+    }
   }
 
   private endStroke(e: PointerEvent): void {
@@ -789,9 +812,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const raw = st.pts.length / 3;
     const tol = this.simplifyPx();
     if (tol > 0) st.pts = compactStroke(st.pts, tol / this.layerView.zoom, st.brush.pressure ? 0.04 : Infinity);
+    const cuts = [...new Set(this.cutAt.map(([x, y]) => nearestIndex(st.pts, x, y)))].sort((a, b) => a - b);
+    this.cutAt = [];
+    this.turns = null;
     this.lastCompaction = { before: raw, after: st.pts.length / 3 };
     st.bbox = strokeBBox(st.pts, strokeMargin(st.brush));
-    if (this.flatten && this.merge && this.flattenStroke(st, tol)) {
+    if (this.flatten && this.merge && this.flattenStroke(st, tol, cuts)) {
       this.error = null;
       this.invalidate();
       return;
@@ -944,14 +970,18 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return strokes.length;
   }
 
-  private flattenStroke(st: Stroke, tolPx: number): boolean {
+  private flattenStroke(st: Stroke, tolPx: number, cuts: number[] = []): boolean {
     if (!isSolid(st.brush, st.pts)) return false;
     const src = this.rgbaOf(st.brush.color);
     const r = solidRadius(st.brush, st.pts);
     if (!src || !(r > 0)) return false;
     const strokes = this.doc.strokes;
     try {
-      const outline = strokeOutline(st.pts, r, this.outlineTol(tolPx, r));
+      const otol = this.outlineTol(tolPx, r);
+      // Passes : chacune est posée à son tour, leurs recouvrements se cumulent (fusion, opacité partielle).
+      const passes = multiPass(st.brush) ? splitPasses(st.pts, cuts) : [st.pts];
+      const shapes = passes.map((p) => strokeOutline(p, r, otol)).filter((m) => m.length);
+      const outline = shapes.length === 1 ? shapes[0] : shapes.flat();
       if (!outline.length) return false;
       // Carte cible : la plus haute dont rien au-dessus (trait en empreintes, masque de gomme) ne touche le trait.
       // Peindre dedans ne change pas l'ordre visible, et le trait se fusionne avec les aplats déjà là au lieu
@@ -959,7 +989,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       const index = this.targetFlat(multiBBox(outline));
       const top = index < strokes.length ? strokes[index] : null;
       const onTop = !!top;
-      const regions = paintFlat(top ? top.flat! : [], outline, src, st.brush.opacity, st.brush.blend ?? "normal", this.backdropAt(index));
+      const back = this.backdropAt(index);
+      let regions = top ? top.flat! : [];
+      for (const shape of shapes) regions = paintFlat(regions, shape, src, st.brush.opacity, st.brush.blend ?? "normal", back);
       if (flatVertices(regions) > MAX_FLAT_VERTICES) return false;
       const brush = { ...st.brush, blend: undefined, opacity: 1, pressure: false };
       const item: Stroke = { id: onTop ? top!.id : st.id, brush, pts: [], seed: st.seed, flat: regions, bbox: flatBBox(regions) };

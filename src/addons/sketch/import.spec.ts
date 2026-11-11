@@ -219,7 +219,7 @@ describe("sonic-sketch : enregistrement manuel", async () => {
     expect(after.drawings.map((d: { name: string }) => d.name).sort()).toEqual([lib.name, "Variante"].sort());
     expect(after.name).toBe("Variante");
     // « Enregistrer puis nouveau » dans la même commande : l'enregistrement porte sur l'ancien dessin.
-    const before = el.getState().library.drawings.find((d: { name: string }) => d.name === "Variante").updated;
+    const before = el.getState().library.drawings.find((d: { name: string }) => d.name === "Variante")!.updated;
     await new Promise((r) => setTimeout(r, 5));
     set("vecImport12", result(2, [{ color: "#00ff00", d: sq(80, 80, 30) }]));
     set("skCtl12", { import: 2, saveDrawingAs: 1, saveDrawing: 0, newDrawing: 0 });
@@ -228,7 +228,7 @@ describe("sonic-sketch : enregistrement manuel", async () => {
     await new Promise((r) => setTimeout(r, 200));
     const fin = el.getState();
     expect(fin.strokes).toBe(0);
-    const saved = fin.library.drawings.find((d: { name: string; strokes: number; updated: number }) => d.name === "Variante");
+    const saved = fin.library.drawings.find((d: { name: string; strokes: number; updated: number }) => d.name === "Variante")!;
     expect(saved.strokes).toBeGreaterThan(0);
     expect(saved.updated).toBeGreaterThan(before);
     expect(fin.library.id).toBeNull();
