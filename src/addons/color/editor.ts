@@ -64,7 +64,6 @@ export class SonicPaletteEditor extends LitElement {
     .add:hover { background: color-mix(in oklab, var(--sc-base-content, #000) 6%, transparent); }
     .add:focus-visible { outline: 2px solid var(--sc-primary, #2f6fdb); }
     .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .label { font: 600 9px/1.2 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; opacity: .55; }
     .picker { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 14px; margin-top: 16px; }
     @container (max-width: 440px) { .picker { grid-template-columns: 1fr; } }
     .wrap { container-type: inline-size; }
@@ -76,19 +75,16 @@ export class SonicPaletteEditor extends LitElement {
     .hue .knob { top: 50%; }
     .side { display: flex; flex-direction: column; gap: 10px; }
     .preview { height: 54px; border-radius: var(--sc-rounded, 8px); display: flex; align-items: flex-end; padding: 6px 8px; font: 600 11px/1 ui-monospace, monospace; }
-    input[type="text"] { all: unset; box-sizing: border-box; width: 100%; padding: 7px 9px; border-radius: var(--sc-rounded, 8px);
-      background: color-mix(in oklab, var(--sc-base-content, #000) 6%, transparent); font: inherit; }
-    input[type="text"].mono { font: 13px/1.2 ui-monospace, monospace; }
-    input[type="text"]:focus-visible { outline: 2px solid var(--sc-primary, #2f6fdb); }
+    .flabel { display: block; font-size: var(--sc-label-fs, .875rem); font-weight: var(--sc-label-fw, 500); line-height: 1.2; margin-bottom: .22em; }
+    sonic-fieldset { display: block; }
+    .name { margin-top: 14px; }
     .vals { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; font: 11px/1.4 ui-monospace, monospace; }
     .vals span:nth-child(odd) { opacity: .55; }
-    .menu { display: flex; flex-direction: column; padding: 6px; width: 180px; max-height: 60vh; overflow-y: auto; }
-    .item { position: relative; }
-    .mark { position: absolute; left: 4px; top: 50%; width: 3px; height: 14px; margin-top: -7px; background: var(--sc-primary, #2f6fdb); border-radius: 2px; pointer-events: none; }
+    .menu { padding: 6px; min-width: 180px; max-height: 60vh; overflow-y: auto; }
     .help { font-size: .82em; opacity: .65; margin: 0; }
-    section { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
     .stepper { display: inline-flex; align-items: center; gap: 2px; }
-    .stepper output { min-width: 72px; text-align: center; font-variant-numeric: tabular-nums; }
+    .stepper { min-height: 2.5rem; }
+    .stepper output { min-width: 2.5em; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
     @media (prefers-reduced-motion: reduce) { .slot { transition: none; } }
   `;
 
@@ -329,10 +325,11 @@ export class SonicPaletteEditor extends LitElement {
   }
 
   private onHex(e: Event): void {
-    const input = e.target as HTMLInputElement;
-    const v = input.value.trim();
+    const v = String((e.composedPath()[0] as HTMLInputElement).value ?? "").trim();
+    // Seul un code complet (#rrggbb) remplace la couleur : on peut taper librement entre-temps.
+    if (!/^#?[0-9a-fA-F]{6}$/.test(v)) return;
     const rgb = parseHex(v.startsWith("#") ? v : `#${v}`);
-    if (!rgb) { input.value = this.cols[this.sel]; return; }
+    if (!rgb) return;
     const cols = [...this.cols];
     cols[this.sel] = toHex(rgb);
     this.cols = cols;
@@ -352,6 +349,7 @@ export class SonicPaletteEditor extends LitElement {
     const nLocked = this.locked.filter(Boolean).length;
     const free = n - (nLocked || 1);
     return html`<div class="wrap">
+      <sonic-fieldset variant="ghost" tight label="Couleurs">
       <div class="strip" role="group" aria-label="Couleurs de la palette">
         ${this.cols.map((c, i) => html`<div class="slot" style="background:${c};color:${ink(c)}" aria-current=${i === this.sel ? "true" : "false"}>
           <button class="pick" aria-pressed=${i === this.sel ? "true" : "false"} aria-label="Couleur ${i + 1} : ${c}${this.locked[i] ? ", verrouillée" : ""}"
@@ -379,8 +377,8 @@ export class SonicPaletteEditor extends LitElement {
         </div>
         <div class="side">
           <div class="preview" style="background:${hex};color:${ink(hex)}">Couleur ${this.sel + 1}</div>
-          <input type="text" class="mono" aria-label="Code hex" maxlength="7" spellcheck="false" .value=${hex} @change=${this.onHex}>
-          <div class="vals">
+          <sonic-input size="sm" label="Code" maxlength="7" spellcheck="false" .value=${hex} @input=${this.onHex}></sonic-input>
+          <div class="vals" aria-live="off">
             <span>Clarté</span><span>${Math.round(this.cur.l * 100)} %</span>
             <span>Satur.</span><span>${this.cur.c.toFixed(3)}</span>
             <span>Teinte</span><span>${Math.round(this.cur.h)}°</span>
@@ -389,52 +387,47 @@ export class SonicPaletteEditor extends LitElement {
             <sonic-icon library="iconoir" name="trash" size="sm" slot="prefix"></sonic-icon>Retirer</sonic-button>
         </div>
       </div>
+      </sonic-fieldset>
 
-      <section>
-        <div class="row" style="justify-content:space-between">
-          <span class="label">Nombre</span>
-          <span class="stepper">
-            <sonic-button size="sm" shape="circle" variant="ghost" aria-label="Une couleur de moins" ?disabled=${n <= 1} @click=${() => this.setCount(n - 1)}><sonic-icon library="iconoir" name="minus" size="sm"></sonic-icon></sonic-button>
-            <output aria-live="polite">${n} couleur${n > 1 ? "s" : ""}</output>
-            <sonic-button size="sm" shape="circle" variant="ghost" aria-label="Une couleur de plus" ?disabled=${n >= MAX_COLORS} @click=${() => this.setCount(n + 1)}><sonic-icon library="iconoir" name="plus" size="sm"></sonic-icon></sonic-button>
-          </span>
-        </div>
-      </section>
+      <sonic-fieldset variant="ghost" tight label="Aide">
+        <sonic-form-layout>
+          <div class="form-item-container">
+            <span class="flabel">Règle d'harmonie</span>
+            <sonic-pop placement="bottom-start" style="display:block">
+              <sonic-button aria-label="Règle d'harmonie" align="left" shape="block" style="width:100%">
+                ${RULE_LABELS[this.harmonyRule]}
+                <sonic-icon library="iconoir" name="nav-arrow-down" size="sm" slot="suffix"></sonic-icon>
+              </sonic-button>
+              <sonic-menu slot="content" class="menu">
+                ${HARMONY_RULES.map((r) => html`<sonic-menu-item ?active=${r === this.harmonyRule}
+                  @click=${() => { this.harmonyRule = r; this.variant = 0; }}>${RULE_LABELS[r]}</sonic-menu-item>`)}
+              </sonic-menu>
+            </sonic-pop>
+          </div>
+          <div class="form-item-container">
+            <span class="flabel">Nombre de couleurs</span>
+            <span class="stepper">
+              <sonic-button shape="circle" variant="ghost" aria-label="Une couleur de moins" ?disabled=${n <= 1} @click=${() => this.setCount(n - 1)}><sonic-icon library="iconoir" name="minus" size="sm"></sonic-icon></sonic-button>
+              <output aria-live="polite">${n}</output>
+              <sonic-button shape="circle" variant="ghost" aria-label="Une couleur de plus" ?disabled=${n >= MAX_COLORS} @click=${() => this.setCount(n + 1)}><sonic-icon library="iconoir" name="plus" size="sm"></sonic-icon></sonic-button>
+            </span>
+          </div>
+          <div class="row">
+            <sonic-button type="primary" ?disabled=${free <= 0} @click=${() => this.suggest()}>
+              <sonic-icon library="iconoir" name="sparks" size="sm" slot="prefix"></sonic-icon>
+              ${this.variant ? "Autre proposition" : "Proposer les couleurs libres"}</sonic-button>
+            ${nLocked ? html`<sonic-button @click=${() => { this.locked = this.cols.map(() => false); }}>Tout déverrouiller</sonic-button>` : nothing}
+          </div>
+          <p class="help">${nLocked
+            ? `${nLocked} couleur${nLocked > 1 ? "s" : ""} verrouillée${nLocked > 1 ? "s" : ""} : l'aide propose les ${free} autre${free > 1 ? "s" : ""}.`
+            : "Verrouille (cadenas) les couleurs à garder ; sans verrou, la couleur sélectionnée sert de base."}</p>
+        </sonic-form-layout>
+      </sonic-fieldset>
 
-      <section>
-        <span class="label">Aide</span>
-        <div class="row" style="justify-content:space-between">
-          <span>Règle</span>
-          <sonic-pop placement="bottom-end">
-            <sonic-button size="sm" aria-label="Règle d'harmonie">
-              <span style="white-space:nowrap">${RULE_LABELS[this.harmonyRule]}</span>
-              <sonic-icon library="iconoir" name="nav-arrow-down" size="sm" slot="suffix"></sonic-icon>
-            </sonic-button>
-            <div slot="content" class="menu">
-              ${HARMONY_RULES.map((r) => html`<div class="item">
-                <sonic-button size="sm" variant="ghost" align="left" shape="block" style="width:100%;padding-left:14px"
-                  @click=${() => { this.harmonyRule = r; this.variant = 0; }}>${RULE_LABELS[r]}</sonic-button>
-                ${r === this.harmonyRule ? html`<span class="mark"></span>` : nothing}
-              </div>`)}
-            </div>
-          </sonic-pop>
-        </div>
-        <div class="row">
-          <sonic-button size="sm" type="primary" ?disabled=${free <= 0} @click=${() => this.suggest()}>
-            <sonic-icon library="iconoir" name="sparks" size="sm" slot="prefix"></sonic-icon>
-            ${this.variant ? "Autre proposition" : "Proposer les couleurs libres"}</sonic-button>
-          ${nLocked ? html`<sonic-button size="sm" @click=${() => { this.locked = this.cols.map(() => false); }}>Tout déverrouiller</sonic-button>` : nothing}
-        </div>
-        <p class="help">${nLocked
-          ? `${nLocked} couleur${nLocked > 1 ? "s" : ""} verrouillée${nLocked > 1 ? "s" : ""} : l'aide propose les ${free} autre${free > 1 ? "s" : ""}.`
-          : "Verrouille les couleurs à garder ; sans verrou, la couleur sélectionnée sert de base."}</p>
-      </section>
-
-      <section>
-        <label class="label" for="nom">Nom</label>
-        <input id="nom" type="text" maxlength=${MAX_NAME} placeholder="Ma palette" .value=${this.label}
-          @input=${(e: Event) => { this.label = (e.target as HTMLInputElement).value.slice(0, MAX_NAME); }}>
-      </section>
+      <sonic-form-layout class="name">
+        <sonic-input label="Nom" maxlength=${MAX_NAME} placeholder="Ma palette" .value=${this.label}
+          @input=${(e: Event) => { const v = (e.composedPath()[0] as HTMLInputElement).value; if (typeof v === "string") this.label = v.slice(0, MAX_NAME); }}></sonic-input>
+      </sonic-form-layout>
     </div>`;
   }
 }
