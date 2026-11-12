@@ -179,3 +179,18 @@ Avec `sonic-palette`, l'attribut `write-base` écrit aussi la teinte tirée au h
 `brush-cursor` : au-dessus de la toile, à la souris ou au stylet (survol compris), le curseur natif est remplacé par le **contour de l'empreinte** qui sera posée : forme de la pointe (`tip`), diamètre au zoom courant, angle, aplatissement (`roundness`) ; une petite croix quand l'empreinte fait moins de 6 px. Seulement pour le crayon et la gomme (pas la main, la pipette ni la sélection), jamais au tactile. Le contour est tracé sur la toile de la sélection, hors de l'image (ni export ni source d'images).
 
 Quand une couche est posée sur la toile (ex. un `sonic-shader` d'effets qui la reprend en `channel0`), `style="--sketch-overlay-z: 2"` place la sélection et le curseur-pinceau au-dessus.
+
+### Stylets
+
+Comportement standard des applications de dessin, pour les stylets (Apple Pencil, Wacom, Surface Pen, S Pen…) :
+
+| Attribut | Rôle |
+| --- | --- |
+| `pen-eraser` | Bout gomme du stylet : `erase` (défaut) le trait devient une gomme, `none` il dessine |
+| `pen-barrel` | Bouton latéral : `pick` (défaut) pipette, `pan` déplace la vue, `none` dessine |
+| `pen-tilt` | Rotation du stylet (`twist`) ou, à défaut, direction de son inclinaison : `angle` (défaut) oriente la pointe (ajoutée à `angle`), `none` l'ignore |
+| `touch` | Doigt : `auto` (défaut) dessine tant qu'aucun stylet n'a servi, puis ne fait plus que déplacer / zoomer la vue (rejet de la paume) ; `draw` ; `navigate` |
+| `pressure-curve`, `pressure-min` | Courbe de pression : `min + (1 − min) · p^courbe` (> 1 plus doux, < 1 plus ferme) |
+| `simulate-pressure` | Souris et doigt : pression simulée par la vitesse (lent = appuyé) |
+
+La pression vient du stylet (`pressure`), les points intermédiaires d'un geste rapide sont tous lus (`getCoalescedEvents`), et le survol du stylet alimente le curseur-pinceau (orienté comme la pointe).
