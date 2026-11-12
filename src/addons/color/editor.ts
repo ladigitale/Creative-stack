@@ -414,7 +414,7 @@ export class SonicPaletteEditor extends LitElement {
           </div>
           <div class="row">
             <sonic-button type="primary" ?disabled=${free <= 0} @click=${() => this.suggest()}>
-              <sonic-icon library="iconoir" name="sparks" size="sm" slot="prefix"></sonic-icon>
+              <sonic-icon library="iconoir" name="light-bulb-on" size="sm" slot="prefix"></sonic-icon>
               ${this.variant ? "Autre proposition" : "Proposer les couleurs libres"}</sonic-button>
             ${nLocked ? html`<sonic-button @click=${() => { this.locked = this.cols.map(() => false); }}>Tout déverrouiller</sonic-button>` : nothing}
           </div>
