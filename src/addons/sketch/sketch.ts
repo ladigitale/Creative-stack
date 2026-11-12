@@ -5,6 +5,7 @@ import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
 import { BRUSH_DEFAULTS, Stabilizer, Trembler, sanitizeBrush, type BrushSettings } from "../paint/brush";
+import { densify, fitFrame, gesturesKey, readGestures, type GestureStroke, type Gestures } from "./gestures";
 import { tipFromValue, tipGeometry } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
@@ -86,6 +87,8 @@ export type SketchState = {
   sampled: { colors: string[]; from: "selection" | "drawing" } | null;
   /** Dernier import de formes (`import-from`) : `{ layers, regions, ms }` ou `{ error }`. */
   imported: { layers: number; regions: number; ms: number } | { error: string } | null;
+  /** Gestes rejoués (`gestures-from`) : en cours ou dernier jeu joué ; `null` avant tout jeu. */
+  gestures: { playing: boolean; done: number; total: number; truncated: boolean } | null;
   /** Régions d'aplat sélectionnées (`tool="select"` / `"select-color"`) : nombre, couleurs, boîte, aire. */
   selection: SelectionInfo;
   bbox: { x: number; y: number; w: number; h: number } | null;
@@ -246,6 +249,13 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: String, attribute: "import-from" }) importFrom = "";
   @property({ type: Boolean, attribute: "import-auto" }) importAuto = false;
   /**
+   * Gestes à rejouer (DP d'un jeu `{width, height, strokes: [{color, size, hardness, opacity, blend, tip…, pts}]}`,
+   * voir `gestures.ts`) : chaque nouveau jeu est dessiné trait par trait par la même chaîne qu'un stylet
+   * (pression, passes, fusion, aplatissement, gomme), cadre ajusté à la toile, une étape d'annulation par trait.
+   * Le jeu déjà là au branchement n'est pas rejoué. Pendant le jeu, la toile ne prend pas de nouveau trait.
+   */
+  @property({ type: String, attribute: "gestures-from" }) gesturesFrom = "";
+  /**
    * Placement : `screen` (là où la source apparaît à l'écran : calque pixel ou shader posé sur le dessin),
    * `view` (ajusté dans la vue courante), `auto` (défaut : `screen` si la source était visible sur la toile).
    */
@@ -272,6 +282,13 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private importState: unknown = null;
   /** Dernier import : `{ layers, regions, ms }`, ou `{ error }`. */
   private imported: { layers: number; regions: number; ms: number } | { error: string } | null = null;
+  /** Réglages du trait rejoué (gestes) : remplacent ceux de `brush-from` le temps du trait. */
+  private scripted: Record<string, unknown> | null = null;
+  private gestureState: SketchState["gestures"] = null;
+  private gestureJob = 0;
+  private gestureSeen = "";
+  /** Gestes en cours : la couche n'est pas redessinée après chaque trait, mais par lots (voir `playGestures`). */
+  private deferRender = false;
   @property({ type: String }) control = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
   @property({ type: Boolean }) readonly = false;
@@ -413,6 +430,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   /** Réglages effectifs : attributs puis réglages en direct. */
   brush(): BrushSettings {
+    // Trait rejoué : les réglages du geste seuls (pas ceux du pinceau de l'interface), sans lissage ni tremblement.
+    if (this.scripted) return sanitizeBrush(sanitizeBrush({ ...BRUSH_DEFAULTS }, { smoothing: 0, pressure: true, tremble: 0 }), this.scripted);
     const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness, tremble: this.tremble });
     return sanitizeBrush(base, this.live);
   }
@@ -422,13 +441,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * sinon l'attribut. 0 = chaque point gardé (tracé le plus fidèle), plus haut = tracé plus épuré.
    */
   simplifyPx(): number {
-    const v = Number(this.live.simplify);
-    const raw = this.live.simplify !== undefined && this.live.simplify !== "" && Number.isFinite(v) ? v : Number(this.simplify);
+    const src = this.scripted ?? this.live;
+    const v = Number(src.simplify);
+    const raw = src.simplify !== undefined && src.simplify !== "" && Number.isFinite(v) ? v : Number(this.simplify);
     return Math.max(0, Math.min(8, raw || 0));
   }
 
   /** Mode de fusion effectif : réglage en direct, sinon attribut. */
   currentBlend(): BlendMode {
+    if (this.scripted) return sanitizeBlend(this.scripted.blend);
     return sanitizeBlend(this.live.blend, sanitizeBlend(this.blend));
   }
 
@@ -488,7 +509,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom") || c.has("settingsFrom") || c.has("prefsFrom")) this.listen();
+    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom") || c.has("gesturesFrom") || c.has("settingsFrom") || c.has("prefsFrom")) this.listen();
     if (c.has("width") || c.has("height")) { this.layer = null; this.layerDirty = true; this.compose(); }
     if (c.has("background") || c.has("checker") || c.has("checkerSize")) this.compose();
     if (c.has("tool") && c.get("tool") !== undefined && this.tool !== "select" && this.tool !== "select-color" && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
@@ -546,6 +567,26 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
           if (o.status !== "ready" || runs === this.importRuns.get(path)) return;
           this.importRuns.set(path, runs);
           if (this.importAuto) this.importShapes(v);
+        });
+      }));
+    }
+    if (this.gesturesFrom) {
+      const path = this.gesturesFrom;
+      // Le jeu présent au branchement n'est pas rejoué ; un objet publié arrive clé par clé : relu en microtâche.
+      this.gestureSeen = gesturesKey(plain(get(path)));
+      let queued = false;
+      this.unsubs.push(listenDp(path, () => {
+        if (queued) return;
+        queued = true;
+        queueMicrotask(() => {
+          queued = false;
+          if (this.gesturesFrom !== path) return;
+          const v = plain(get(path));
+          const key = gesturesKey(v);
+          if (key === this.gestureSeen) return;
+          this.gestureSeen = key;
+          const g = readGestures(v);
+          if (g) void this.playGestures(g);
         });
       }));
     }
@@ -641,7 +682,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
     const { w, h, dpr } = this.dims();
-    if (this.layerDirty && !this.gestureActive()) this.renderLayer();
+    if (this.layerDirty && !this.gestureActive() && !this.deferRender) this.renderLayer();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const bg = this.backgroundColor();
@@ -843,7 +884,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   };
 
   private onDown = (e: PointerEvent): void => {
-    if (this.readonly) return;
+    if (this.readonly || this.gestureState?.playing) return;
     this.canvasEl.focus({ preventScroll: true });
     const p = this.local(e);
     try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
@@ -967,7 +1008,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private startStroke(p: { x: number; y: number }, e: PointerEvent, erase = false): void {
     const lv = this.layerView, v = this.view;
-    if (this.layerDirty || lv.x !== v.x || lv.y !== v.y || lv.zoom !== v.zoom || lv.rotation !== v.rotation) this.renderLayer();
+    if ((this.layerDirty && !this.deferRender) || lv.x !== v.x || lv.y !== v.y || lv.zoom !== v.zoom || lv.rotation !== v.rotation) this.renderLayer();
     this.erasing = erase;
     // Gomme : disque net de la taille du pinceau, tracé dans un tampon qui troue l'aperçu.
     // Gomme : le pinceau courant (taille, forme, dureté, opacité…), en noir et sans fusion.
@@ -2183,6 +2224,76 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   /** Abandonne le trait en cours (un second doigt arrive : c'est un geste de vue). */
+  /**
+   * Rejoue un jeu de gestes, trait par trait, en rendant la main au navigateur entre les lots (on voit le dessin
+   * se faire). Retourne le nombre de traits joués ; un nouveau jeu interrompt celui en cours.
+   */
+  async playGestures(g: Gestures): Promise<number> {
+    const job = ++this.gestureJob;
+    this.cancelStroke();
+    this.mode = "none";
+    this.pointer = null;
+    const { w, h } = this.dims();
+    const f = fitFrame(g.width, g.height, w, h);
+    const st = { playing: true, done: 0, total: g.strokes.length, truncated: g.truncated };
+    this.gestureState = st;
+    this.publish();
+    // Un trait aplati redessine toute la couche : pendant le jeu, on ne la redessine qu'une fois par lot
+    // (~0,4 s) ; entre-temps les traits se posent sur la couche telle quelle (aperçu), le dessin reste exact.
+    let t0 = performance.now(), drawn = t0;
+    this.deferRender = true;
+    try {
+      for (const s of g.strokes) {
+        if (job !== this.gestureJob || !this.isConnected) return st.done;
+        this.playStroke(s, f);
+        st.done++;
+        const now = performance.now();
+        if (now - t0 > 24) {
+          if (now - drawn > 400) {
+            this.deferRender = false;
+            this.compose();
+            this.deferRender = true;
+            drawn = performance.now();
+          }
+          this.gestureState = { ...st };
+          this.publish();
+          await new Promise<void>((r) => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => r()) : setTimeout(r, 0)));
+          t0 = performance.now();
+        }
+      }
+    } finally {
+      if (job === this.gestureJob) this.deferRender = false;
+    }
+    if (job === this.gestureJob) {
+      this.gestureState = { ...st, playing: false };
+      this.compose();
+      this.publish();
+    }
+    return st.done;
+  }
+
+  /** Un trait rejoué : réglages du geste, taille ramenée à l'écran, points en pression de stylet. */
+  private playStroke(s: GestureStroke, f: { k: number; ox: number; oy: number }): void {
+    const size = Number(s.brush.size);
+    this.scripted = { ...s.brush, size: (Number.isFinite(size) && size > 0 ? size : 8) * f.k };
+    // Points de passage du cadre → écran, reliés en courbe tous les ~3 px.
+    const pts = densify(s.pts.map((v, i) => (i % 3 === 0 ? f.ox + v * f.k : i % 3 === 1 ? f.oy + v * f.k : v)), 3, s.curve);
+    const ev = (p: number) => ({ type: "pointermove", pointerType: "pen", pressure: Math.max(0.001, p), clientX: 0, clientY: 0, timeStamp: 0 }) as unknown as PointerEvent;
+    const at = (i: number) => ({ x: pts[i], y: pts[i + 1] });
+    try {
+      this.penAngle = null;
+      this.startStroke(at(0), ev(pts[2]), s.brush.tool === "erase");
+      for (let i = 3; i < pts.length; i += 3) this.extendStroke(at(i), ev(pts[i + 2]));
+      this.compose();
+      this.endStroke({ type: "gesture" } as unknown as PointerEvent);
+    } catch {
+      this.cancelStroke();
+    } finally {
+      this.scripted = null;
+      this.mode = "none";
+    }
+  }
+
   private cancelStroke(): void {
     this.erasing = false;
     if (!this.stroke) return;
@@ -2307,7 +2418,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
       strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
-      tool: this.currentTool(), color: b.color, picked: this.picked, sampled: this.sampled, imported: this.imported, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
+      tool: this.currentTool(), color: b.color, picked: this.picked, sampled: this.sampled, imported: this.imported, gestures: this.gestureState, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
       edit: { op: this.editOp(), preview: !!this.pending, error: this.editError, scope: this.selected.size ? "selection" : "all" },
       library: {
         enabled: !!this.persist, status: this.libStatus, id: this.drawingId, name: this.drawingName,
