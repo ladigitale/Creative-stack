@@ -20,8 +20,23 @@ export const GESTURE_BRUSH_KEYS = [
   "angleJitter", "sizeJitter", "scatter", "roundness", "tremble", "blend", "simplify",
 ] as const;
 
-export const MAX_GESTURE_STROKES = 5000;
-export const MAX_GESTURE_POINTS = 400_000;
+/** Taille maximale d'un fichier de gestes (caractères JSON). */
+export const MAX_GESTURE_FILE = 30_000_000;
+
+/**
+ * URL d'un fichier de gestes : chaîne ou `{url}` en `https:`, `blob:` ou `data:application/json` (ex. un asset
+ * d'artefact, ou la sortie de `sonic-painterly`). `http:` seulement pour localhost. Sinon null.
+ */
+export function gesturesUrl(v: unknown): string | null {
+  const u = typeof v === "string" ? v : v && typeof v === "object" && !Array.isArray(v) && typeof (v as { url?: unknown }).url === "string" && !Array.isArray((v as { strokes?: unknown }).strokes) ? (v as { url: string }).url : null;
+  if (!u) return null;
+  const t = u.trim();
+  if (/^(https:|blob:)/i.test(t) || /^data:application\/json[;,]/i.test(t) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(t)) return t;
+  return null;
+}
+
+export const MAX_GESTURE_STROKES = 20_000;
+export const MAX_GESTURE_POINTS = 1_000_000;
 const MAX_STROKE_POINTS = 20_000;
 const MAX_FRAME = 100_000;
 

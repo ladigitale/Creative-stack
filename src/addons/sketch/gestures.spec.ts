@@ -49,6 +49,23 @@ describe("gestes : lecture", () => {
 });
 
 describe("sonic-sketch : gestes rejoués", () => {
+  it("gestures-from donne l'URL d'un fichier : il est chargé puis joué", async () => {
+    const { vi } = await import("vitest");
+    const doc = { width: 100, height: 100, strokes: [{ color: "#ff00ff", size: 20, hardness: 1, pts: [10, 50, 1, 90, 50, 1] }] };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, text: async () => JSON.stringify(doc) })));
+    set("skGestUrl", null);
+    const el = document.createElement("sonic-sketch") as SonicSketch;
+    for (const [k, v] of Object.entries({ width: "400", height: "300", background: "#ffffff", "gestures-from": "skGestUrlA skGestUrl", "out-data-provider": "skGestUrlState" })) el.setAttribute(k, v);
+    document.body.appendChild(el);
+    await el.updateComplete;
+    set("skGestUrl", { url: "https://assets.example/peinture.json" });
+    for (let i = 0; i < 100 && el.getState().gestures?.playing !== false; i++) await wait(20);
+    expect(el.getState().gestures).toMatchObject({ playing: false, done: 1, total: 1, error: null });
+    expect(el.toSvg() ?? "").toMatch(/#ff00ff/i);
+    el.remove();
+    vi.unstubAllGlobals();
+  });
+
   it("chaque nouveau jeu est dessiné avec ses réglages (couleur, fusion, gomme) ; le jeu présent au branchement non", async () => {
     set("skGest", { width: 100, height: 100, strokes: [{ color: "#00ff00", size: 10, pts: [0, 0, 1, 100, 100, 1] }] });
     const el = document.createElement("sonic-sketch") as SonicSketch;
