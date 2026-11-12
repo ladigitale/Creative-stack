@@ -5,7 +5,7 @@ import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
 import { BRUSH_DEFAULTS, Stabilizer, Trembler, sanitizeBrush, type BrushSettings } from "../paint/brush";
-import { densify, fitFrame, gesturesKey, readGestures, type GestureStroke, type Gestures } from "./gestures";
+import { MAX_GESTURE_FILE, densify, fitFrame, gesturesKey, gesturesUrl, readGestures, type GestureStroke, type Gestures } from "./gestures";
 import { tipFromValue, tipGeometry } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
@@ -88,7 +88,7 @@ export type SketchState = {
   /** Dernier import de formes (`import-from`) : `{ layers, regions, ms }` ou `{ error }`. */
   imported: { layers: number; regions: number; ms: number } | { error: string } | null;
   /** Gestes rejoués (`gestures-from`) : en cours ou dernier jeu joué ; `null` avant tout jeu. */
-  gestures: { playing: boolean; done: number; total: number; truncated: boolean } | null;
+  gestures: { playing: boolean; done: number; total: number; truncated: boolean; loading: boolean; error: string | null } | null;
   /** Régions d'aplat sélectionnées (`tool="select"` / `"select-color"`) : nombre, couleurs, boîte, aire. */
   selection: SelectionInfo;
   bbox: { x: number; y: number; w: number; h: number } | null;
@@ -286,7 +286,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private scripted: Record<string, unknown> | null = null;
   private gestureState: SketchState["gestures"] = null;
   private gestureJob = 0;
-  private gestureSeen = "";
+  private gestureSeen = new Map<string, string>();
   /** Gestes en cours : la couche n'est pas redessinée après chaque trait, mais par lots (voir `playGestures`). */
   private deferRender = false;
   @property({ type: String }) control = "";
@@ -570,23 +570,22 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         });
       }));
     }
-    if (this.gesturesFrom) {
-      const path = this.gesturesFrom;
+    // Sources de gestes (liste séparée par des espaces) : un jeu en données, ou l'URL d'un fichier JSON.
+    for (const path of String(this.gesturesFrom ?? "").split(/\s+/).filter(Boolean).slice(0, 4)) {
       // Le jeu présent au branchement n'est pas rejoué ; un objet publié arrive clé par clé : relu en microtâche.
-      this.gestureSeen = gesturesKey(plain(get(path)));
+      this.gestureSeen.set(path, gesturesKey(plain(get(path))));
       let queued = false;
       this.unsubs.push(listenDp(path, () => {
         if (queued) return;
         queued = true;
         queueMicrotask(() => {
           queued = false;
-          if (this.gesturesFrom !== path) return;
+          if (!String(this.gesturesFrom ?? "").split(/\s+/).includes(path)) return;
           const v = plain(get(path));
           const key = gesturesKey(v);
-          if (key === this.gestureSeen) return;
-          this.gestureSeen = key;
-          const g = readGestures(v);
-          if (g) void this.playGestures(g);
+          if (key === this.gestureSeen.get(path)) return;
+          this.gestureSeen.set(path, key);
+          void this.receiveGestures(v);
         });
       }));
     }
@@ -2224,6 +2223,33 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   /** Abandonne le trait en cours (un second doigt arrive : c'est un geste de vue). */
+  /** Un jeu reçu : en données, ou l'URL d'un fichier JSON (`"…"` ou `{url}`) chargée d'abord. */
+  private async receiveGestures(v: unknown): Promise<void> {
+    const url = gesturesUrl(v);
+    if (!url) {
+      const g = readGestures(v);
+      if (g) void this.playGestures(g);
+      return;
+    }
+    const job = ++this.gestureJob;
+    this.gestureState = { playing: false, done: 0, total: 0, truncated: false, loading: true, error: null };
+    this.publish();
+    try {
+      const res = await fetch(url, { credentials: "omit" });
+      if (!res.ok) throw new Error(`fichier de gestes : HTTP ${res.status}`);
+      const text = await res.text();
+      if (text.length > MAX_GESTURE_FILE) throw new Error("fichier de gestes trop volumineux");
+      if (job !== this.gestureJob) return;
+      const g = readGestures(JSON.parse(text));
+      if (!g) throw new Error("fichier de gestes sans trait jouable");
+      void this.playGestures(g);
+    } catch (e) {
+      if (job !== this.gestureJob) return;
+      this.gestureState = { playing: false, done: 0, total: 0, truncated: false, loading: false, error: e instanceof Error ? e.message : "fichier de gestes illisible" };
+      this.publish();
+    }
+  }
+
   /**
    * Rejoue un jeu de gestes, trait par trait, en rendant la main au navigateur entre les lots (on voit le dessin
    * se faire). Retourne le nombre de traits joués ; un nouveau jeu interrompt celui en cours.
@@ -2235,7 +2261,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.pointer = null;
     const { w, h } = this.dims();
     const f = fitFrame(g.width, g.height, w, h);
-    const st = { playing: true, done: 0, total: g.strokes.length, truncated: g.truncated };
+    const st = { playing: true, done: 0, total: g.strokes.length, truncated: g.truncated, loading: false, error: null as string | null };
     this.gestureState = st;
     this.publish();
     // Un trait aplati redessine toute la couche : pendant le jeu, on ne la redessine qu'une fois par lot

@@ -188,7 +188,8 @@ Commande `samplePalette` (compteur du DP `control`, avec `sampleCount`, défaut 
 - Coordonnées et `size` dans le cadre `width × height`, ajusté à 90 % de la toile et centré ; pression 0..1 par point (défaut 0.7, le diamètre suit la pression).
 - Comme un peintre garde son pinceau en main, chaque trait reprend les réglages du précédent et ne donne que ceux qui changent ; `reset: true` repart des réglages par défaut. Les réglages de l'interface (`brush-from`) ne s'appliquent pas aux traits rejoués.
 - Les points sont des points de passage reliés en courbe (Catmull-Rom) ; `curve: false` pour des segments droits.
-- Limites : 5000 traits, 400 000 points. Le jeu présent au branchement n'est pas rejoué ; un nouveau jeu interrompt celui en cours. La couche est redessinée par lots pendant le jeu. Une étape d'annulation par trait. L'état `gestures {playing, done, total, truncated}` suit la progression.
+- Un gros jeu se donne en **fichier** : le DP contient son URL (chaîne ou `{url}` ; `https:`, `blob:`, `data:application/json` ; 30 Mo max), par exemple un asset d'artefact ou l'état de `sonic-painterly`. Il est chargé puis joué (état `gestures.loading`, puis `playing`). `gestures-from` accepte plusieurs DP séparés par des espaces.
+- Limites : 20 000 traits, 1 000 000 de points. Le jeu présent au branchement n'est pas rejoué ; un nouveau jeu interrompt celui en cours. La couche est redessinée par lots pendant le jeu. Une étape d'annulation par trait. L'état `gestures {playing, loading, done, total, truncated, error}` suit la progression.
 
 Avec `sonic-palette`, l'attribut `write-base` écrit aussi la teinte tirée au hasard dans le store `params` : toute la palette tient alors dans ce store, qu'on peut mettre dans `settings-from`.
 
@@ -214,3 +215,27 @@ Comportement standard des applications de dessin, pour les stylets (Apple Pencil
 La pression vient du stylet (`pressure`), les points intermédiaires d'un geste rapide sont tous lus (`getCoalescedEvents`), et le survol du stylet alimente le curseur-pinceau (orienté comme la pointe).
 
 Les mêmes réglages peuvent venir en direct du DP du pinceau (`brush-from`) : `pressureCurve`, `pressureMin`, `simulatePressure` (prioritaires sur les attributs, enregistrables avec les préférences).
+
+
+## Peindre une image : `sonic-painterly`
+
+`sonic-painterly` peint **n'importe quelle image** au pinceau : il en tire un jeu de gestes que `sonic-sketch` rejoue avec ses vrais pinceaux. L'image peut être une photo, une image générée, un asset ou une caméra. Le résultat est un vrai dessin, retouchable trait par trait.
+
+La méthode est celle d'un peintre (« stroke-based rendering ») : du gros au fin, pour chaque taille de pinceau, on compare la toile simulée à l'image floutée à l'échelle du pinceau. Là où l'écart dépasse un seuil, un trait part du point le plus faux. Il prend la couleur de l'image et suit les formes (perpendiculaire au gradient de clarté) jusqu'à ce que la couleur change. Les grandes touches posent les masses ; les petites n'ajoutent du détail que là où il en manque.
+
+```json
+{ "tagName": "sonic-still", "attributes": { "id": "photo", "in-data-provider": "fichier" } },
+{ "tagName": "sonic-painterly", "attributes": { "source": "#photo", "auto": "", "detail": "0.7", "out-data-provider": "peintre" } },
+{ "tagName": "sonic-sketch", "attributes": { "gestures-from": "peintre", "…": "…" } }
+```
+
+| Attribut | Rôle |
+|---|---|
+| `source` / `src-from` | Source d'images de la page (`#id`), ou DP d'une URL d'image (chaîne ou `{url}` : asset, `blob:`, `data:image`) |
+| `detail` | 0 (grosses touches) à 1 (très détaillé), défaut 0.6 |
+| `max-side` | Côté de l'analyse en px (défaut 360) : plus grand = plus fin, plus de traits |
+| `max-strokes` | Plafond de traits (défaut 12 000, 20 000 max) |
+| `params` | DP en direct : `{maxSide, detail, layers, threshold, maxLength, curvature, opacity, jitter, maxStrokes, seed, background}` |
+| `auto` / `control` | Peint chaque nouvelle image, ou sur demande (`{paint}` compteur) |
+
+État : `{status, error, url, width, height, strokes, layers, residual, ms, runs}`. `url` est le jeu de gestes en `blob:` : aucun gros volume ne transite par les DataProviders. Le calcul est aussi disponible en fonction pure, `paintImage(pixels, options)` dans `painterly.ts`, utilisable dans Node par un agent qui prépare un fichier de gestes.
