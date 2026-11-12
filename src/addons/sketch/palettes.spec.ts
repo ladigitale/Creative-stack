@@ -91,3 +91,34 @@ describe("sonic-palette : palette libre", () => {
     el.remove();
   });
 });
+
+describe("sonic-sketch : curseur-pinceau", () => {
+  const ptr = (type: string, x: number, y: number, pointerType: string) => {
+    const e = new MouseEvent(type, { clientX: x, clientY: y, bubbles: true });
+    Object.defineProperty(e, "pointerId", { value: 1 });
+    Object.defineProperty(e, "pointerType", { value: pointerType });
+    Object.defineProperty(e, "pressure", { value: 0 });
+    return e;
+  };
+  it("masque le curseur natif au survol souris / stylet (crayon), jamais au tactile ni avec la main", async () => {
+    const el = document.createElement("sonic-sketch") as SonicSketch;
+    for (const [k, v] of Object.entries({ width: "400", height: "300", "brush-cursor": "" })) el.setAttribute(k, v);
+    document.body.appendChild(el);
+    await el.updateComplete;
+    const c = el.shadowRoot!.querySelector("canvas")!;
+    c.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    c.dispatchEvent(ptr("pointermove", 50, 50, "touch"));
+    expect(c.style.cursor).toBe("");
+    c.dispatchEvent(ptr("pointermove", 50, 50, "mouse"));
+    expect(c.style.cursor).toBe("none");
+    c.dispatchEvent(ptr("pointerleave", 50, 50, "mouse"));
+    expect(c.style.cursor).toBe("");
+    c.dispatchEvent(ptr("pointermove", 60, 50, "pen"));
+    expect(c.style.cursor).toBe("none");
+    el.setAttribute("tool", "hand");
+    await el.updateComplete;
+    c.dispatchEvent(ptr("pointermove", 70, 50, "pen"));
+    expect(c.style.cursor).toBe("");
+    el.remove();
+  });
+});

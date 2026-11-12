@@ -173,3 +173,9 @@ Syntaxe : une liste séparée par des espaces de `store` (tout son état) ou `st
 Commande `samplePalette` (compteur du DP `control`, avec `sampleCount`, défaut 6, 1..12) : les **couleurs dominantes** de la sélection s'il y en a une, sinon de tout le dessin — aplats pondérés par leur surface, traits non aplatis par leur encre (longueur × épaisseur²), masques et gomme ignorés —, sans la couleur du fond. Les couleurs voisines (OKLab) sont regroupées ; chaque groupe garde sa couleur réelle la plus présente. Résultat dans l'état `sampled { colors, from: selection|drawing }`, et en action `{ type: sample-action (défaut "sampled"), payload: { colors, from } }` vers le store `sample-to` : par exemple un réducteur qui range la palette dans une liste et l'active dans une `sonic-palette rule="custom"`.
 
 Avec `sonic-palette`, l'attribut `write-base` écrit aussi la teinte tirée au hasard dans le store `params` : toute la palette tient alors dans ce store, qu'on peut mettre dans `settings-from`.
+
+### Curseur-pinceau
+
+`brush-cursor` : au-dessus de la toile, à la souris ou au stylet (survol compris), le curseur natif est remplacé par le **contour de l'empreinte** qui sera posée : forme de la pointe (`tip`), diamètre au zoom courant, angle, aplatissement (`roundness`) ; une petite croix quand l'empreinte fait moins de 6 px. Seulement pour le crayon et la gomme (pas la main, la pipette ni la sélection), jamais au tactile. Le contour est tracé sur la toile de la sélection, hors de l'image (ni export ni source d'images).
+
+Quand une couche est posée sur la toile (ex. un `sonic-shader` d'effets qui la reprend en `channel0`), `style="--sketch-overlay-z: 2"` place la sélection et le curseur-pinceau au-dessus.
