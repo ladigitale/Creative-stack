@@ -174,6 +174,22 @@ Commande `samplePalette` (compteur du DP `control`, avec `sampleCount`, défaut 
 
 **Exports envoyés à un store** : avec `export-to`, chaque export (`control.save` en SVG, `savePng` en PNG) part aussi en action `{ type: export-action (défaut "exported"), payload: { url, mime, width, height, size } }` vers ce store, au moment où le fichier est prêt. Un réducteur peut ainsi garder le fichier produit, par exemple comme fichier de sortie d'un artefact utilisé comme outil (`io.output.files`). Les URL `blob:` des quatre derniers exports restent valides : un SVG et un PNG demandés ensemble sont tous deux lisibles.
 
+**Gestes rejoués** (`gestures-from`) : un DataProvider donne un jeu de traits, que la toile dessine un par un avec la même chaîne qu'un stylet. La pression, les pointes, l'opacité, les passes, les modes de fusion, l'aplatissement et la gomme se comportent comme à la main. Usage : un agent qui peint, une démonstration, un tutoriel.
+
+```json
+{ "width": 1000, "height": 1250, "strokes": [
+  { "color": "#efe9e1", "size": 58, "hardness": 1, "pts": [300, 400, 1, 500, 380, 1, 700, 400, 1] },
+  { "color": "#6e6286", "size": 90, "hardness": 0, "opacity": 0.2, "blend": "multiply", "pts": [700, 300, 0.4, 720, 600, 1] },
+  { "size": 40, "pts": [650, 700, 0.3, 660, 800, 0.8] },
+  { "reset": true, "tool": "erase", "size": 20, "pts": [500, 500, 1, 520, 520, 1] }
+] }
+```
+
+- Coordonnées et `size` dans le cadre `width × height`, ajusté à 90 % de la toile et centré ; pression 0..1 par point (défaut 0.7, le diamètre suit la pression).
+- Comme un peintre garde son pinceau en main, chaque trait reprend les réglages du précédent et ne donne que ceux qui changent ; `reset: true` repart des réglages par défaut. Les réglages de l'interface (`brush-from`) ne s'appliquent pas aux traits rejoués.
+- Les points sont des points de passage reliés en courbe (Catmull-Rom) ; `curve: false` pour des segments droits.
+- Limites : 5000 traits, 400 000 points. Le jeu présent au branchement n'est pas rejoué ; un nouveau jeu interrompt celui en cours. La couche est redessinée par lots pendant le jeu. Une étape d'annulation par trait. L'état `gestures {playing, done, total, truncated}` suit la progression.
+
 Avec `sonic-palette`, l'attribut `write-base` écrit aussi la teinte tirée au hasard dans le store `params` : toute la palette tient alors dans ce store, qu'on peut mettre dans `settings-from`.
 
 ### Curseur-pinceau
