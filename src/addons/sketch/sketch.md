@@ -194,3 +194,5 @@ Comportement standard des applications de dessin, pour les stylets (Apple Pencil
 | `simulate-pressure` | Souris et doigt : pression simulée par la vitesse (lent = appuyé) |
 
 La pression vient du stylet (`pressure`), les points intermédiaires d'un geste rapide sont tous lus (`getCoalescedEvents`), et le survol du stylet alimente le curseur-pinceau (orienté comme la pointe).
+
+Les mêmes réglages peuvent venir en direct du DP du pinceau (`brush-from`) : `pressureCurve`, `pressureMin`, `simulatePressure` (prioritaires sur les attributs, enregistrables avec les préférences).

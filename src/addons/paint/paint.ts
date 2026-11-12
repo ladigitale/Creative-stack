@@ -598,9 +598,12 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   }
 
   private pressureOf(e: PointerEvent): number {
-    if (e.pointerType === "pen") return pressureCurve(e.pressure > 0 ? e.pressure : 0.5, this.pressureGamma, this.pressureMin);
-    if (!this.simulatePressure) return 1;
-    return pressureCurve(this.velocity.feed(e.clientX, e.clientY, e.timeStamp || performance.now()), this.pressureGamma, this.pressureMin);
+    // Réglages en direct (DP du pinceau : pressureCurve, pressureMin, simulatePressure) prioritaires sur les attributs.
+    const L = this.live, num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+    const gamma = num(L.pressureCurve, this.pressureGamma), min = num(L.pressureMin, this.pressureMin);
+    if (e.pointerType === "pen") return pressureCurve(e.pressure > 0 ? e.pressure : 0.5, gamma, min);
+    if (!(typeof L.simulatePressure === "boolean" ? L.simulatePressure : this.simulatePressure)) return 1;
+    return pressureCurve(this.velocity.feed(e.clientX, e.clientY, e.timeStamp || performance.now()), gamma, min);
   }
 
   /** Stylet au début d'un trait : bout gomme et orientation (rotation, sinon direction de l'inclinaison). */
