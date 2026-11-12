@@ -62,6 +62,8 @@ Le script du worker est généré à partir de `trace.ts` : après toute modific
 
 Un fichier SVG n'a pas besoin d'être tracé : ses formes sont déjà vectorielles. `svg-from` désigne un SonicMediaRef (URL `blob:`, par exemple le `ref-provider` d'un `sonic-file-open`) : quand c'est un SVG, ses formes sont lues telles quelles et publiées dans le même état que la vectorisation (`paths[{color, d, opacity}]`, `width`, `height`), avec `source: "svg"`. Sinon la source d'images (`source`) est tracée comme d'habitude : un même branchement accepte donc un SVG ou une photo.
 
+Le DP peut aussi donner le SVG **en texte** (`"<svg …>…</svg>"`, ou un objet `{svg}`, 1 Mo max), par exemple l'entrée d'un artefact utilisé comme outil : il est lu de la même façon, jamais inséré dans la page (scripts, liens, textes et images ignorés).
+
 ```json
 { "tagName": "sonic-file-open", "attributes": { "accept": "image/*,.svg", "ref-provider": "fichier" } }
 { "tagName": "sonic-still", "attributes": { "id": "image-ouverte", "in-data-provider": "fichier", "hidden-preview": "" } }
