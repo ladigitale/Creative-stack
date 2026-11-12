@@ -5,7 +5,7 @@ import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
 import { BRUSH_DEFAULTS, Stabilizer, Trembler, sanitizeBrush, type BrushSettings } from "../paint/brush";
-import { tipFromValue } from "../paint/tip";
+import { tipFromValue, tipGeometry } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
   Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
@@ -126,7 +126,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     :host { display: block; position: relative; line-height: 0; touch-action: none; }
     :host([hidden-preview]) { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; overflow: hidden; }
     canvas { display: block; width: 100%; height: auto; touch-action: none; outline: none; }
-    canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    /* --sketch-overlay-z : place la sélection et le curseur-pinceau au-dessus d'une couche posée sur la toile (ex. effets). */
+    canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: var(--sketch-overlay-z, auto); }
   `;
 
   @property({ type: Number }) width = 800;
@@ -157,6 +158,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * au store `sample-to` (s'il est donné).
    */
   @property({ type: String, attribute: "sample-to" }) sampleTo = "";
+  /**
+   * Curseur en forme de pinceau : au-dessus de la toile, à la souris ou au stylet (survol compris), le curseur
+   * natif laisse place au contour de l'empreinte qui sera posée (forme, taille au zoom courant, angle,
+   * aplatissement ; une croix quand elle est trop petite). Crayon et gomme seulement.
+   */
+  @property({ type: Boolean, attribute: "brush-cursor" }) brushCursor = false;
+  private cursorAt: { x: number; y: number; p: number } | null = null;
+  private overlayRaf = 0;
   @property({ type: String, attribute: "sample-action" }) sampleAction = "sampled";
   private sampled: { colors: string[]; from: "selection" | "drawing" } | null = null;
   private settingsVals: Record<string, unknown> = {};
@@ -411,7 +420,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const { w, h, dpr } = this.dims();
     return html`<canvas width=${Math.round(w * dpr)} height=${Math.round(h * dpr)} part="canvas" tabindex="0"
       @pointerdown=${this.onDown} @pointermove=${this.onMove} @pointerup=${this.onUp} @pointercancel=${this.onUp}
-      @lostpointercapture=${this.onUp} @pointerenter=${() => (this.hover = true)} @pointerleave=${() => (this.hover = false)}
+      @lostpointercapture=${this.onUp} @pointerenter=${() => (this.hover = true)} @pointerleave=${this.onLeave}
       @keydown=${this.onKey} @contextmenu=${(e: Event) => e.preventDefault()}></canvas><canvas class="overlay" aria-hidden="true"
       width=${Math.round(w * dpr)} height=${Math.round(h * dpr)}></canvas>`;
   }
@@ -644,8 +653,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
     const shown = this.pending ? this.pending.fresh : this.selected;
-    if (!shown.size) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.drawBrushCursor(ctx);
+    if (!shown.size) return;
     const path = new Path2D();
     for (const r of shown) {
       for (const poly of r.shape) for (const ring of poly) {
@@ -666,6 +676,41 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     ctx.setLineDash([5, 4]);
     ctx.stroke(path);
     ctx.setLineDash([]);
+  }
+
+  /** Contour de l'empreinte sous le pointeur (`brush-cursor`), en px CSS, trait clair puis sombre. */
+  private drawBrushCursor(ctx: CanvasRenderingContext2D): void {
+    const at = this.cursorAt;
+    if (!at || !this.brushCursor) return;
+    const b = this.brush();
+    // Diamètre à l'écran : celui de l'empreinte, au zoom courant ; au stylet, celui de la pression du survol (pleine).
+    const px = this.worldSize(b) * this.view.zoom * (b.pressure && this.mode === "draw" ? Math.max(0.15, at.p) : 1);
+    const rot = (b.angle * Math.PI) / 180 + (this.view.rotation || 0);
+    const path = new Path2D();
+    if (px < 6) {
+      // Trop petit pour une forme lisible : une croix.
+      const r = 6;
+      path.moveTo(at.x - r, at.y); path.lineTo(at.x - 2, at.y); path.moveTo(at.x + 2, at.y); path.lineTo(at.x + r, at.y);
+      path.moveTo(at.x, at.y - r); path.lineTo(at.x, at.y - 2); path.moveTo(at.x, at.y + 2); path.lineTo(at.x, at.y + r);
+    } else {
+      const geo = b.tip ? tipGeometry(b.tip) : null;
+      if (geo && typeof DOMMatrix === "function") {
+        const k = px * geo.k;
+        const m = new DOMMatrix().translate(at.x, at.y).rotate((rot * 180) / Math.PI).scale(k * b.roundness, k).translate(-geo.cx, -geo.cy);
+        path.addPath(new Path2D(b.tip), m);
+      } else {
+        path.ellipse(at.x, at.y, Math.max(0.5, (px * b.roundness) / 2), px / 2, rot, 0, Math.PI * 2);
+      }
+    }
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.setLineDash([]);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.stroke(path);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(17,17,17,0.9)";
+    ctx.stroke(path);
   }
 
   private backgroundColor(): string {
@@ -807,6 +852,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private onMove = (e: PointerEvent): void => {
     const p = this.local(e);
+    if (this.brushCursor) this.trackCursor(e, p);
     if (this.nav.move(e.pointerId, p)) return;
     if (e.pointerId !== this.pointer) return;
     if (this.mode === "pick") { this.pick(e, false); return; }
@@ -816,6 +862,28 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.compose();
     }
   };
+
+  private onLeave = (): void => {
+    this.hover = false;
+    if (this.cursorAt) { this.cursorAt = null; this.canvasEl.style.cursor = ""; this.scheduleOverlay(); }
+  };
+
+  /** Suit le pointeur pour le curseur-pinceau (souris et stylet seulement ; le tactile n'en a pas). */
+  private trackCursor(e: PointerEvent, p: { x: number; y: number }): void {
+    const tool = this.currentTool();
+    const on = e.pointerType !== "touch" && (tool === "paint" || tool === "erase") && this.mode !== "pan" && this.mode !== "pick" && !e.altKey;
+    const next = on ? { x: p.x, y: p.y, p: e.pointerType === "pen" && e.pressure > 0 ? e.pressure : 1 } : null;
+    if (!next && !this.cursorAt) return;
+    this.cursorAt = next;
+    this.canvasEl.style.cursor = next ? "none" : "";
+    this.scheduleOverlay();
+  }
+
+  private scheduleOverlay(): void {
+    if (this.overlayRaf) return;
+    if (typeof requestAnimationFrame !== "function") { this.drawOverlay(); return; }
+    this.overlayRaf = requestAnimationFrame(() => { this.overlayRaf = 0; this.drawOverlay(); });
+  }
 
   private onUp = (e: PointerEvent): void => {
     this.nav.up(e.pointerId);
