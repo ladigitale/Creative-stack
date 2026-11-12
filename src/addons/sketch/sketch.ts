@@ -33,6 +33,8 @@ import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
 import { multiArea, multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt } from "../vector";
 import { applyAffine } from "../../shared/frame-geometry";
 
+/** Exports dont l’URL `blob:` reste valide (`last` et les précédents). */
+const EXPORT_KEEP = 4;
 const MAX_SIDE = 4096;
 /** Le cumul des passes ne se voit qu'avec un mode de fusion ou une opacité partielle. */
 /** Morceau d'aplatissement progressif : au moins tant de points et tant de diamètres de long. */
@@ -185,6 +187,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private penAngle: number | null = null;
   private overlayRaf = 0;
   @property({ type: String, attribute: "sample-action" }) sampleAction = "sampled";
+  /**
+   * Chaque export (`control.save` / `savePng`) est aussi envoyé en action `{type: export-action (défaut
+   * "exported"), payload: {url, mime, width, height, size}}` au store `export-to` (s'il est donné) : un réducteur
+   * peut ainsi garder le fichier produit (sortie d'un artefact-outil, envoi, galerie). Les URL `blob:` des
+   * EXPORT_KEEP derniers exports restent valides.
+   */
+  @property({ type: String, attribute: "export-to" }) exportTo = "";
+  @property({ type: String, attribute: "export-action" }) exportAction = "exported";
   private sampled: { colors: string[]; from: "selection" | "drawing" } | null = null;
   private settingsVals: Record<string, unknown> = {};
   /** Réglages du dessin actuels et tels qu'enregistrés (instantanés sérialisés). */
@@ -463,7 +473,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     window.removeEventListener("pagehide", this.flushSave);
     document.removeEventListener("visibilitychange", this.onVisibility);
     if (this.saveTimer) this.flushSave();
-    if (this.last) URL.revokeObjectURL(this.last.url);
+    for (const u of this.exportUrls) URL.revokeObjectURL(u);
+    this.exportUrls = [];
     for (const u of this.thumbUrls.values()) URL.revokeObjectURL(u);
     this.thumbUrls.clear();
     super.disconnectedCallback();
@@ -1200,7 +1211,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     // Tolérance : `simplify` px d'écran, ramenés aux pixels de l'image (courbes aplaties) puis au monde.
     const pxPerImage = Math.hypot(m[0], m[1]) * (w / cr.width) || 1;
     const tolPx = Math.max(0.25, Math.min(8, Number(this.simplify) || 0.35));
-    const skip = this.skipColors();
+    // `import-skip` vise les sources tracées (fond d'un générateur) : un SVG lu tel quel (`keepColors`) garde
+    // toutes ses couleurs, noir compris.
+    const skip = v.keepColors === true ? [] : this.skipColors();
     // Couleurs d'origine gardées si la source le demande (`keepColors`, ex. un SVG importé tel quel).
     const recolor = this.importColorsFrom && v.keepColors !== true ? paletteOf(plain(get(this.importColorsFrom))) : [];
     const rank = new Map<string, number>();
@@ -2211,10 +2224,16 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
   }
 
+  /** URL des derniers exports, gardées valides (un SVG puis un PNG envoyés ensemble restent lisibles). */
+  private exportUrls: string[] = [];
+
   private setLast(blob: Blob, width: number, height: number): void {
-    if (this.last) URL.revokeObjectURL(this.last.url);
-    this.last = { url: URL.createObjectURL(blob), mime: blob.type, width, height, size: blob.size };
+    const url = URL.createObjectURL(blob);
+    this.exportUrls.push(url);
+    while (this.exportUrls.length > EXPORT_KEEP) URL.revokeObjectURL(this.exportUrls.shift()!);
+    this.last = { url, mime: blob.type, width, height, size: blob.size };
     this.publish();
+    if (this.exportTo) dispatch(this.exportTo, { type: this.exportAction || "exported", payload: { ...this.last } });
   }
 
   /**

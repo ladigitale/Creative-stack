@@ -250,6 +250,43 @@ describe("sonic-vectorize svg-from", () => {
   });
 });
 
+describe("sonic-vectorize : SVG donné en texte", () => {
+  it("svg-from lit un texte SVG (ou {svg}) comme un fichier ; une autre chaîne est ignorée", async () => {
+    const { vi } = await import("vitest");
+    const { svgTextOf } = await import("./vectorize");
+    expect(svgTextOf('  <?xml version="1.0"?>\n<svg viewBox="0 0 1 1"/>')).toMatch(/^<\?xml/);
+    expect(svgTextOf({ svg: "<svg></svg>" })).toBe("<svg></svg>");
+    expect(svgTextOf("<svgx/>")).toBeNull();
+    expect(svgTextOf("bonjour <svg/>")).toBeNull();
+    expect(svgTextOf("<svg>" + "x".repeat(1_000_001))).toBeNull();
+    const texts: string[] = [];
+    let n = 0;
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => `blob:t${++n}`, revokeObjectURL: () => {} }));
+    const blobs = new Map<string, Blob>();
+    const create = URL.createObjectURL;
+    URL.createObjectURL = ((b: Blob) => { const u = (create as (b: Blob) => string)(b); blobs.set(u, b); return u; }) as typeof URL.createObjectURL;
+    vi.stubGlobal("fetch", vi.fn(async (u: string) => ({ text: async () => {
+      const t = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsText(blobs.get(u)!); });
+      texts.push(t);
+      return t;
+    } })));
+    set("svgTexte", null);
+    const el = document.createElement("sonic-vectorize");
+    for (const [k, v] of Object.entries({ "svg-from": "svgTexte", auto: "", "keep-colors": "", "out-data-provider": "svgTexteVec" })) el.setAttribute(k, v);
+    document.body.appendChild(el);
+    await (el as unknown as { updateComplete: Promise<unknown> }).updateComplete;
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10"><rect width="5" height="5" fill="#00aa00"/></svg>';
+    set("svgTexte", svg);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(dp("svgTexteVec").get()).toMatchObject({ status: "ready", source: "svg", width: 20, height: 10, keepColors: true });
+    set("svgTexte", svg);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(texts).toHaveLength(1);
+    el.remove();
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("sonic-vectorize : palette imposée et fond retiré sur un SVG lu", () => {
   it("couleurs ramenées à la palette, couche du dessous retirée, sans relire le fichier", async () => {
     const { vi } = await import("vitest");

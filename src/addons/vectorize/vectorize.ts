@@ -1,7 +1,7 @@
 import { LitElement, css, nothing, svg, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
-import { listenDp } from "../../shared/audio/dp";
+import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger, num } from "../../shared/media/control";
 import { isFrameSource } from "../../shared/mediaRef";
 import { frameToClient } from "../../shared/frame-geometry";
@@ -81,6 +81,17 @@ export function svgRefOf(v: unknown): { url: string } | null {
   return mime === "image/svg+xml" || (!mime && /\.svgz?$/i.test(String(r.name ?? ""))) ? { url: r.url } : null;
 }
 
+/** Taille maximale d'un SVG donné en texte à `svg-from`. */
+export const MAX_SVG_TEXT = 1_000_000;
+
+/** SVG donné en texte (`"<svg …>…</svg>"`, ou `{svg: "…"}`), ou null. */
+export function svgTextOf(v: unknown): string | null {
+  const t = typeof v === "string" ? v : v && typeof v === "object" && typeof (v as { svg?: unknown }).svg === "string" ? (v as { svg: string }).svg : null;
+  if (!t || t.length > MAX_SVG_TEXT) return null;
+  const head = t.trimStart();
+  return /^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE[^>]*>\s*)?<svg[\s>]/i.test(head) ? head : null;
+}
+
 /**
  * Image → vecteurs : lit une source d'images (`sonic-still`, `sonic-camera`… par `#id`), quantifie les
  * couleurs, suit les contours et dessine des chemins SVG (courbes en option).
@@ -94,6 +105,8 @@ export function svgRefOf(v: unknown): { url: string } | null {
  * ses formes sont lues telles quelles (courbes, couleurs et opacités exactes ; voir `parseSvgDocument`) au lieu
  * d'être tracées depuis l'image ; sinon la source d'images est tracée comme d'habitude. Avec `auto`, chaque
  * nouveau fichier est lu dès qu'il arrive. `keep-colors` marque le résultat : couleurs d'origine à garder.
+ * Le DP peut aussi donner le SVG en texte (`"<svg…>"` ou `{svg}`, 1 Mo max ; ex. l'entrée d'un artefact-outil) :
+ * il est lu de la même façon, sans être affiché ni exécuté (scripts et liens ignorés par `parseSvgDocument`).
  */
 @customElement("sonic-vectorize")
 export class SonicVectorize extends LitElement {
@@ -152,6 +165,17 @@ export class SonicVectorize extends LitElement {
   private pending: ReturnType<typeof setTimeout> | null = null;
   private fileUrl: string | null = null;
   private svgRef: { url: string } | null = null;
+  /** SVG reçu en texte : son URL `blob:` (refaite seulement quand le texte change). */
+  private svgText: { text: string; url: string } | null = null;
+
+  private textRef(text: string | null): { url: string } | null {
+    if (!text) return null;
+    if (this.svgText?.text !== text) {
+      if (this.svgText) URL.revokeObjectURL(this.svgText.url);
+      this.svgText = { text, url: URL.createObjectURL(new Blob([text], { type: "image/svg+xml" })) };
+    }
+    return { url: this.svgText.url };
+  }
   /** Dernier SVG lu (URL) : la source d'images qui affiche le même fichier ne le fait pas retracer. */
   private svgDone: string | null = null;
   private svgParsed: SvgImport | null = null;
@@ -172,6 +196,8 @@ export class SonicVectorize extends LitElement {
     this.pending = null;
     this.runner?.dispose();
     this.runner = null;
+    if (this.svgText) URL.revokeObjectURL(this.svgText.url);
+    this.svgText = null;
     this.revoke();
     super.disconnectedCallback();
   }
@@ -194,13 +220,15 @@ export class SonicVectorize extends LitElement {
       else if (changed && (this.image || this.svgParsed)) this.schedule();
     }));
     if (this.svgFrom) {
-      let first = true;
+      // Un fichier déjà là au branchement n'est pas relu d'office ; chaque nouveau l'est (`auto`). La valeur
+      // courante est lue tout de suite : `onAssign` ne rappelle pas toujours à l'abonnement.
+      const refOf = (v: unknown) => svgRefOf(v) ?? this.textRef(svgTextOf(v));
+      this.svgRef = refOf(plain(get(this.svgFrom)));
       this.unsubs.push(listenDp(this.svgFrom, (v) => {
-        const ref = svgRefOf(v);
+        const ref = refOf(v);
         const fresh = ref?.url !== this.svgRef?.url;
         this.svgRef = ref;
-        if (!first && fresh && ref && this.auto) this.run(true);
-        first = false;
+        if (fresh && ref && this.auto) this.run(true);
       }));
     }
     if (this.params) this.unsubs.push(listenDp(this.params, (v) => {

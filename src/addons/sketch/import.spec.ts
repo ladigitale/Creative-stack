@@ -122,6 +122,15 @@ describe("sonic-sketch : import de formes vectorisées", () => {
     el.remove();
   });
 
+  it("import-skip ne retire rien d'un SVG lu tel quel (keepColors) : le noir est gardé", async () => {
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport7", "import-skip": "#000000", control: "skCtl7", "out-data-provider": "skState7" });
+    set("vecImport7", { ...result(1, [{ color: "#000000", d: sq(0, 0, 40) }, { color: "#ff0000", d: sq(50, 0, 30) }]), keepColors: true });
+    set("skCtl7", { import: 1 });
+    expect(el.getState().colors).toBe(2);
+    expect(el.toSvg() ?? "").toMatch(/#000000/);
+    el.remove();
+  });
+
   it("rien d'importable : erreur dans l'état, document intact", async () => {
     const el = await mount({ width: "400", height: "300", "import-from": "vecImport4", control: "skCtl4", "out-data-provider": "skState4" });
     set("vecImport4", { status: "working" });

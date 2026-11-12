@@ -63,7 +63,7 @@
         },
         "svg-from": {
           "type": "string",
-          "description": "DP d'un SonicMediaRef (blob:) : un fichier SVG est lu tel quel au lieu d'être tracé"
+          "description": "DP d'un SonicMediaRef (blob:) ou d'un SVG en texte (\"<svg…>\" ou {svg}, 1 Mo max) : le SVG est lu tel quel au lieu d'être tracé"
         },
         "keep-colors": {
           "type": "boolean",
