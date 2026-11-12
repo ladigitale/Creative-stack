@@ -94,3 +94,19 @@ describe("sonic-paint : stylets", () => {
     el.remove();
   });
 });
+
+describe("sonic-sketch : pression en direct", () => {
+  it("pressureCurve / pressureMin / simulatePressure du DP du pinceau", async () => {
+    const { set } = await import("@supersoniks/concorde/core/utils/PublisherProxy");
+    set("penLive", { size: 10 });
+    const { el } = await mount({ "brush-from": "penLive" });
+    const pr = (o: Record<string, unknown>) => (el as unknown as { pressureOf(e: PointerEvent): number }).pressureOf(ptr("pointermove", 0, 0, o) as unknown as PointerEvent);
+    expect(pr({ pressure: 0.5 })).toBeCloseTo(0.5);
+    set("penLive", { size: 10, pressureCurve: 2, pressureMin: 0.2 });
+    expect(pr({ pressure: 0.5 })).toBeCloseTo(0.2 + 0.8 * 0.25);
+    expect(pr({ pointerType: "mouse" })).toBe(1);
+    set("penLive", { size: 10, simulatePressure: true });
+    expect(pr({ pointerType: "mouse" })).toBe(1);
+    el.remove();
+  });
+});
