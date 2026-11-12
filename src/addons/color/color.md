@@ -35,3 +35,25 @@ Clic (ou flèches au clavier) sur une pastille : action `{ type: action, payload
 État (`out-data-provider`) : `{ status, base, rule, count, spread, step, colors: ["#…"], items: [{ hex, hue, l, c, role: base|harmony|shade|custom }], selected, selectedIndex }`.
 
 Variables CSS : `--palette-gap`. Les pastilles suivent `--sc-base`, `--sc-base-content` et `--sc-primary` (anneau du choix, focus).
+
+## sonic-palette-editor
+
+Éditeur de palette pour une modale de configuration : bande des couleurs (clic : sélection ; cadenas : verrou ; `+` : ajouter), carré clarté × saturation en OKLCH à la teinte courante (les zones hors gamut sRGB sont grisées : la couleur retenue est la plus proche affichable), bande des teintes, code hex, nombre de couleurs (1..12), nom.
+
+**Aide d'harmonie** : une règle (`mono`, `analogous`, `complementary`, `split`, `triadic`, `tetradic`, `square`) et « Proposer les couleurs libres » : les couleurs verrouillées restent ; la première verrouillée sert de base (sans verrou, la couleur sélectionnée) ; les autres verrouillées retirent de la proposition les teintes qu'elles occupent déjà ; les couleurs libres reçoivent les teintes de la règle puis leurs nuances. Chaque nouvelle demande donne une variante (écarts de teinte et de clarté, petites variations). Ajouter une couleur la propose aussi selon la règle.
+
+| Attribut | Rôle |
+| --- | --- |
+| `params` | `dp` ou `dp.clé` d'un objet `{ id, name, colors, locked, rule }` : palette chargée, rechargée quand l'objet change |
+| `colors`, `name`, `rule` | Valeurs de départ sans `params` |
+| `control` | DP de commandes, compteurs `{ suggest, save, add, remove }` |
+| `save-to`, `save-action` | Enregistrer envoie `{ type: save-action (défaut savePalette), payload: { id, name, colors } }` à ce store |
+| `out-data-provider` | État `{ id, name, colors, locked, count, selected, rule, lockedCount }` |
+
+Les boutons Enregistrer / Annuler restent ceux de la modale (`control.save`).
+
+```html
+<sonic-palette-editor params="harmonie.edit" control="palCtl" save-to="harmonie" out-data-provider="palEditeur"></sonic-palette-editor>
+```
+
+`suggestPalette({ colors, locked, rule, anchor, variant })` (export de l'addon) fait le même calcul hors composant.

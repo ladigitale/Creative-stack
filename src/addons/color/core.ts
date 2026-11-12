@@ -166,3 +166,82 @@ export function harmony(opts: PaletteOptions): PaletteColor[] {
   }
   return out;
 }
+
+/** Couleur OKLCH en sRGB (0..1, gamma) et si elle tient dans le gamut sRGB (sinon composantes ramenées dans 0..1). */
+export function oklchToSrgb(o: Oklch): { rgb: [number, number, number]; inGamut: boolean } {
+  const lin = oklchToLinear(o);
+  return { rgb: lin.map((u) => toGamma(clamp(u, 0, 1))) as [number, number, number], inGamut: inGamut(lin) };
+}
+
+const okDist = (a: Oklch, b: Oklch): number => {
+  const ax = a.c * Math.cos((a.h * Math.PI) / 180), ay = a.c * Math.sin((a.h * Math.PI) / 180);
+  const bx = b.c * Math.cos((b.h * Math.PI) / 180), by = b.c * Math.sin((b.h * Math.PI) / 180);
+  return Math.hypot(a.l - b.l, ax - bx, ay - by);
+};
+
+/** Petit générateur pseudo-aléatoire reproductible (mulberry32). */
+function rng(seed: number): () => number {
+  let t = seed >>> 0;
+  return () => {
+    t = (t + 0x6d2b79f5) >>> 0;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export type SuggestOptions = {
+  /** Couleurs actuelles (`#rrggbb`) : leur nombre est celui de la palette proposée. */
+  colors: string[];
+  /** Rangs à garder tels quels. */
+  locked?: boolean[];
+  rule: HarmonyRule;
+  /** Rang de la couleur de départ quand rien n'est verrouillé (défaut 0). */
+  anchor?: number;
+  /** Variante : chaque valeur donne une autre proposition (écart des teintes, des nuances, petites variations). */
+  variant?: number;
+};
+
+/**
+ * Propose les couleurs libres d'une palette selon une règle d'harmonie : les couleurs verrouillées restent ; la
+ * première sert de base (sinon la couleur `anchor`), les autres retirent de la proposition les teintes qu'elles
+ * occupent déjà ; les rangs libres reçoivent, dans l'ordre, les teintes de la règle puis leurs nuances.
+ */
+export function suggestPalette(opts: SuggestOptions): string[] {
+  const n = clamp(opts.colors.length, 1, MAX_COLORS);
+  const cols = opts.colors.slice(0, n).map((c) => (parseHex(c) ? toHex(parseHex(c)!) : "#808080"));
+  const locked = cols.map((_, i) => !!opts.locked?.[i]);
+  const keep = locked.some(Boolean) ? locked : cols.map((_, i) => i === clamp(Math.round(opts.anchor ?? 0), 0, n - 1));
+  const anchors = cols.map((c, i) => (keep[i] ? rgbToOklch(parseHex(c)!) : null)).filter((o): o is Oklch => !!o);
+  const free = keep.filter((k) => !k).length;
+  if (!free) return cols;
+  const v = Math.max(0, Math.round(opts.variant ?? 0));
+  const spreads = [30, 24, 40, 18, 50];
+  const steps = [0.14, 0.1, 0.18, 0.08, 0.22];
+  const base = anchors[0];
+  const pool = harmony({
+    base: oklchToHex(base), rule: opts.rule, count: clamp(free + anchors.length + 2, 1, MAX_COLORS),
+    spread: spreads[v % spreads.length], step: steps[Math.floor(v / spreads.length) % steps.length],
+  }).map((p) => rgbToOklch(parseHex(p.hex)!));
+  // La base elle-même, puis pour chaque autre couleur gardée la proposition la plus proche : déjà occupées.
+  pool.shift();
+  for (const a of anchors.slice(1)) {
+    if (!pool.length) break;
+    let best = 0;
+    for (let i = 1; i < pool.length; i++) if (okDist(pool[i], a) < okDist(pool[best], a)) best = i;
+    pool.splice(best, 1);
+  }
+  const r = rng(0x9e3779b9 ^ (v * 7919 + Math.round(base.h * 10)));
+  const out: string[] = [];
+  // Quand la règle n'a pas assez de teintes, on prolonge par des nuances de la base.
+  for (let k = 1; pool.length < free && k < 20; k++) pool.push({ ...base, l: clamp(base.l + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.12, 0.15, 0.95) });
+  let j = 0;
+  for (let i = 0; i < n; i++) {
+    if (keep[i]) { out.push(cols[i]); continue; }
+    const o = pool[j++] ?? base;
+    // Variantes au-delà de la première : légers écarts de clarté et de saturation.
+    const t = v ? { l: clamp(o.l + (r() - 0.5) * 0.12, 0.12, 0.97), c: Math.max(0, o.c * (0.8 + r() * 0.4)), h: o.h } : o;
+    out.push(oklchToHex(t));
+  }
+  return out;
+}

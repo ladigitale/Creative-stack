@@ -35,6 +35,20 @@
         "write-base": { "type": "boolean" },
         "out-data-provider": { "type": "string" }
       }
+    },
+    {
+      "name": "sonic-palette-editor",
+      "description": "Éditeur de palette (modale de configuration) : bande des couleurs (clic = sélection, cadenas = verrou, + = ajouter), carré clarté × saturation OKLCH à la teinte courante et bande des teintes (glisser ou flèches), code hex, nombre 1..12, nom ; aide d'harmonie : règle (mono|analogous|complementary|split|triadic|tetradic|square) et bouton Proposer qui remplit les couleurs non verrouillées (la 1re verrouillée sert de base, sinon la sélectionnée ; chaque demande donne une variante). params = dp ou dp.clé d'un objet {id, name, colors, locked, rule} (rechargé quand il change) ; colors / name / rule en attributs sans params ; control {suggest, save, add, remove} compteurs ; save envoie {type: save-action (défaut savePalette), payload: {id, name, colors}} au store save-to ; état out-data-provider {id, name, colors, locked, count, selected, rule, lockedCount}",
+      "props": {
+        "params": { "type": "string" },
+        "control": { "type": "string" },
+        "colors": { "type": "string" },
+        "name": { "type": "string" },
+        "rule": { "type": "string" },
+        "save-to": { "type": "string" },
+        "save-action": { "type": "string" },
+        "out-data-provider": { "type": "string" }
+      }
     }
   ]
 }
