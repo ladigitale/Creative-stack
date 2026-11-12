@@ -80,3 +80,18 @@ Une toile `sonic-paint navigable` et un `sonic-sketch` à fond transparent super
 ## Limites
 
 L'opacité s'applique à chaque empreinte : un trait lent à faible opacité s'épaissit en s'y superposant. L'annulation garde des copies de la toile : sur une grande toile, le nombre d'étapes est réduit pour rester sous une borne de mémoire. Une image de départ de grande taille est ramenée à la toile en conservant ses proportions.
+
+### Stylets
+
+Comportement standard des applications de dessin, pour les stylets (Apple Pencil, Wacom, Surface Pen, S Pen…) :
+
+| Attribut | Rôle |
+| --- | --- |
+| `pen-eraser` | Bout gomme du stylet : `erase` (défaut) le trait devient une gomme, `none` il dessine |
+| `pen-barrel` | Bouton latéral : `pick` (défaut) pipette, `pan` déplace la vue, `none` dessine |
+| `pen-tilt` | Rotation du stylet (`twist`) ou, à défaut, direction de son inclinaison : `angle` (défaut) oriente la pointe (ajoutée à `angle`), `none` l'ignore |
+| `touch` | Doigt : `auto` (défaut) dessine tant qu'aucun stylet n'a servi, puis ne fait plus que déplacer / zoomer la vue (rejet de la paume) ; `draw` ; `navigate` |
+| `pressure-curve`, `pressure-min` | Courbe de pression : `min + (1 − min) · p^courbe` (> 1 plus doux, < 1 plus ferme) |
+| `simulate-pressure` | Souris et doigt : pression simulée par la vitesse (lent = appuyé) |
+
+La pression vient du stylet (`pressure`), les points intermédiaires d'un geste rapide sont tous lus (`getCoalescedEvents`), et le survol du stylet alimente le curseur-pinceau (orienté comme la pointe).

@@ -10,6 +10,7 @@ import { drawTip, tipFromValue, tipGeometry } from "./tip";
 import { ROTATE_STEP, ViewGestures, fitBox, invert, multiply, sanitizeView2D, screenToWorld, viewMatrix, type View2D } from "../../shared/view2d";
 import { ViewSync } from "../../shared/view-sync";
 import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
+import { PalmGuard, VelocityPressure, pressureCurve, readPen, sanitizeTouchMode } from "../../shared/pen";
 
 /** Zoom de la vue d'une toile navigable (pixels d'écran par pixel de toile). */
 const NAV_MIN_ZOOM = 0.01;
@@ -76,6 +77,18 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   @property({ type: Number }) smoothing = BRUSH_DEFAULTS.smoothing;
   @property({ type: String }) tool = BRUSH_DEFAULTS.tool;
   @property({ type: Boolean }) pressure = true;
+  /** Stylets (voir sonic-sketch) : bout gomme, bouton latéral, orientation, doigt, courbe et simulation de pression. */
+  @property({ type: String, attribute: "pen-eraser" }) penEraser = "erase";
+  @property({ type: String, attribute: "pen-barrel" }) penBarrel = "pick";
+  @property({ type: String, attribute: "pen-tilt" }) penTilt = "angle";
+  @property({ type: String, attribute: "touch" }) touchMode = "auto";
+  @property({ type: Number, attribute: "pressure-curve" }) pressureGamma = 1;
+  @property({ type: Number, attribute: "pressure-min" }) pressureMin = 0;
+  @property({ type: Boolean, attribute: "simulate-pressure" }) simulatePressure = false;
+  private palm = new PalmGuard("auto");
+  private velocity = new VelocityPressure();
+  /** Réglages imposés par le stylet le temps d'un trait (bout gomme, orientation). */
+  private penOverride: Partial<BrushSettings> | null = null;
   /** Pointe personnalisée : chemin SVG `d`. Vide : disque doux. */
   @property({ type: String }) tip = "";
   @property({ type: Number }) angle = 0;
@@ -177,7 +190,8 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   /** Réglages effectifs : attributs puis réglages en direct. */
   brush(): BrushSettings {
     const base = sanitizeBrush({ ...BRUSH_DEFAULTS }, { size: this.size, hardness: this.hardness, opacity: this.opacity, spacing: this.spacing, smoothing: this.smoothing, color: this.color, tool: this.tool, pressure: this.pressure, tip: this.tip, angle: this.angle, angleFollow: this.angleFollow, angleJitter: this.angleJitter, sizeJitter: this.sizeJitter, scatter: this.scatter, roundness: this.roundness, blend: this.blend });
-    return sanitizeBrush(base, this.live);
+    const b = sanitizeBrush(base, this.live);
+    return this.penOverride ? { ...b, ...this.penOverride, angle: (b.angle + (this.penOverride.angle ?? 0)) % 360 } : b;
   }
 
   private dims(): { w: number; h: number } {
@@ -569,7 +583,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
    */
   private toCanvas(e: PointerEvent): Pt {
     const { w, h } = this.dims();
-    const p = e.pointerType === "pen" ? (e.pressure > 0 ? e.pressure : 0.5) : 1;
+    const p = this.pressureOf(e);
     if (this.navigable) {
       const l = this.local(e);
       const [x, y] = screenToWorld(this.view, l.x, l.y, this.disp.w || 1, this.disp.h || 1);
@@ -581,6 +595,30 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     }
     const r = this.canvasEl.getBoundingClientRect();
     return { x: ((e.clientX - r.left) / Math.max(1, r.width)) * w, y: ((e.clientY - r.top) / Math.max(1, r.height)) * h, p };
+  }
+
+  private pressureOf(e: PointerEvent): number {
+    if (e.pointerType === "pen") return pressureCurve(e.pressure > 0 ? e.pressure : 0.5, this.pressureGamma, this.pressureMin);
+    if (!this.simulatePressure) return 1;
+    return pressureCurve(this.velocity.feed(e.clientX, e.clientY, e.timeStamp || performance.now()), this.pressureGamma, this.pressureMin);
+  }
+
+  /** Stylet au début d'un trait : bout gomme et orientation (rotation, sinon direction de l'inclinaison). */
+  private penStart(e: PointerEvent): void {
+    const pen = readPen(e);
+    const o: Partial<BrushSettings> = {};
+    if (pen.eraser && this.penEraser !== "none") o.tool = "erase";
+    if (this.penTilt !== "none") {
+      const a = pen.twist !== null ? pen.twist : pen.hasTilt ? (pen.azimuth * 180) / Math.PI : null;
+      if (a !== null) o.angle = a - (this.navigable ? ((this.view.rotation || 0) * 180) / Math.PI : 0);
+    }
+    this.penOverride = Object.keys(o).length ? o : null;
+    this.velocity.reset();
+  }
+
+  /** Bouton latéral du stylet en pipette, ou doigt à ignorer (paume) hors toile navigable. */
+  private penBarrelPicks(e: PointerEvent): boolean {
+    return readPen(e).barrel && this.penBarrel === "pick";
   }
 
   /* ------------------------------------------------------------ deux doigts : le trait cède la place au geste */
@@ -617,6 +655,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.stopStrokeWatch();
     this.pointer = null;
     this.drawing = false;
+    this.penOverride = null;
     this.touch();
   }
 
@@ -640,13 +679,17 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   private onDown = (e: PointerEvent): void => {
     if (this.navigable) { this.onNavDown(e); return; }
     if (this.readonly || this.pointer !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
+    this.palm.mode = sanitizeTouchMode(this.touchMode);
+    this.palm.note(e);
+    // Paume posée pendant qu'on dessine au stylet : ignorée (toile fixe, rien à déplacer).
+    if (this.palm.navigates(e)) return;
     if (e.pointerType === "touch" && this.heldTouches.size) {
       this.heldTouches.add(e.pointerId);
       return;
     }
     this.pointer = e.pointerId;
     this.pointerType = e.pointerType;
-    if (this.wantsPick(e)) {
+    if (this.wantsPick(e) || this.penBarrelPicks(e)) {
       try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
       e.preventDefault();
       this.startPick(e);
@@ -663,7 +706,10 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.canvasEl.focus({ preventScroll: true });
     try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
     e.preventDefault();
-    const pan = e.button === 1 || this.space || this.toolName() === "hand" || this.readonly;
+    this.palm.mode = sanitizeTouchMode(this.touchMode);
+    this.palm.note(e);
+    const barrel = readPen(e).barrel;
+    const pan = e.button === 1 || this.space || this.toolName() === "hand" || this.readonly || (barrel && this.penBarrel === "pan") || this.palm.navigates(e);
     const r = this.nav.down(e.pointerId, this.local(e), this.pointer === null && pan);
     if (r === "pinch") {
       if (this.drawing) this.cancelStroke();
@@ -676,7 +722,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     if (e.pointerType === "mouse" && e.button !== 0) { this.nav.up(e.pointerId); return; }
     this.pointer = e.pointerId;
     this.pointerType = e.pointerType;
-    if (this.wantsPick(e)) { this.startPick(e); return; }
+    if (this.wantsPick(e) || this.penBarrelPicks(e)) { this.startPick(e); return; }
     this.beginStroke(e);
   }
 
@@ -687,10 +733,12 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     if (ctx && before) ctx.putImageData(before, 0, 0);
     this.endBlend();
     this.drawing = false;
+    this.penOverride = null;
     this.touch();
   }
 
   private beginStroke(e: PointerEvent): void {
+    this.penStart(e);
     this.pushHistory();
     this.drawing = true;
     this.stab.reset();
@@ -757,6 +805,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
     this.pointer = null;
     this.drawing = false;
+    this.penOverride = null;
     this.strokes++;
     this.touch();
   };

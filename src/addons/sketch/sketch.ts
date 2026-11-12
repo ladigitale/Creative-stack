@@ -23,6 +23,7 @@ import { HEAVY_VERTICES, PIECE_BUDGET_MS, StrokeFlattener, capDisc, type Joint, 
 import { deriveColor, parseColor, toCss, type Rgba } from "./flat-color";
 import { colorMap, samplePalette, type ColorMapMode } from "./colormap";
 import { dispatch } from "../interactive";
+import { PalmGuard, VelocityPressure, pressureCurve, readPen, sanitizeTouchMode } from "../../shared/pen";
 import {
   IdbBackend, cleanName, isDrawingId, isReserved, listDrawings, newDrawingId, readCurrent, readPrefs, readStrokes, readView, writeCurrent, writePrefs, writeStrokes,
   type DrawingBackend, type DrawingMeta, type DrawingRecord,
@@ -164,7 +165,24 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * aplatissement ; une croix quand elle est trop petite). Crayon et gomme seulement.
    */
   @property({ type: Boolean, attribute: "brush-cursor" }) brushCursor = false;
-  private cursorAt: { x: number; y: number; p: number } | null = null;
+  private cursorAt: { x: number; y: number; p: number; a: number } | null = null;
+  /** Bout gomme du stylet : `erase` (défaut) le trait devient une gomme ; `none` il dessine. */
+  @property({ type: String, attribute: "pen-eraser" }) penEraser = "erase";
+  /** Bouton latéral du stylet : `pick` (défaut) pipette, `pan` déplace la vue, `none` dessine. */
+  @property({ type: String, attribute: "pen-barrel" }) penBarrel = "pick";
+  /** Inclinaison / rotation du stylet : `angle` (défaut) oriente la pointe ; `none` l'ignore. */
+  @property({ type: String, attribute: "pen-tilt" }) penTilt = "angle";
+  /** Doigt : `auto` (défaut, dessine tant qu'aucun stylet n'a servi, puis déplace la vue), `draw`, `navigate`. */
+  @property({ type: String, attribute: "touch" }) touchMode = "auto";
+  /** Courbe de pression : exposant (> 1 plus doux, < 1 plus ferme) et pression minimale (0..0,95). */
+  @property({ type: Number, attribute: "pressure-curve" }) pressureGamma = 1;
+  @property({ type: Number, attribute: "pressure-min" }) pressureMin = 0;
+  /** Pression simulée par la vitesse pour la souris et le doigt (lent = appuyé). */
+  @property({ type: Boolean, attribute: "simulate-pressure" }) simulatePressure = false;
+  private palm = new PalmGuard("auto");
+  private velocity = new VelocityPressure();
+  /** Orientation (°, monde) donnée par le stylet au début du trait en cours. */
+  private penAngle: number | null = null;
   private overlayRaf = 0;
   @property({ type: String, attribute: "sample-action" }) sampleAction = "sampled";
   private sampled: { colors: string[]; from: "selection" | "drawing" } | null = null;
@@ -685,7 +703,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const b = this.brush();
     // Diamètre à l'écran : celui de l'empreinte, au zoom courant ; au stylet, celui de la pression du survol (pleine).
     const px = this.worldSize(b) * this.view.zoom * (b.pressure && this.mode === "draw" ? Math.max(0.15, at.p) : 1);
-    const rot = (b.angle * Math.PI) / 180 + (this.view.rotation || 0);
+    const rot = ((b.angle + at.a) * Math.PI) / 180 + (this.view.rotation || 0);
     const path = new Path2D();
     if (px < 6) {
       // Trop petit pour une forme lisible : une croix.
@@ -820,7 +838,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     try { this.canvasEl.setPointerCapture(e.pointerId); } catch { /* pointeur synthétique */ }
     e.preventDefault();
     const tool = this.currentTool();
-    const pan = e.button === 1 || this.space || tool === "hand";
+    this.palm.mode = sanitizeTouchMode(this.touchMode);
+    this.palm.note(e);
+    const pen = readPen(e);
+    const barrel = pen.barrel && this.penBarrel !== "none" && this.penBarrel !== "draw";
+    // Main, bouton du milieu, espace ; bouton latéral en mode « pan » ; doigt quand un stylet sert (paume).
+    const pan = e.button === 1 || this.space || tool === "hand" || (barrel && this.penBarrel === "pan") || this.palm.navigates(e);
     const r = this.nav.down(e.pointerId, p, this.pointer === null && pan);
     if (r === "pinch") {
       // Un second doigt : c'est un geste de vue, le trait commencé est abandonné.
@@ -837,6 +860,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
     if (e.pointerType === "mouse" && e.button !== 0) { this.nav.up(e.pointerId); return; }
     this.pointer = e.pointerId;
+    if (barrel && this.penBarrel === "pick") {
+      this.mode = "pick";
+      this.pick(e, false);
+      return;
+    }
     if (tool === "select" || tool === "select-color") {
       this.mode = "select";
       this.selectStart = p;
@@ -847,8 +875,17 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.pick(e, false);
       return;
     }
-    this.startStroke(p, e, tool === "erase");
+    const eraserTip = pen.eraser && this.penEraser !== "none";
+    this.penAngle = this.penTilt !== "none" ? this.angleOfPen(pen) : null;
+    this.startStroke(p, e, tool === "erase" || eraserTip);
   };
+
+  /** Orientation (°, dans le monde) donnée par le stylet : sa rotation si connue, sinon la direction de son inclinaison. */
+  private angleOfPen(pen: ReturnType<typeof readPen>): number | null {
+    const screen = pen.twist !== null ? pen.twist : pen.hasTilt ? (pen.azimuth * 180) / Math.PI : null;
+    if (screen === null) return null;
+    return screen - ((this.view.rotation || 0) * 180) / Math.PI;
+  }
 
   private onMove = (e: PointerEvent): void => {
     const p = this.local(e);
@@ -872,7 +909,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private trackCursor(e: PointerEvent, p: { x: number; y: number }): void {
     const tool = this.currentTool();
     const on = e.pointerType !== "touch" && (tool === "paint" || tool === "erase") && this.mode !== "pan" && this.mode !== "pick" && !e.altKey;
-    const next = on ? { x: p.x, y: p.y, p: e.pointerType === "pen" && e.pressure > 0 ? e.pressure : 1 } : null;
+    const pen = readPen(e);
+    const a = this.penTilt !== "none" ? this.angleOfPen(pen) : null;
+    const next = on ? { x: p.x, y: p.y, p: e.pointerType === "pen" && e.pressure > 0 ? e.pressure : 1, a: a ?? 0 } : null;
     if (!next && !this.cursorAt) return;
     this.cursorAt = next;
     this.canvasEl.style.cursor = next ? "none" : "";
@@ -905,8 +944,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return this.sizeSpace === "world" ? b.size : b.size / this.view.zoom;
   }
 
+  /** Pression d'un événement : stylet (courbe appliquée), ou simulée par la vitesse (`simulate-pressure`). */
   private pressureOf(e: PointerEvent): number {
-    return e.pointerType === "pen" ? (e.pressure > 0 ? e.pressure : 0.5) : 1;
+    if (e.pointerType === "pen") return pressureCurve(e.pressure > 0 ? e.pressure : 0.5, this.pressureGamma, this.pressureMin);
+    if (!this.simulatePressure) return 1;
+    return pressureCurve(this.velocity.feed(e.clientX, e.clientY, e.timeStamp || performance.now()), this.pressureGamma, this.pressureMin);
   }
 
   private startStroke(p: { x: number; y: number }, e: PointerEvent, erase = false): void {
@@ -915,7 +957,10 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.erasing = erase;
     // Gomme : disque net de la taille du pinceau, tracé dans un tampon qui troue l'aperçu.
     // Gomme : le pinceau courant (taille, forme, dureté, opacité…), en noir et sans fusion.
-    const b = erase ? { ...this.brush(), color: "#000000" } : this.brush();
+    const b0 = erase ? { ...this.brush(), color: "#000000" } : this.brush();
+    // Stylet incliné ou tourné : la pointe suit son orientation (ajoutée à l'angle du pinceau).
+    const b = this.penAngle !== null ? { ...b0, angle: (((b0.angle + this.penAngle) % 360) + 360) % 360 } : b0;
+    this.velocity.reset();
     const brush = makeBrush(b, this.worldSize(b), erase ? "normal" : this.currentBlend());
     const solidEraser = erase && isSolid(brush, []);
     this.liveBrush = { ...brush, opacity: 1 };
