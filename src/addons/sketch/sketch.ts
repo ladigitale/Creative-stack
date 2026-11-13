@@ -9,10 +9,11 @@ import { MAX_GESTURE_FILE, densify, fitFrame, gesturesKey, gesturesUrl, readGest
 import { tipFromValue, tipGeometry } from "../paint/tip";
 import { exportSvg } from "./export";
 import {
-  Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
+  Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitCurvePoints, strokePath, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
   toScreen, toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type StrokeBrush, type View,
 } from "./model";
-import { blitBlend, clearDisc, drawStamp, drawStrokes, punch, scratchFor, type Surface } from "./render";
+import { blitBlend, clearDisc, drawStamp, drawStroke, drawStrokes, punch, scratchFor, type Surface } from "./render";
+import { intersects } from "../vector/geometry";
 import { StrokeStamper } from "./stamps";
 import { parseSettingsRefs, readSettings, settingsKey, snapshotSettings, type SettingsRef, type SettingsSnapshot } from "./settings";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
@@ -126,6 +127,11 @@ export type SketchState = {
  * `save` (SVG), `savePng`, `fit`, `reset`, `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`.
  * Vue pilotée par `view-from` ({x, y, zoom, rotation}).
  */
+/** Au-delà de ce nombre de traits visibles, la couche est redessinée par tranches après un geste de vue. */
+const PROGRESSIVE_MIN = 400;
+/** Durée d'une tranche du rendu étalé (ms) : laisse respirer l'interface entre deux images. */
+const PROGRESSIVE_SLICE_MS = 10;
+
 @customElement("sonic-sketch")
 export class SonicSketch extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
   static styles = css`
@@ -489,6 +495,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     window.removeEventListener("keydown", this.onSpace);
     window.removeEventListener("keyup", this.onSpace);
     cancelAnimationFrame(this.raf);
+    this.cancelProgressive();
     clearTimeout(this.settle);
     clearTimeout(this.editTimer);
     window.removeEventListener("pagehide", this.flushSave);
@@ -662,8 +669,63 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return { ctx, w, h, view: this.layerView };
   }
 
+  /**
+   * Rendu étalé : après un geste de vue, la nouvelle couche est dessinée hors écran par tranches de quelques ms
+   * (dans l'ordre des traits), l'ancienne restant affichée, transformée ; on échange à la fin. Le geste suivant,
+   * un nouveau trait ou un changement du dessin l'abandonnent.
+   */
+  private prog: { canvas: HTMLCanvasElement; view: View; strokes: Stroke[]; i: number; raf: number } | null = null;
+
+  private cancelProgressive(): void {
+    if (!this.prog) return;
+    cancelAnimationFrame(this.prog.raf);
+    this.prog = null;
+  }
+
+  /** Redessine la couche pour la vue courante : d'un bloc si c'est rapide, sinon par tranches. */
+  private renderLayerSoon(): void {
+    this.cancelProgressive();
+    const strokes = this.pending?.strokes ?? this.doc.strokes;
+    const { w, h, dpr } = this.dims();
+    const view = { ...this.view };
+    const rect = visibleRect(view, w, h);
+    let n = 0;
+    for (const st of strokes) if (intersects(st.bbox, rect) && ++n > PROGRESSIVE_MIN) break;
+    if (n <= PROGRESSIVE_MIN || this.deferRender) { this.layerDirty = true; this.compose(); return; }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { this.layerDirty = true; this.compose(); return; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bg = this.backgroundColor();
+    if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); }
+    const job = { canvas, view, strokes, i: 0, raf: 0 };
+    this.prog = job;
+    const step = () => {
+      if (this.prog !== job) return;
+      const v = this.view;
+      if (this.gestureActive() || v.x !== view.x || v.y !== view.y || v.zoom !== view.zoom || v.rotation !== view.rotation) { this.prog = null; return; }
+      const t0 = performance.now();
+      const s: Surface = { ctx, w, h, view };
+      while (job.i < strokes.length && performance.now() - t0 < PROGRESSIVE_SLICE_MS) {
+        const st = strokes[job.i++];
+        if (!intersects(st.bbox, rect) || Math.max(st.bbox.w, st.bbox.h) * view.zoom < 0.4) continue;
+        drawStroke(s, st);
+      }
+      if (job.i < strokes.length) { job.raf = requestAnimationFrame(step); return; }
+      this.prog = null;
+      this.layer = canvas;
+      this.layerView = view;
+      this.layerDirty = false;
+      this.compose();
+    };
+    job.raf = requestAnimationFrame(step);
+  }
+
   /** Redessine entièrement la couche pour la vue courante. */
   private renderLayer(): void {
+    this.cancelProgressive();
     this.layerView = { ...this.view };
     const s = this.layerSurface();
     if (!s) return;
@@ -702,6 +764,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     // Couche dessinée pour layerView, montrée dans la vue courante (déplacée, zoomée, tournée) le temps du geste.
     const t = multiply(viewMatrix(this.view, w, h), invert(viewMatrix(this.layerView, w, h)));
     ctx.transform(t[0], t[1], t[2], t[3], t[4], t[5]);
+    // Couche réduite pendant un dézoom : lissage de qualité (sinon le détail fin fourmille en points).
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(layer, 0, 0, w, h);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Trait en cours avec fusion : la vue n'a pas bougé depuis son début (sinon il est abandonné).
@@ -829,8 +894,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     clearTimeout(this.settle);
     this.settle = window.setTimeout(() => {
       if (this.gestureActive()) return this.settleLater();
-      this.layerDirty = true;
-      this.compose();
+      this.renderLayerSoon();
       this.publish();
     }, 90);
   }
@@ -846,6 +910,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     // Le dessin a changé sous l'aperçu (trait, annulation…) : l'aperçu ne vaut plus.
     if (this.pending && (this.pending.base !== this.doc.strokes || this.pending.len !== this.doc.strokes.length)) this.pending = null;
     this.pruneSelection();
+    this.cancelProgressive();
     this.layerDirty = true;
     this.compose();
     this.publish();
@@ -1125,6 +1190,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
     // Sinon, d'un bloc : coupes repérées sur les points bruts, puis compaction passe par passe (les coupes restent).
     let cuts = [...new Set(this.cutIdx)].filter((i) => i > 0 && i < raw - 1).sort((a, b) => a - b);
+    const rawPts = st.pts, rawCuts = cuts;
     if (tol > 0) {
       const ztol = tol / this.layerView.zoom, ptol = st.brush.pressure ? 0.04 : Infinity;
       const parts = splitPasses(st.pts, cuts).map((p) => compactStroke(p, ztol, ptol));
@@ -1161,6 +1227,23 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.error = null;
       this.invalidate();
       return;
+    }
+    // Trait d'empreintes d'une seule passe : gardé en points de passage d'une courbe (bien moins de points qu'une
+    // ligne brisée de même précision, et lisse à tous les zooms au lieu de montrer ses facettes de près).
+    // Passes (le trait revient sur lui-même) : chacune ajustée à part, leurs jonctions restent des points.
+    if (tol > 0 && rawPts.length >= 12) {
+      const ztol = Math.max(tol, 0.35) / this.layerView.zoom, ptol = st.brush.pressure ? 0.06 : Infinity;
+      const fitted: number[] = [];
+      for (const [k, part] of splitPasses(rawPts, rawCuts).entries()) {
+        const f = part.length >= 12 ? fitCurvePoints(part, ztol, ptol) : part;
+        fitted.push(...(k > 0 ? f.slice(3) : f));
+      }
+      if (fitted.length < st.pts.length) {
+        st.pts = fitted;
+        st.curve = true;
+        st.bbox = strokeBBox(strokePath(st), strokeMargin(st.brush));
+        this.lastCompaction = { before: raw, after: fitted.length / 3 };
+      }
     }
     if (!this.doc.add(st)) {
       this.error = "limite de traits ou de points atteinte";

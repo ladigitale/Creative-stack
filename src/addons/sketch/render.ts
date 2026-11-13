@@ -3,7 +3,7 @@ import { drawTip, tipGeometry } from "../paint/tip";
 import { intersects, type Multi } from "../vector/geometry";
 import { stampsOf, type Stamp } from "./stamps";
 import { clipToView } from "../vector";
-import { sanitizeBlend, toScreen, visibleRect, type Stroke, type StrokeBrush, type View } from "./model";
+import { sanitizeBlend, strokePath, toScreen, visibleRect, type Stroke, type StrokeBrush, type View } from "./model";
 
 /** Surface de dessin : contexte en pixels logiques (la mise à l'échelle écran est déjà dans le contexte). */
 export type Surface = { ctx: CanvasRenderingContext2D; w: number; h: number; view: View };
@@ -45,14 +45,29 @@ function dab(px: number, hardness: number, color: string): HTMLCanvasElement {
   return c;
 }
 
-/** Empreinte (monde) sur une surface : pointe personnalisée tracée en vectoriel, sinon disque doux. */
-export function drawStamp(s: Surface, b: StrokeBrush, st: Stamp): void {
+/**
+ * Sous ce diamètre à l'écran (px), une empreinte est posée à cette taille minimale avec une opacité réduite à
+ * proportion de sa surface : un trait fin pâlit en dézoomant au lieu de disparaître d'un coup ou de grainer.
+ */
+export const MIN_STAMP_PX = 1;
+
+/**
+ * Empreinte (monde) sur une surface : pointe personnalisée tracée en vectoriel, sinon disque doux.
+ * `k` : facteur d'opacité (empreintes regroupées par le niveau de détail).
+ */
+export function drawStamp(s: Surface, b: StrokeBrush, st: Stamp, k = 1): void {
   const { ctx, view, w, h } = s;
   const [sx, sy] = toScreen(view, st.x, st.y, w, h);
-  const px = st.size * view.zoom;
+  let px = st.size * view.zoom;
   const rot = st.rot + (view.rotation || 0);
-  if (px < 0.3 || sx < -px - 2 || sy < -px - 2 || sx > w + px + 2 || sy > h + px + 2) return;
-  ctx.globalAlpha = b.opacity;
+  let alpha = b.opacity * k;
+  if (px < MIN_STAMP_PX) {
+    // Surface conservée : (px / MIN)² de l'opacité, sur une empreinte de taille MIN.
+    alpha *= (px / MIN_STAMP_PX) ** 2;
+    px = MIN_STAMP_PX;
+  }
+  if (alpha < 1 / 512 || sx < -px - 2 || sy < -px - 2 || sx > w + px + 2 || sy > h + px + 2) return;
+  ctx.globalAlpha = Math.min(1, alpha);
   const geo = b.tip ? tipGeometry(b.tip) : null;
   if (geo) {
     let path = pathCache.get(b.tip);
@@ -76,7 +91,7 @@ export function drawStamp(s: Surface, b: StrokeBrush, st: Stamp): void {
 /** Les empreintes d'un trait, régénérées à l'identique à partir de ses points et de sa graine (mises en cache). */
 export function strokeStamps(st: Stroke): Stamp[] {
   let v = stampCache.get(st);
-  if (!v) stampCache.set(st, (v = stampsOf(st.brush, st.seed, st.pts)));
+  if (!v) stampCache.set(st, (v = stampsOf(st.brush, st.seed, strokePath(st))));
   return v;
 }
 
@@ -88,7 +103,10 @@ export function compositeOf(blend: string | undefined): GlobalCompositeOperation
 const scratchByCanvas = new WeakMap<object, HTMLCanvasElement>();
 
 /** Tampon de même taille que la surface, vidé, avec la même transformation (empreintes d'un trait à fusionner). */
-export function scratchFor(s: Surface, key: object = s.ctx.canvas): Surface | null {
+/** Rectangle en pixels du canvas : x, y, largeur, hauteur. */
+export type PxRect = [number, number, number, number];
+
+export function scratchFor(s: Surface, key: object = s.ctx.canvas, rect?: PxRect): Surface | null {
   const target = s.ctx.canvas;
   let c = scratchByCanvas.get(key);
   if (!c) scratchByCanvas.set(key, (c = document.createElement("canvas")));
@@ -96,7 +114,9 @@ export function scratchFor(s: Surface, key: object = s.ctx.canvas): Surface | nu
   const ctx = c.getContext("2d");
   if (!ctx) return null;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, c.width, c.height);
+  // Seule la zone du trait est vidée (puis posée) : le coût suit la taille du trait, pas celle de la toile.
+  if (rect) ctx.clearRect(rect[0], rect[1], rect[2], rect[3]);
+  else ctx.clearRect(0, 0, c.width, c.height);
   ctx.setTransform(s.ctx.getTransform());
   return { ctx, w: s.w, h: s.h, view: s.view };
 }
@@ -105,13 +125,14 @@ export function scratchFor(s: Surface, key: object = s.ctx.canvas): Surface | nu
 export const maskColor = (a: number): string => (a >= 0.999 ? "#000" : `rgba(0,0,0,${Math.max(0, Math.min(1, a)).toFixed(4)})`);
 
 /** Ôte d'une surface un tampon (pixels de la surface), à hauteur de `alpha` : aperçu et rendu de la gomme. */
-export function punch(s: Surface, buf: CanvasImageSource, alpha: number): void {
+export function punch(s: Surface, buf: CanvasImageSource, alpha: number, rect?: PxRect): void {
   const { ctx } = s;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
   ctx.globalCompositeOperation = "destination-out";
-  ctx.drawImage(buf, 0, 0);
+  if (rect) ctx.drawImage(buf, rect[0], rect[1], rect[2], rect[3], rect[0], rect[1], rect[2], rect[3]);
+  else ctx.drawImage(buf, 0, 0);
   ctx.restore();
 }
 
@@ -129,14 +150,38 @@ export function clearDisc(s: Surface, x: number, y: number, r: number): void {
 }
 
 /** Pose un tampon (pixels de la surface) sur la surface avec un mode de fusion. */
-export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | undefined, alpha = 1): void {
+export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | undefined, alpha = 1, rect?: PxRect): void {
   const { ctx } = s;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
   ctx.globalCompositeOperation = compositeOf(blend);
-  ctx.drawImage(buf, 0, 0);
+  if (rect) ctx.drawImage(buf, rect[0], rect[1], rect[2], rect[3], rect[0], rect[1], rect[2], rect[3]);
+  else ctx.drawImage(buf, 0, 0);
   ctx.restore();
+}
+
+/**
+ * Rectangle (pixels du canvas) couvert par un trait : sa boîte du monde passée à l'écran (rotation comprise),
+ * élargie de 2 px et bornée à la toile. `null` : hors de la toile.
+ */
+export function strokeRect(s: Surface, st: Stroke): PxRect | null {
+  const { view, w, h, ctx } = s;
+  // Marge en plus de la boîte : pointes non rondes (diagonale) et taille variable peuvent en dépasser.
+  const pad = (st.brush.size || 0) * (0.25 + 0.5 * (st.brush.sizeJitter || 0));
+  const b = { x: st.bbox.x - pad, y: st.bbox.y - pad, w: st.bbox.w + 2 * pad, h: st.bbox.h + 2 * pad };
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [wx, wy] of [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]]) {
+    const [sx, sy] = toScreen(view, wx, wy, w, h);
+    x0 = Math.min(x0, sx); y0 = Math.min(y0, sy); x1 = Math.max(x1, sx); y1 = Math.max(y1, sy);
+  }
+  const m = typeof ctx.getTransform === "function" ? ctx.getTransform() : null;
+  const kx = m && Number.isFinite(m.a) ? m.a : 1, ky = m && Number.isFinite(m.d) ? m.d : 1, ox = m && Number.isFinite(m.e) ? m.e : 0, oy = m && Number.isFinite(m.f) ? m.f : 0;
+  const cw = ctx.canvas?.width ?? Infinity, ch = ctx.canvas?.height ?? Infinity;
+  const X0 = Math.max(0, Math.floor(x0 * kx + ox - 2)), Y0 = Math.max(0, Math.floor(y0 * ky + oy - 2));
+  const X1 = Math.min(cw, Math.ceil(x1 * kx + ox + 2)), Y1 = Math.min(ch, Math.ceil(y1 * ky + oy + 2));
+  if (!(X1 > X0 && Y1 > Y0)) return null;
+  return [X0, Y0, X1 - X0, Y1 - Y0];
 }
 
 /**
@@ -158,11 +203,27 @@ export function drawStroke(s: Surface, st: Stroke): void {
     s.ctx.restore();
     return;
   }
-  const buf = scratchFor(s);
+  // Trait minuscule à l'écran (dézoom) : pas de tampon. Ses empreintes se posent directement, avec l'opacité qui,
+  // cumulée sur leur recouvrement (≈ m empreintes par point), redonne l'opacité du trait. Invisible à cette taille,
+  // et c'est l'essentiel du coût d'un dézoom sur un dessin de milliers de traits.
+  const px = st.brush.size * s.view.zoom;
+  if (!st.erase && px < LOD_PX && !(st.brush.scatter > 0)) {
+    const m = Math.max(1, Math.max(px, MIN_STAMP_PX) / Math.max(0.5, (st.brush.spacing || 0.1) * px));
+    const per = 1 - Math.pow(1 - Math.min(0.999, a), 1 / m);
+    s.ctx.save();
+    s.ctx.globalCompositeOperation = compositeOf(blend);
+    paintStroke(s, { ...st, brush: { ...st.brush, opacity: per } });
+    s.ctx.restore();
+    return;
+  }
+  // Tampon limité à la zone du trait (la vider et la poser coûte sa taille, pas celle de la toile).
+  const rect = strokeRect(s, st);
+  if (!rect) return;
+  const buf = scratchFor(s, s.ctx.canvas, rect);
   if (!buf) return;
   paintStroke(buf, { ...st, brush: { ...st.brush, opacity: 1 } });
-  if (st.erase) punch(s, buf.ctx.canvas, a);
-  else blitBlend(s, buf.ctx.canvas, blend, a);
+  if (st.erase) punch(s, buf.ctx.canvas, a, rect);
+  else blitBlend(s, buf.ctx.canvas, blend, a, rect);
 }
 
 function paintStroke(s: Surface, st: Stroke): void {
@@ -171,8 +232,29 @@ function paintStroke(s: Surface, st: Stroke): void {
     return;
   }
   if (st.mask) return fillMulti(s, st.mask, maskColor(st.brush.opacity), "destination-out");
-  for (const stamp of strokeStamps(st)) drawStamp(s, st.brush, stamp);
+  const stamps = strokeStamps(st);
+  const zoom = s.view.zoom;
+  // Niveau de détail : quand les empreintes sont petites à l'écran, au plus une par demi-pixel le long du trait.
+  // Les empreintes sautées sont comptées dans l'opacité de la suivante (1 − (1 − a)^n), même densité à l'œil.
+  if (stamps.length > 2 && st.brush.size * zoom < LOD_PX && !(st.brush.scatter > 0)) {
+    const gap = 0.5 / zoom;
+    let lx = stamps[0].x, ly = stamps[0].y, n = 0;
+    const a = Math.max(1e-3, Math.min(1, st.brush.opacity));
+    for (let i = 0; i < stamps.length; i++) {
+      const p = stamps[i];
+      n++;
+      if (i > 0 && i < stamps.length - 1 && Math.hypot(p.x - lx, p.y - ly) < gap) continue;
+      const k = n > 1 ? (1 - (1 - a) ** n) / a : 1;
+      drawStamp(s, st.brush, p, k);
+      lx = p.x; ly = p.y; n = 0;
+    }
+    return;
+  }
+  for (const stamp of stamps) drawStamp(s, st.brush, stamp);
 }
+
+/** Diamètre à l'écran (px) sous lequel les empreintes d'un trait sont regroupées (niveau de détail). */
+export const LOD_PX = 3;
 
 /**
  * Polygones du monde remplis en pair-impair. Les sommets passent à l'écran en double précision côté JS

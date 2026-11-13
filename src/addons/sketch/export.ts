@@ -8,7 +8,7 @@ import { fitCurve, intersects, type BBox, type Multi } from "../vector";
 const fx = (n: number) => String(+n.toPrecision(15));
 const multiPath = (m: Multi): string =>
   m.flat().filter((r) => r.length >= 3).map((r) => "M" + r.map(([x, y]) => fx(x) + "," + fx(y)).join("L") + "Z").join("");
-import { contentBBox, type Stroke } from "./model";
+import { contentBBox, strokePath, type Stroke } from "./model";
 import { strokeStamps } from "./render";
 
 export const MAX_SVG_STAMPS = 100_000;
@@ -111,7 +111,8 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
     }
     if (isPlainLine(st)) {
       const pts: [number, number][] = [];
-      for (let i = 0; i < st.pts.length; i += 3) pts.push([st.pts[i], st.pts[i + 1]]);
+      const path = strokePath(st);
+      for (let i = 0; i < path.length; i += 3) pts.push([path[i], path[i + 1]]);
       const first = pts[0];
       if (pts.length === 1 || pts.every((p) => p[0] === first[0] && p[1] === first[1])) {
         body.push(`<circle cx="${f(first[0])}" cy="${f(first[1])}" r="${f(b.size / 2)}" fill="${esc(b.color)}"/>`);
