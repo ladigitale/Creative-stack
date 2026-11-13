@@ -3,7 +3,7 @@ import { multiBBox, type Multi, type Pt } from "../vector";
 import { flatBBox, type Region } from "./flat";
 import { quantize, toCss, type Rgba } from "./flat-color";
 import {
-  DEFAULT_VIEW, MAX_STROKES, MAX_TOTAL_POINTS, makeBrush, sanitizeBlend, sanitizeView, strokeBBox, strokeMargin,
+  DEFAULT_VIEW, MAX_STROKES, MAX_TOTAL_POINTS, makeBrush, sanitizeBlend, sanitizeView, strokeBBox, strokeMargin, strokePath,
   type Stroke, type View,
 } from "./model";
 
@@ -118,7 +118,8 @@ export function readStrokes(v: unknown): Stroke[] | null {
     if (budget.n < 0) break;
     const s: Stroke = { ...base, pts: pts.slice(), bbox: { x: 0, y: 0, w: 0, h: 0 } };
     if (o.erase === true) s.erase = true;
-    s.bbox = strokeBBox(s.pts, strokeMargin(brush));
+    if (o.curve === true && !s.erase) s.curve = true;
+    s.bbox = strokeBBox(strokePath(s), strokeMargin(brush));
     out.push(s);
   }
   return out;
@@ -164,6 +165,7 @@ function writeStroke(s: Stroke): unknown {
     else {
       o.pts = s.pts;
       if (s.erase) o.erase = true;
+      if (s.curve) o.curve = true;
     }
     return o;
   }

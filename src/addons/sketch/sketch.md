@@ -33,6 +33,15 @@ Mêmes réglages que `sonic-paint` : `color`, `hardness`, `opacity`, `spacing`, 
 
 À la fin de chaque geste, le trait est compacté : les points confondus (moins d'une demi-tolérance) sont joints, puis l'algorithme de Ramer–Douglas–Peucker retire les points qui s'écartent de moins de `simplify` pixels d'écran (défaut `0.35`, au zoom du tracé) de la courbe gardée. La pression compte : un point dont la pression s'écarte de plus de 0,04 de la pression interpolée reste. `simplify="0"` garde tous les points. L'état publie `points` (total) et `lastStroke {before, after}`.
 
+**Traits en courbe.** Un trait d'empreintes (non aplati) est ensuite gardé en **points de passage d'une courbe** (Catmull-Rom centripète, `curve: true`) plutôt qu'en sommets d'une ligne brisée. Les points sont choisis pour que la courbe suive le tracé brut à `simplify` près, avec la pression lissée (le tremblement du stylet ne garde pas de points). Résultat : 2 à 3 fois moins de points qu'en ligne brisée à précision égale, et un trait lisse à tous les zooms, là où une ligne brisée montrait ses facettes de près. Chaque passe d'un trait qui revient sur lui-même est ajustée à part. Les dessins enregistrés en lignes brisées se relisent tels quels.
+
+## Rendu au dézoom
+
+- Pendant un geste de vue, la couche déjà dessinée est réduite avec un lissage de qualité (pas de fourmillement du détail fin).
+- Une empreinte plus petite qu'un pixel à l'écran est posée à 1 px avec une opacité proportionnelle à sa surface : un trait fin pâlit en dézoomant au lieu de disparaître ou de grainer.
+- Quand les empreintes d'un trait font moins de 3 px à l'écran, il en reste au plus une par demi-pixel (les autres comptées dans l'opacité), et le trait se pose sans tampon intermédiaire. Le tampon d'un trait translucide est limité à sa zone. Sur un dessin de 2 800 traits translucides, le rendu en fort dézoom passe d'environ 4 s à 0,35 s (navigateur sans GPU).
+- Après un geste de vue, s'il y a plus de 400 traits visibles, la nouvelle couche est dessinée hors écran par tranches de 10 ms (l'ancienne reste affichée, transformée) : l'interface ne se fige pas ; un nouveau geste, un trait ou un changement du dessin l'abandonnent.
+
 ## Aplatissement à chaque geste
 
 Avec `flatten` (défaut vrai), chaque trait **plein** (net, sans pointe personnalisée ni variation, pression constante ; l'opacité et le mode de fusion sont permis) est aplati au lever du pointeur dans la **carte d'aplats** du dessus : des régions disjointes, chacune d'une seule vraie couleur et d'un seul tenant. Le découpage se fait avec les opérations booléennes de l'addon `vector` (polygon-clipping) :
