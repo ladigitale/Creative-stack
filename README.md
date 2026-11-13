@@ -8,3 +8,4 @@
 - `abysse-v86.ops.json` : patch v85 → v86 (entrées `style` — realiste, illustration, huile — et `traits`, nombre maximal de coups de pinceau).
 - `mouton-ref.png` : image de référence « un mouton » (brebis laineuse dans un pré, lumière rasante du soir), rendue par `mouton_ref.py`.
 - `mouton-gestes.json` : la même image peinte par `sonic-painterly` en style réaliste (5 000 touches), à rejouer par `gestesFichier`.
+- `abysse-v87.ops.json` : patch v86 → v87 (entrée `focus`, point focal de la peinture réaliste). `mouton-gestes.json` repeint avec le point focal et l'ajustement des touches.
