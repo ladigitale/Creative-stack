@@ -24,7 +24,7 @@ export type PainterlyState = {
 };
 
 const IDLE: PainterlyState = { status: "idle", error: null, url: null, width: 0, height: 0, strokes: 0, layers: [], residual: 0, ms: 0, runs: 0 };
-const OPTION_KEYS = ["maxSide", "detail", "layers", "threshold", "maxLength", "curvature", "opacity", "jitter", "maxStrokes", "frame", "seed", "background", "style"] as const;
+const OPTION_KEYS = ["maxSide", "detail", "layers", "threshold", "maxLength", "curvature", "opacity", "jitter", "maxStrokes", "frame", "seed", "background", "style", "focus", "optimizeMs"] as const;
 
 /** URL d'image acceptée (`https:`, `blob:`, `data:image/…` ; `http:` pour localhost), ou null. */
 export function imageUrlOf(v: unknown): string | null {
@@ -41,6 +41,12 @@ export function readPainterlyOptions(v: unknown): PainterlyOptions {
   for (const k of OPTION_KEYS) {
     const x = o[k];
     if (k === "style") { if (x === "realiste" || x === "illustration" || x === "huile") out.style = x; continue; }
+    if (k === "focus") {
+      const f = x as Record<string, unknown> | null;
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : undefined);
+      if (f && typeof f === "object" && num(f.x) !== undefined && num(f.y) !== undefined) out.focus = { x: num(f.x)!, y: num(f.y)!, ...(num(f.r) !== undefined ? { r: num(f.r)! } : {}) };
+      continue;
+    }
     if (k === "background") { if (typeof x === "string" && /^#[0-9a-f]{6}$/i.test(x)) out.background = x; continue; }
     const n = typeof x === "number" ? x : typeof x === "string" && x.trim() !== "" ? Number(x) : NaN;
     if (Number.isFinite(n)) (out as Record<string, number>)[k] = n;
