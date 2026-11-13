@@ -59,10 +59,12 @@ describe("illustrateImage, style réaliste (touches posées fondues)", () => {
   const r = illustrateImage(scene(), { maxSide: 160, seed: 5, detail: 0.7, style: "realiste" });
   const g = readGestures({ width: r.width, height: r.height, strokes: r.strokes })!;
 
-  it("une empreinte par trait, ni contours ni pointe texturée, image reconstruite", () => {
+  it("surtout des touches posées, ni contours ni pointe texturée, image reconstruite", () => {
     const fond = r.layers[0].strokes;
-    expect(g.strokes.slice(fond).every((s) => s.pts.length === 3)).toBe(true);
-    expect(g.strokes.some((s) => s.brush.tip)).toBe(false);
+    // touches posées, sauf quelques touches filées sur la matière fine orientée
+    const rest = g.strokes.slice(fond);
+    expect(rest.filter((s) => s.pts.length === 3).length / rest.length).toBeGreaterThan(0.8);
+    expect(rest.some((s) => s.brush.tip)).toBe(false);
     const names = r.layers.map((l) => (l as { name?: string }).name);
     expect(names).not.toContain("contours");
     expect(names).toContain("ombres");

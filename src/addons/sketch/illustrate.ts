@@ -33,6 +33,9 @@ type Brush = {
   tip?: string; roundness?: number; angle?: number; angleFollow?: boolean; angleJitter?: number; sizeJitter?: number; scatter?: number;
 };
 
+/** Pointe carrée (aplats du fond). */
+const SQUARE = "M0,0 L100,0 L100,100 L0,100 Z";
+
 /** Pointe « craie » d'Abysse (polygone irrégulier). */
 const CHALK = "M10,30 L35,5 L70,12 L95,40 L88,75 L60,95 L25,88 L5,62 Z";
 
@@ -125,7 +128,8 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
     const segs = pts.length / 3;
     const hard = b.hardness;
     // Pointes texturées et dispersion : couverture partielle.
-    const texture = b.tip || (b.scatter ?? 0) > 0 ? 0.55 : 1;
+    const texture = (b.tip && b.tip !== SQUARE) || (b.scatter ?? 0) > 0 ? 0.55 : 1;
+    const square = b.tip === SQUARE;
     const a = b.opacity * texture;
     const overlap = pts.length === 3 ? 1 : Math.max(1, 0.65 / Math.max(0.05, b.spacing));
     const [r, g, bl] = color;
@@ -136,7 +140,7 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
       if (single) {
         const ddx = x - pts[0], ddy = y - pts[1];
         const u = (ddx * single.c + ddy * single.s) / Math.max(0.3, single.r * single.q), v = (-ddx * single.s + ddy * single.c) / Math.max(0.3, single.r);
-        const d = Math.sqrt(u * u + v * v);
+        const d = square ? Math.max(Math.abs(u), Math.abs(v)) : Math.sqrt(u * u + v * v);
         best = d <= hard ? 1 : d >= 1 ? 0 : (1 - d) / (1 - hard);
       } else for (let s = 0; s < segs; s++) {
         const ax = pts[s * 3], ay = pts[s * 3 + 1], ap = pts[s * 3 + 2];
@@ -268,17 +272,28 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
   if (bgm) { mr = parseInt(bgm[1], 16) / 255; mg = parseInt(bgm[2], 16) / 255; mb = parseInt(bgm[3], 16) / 255; }
   cr.fill(mr); cg.fill(mg); cb.fill(mb);
   {
-    // Aplat net qui ne déborde pas du cadre : traits durs, axes à un rayon du bord.
-    const R = Math.min(w, h) / 8;
-    const b: Brush = { size: 2 * R, hardness: 0.95, opacity: 1, blend: "normal", spacing: 0.25 };
+    // Imprimature en aplats : des tuiles carrées jointives (pointe carrée, une empreinte), chacune de la couleur
+    // moyenne de l'image sous elle. Bords du cadre nets, et des bords déjà dans le bon ton.
+    const nx = Math.max(1, Math.round(w / (Math.min(w, h) / 6))), ny = Math.max(1, Math.round(h / (Math.min(w, h) / 6)));
+    const tw = w / nx, th = h / ny;
     // Les réglages communs vont avec le premier trait.
-    const common = { reset: true, tool: "paint", pressure: true, angle: 0, tremble: 0 };
-    const rows = Math.max(1, Math.ceil((h - 2 * R) / (1.6 * R)) + 1);
-    for (let k = 0; k < rows; k++) {
-      const y = rows > 1 ? R + ((h - 2 * R) * k) / (rows - 1) : h / 2;
-      stroke([R, y, 1, w - R, y, 1], R, [mr, mg, mb], b, out.length ? {} : common);
+    const common = { reset: true, tool: "paint", pressure: true, angle: 0, angleFollow: false, tremble: 0 };
+    for (let j = 0; j < ny; j++) for (let k = 0; k < nx; k++) {
+      let r = 0, g = 0, bl = 0, n = 0;
+      for (let y = Math.floor(j * th); y < Math.min(h, Math.ceil((j + 1) * th)); y++) for (let x = Math.floor(k * tw); x < Math.min(w, Math.ceil((k + 1) * tw)); x++) {
+        const i = y * w + x;
+        r += im.r[i]; g += im.g[i]; bl += im.b[i]; n++;
+      }
+      const c: [number, number, number] = bgm ? [mr, mg, mb] : [r / n, g / n, bl / n];
+      // Tuiles un peu plus grandes que la grille (pas de joint visible), celles du bord rentrées d'autant (pas de
+      // débord hors du cadre).
+      const R = (th * 1.1) / 2, ex = tw * 0.05, ey = th * 0.05;
+      const cx = (k + 0.5) * tw + (k === 0 ? ex : k === nx - 1 ? -ex : 0), cy = (j + 0.5) * th + (j === 0 ? ey : j === ny - 1 ? -ey : 0);
+      stroke([nx === 1 ? w / 2 : cx, ny === 1 ? h / 2 : cy, 1], R, c, {
+        size: 2 * R, hardness: 1, opacity: 1, blend: "normal", spacing: 0.25, tip: SQUARE, roundness: Math.round((tw / th) * 1000) / 1000, angle: 0,
+      }, out.length ? {} : common, 1);
     }
-    passes.push({ radius: Math.round(R * scale), strokes: out.length, name: "fond" });
+    passes.push({ radius: Math.round(th * scale), strokes: out.length, name: "fond" });
   }
 
   /**
@@ -321,10 +336,23 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
           ? clamp01(1 - (1 - Math.min(1, t / Math.max(0.02, cv))) / alpha)
           : mode === "screen" ? clamp01(Math.max(0, t - cv) / (alpha * Math.max(0.02, 1 - cv))) : t;
         const color: [number, number, number] = [ch(ref.r[i], cr[i]), ch(ref.g[i], cg[i]), ch(ref.b[i], cb[i])];
+        // Matière fine et orientée (herbe, poils, laine, fibres) : une touche filée le long du fil couvre ce que
+        // dix touches posées rendraient mal ; elle s'arrête quand la couleur change.
+        if (!grid && mode === "normal" && R <= side / 140 && coh > 0.45 && sh > 0.3) {
+          const c0 = color;
+          const pts = trace(x, y, R, 9, field, (j) => Math.hypot(ref.r[j] - c0[0], ref.g[j] - c0[1], ref.b[j] - c0[2]) < 0.09);
+          if (pts.length >= 9) {
+            stroke(pts, R, avgAlong(pts, (j) => [ref.r[j], ref.g[j], ref.b[j]]), {
+              size: 2 * R, hardness: Math.round((0.3 + 0.6 * Math.min(1, sh * 1.3)) * 100) / 100, opacity: Math.min(1, alpha + 0.15), blend: "normal", spacing: 0.25,
+            }, {}, 0);
+            n++;
+            continue;
+          }
+        }
         stroke([x, y, 1], R, color, {
           size: 2 * R, hardness: Math.round((0.04 + 0.8 * Math.min(1, sh * 1.3)) * (grid ? 0.5 : 1) * 100) / 100, opacity: alpha, blend: mode,
           spacing: 0.25, roundness: Math.round(q * 100) / 100, angle,
-        }, {}, 0.3);
+        }, {}, 0);
         n++;
       }
       passes.push({ radius: Math.round(R * scale * 10) / 10, strokes: n, name });
