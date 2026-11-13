@@ -13,6 +13,13 @@
 export type PaintSource = { width: number; height: number; data: ArrayLike<number> };
 
 export type PainterlyOptions = {
+  /**
+   * Manière de peindre : `realiste` (défaut de `sonic-painterly`, `illustrate.ts`) reconstruit l'image par touches
+   * posées fondues (aérographe, glacis en Produit et Écran, dureté selon la netteté de l'image) ; `illustration`
+   * (`illustrate.ts`) la construit en passes visibles avec les outils (pinceau plat, glacis, craie, contours,
+   * reflets) ; `huile` (cette fonction) accumule des touches opaques du gros au fin.
+   */
+  style?: "realiste" | "illustration" | "huile";
   /** Côté maximal de l'analyse (px), défaut 360 : plus grand = plus de détails et plus de traits. */
   maxSide?: number;
   /** Détail 0..1 (défaut 0.6) : pinceau le plus fin et seuil d'erreur. */
@@ -54,9 +61,9 @@ export type PainterlyResult = {
   preview?: { width: number; height: number; data: Uint8ClampedArray };
 };
 
-type Img = { w: number; h: number; r: Float32Array; g: Float32Array; b: Float32Array };
+export type Img = { w: number; h: number; r: Float32Array; g: Float32Array; b: Float32Array };
 
-function rng(seed: number): () => number {
+export function rng(seed: number): () => number {
   let s = seed >>> 0 || 1;
   return () => {
     s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0;
@@ -107,11 +114,11 @@ function blur1(src: Float32Array, w: number, h: number, sigma: number): Float32A
   return out;
 }
 
-function blurImg(im: Img, sigma: number): Img {
+export function blurImg(im: Img, sigma: number): Img {
   return { w: im.w, h: im.h, r: blur1(im.r, im.w, im.h, sigma), g: blur1(im.g, im.w, im.h, sigma), b: blur1(im.b, im.w, im.h, sigma) };
 }
 
-const hex = (r: number, g: number, b: number) =>
+export const hex = (r: number, g: number, b: number) =>
   "#" + [r, g, b].map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, "0")).join("");
 
 /** Peint l'image en gestes. */

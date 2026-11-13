@@ -248,7 +248,7 @@
     },
     {
       "name": "sonic-painterly",
-      "description": "Peintre : peint n'importe quelle image en gestes de pinceau, rejoués par sonic-sketch (gestures-from) avec ses vrais pinceaux. Du gros au fin : pour chaque taille de pinceau, là où la toile simulée s'écarte encore de l'image (floutée à l'échelle du pinceau), un trait part du point le plus faux, prend la couleur de l'image et suit les formes jusqu'au changement de couleur. Image : source=\"#id\" (source d'images de la page : sonic-still, sonic-camera…) ou src-from (DP d'une URL ou de {url} : asset d'artefact, fichier ouvert ; https, blob:, data:image). Réglages max-side (analyse, défaut 360), detail (0..1, défaut 0.6), max-strokes (défaut 12000) ou DP params {maxSide, detail, layers, threshold, maxLength, curvature, opacity, jitter, maxStrokes, seed, background} ; auto (chaque nouvelle image) ou control {paint} compteur. État (out-data-provider) {status idle|loading|working|ready|error, error, url (jeu de gestes JSON en blob:, à brancher sur gestures-from), width, height, strokes, layers [{radius, strokes}], residual (écart moyen restant 0..1), ms, runs}.",
+      "description": "Peintre : peint n'importe quelle image en gestes de pinceau, rejoués par sonic-sketch (gestures-from) avec ses vrais pinceaux. paint-style realiste (défaut) : touches posées fondues comme à l'aérographe — grille de touches qui se recouvrent du très gros au moyen, glacis en Produit et Écran, touches de plus en plus fines là où l'écart reste fort, douces où l'image est floue et nettes où elle est nette, ovales orientées le long des arêtes ; proche de l'image, pinceau invisible, une empreinte par trait ; illustration : passes visibles avec les outils, comme un illustrateur — fond, masses au pinceau plat, glacis doux en Produit (ombres) et en Écran (lumières), voiles de couleur, matière (craie, traits orientés), détails fins, contours effilés en Produit, reflets en Écran ; toile simulée avec les fusions, quelques milliers de traits ; huile : touches opaques accumulées du gros au fin (là où la toile s'écarte encore de l'image, un trait part du point le plus faux et suit les formes). Image : source=\"#id\" (source d'images de la page : sonic-still, sonic-camera…) ou src-from (DP d'une URL ou de {url} : asset d'artefact, fichier ouvert ; https, blob:, data:image). Réglages max-side (analyse, défaut 360), detail (0..1, défaut 0.6), max-strokes (défaut selon la manière : réaliste 5000, illustration 3000, huile 12000 ; budget toujours tenu) ou DP params {style, maxSide, detail, layers, threshold, maxLength, curvature, opacity, jitter, maxStrokes, seed, background} ; auto (chaque nouvelle image) ou control {paint} compteur. État (out-data-provider) {status idle|loading|working|ready|error, error, url (jeu de gestes JSON en blob:, à brancher sur gestures-from), width, height, strokes, layers [{radius, strokes}], residual (écart moyen restant 0..1), ms, runs}.",
       "props": {
         "source": {
           "type": "string"
@@ -264,6 +264,14 @@
         },
         "auto": {
           "type": "boolean"
+        },
+        "paint-style": {
+          "type": "string",
+          "enum": [
+            "realiste",
+            "illustration",
+            "huile"
+          ]
         },
         "max-side": {
           "type": "number"

@@ -149,6 +149,15 @@ export function drawStroke(s: Surface, st: Stroke): void {
   const a = st.brush.opacity;
   const blend = st.brush.blend;
   if (st.flat || st.mask || (!st.erase && (!blend || blend === "normal") && a >= 0.999)) return paintStroke(s, st);
+  // Une seule empreinte (touche posée) : rien ne se chevauche dans le trait, elle se pose directement avec son
+  // opacité et son mode, sans tampon intermédiaire (même rendu, bien plus rapide pour des milliers de touches).
+  if (!st.erase && strokeStamps(st).length === 1) {
+    s.ctx.save();
+    s.ctx.globalCompositeOperation = compositeOf(blend);
+    paintStroke(s, st);
+    s.ctx.restore();
+    return;
+  }
   const buf = scratchFor(s);
   if (!buf) return;
   paintStroke(buf, { ...st, brush: { ...st.brush, opacity: 1 } });

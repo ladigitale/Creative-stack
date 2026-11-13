@@ -221,7 +221,11 @@ Les mêmes réglages peuvent venir en direct du DP du pinceau (`brush-from`) : `
 
 `sonic-painterly` peint **n'importe quelle image** au pinceau : il en tire un jeu de gestes que `sonic-sketch` rejoue avec ses vrais pinceaux. L'image peut être une photo, une image générée, un asset ou une caméra. Le résultat est un vrai dessin, retouchable trait par trait.
 
-La méthode est celle d'un peintre (« stroke-based rendering ») : du gros au fin, pour chaque taille de pinceau, on compare la toile simulée à l'image floutée à l'échelle du pinceau. Là où l'écart dépasse un seuil, un trait part du point le plus faux. Il prend la couleur de l'image et suit les formes (perpendiculaire au gradient de clarté) jusqu'à ce que la couleur change. Les grandes touches posent les masses ; les petites n'ajoutent du détail que là où il en manque.
+Trois manières de peindre (`paint-style`) :
+
+- **`realiste`** (défaut) : on ne voit pas le pinceau. L'image est reconstruite par **touches posées** (une empreinte par trait), comme à l'aérographe : d'abord une grille de touches qui se recouvrent, du très gros au moyen (reconstruction lisse), puis des **glacis en Produit et en Écran** pour les valeurs, puis des touches de plus en plus fines, seulement là où l'écart reste fort. Chaque touche est **douce là où l'image est floue et nette là où elle est nette** (flou de profondeur gardé), ronde, ou **ovale et orientée** le long des arêtes. Le résultat est proche de l'image et reste un dessin retouchable touche à touche (5 000 touches par défaut, export SVG compris).
+- **`illustration`** : l'image est construite en passes qui ont chacune un rôle et un outil, comme le ferait un illustrateur. Un fond net, puis les **masses** au pinceau plat (pointe ovale qui suit le geste), du très gros au moyen. Ensuite des **glacis doux en mode Produit** là où la toile est plus claire que l'image (ombres), puis **en mode Écran** là où elle est plus sombre (lumières), et des voiles translucides pour la couleur. Puis la **matière** (pointe craie dispersée, ou petits traits orientés sur un tissu, une herbe), quelques **détails** fins et opaques là où l'écart reste fort, des **contours** effilés en Produit sur les arêtes nettes et des **reflets** en Écran. La toile est simulée avec les mêmes fusions que `sonic-sketch` : chaque passe corrige ce que les précédentes ont laissé. Les traits suivent les formes (tenseur de structure) ; dans les zones sans forme nette (fonds, flous), la touche garde une direction constante. Quelques milliers de traits, export SVG compris.
+- **`huile`** : touches opaques accumulées du gros au fin (« stroke-based rendering », d'après Hertzmann) ; pour chaque taille de pinceau, un trait part du point le plus faux, prend la couleur de l'image et suit les formes jusqu'au changement de couleur. Rendu d'empâtement, beaucoup plus de traits (trop d'empreintes pour l'export SVG au-delà de quelques milliers).
 
 ```json
 { "tagName": "sonic-still", "attributes": { "id": "photo", "in-data-provider": "fichier" } },
@@ -232,10 +236,11 @@ La méthode est celle d'un peintre (« stroke-based rendering ») : du gros au f
 | Attribut | Rôle |
 |---|---|
 | `source` / `src-from` | Source d'images de la page (`#id`), ou DP d'une URL d'image (chaîne ou `{url}` : asset, `blob:`, `data:image`) |
+| `paint-style` | `realiste` (défaut, touches fondues, proche de l'image), `illustration` (passes visibles avec les outils) ou `huile` (touches opaques accumulées) |
 | `detail` | 0 (grosses touches) à 1 (très détaillé), défaut 0.6 |
 | `max-side` | Côté de l'analyse en px (défaut 360) : plus grand = plus fin, plus de traits |
-| `max-strokes` | Plafond de traits (défaut 12 000, 20 000 max) |
-| `params` | DP en direct : `{maxSide, detail, layers, threshold, maxLength, curvature, opacity, jitter, maxStrokes, seed, background}` |
+| `max-strokes` | Plafond de traits, 20 000 max ; par défaut celui de la manière : réaliste 5 000, illustration 3 000, huile 12 000. Le budget est toujours tenu : en réaliste, la base lisse passe d'abord, puis les touches fines vont là où l'écart est le plus fort |
+| `params` | DP en direct : `{style, maxSide, detail, layers, threshold, maxLength, curvature, opacity, jitter, maxStrokes, seed, background}` |
 | `auto` / `control` | Peint chaque nouvelle image, ou sur demande (`{paint}` compteur) |
 
-État : `{status, error, url, width, height, strokes, layers, residual, ms, runs}`. `url` est le jeu de gestes en `blob:` : aucun gros volume ne transite par les DataProviders. Le calcul est aussi disponible en fonction pure, `paintImage(pixels, options)` dans `painterly.ts`, utilisable dans Node par un agent qui prépare un fichier de gestes.
+État : `{status, error, url, width, height, strokes, layers, residual, ms, runs}`. `url` est le jeu de gestes en `blob:` : aucun gros volume ne transite par les DataProviders. Le calcul est aussi disponible en fonctions pures, `illustrateImage(pixels, options)` (`illustrate.ts`) et `paintImage(pixels, options)` (`painterly.ts`, huile), utilisables dans Node par un agent qui prépare un fichier de gestes.
