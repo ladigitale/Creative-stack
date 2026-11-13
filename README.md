@@ -4,3 +4,5 @@
 - `paix-ref.png` : image de référence « la paix contre l'armement » (colombe à contre-jour, fusil brisé d'où repousse un olivier, coquelicots), rendue par `paix_ref.py`.
 - `abysse-v84.ops.json` : patch JSON (RFC 6902) de la v83 à la v84 d'Abysse (entrée `image` peinte par `sonic-painterly`, entrée `gestesFichier`).
 - `abysse-v85.ops.json` : patch v84 → v85 (si le dessin est trop riche pour l'export SVG, l'envoi se termine avec le PNG seul).
+- `gentillesse-ref.png` : image de référence « la gentillesse » (une main tend une tasse fumante à une autre, lumière de fenêtre, intérieur flou), rendue par `gentillesse_ref.py`.
+- `abysse-v86.ops.json` : patch v85 → v86 (entrées `style` — realiste, illustration, huile — et `traits`, nombre maximal de coups de pinceau).
