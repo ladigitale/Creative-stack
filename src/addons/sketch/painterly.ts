@@ -20,6 +20,10 @@ export type PainterlyOptions = {
    * reflets) ; `huile` (cette fonction) accumule des touches opaques du gros au fin.
    */
   style?: "realiste" | "illustration" | "huile";
+  /** Point focal (coordonnées 0..1 de l'image, rayon relatif) : les détails et l'ajustement s'y concentrent. */
+  focus?: { x: number; y: number; r?: number };
+  /** Temps d'ajustement des touches posées, en ms (réaliste : 4000 par défaut ; 0 pour s'en passer). */
+  optimizeMs?: number;
   /** Côté maximal de l'analyse (px), défaut 360 : plus grand = plus de détails et plus de traits. */
   maxSide?: number;
   /** Détail 0..1 (défaut 0.6) : pinceau le plus fin et seuil d'erreur. */

@@ -75,6 +75,81 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
     return blurImg({ w, h, r: m, g: m, b: m }, 1.5).r;
   })();
 
+  /**
+   * Distance (en pixels d'analyse) à l'arête nette la plus proche (transformée de distance en chanfrein) : une
+   * grosse touche douce posée à cheval sur une arête y laisserait un halo ; près d'une arête, on prend un pinceau
+   * plus petit, comme un peintre.
+   */
+  const edgeDist = (() => {
+    // Arêtes des formes (pas de la texture) : gradient d'une image adoucie, seuil haut.
+    const Lb = blurImg({ w, h, r: L0, g: L0, b: L0 }, Math.max(1.5, side / 200)).r;
+    const d = new Float32Array(N);
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      d[i] = Math.hypot(Lb[i + 1] - Lb[i - 1], Lb[i + w] - Lb[i - w]) > 0.07 ? 0 : 1e6;
+    }
+    for (let x = 0; x < w; x++) { d[x] = 1e6; d[(h - 1) * w + x] = 1e6; }
+    for (let y = 0; y < h; y++) { d[y * w] = 1e6; d[y * w + w - 1] = 1e6; }
+    const D1 = 1, D2 = 1.414;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (x > 0) d[i] = Math.min(d[i], d[i - 1] + D1);
+      if (y > 0) {
+        d[i] = Math.min(d[i], d[i - w] + D1);
+        if (x > 0) d[i] = Math.min(d[i], d[i - w - 1] + D2);
+        if (x < w - 1) d[i] = Math.min(d[i], d[i - w + 1] + D2);
+      }
+    }
+    for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) {
+      const i = y * w + x;
+      if (x < w - 1) d[i] = Math.min(d[i], d[i + 1] + D1);
+      if (y < h - 1) {
+        d[i] = Math.min(d[i], d[i + w] + D1);
+        if (x < w - 1) d[i] = Math.min(d[i], d[i + w + 1] + D2);
+        if (x > 0) d[i] = Math.min(d[i], d[i + w - 1] + D2);
+      }
+    }
+    return d;
+  })();
+
+  /**
+   * Point focal : où l'œil va (contraste local, couleur qui se distingue du reste, plutôt vers le centre, ou la
+   * zone `focus` indiquée). Les touches fines et l'ajustement y portent leur effort ; le reste reste plus lâche.
+   * Poids 0.25 (fond) à 1 (point focal).
+   */
+  const focal = (() => {
+    const sb = blurImg({ w, h, r: sharp, g: sharp, b: sharp }, side / 40).r;
+    const cb0 = blurImg(im, side / 30);
+    let mr0 = 0, mg0 = 0, mb0 = 0;
+    for (let i = 0; i < N; i++) { mr0 += cb0.r[i]; mg0 += cb0.g[i]; mb0 += cb0.b[i]; }
+    mr0 /= N; mg0 /= N; mb0 /= N;
+    const sal = new Float32Array(N);
+    let sMax = 1e-6, dMax = 1e-6;
+    const dist = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      dist[i] = Math.hypot(cb0.r[i] - mr0, cb0.g[i] - mg0, cb0.b[i] - mb0);
+      if (sb[i] > sMax) sMax = sb[i];
+      if (dist[i] > dMax) dMax = dist[i];
+    }
+    const f = opts.focus;
+    const fx = f ? f.x * w : w / 2, fy = f ? f.y * h : h / 2, fr = (f ? Math.max(0.05, f.r ?? 0.25) : 0.6) * side;
+    let m = 1e-6;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const near = Math.exp(-((x - fx) ** 2 + (y - fy) ** 2) / (2 * fr * fr));
+      let v = (0.6 * sb[i] / sMax + 0.4 * dist[i] / dMax) * (f ? 0.35 + 0.65 * near : 0.6 + 0.4 * near);
+      if (f) v = Math.max(v, near);
+      sal[i] = v;
+      if (v > m) m = v;
+    }
+    const s = blurImg({ w, h, r: sal, g: sal, b: sal }, side / 60).r;
+    let sm = 1e-6;
+    for (let i = 0; i < N; i++) if (s[i] > sm) sm = s[i];
+    for (let i = 0; i < N; i++) s[i] = 0.25 + 0.75 * Math.min(1, s[i] / sm);
+    void m;
+    return s;
+  })();
+
   // Tenseur de structure de l'image (orientation des formes), à une échelle donnée.
   const orient = (sigma: number) => {
     const Lb = blurImg({ w, h, r: L0, g: L0, b: L0 }, Math.max(0.5, sigma * 0.5)).r;
@@ -107,6 +182,10 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
 
   // ---------------------------------------------------------------- émission et simulation d'un trait
   const out: Record<string, unknown>[] = [];
+  type Box = [number, number, number, number];
+  /** Trait enregistré ; `under` : la toile sous lui juste avant qu'il soit posé (zone `ubox`), pour l'ajustement. */
+  type Rec = { pts: number[]; R: number; color: [number, number, number]; b: Brush; extra: Record<string, unknown>; box: Box; under?: Float32Array; ubox?: Box };
+  const recs: Rec[] = [];
   const passes: { radius: number; strokes: number; name?: string }[] = [];
   let held: Record<string, unknown> = {};
   const emit = (brush: Record<string, unknown>, pts: number[]) => {
@@ -116,15 +195,26 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
     s.pts = pts;
     out.push(s);
   };
-  const full = () => out.length >= maxStrokes;
+  const full = () => recs.length >= maxStrokes;
 
   /** Couverture (0..1) d'un trait : capsules à rayon modulé par la pression, bord adouci selon la dureté. */
-  const paint = (pts: number[], R: number, color: [number, number, number], b: Brush) => {
+  const boxOf = (pts: number[], R: number, b: Brush): [number, number, number, number] => {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (let k = 0; k < pts.length; k += 3) { x0 = Math.min(x0, pts[k]); y0 = Math.min(y0, pts[k + 1]); x1 = Math.max(x1, pts[k]); y1 = Math.max(y1, pts[k + 1]); }
+    const reach = R * (1 + (b.scatter ?? 0)) * (b.tip === SQUARE ? 1.42 : 1);
+    return [Math.max(0, Math.floor(x0 - reach)), Math.max(0, Math.floor(y0 - reach)), Math.min(w - 1, Math.ceil(x1 + reach)), Math.min(h - 1, Math.ceil(y1 + reach))];
+  };
+  /**
+   * Pose un trait sur une toile (`C`, par défaut la toile simulée) ; `clip` limite la zone recalculée, `C` peut
+   * être un morceau de toile commençant en (`ox`, `oy`) de largeur `cw`.
+   */
+  const paint = (pts: number[], R: number, color: [number, number, number], b: Brush,
+    C: { r: Float32Array; g: Float32Array; b: Float32Array; ox: number; oy: number; cw: number } = { r: cr, g: cg, b: cb, ox: 0, oy: 0, cw: w },
+    clip?: [number, number, number, number]) => {
     const reach = R * (1 + (b.scatter ?? 0));
-    const X0 = Math.max(0, Math.floor(x0 - reach)), Y0 = Math.max(0, Math.floor(y0 - reach));
-    const X1 = Math.min(w - 1, Math.ceil(x1 + reach)), Y1 = Math.min(h - 1, Math.ceil(y1 + reach));
+    let [X0, Y0, X1, Y1] = boxOf(pts, R, b);
+    if (clip) { X0 = Math.max(X0, clip[0]); Y0 = Math.max(Y0, clip[1]); X1 = Math.min(X1, clip[2]); Y1 = Math.min(Y1, clip[3]); }
+    const pr = C.r, pg = C.g, pb = C.b;
     const segs = pts.length / 3;
     const hard = b.hardness;
     // Pointes texturées et dispersion : couverture partielle.
@@ -156,32 +246,52 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
         if (best >= 1) break;
       }
       if (best <= 0) continue;
-      const i = y * w + x;
+      const i = (y - C.oy) * C.cw + (x - C.ox);
       // Empreintes qui se chevauchent : leurs couvertures s'accumulent (bord doux plus étroit qu'une seule).
       const k = (1 - Math.pow(1 - Math.min(0.999, best), overlap)) * a;
       let tr: number, tg: number, tb: number;
-      if (b.blend === "multiply") { tr = cr[i] * r; tg = cg[i] * g; tb = cb[i] * bl; }
-      else if (b.blend === "screen") { tr = 1 - (1 - cr[i]) * (1 - r); tg = 1 - (1 - cg[i]) * (1 - g); tb = 1 - (1 - cb[i]) * (1 - bl); }
+      if (b.blend === "multiply") { tr = pr[i] * r; tg = pg[i] * g; tb = pb[i] * bl; }
+      else if (b.blend === "screen") { tr = 1 - (1 - pr[i]) * (1 - r); tg = 1 - (1 - pg[i]) * (1 - g); tb = 1 - (1 - pb[i]) * (1 - bl); }
       else { tr = r; tg = g; tb = bl; }
-      cr[i] += (tr - cr[i]) * k; cg[i] += (tg - cg[i]) * k; cb[i] += (tb - cb[i]) * k;
+      pr[i] += (tr - pr[i]) * k; pg[i] += (tg - pg[i]) * k; pb[i] += (tb - pb[i]) * k;
     }
   };
 
   /** Trait émis dans le cadre des gestes ; `b` complet à chaque fois (seuls les changements sont écrits). */
+  let keepUnder = false;
   const stroke = (raw: number[], R: number, color: [number, number, number], b: Brush, extra: Record<string, unknown> = {}, spill = 0) => {
     // Bords nets : près du cadre, la pression (donc la taille) baisse pour que la touche ne déborde pas (au plus
     // `spill` × le rayon pour une touche douce, dont le bord est presque transparent).
     const reach = R * (1 + (b.scatter ?? 0)) * (1 - spill);
     const pts = raw.slice();
     for (let k = 0; k < pts.length; k += 3) {
-      const m = 0.2 * reach;
+      // Centre gardé à 0,6 rayon du bord : la touche y garde au moins la moitié de sa taille (pas de chapelet de
+      // points minuscules le long du cadre).
+      const m = 0.6 * reach;
       pts[k] = Math.min(w - 1 - m, Math.max(m, pts[k]));
       pts[k + 1] = Math.min(h - 1 - m, Math.max(m, pts[k + 1]));
       const d = Math.min(pts[k], pts[k + 1], w - 1 - pts[k], h - 1 - pts[k + 1]) + 0.5;
       const pMax = Math.max(0, Math.min(1, (d / reach - 0.2) / 0.8));
       if (pts[k + 2] > pMax) pts[k + 2] = Math.round(pMax * 100) / 100;
     }
+    const rec: Rec = { pts, R, color, b, extra, box: boxOf(pts, R, b) };
+    if (keepUnder && pts.length === 3 && R <= side / 34) {
+      // Zone un peu plus large que la touche : les essais de déplacement et d'agrandissement y tiennent.
+      const m = Math.ceil(R * 0.6) + 1;
+      const ub: Box = [Math.max(0, rec.box[0] - m), Math.max(0, rec.box[1] - m), Math.min(w - 1, rec.box[2] + m), Math.min(h - 1, rec.box[3] + m)];
+      const cw = ub[2] - ub[0] + 1, n = cw * (ub[3] - ub[1] + 1);
+      const u = new Float32Array(n * 3);
+      for (let y = ub[1]; y <= ub[3]; y++) for (let x = ub[0]; x <= ub[2]; x++) {
+        const i = y * w + x, j = ((y - ub[1]) * cw + (x - ub[0])) * 3;
+        u[j] = cr[i]; u[j + 1] = cg[i]; u[j + 2] = cb[i];
+      }
+      rec.under = u; rec.ubox = ub;
+    }
     paint(pts, R, color, b);
+    recs.push(rec);
+  };
+  /** Écrit un trait enregistré dans le jeu de gestes (cadre des gestes, réglages qui changent seulement). */
+  const emitRec = ({ pts, R, color, b, extra }: Rec) => {
     const fp: number[] = [];
     for (let k = 0; k < pts.length; k += 3) fp.push(Math.round(pts[k] * scale * 10) / 10, Math.round(pts[k + 1] * scale * 10) / 10, Math.round(pts[k + 2] * 100) / 100);
     emit({
@@ -276,25 +386,27 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
     // moyenne de l'image sous elle. Bords du cadre nets, et des bords déjà dans le bon ton.
     const nx = Math.max(1, Math.round(w / (Math.min(w, h) / 6))), ny = Math.max(1, Math.round(h / (Math.min(w, h) / 6)));
     const tw = w / nx, th = h / ny;
+    const soft0 = blurImg(im, Math.min(tw, th) * 0.6);
     // Les réglages communs vont avec le premier trait.
     const common = { reset: true, tool: "paint", pressure: true, angle: 0, angleFollow: false, tremble: 0 };
     for (let j = 0; j < ny; j++) for (let k = 0; k < nx; k++) {
-      let r = 0, g = 0, bl = 0, n = 0;
-      for (let y = Math.floor(j * th); y < Math.min(h, Math.ceil((j + 1) * th)); y++) for (let x = Math.floor(k * tw); x < Math.min(w, Math.ceil((k + 1) * tw)); x++) {
-        const i = y * w + x;
-        r += im.r[i]; g += im.g[i]; bl += im.b[i]; n++;
-      }
-      const c: [number, number, number] = bgm ? [mr, mg, mb] : [r / n, g / n, bl / n];
+      // Ton de l'image très adoucie au centre de la tuile : des tuiles voisines proches, pas de joint visible.
+      const i0 = at((k + 0.5) * tw, (j + 0.5) * th);
+      const c: [number, number, number] = bgm ? [mr, mg, mb] : [soft0.r[i0], soft0.g[i0], soft0.b[i0]];
       // Tuiles un peu plus grandes que la grille (pas de joint visible), celles du bord rentrées d'autant (pas de
       // débord hors du cadre).
       const R = (th * 1.1) / 2, ex = tw * 0.05, ey = th * 0.05;
       const cx = (k + 0.5) * tw + (k === 0 ? ex : k === nx - 1 ? -ex : 0), cy = (j + 0.5) * th + (j === 0 ? ey : j === ny - 1 ? -ey : 0);
       stroke([nx === 1 ? w / 2 : cx, ny === 1 ? h / 2 : cy, 1], R, c, {
         size: 2 * R, hardness: 1, opacity: 1, blend: "normal", spacing: 0.25, tip: SQUARE, roundness: Math.round((tw / th) * 1000) / 1000, angle: 0,
-      }, out.length ? {} : common, 1);
+      }, recs.length ? {} : common, 1);
     }
-    passes.push({ radius: Math.round(th * scale), strokes: out.length, name: "fond" });
+    passes.push({ radius: Math.round(th * scale), strokes: recs.length, name: "fond" });
   }
+  // Toile après le fond : point de départ des recalculs locaux de l'ajustement.
+  const nFond = recs.length;
+  const baseR = cr.slice(), baseG = cg.slice(), baseB = cb.slice();
+  keepUnder = real && (opts.optimizeMs ?? 4000) > 0;
 
   /**
    * Touches posées (réaliste) : une empreinte par trait, ronde, ou ovale orientée le long des arêtes nettes ;
@@ -310,7 +422,7 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
       // Petites touches : réservées aux endroits nets (une petite touche dans un flou se verrait en tache).
       const fineK = !grid && R < side / 45;
       const need = mode === "normal"
-        ? (i: number) => Math.hypot(ref.r[i] - cr[i], ref.g[i] - cg[i], ref.b[i] - cb[i]) * (fineK ? 0.3 + 0.7 * Math.min(1, sharp[i] * 1.5) : 1)
+        ? (i: number) => Math.hypot(ref.r[i] - cr[i], ref.g[i] - cg[i], ref.b[i] - cb[i]) * (fineK ? 0.3 + 0.7 * Math.min(1, sharp[i] * 1.5) : 1) * (grid ? 1 : focal[i])
         : (i: number) => {
           const t = lum(ref.r[i], ref.g[i], ref.b[i]), c = lum(cr[i], cg[i], cb[i]);
           return mode === "multiply" ? c - t : t - c;
@@ -349,8 +461,11 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
             continue;
           }
         }
-        stroke([x, y, 1], R, color, {
-          size: 2 * R, hardness: Math.round((0.04 + 0.8 * Math.min(1, sh * 1.3)) * (grid ? 0.5 : 1) * 100) / 100, opacity: alpha, blend: mode,
+        // Près d'une arête nette, pinceau plus petit (pas de halo de part et d'autre).
+        // (La première grille garde sa taille : elle fond les tuiles du fond entre elles.)
+        const Re = grid && li === 0 ? R : Math.max(Math.min(R, 1.2), Math.min(R, Math.max(R * (grid ? 0.55 : 0.4), edgeDist[i] * 1.3 + 1)));
+        stroke([x, y, 1], Re, color, {
+          size: 2 * Re, hardness: Math.round((0.04 + 0.8 * Math.min(1, sh * 1.3)) * (grid ? 0.5 : 1) * 100) / 100, opacity: alpha, blend: mode,
           spacing: 0.25, roundness: Math.round(q * 100) / 100, angle,
         }, {}, 0);
         n++;
@@ -361,7 +476,7 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
   if (real) {
     // Budget : la base lisse d'abord (complète, sinon il resterait des trous), puis glacis et détails se partagent
     // ce qui reste, les plus grosses touches servies d'abord, les plus fines prennent le reste là où l'écart est fort.
-    const left = () => Math.max(0, maxStrokes - out.length);
+    const left = () => Math.max(0, maxStrokes - recs.length);
     const gridR = [side / 8, side / 13, side / 21];
     // Base plus grosse quand le budget est serré : elle doit tenir dans un tiers du budget.
     const gridCount = (k: number) => gridR.slice(0, k).reduce((a, r) => a + Math.ceil(w / (r * 0.7)) * Math.ceil(h / (r * 0.7)), 0);
@@ -619,6 +734,140 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
     }
     passes.push({ radius: Math.round(R * scale * 10) / 10, strokes: n, name: "accents" });
   }
+
+  // ---------------------------------------------------------------- ajustement des touches posées
+  // Chaque touche est retouchée (couleur, place, taille, orientation) tant que l'écart pondéré par le point focal
+  // baisse. Une retouche ne change la toile que sous la touche : on recalcule cette zone en rejouant, dans l'ordre,
+  // les touches qui la recouvrent depuis le fond.
+  const optimizeMs = opts.optimizeMs ?? (real ? 4000 : 0);
+  let tuned = 0, visited = 0;
+  if (optimizeMs > 0 && recs.length > nFond) {
+    const t0 = Date.now();
+    const T = 16, tx = Math.ceil(w / T), ty = Math.ceil(h / T);
+    const buckets: number[][] = Array.from({ length: tx * ty }, () => []);
+    const index = (k: number, box: [number, number, number, number]) => {
+      for (let y = Math.floor(box[1] / T); y <= Math.floor(box[3] / T); y++) for (let x = Math.floor(box[0] / T); x <= Math.floor(box[2] / T); x++) {
+        const bk = buckets[y * tx + x];
+        if (bk[bk.length - 1] !== k) bk.push(k);
+      }
+    };
+    for (let k = nFond; k < recs.length; k++) index(k, recs[k].box);
+    // Touches posées après chacune et qui recouvrent sa zone gardée : seules à rejouer pour l'évaluer.
+    const later: number[][] = [];
+    for (let k = nFond; k < recs.length; k++) {
+      const ub = recs[k].ubox;
+      if (!ub) continue;
+      const ids = new Set<number>();
+      for (let y = Math.floor(ub[1] / T); y <= Math.floor(ub[3] / T); y++) for (let x = Math.floor(ub[0] / T); x <= Math.floor(ub[2] / T); x++) for (const q of buckets[y * tx + x]) {
+        if (q <= k) continue;
+        const bx = recs[q].box;
+        if (bx[2] < ub[0] || bx[0] > ub[2] || bx[3] < ub[1] || bx[1] > ub[3]) continue;
+        ids.add(q);
+      }
+      later[k] = [...ids].sort((a, b) => a - b);
+    }
+    /** Zone recalculée avec la touche `k` remplacée par `alt` ; renvoie l'écart pondéré et le morceau de toile. */
+    const region = (box: [number, number, number, number], k: number, alt: Rec) => {
+      const [x0, y0, x1, y1] = box;
+      const cw = x1 - x0 + 1, n = cw * (y1 - y0 + 1);
+      const C = { r: new Float32Array(n), g: new Float32Array(n), b: new Float32Array(n), ox: x0, oy: y0, cw };
+      // Rapide : la toile gardée sous la touche (approchée si des touches d'avant ont été retouchées depuis), puis
+      // seulement les touches posées après. Sinon : tout rejouer depuis le fond.
+      const own = recs[k];
+      const ub = own.ubox;
+      const fast = !!(own.under && ub && x0 >= ub[0] && y0 >= ub[1] && x1 <= ub[2] && y1 <= ub[3]);
+      const ucw = ub ? ub[2] - ub[0] + 1 : 0;
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const j = (y - y0) * cw + (x - x0);
+        if (fast) {
+          const u = ((y - ub![1]) * ucw + (x - ub![0])) * 3;
+          C.r[j] = own.under![u]; C.g[j] = own.under![u + 1]; C.b[j] = own.under![u + 2];
+        } else {
+          const i = y * w + x;
+          C.r[j] = baseR[i]; C.g[j] = baseG[i]; C.b[j] = baseB[i];
+        }
+      }
+      let list: number[];
+      if (fast) list = [k, ...(later[k] ?? [])];
+      else {
+        const ids = new Set<number>();
+        for (let y = Math.floor(y0 / T); y <= Math.floor(y1 / T); y++) for (let x = Math.floor(x0 / T); x <= Math.floor(x1 / T); x++) for (const q of buckets[y * tx + x]) ids.add(q);
+        ids.add(k);
+        list = [...ids].sort((a, b) => a - b);
+      }
+      for (const q of list) {
+        const rc = q === k ? alt : recs[q];
+        if (rc.box[2] < x0 || rc.box[0] > x1 || rc.box[3] < y0 || rc.box[1] > y1) continue;
+        paint(rc.pts, rc.R, rc.color, rc.b, C, box);
+      }
+      let e = 0;
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const i = y * w + x, j = (y - y0) * cw + (x - x0);
+        const dr = C.r[j] - im.r[i], dg = C.g[j] - im.g[i], db = C.b[j] - im.b[i];
+        e += focal[i] * (dr * dr + dg * dg + db * db);
+      }
+      return { e, C };
+    };
+    const union = (a: [number, number, number, number], b: [number, number, number, number]): [number, number, number, number] =>
+      [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+    const order: number[] = [];
+    for (let k = nFond; k < recs.length; k++) if (recs[k].pts.length === 3 && recs[k].R <= side / 34) order.push(k);
+    // D'abord les touches du point focal.
+    order.sort((a, b) => focal[at(recs[b].pts[0], recs[b].pts[1])] * (0.8 + 0.4 * rand()) - focal[at(recs[a].pts[0], recs[a].pts[1])] * (0.8 + 0.4 * rand()));
+    outer: for (let pass = 0; pass < 3; pass++) {
+      for (const k of order) {
+        if (Date.now() - t0 > optimizeMs) break outer;
+        const cur = recs[k];
+        visited++;
+        const base = region(cur.box, k, cur);
+        // Couleur visée : écart moyen sous la touche, ramené à son opacité.
+        let sr = 0, sg = 0, sb = 0, sw = 0;
+        const [x0, y0, x1, y1] = cur.box;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          const dx = x - cur.pts[0], dy = y - cur.pts[1];
+          const wgt = Math.max(0, 1 - Math.hypot(dx, dy) / cur.R);
+          if (!wgt) continue;
+          const i = y * w + x, j = (y - y0) * (x1 - x0 + 1) + (x - x0);
+          sr += wgt * (im.r[i] - base.C.r[j]); sg += wgt * (im.g[i] - base.C.g[j]); sb += wgt * (im.b[i] - base.C.b[j]); sw += wgt;
+        }
+        const tries: Rec[] = [];
+        const kAlpha = 0.8 / Math.max(0.2, cur.b.opacity);
+        if (sw > 0 && cur.b.blend === "normal") {
+          tries.push({ ...cur, color: [clamp01(cur.color[0] + (sr / sw) * kAlpha), clamp01(cur.color[1] + (sg / sw) * kAlpha), clamp01(cur.color[2] + (sb / sw) * kAlpha)] });
+        }
+        const a = rand() * Math.PI * 2, d = cur.R * 0.35;
+        const moved = [Math.min(w - 1, Math.max(0, cur.pts[0] + Math.cos(a) * d)), Math.min(h - 1, Math.max(0, cur.pts[1] + Math.sin(a) * d)), cur.pts[2]];
+        tries.push({ ...cur, pts: moved, box: boxOf(moved, cur.R, cur.b) });
+        const f = rand() < 0.5 ? 0.8 : 1.22;
+        tries.push({ ...cur, R: cur.R * f, b: { ...cur.b, size: cur.b.size * f }, box: boxOf(cur.pts, cur.R * f, cur.b) });
+        if ((cur.b.roundness ?? 1) < 1) tries.push({ ...cur, b: { ...cur.b, angle: (cur.b.angle ?? 0) + (rand() < 0.5 ? -18 : 18) } });
+        else if (cur.b.blend === "normal" && sharp[at(cur.pts[0], cur.pts[1])] < 0.3) tries.push({ ...cur, b: { ...cur.b, hardness: Math.max(0, cur.b.hardness - 0.15) } });
+        let best = cur, bestE = base.e, bestBox = cur.box;
+        for (const t of tries) {
+          const box = union(cur.box, t.box);
+          const e0 = box === cur.box ? base.e : region(box, k, cur).e;
+          const e1 = region(box, k, t).e;
+          if (e1 < e0 - 1e-6 && e1 - e0 < bestE - base.e) { best = t; bestE = base.e + (e1 - e0); bestBox = box; }
+        }
+        if (best !== cur) {
+          recs[k] = best;
+          index(k, best.box);
+          // la toile simulée suit
+          const { C } = region(bestBox, k, best);
+          for (let y = bestBox[1]; y <= bestBox[3]; y++) for (let x = bestBox[0]; x <= bestBox[2]; x++) {
+            const i = y * w + x, j = (y - bestBox[1]) * C.cw + (x - bestBox[0]);
+            cr[i] = C.r[j]; cg[i] = C.g[j]; cb[i] = C.b[j];
+          }
+          tuned++;
+        }
+      }
+    }
+    passes.push({ radius: 0, strokes: tuned, name: "ajustement", visited } as { radius: number; strokes: number; name: string });
+    // Toile finale exacte : on rejoue tout depuis le fond.
+    cr.set(baseR); cg.set(baseG); cb.set(baseB);
+    for (let k = nFond; k < recs.length; k++) paint(recs[k].pts, recs[k].R, recs[k].color, recs[k].b);
+  }
+  for (const r of recs) emitRec(r);
 
   let err = 0;
   for (let i = 0; i < N; i++) err += Math.hypot(im.r[i] - cr[i], im.g[i] - cg[i], im.b[i] - cb[i]);

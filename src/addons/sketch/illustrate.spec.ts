@@ -88,4 +88,22 @@ describe("illustrateImage, style réaliste (touches posées fondues)", () => {
     expect(illustrateImage(scene(), { maxSide: 160, style: "illustration", maxStrokes: 200 }).strokes.length).toBeLessThanOrEqual(200);
     expect(STROKES_DEFAULT.realiste).toBeLessThan(STROKES_DEFAULT.huile);
   });
+
+  it("point focal et ajustement : plus fidèle à budget égal, détails resserrés autour du point donné", () => {
+    const base = { maxSide: 160, seed: 5, style: "realiste" as const, maxStrokes: 900 };
+    const raw = illustrateImage(scene(), { ...base, optimizeMs: 0 });
+    const tuned = illustrateImage(scene(), { ...base, optimizeMs: 400 });
+    expect(tuned.error).toBeLessThan(raw.error);
+    expect(tuned.layers.some((l) => (l as { name?: string }).name === "ajustement")).toBe(true);
+    // détails fins (petites touches) : plus nombreux près du point focal donné (la sphère, à gauche)
+    const near = (r: typeof raw) => {
+      const g = readGestures({ width: r.width, height: r.height, strokes: r.strokes })!;
+      const small = g.strokes.filter((s) => s.pts.length === 3 && Number(s.brush.size) < r.width / 20);
+      return small.filter((s) => Math.hypot(s.pts[0] / r.width - 0.44, s.pts[1] / r.height - 0.5) < 0.25).length / Math.max(1, small.length);
+    };
+    const focused = illustrateImage(scene(), { ...base, optimizeMs: 0, focus: { x: 0.44, y: 0.5, r: 0.2 } });
+    expect(near(focused)).toBeGreaterThan(near(raw));
+    expect(readPainterlyOptions({ focus: { x: 0.3, y: 2, r: 0.1 } }).focus).toEqual({ x: 0.3, y: 1, r: 0.1 });
+    expect(readPainterlyOptions({ focus: "centre" }).focus).toBeUndefined();
+  });
 });
