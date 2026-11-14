@@ -110,7 +110,7 @@ describe("sonic-fullscreen", () => {
   });
 
   it("refus du navigateur : denied avec message, puis l'erreur disparaît au succès", async () => {
-    const el = await mount<SonicFullscreen>(`<sonic-fullscreen id="fs3"></sonic-fullscreen>`, "sonic-fullscreen");
+    const el = await mount<SonicFullscreen>(`<sonic-fullscreen id="fs3" fallback="none"></sonic-fullscreen>`, "sonic-fullscreen");
     stub(Element.prototype, "requestFullscreen", val(async () => { throw domError("TypeError"); }));
     stub(Element.prototype, "requestFullscreen", val(async () => { throw domError("NotAllowedError"); }));
     expect(await el.run("enter")).toBe(false);
@@ -128,7 +128,7 @@ describe("sonic-fullscreen", () => {
     expect(await el.run("n-importe-quoi")).toBe(false);
     el.remove();
     stub(Element.prototype, "requestFullscreen", val(undefined));
-    const el2 = await mount<SonicFullscreen>(`<sonic-fullscreen id="fs5"></sonic-fullscreen>`, "sonic-fullscreen");
+    const el2 = await mount<SonicFullscreen>(`<sonic-fullscreen id="fs5" fallback="none"></sonic-fullscreen>`, "sonic-fullscreen");
     expect(el2.getState()).toMatchObject({ status: "unsupported", supported: false });
     expect(await el2.run("enter")).toBe(false);
   });
@@ -165,6 +165,121 @@ describe("sonic-fullscreen", () => {
     expect(el.getState().navigationUI).toBe("show");
     await el.run("enter");
     expect(asked).toEqual([{ navigationUI: "hide" }, { navigationUI: "hide" }, { navigationUI: "show" }]);
+  });
+
+  it("bouton slotté : un clic bascule, active et aria-pressed reflétés sur l'hôte et le bouton", async () => {
+    const el = await mount<SonicFullscreen>(
+      `<div id="zone"><sonic-fullscreen id="fs10" target="zone"><demo-button id="b10"><span id="ico" swap="on">x</span></demo-button></sonic-fullscreen></div>`,
+      "sonic-fullscreen",
+    );
+    const btn = document.getElementById("b10") as HTMLElement;
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    (document.getElementById("ico") as HTMLElement).click();
+    await vi.waitFor(() => expect(el.getState()).toMatchObject({ active: true, element: "div#zone", simulated: false }));
+    expect(el.hasAttribute("active")).toBe(true);
+    expect(btn.hasAttribute("active")).toBe(true);
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    btn.click();
+    await vi.waitFor(() => expect(el.getState().active).toBe(false));
+    expect(el.hasAttribute("active")).toBe(false);
+    expect(btn.hasAttribute("active")).toBe(false);
+    expect(fsEl).toBeNull();
+  });
+
+  it("clic slotté sur un id de for : une seule bascule", async () => {
+    const el = await mount<SonicFullscreen>(`<sonic-fullscreen id="fs11" for="b11"><button id="b11">plein écran</button></sonic-fullscreen>`, "sonic-fullscreen");
+    (document.getElementById("b11") as HTMLElement).click();
+    await vi.waitFor(() => expect(el.getState().active).toBe(true));
+    await wait(5);
+    expect(el.getState().active).toBe(true);
+  });
+
+  it("cible par défaut : ancêtre data-fullscreen-root, sinon la page ; id nu ou #id ; cible absente", async () => {
+    const el = await mount<SonicFullscreen>(`<section id="atelier" data-fullscreen-root><div><sonic-fullscreen id="fs12"></sonic-fullscreen></div></section>`, "sonic-fullscreen");
+    await el.run("enter");
+    expect(fsEl).toBe(document.getElementById("atelier"));
+    await el.run("exit");
+    el.remove();
+    const page = await mount<SonicFullscreen>(`<sonic-fullscreen id="fs13"></sonic-fullscreen>`, "sonic-fullscreen");
+    await page.run("enter");
+    expect(fsEl).toBe(document.documentElement);
+    await page.run("exit");
+    page.target = "nulle-part";
+    await page.updateComplete;
+    expect(await page.run("enter")).toBe(false);
+    expect(page.getState()).toMatchObject({ status: "error", active: false, simulated: false });
+  });
+
+  it("dans un shadow root (viewer) : cible résolue dans le même arbre, état lu sur le shadow root", async () => {
+    document.body.insertAdjacentHTML("beforeend", `<div id="hote"></div>`);
+    const shadow = (document.getElementById("hote") as HTMLElement).attachShadow({ mode: "open" });
+    const scene = document.createElement("div");
+    scene.id = "scene-sh";
+    const fs = document.createElement("sonic-fullscreen") as SonicFullscreen;
+    fs.id = "fs14";
+    fs.target = "scene-sh";
+    shadow.append(scene, fs);
+    await fs.updateComplete;
+    let inner: Element | null = null;
+    stub(shadow, "fullscreenElement", { get: () => inner });
+    stub(Element.prototype, "requestFullscreen", val(async function (this: Element) { inner = this; fsEl = document.getElementById("hote"); change(); }));
+    await fs.run("enter");
+    expect(fs.getState()).toMatchObject({ active: true, element: "div#scene-sh" });
+    stub(document, "exitFullscreen", val(async () => { inner = null; fsEl = null; change(); }));
+    await fs.run("toggle");
+    expect(fs.getState().active).toBe(false);
+  });
+
+  it("repli simulé (API absente) : position fixe réversible, Échap en sort, style d'origine restauré", async () => {
+    stub(Element.prototype, "requestFullscreen", val(undefined));
+    const el = await mount<SonicFullscreen>(`<div id="sim" style="color: red"></div><sonic-fullscreen id="fs15" target="#sim"></sonic-fullscreen>`, "sonic-fullscreen");
+    const sim = document.getElementById("sim") as HTMLElement;
+    expect(el.getState()).toMatchObject({ status: "idle", supported: false, simulated: false });
+    const seen: boolean[] = [];
+    el.addEventListener("sonic-fullscreen-change", (e) => seen.push((e as CustomEvent).detail.simulated));
+    expect(await el.run("toggle")).toBe(true);
+    expect(el.getState()).toMatchObject({ status: "ready", active: true, simulated: true, element: "div#sim", error: null });
+    expect(get("fs15State")).toMatchObject({ active: true, simulated: true });
+    expect(sim.style.position).toBe("fixed");
+    expect(sim.hasAttribute("data-fullscreen-simulated")).toBe(true);
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    expect(el.hasAttribute("active")).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await vi.waitFor(() => expect(el.getState().active).toBe(false));
+    expect(sim.getAttribute("style")).toBe("color: red");
+    expect(sim.hasAttribute("data-fullscreen-simulated")).toBe(false);
+    expect(document.documentElement.style.overflow).toBe("");
+    expect(seen).toEqual([true, false]);
+  });
+
+  it("repli simulé après un refus du navigateur ; fallback=\"none\" publie le refus", async () => {
+    stub(Element.prototype, "requestFullscreen", val(async () => { throw domError("NotAllowedError"); }));
+    const el = await mount<SonicFullscreen>(`<div id="sim2"></div><sonic-fullscreen id="fs16" target="sim2"></sonic-fullscreen>`, "sonic-fullscreen");
+    expect(await el.run("enter")).toBe(true);
+    expect(el.getState()).toMatchObject({ active: true, simulated: true, error: null });
+    document.dispatchEvent(new Event("fullscreenerror"));
+    expect(el.getState().status).toBe("ready");
+    await el.run("toggle");
+    expect((document.getElementById("sim2") as HTMLElement).hasAttribute("style")).toBe(false);
+    el.fallback = "none";
+    await el.updateComplete;
+    expect(await el.run("enter")).toBe(false);
+    expect(el.getState()).toMatchObject({ status: "denied", simulated: false });
+  });
+
+  it("retiré de la page en mode simulé : cible restaurée, Échap n'est plus écouté", async () => {
+    stub(Element.prototype, "requestFullscreen", val(undefined));
+    const el = await mount<SonicFullscreen>(`<div id="sim3"></div><sonic-fullscreen id="fs17" target="sim3"></sonic-fullscreen>`, "sonic-fullscreen");
+    await el.run("enter");
+    const sim = document.getElementById("sim3") as HTMLElement;
+    expect(sim.style.position).toBe("fixed");
+    el.remove();
+    expect(sim.hasAttribute("style")).toBe(false);
+    expect(sim.hasAttribute("data-fullscreen-simulated")).toBe(false);
+    expect(document.documentElement.style.overflow).toBe("");
+    const ev = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    document.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
   });
 
   it("iPhone : plein écran seulement sur une <video> (supportsVideoOnly)", async () => {
