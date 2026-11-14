@@ -9,11 +9,11 @@ MODES = [("auto", "Automatique", "Carte graphique si possible"),
 
 def item(mode, lib, hint):
     return {"tagName": "div", "attributes": {"style": "position:relative"}, "nodes": [
-        {"tagName": "sonic-action", "attributes": {"payload": json.dumps({"mode": mode, "modeLib": lib}, ensure_ascii=False), "target": "rendu", "trigger": "click", "type": "set"}, "nodes": [
+        {"tagName": "sonic-action", "attributes": {"payload": json.dumps({"renderMode": mode, "renderModeLib": lib}, ensure_ascii=False), "target": "fxVue", "trigger": "click", "type": "gset"}, "nodes": [
             {"tagName": "sonic-menu-item", "attributes": {"size": "sm", "style": "width:100%;justify-content:flex-start;padding-left:14px;flex-direction:column;align-items:flex-start;gap:0", "variant": "ghost"}, "nodes": [
                 {"tagName": "span", "textContent": lib},
                 {"tagName": "span", "attributes": {"style": "font-size:11px;opacity:.6;white-space:normal;text-align:left"}, "textContent": hint}]}]},
-        {"tagName": "sonic-if", "attributes": {"dataProvider": "rendu", "key": "mode", "equals": mode}, "nodes": [{"tagName": "div", "attributes": {"style": BAR}}]}]}
+        {"tagName": "sonic-if", "attributes": {"dataProvider": "fxVue", "key": "renderMode", "equals": mode}, "nodes": [{"tagName": "div", "attributes": {"style": BAR}}]}]}
 
 def engine(eq, txt):
     return {"tagName": "sonic-if", "attributes": {"dataProvider": "etat.render", "key": "engine", "equals": eq}, "nodes": [{"tagName": "span", "textContent": txt}]}
@@ -26,12 +26,12 @@ def panel():
                     {"tagName": "span", "attributes": {"style": LABEL}, "textContent": "Moteur"},
                     {"tagName": "sonic-pop", "attributes": {"placement": "bottom-start", "style": "display:block"}, "nodes": [
                         {"tagName": "sonic-button", "attributes": {"aria-label": "Moteur de rendu", "style": "width:100%", "align": "left", "shape": "block"}, "nodes": [
-                            {"tagName": "sonic-value", "attributes": {"dataProvider": "rendu", "key": "modeLib", "style": "white-space:nowrap"}},
+                            {"tagName": "sonic-value", "attributes": {"dataProvider": "fxVue", "key": "renderModeLib", "style": "white-space:nowrap"}},
                             {"tagName": "sonic-icon", "attributes": {"library": "iconoir", "name": "nav-arrow-down", "size": "sm", "slot": "suffix"}}]},
                         {"tagName": "sonic-menu", "attributes": {"slot": "content", "style": "display:flex;flex-direction:column;gap:0;padding:6px;width:226px"}, "nodes": [item(*m) for m in MODES]}]}]},
                 {"tagName": "div", "attributes": {"class": "form-item-container"}, "nodes": [
                     {"tagName": "label", "attributes": {"style": "display:flex;align-items:center;gap:8px;cursor:pointer"}, "nodes": [
-                        {"tagName": "sonic-checkbox", "attributes": {"formDataProvider": "rendu", "name": "live", "size": "sm", "unique": "", "value": "oui"}},
+                        {"tagName": "sonic-checkbox", "attributes": {"formDataProvider": "fxVue", "name": "renderLive", "size": "sm", "unique": "", "value": "oui"}},
                         {"tagName": "span", "attributes": {"style": "font-size:13px"}, "textContent": "Image nette pendant le geste"}]},
                     {"tagName": "span", "attributes": {"style": "display:block;font-size:11px;opacity:.6;margin-top:4px"}, "textContent": "Avec la carte graphique : la vue se précise pendant le zoom. Plus gourmand."}]},
                 {"tagName": "div", "attributes": {"class": "form-item-container"}, "nodes": [
@@ -59,10 +59,11 @@ prefs = sk["attributes"]["prefs-from"]
 assert at("/views/0/root/nodes/0/nodes/12/nodes/0/nodes/2/nodes/4")["attributes"]["label"] == "Plein écran"
 assert at("/views/0/root/nodes/0/nodes/13/nodes/0/nodes/0/nodes/5")["attributes"]["id"] == "pleinEcranM"
 ops = [
-    {"op": "add", "path": "/data/stores/rendu", "value": {"budgetMs": 30, "initial": {"mode": "auto", "modeLib": "Automatique", "live": "non"},
-        "reducer": "$action.type = 'set' ? $merge([$state, $action.payload]) : $state"}},
-    {"op": "add", "path": SK + "/attributes/render-from", "value": "rendu"},
-    {"op": "replace", "path": SK + "/attributes/prefs-from", "value": prefs + " rendu"},
+    {"op": "add", "path": "/data/stores/fxVue/initial/renderMode", "value": "auto"},
+    {"op": "add", "path": "/data/stores/fxVue/initial/renderModeLib", "value": "Automatique"},
+    {"op": "add", "path": "/data/stores/fxVue/initial/renderLive", "value": "non"},
+    {"op": "add", "path": SK + "/attributes/render-from", "value": "fxVue"},
+    {"op": "replace", "path": SK + "/attributes/prefs-from", "value": prefs + " fxVue.renderMode,renderModeLib,renderLive"},
     # mobile d'abord (indices indépendants du bureau)
     {"op": "add", "path": "/views/0/root/nodes/0/nodes/13/nodes/0/nodes/0/nodes/5", "value": pop("bottom-end")},
     {"op": "add", "path": "/views/0/root/nodes/0/nodes/12/nodes/0/nodes/2/nodes/4", "value": pop("top-end")},
