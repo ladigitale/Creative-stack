@@ -134,6 +134,8 @@ const PROGRESSIVE_MIN = 400;
 const PROGRESSIVE_SLICE_MS = 10;
 /** Au-delà de ce nombre de traits visibles, la couche est rendue dans le worker (arrière-plan). */
 const WORKER_MIN = 150;
+/** Rendu par la carte graphique plus rapide que ça (ms) : la vue est aussi refaite pendant les gestes. */
+const LIVE_GL_MS = 150;
 
 @customElement("sonic-sketch")
 export class SonicSketch extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
@@ -309,6 +311,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** Sans cache de tuiles (la couche est redessinée entièrement à chaque vue). */
   /** Sans rendu en arrière-plan : la couche est redessinée sur le fil principal (par tranches si besoin). */
   @property({ type: Boolean, attribute: "no-worker" }) noWorker = false;
+  /** Sans carte graphique : le worker rend la couche en 2D (même image, plus lent). */
+  @property({ type: Boolean, attribute: "no-gpu" }) noGpu = false;
   /**
    * Export PNG (`savePng`) : `export-scale` multiplie la résolution (1 à 8 ; les traits sont redessinés nets à
    * cette taille, ce n'est pas un agrandissement) ; `export-area` = `view` (la vue courante, défaut) ou
@@ -760,6 +764,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** Demande au worker la couche de la vue courante (sans effet si la même demande est en cours). */
   private requestLayer(): void {
     const { w, h, dpr } = this.dims();
+    this.layerWorker.gl = !this.noGpu;
     if (!this.layerWorker.request(this.doc.strokes, this.view, w, h, dpr, this.backgroundColor())) { this.layerDirty = true; this.schedule(); }
   }
 
@@ -814,7 +819,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.layerView = r.view;
     this.layerDirty = false;
     this.lastLayerMs = r.ms;
+    this.lastLayerEngine = r.engine ?? "";
   }
+  /** Seuil du rendu pendant les gestes (ms, voir LIVE_GL_MS). */
+  liveGlMs = LIVE_GL_MS;
+  /** Moteur du dernier rendu par le worker (`gl` ou `2d`, mesures). */
+  lastLayerEngine = "";
   /** Durée du dernier rendu de couche par le worker (ms, mesures). */
   lastLayerMs = 0;
 
@@ -839,6 +849,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (!canvas || !ctx) return;
     const { w, h, dpr } = this.dims();
     this.applyReadyLayer();
+    // Vue en mouvement (pincement, glissé, molette), si la carte graphique rend vite : la vue courante est
+    // redemandée dès que la précédente est arrivée — l'image se précise pendant le geste, sans attendre sa fin.
+    if (!this.stroke && !this.layerWorker.wanted && this.lastLayerEngine === "gl" && this.lastLayerMs < this.liveGlMs && !sameView(this.layerView, this.view) && this.layerAsync()) this.requestLayer();
     // Couche à refaire : dans le worker quand le dessin est gros (l'ancienne reste affichée en attendant), sinon ici.
     if (this.layerDirty && !this.gestureActive() && !this.deferRender) {
       if (!this.layerAsync()) this.renderLayer();

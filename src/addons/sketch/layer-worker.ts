@@ -20,7 +20,7 @@ export class LayerWorker {
   private seq = 0;
   ok: boolean;
   /** Dernière demande (les réponses plus anciennes sont ignorées). */
-  wanted: { id: number; rev: number; len: number; view: View; w: number; h: number; dpr: number } | null = null;
+  wanted: { id: number; rev: number; len: number; view: View; w: number; h: number; dpr: number; gl: boolean } | null = null;
 
   constructor(private onReply: (r: LayerReply) => void, enabled = true) {
     this.ok = enabled && LayerWorker.supported();
@@ -58,16 +58,19 @@ export class LayerWorker {
   }
 
   /** Demande le rendu d'une vue (idempotent si la même demande est déjà en cours). */
+  /** Moteur de rendu demandé au worker : carte graphique si possible (défaut), ou 2D. */
+  gl = true;
+
   request(strokes: Stroke[], view: View, w: number, h: number, dpr: number, bg: string | null): boolean {
     if (!this.ok) return false;
     const { rev, len } = this.syncDoc(strokes);
     if (!this.ok) return false;
     const q = this.wanted;
-    if (q && q.rev === rev && q.len === len && q.w === w && q.h === h && q.dpr === dpr && sameView(q.view, view)) return true;
+    if (q && q.rev === rev && q.len === len && q.w === w && q.h === h && q.dpr === dpr && q.gl === this.gl && sameView(q.view, view)) return true;
     const id = ++this.seq;
-    this.wanted = { id, rev, len, view: { ...view }, w, h, dpr };
+    this.wanted = { id, rev, len, view: { ...view }, w, h, dpr, gl: this.gl };
     try {
-      this.worker!.postMessage({ type: "render", id, rev, len, view: { ...view }, w, h, dpr, bg } satisfies LayerMsg);
+      this.worker!.postMessage({ type: "render", id, rev, len, view: { ...view }, w, h, dpr, bg, gl: this.gl } satisfies LayerMsg);
     } catch {
       this.fail();
       return false;
@@ -117,7 +120,7 @@ export class LayerWorker {
     const q = this.wanted;
     this.ok = false;
     this.stop();
-    if (q) this.onReply({ ...q, error: "worker indisponible", ms: 0 });
+    if (q) { const { gl: _gl, ...r } = q; this.onReply({ ...r, error: "worker indisponible", ms: 0 }); }
     this.wanted = null;
   }
 

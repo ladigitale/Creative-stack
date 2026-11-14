@@ -199,29 +199,16 @@ export function strokeRect(s: Surface, st: Stroke): PxRect | null {
  * Gomme en empreintes : le tampon est ôté de ce qui est dessous, à hauteur de l'opacité.
  */
 export function drawStroke(s: Surface, st: Stroke): void {
-  const a = st.brush.opacity;
-  const blend = st.brush.blend;
-  if (st.flat || st.mask || (!st.erase && (!blend || blend === "normal") && a >= 0.999)) return paintStroke(s, st);
-  // Une seule empreinte (touche posée) : rien ne se chevauche dans le trait, elle se pose directement avec son
-  // opacité et son mode, sans tampon intermédiaire (même rendu, bien plus rapide pour des milliers de touches).
-  if (!st.erase && strokeStamps(st).length === 1) {
-    s.ctx.save();
-    s.ctx.globalCompositeOperation = compositeOf(blend);
-    paintStroke(s, st);
-    s.ctx.restore();
-    return;
-  }
-  // Trait minuscule à l'écran (dézoom) : pas de tampon. Ses empreintes se posent directement, avec l'opacité qui,
-  // cumulée sur leur recouvrement (≈ m empreintes par point), redonne l'opacité du trait. Invisible à cette taille,
-  // et c'est l'essentiel du coût d'un dézoom sur un dessin de milliers de traits.
-  const px = st.brush.size * s.view.zoom;
-  if (!st.erase && px < LOD_PX && !(st.brush.scatter > 0)) {
-    const m = Math.max(1, Math.max(px, MIN_STAMP_PX) / Math.max(0.5, (st.brush.spacing || 0.1) * px));
-    const per = 1 - Math.pow(1 - Math.min(0.999, a), 1 / m);
-    s.ctx.save();
-    s.ctx.globalCompositeOperation = compositeOf(blend);
-    paintStroke(s, { ...st, brush: { ...st.brush, opacity: per } });
-    s.ctx.restore();
+  const plan = strokePlan(st, s.view.zoom);
+  if (plan.kind === "flat" || plan.kind === "mask") return paintStroke(s, st);
+  if (plan.kind === "direct") {
+    // Trait opaque normal ; touche unique (rien ne se chevauche : posée directement avec son opacité et son mode,
+    // sans tampon) ; trait minuscule à l'écran (dézoom) : ses empreintes se posent directement, avec l'opacité
+    // qui, cumulée sur leur recouvrement, redonne celle du trait.
+    const k = plan.blend && plan.blend !== "normal";
+    if (k) { s.ctx.save(); s.ctx.globalCompositeOperation = compositeOf(plan.blend); }
+    paintStroke(s, plan.stampAlpha === st.brush.opacity ? st : { ...st, brush: { ...st.brush, opacity: plan.stampAlpha } });
+    if (k) s.ctx.restore();
     return;
   }
   // Tampon limité à la zone du trait (la vider et la poser coûte sa taille, pas celle de la toile).
@@ -231,8 +218,8 @@ export function drawStroke(s: Surface, st: Stroke): void {
   const buf = scratchFor(s, STROKE_SCRATCH, rect);
   if (!buf) return;
   paintStroke(buf, { ...st, brush: { ...st.brush, opacity: 1 } });
-  if (st.erase) punch(s, buf.ctx.canvas, a, rect);
-  else blitBlend(s, buf.ctx.canvas, blend, a, rect);
+  if (plan.erase) punch(s, buf.ctx.canvas, plan.alpha, rect);
+  else blitBlend(s, buf.ctx.canvas, plan.blend, plan.alpha, rect);
 }
 
 function paintStroke(s: Surface, st: Stroke): void {
@@ -241,10 +228,17 @@ function paintStroke(s: Surface, st: Stroke): void {
     return;
   }
   if (st.mask) return fillMulti(s, st.mask, maskColor(st.brush.opacity), "destination-out");
+  eachStamp(st, s.view.zoom, (p, k) => drawStamp(s, st.brush, p, k));
+}
+
+/**
+ * Empreintes d'un trait à poser au zoom donné, avec leur facteur d'opacité. Niveau de détail : quand les
+ * empreintes sont petites à l'écran, au plus une par demi-pixel le long du trait ; les empreintes sautées sont
+ * comptées dans l'opacité de la suivante (1 − (1 − a)^n), même densité à l'œil. (Partagé par le rendu 2D et le
+ * rendu WebGL.)
+ */
+export function eachStamp(st: Stroke, zoom: number, fn: (p: Stamp, k: number) => void): void {
   const stamps = strokeStamps(st);
-  const zoom = s.view.zoom;
-  // Niveau de détail : quand les empreintes sont petites à l'écran, au plus une par demi-pixel le long du trait.
-  // Les empreintes sautées sont comptées dans l'opacité de la suivante (1 − (1 − a)^n), même densité à l'œil.
   if (stamps.length > 2 && st.brush.size * zoom < LOD_PX && !(st.brush.scatter > 0)) {
     const gap = 0.5 / zoom;
     let lx = stamps[0].x, ly = stamps[0].y, n = 0;
@@ -253,13 +247,41 @@ function paintStroke(s: Surface, st: Stroke): void {
       const p = stamps[i];
       n++;
       if (i > 0 && i < stamps.length - 1 && Math.hypot(p.x - lx, p.y - ly) < gap) continue;
-      const k = n > 1 ? (1 - (1 - a) ** n) / a : 1;
-      drawStamp(s, st.brush, p, k);
+      fn(p, n > 1 ? (1 - (1 - a) ** n) / a : 1);
       lx = p.x; ly = p.y; n = 0;
     }
     return;
   }
-  for (const stamp of stamps) drawStamp(s, st.brush, stamp);
+  for (const p of stamps) fn(p, 1);
+}
+
+/**
+ * Comment un trait se pose (même décision pour le rendu 2D et le rendu WebGL) :
+ * - `flat` / `mask` : aplats ou masque de gomme (formes) ;
+ * - `direct` : empreintes posées une à une, opacité `stampAlpha`, mode `blend` (trait opaque normal, touche
+ *   unique, ou trait minuscule à l'écran dont l'opacité est répartie sur ses empreintes) ;
+ * - `group` : empreintes réunies à pleine force dans un tampon, posé avec l'opacité du trait et son mode (ou
+ *   ôté, pour une gomme).
+ */
+export type StrokePlan =
+  | { kind: "flat" }
+  | { kind: "mask" }
+  | { kind: "direct"; stampAlpha: number; blend: string | undefined }
+  | { kind: "group"; alpha: number; blend: string | undefined; erase: boolean };
+
+export function strokePlan(st: Stroke, zoom: number): StrokePlan {
+  const a = st.brush.opacity;
+  const blend = st.brush.blend;
+  if (st.flat) return { kind: "flat" };
+  if (st.mask) return { kind: "mask" };
+  if (!st.erase && (!blend || blend === "normal") && a >= 0.999) return { kind: "direct", stampAlpha: a, blend: undefined };
+  if (!st.erase && strokeStamps(st).length === 1) return { kind: "direct", stampAlpha: a, blend };
+  const px = st.brush.size * zoom;
+  if (!st.erase && px < LOD_PX && !(st.brush.scatter > 0)) {
+    const m = Math.max(1, Math.max(px, MIN_STAMP_PX) / Math.max(0.5, (st.brush.spacing || 0.1) * px));
+    return { kind: "direct", stampAlpha: 1 - Math.pow(1 - Math.min(0.999, a), 1 / m), blend };
+  }
+  return { kind: "group", alpha: a, blend, erase: !!st.erase };
 }
 
 /** Diamètre à l'écran (px) sous lequel les empreintes d'un trait sont regroupées (niveau de détail). */
