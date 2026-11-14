@@ -10,9 +10,10 @@ MODES = [("auto", "Automatique", "Carte graphique si possible"),
 def item(mode, lib, hint):
     return {"tagName": "div", "attributes": {"style": "position:relative"}, "nodes": [
         {"tagName": "sonic-action", "attributes": {"payload": json.dumps({"renderMode": mode, "renderModeLib": lib}, ensure_ascii=False), "target": "fxVue", "trigger": "click", "type": "gset"}, "nodes": [
-            {"tagName": "sonic-menu-item", "attributes": {"size": "sm", "style": "width:100%;justify-content:flex-start;padding-left:14px;flex-direction:column;align-items:flex-start;gap:0", "variant": "ghost"}, "nodes": [
-                {"tagName": "span", "textContent": lib},
-                {"tagName": "span", "attributes": {"style": "font-size:11px;opacity:.6;white-space:normal;text-align:left"}, "textContent": hint}]}]},
+            {"tagName": "sonic-menu-item", "attributes": {"size": "sm", "style": "width:100%;justify-content:flex-start;padding-left:14px;height:auto;padding-top:5px;padding-bottom:5px", "variant": "ghost"}, "nodes": [
+                {"tagName": "div", "attributes": {"style": "display:flex;flex-direction:column;align-items:flex-start;text-align:left;line-height:1.25"}, "nodes": [
+                    {"tagName": "span", "textContent": lib},
+                    {"tagName": "span", "attributes": {"style": "font-size:11px;opacity:.6;white-space:normal"}, "textContent": hint}]}]}]},
         {"tagName": "sonic-if", "attributes": {"dataProvider": "fxVue", "key": "renderMode", "equals": mode}, "nodes": [{"tagName": "div", "attributes": {"style": BAR}}]}]}
 
 def engine(eq, txt):
