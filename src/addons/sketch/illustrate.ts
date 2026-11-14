@@ -384,9 +384,9 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
   {
     // Imprimature en aplats : des tuiles carrées jointives (pointe carrée, une empreinte), chacune de la couleur
     // moyenne de l'image sous elle. Bords du cadre nets, et des bords déjà dans le bon ton.
-    const nx = Math.max(1, Math.round(w / (Math.min(w, h) / 6))), ny = Math.max(1, Math.round(h / (Math.min(w, h) / 6)));
+    const nx = Math.max(1, Math.round(w / (Math.min(w, h) / 12))), ny = Math.max(1, Math.round(h / (Math.min(w, h) / 12)));
     const tw = w / nx, th = h / ny;
-    const soft0 = blurImg(im, Math.min(tw, th) * 0.6);
+    const soft0 = blurImg(im, Math.min(tw, th) * 0.35);
     // Les réglages communs vont avec le premier trait.
     const common = { reset: true, tool: "paint", pressure: true, angle: 0, angleFollow: false, tremble: 0 };
     for (let j = 0; j < ny; j++) for (let k = 0; k < nx; k++) {
@@ -422,7 +422,7 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
       // Petites touches : réservées aux endroits nets (une petite touche dans un flou se verrait en tache).
       const fineK = !grid && R < side / 45;
       const need = mode === "normal"
-        ? (i: number) => Math.hypot(ref.r[i] - cr[i], ref.g[i] - cg[i], ref.b[i] - cb[i]) * (fineK ? 0.3 + 0.7 * Math.min(1, sharp[i] * 1.5) : 1) * (grid ? 1 : focal[i])
+        ? (i: number) => Math.hypot(ref.r[i] - cr[i], ref.g[i] - cg[i], ref.b[i] - cb[i]) * (fineK ? 0.3 + 0.7 * Math.min(1, sharp[i] * 1.5) : 1) * (fineK ? focal[i] : 1)
         : (i: number) => {
           const t = lum(ref.r[i], ref.g[i], ref.b[i]), c = lum(cr[i], cg[i], cb[i]);
           return mode === "multiply" ? c - t : t - c;
@@ -450,12 +450,12 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
         const color: [number, number, number] = [ch(ref.r[i], cr[i]), ch(ref.g[i], cg[i]), ch(ref.b[i], cb[i])];
         // Matière fine et orientée (herbe, poils, laine, fibres) : une touche filée le long du fil couvre ce que
         // dix touches posées rendraient mal ; elle s'arrête quand la couleur change.
-        if (!grid && mode === "normal" && R <= side / 140 && coh > 0.45 && sh > 0.3) {
+        if (!grid && mode === "normal" && R <= side / 200 && coh > 0.55 && sh > 0.3) {
           const c0 = color;
-          const pts = trace(x, y, R, 9, field, (j) => Math.hypot(ref.r[j] - c0[0], ref.g[j] - c0[1], ref.b[j] - c0[2]) < 0.09);
+          const pts = trace(x, y, R, 6, field, (j) => Math.hypot(ref.r[j] - c0[0], ref.g[j] - c0[1], ref.b[j] - c0[2]) < 0.06);
           if (pts.length >= 9) {
             stroke(pts, R, avgAlong(pts, (j) => [ref.r[j], ref.g[j], ref.b[j]]), {
-              size: 2 * R, hardness: Math.round((0.3 + 0.6 * Math.min(1, sh * 1.3)) * 100) / 100, opacity: Math.min(1, alpha + 0.15), blend: "normal", spacing: 0.25,
+              size: 2 * R, hardness: Math.round((0.2 + 0.4 * Math.min(1, sh * 1.3)) * 100) / 100, opacity: alpha, blend: "normal", spacing: 0.25,
             }, {}, 0);
             n++;
             continue;
