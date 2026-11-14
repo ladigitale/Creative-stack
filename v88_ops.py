@@ -24,11 +24,7 @@ def panel():
             {"tagName": "sonic-form-layout", "nodes": [
                 {"tagName": "div", "attributes": {"class": "form-item-container"}, "nodes": [
                     {"tagName": "span", "attributes": {"style": LABEL}, "textContent": "Moteur"},
-                    {"tagName": "sonic-pop", "attributes": {"placement": "bottom-start", "style": "display:block"}, "nodes": [
-                        {"tagName": "sonic-button", "attributes": {"aria-label": "Moteur de rendu", "style": "width:100%", "align": "left", "shape": "block"}, "nodes": [
-                            {"tagName": "sonic-value", "attributes": {"dataProvider": "fxVue", "key": "renderModeLib", "style": "white-space:nowrap"}},
-                            {"tagName": "sonic-icon", "attributes": {"library": "iconoir", "name": "nav-arrow-down", "size": "sm", "slot": "suffix"}}]},
-                        {"tagName": "sonic-menu", "attributes": {"slot": "content", "style": "display:flex;flex-direction:column;gap:0;padding:6px;width:226px"}, "nodes": [item(*m) for m in MODES]}]}]},
+                    {"tagName": "sonic-menu", "attributes": {"aria-label": "Moteur de rendu", "style": "display:flex;flex-direction:column;gap:0;padding:0;margin:0 -6px"}, "nodes": [item(*m) for m in MODES]}]},
                 {"tagName": "div", "attributes": {"class": "form-item-container"}, "nodes": [
                     {"tagName": "label", "attributes": {"style": "display:flex;align-items:center;gap:8px;cursor:pointer"}, "nodes": [
                         {"tagName": "sonic-checkbox", "attributes": {"formDataProvider": "fxVue", "name": "renderLive", "size": "sm", "unique": "", "value": "oui"}},
