@@ -216,6 +216,16 @@
         },
         "no-gpu": {
           "type": "boolean"
+        },
+        "render-mode": {
+          "type": "string",
+          "enum": ["auto", "gpu", "cpu", "direct"]
+        },
+        "live-render": {
+          "type": "boolean"
+        },
+        "render-from": {
+          "type": "string"
         }
       }
     },

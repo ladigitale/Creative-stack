@@ -3,12 +3,16 @@
  * - empreintes en quads instanciés : disque doux calculé dans le shader (dureté, bord lissé sur au moins
  *   ~0,75 px), pointe personnalisée tirée d'une texture (chemin rastérisé une fois, mipmaps), aplatissement,
  *   rotation ; même niveau de détail au dézoom (`eachStamp`) et même décision par trait (`strokePlan`) ;
- * - trait translucide ou en fusion : empreintes réunies dans un tampon (limité à la zone du trait), posé avec
- *   l'opacité du trait et son mode ; modes de fusion du canvas calculés dans un shader (formules W3C
- *   Compositing, couleurs prémultipliées), gomme en `destination-out` ;
+ * - trait translucide ou en fusion : empreintes réunies dans un tampon, posé avec l'opacité du trait et son
+ *   mode ; modes de fusion du canvas calculés dans un shader (formules W3C Compositing, couleurs
+ *   prémultipliées), gomme en `destination-out` ;
  * - aplats et masques : polygones remplis en pair-impair au stencil ;
- * - cibles multiéchantillonnées (MSAA) : bords de formes lissés sans liseré entre régions voisines.
- * Les empreintes posées directement d'une suite de traits partent en un seul appel de dessin.
+ * - multiéchantillonnage (MSAA) seulement quand il y a des formes à lisser.
+ * Coût sur téléphone : ce qui pèse n'est pas le nombre d'empreintes mais les changements de cible (une puce
+ * mobile recharge et réécrit tout l'écran à chacun). Les traits en tampon sont donc posés par lots : tant que
+ * les traits qui se suivent ont le même mode et ne se chevauchent pas, ils partagent le tampon (chacun mis à
+ * son opacité dans sa zone) et sont posés en un seul passage. Les empreintes posées directement d'une suite de
+ * traits partent en un seul appel de dessin.
  */
 import { intersects, type Multi } from "../vector/geometry";
 import { clipToView } from "../vector/cull";
@@ -63,10 +67,6 @@ void main() {
   o = vec4(color.rgb * a, a);
 }`;
 
-const QUAD_VS = `#version 300 es
-layout(location=0) in vec2 corner;
-void main() { gl_Position = vec4(corner * 4.0 - 1.0, 0.0, 1.0); }`;
-
 const FILL_VS = `#version 300 es
 layout(location=0) in vec2 p;
 uniform vec2 size;
@@ -76,6 +76,18 @@ const FILL_FS = `#version 300 es
 precision highp float;
 uniform vec4 color; out vec4 o;
 void main() { o = color; }`;
+
+/** Mise à l'échelle d'une zone du tampon (opacité d'un trait du lot) : fusion ZERO, SRC_ALPHA. */
+const SCALE_VS = `#version 300 es
+layout(location=0) in vec2 p;
+layout(location=1) in float a;
+uniform vec2 size;
+out float va;
+void main() { va = a; gl_Position = vec4(p.x / size.x * 2.0 - 1.0, 1.0 - p.y / size.y * 2.0, 0.0, 1.0); }`;
+const SCALE_FS = `#version 300 es
+precision highp float;
+in float va; out vec4 o;
+void main() { o = vec4(0.0, 0.0, 0.0, va); }`;
 
 /** Tampon posé tel quel (fusion par le pipeline : normal, ou destination-out pour la gomme). */
 const COPY_FS = `#version 300 es
@@ -135,8 +147,16 @@ void main() {
   o = vec4(c, as_ + ab * (1.0 - as_));
 }`;
 
-type Target = { ms: WebGLRenderbuffer; depth: WebGLRenderbuffer; fb: WebGLFramebuffer; tex: WebGLTexture; texFb: WebGLFramebuffer };
+type Target = { fb: WebGLFramebuffer; tex: WebGLTexture; texFb: WebGLFramebuffer; rbs: WebGLRenderbuffer[]; own: WebGLFramebuffer[] };
 type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> };
+type Rect = [number, number, number, number];
+
+/** Lot d'empreintes à poser (une pointe par lot). */
+class Stamps {
+  arr = new Float32Array(FLOATS * 4096);
+  n = 0;
+  tip: string | null = null;
+}
 
 /** Couleurs CSS → RGBA 0..1 (normalisées par un contexte 2D, comme le rendu canvas). */
 const colorCache = new Map<string, RGBA>();
@@ -166,22 +186,35 @@ export function parseColor(c: string): RGBA {
 }
 
 const BLEND_INDEX = new Map<string, number>(BLEND_MODES.map((m, i) => [m, i]));
+/** Clé de lot de la gomme (les modes de fusion vont de 0 à 15). */
+const ERASE = -1;
+/** Taille maximale d'un lot (le test de chevauchement est linéaire). */
+const BATCH_MAX = 384;
+
+const overlaps = (z: Rect, list: number[]): boolean => {
+  for (let i = 0; i < list.length; i += 4) {
+    if (z[0] < list[i] + list[i + 2] && list[i] < z[0] + z[2] && z[1] < list[i + 1] + list[i + 3] && list[i + 1] < z[1] + z[3]) return true;
+  }
+  return false;
+};
+
+/** Compteurs du dernier rendu (mesures). */
+export type GLStats = { strokes: number; batches: number; switches: number; draws: number; msaa: boolean };
 
 export class GLRenderer {
   private gl: WebGL2RenderingContext;
   private stampProg: Prog;
   private fillProg: Prog;
+  private scaleProg: Prog;
   private copyProg: Prog;
   private blendProg: Prog;
   private quadBuf: WebGLBuffer;
-  private quadVao: WebGLVertexArrayObject;
   private stampVao: WebGLVertexArrayObject;
   private instBuf: WebGLBuffer;
   private fillVao: WebGLVertexArrayObject;
   private fillBuf: WebGLBuffer;
-  private inst = new Float32Array(FLOATS * 4096);
-  private n = 0;
-  private batchTip: string | null = null;
+  private scaleVao: WebGLVertexArrayObject;
+  private scaleBuf: WebGLBuffer;
   private tips = new Map<string, WebGLTexture>();
   private main: Target | null = null;
   private scratch: Target | null = null;
@@ -189,12 +222,22 @@ export class GLRenderer {
   private W = 0;
   private H = 0;
   private samples = 4;
+  private msaa = false;
+  private bound: WebGLFramebuffer | null | undefined = undefined;
+  /** Empreintes à poser sur la toile, et dans le tampon du lot. */
+  private toMain = new Stamps();
+  private toScratch = new Stamps();
+  /** Lot ouvert : mode, zones des traits (x, y, l, h en px de la toile, origine en haut), opacités. */
+  private batch: { key: number; zones: number[]; scales: number[]; box: Rect } | null = null;
+  /** Zones des traits posés directement pendant que le lot est ouvert (ils ne le chevauchent pas). */
+  private beside: number[] = [];
+  stats: GLStats = { strokes: 0, batches: 0, switches: 0, draws: 0, msaa: false };
   lost = false;
 
   /** Moteur sur une toile (OffscreenCanvas dans un worker), ou `null` sans WebGL2. */
   static create(canvas: Canvas): GLRenderer | null {
     try {
-      const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false }) as WebGL2RenderingContext | null;
+      const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false, powerPreference: "high-performance" }) as WebGL2RenderingContext | null;
       return gl ? new GLRenderer(gl, canvas) : null;
     } catch {
       return null;
@@ -207,19 +250,12 @@ export class GLRenderer {
     this.samples = Math.max(1, Math.min(4, gl.getParameter(gl.MAX_SAMPLES) as number));
     this.stampProg = this.prog(STAMP_VS, STAMP_FS, ["size", "tip", "useTip"]);
     this.fillProg = this.prog(FILL_VS, FILL_FS, ["size", "color"]);
-    this.copyProg = this.prog(QUAD_VS, COPY_FS, ["src", "size", "alpha"]);
-    this.blendProg = this.prog(QUAD_VS, BLEND_FS, ["src", "dst", "size", "alpha", "mode"]);
-    // Coin de quad (empreintes, -0,5..0,5) et triangle couvrant (composition, 0..1 → tout l'écran).
+    this.scaleProg = this.prog(SCALE_VS, SCALE_FS, ["size"]);
+    this.copyProg = this.prog(FILL_VS, COPY_FS, ["src", "size", "alpha"]);
+    this.blendProg = this.prog(FILL_VS, BLEND_FS, ["src", "dst", "size", "alpha", "mode"]);
     this.quadBuf = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5]), gl.STATIC_DRAW);
-    this.quadVao = gl.createVertexArray()!;
-    gl.bindVertexArray(this.quadVao);
-    const tri = gl.createBuffer()!;
-    gl.bindBuffer(gl.ARRAY_BUFFER, tri);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1]), gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     this.stampVao = gl.createVertexArray()!;
     gl.bindVertexArray(this.stampVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
@@ -243,6 +279,14 @@ export class GLRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.fillBuf);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    this.scaleVao = gl.createVertexArray()!;
+    gl.bindVertexArray(this.scaleVao);
+    this.scaleBuf = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.scaleBuf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 12, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 12, 8);
     gl.bindVertexArray(null);
   }
 
@@ -265,51 +309,82 @@ export class GLRenderer {
     return { p, u };
   }
 
-  /** Cible : tampon multiéchantillonné (couleur + stencil) et sa texture résolue. */
-  private target(w: number, h: number, msaa: boolean): Target {
+  private texture(w: number, h: number): WebGLTexture {
     const gl = this.gl;
-    const ms = gl.createRenderbuffer()!;
-    gl.bindRenderbuffer(gl.RENDERBUFFER, ms);
-    if (msaa) gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.samples, gl.RGBA8, w, h);
-    else gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, w, h);
-    const depth = gl.createRenderbuffer()!;
-    gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
-    if (msaa) gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.samples, gl.DEPTH24_STENCIL8, w, h);
-    else gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, w, h);
-    const fb = gl.createFramebuffer()!;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, ms);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, depth);
     const tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
     for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    return tex;
+  }
+
+  /**
+   * Cible de dessin (couleur + stencil) et sa texture : en MSAA, tampon multiéchantillonné résolu dans la
+   * texture ; sinon, la texture est la cible même (`texFb` = `fb`). `stencil` faux : texture seule (copie).
+   */
+  private target(w: number, h: number, msaa: boolean, stencil = true): Target {
+    const gl = this.gl;
+    const tex = this.texture(w, h);
     const texFb = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, texFb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    return { ms, depth, fb, tex, texFb };
+    const rbs: WebGLRenderbuffer[] = [];
+    const rb = (fmt: number) => {
+      const r = gl.createRenderbuffer()!;
+      gl.bindRenderbuffer(gl.RENDERBUFFER, r);
+      if (msaa) gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.samples, fmt, w, h);
+      else gl.renderbufferStorage(gl.RENDERBUFFER, fmt, w, h);
+      rbs.push(r);
+      return r;
+    };
+    let fb = texFb;
+    if (msaa) {
+      fb = gl.createFramebuffer()!;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rb(gl.RGBA8));
+    }
+    if (stencil) gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, rb(gl.DEPTH24_STENCIL8));
+    this.bound = undefined;
+    return { fb, tex, texFb, rbs, own: fb === texFb ? [fb] : [fb, texFb] };
   }
 
   private freeTarget(t: Target | null): void {
     if (!t) return;
     const gl = this.gl;
-    gl.deleteRenderbuffer(t.ms);
-    gl.deleteRenderbuffer(t.depth);
-    gl.deleteFramebuffer(t.fb);
+    for (const r of t.rbs) gl.deleteRenderbuffer(r);
+    for (const f of t.own) gl.deleteFramebuffer(f);
     gl.deleteTexture(t.tex);
-    gl.deleteFramebuffer(t.texFb);
   }
 
-  private resize(W: number, H: number): void {
-    if (this.W === W && this.H === H && this.main) return;
+  private resize(W: number, H: number, msaa: boolean): void {
+    if (this.W === W && this.H === H && this.msaa === msaa && this.main) return;
     this.freeTarget(this.main);
     this.freeTarget(this.scratch);
     this.freeTarget(this.dstCopy);
     this.W = W;
     this.H = H;
-    this.main = this.target(W, H, true);
-    this.scratch = this.target(W, H, true);
-    this.dstCopy = null;
+    this.msaa = msaa;
+    this.main = this.target(W, H, msaa);
+    this.scratch = this.target(W, H, msaa);
+    this.dstCopy = msaa ? null : this.target(W, H, false, false);
+  }
+
+  private bind(fb: WebGLFramebuffer | null): void {
+    if (this.bound === fb) return;
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, fb);
+    this.bound = fb;
+    this.stats.switches++;
+  }
+
+  /** Copie (ou résolution MSAA) d'un rectangle de la toile (px, origine en haut) d'une cible vers une autre. */
+  private blit(from: WebGLFramebuffer, to: WebGLFramebuffer | null, r: Rect): void {
+    const gl = this.gl;
+    const x = r[0], y = this.H - r[1] - r[3], X = x + r[2], Y = y + r[3];
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, from);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, to);
+    gl.blitFramebuffer(x, y, X, Y, x, y, X, Y, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    this.bound = undefined;
+    this.stats.switches++;
   }
 
   /** Texture d'une pointe : chemin rastérisé (blanc sur transparent), plus long côté = la texture. */
@@ -349,12 +424,12 @@ export class GLRenderer {
   private h = 0;
   private dpr = 1;
 
-  /** Ajoute les empreintes d'un trait au lot (opacité `alpha` × facteur de niveau de détail). */
-  private pushStamps(st: Stroke, alpha: number, color: RGBA): void {
+  /** Ajoute les empreintes d'un trait à un lot (opacité `alpha` × facteur de niveau de détail). */
+  private pushStamps(list: Stamps, st: Stroke, alpha: number, color: RGBA): void {
     const { view, w, h, dpr } = this;
     const b = st.brush;
     const tip = b.tip && tipGeometry(b.tip) ? b.tip : null;
-    if (tip !== this.batchTip) { this.flushStamps(); this.batchTip = tip; }
+    if (tip !== list.tip) { this.drawStamps(list); list.tip = tip; }
     const hard = Math.min(0.999, Math.max(0, b.hardness));
     const vr = view.rotation || 0;
     eachStamp(st, view.zoom, (st0, k) => {
@@ -372,35 +447,37 @@ export class GLRenderer {
         P = 1.5;
         hd = -1;
       }
-      if (this.n * FLOATS + FLOATS > this.inst.length) {
-        if (this.inst.length < FLOATS * 262144) { const g = new Float32Array(this.inst.length * 2); g.set(this.inst); this.inst = g; }
-        else this.flushStamps();
+      if (list.n * FLOATS + FLOATS > list.arr.length) {
+        if (list.arr.length < FLOATS * 262144) { const g = new Float32Array(list.arr.length * 2); g.set(list.arr); list.arr = g; }
+        else this.drawStamps(list);
       }
-      const o = this.n++ * FLOATS, I = this.inst;
+      const o = list.n++ * FLOATS, I = list.arr;
       I[o] = sx * dpr; I[o + 1] = sy * dpr; I[o + 2] = P; I[o + 3] = st0.rot + vr;
       I[o + 4] = st0.squash; I[o + 5] = hd;
       I[o + 6] = color[0]; I[o + 7] = color[1]; I[o + 8] = color[2]; I[o + 9] = a;
     });
   }
 
-  /** Dessine le lot d'empreintes sur la cible liée (source-over prémultiplié). */
-  private flushStamps(): void {
-    if (!this.n) return;
+  /** Dessine un lot d'empreintes sur sa cible (toile ou tampon), source-over prémultiplié. */
+  private drawStamps(list: Stamps): void {
+    if (!list.n) return;
     const gl = this.gl;
+    this.bind(list === this.toMain ? this.main!.fb : this.scratch!.fb);
     gl.useProgram(this.stampProg.p);
     gl.uniform2f(this.stampProg.u.size, this.W, this.H);
-    const tex = this.batchTip ? this.tipTexture(this.batchTip) : null;
+    const tex = list.tip ? this.tipTexture(list.tip) : null;
     gl.uniform1i(this.stampProg.u.useTip, tex ? 1 : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.uniform1i(this.stampProg.u.tip, 0);
     gl.bindVertexArray(this.stampVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, this.inst.subarray(0, this.n * FLOATS), gl.STREAM_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, list.arr.subarray(0, list.n * FLOATS), gl.STREAM_DRAW);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.n);
-    this.n = 0;
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, list.n);
+    this.stats.draws++;
+    list.n = 0;
   }
 
   /* ------------------------------------------------------------ formes */
@@ -414,17 +491,9 @@ export class GLRenderer {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const poly of m) for (const ring of poly) {
       if (ring.length < 3) continue;
-      const [ax, ay] = toScreen(view, ring[0][0], ring[0][1], w, h);
-      let [px, py] = toScreen(view, ring[1][0], ring[1][1], w, h);
-      for (let i = 2; i < ring.length; i++) {
-        const [qx, qy] = toScreen(view, ring[i][0], ring[i][1], w, h);
-        tris.push(ax * dpr, ay * dpr, px * dpr, py * dpr, qx * dpr, qy * dpr);
-        px = qx; py = qy;
-      }
-      for (const [x, y] of ring) {
-        const [sx, sy] = toScreen(view, x, y, w, h);
-        x0 = Math.min(x0, sx); y0 = Math.min(y0, sy); x1 = Math.max(x1, sx); y1 = Math.max(y1, sy);
-      }
+      const pts = ring.map(([x, y]) => toScreen(view, x, y, w, h));
+      for (const [sx, sy] of pts) { x0 = Math.min(x0, sx); y0 = Math.min(y0, sy); x1 = Math.max(x1, sx); y1 = Math.max(y1, sy); }
+      for (let i = 2; i < pts.length; i++) tris.push(pts[0][0] * dpr, pts[0][1] * dpr, pts[i - 1][0] * dpr, pts[i - 1][1] * dpr, pts[i][0] * dpr, pts[i][1] * dpr);
     }
     if (!tris.length) return;
     const gl = this.gl;
@@ -452,118 +521,119 @@ export class GLRenderer {
     else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.disable(gl.STENCIL_TEST);
+    this.stats.draws += 2;
   }
 
-  /* ------------------------------------------------------------ tampon de trait */
+  /* ------------------------------------------------------------ lots de traits en tampon */
 
-  /** Rectangle (pixels du framebuffer, origine en bas) d'un rectangle de la toile (origine en haut). */
-  private fbRect(r: [number, number, number, number]): [number, number, number, number] {
-    return [r[0], this.H - r[1] - r[3], r[2], r[3]];
-  }
-
-  /** Ouvre le tampon de trait sur la zone `r` (vidé). */
-  private beginGroup(r: [number, number, number, number]): void {
-    this.flushStamps();
-    const gl = this.gl;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.scratch!.fb);
-    gl.enable(gl.SCISSOR_TEST);
-    gl.scissor(...r);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-  }
-
-  /** Pose le tampon de trait sur la toile : opacité, mode de fusion, ou gomme. */
-  private endGroup(r: [number, number, number, number], alpha: number, blend: string | undefined, erase: boolean): void {
-    this.flushStamps();
-    const gl = this.gl;
-    const [x, y, w, h] = r;
-    const S = this.scratch!, M = this.main!;
-    // Résolution du tampon (MSAA → texture) sur la zone.
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, S.fb);
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, S.texFb);
-    gl.blitFramebuffer(x, y, x + w, y + h, x, y, x + w, y + h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-    const mode = BLEND_INDEX.get(blend || "normal") ?? 0;
-    if (!erase && mode !== 0) {
-      // Fusion : copie de ce qui est dessous (résolu), puis calcul de la fusion dans le shader.
-      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, M.fb);
-      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, M.texFb);
-      gl.blitFramebuffer(x, y, x + w, y + h, x, y, x + w, y + h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-    }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, M.fb);
-    gl.scissor(x, y, w, h);
-    gl.bindVertexArray(this.quadVao);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, S.tex);
-    if (!erase && mode !== 0) {
-      gl.useProgram(this.blendProg.p);
-      gl.uniform1i(this.blendProg.u.src, 0);
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, M.tex);
-      gl.uniform1i(this.blendProg.u.dst, 1);
-      gl.uniform2f(this.blendProg.u.size, this.W, this.H);
-      gl.uniform1f(this.blendProg.u.alpha, alpha);
-      gl.uniform1i(this.blendProg.u.mode, mode);
-      gl.disable(gl.BLEND);
-    } else {
-      gl.useProgram(this.copyProg.p);
-      gl.uniform1i(this.copyProg.u.src, 0);
-      gl.uniform2f(this.copyProg.u.size, this.W, this.H);
-      gl.uniform1f(this.copyProg.u.alpha, alpha);
-      gl.enable(gl.BLEND);
-      if (erase) gl.blendFunc(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
-      else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    }
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.disable(gl.SCISSOR_TEST);
-  }
-
-  /** Zone de la toile couverte par un trait (pixels du framebuffer), ou `null`. */
-  private zoneOf(st: Stroke): [number, number, number, number] | null {
-    const fake = { canvas: { width: this.W, height: this.H }, getTransform: () => ({ a: this.dpr, d: this.dpr, e: 0, f: 0 }) } as unknown as CanvasRenderingContext2D;
-    const r = strokeRect({ ctx: fake, w: this.w, h: this.h, view: this.view }, st);
-    return r ? this.fbRect(r) : null;
-  }
-
-  /* ------------------------------------------------------------ traits */
-
-  private drawOne(st: Stroke): void {
-    const plan = strokePlan(st, this.view.zoom);
-    const gl = this.gl;
-    if (plan.kind === "flat") {
-      for (const r of st.flat!) {
-        const col = parseColor(r.color);
-        if (!r.blend || r.blend === "normal") { this.flushStamps(); this.fillShape(r.shape, col, false); continue; }
-        const z = this.shapeZone(r.shape);
-        if (!z) continue;
-        this.beginGroup(z);
-        this.fillShape(r.shape, col, false);
-        this.endGroup(z, 1, r.blend, false);
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.main!.fb);
+  /** Triangles couvrant une liste de zones (px de la toile). */
+  private zoneTris(zones: number[], withAlpha?: number[]): Float32Array {
+    const n = zones.length / 4, k = withAlpha ? 3 : 2;
+    const out = new Float32Array(n * 6 * k);
+    for (let i = 0, o = 0; i < n; i++) {
+      const x = zones[i * 4], y = zones[i * 4 + 1], X = x + zones[i * 4 + 2], Y = y + zones[i * 4 + 3];
+      const a = withAlpha ? withAlpha[i] : 0;
+      for (const [px, py] of [[x, y], [X, y], [x, Y], [X, y], [X, Y], [x, Y]]) {
+        out[o++] = px; out[o++] = py;
+        if (withAlpha) out[o++] = a;
       }
-      return;
     }
-    if (plan.kind === "mask") {
-      this.flushStamps();
-      this.fillShape(st.mask!, parseColor(maskColor(st.brush.opacity)), true);
-      return;
-    }
-    const color = parseColor(st.brush.color);
-    if (plan.kind === "direct" && (!plan.blend || plan.blend === "normal")) return this.pushStamps(st, plan.stampAlpha, color);
-    const z = this.zoneOf(st);
-    if (!z) return;
-    this.beginGroup(z);
-    if (plan.kind === "direct") {
-      // Touche unique ou trait minuscule en fusion : empreintes à leur opacité, tampon posé à pleine force.
-      this.pushStamps(st, plan.stampAlpha, color);
-      this.endGroup(z, 1, plan.blend, false);
-    } else {
-      this.pushStamps(st, 1, color);
-      this.endGroup(z, plan.alpha, plan.blend, plan.erase);
-    }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.main!.fb);
+    return out;
   }
 
-  private shapeZone(shape: Multi): [number, number, number, number] | null {
+  /** Pose le lot ouvert sur la toile, puis les empreintes directes en attente. */
+  private flushAll(): void {
+    const b = this.batch;
+    if (b) {
+      this.batch = null;
+      this.beside = [];
+      const gl = this.gl;
+      this.drawStamps(this.toScratch);
+      // Opacité de chaque trait du lot, dans sa zone (les zones ne se chevauchent pas).
+      const sc = b.scales;
+      if (sc.length) {
+        const zones: number[] = [], al: number[] = [];
+        for (let i = 0; i < sc.length; i += 5) { zones.push(sc[i], sc[i + 1], sc[i + 2], sc[i + 3]); al.push(sc[i + 4]); }
+        this.bind(this.scratch!.fb);
+        gl.useProgram(this.scaleProg.p);
+        gl.uniform2f(this.scaleProg.u.size, this.W, this.H);
+        gl.bindVertexArray(this.scaleVao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.scaleBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, this.zoneTris(zones, al), gl.STREAM_DRAW);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ZERO, gl.SRC_ALPHA);
+        gl.drawArrays(gl.TRIANGLES, 0, (zones.length / 4) * 6);
+        this.stats.draws++;
+      }
+      const S = this.scratch!, M = this.main!;
+      if (this.msaa) this.blit(S.fb, S.texFb, b.box);
+      const blend = b.key > 0;
+      let dst: WebGLTexture | null = null;
+      if (blend) {
+        // Ce qui est dessous, pour le calcul de la fusion (copie, ou résolution MSAA).
+        const D = this.msaa ? M : this.dstCopy!;
+        this.blit(M.fb, D.texFb, b.box);
+        dst = D.tex;
+      }
+      this.bind(M.fb);
+      gl.bindVertexArray(this.fillVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.fillBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, this.zoneTris(b.zones), gl.STREAM_DRAW);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, S.tex);
+      if (blend) {
+        gl.useProgram(this.blendProg.p);
+        gl.uniform1i(this.blendProg.u.src, 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, dst);
+        gl.uniform1i(this.blendProg.u.dst, 1);
+        gl.uniform2f(this.blendProg.u.size, this.W, this.H);
+        gl.uniform1f(this.blendProg.u.alpha, 1);
+        gl.uniform1i(this.blendProg.u.mode, b.key);
+        gl.disable(gl.BLEND);
+      } else {
+        gl.useProgram(this.copyProg.p);
+        gl.uniform1i(this.copyProg.u.src, 0);
+        gl.uniform2f(this.copyProg.u.size, this.W, this.H);
+        gl.uniform1f(this.copyProg.u.alpha, 1);
+        gl.enable(gl.BLEND);
+        if (b.key === ERASE) gl.blendFunc(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
+        else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      }
+      gl.drawArrays(gl.TRIANGLES, 0, (b.zones.length / 4) * 6);
+      this.stats.draws++;
+    }
+    this.drawStamps(this.toMain);
+  }
+
+  /** Lot pour un trait en tampon (mode `key`, zone `z`) : rejoint le lot ouvert si possible, sinon en ouvre un. */
+  private joinBatch(key: number, z: Rect): void {
+    const b = this.batch;
+    if (b && (b.key !== key || b.zones.length >= BATCH_MAX * 4 || overlaps(z, b.zones) || overlaps(z, this.beside))) this.flushAll();
+    if (!this.batch) {
+      // Les empreintes directes déjà en attente passent avant le lot (elles peuvent être dessous).
+      this.drawStamps(this.toMain);
+      this.bind(this.scratch!.fb);
+      const gl = this.gl;
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+      this.batch = { key, zones: [], scales: [], box: [z[0], z[1], z[2], z[3]] };
+      this.stats.batches++;
+    }
+    const bb = this.batch!;
+    bb.zones.push(z[0], z[1], z[2], z[3]);
+    const x0 = Math.min(bb.box[0], z[0]), y0 = Math.min(bb.box[1], z[1]);
+    const x1 = Math.max(bb.box[0] + bb.box[2], z[0] + z[2]), y1 = Math.max(bb.box[1] + bb.box[3], z[1] + z[3]);
+    bb.box = [x0, y0, x1 - x0, y1 - y0];
+  }
+
+  /** Zone de la toile couverte par un trait (px de la toile, origine en haut), ou `null`. */
+  private zoneOf(st: Stroke): Rect | null {
+    const fake = { canvas: { width: this.W, height: this.H }, getTransform: () => ({ a: this.dpr, d: this.dpr, e: 0, f: 0 }) } as unknown as CanvasRenderingContext2D;
+    return strokeRect({ ctx: fake, w: this.w, h: this.h, view: this.view }, st) as Rect | null;
+  }
+
+  private shapeZone(shape: Multi): Rect | null {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const poly of shape) for (const ring of poly) for (const [x, y] of ring) {
       const [sx, sy] = toScreen(this.view, x, y, this.w, this.h);
@@ -572,8 +642,60 @@ export class GLRenderer {
     const d = this.dpr;
     const X0 = Math.max(0, Math.floor(x0 * d - 2)), Y0 = Math.max(0, Math.floor(y0 * d - 2));
     const X1 = Math.min(this.W, Math.ceil(x1 * d + 2)), Y1 = Math.min(this.H, Math.ceil(y1 * d + 2));
-    if (!(X1 > X0 && Y1 > Y0)) return null;
-    return this.fbRect([X0, Y0, X1 - X0, Y1 - Y0]);
+    return X1 > X0 && Y1 > Y0 ? [X0, Y0, X1 - X0, Y1 - Y0] : null;
+  }
+
+  /* ------------------------------------------------------------ traits */
+
+  private drawOne(st: Stroke): void {
+    this.stats.strokes++;
+    const plan = strokePlan(st, this.view.zoom);
+    if (plan.kind === "flat") {
+      for (const r of st.flat!) {
+        const col = parseColor(r.color);
+        if (!r.blend || r.blend === "normal") {
+          this.flushAll();
+          this.bind(this.main!.fb);
+          this.fillShape(r.shape, col, false);
+          continue;
+        }
+        const z = this.shapeZone(r.shape);
+        if (!z) continue;
+        this.joinBatch(BLEND_INDEX.get(r.blend) ?? 0, z);
+        this.drawStamps(this.toScratch);
+        this.bind(this.scratch!.fb);
+        this.fillShape(r.shape, col, false);
+      }
+      return;
+    }
+    if (plan.kind === "mask") {
+      this.flushAll();
+      this.bind(this.main!.fb);
+      this.fillShape(st.mask!, parseColor(maskColor(st.brush.opacity)), true);
+      return;
+    }
+    const color = parseColor(st.brush.color);
+    if (plan.kind === "direct" && (!plan.blend || plan.blend === "normal")) {
+      // Pendant un lot, un trait direct qui ne le chevauche pas est posé à part (l'ordre entre eux est libre).
+      if (this.batch) {
+        const z = this.zoneOf(st);
+        if (!z) return;
+        if (overlaps(z, this.batch.zones)) this.flushAll();
+        else this.beside.push(z[0], z[1], z[2], z[3]);
+      }
+      return this.pushStamps(this.toMain, st, plan.stampAlpha, color);
+    }
+    const z = this.zoneOf(st);
+    if (!z) return;
+    if (plan.kind === "direct") {
+      // Touche unique ou trait minuscule en fusion : empreintes à leur opacité, tampon posé à pleine force.
+      this.joinBatch(BLEND_INDEX.get(plan.blend || "normal") ?? 0, z);
+      this.pushStamps(this.toScratch, st, plan.stampAlpha, color);
+      return;
+    }
+    this.joinBatch(plan.erase ? ERASE : BLEND_INDEX.get(plan.blend || "normal") ?? 0, z);
+    this.pushStamps(this.toScratch, st, 1, color);
+    if (plan.alpha < 0.999) this.batch!.scales.push(z[0], z[1], z[2], z[3], plan.alpha);
   }
 
   /**
@@ -586,35 +708,39 @@ export class GLRenderer {
     const W = Math.max(1, Math.round(w * dpr)), H = Math.max(1, Math.round(h * dpr));
     const cv = gl.canvas as Canvas;
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-    this.resize(W, H);
+    const rect = visibleRect(view, w, h);
+    const visible = (st: Stroke) => intersects(st.bbox, rect) && Math.max(st.bbox.w, st.bbox.h) * view.zoom >= 0.4;
+    // Lissage MSAA seulement s'il y a des formes (aplats, masques) à l'écran : les empreintes sont lissées par le shader.
+    const msaa = strokes.some((st) => (st.flat || st.mask) && visible(st));
+    this.resize(W, H, msaa);
     this.view = view; this.w = w; this.h = h; this.dpr = dpr;
-    this.n = 0; this.batchTip = null;
+    this.toMain.n = 0; this.toMain.tip = null; this.toScratch.n = 0; this.toScratch.tip = null;
+    this.batch = null; this.beside = [];
+    this.stats = { strokes: 0, batches: 0, switches: 0, draws: 0, msaa };
     gl.viewport(0, 0, W, H);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.main!.fb);
+    this.bound = undefined;
+    this.bind(this.main!.fb);
     const c = bg ? parseColor(bg) : null;
     gl.clearColor(c ? c[0] * c[3] : 0, c ? c[1] * c[3] : 0, c ? c[2] * c[3] : 0, c ? c[3] : 0);
     gl.clearStencil(0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-    const rect = visibleRect(view, w, h);
     let t = performance.now();
     for (const st of strokes) {
-      if (!intersects(st.bbox, rect) || Math.max(st.bbox.w, st.bbox.h) * view.zoom < 0.4) continue;
+      if (!visible(st)) continue;
       this.drawOne(st);
       if (pause && performance.now() - t > 25) {
-        this.flushStamps();
         gl.flush();
         const go = await pause();
         if (!go || this.lost) return false;
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.main!.fb);
+        this.bound = undefined;
         t = performance.now();
       }
     }
-    this.flushStamps();
+    this.flushAll();
     // Résolution sur la toile.
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.main!.fb);
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-    gl.blitFramebuffer(0, 0, W, H, 0, 0, W, H, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    this.blit(this.main!.fb, null, [0, 0, W, H]);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.bound = undefined;
     return !this.lost && !gl.isContextLost();
   }
 }

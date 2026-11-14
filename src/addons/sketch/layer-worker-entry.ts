@@ -5,7 +5,7 @@
  * en cours (le rendu cède la main toutes les ~25 ms pour lire les messages).
  */
 import { drawStroke, type Surface } from "./render";
-import { GLRenderer } from "./gl-render";
+import { GLRenderer, type GLStats } from "./gl-render";
 import { intersects } from "../vector/geometry";
 import { visibleRect, type Stroke, type View } from "./model";
 
@@ -14,7 +14,7 @@ export type LayerMsg =
   | { type: "append"; rev: number; strokes: Stroke[] }
   | { type: "render"; id: number; rev: number; len: number; view: View; w: number; h: number; dpr: number; bg: string | null; gl?: boolean };
 
-export type LayerReply = { id: number; rev: number; len: number; view: View; w: number; h: number; dpr: number; bitmap?: ImageBitmap; error?: string; ms: number; engine?: "gl" | "2d" };
+export type LayerReply = { id: number; rev: number; len: number; view: View; w: number; h: number; dpr: number; bitmap?: ImageBitmap; error?: string; ms: number; engine?: "gl" | "2d"; stats?: GLStats };
 
 type Scope = { onmessage: ((e: MessageEvent<LayerMsg>) => void) | null; postMessage: (m: unknown, t?: Transferable[]) => void };
 const scope = self as unknown as Scope;
@@ -45,7 +45,7 @@ async function render(m: Extract<LayerMsg, { type: "render" }>): Promise<void> {
         if (latest !== m.id) return;
         if (done) {
           const bitmap = glCanvas!.transferToImageBitmap();
-          scope.postMessage({ ...base, bitmap, ms: performance.now() - t0, engine: "gl" }, [bitmap]);
+          scope.postMessage({ ...base, bitmap, ms: performance.now() - t0, engine: "gl", stats: glr.stats }, [bitmap]);
           return;
         }
         if (glr.lost) glr = false;
