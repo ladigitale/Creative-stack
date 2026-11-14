@@ -12,9 +12,9 @@ import {
   Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitCurvePoints, strokePath, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
   toScreen, toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type StrokeBrush, type View,
 } from "./model";
-import { blitBlend, clearDisc, drawStamp, drawStroke, drawStrokes, punch, scratchFor, type Surface } from "./render";
+import { blitBlend, clearDisc, compositeOf, drawStamp, drawStroke, drawStrokes, punch, scratchFor, type Surface } from "./render";
 import { intersects } from "../vector/geometry";
-import { TileCache } from "./tiles";
+import { LayerWorker, sameView, type LayerReply } from "./layer-worker";
 import { StrokeStamper } from "./stamps";
 import { parseSettingsRefs, readSettings, settingsKey, snapshotSettings, type SettingsRef, type SettingsSnapshot } from "./settings";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
@@ -132,6 +132,8 @@ export type SketchState = {
 const PROGRESSIVE_MIN = 400;
 /** Durée d'une tranche du rendu étalé (ms) : laisse respirer l'interface entre deux images. */
 const PROGRESSIVE_SLICE_MS = 10;
+/** Au-delà de ce nombre de traits visibles, la couche est rendue dans le worker (arrière-plan). */
+const WORKER_MIN = 150;
 
 @customElement("sonic-sketch")
 export class SonicSketch extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
@@ -305,7 +307,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    */
   @property({ type: Number }) simplify = 0.35;
   /** Sans cache de tuiles (la couche est redessinée entièrement à chaque vue). */
-  @property({ type: Boolean, attribute: "no-tiles" }) noTiles = false;
+  /** Sans rendu en arrière-plan : la couche est redessinée sur le fil principal (par tranches si besoin). */
+  @property({ type: Boolean, attribute: "no-worker" }) noWorker = false;
   /**
    * Export PNG (`savePng`) : `export-scale` multiplie la résolution (1 à 8 ; les traits sont redessinés nets à
    * cette taille, ce n'est pas un agrandissement) ; `export-area` = `view` (la vue courante, défaut) ou
@@ -499,6 +502,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     window.removeEventListener("keyup", this.onSpace);
     cancelAnimationFrame(this.raf);
     this.cancelProgressive();
+    this.layerWorker.dispose();
+    this.readyLayer?.bitmap?.close();
+    this.readyLayer = null;
     clearTimeout(this.settle);
     clearTimeout(this.editTimer);
     window.removeEventListener("pagehide", this.flushSave);
@@ -680,7 +686,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private prog: { canvas: HTMLCanvasElement; view: View; strokes: Stroke[]; i: number; raf: number } | null = null;
 
   private cancelProgressive(): void {
-    this.tileLive = false;
+    this.layerWorker.cancel();
     if (!this.prog) return;
     cancelAnimationFrame(this.prog.raf);
     this.prog = null;
@@ -688,8 +694,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   /** Redessine la couche pour la vue courante : d'un bloc si c'est rapide, sinon par tranches. */
   private renderLayerSoon(): void {
-    this.cancelProgressive();
-    if (this.tilesOn()) return this.renderTilesSoon();
+    if (this.prog) { cancelAnimationFrame(this.prog.raf); this.prog = null; }
+    if (this.layerAsync()) { this.requestLayer(); return; }
+    this.layerWorker.cancel();
     const strokes = this.pending?.strokes ?? this.doc.strokes;
     const { w, h, dpr } = this.dims();
     const view = { ...this.view };
@@ -728,40 +735,88 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     job.raf = requestAnimationFrame(step);
   }
 
+  /* ---------------------------------------------- rendu en arrière-plan (worker) */
+
+  /** Worker de rendu de la couche (`layer-worker.ts`). */
+  private layerWorker = new LayerWorker((r) => this.onLayerReply(r));
+  /** Couche rendue par le worker, posée dès qu'aucun trait n'est en cours. */
+  private readyLayer: LayerReply | null = null;
+  /** Ancienne couche gardée pour le prochain échange (pas de grande allocation à chaque rendu). */
+  private spareLayer: HTMLCanvasElement | null = null;
+
   /**
-   * Après un geste de vue : les tuiles qui manquent sont rendues par tranches de quelques ms, la vue étant
-   * composée à chaque image depuis le cache (tuiles voisines en attendant) ; à la fin, la couche est refaite
-   * depuis les tuiles (rapide) pour les traits à venir.
+   * La couche se rend dans le worker : worker disponible, pas d'aperçu de retouche ni de rejeu de gestes, et
+   * assez de traits visibles pour que ça vaille l'aller-retour (en deçà, le rendu direct est immédiat).
    */
-  private renderTilesSoon(): void {
-    const view = { ...this.view };
-    this.tiles.sync(this.doc.strokes, this.backgroundColor());
-    const job = { canvas: null as unknown as HTMLCanvasElement, view, strokes: [] as Stroke[], i: 0, raf: 0 };
-    this.prog = job;
-    const step = () => {
-      if (this.prog !== job) return;
-      const v = this.view;
-      if (this.gestureActive() || v.x !== view.x || v.y !== view.y || v.zoom !== view.zoom || v.rotation !== view.rotation) { this.prog = null; this.tileLive = false; return; }
-      const t0 = performance.now();
-      const { w, h, dpr } = this.dims();
-      // Rendu des tuiles manquantes (sans dessiner : toile jetable de 1 px).
-      const scratch = this.tileScratch ?? (this.tileScratch = document.createElement("canvas"));
-      const sctx = scratch.getContext("2d");
-      const missing = sctx ? this.tiles.draw(sctx, view, w, h, dpr, true, () => performance.now() - t0 < PROGRESSIVE_SLICE_MS) : 0;
-      if (missing > 0) {
-        this.tileLive = true;
-        this.compose();
-        job.raf = requestAnimationFrame(step);
-        return;
-      }
-      this.prog = null;
-      this.tileLive = false;
-      this.renderLayer();
-      this.compose();
-    };
-    job.raf = requestAnimationFrame(step);
+  private layerAsync(): boolean {
+    if (this.noWorker || !this.layerWorker.ok || this.pending || this.deferRender) return false;
+    const { w, h } = this.dims();
+    const rect = visibleRect(this.view, w, h);
+    let n = 0;
+    for (const st of this.doc.strokes) if (intersects(st.bbox, rect) && ++n > WORKER_MIN) return true;
+    return false;
   }
-  private tileScratch: HTMLCanvasElement | null = null;
+
+  /** Demande au worker la couche de la vue courante (sans effet si la même demande est en cours). */
+  private requestLayer(): void {
+    const { w, h, dpr } = this.dims();
+    if (!this.layerWorker.request(this.doc.strokes, this.view, w, h, dpr, this.backgroundColor())) { this.layerDirty = true; this.schedule(); }
+  }
+
+  private onLayerReply(r: LayerReply): void {
+    if (!r.bitmap) {
+      // Worker en panne (repli sur le fil principal) ou copie désynchronisée (renvoyée à la prochaine demande).
+      this.layerDirty = true;
+      this.schedule();
+      return;
+    }
+    this.readyLayer?.bitmap?.close();
+    this.readyLayer = r;
+    this.schedule();
+  }
+
+  /**
+   * Pose la couche venue du worker : son image, plus les traits ajoutés depuis la demande (peu nombreux). Une
+   * réponse dont le dessin a changé autrement (annulation, retouche) ou dont la taille ne va plus est jetée.
+   */
+  private applyReadyLayer(): void {
+    const r = this.readyLayer;
+    if (!r || this.stroke) return;
+    this.readyLayer = null;
+    const bitmap = r.bitmap!;
+    const { w, h, dpr } = this.dims();
+    const st = this.layerWorker.state(this.doc.strokes);
+    if (!st || st.rev !== r.rev || r.w !== w || r.h !== h || r.dpr !== dpr || this.pending || this.deferRender) {
+      bitmap.close();
+      this.layerDirty = true;
+      return;
+    }
+    const W = Math.round(w * dpr), H = Math.round(h * dpr);
+    let c = this.spareLayer;
+    if (!c || c.width !== W || c.height !== H) {
+      c = document.createElement("canvas");
+      c.width = W;
+      c.height = H;
+    }
+    const ctx = c.getContext("2d");
+    if (!ctx) { bitmap.close(); return; }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "copy";
+    ctx.drawImage(bitmap, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    bitmap.close();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const added = this.doc.strokes.slice(r.len);
+    if (added.length) drawStrokes({ ctx, w, h, view: r.view }, added, visibleRect(r.view, w, h));
+    this.spareLayer = this.layer && this.layer.width === W && this.layer.height === H ? this.layer : null;
+    this.layer = c;
+    this.layerView = r.view;
+    this.layerDirty = false;
+    this.lastLayerMs = r.ms;
+  }
+  /** Durée du dernier rendu de couche par le worker (ms, mesures). */
+  lastLayerMs = 0;
 
   /** Redessine entièrement la couche pour la vue courante. */
   private renderLayer(): void {
@@ -770,31 +825,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const s = this.layerSurface();
     if (!s) return;
     s.ctx.clearRect(0, 0, s.w, s.h);
-    // Par les tuiles en cache (rendues au besoin) quand c'est possible : seules les tuiles nouvelles coûtent.
-    if (this.tilesOn()) {
-      const { dpr } = this.dims();
-      this.tiles.sync(this.doc.strokes, this.backgroundColor());
-      s.ctx.save();
-      s.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      this.tiles.draw(s.ctx, this.layerView, s.w, s.h, dpr, true);
-      s.ctx.restore();
-      this.layerDirty = false;
-      return;
-    }
     // Le fond est aussi dans la couche : les modes de fusion le voient sous les traits.
     const bg = this.backgroundColor();
     if (bg) { s.ctx.fillStyle = bg; s.ctx.fillRect(0, 0, s.w, s.h); }
     drawStrokes(s, this.pending?.strokes ?? this.doc.strokes, visibleRect(this.layerView, s.w, s.h));
     this.layerDirty = false;
-  }
-
-  /** Cache de tuiles par niveau de zoom (`tiles.ts`). */
-  private tiles = new TileCache();
-  /** Vue composée directement depuis les tuiles (geste en cours, ou rendu étalé pas encore fini). */
-  private tileLive = false;
-  /** Tuiles utilisables : pas d'aperçu de retouche ni de rejeu de gestes en cours. */
-  private tilesOn(): boolean {
-    return !this.noTiles && !this.pending && !this.deferRender;
   }
 
   /** Fond + couche (transformée vers la vue courante pendant un geste) sur la toile visible. */
@@ -803,7 +838,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
     const { w, h, dpr } = this.dims();
-    if (this.layerDirty && !this.gestureActive() && !this.deferRender && !this.tileLive) this.renderLayer();
+    this.applyReadyLayer();
+    // Couche à refaire : dans le worker quand le dessin est gros (l'ancienne reste affichée en attendant), sinon ici.
+    if (this.layerDirty && !this.gestureActive() && !this.deferRender) {
+      if (!this.layerAsync()) this.renderLayer();
+      else if (!this.stroke) this.requestLayer();
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const bg = this.backgroundColor();
@@ -816,25 +856,6 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         ctx.fillStyle = pattern;
         ctx.fillRect(0, 0, w, h);
       }
-    }
-    // Geste de vue ou rendu étalé en cours : la vue vient des tuiles en cache (jamais de bord vide).
-    if ((this.tileLive || this.gestureActive()) && this.tilesOn() && this.tiles.size && !this.stroke) {
-      this.tiles.sync(this.doc.strokes, this.backgroundColor());
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      // Sous les tuiles : la couche actuelle transformée (ce qui n'a pas encore de tuile reste visible).
-      const t = multiply(viewMatrix(this.view, w, h), invert(viewMatrix(this.layerView, w, h)));
-      ctx.setTransform(dpr * t[0], dpr * t[1], dpr * t[2], dpr * t[3], dpr * t[4], dpr * t[5]);
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(this.ensureLayer(), 0, 0, w, h);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      this.tiles.draw(ctx, this.view, w, h, dpr, false);
-      ctx.restore();
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      this.seq++;
-      this.drawOverlay();
-      return;
     }
     let layer: HTMLCanvasElement = this.ensureLayer();
     // Gomme en cours : la couche est montrée trouée par le tracé de la gomme.
@@ -849,7 +870,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     ctx.drawImage(layer, 0, 0, w, h);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Trait en cours avec fusion : la vue n'a pas bougé depuis son début (sinon il est abandonné).
-    if (this.liveBuf && this.stroke && !this.erasing) blitBlend({ ctx, w, h, view: this.view }, this.liveBuf.ctx.canvas, this.stroke.brush.blend, this.liveAlpha);
+    // Trait en cours avec fusion : son tampon est dans l'espace de la couche, transformé comme elle.
+    if (this.liveBuf && this.stroke && !this.erasing) {
+      ctx.save();
+      ctx.transform(t[0], t[1], t[2], t[3], t[4], t[5]);
+      ctx.globalAlpha = Math.max(0, Math.min(1, this.liveAlpha));
+      ctx.globalCompositeOperation = compositeOf(this.stroke.brush.blend);
+      ctx.drawImage(this.liveBuf.ctx.canvas, 0, 0, w, h);
+      ctx.restore();
+    }
     this.seq++;
     this.drawOverlay();
   }
@@ -1151,7 +1180,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private startStroke(p: { x: number; y: number }, e: PointerEvent, erase = false): void {
     const lv = this.layerView, v = this.view;
-    if ((this.layerDirty && !this.deferRender) || lv.x !== v.x || lv.y !== v.y || lv.zoom !== v.zoom || lv.rotation !== v.rotation) this.renderLayer();
+    // Couche en retard sur la vue : rendue ici si c'est rapide ; sinon le trait se pose sur l'ancienne (montrée
+    // transformée) et la nouvelle, demandée au worker, arrive après le trait avec lui.
+    if ((this.layerDirty && !this.deferRender) || !sameView(lv, v)) {
+      this.applyReadyLayer();
+      if ((this.layerDirty && !this.deferRender) || !sameView(this.layerView, v)) {
+        if (this.layerAsync()) this.requestLayer();
+        else this.renderLayer();
+      }
+    }
     this.erasing = erase;
     // Gomme : disque net de la taille du pinceau, tracé dans un tampon qui troue l'aperçu.
     // Gomme : le pinceau courant (taille, forme, dureté, opacité…), en noir et sans fusion.

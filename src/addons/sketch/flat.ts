@@ -1,4 +1,5 @@
-import { boolean, multiBBox, offset, simplifyMulti, type BBox, type Multi, type Pt } from "../vector";
+import { boolean, offset, simplifyMulti } from "../vector/ops";
+import { multiBBox, type BBox, type Multi, type Pt } from "../vector/geometry";
 import type { BlendMode } from "../paint/brush";
 import { composite, quantize, sameColor, toCss, type Rgba } from "./flat-color";
 

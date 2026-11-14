@@ -1,4 +1,5 @@
-import { boolean, multiBBox, simplifyLine, simplifyMulti, type BBox, type Multi, type Pt, type Ring } from "../vector";
+import { boolean, simplifyLine, simplifyMulti } from "../vector/ops";
+import { multiBBox, type BBox, type Multi, type Pt, type Ring } from "../vector/geometry";
 import type { StrokeBrush } from "./model";
 
 /**

@@ -1,5 +1,6 @@
 import { BLEND_MODES, type BlendMode, type BrushSettings } from "../paint/brush";
-import { simplifyLine, type BBox, type Multi, type Pt } from "../vector";
+import { simplifyLine } from "../vector/ops";
+import type { BBox, Multi, Pt } from "../vector/geometry";
 import {
   clampZoomTo, fitBox, panView, sanitizeView2D, screenToWorld, transformAt, visibleBounds, worldToScreen, type View2D,
 } from "../../shared/view2d";
