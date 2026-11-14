@@ -11,3 +11,5 @@
 - `abysse-v87.ops.json` : patch v86 → v87 (entrée `focus`, point focal de la peinture réaliste). `mouton-gestes.json` repeint avec le point focal et l'ajustement des touches.
 - `lac-ref.png` : image de référence « lac de montagne à l'aube » (relief fractal en perspective, neige, brume, reflet dans le lac), rendue par `lac_ref.py`.
 - `lac-gestes.json` : le lac peint en style réaliste (5 000 touches), à rejouer par `gestesFichier`.
+- `arbre-ref.png` : image de référence « un arbre » (grand chêne seul dans un pré, lumière chaude d'été venue de la gauche, ombre portée), rendue par `arbre_ref.py`.
+- `arbre-gestes.json` : l'arbre peint en style réaliste (4 685 touches), à rejouer par `gestesFichier`.
