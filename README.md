@@ -13,3 +13,4 @@
 - `lac-gestes.json` : le lac peint en style réaliste (5 000 touches), à rejouer par `gestesFichier`.
 - `arbre-ref.png` : image de référence « un arbre » (grand chêne seul dans un pré, lumière chaude d'été venue de la gauche, ombre portée), rendue par `arbre_ref.py`.
 - `arbre-gestes.json` : l'arbre peint en style réaliste (4 685 touches), à rejouer par `gestesFichier`.
+- `grimpe-gestes.json` : une photo d'escalade (salle de bloc, compétition) peinte en style réaliste (5 000 touches), à rejouer par `gestesFichier` ; la photo elle-même n'est pas versionnée.
