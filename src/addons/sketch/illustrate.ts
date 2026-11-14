@@ -843,7 +843,14 @@ export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): 
         if ((cur.b.roundness ?? 1) < 1) tries.push({ ...cur, b: { ...cur.b, angle: (cur.b.angle ?? 0) + (rand() < 0.5 ? -18 : 18) } });
         else if (cur.b.blend === "normal" && sharp[at(cur.pts[0], cur.pts[1])] < 0.3) tries.push({ ...cur, b: { ...cur.b, hardness: Math.max(0, cur.b.hardness - 0.15) } });
         let best = cur, bestE = base.e, bestBox = cur.box;
+        // Une retouche ne fait pas déborder la touche du cadre.
+        const inFrame = (t: Rec) => {
+          const r = t.R * (0.2 + 0.8 * t.pts[2]);
+          return t.pts[0] - r >= -0.5 && t.pts[1] - r >= -0.5 && t.pts[0] + r <= w - 0.5 && t.pts[1] + r <= h - 0.5;
+        };
+        const curIn = inFrame(cur);
         for (const t of tries) {
+          if (curIn && !inFrame(t)) continue;
           const box = union(cur.box, t.box);
           const e0 = box === cur.box ? base.e : region(box, k, cur).e;
           const e1 = region(box, k, t).e;
