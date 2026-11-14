@@ -211,7 +211,7 @@
         "simulate-pressure": {
           "type": "boolean"
         },
-        "no-tiles": {
+        "no-worker": {
           "type": "boolean"
         }
       }

@@ -2,13 +2,20 @@ import { blendOp } from "../paint/brush";
 import { drawTip, tipGeometry } from "../paint/tip";
 import { intersects, type Multi } from "../vector/geometry";
 import { stampsOf, type Stamp } from "./stamps";
-import { clipToView } from "../vector";
+import { clipToView } from "../vector/cull";
 import { sanitizeBlend, strokePath, toScreen, visibleRect, type Stroke, type StrokeBrush, type View } from "./model";
 
 /** Surface de dessin : contexte en pixels logiques (la mise à l'échelle écran est déjà dans le contexte). */
 export type Surface = { ctx: CanvasRenderingContext2D; w: number; h: number; view: View };
 
-const dabCache = new Map<string, HTMLCanvasElement>();
+/** Toile hors écran : `<canvas>` dans la page, OffscreenCanvas dans un worker (rendu en arrière-plan). */
+type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
+function makeCanvas(): AnyCanvas {
+  return typeof document !== "undefined" ? document.createElement("canvas") : new OffscreenCanvas(1, 1);
+}
+const ctx2d = (c: AnyCanvas) => c.getContext("2d") as CanvasRenderingContext2D | null;
+
+const dabCache = new Map<string, AnyCanvas>();
 const pathCache = new Map<string, Path2D>();
 const stampCache = new WeakMap<Stroke, Stamp[]>();
 
@@ -23,15 +30,15 @@ function alpha0(g: CanvasRenderingContext2D, color: string): string {
 }
 
 /** Disque doux pré-dessiné à une résolution en puissance de deux (agrandi ou réduit à l'usage). */
-function dab(px: number, hardness: number, color: string): HTMLCanvasElement {
+function dab(px: number, hardness: number, color: string): AnyCanvas {
   const d = Math.max(8, Math.min(256, 2 ** Math.ceil(Math.log2(Math.max(2, px)))));
   const key = `${d}|${hardness.toFixed(2)}|${color}`;
   const hit = dabCache.get(key);
   if (hit) return hit;
   if (dabCache.size > 96) dabCache.clear();
-  const c = document.createElement("canvas");
+  const c = makeCanvas();
   c.width = c.height = d;
-  const g = c.getContext("2d");
+  const g = ctx2d(c);
   if (g) {
     const r = d / 2;
     const grad = g.createRadialGradient(r, r, 0, r, r, r);
@@ -100,7 +107,8 @@ export function compositeOf(blend: string | undefined): GlobalCompositeOperation
   return blendOp(sanitizeBlend(blend));
 }
 
-const scratchByCanvas = new WeakMap<object, HTMLCanvasElement>();
+const scratchByCanvas = new WeakMap<object, AnyCanvas>();
+const STROKE_SCRATCH = {};
 
 /** Tampon de même taille que la surface, vidé, avec la même transformation (empreintes d'un trait à fusionner). */
 /** Rectangle en pixels du canvas : x, y, largeur, hauteur. */
@@ -109,9 +117,9 @@ export type PxRect = [number, number, number, number];
 export function scratchFor(s: Surface, key: object = s.ctx.canvas, rect?: PxRect): Surface | null {
   const target = s.ctx.canvas;
   let c = scratchByCanvas.get(key);
-  if (!c) scratchByCanvas.set(key, (c = document.createElement("canvas")));
+  if (!c) scratchByCanvas.set(key, (c = makeCanvas()));
   if (c.width !== target.width || c.height !== target.height) { c.width = target.width; c.height = target.height; }
-  const ctx = c.getContext("2d");
+  const ctx = ctx2d(c);
   if (!ctx) return null;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   // Seule la zone du trait est vidée (puis posée) : le coût suit la taille du trait, pas celle de la toile.
@@ -219,7 +227,8 @@ export function drawStroke(s: Surface, st: Stroke): void {
   // Tampon limité à la zone du trait (la vider et la poser coûte sa taille, pas celle de la toile).
   const rect = strokeRect(s, st);
   if (!rect) return;
-  const buf = scratchFor(s, s.ctx.canvas, rect);
+  // Un seul tampon pour toutes les toiles de même taille (couche, couche de rechange, export…).
+  const buf = scratchFor(s, STROKE_SCRATCH, rect);
   if (!buf) return;
   paintStroke(buf, { ...st, brush: { ...st.brush, opacity: 1 } });
   if (st.erase) punch(s, buf.ctx.canvas, a, rect);
