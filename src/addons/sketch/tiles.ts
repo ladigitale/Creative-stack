@@ -25,7 +25,11 @@ const GUTTER = 2;
 /** Nombre de tuiles gardées (≈ 270 Ko chacune). */
 export const MAX_TILES = 144;
 
-export type Tile = { L: number; tx: number; ty: number; canvas: HTMLCanvasElement; rect: BBox };
+/** Tuile ; `todo` : traits qui restent à y peindre (rendu par tranches), vide quand elle est prête. */
+export type Tile = { L: number; tx: number; ty: number; canvas: HTMLCanvasElement; rect: BBox; todo: Stroke[]; next: number };
+
+/** Au-delà de ce nombre de traits ajoutés d'un coup, les tuiles touchées sont refaites (par tranches) plutôt que complétées sur-le-champ. */
+const APPEND_MAX = 48;
 
 /** Niveau de tuiles pour un zoom en px du canvas par unité du monde (le plus fin qui reste ≥ ce zoom). */
 export function tileLevel(zoomPx: number): number {
@@ -80,11 +84,15 @@ export class TileCache {
     while (same < n && old[same] === strokes[same]) same++;
     if (same === old.length && strokes.length === old.length) return;
     if (same === old.length) {
-      // Ajout au-dessus : on peint les nouveaux traits sur les tuiles touchées.
+      // Ajout au-dessus : les nouveaux traits s'ajoutent à ce qui reste à peindre sur les tuiles touchées (peints
+      // tout de suite s'il y en a peu ; sinon la tuile est refaite plus tard, par tranches).
       const added = strokes.slice(same);
-      for (const t of this.tiles.values()) {
-        const hit = added.filter((s) => intersects(s.bbox, t.rect));
-        if (hit.length) this.paint(t, hit);
+      for (const [k, t] of this.tiles) {
+        const hit = added.filter((s) => intersects(s.bbox, grown(t)));
+        if (!hit.length) continue;
+        if (hit.length > APPEND_MAX) { this.tiles.delete(k); continue; }
+        t.todo.push(...hit);
+        if (t.next >= t.todo.length - hit.length) this.advance(t, () => true);
       }
     } else {
       const keep = new Set(strokes);
@@ -107,22 +115,37 @@ export class TileCache {
     return t;
   }
 
-  /** Rend la tuile (L, tx, ty) à partir des traits synchronisés et la met en cache. */
-  render(L: number, tx: number, ty: number): Tile | null {
-    const canvas = this.make(TILE + 2 * GUTTER, TILE + 2 * GUTTER);
-    if (!canvas) return null;
-    const t: Tile = { L, tx, ty, canvas, rect: tileRect(L, tx, ty) };
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    if (this.bg) { ctx.fillStyle = this.bg; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-    this.paint(t, this.synced.filter((s) => intersects(s.bbox, grown(t))));
+  /**
+   * Rend la tuile (L, tx, ty) à partir des traits synchronisés et la met en cache ; avec `budget`, par tranches :
+   * la tuile reste « à finir » (pas montrée) tant que `budget()` coupe, et reprend au prochain appel.
+   */
+  render(L: number, tx: number, ty: number, budget: () => boolean = () => true): Tile | null {
     const k = key(L, tx, ty);
-    this.tiles.set(k, t);
-    while (this.tiles.size > MAX_TILES) this.tiles.delete(this.tiles.keys().next().value as string);
+    let t = this.tiles.get(k);
+    if (!t) {
+      const canvas = this.make(TILE + 2 * GUTTER, TILE + 2 * GUTTER);
+      if (!canvas) return null;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      t = { L, tx, ty, canvas, rect: tileRect(L, tx, ty), todo: [], next: 0 };
+      if (this.bg) { ctx.fillStyle = this.bg; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+      const area = grown(t), z = 2 ** L;
+      t.todo = this.synced.filter((s) => intersects(s.bbox, area) && Math.max(s.bbox.w, s.bbox.h) * z >= 0.4);
+      this.tiles.set(k, t);
+      while (this.tiles.size > MAX_TILES) this.tiles.delete(this.tiles.keys().next().value as string);
+    }
+    this.advance(t, budget);
     return t;
   }
 
-  private paint(t: Tile, strokes: readonly Stroke[]): void {
+  /** Tuile prête (tout peint). */
+  static ready(t: Tile | undefined): t is Tile {
+    return !!t && t.next >= t.todo.length;
+  }
+
+  /** Peint sur la tuile les traits qui lui restent, tant que `budget()` le permet (par lots de 16). */
+  private advance(t: Tile, budget: () => boolean): void {
+    if (t.next >= t.todo.length) return;
     const ctx = t.canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -130,11 +153,12 @@ export class TileCache {
     const side = TILE + 2 * GUTTER;
     const view: View = { x: t.rect.x + t.rect.w / 2, y: t.rect.y + t.rect.h / 2, zoom: z, rotation: 0 };
     const s: Surface = { ctx, w: side, h: side, view };
-    const area = grown(t);
-    for (const st of strokes) {
-      if (!intersects(st.bbox, area) || Math.max(st.bbox.w, st.bbox.h) * z < 0.4) continue;
-      drawStroke(s, st);
+    while (t.next < t.todo.length) {
+      const end = Math.min(t.todo.length, t.next + 16);
+      for (; t.next < end; t.next++) drawStroke(s, t.todo[t.next]);
+      if (!budget()) break;
     }
+    if (t.next >= t.todo.length) { t.todo = []; t.next = 0; }
   }
 
   /**
@@ -165,15 +189,16 @@ export class TileCache {
     ctx.imageSmoothingQuality = "high";
     for (const [tx, ty] of list) {
       let t = this.get(L, tx, ty);
-      if (!t && render && budget()) t = this.render(L, tx, ty) ?? undefined;
-      if (t) { place(t); continue; }
+      if (!TileCache.ready(t) && render && budget()) t = this.render(L, tx, ty, budget) ?? undefined;
+      if (TileCache.ready(t)) { place(t); continue; }
       missing++;
       // Remplaçante : la tuile parente (moins fine) ou, à défaut, les enfants du niveau au-dessus.
-      const parent = this.get(L - 1, Math.floor(tx / 2), Math.floor(ty / 2)) ?? this.get(L - 2, Math.floor(tx / 4), Math.floor(ty / 4));
+      const p1 = this.get(L - 1, Math.floor(tx / 2), Math.floor(ty / 2)), p2 = this.get(L - 2, Math.floor(tx / 4), Math.floor(ty / 4));
+      const parent = TileCache.ready(p1) ? p1 : TileCache.ready(p2) ? p2 : undefined;
       if (parent) { ctx.save(); clipTile(ctx, view, w, h, dpr, tileRect(L, tx, ty)); place(parent); ctx.restore(); continue; }
       for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
         const child = this.get(L + 1, tx * 2 + i, ty * 2 + j);
-        if (child) place(child);
+        if (TileCache.ready(child)) place(child);
       }
     }
     ctx.restore();
