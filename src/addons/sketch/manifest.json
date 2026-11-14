@@ -213,6 +213,9 @@
         },
         "no-worker": {
           "type": "boolean"
+        },
+        "no-gpu": {
+          "type": "boolean"
         }
       }
     },
