@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-fullscreen",
-      "description": "Plein écran (sans rendu). Commandes control {enter:n, exit:n, toggle:n} (forme {n, navigationUI} pour une entrée ponctuelle) + clé de réglage navigationUI (auto|hide|show, prioritaire sur l'attribut), ou for=\"idBouton\" (clic = bascule, geste exigé). target = sélecteur CSS (défaut toute la page). État <id>State {status, error, supported, allowed, active, element, supportsVideoOnly, navigationUI}. Événement sonic-fullscreen-change. iPhone : seulement sur une <video>. Iframe : allow=\"fullscreen\"",
+      "description": "Plein écran d'une zone ou de la page. Bouton slotté (sonic-button) : un clic bascule ; active reflété sur l'hôte et le sonic-button (enfants swap=\"on\"/\"off\"), aria-pressed sur le bouton. Aussi for=\"idBouton\" ou control {enter:n, exit:n, toggle:n} (forme {n, navigationUI}) + clé de réglage navigationUI (auto|hide|show). target = id ou sélecteur, cherché dans le même arbre (défaut : ancêtre [data-fullscreen-root], sinon la page). fallback=\"simulate\" (défaut) : API absente ou refusée (iPhone hors <video>, iframe sans allow=\"fullscreen\") → cible en position fixe 100svh au-dessus de la page, data-fullscreen-simulated, Échap en sort ; none = échec publié. État <id>State {status, error, supported, allowed, active, simulated, element, supportsVideoOnly, navigationUI}. Événement sonic-fullscreen-change",
       "props": {
         "control": {
           "type": "string",
@@ -27,11 +27,15 @@
         },
         "target": {
           "type": "string",
-          "description": "sélecteur CSS de l'élément (défaut page entière)"
+          "description": "id ou sélecteur CSS de l'élément (défaut [data-fullscreen-root] parent, sinon page entière)"
         },
         "navigation-ui": {
           "type": "string",
           "description": "auto, hide ou show"
+        },
+        "fallback": {
+          "type": "string",
+          "description": "simulate (défaut) ou none"
         }
       }
     },

@@ -4,7 +4,7 @@ Addon `@supersoniks/creative-stack/device` : les API « appareil » du navigateu
 
 | Composant | Rôle | Commandes (`control`) |
 |---|---|---|
-| `sonic-fullscreen` | Plein écran de la page ou d'un élément | `enter {navigationUI}`, `exit`, `toggle {navigationUI}` ; réglage `navigationUI` |
+| `sonic-fullscreen` | Plein écran de la page ou d'une zone (bouton slotté, repli simulé sur iPhone) | `enter {navigationUI}`, `exit`, `toggle {navigationUI}` ; réglage `navigationUI` |
 | `sonic-pointer-lock` | Souris verrouillée, déplacements relatifs | `lock {unadjustedMovement}`, `unlock`, `toggle {unadjustedMovement}`, `reset` ; réglage `unadjustedMovement` |
 | `sonic-wake-lock` | Écran toujours allumé | `acquire`, `release`, `toggle` |
 | `sonic-orientation` | Orientation de l'écran, capteurs de mouvement | `lock {type}`, `unlock`, `sensors`, `stop` ; réglage `smoothing` |
@@ -66,6 +66,23 @@ Tableau de départ : à vérifier sur chaque navigateur cible avant de s'y fier.
 
 ## Exemples
 
+### Bouton « Plein écran » (le plus simple)
+
+```json
+{ "tagName": "section", "attributes": { "id": "atelier", "data-fullscreen-root": "" }, "nodes": [
+  { "tagName": "sonic-fullscreen", "attributes": { "id": "fs" }, "nodes": [
+    { "tagName": "sonic-button", "attributes": { "variant": "ghost", "size": "sm" }, "nodes": [
+      { "tagName": "span", "attributes": { "swap": "off", "text": "Plein écran" } },
+      { "tagName": "span", "attributes": { "swap": "on", "text": "Quitter le plein écran" } }
+    ] }
+  ] }
+] }
+```
+
+Le bouton est **dans** `sonic-fullscreen` : un clic bascule le plein écran de l'ancêtre `data-fullscreen-root` (ici `#atelier` ; sans ancêtre marqué : toute la page ; `target="scene"` ou `target="#scene"` pour une autre zone). Le composant pose `active` sur lui-même et sur le `sonic-button` (les enfants `swap="on"` / `swap="off"` alternent) et `aria-pressed` sur le bouton. `fsState` : `{ active, simulated, … }` pour le reste de l'artefact.
+
+Repli `fallback="simulate"` (défaut) : quand le navigateur n'a pas l'API ou la refuse (iPhone Safari, qui ne permet le vrai plein écran que sur une `<video>` ; iframe sans `allow="fullscreen"`), la cible passe en `position: fixed; inset: 0; height: 100svh; z-index` très élevé, fond `--sonic-fullscreen-background` (sinon `--sc-base`), défilement de la page bloqué, attribut `data-fullscreen-simulated` posé pour le CSS de l'artefact. Échap, une nouvelle bascule ou le retrait du composant rendent le style d'origine. Les barres du navigateur restent visibles et l'orientation n'est pas verrouillée. Un ancêtre avec `transform`, `filter` ou `contain` enferme la position fixe : placer la cible hors de ces conteneurs. `fallback="none"` : pas de repli, l'échec est publié (`unsupported`, `denied`).
+
 ### Plein écran et écran allumé, sans store
 
 ```json
@@ -118,7 +135,7 @@ Clés : `fullscreen`, `pointerLock`, `wakeLock`, `gamepad`, `midi`, `orientation
 
 ## Détails par composant
 
-**`sonic-fullscreen`** — `target` : sélecteur CSS (défaut : la page). `navigation-ui` : `auto`, `hide`, `show` ; aussi en clé de réglage de `control` (`{ navigationUI: "hide" }`, prioritaire sur l'attribut tant qu'elle est présente) ou en argument d'une seule entrée (`{ enter: { n: 3, navigationUI: "hide" } }`). L'état publie `navigationUI` (valeur effective). L'état suit toujours l'événement `fullscreenchange` (sortie par Échap comprise). iPhone Safari : plein écran seulement sur une `<video>` (`target="#ma-video"`), `supportsVideoOnly` l'indique. Événement `sonic-fullscreen-change`.
+**`sonic-fullscreen`** — contenu slotté = bouton de bascule (voir l'exemple plus haut). `target` : id (`scene`, `#scene`) ou sélecteur CSS, cherché dans l'arbre du composant (shadow root du viewer compris) puis dans le document ; défaut : l'ancêtre `data-fullscreen-root` le plus proche, sinon la page. Une cible dans un shadow root est reconnue active via `shadowRoot.fullscreenElement`. `fallback` : `simulate` (défaut) ou `none` ; l'état publie `simulated`. `navigation-ui` : `auto`, `hide`, `show` ; aussi en clé de réglage de `control` (`{ navigationUI: "hide" }`, prioritaire sur l'attribut tant qu'elle est présente) ou en argument d'une seule entrée (`{ enter: { n: 3, navigationUI: "hide" } }`). L'état publie `navigationUI` (valeur effective). L'état suit toujours l'événement `fullscreenchange` (sortie par Échap comprise). iPhone Safari : plein écran seulement sur une `<video>` (`target="#ma-video"`), `supportsVideoOnly` l'indique. Événement `sonic-fullscreen-change`.
 
 **`sonic-pointer-lock`** — `unadjusted-movement` demande le mouvement brut ; si le navigateur ne le connaît pas, repli automatique (`raw: false`). Aussi en clé de réglage de `control` (`{ unadjustedMovement: true }`, prioritaire sur l'attribut tant qu'elle est présente) ou en argument d'un seul verrouillage (`{ lock: { n: 2, unadjustedMovement: true } }`) ; l'état publie `unadjustedMovement` (demandé) à côté de `raw` (obtenu). Échap rend toujours la souris ; un nouveau verrouillage est parfois refusé environ une seconde après. Retiré de la page, le composant libère la souris.
 
