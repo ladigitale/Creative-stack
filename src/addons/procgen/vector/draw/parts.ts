@@ -13,6 +13,8 @@ import { placedTool } from "../../gen/tool";
 import { containerModel } from "../../gen/container";
 import { streetModel } from "../../gen/street";
 import { petModel } from "../../gen/pet";
+import { structureModel } from "../../gen/structure";
+import { waterModel } from "../../gen/water";
 import type { ObjectDrawer } from "./types";
 
 const add3 = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -208,4 +210,15 @@ export const drawStreet: ObjectDrawer = (kit, p, ctx) => {
 export const drawPet: ObjectDrawer = (kit, p, ctx) => {
   shadowOf(kit, p, ctx);
   drawParts(kit, petModel(p).parts, { width: 0.55 });
+};
+
+export const drawStructure: ObjectDrawer = (kit, p, ctx) => {
+  // ombre du tablier ou de l'arche seulement (les piles plongent sous les appuis)
+  const o = ctx.obj;
+  kit.castShadow(ctx.env.shadows, (o.footprint.hx / o.scale) * 0.8, (o.footprint.hz / o.scale) * 0.8, Math.min(o.height / o.scale, 2.5) * 0.5, ctx.env.ground, kit.em.z0 - 0.5, kit.em.layer, kit.em.depth);
+  drawParts(kit, structureModel({ ...p, clearance: Number(p.clearance) < 0 ? undefined : p.clearance }).parts, { width: 0.55 });
+};
+
+export const drawWater: ObjectDrawer = (kit, p) => {
+  drawParts(kit, waterModel(p).parts, { width: 0.5 });
 };

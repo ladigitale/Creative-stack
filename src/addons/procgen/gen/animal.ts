@@ -107,6 +107,17 @@ export const COAT_PALETTES: Record<Species, Palette[]> = {
     P("pékin", "#f3efe6", "#f3efe6", "#e2dccf", "#2b2b2b", ["solid"]),
     P("cane", "#9a7a58", "#7a5e44", "#5e4733", "#2b2b2b", ["solid", "spotted"]),
   ],
+  pigeon: [
+    P("biset", "#8e939c", "#767d8a", "#5d7f74", "#2f3136", ["solid"]),
+    P("bleu", "#9aa2ae", "#808a99", "#6a6a8e", "#2f3136", ["solid"]),
+    P("écaillé", "#a49e98", "#6e6a66", "#5d7f74", "#2f3136", ["solid", "spotted"]),
+    P("blanc", "#efece6", "#e2ded6", "#d6d2ca", "#2f3136", ["solid"]),
+  ],
+  seagull: [
+    P("goéland argenté", "#f4f3ef", "#a9b1ba", "#2a2a2c", "#2a2a2c", ["solid"]),
+    P("goéland brun", "#f2f1ec", "#5d6168", "#2a2a2c", "#2a2a2c", ["solid"]),
+    P("mouette", "#f6f5f1", "#c3cad2", "#3a3434", "#3a3434", ["solid"]),
+  ],
   chicken: [
     P("rousse", "#a8562e", "#2a2a2a", "#d38a4a", "#3a2a22", ["solid"]),
     P("blanche", "#f2eee6", "#e8e2d6", "#d6cfc0", "#3a2a22", ["solid"]),
@@ -116,7 +127,7 @@ export const COAT_PALETTES: Record<Species, Palette[]> = {
 };
 
 export const animalSchema = {
-  species: { type: "enum", default: "dog", options: SPECIES, doc: "Espèce : dog, cat, horse, cow, sheep, pig, fox, rabbit, deer, goat, bear, duck, chicken" },
+  species: { type: "enum", default: "dog", options: SPECIES, doc: "Espèce : dog, cat, horse, cow, sheep, pig, fox, rabbit, deer, goat, bear, duck, chicken, pigeon (pigeon biset), seagull (goéland, mouette)" },
   size: { type: "number", default: 1, min: 0.3, max: 2, doc: "Taille relative (1 = adulte typique ; < 0,7 : jeune, tête et pattes proportionnellement plus grandes)" },
   build: { type: "number", default: 0.5, min: 0, max: 1, doc: "Carrure : 0 élancé … 1 massif" },
   coat: { type: "enum", default: "auto", options: COATS, doc: "Motif du pelage : solid (uni), spotted (tacheté), pie (plaques), striped (rayé), auto (tiré par graine parmi ceux de l'espèce)" },
@@ -136,7 +147,7 @@ const cache = new Map<string, Built>();
 export const animal = defineGenerator({
   id: "animal",
   label: "Animal",
-  doc: "Quadrupèdes et oiseaux d'une seule peau, skinnés (quaternions duaux) : 13 espèces, robes par graine (uni, tacheté, pie, rayé), cornes, bois, crinière, laine, yeux avec clignement. Animés par la scène (repos, marche, trot, galop, hochement des oiseaux).",
+  doc: "Quadrupèdes et oiseaux d'une seule peau, skinnés (quaternions duaux) : 15 espèces (dont pigeon et goéland posés), robes par graine (uni, tacheté, pie, rayé), cornes, bois, crinière, laine, yeux avec clignement. Animés par la scène (repos, marche, trot, galop, hochement des oiseaux).",
   tags: ["animal", "faune", "ferme", "troupeau", "chien", "cheval", "oiseau"],
   schema: animalSchema,
   build(p, ctx) {
@@ -158,7 +169,7 @@ export const animal = defineGenerator({
       leather: oc("dark", pal.dark),
       cloth1: oc("horn", horn),
       cloth2: species === "chicken" ? "#c8352c" : "#d99a92",
-      accent: species === "duck" ? "#e08a2c" : "#e2b04a",
+      accent: species === "duck" ? "#e08a2c" : species === "pigeon" ? "#b35a5e" : species === "seagull" ? "#e8c43a" : "#e2b04a",
     };
     const seed = rng.key.split("/").slice(-1)[0];
     const key = JSON.stringify({ species, size: pp.size, build: pp.build, coat, pal: pal.name, variant, mood: pp.mood, detail: pp.detail, seed });
@@ -933,7 +944,9 @@ function birdBody(c: Ctx, species: Species, P_: BirdProps, p: Params, W: number)
     const sx = s === "l" ? 1 : -1;
     const wd = norm(sub(wb.tail, wb.head));
     const L = len(sub(wb.tail, wb.head));
-    c.slab(`wing.${s}`, lerp3(wb.head, wb.tail, 0.45), wd, [0, 1, 0], [[-L * 0.5, -bh * 0.18], [L * 0.2, -bh * 0.22], [L * 0.62, -bh * 0.02], [L * 0.3, bh * 0.2], [-L * 0.45, bh * 0.22]], bw * 0.16, S);
+    c.slab(`wing.${s}`, lerp3(wb.head, wb.tail, 0.45), wd, [0, 1, 0], [[-L * 0.5, -bh * 0.18], [L * 0.2, -bh * 0.22], [L * 0.62, -bh * 0.02], [L * 0.3, bh * 0.2], [-L * 0.45, bh * 0.22]], bw * 0.16, species === "pigeon" || species === "seagull" ? HR : S);
+    // pointes des ailes croisées sur la queue (goéland : noires)
+    if (species === "seagull") c.slab(`wing.${s}`, lerp3(wb.head, wb.tail, 1.0), wd, [0, 1, 0], [[-L * 0.2, -bh * 0.08], [L * 0.45, -bh * 0.02], [L * 0.1, bh * 0.1]], bw * 0.1, C3);
   }
   // queue
   const tb = B("tail.1");
@@ -952,8 +965,10 @@ function birdBody(c: Ctx, species: Species, P_: BirdProps, p: Params, W: number)
   }
   // cou et tête
   const nr = bh * (duck ? 0.2 : 0.22);
-  c.cap("neck.1", -0.2, 1, nr * 1.25, nr, duck ? HR : S);
-  c.cap("neck.2", 0.3, 1.1, nr, nr * 0.85, duck ? HR : S);
+  // cou irisé du pigeon (rôle motif), vert du colvert (rôle secondaire)
+  const neckRole = duck ? HR : species === "pigeon" ? C3 : S;
+  c.cap("neck.1", -0.2, 1, nr * 1.25, nr, neckRole);
+  c.cap("neck.2", 0.3, 1.1, nr, nr * 0.85, neckRole);
   const hb = B("head");
   const hr = P_.headR * k;
   const hc = add(hb.head, [0, hr * 0.45, hr * 0.35]);
@@ -967,15 +982,14 @@ function birdBody(c: Ctx, species: Species, P_: BirdProps, p: Params, W: number)
   } else {
     const bk = add(hc, [0, -hr * 0.12, hr * 0.9]);
     c.push({ kind: "cone", a: bk, b: add(bk, [0, -P_.beakLen * k * 0.35, P_.beakLen * k]), ra: hr * 0.3, rb: hr * 0.04, round: hr * 0.04, role: AC, tag: 0 }, "head");
-    // crête et barbillons
+    // crête et barbillons (poule seulement)
     const big = p.variant % 2 === 0 ? 1 : 0.6;
-    // crête en dents arrondies, barbillons
-    for (let i = 0; i < 4; i++) {
+    if (species === "chicken") for (let i = 0; i < 4; i++) {
       const tz = mix(0.55, -0.55, i / 3);
       const comb = shaped(EAR_OVAL, hr * 0.42, hr * mix(0.55, 0.85, Math.sin(((i + 0.5) / 4) * Math.PI)) * big, hr * 0.2, PK, 8);
       c.tpl(place(comb, add(hc, [0, hr * 0.7, hr * tz]), norm([0, 1, tz * 0.6]), [1, 0, 0]), ["head"]);
     }
-    for (const sx of [1, -1]) {
+    if (species === "chicken") for (const sx of [1, -1]) {
       const wat = shaped(EAR_OVAL, hr * 0.38, hr * 0.62 * big, hr * 0.16, PK, 8);
       c.tpl(place(wat, add(hc, [sx * hr * 0.12, -hr * 0.55, hr * 0.62]), [0, -1, 0.15], [sx, 0, 0]), ["head"]);
     }

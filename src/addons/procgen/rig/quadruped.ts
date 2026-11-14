@@ -18,7 +18,7 @@ import { type V3, DEG, add, madd, mix, norm, sub } from "../core/math";
 import { type BoneDef, Skeleton } from "./skeleton";
 
 export const QUAD_SPECIES = ["dog", "cat", "horse", "cow", "sheep", "pig", "fox", "rabbit", "deer", "goat", "bear"] as const;
-export const BIRD_SPECIES = ["duck", "chicken"] as const;
+export const BIRD_SPECIES = ["duck", "chicken", "pigeon", "seagull"] as const;
 export const SPECIES = [...QUAD_SPECIES, ...BIRD_SPECIES] as const;
 export type Species = (typeof SPECIES)[number];
 
@@ -110,6 +110,8 @@ export const ANIMAL_PROPS: Record<Species, AnimalProps> = {
   goat: Q({ W: 0.7, bodyLen: 0.82, depth: 0.48, croup: 1.04, wid: 0.5, neckLen: 0.38, neckAng: 52, headLen: 0.38, headAng: 46, carpus: 0.45, fet: 0.1, hock: 0.33, hindMeta: 5, frontMeta: 3, toeLen: 0.07, hoof: true, tailLen: 0.17, tailAng: -55, tailCurl: 0, earLen: 0.16, earSpread: 70, earTilt: 15, gallop: false, spineFlex: 0.25 }),
   bear: Q({ W: 1.0, bodyLen: 0.86, depth: 0.52, croup: 0.96, wid: 0.62, neckLen: 0.32, neckAng: 5, headLen: 0.34, headAng: 16, carpus: 0.3, fet: 0.06, hock: 0.24, hindMeta: 22, frontMeta: 10, toeLen: 0.16, hoof: false, tailLen: 0.1, tailAng: 40, tailCurl: 0, earLen: 0.12, earSpread: 25, earTilt: 0, gallop: true, spineFlex: 0.35 }),
   duck: { kind: "bird", H: 0.3, bodyY: 0.17, bodyLen: 0.38, bodyH: 0.17, bodyW: 0.16, tilt: -4, neckLen: 0.14, neckAng: 78, headR: 0.05, beakLen: 0.065, shank: 0.06, toeLen: 0.06, tailLen: 0.08, tailAng: -25, waddle: 1, bob: 0.25 },
+  pigeon: { kind: "bird", H: 0.24, bodyY: 0.15, bodyLen: 0.22, bodyH: 0.13, bodyW: 0.11, tilt: 8, neckLen: 0.07, neckAng: 70, headR: 0.028, beakLen: 0.02, shank: 0.045, toeLen: 0.035, tailLen: 0.12, tailAng: -15, waddle: 0.15, bob: 1 },
+  seagull: { kind: "bird", H: 0.34, bodyY: 0.2, bodyLen: 0.36, bodyH: 0.15, bodyW: 0.14, tilt: 4, neckLen: 0.1, neckAng: 72, headR: 0.042, beakLen: 0.055, shank: 0.085, toeLen: 0.05, tailLen: 0.12, tailAng: -10, waddle: 0.35, bob: 0.3 },
   chicken: { kind: "bird", H: 0.36, bodyY: 0.22, bodyLen: 0.3, bodyH: 0.21, bodyW: 0.17, tilt: 14, neckLen: 0.12, neckAng: 72, headR: 0.042, beakLen: 0.035, shank: 0.09, toeLen: 0.055, tailLen: 0.14, tailAng: -55, waddle: 0.3, bob: 1 },
 };
 

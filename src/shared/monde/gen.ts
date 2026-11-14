@@ -36,7 +36,7 @@ export const GEN_IDS = [
 
 export type GenRig = "humanoid" | "quadruped" | "bird" | "none";
 
-const BIRDS = new Set(["duck", "chicken"]);
+const BIRDS = new Set(["duck", "chicken", "pigeon", "seagull"]);
 
 /** Famille du générateur (`animal.dog` → `animal`). */
 export function genFamily(id: string): string {
@@ -169,7 +169,7 @@ const BIRD: J[] = [
  * corps. Les autres clips sont des pistes d'os ajoutées à la pose procédurale.
  */
 /** Actions du moteur procgen (copie de rig/locomotion ACTIONS, vérifiée par test). */
-export const GEN_ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick"] as const;
+export const GEN_ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep"] as const;
 
 /** Locomotion et action d'un clip : champs du clip, sinon ceux de son nom (GEN_MOTION). */
 export function genMotion(name: string, def?: { action: string; move: number | null } | null): { speed: number; action: string } {
@@ -190,6 +190,9 @@ export const GEN_MOTION: Record<string, { speed?: number; action?: string }> = {
   assis: { action: "sit" },
   reflechit: { action: "think" },
   salue: { action: "bow" },
+  boit: { action: "drink" },
+  mange: { action: "eat" },
+  dort: { action: "sleep" },
 };
 
 const LOCO: Record<string, ClipIn> = Object.fromEntries(Object.keys(GEN_MOTION).map((k) => [k, { ms: 1000, tracks: {} }]));

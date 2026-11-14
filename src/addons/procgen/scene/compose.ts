@@ -8,7 +8,8 @@
  * Statiques uniques (bâtiments) : fusionnés par tuile spatiale ; objets répétés (arbres, rochers, objets) : instanciés ;
  * personnages : acteurs animés.
  */
-import { type M4, type V3, DEG, clamp, m4Compose, m4Point, qAxis, qRot } from "../core/math";
+import { type M4, type V3, DEG, clamp, m4Compose, m4Point, qAxis, qRot, sub } from "../core/math";
+import { motionFor } from "../rig/motion";
 import { resolveDeep, type Scope } from "../core/expr";
 import { Rng } from "../core/rng";
 import { type Issue, Issues, resolveParams, suggest } from "../core/schema";
@@ -26,7 +27,9 @@ export type Placement =
   | { along: string; side?: "both" | "left" | "right" | "center"; spacing?: number; offset?: number; jitter?: number; start?: number; end?: number }
   | { cluster: [number, number]; radius: number }
   | { ring: [number, number]; radius: number; jitter?: number }
-  | { edges: "buildings" | "paths" | "all"; offset?: number };
+  | { edges: "buildings" | "paths" | "all"; offset?: number }
+  /** En travers d'une route ou d'une rivière (ponts) : `distance` = position le long du tracé (m, défaut : milieu), `spacing` entre plusieurs. */
+  | { across: string; distance?: number; spacing?: number };
 
 export type LayerSpec = {
   id: string;
@@ -47,9 +50,11 @@ export type LayerSpec = {
   walkable?: boolean;
   /** Flotte : posé sur l'eau (bateaux), interdit à terre. */
   onWater?: boolean;
+  /** Animaux, personnages : cible de l'action de départ (`"bassin.0"`, `"abreuvoir.0.spot"`, `"bancs.1.sit.0"`) : posé à la place, tourné vers elle. */
+  target?: string;
 };
 
-export type ActorSpec = { gen?: string; params?: Record<string, unknown>; at?: [number, number]; facing?: number | string; behavior?: "idle" | "wander" | "patrol"; action?: string; speed?: number };
+export type ActorSpec = { gen?: string; params?: Record<string, unknown>; at?: [number, number]; facing?: number | string; behavior?: "idle" | "wander" | "patrol"; action?: string; speed?: number; target?: string };
 
 export type ZoneSpec = { id: string; at?: [number, number] | string; r?: number; box?: [number, number, number, number] };
 
@@ -88,7 +93,13 @@ export type ObjectInfo = {
 };
 
 export type InstanceGroup = { key: string; mesh: Mesh; matrices: M4[]; objs: number[]; flex: boolean };
-export type ActorModel = { id: string; layer: string | null; asset: Asset; params: Record<string, unknown>; pos: V3; yaw: number; behavior: "idle" | "wander" | "patrol"; action: Action; speed: number; obj: number; seed: number };
+export type ActorModel = {
+  id: string; layer: string | null; asset: Asset; params: Record<string, unknown>; pos: V3; yaw: number; behavior: "idle" | "wander" | "patrol"; action: Action; speed: number; obj: number; seed: number;
+  /** Départ à une cible (`target`) : hauteur de la cible au-dessus des pieds (boire, manger), assise occupée, point où se relever. */
+  reachY?: number; seatY?: number; standAt?: [number, number];
+};
+/** Surface praticable d'un ouvrage (tablier, marches) : repère de l'objet, demi-largeur et profil [z, y] du dessus. */
+export type Deck = { x: number; z: number; y: number; yaw: number; scale: number; hw: number; profile: [number, number][] };
 export type Zone = { id: string; x: number; z: number; r: number; box: [number, number, number, number] | null };
 export type PointLight = { pos: V3; kind: "fire" | "lamp"; radius: number };
 
@@ -106,6 +117,8 @@ export type SceneModel = {
   zones: Zone[];
   lights: PointLight[];
   nav: NavGrid | null;
+  /** Tabliers, marches, quais : les acteurs y marchent à leur hauteur (`groundHeight`). */
+  decks: Deck[];
   issues: Issue[];
   view: Record<string, unknown>;
   style: unknown;
@@ -115,7 +128,9 @@ export type SceneModel = {
 
 /** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
 const ACTOR_GENS = new Set(["character", "animal"]);
-const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet"]);
+const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water"]);
+/** Tailles fines (pas d'arrondi au quart de mètre). */
+const FINE = new Set(["ball", "seat", "structure", "water"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
 const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 }, tool: { name: "scale", ref: 1 }, container: { name: "scale", ref: 1 }, street: { name: "scale", ref: 1 }, pet: { name: "scale", ref: 1 } };
 const TILE = 24;
@@ -232,6 +247,48 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
   const assetCache = new Map<string, Asset>();
   const placedCircles: { x: number; z: number; r: number }[] = [];
   const nav = new NavGrid(size[0], size[1], 0.5);
+  const decks: Deck[] = [];
+  const structNav: { yaw: number; blk: [number, number, number, number][]; walks: { x: number; z: number; yaw: number; scale: number; hw: number; z0: number; z1: number }[] }[] = [];
+  /** Départ d'un acteur à une cible (posé par `placeObject`). */
+  let startAt: { pos: V3; yaw: number; reachY?: number; seatY?: number; standAt?: [number, number] } | null = null;
+  const groundAt = (x: number, z: number) => deckHeight(decks, x, z, H(x, z));
+  /**
+   * Place de départ d'un acteur qui vise une ancre : assise (`.sit.N`), point d'eau ou de nourriture (`spot`, `spot.N` :
+   * la bouche au-dessus de l'ancre), sinon l'ancre elle-même. `i` répartit une couche sur les places `spot.0…`.
+   */
+  const targetPlace = (target: string, asset: Asset, i: number, path: string, actionOf?: string): typeof startAt => {
+    const o = objects.find((ob) => target === ob.id || target.startsWith(ob.id + "."));
+    if (!o) {
+      issues.add({ path, code: "unknown", message: `cible « ${target} » introuvable`, didYouMean: suggest(target, objects.map((ob) => ob.id)) });
+      return null;
+    }
+    let an = target.slice(o.id.length + 1);
+    if (!an) {
+      const spots = Object.keys(o.anchors).filter((k) => /^spot\.\d+$/.test(k));
+      an = spots.length ? spots[i % spots.length] : o.anchors.spot ? "spot" : Object.keys(o.anchors).find((k) => k.startsWith("sit.")) ?? "";
+    }
+    const p = o.anchors[an];
+    if (!p) {
+      issues.add({ path, code: "unknown", message: `ancre « ${an} » absente de ${o.id}`, didYouMean: suggest(an, Object.keys(o.anchors)), hint: Object.keys(o.anchors).join(", ") });
+      return null;
+    }
+    const sm = /^sit\.(\d+)$/.exec(an);
+    if (sm) {
+      const ap = o.anchors[`approach.${sm[1]}`] ?? p;
+      return { pos: [p[0], p[1], p[2]], yaw: o.seatYaw?.[an] ?? o.yaw, seatY: p[1] - o.pos[1], standAt: [ap[0], ap[2]] };
+    }
+    const spm = /^spot(?:\.(\d+))?$/.exec(an);
+    const ap = spm ? o.anchors[spm[1] !== undefined ? `approach.${spm[1]}` : "approach"] : undefined;
+    const from = ap ?? [o.pos[0], 0, o.pos[2]];
+    let dx = p[0] - from[0], dz = p[2] - from[2];
+    const d = Math.hypot(dx, dz);
+    if (d < 1e-3) [dx, dz] = [Math.sin(o.yaw), Math.cos(o.yaw)];
+    else [dx, dz] = [dx / d, dz / d];
+    const reach = actionOf === "sleep" ? 0 : reachOf(asset, actionOf ?? "drink", p[1] - groundAt(p[0] - dx * 0.5, p[2] - dz * 0.5));
+    const x = spm ? p[0] - dx * reach : p[0], z = spm ? p[2] - dz * reach : p[2];
+    const y = groundAt(x, z);
+    return { pos: [x, y, z], yaw: Math.atan2(dx, dz), reachY: p[1] - y, standAt: ap ? [ap[0], ap[2]] : undefined };
+  };
   let total = 0;
 
   const free = (x: number, z: number, r: number, onPath: boolean, spacing: number, onWater = false) => {
@@ -266,7 +323,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
         resolved[sp.name] = sp.ref;
       }
       // ballons et assises : tailles fines (une balle de golf fait 4,3 cm), pas d'arrondi
-      if (gen.id !== "ball" && gen.id !== "seat") for (const [k, v] of Object.entries(resolved)) if (typeof v === "number" && k !== "variant" && gen.schema[k]?.type === "number") resolved[k] = Math.round(v * 4) / 4;
+      if (!FINE.has(gen.id)) for (const [k, v] of Object.entries(resolved)) if (typeof v === "number" && k !== "variant" && gen.schema[k]?.type === "number") resolved[k] = Math.round(v * 4) / 4;
     }
     const key = `${gen.id}|${JSON.stringify(resolved)}`;
     let asset = ACTOR_GENS.has(gen.id) ? undefined : assetCache.get(key);
@@ -287,7 +344,9 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     // posé sur le point le plus bas de l'emprise (pas d'objet flottant), légèrement enfoncé
     const c = Math.cos(yaw), s = Math.sin(yaw);
     const corners = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => [x + (a * fp.hx * c + b * fp.hz * s) * scale, z + (-a * fp.hx * s + b * fp.hz * c) * scale]);
-    const y = layer?.onWater && waterLevel !== null ? waterLevel - 0.15 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - 0.02;
+    // ouvrages : posés au plus bas de leurs appuis (les berges d'un pont), pas au fond du lit
+    const rest = Array.isArray(asset.extra?.rest) ? (asset.extra!.rest as [number, number][]) : null;
+    const y = rest && rest.length ? Math.min(...rest.map(([lx, lz]) => H(x + (lx * c + lz * s) * scale, z + (-lx * s + lz * c) * scale))) - 0.02 : layer?.onWater && waterLevel !== null ? waterLevel - 0.15 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - 0.02;
     const obj = objects.length + 1;
     const T = m4Compose([x, y, z], qAxis([0, 1, 0], yaw), scale);
     const anchors: Record<string, V3> = {};
@@ -311,6 +370,14 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
         if (!layer?.walkable) nav.blockBox((wx0 + wx1) / 2, (wz0 + wz1) / 2, L / 2, hw * scale, Math.atan2(wz0 - wz1, wx1 - wx0), 0.15);
         for (let s = 0; s <= L; s += 1) placedCircles.push({ x: wx0 + ((wx1 - wx0) * s) / Math.max(L, 1e-6), z: wz0 + ((wz1 - wz0) * s) / Math.max(L, 1e-6), r: Math.max(0.15, hw * scale) });
       }
+    } else if (Array.isArray(asset.extra?.blockers)) {
+      // ouvrages : seuls les garde-corps, piliers et piles bloquent ; le tablier est praticable (rouvert après l'eau)
+      placedCircles.push({ x, z, r: Math.max(0.15, fp.r * 0.6 * scale) });
+      const blk = (asset.extra!.blockers as [number, number, number, number][]).map(([bx, bz, bhx, bhz]) => [x + (bx * c + bz * s) * scale, z + (-bx * s + bz * c) * scale, bhx * scale, bhz * scale] as [number, number, number, number]);
+      const walks = (Array.isArray(asset.extra?.walk) ? (asset.extra!.walk as { hw: number; profile: [number, number][] }[]) : []).filter((w) => w.profile.length >= 2);
+      for (const w of walks) decks.push({ x, z, y, yaw, scale, hw: w.hw, profile: w.profile });
+      structNav.push({ yaw, blk: layer?.walkable ? [] : blk, walks: walks.length ? walks.map((w) => ({ x, z, yaw, scale, hw: w.hw, z0: w.profile[0][0], z1: w.profile[w.profile.length - 1][0] })) : [] });
+      if (!layer?.walkable) for (const [bx, bz, bhx, bhz] of blk) nav.blockBox(bx, bz, bhx, bhz, yaw, 0.15);
     } else {
       placedCircles.push({ x, z, r: Math.max(0.15, (generator === "building" ? Math.max(fp.hx, fp.hz) : fp.r * 0.6) * scale) });
       // ballons et outils posés ne barrent pas le passage
@@ -320,7 +387,17 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       const beh = (["idle", "wander", "patrol"] as const).includes(behavior as never) ? (behavior as ActorModel["behavior"]) : "idle";
       const act = (ACTIONS as readonly string[]).includes(action ?? "") ? (action as Action) : "idle";
       if (action && act !== action) issues.add({ path: `${id}.action`, code: "unknown", message: `action « ${action} » inconnue`, didYouMean: suggest(action, ACTIONS), hint: ACTIONS.join(", ") });
-      actors.push({ id, layer: layer?.id ?? null, asset, params: rawParams, pos: [x, y, z], yaw, behavior: beh, action: act, speed: 0, obj, seed: rng.next() * 1000 });
+      const am: ActorModel = { id, layer: layer?.id ?? null, asset, params: rawParams, pos: [x, y, z], yaw, behavior: beh, action: act, speed: 0, obj, seed: rng.next() * 1000 };
+      if (startAt) {
+        am.pos = [startAt.pos[0], startAt.pos[1], startAt.pos[2]];
+        am.yaw = startAt.yaw;
+        if (startAt.reachY !== undefined) am.reachY = startAt.reachY;
+        if (startAt.seatY !== undefined) am.seatY = startAt.seatY;
+        if (startAt.standAt) am.standAt = startAt.standAt;
+        if (am.behavior !== "idle") am.behavior = "idle";
+        startAt = null;
+      }
+      actors.push(am);
       return;
     }
     total += asset.mesh.triangleCount;
@@ -375,6 +452,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       const vars = { i: n, n: count, t: count > 1 ? n / (count - 1) : 0, x: pos.x, z: pos.z };
       const edits = input.edits?.[id] ?? input.edits?.[lid];
       const raw = { ...(R(layer.params ?? {}, `${lp}.params`, irng, vars, 0) as Record<string, unknown>), ...(edits ?? {}) };
+      // en travers d'une rivière : portée ajustée à sa largeur (plus les berges) si la longueur n'est pas donnée
+      if (pos.span && raw.length === undefined && resolveGeneratorId(layer.gen).gen?.schema.length) raw.length = Math.round(pos.span * 4) / 4;
       if (ACTOR_GENS.has(resolveGeneratorId(layer.gen).gen?.id ?? "") && (raw.detail === undefined || raw.detail === "auto")) raw.detail = "crowd";
       const built = buildAsset(layer.gen, raw, id, irng);
       if (!built) break;
@@ -388,16 +467,18 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
         pos.x -= Math.sin(pos.yaw) * back;
         pos.z -= Math.cos(pos.yaw) * back;
       }
+      const across = "across" in place;
       const rr = Math.max(0.2, built.generator === "building" ? Math.min(built.asset.footprint.hx, built.asset.footprint.hz) * scale * 0.95 : r * 0.6);
-      if (!("at" in place) && !free(pos.x, pos.z, rr, !!layer.onPath || along || !!layer.onWater, spacing, !!layer.onWater)) continue;
+      if (!("at" in place) && !across && !free(pos.x, pos.z, rr, !!layer.onPath || along || !!layer.onWater, spacing, !!layer.onWater)) continue;
       let yaw = pos.yaw ?? 0;
       // cap explicite d'un point `at` respecté ; sinon : bâtiments face au chemin, tracés sans rotation, le reste au hasard
-      const yw = layer.yaw ?? (built.generator === "building" || ("at" in place && pos.yaw !== undefined) ? "path" : built.asset.extra?.segments ? 0 : "random");
+      const yw = layer.yaw ?? (built.generator === "building" || across || ("at" in place && pos.yaw !== undefined) ? "path" : built.asset.extra?.segments || built.generator === "structure" || built.generator === "water" ? 0 : "random");
       if (yw === "random") yaw = irng.range(0, Math.PI * 2);
       else if (yw === "center") yaw = Math.atan2(-pos.x, -pos.z);
       else if (yw === "away") yaw = Math.atan2(pos.x, pos.z);
       else if (yw === "path") yaw = pos.yaw ?? facePath(pos.x, pos.z, paths);
       else yaw = num(yw, `${lp}.yaw`, irng, 0, vars) * DEG;
+      if (layer.target && ACTOR_GENS.has(built.generator)) startAt = targetPlace(String(layer.target), built.asset, n, `${lp}.target`, layer.action);
       placeObject(layer, id, built.asset, built.key, built.generator, { ...(resolveGeneratorId(layer.gen).preset ?? {}), ...raw }, pos.x, pos.z, yaw, scale, irng, layer.behavior, layer.action);
       n++;
     }
@@ -413,6 +494,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     if (!built) continue;
     const at = (R(a.at ?? [0, 0], `actors.${aid}.at`, arng) as number[]) ?? [0, 0];
     const facing = typeof a.facing === "number" ? a.facing * DEG : 0;
+    if (a.target) startAt = targetPlace(String(a.target), built.asset, 0, `actors.${aid}.target`, a.action);
     placeObject(null, aid, built.asset, built.key, built.generator, raw, Number(at[0]) || 0, Number(at[1]) || 0, facing, 1, arng, a.behavior, a.action);
   }
 
@@ -455,6 +537,25 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
         if (waterLevel !== null && H(x, z) < waterLevel + 0.05) nav.blocked[j * nav.nx + i] = 1;
         else if (terrain.normal(x, z)[1] < 0.75) nav.blocked[j * nav.nx + i] = 1;
       }
+  }
+  // tabliers praticables (au-dessus de l'eau, sur les berges en pente), puis garde-corps et piles
+  if (structNav.length) {
+    for (const sn of structNav)
+      for (const w of sn.walks) {
+        const c = Math.cos(w.yaw), sn2 = Math.sin(w.yaw);
+        const R = (Math.max(Math.abs(w.z0), Math.abs(w.z1)) + w.hw + 1) * w.scale;
+        const [i0, j0] = nav.toCell(w.x - R, w.z - R), [i1, j1] = nav.toCell(w.x + R, w.z + R);
+        for (let j = Math.max(0, j0); j <= Math.min(nav.nz - 1, j1); j++)
+          for (let i = Math.max(0, i0); i <= Math.min(nav.nx - 1, i1); i++) {
+            const [px, pz] = nav.center(i, j);
+            const dx = (px - w.x) / w.scale, dz = (pz - w.z) / w.scale;
+            const lx = dx * c - dz * sn2, lz = dx * sn2 + dz * c;
+            if (Math.abs(lx) <= w.hw - 0.15 && lz >= Math.min(w.z0, w.z1) - 0.3 && lz <= Math.max(w.z0, w.z1) + 0.3) nav.blocked[j * nav.nx + i] = 0;
+          }
+      }
+    for (const sn of structNav) for (const [bx, bz, bhx, bhz] of sn.blk) nav.blockBox(bx, bz, bhx, bhz, sn.yaw, 0.15);
+  }
+  if (ground) {
     total += ground.triangleCount + (roads?.triangleCount ?? 0);
   }
 
@@ -475,6 +576,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     zones,
     lights: objects.filter((o) => o.anchors.light).map((o) => ({ pos: o.anchors.light, kind: String(o.params.kind ?? "") === "campfire" || o.layer.includes("feu") ? "fire" : "lamp", radius: String(o.params.kind ?? "") === "campfire" ? 9 : Math.max(6, (o.anchors.light[1] - o.pos[1]) * 1.9) }) as PointLight),
     nav,
+    decks,
     issues: issues.list,
     view: (recipe.view as Record<string, unknown>) ?? {},
     style: recipe.style,
@@ -496,7 +598,54 @@ function facePath(x: number, z: number, paths: PathSpec[]): number {
   return best ? Math.atan2(best.px - x, best.pz - z) : 0;
 }
 
-type Pos = { x: number; z: number; yaw?: number };
+type Pos = { x: number; z: number; yaw?: number; /** Largeur franchie (placement `across`). */ span?: number };
+
+/**
+ * Distance (selon l'avant) du pied de l'acteur à sa bouche quand il boit ou mange à une cible de hauteur `reachY` :
+ * calculée sur la pose elle-même (cou baissé), pour poser la bouche au-dessus de l'eau ou de la gamelle.
+ */
+export function reachOf(asset: Pick<Asset, "anchors" | "generator" | "skeleton">, action: string = "drink", reachY?: number): number {
+  const anc = asset.anchors.mouth ?? asset.anchors["head.center"];
+  const sk = asset.skeleton;
+  if (!anc || !sk) return asset.generator === "character" ? 0.32 : 0.3;
+  try {
+    const st = { speed: 0, phase: 0, time: 0, action: action as Action, actionTime: 0.5, actionWeight: 1, mood: "neutral", turn: 0, seed: 0, reachY };
+    const { pose } = motionFor(asset).pose(st);
+    const W = sk.world(pose);
+    const bi = sk.index[anc.bone ?? "root"] ?? 0;
+    const p = m4Point(W[bi], sub(anc.pos, sk.bones[bi].head));
+    return clamp(p[2] + (asset.anchors.mouth ? 0.02 : 0.15), 0.05, 3);
+  } catch {
+    return 0.3;
+  }
+}
+
+/** Hauteur du sol praticable : terrain, ou tablier / marche d'un ouvrage au-dessus. */
+export function deckHeight(decks: Deck[], x: number, z: number, ground: number): number {
+  let h = ground;
+  for (const d of decks) {
+    const c = Math.cos(d.yaw), s = Math.sin(d.yaw);
+    const dx = (x - d.x) / d.scale, dz = (z - d.z) / d.scale;
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    const pr = d.profile;
+    if (Math.abs(lx) > d.hw + 0.25 || lz < pr[0][0] - 0.05 || lz > pr[pr.length - 1][0] + 0.05) continue;
+    let y = pr[pr.length - 1][1];
+    for (let i = 0; i < pr.length - 1; i++)
+      if (lz <= pr[i + 1][0]) {
+        const t = (lz - pr[i][0]) / Math.max(1e-6, pr[i + 1][0] - pr[i][0]);
+        y = pr[i][1] + (pr[i + 1][1] - pr[i][1]) * clamp(t, 0, 1);
+        break;
+      }
+    h = Math.max(h, d.y + y * d.scale);
+  }
+  return h;
+}
+
+/** Hauteur où marche un acteur dans une scène composée. */
+export function groundHeight(model: Pick<SceneModel, "terrain" | "decks">, x: number, z: number, fallback = 0): number {
+  const g = model.terrain ? model.terrain.height(x, z) : fallback;
+  return model.decks?.length ? deckHeight(model.decks, x, z, g) : g;
+}
 
 function placements(place: Placement, count: number, rng: Rng, size: [number, number], paths: PathSpec[], objects: ObjectInfo[], issues: Issues, lp: string): Pos[] {
   const out: Pos[] = [];
@@ -533,6 +682,24 @@ function placements(place: Placement, count: number, rng: Rng, size: [number, nu
         const x = pt.p[0] + nx * off, z = pt.p[1] + nz * off;
         out.push({ x, z, yaw: side === 0 ? Math.atan2(pt.dir[0], pt.dir[1]) : Math.atan2(-nx, -nz) });
       }
+    return out;
+  }
+  if ("across" in place) {
+    const path = paths.find((p) => p.id === place.across);
+    if (!path) {
+      issues.add({ path: `${lp}.place.across`, code: "unknown", message: `route ou rivière « ${place.across} » inconnue`, didYouMean: suggest(place.across, paths.map((p) => p.id)) });
+      return out;
+    }
+    const L = pointAt(path.points, 0).length;
+    // rivière : le lit remonte jusqu'à ≈ 1,1 fois la largeur de chaque côté ; route : chaussée, trottoirs et un mètre
+    const span = path.kind === "river" ? path.width * 2.2 + 1 : path.width + (path.kind === "street" ? 2 * path.sidewalk : 0) + 2;
+    const sp = place.spacing ?? L / Math.max(1, count);
+    const first = place.distance ?? (count > 1 ? (L - sp * (count - 1)) / 2 : L / 2);
+    for (let k = 0; k < Math.max(1, count); k++) {
+      const pt = pointAt(path.points, clamp(first + k * sp, 0, L));
+      // l'ouvrage passe selon son z : perpendiculaire au tracé
+      out.push({ x: pt.p[0], z: pt.p[1], yaw: Math.atan2(-pt.dir[1], pt.dir[0]), span });
+    }
     return out;
   }
   if ("cluster" in place || "ring" in place) {

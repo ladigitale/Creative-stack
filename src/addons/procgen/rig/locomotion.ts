@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qMul, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep"] as const;
 export type Action = (typeof ACTIONS)[number];
 
 export type MotionState = {
@@ -35,6 +35,8 @@ export type MotionState = {
   seed: number;
   /** Assis : hauteur de l'assise (m, 0 = par terre). Le bassin s'y pose, les pieds restent au sol devant. */
   seatY?: number;
+  /** Boire, manger à une cible : hauteur de la cible au-dessus des pieds (m). Absent : gobelet, nourriture à la main ; animal : au sol. */
+  reachY?: number;
 };
 
 export type RigInfo = {
@@ -222,6 +224,46 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       over.head = qEuler(10 * DEG, 0, 0);
       break;
     }
+    case "drink": {
+      if (st.reachY !== undefined && st.reachY < info.hipY * 1.15) {
+        // eau basse (bassin, fontaine, abreuvoir) : penché en avant, mains en coupe portées à la bouche
+        const k = 0.5 + 0.5 * Math.sin(at * 1.6);
+        const bend = clamp(1 - st.reachY / (info.hipY * 1.15), 0.3, 1);
+        raiseArm("r", 14, 55 + 25 * k, 40 + 70 * k);
+        raiseArm("l", 14, 55 + 25 * k, 40 + 70 * k);
+        over.spine = qEuler((20 + 25 * bend) * DEG, 0, 0);
+        over.chest = qEuler((10 + 10 * bend) * DEG, 0, 0);
+        over.head = qEuler((14 - 10 * k) * DEG, 0, 0);
+      } else {
+        // gobelet (ou l'objet tenu) porté à la bouche, tête renversée à chaque gorgée (cycle de 2,4 s)
+        const c = (at % 2.4) / 2.4;
+        const k = Math.sin(clamp((c - 0.15) / 0.6, 0, 1) * Math.PI);
+        raiseArm("r", 16, 40 + 25 * k, 95 + 45 * k);
+        raiseArm("l", 10, 12, 20);
+        over.head = qEuler(-18 * k * DEG, 0, 0);
+        over.neck = qEuler(-8 * k * DEG, 0, 0);
+      }
+      break;
+    }
+    case "eat": {
+      // une bouchée toutes les 2 s : la main droite monte à la bouche, la gauche tient l'assiette, on mâche
+      const c = (at % 2) / 2;
+      const k = Math.sin(clamp(c / 0.45, 0, 1) * Math.PI);
+      raiseArm("r", 16, 30 + 30 * k, 70 + 70 * k);
+      raiseArm("l", 12, 42, 85);
+      over.head = qEuler((8 - 6 * k + (c > 0.45 ? 2.5 * Math.sin(at * 11) : 0)) * DEG, 0, 0);
+      break;
+    }
+    case "sleep": {
+      // assoupi (assis, ou par terre) : tête tombée sur la poitrine, épaules affaissées, mains sur les cuisses
+      const br = Math.sin(t * 1.3);
+      raiseArm("r", 8, 32, 58);
+      raiseArm("l", 8, 32, 58);
+      over.chest = qEuler((12 + br) * DEG, 0, 0);
+      over.neck = qEuler(18 * DEG, 0, 0);
+      over.head = qEuler(26 * DEG, 0, 10 * DEG);
+      break;
+    }
     case "bow": {
       const k = Math.sin(clamp(at / 1.2, 0, 1) * Math.PI);
       over.spine = qEuler(35 * k * DEG, 0, 0);
@@ -232,7 +274,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   for (const [k, q] of Object.entries(over)) rot[k] = qSlerp(rot[k] ?? qId(), q, w);
 
   /* ---------- jambes : IK ---------- */
-  const sit = st.action === "sit" ? w : 0;
+  const sit = st.action === "sit" || st.action === "sleep" ? w : 0;
   const jumpT = st.action === "jump" ? at % 1.1 : -1;
   let jumpY = 0;
   let jumpCrouch = 0;
