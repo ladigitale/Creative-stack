@@ -58,6 +58,12 @@ export const SKETCH_EDITS: readonly SketchEdit[] = [...FLAT_EDITS, "palette", "l
 const COLOR_EDIT_MODE: Record<"palette" | "levels" | "gradient", ColorMapMode> = { palette: "nearest", levels: "levels", gradient: "gradient" };
 const isColorEdit = (op: SketchEdit): op is "palette" | "levels" | "gradient" => op in COLOR_EDIT_MODE;
 
+/** Rendu de la couche : moteur du dernier rendu et sa durée (ms), mode demandé. */
+export type SketchRenderState = { mode: RenderMode; live: boolean; engine: string; ms: number; batches?: number; switches?: number; msaa?: boolean };
+/** `auto` : worker + carte graphique (2D si indisponible) ; `gpu` : idem ; `cpu` : worker en 2D ; `direct` : fil principal. */
+export type RenderMode = "auto" | "gpu" | "cpu" | "direct";
+const RENDER_MODES: readonly RenderMode[] = ["auto", "gpu", "cpu", "direct"];
+
 export type SketchState = {
   status: "ready" | "error";
   error: string | null;
@@ -98,6 +104,7 @@ export type SketchState = {
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
   /** Retouche de la sélection en aperçu (`control.edit`) : opération, aperçu affiché, erreur. */
   edit: { op: SketchEdit | null; preview: boolean; error: string | null; scope: "selection" | "all" };
+  render: SketchRenderState;
   /** Carnet (`persist`) : état, dessin ouvert, dessins enregistrés (vignette = URL `blob:`), le plus récent d'abord. */
   library: {
     enabled: boolean;
@@ -313,6 +320,21 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Boolean, attribute: "no-worker" }) noWorker = false;
   /** Sans carte graphique : le worker rend la couche en 2D (même image, plus lent). */
   @property({ type: Boolean, attribute: "no-gpu" }) noGpu = false;
+  /** Moteur de rendu de la couche (voir `RenderMode`). */
+  @property({ type: String, attribute: "render-mode" }) renderMode: RenderMode = "auto";
+  /** Vue refaite pendant les gestes (pincement, glissé, molette) quand la carte graphique rend vite. */
+  @property({ type: Boolean, attribute: "live-render" }) liveRender = false;
+  /** DP du réglage de rendu : `{ mode, live }` (ou `renderMode` / `renderLive`), ou le mode seul (prioritaire sur `render-mode` / `live-render`). */
+  @property({ type: String, attribute: "render-from" }) renderFrom = "";
+  private renderPref: { mode?: RenderMode; live?: boolean } = {};
+
+  private effMode(): RenderMode {
+    const m = this.renderPref.mode ?? this.renderMode;
+    return RENDER_MODES.includes(m) ? m : "auto";
+  }
+  private effLive(): boolean {
+    return this.renderPref.live ?? this.liveRender;
+  }
   /**
    * Export PNG (`savePng`) : `export-scale` multiplie la résolution (1 à 8 ; les traits sont redessinés nets à
    * cette taille, ce n'est pas un agrandissement) ; `export-area` = `view` (la vue courante, défaut) ou
@@ -529,7 +551,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom") || c.has("gesturesFrom") || c.has("settingsFrom") || c.has("prefsFrom")) this.listen();
+    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom") || c.has("gesturesFrom") || c.has("settingsFrom") || c.has("prefsFrom") || c.has("renderFrom")) this.listen();
+    if (c.has("renderMode") || c.has("liveRender") || c.has("noGpu") || c.has("noWorker")) this.renderChanged();
     if (c.has("width") || c.has("height")) { this.layer = null; this.layerDirty = true; this.compose(); }
     if (c.has("background") || c.has("checker") || c.has("checkerSize")) this.compose();
     if (c.has("tool") && c.get("tool") !== undefined && this.tool !== "select" && this.tool !== "select-color" && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
@@ -564,6 +587,19 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       }
       if (tool !== "select" && tool !== "select-color" && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
       this.publish();
+    }));
+    if (this.renderFrom) this.unsubs.push(listenDp(this.renderFrom, (v) => {
+      const o = plain(v);
+      // `{ mode, live }`, ou les clés `renderMode` / `renderLive` d'un état plus large.
+      const ob = o && typeof o === "object" ? (o as Record<string, unknown>) : null;
+      const mode = typeof o === "string" ? o : ob ? ob.mode ?? ob.renderMode : undefined;
+      const live = ob ? ob.live ?? ob.renderLive : undefined;
+      // `live` : booléen, ou « oui »/« non » (case à cocher d'un formulaire).
+      const lv = typeof live === "boolean" ? live : live === "oui" || live === "true" ? true : live === "non" || live === "false" || live === "" || live === null ? false : undefined;
+      const next = { mode: RENDER_MODES.includes(mode as RenderMode) ? (mode as RenderMode) : undefined, live: lv };
+      if (next.mode === this.renderPref.mode && next.live === this.renderPref.live) return;
+      this.renderPref = next;
+      this.renderChanged();
     }));
     if (this.tipFrom) this.unsubs.push(listenDp(this.tipFrom, (v) => { this.live = { ...this.live, tip: tipFromValue(v) }; this.publish(); }));
     // Plusieurs sources d'import possibles (liste séparée par des espaces), suivies chacune avec ses propres calculs.
@@ -716,7 +752,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const bg = this.backgroundColor();
     if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); }
-    const job = { canvas, view, strokes, i: 0, raf: 0 };
+    const job = { canvas, view, strokes, i: 0, raf: 0, busy: 0 };
     this.prog = job;
     const step = () => {
       if (this.prog !== job) return;
@@ -729,11 +765,17 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         if (!intersects(st.bbox, rect) || Math.max(st.bbox.w, st.bbox.h) * view.zoom < 0.4) continue;
         drawStroke(s, st);
       }
+      job.busy += performance.now() - t0;
       if (job.i < strokes.length) { job.raf = requestAnimationFrame(step); return; }
       this.prog = null;
       this.layer = canvas;
       this.layerView = view;
       this.layerDirty = false;
+      // Mesure : temps de calcul cumulé des tranches (fil principal).
+      this.lastLayerMs = job.busy;
+      this.lastLayerEngine = "direct";
+      this.lastLayerStats = undefined;
+      this.publishRender();
       this.compose();
     };
     job.raf = requestAnimationFrame(step);
@@ -753,7 +795,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * assez de traits visibles pour que ça vaille l'aller-retour (en deçà, le rendu direct est immédiat).
    */
   private layerAsync(): boolean {
-    if (this.noWorker || !this.layerWorker.ok || this.pending || this.deferRender) return false;
+    if (this.noWorker || this.effMode() === "direct" || !this.layerWorker.ok || this.pending || this.deferRender) return false;
     const { w, h } = this.dims();
     const rect = visibleRect(this.view, w, h);
     let n = 0;
@@ -764,7 +806,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /** Demande au worker la couche de la vue courante (sans effet si la même demande est en cours). */
   private requestLayer(): void {
     const { w, h, dpr } = this.dims();
-    this.layerWorker.gl = !this.noGpu;
+    this.layerWorker.gl = !this.noGpu && this.effMode() !== "cpu";
     if (!this.layerWorker.request(this.doc.strokes, this.view, w, h, dpr, this.backgroundColor())) { this.layerDirty = true; this.schedule(); }
   }
 
@@ -820,6 +862,30 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.layerDirty = false;
     this.lastLayerMs = r.ms;
     this.lastLayerEngine = r.engine ?? "";
+    this.lastLayerStats = r.stats;
+    this.publishRender();
+  }
+  private lastLayerStats: { batches: number; switches: number; msaa: boolean } | undefined;
+
+  /** État du rendu, publié à part (sans passer par la sauvegarde). */
+  private renderState(): SketchRenderState {
+    const st = this.lastLayerStats;
+    return {
+      mode: this.effMode(), live: this.effLive(), engine: this.lastLayerEngine, ms: Math.round(this.lastLayerMs),
+      ...(st && this.lastLayerEngine === "gl" ? { batches: st.batches, switches: st.switches, msaa: st.msaa } : {}),
+    };
+  }
+  /** Réglage de rendu changé : couche refaite avec le nouveau moteur. */
+  private renderChanged(): void {
+    if (!this.isConnected) return;
+    this.layerWorker.cancel();
+    this.lastLayerEngine = "";
+    this.layerDirty = true;
+    this.renderLayerSoon();
+    this.publishRender();
+  }
+  private publishRender(): void {
+    if (this.outDataProvider) set(`${this.outDataProvider}.render`, this.renderState());
   }
   /** Seuil du rendu pendant les gestes (ms, voir LIVE_GL_MS). */
   liveGlMs = LIVE_GL_MS;
@@ -838,8 +904,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     // Le fond est aussi dans la couche : les modes de fusion le voient sous les traits.
     const bg = this.backgroundColor();
     if (bg) { s.ctx.fillStyle = bg; s.ctx.fillRect(0, 0, s.w, s.h); }
+    const t0 = performance.now();
     drawStrokes(s, this.pending?.strokes ?? this.doc.strokes, visibleRect(this.layerView, s.w, s.h));
     this.layerDirty = false;
+    // Mesure (rendu complet sur le fil principal ; le rendu étalé n'est pas compté ici).
+    const ms = performance.now() - t0;
+    if (ms > 4 || this.lastLayerEngine !== "direct") { this.lastLayerMs = ms; this.lastLayerEngine = "direct"; this.lastLayerStats = undefined; this.publishRender(); }
   }
 
   /** Fond + couche (transformée vers la vue courante pendant un geste) sur la toile visible. */
@@ -851,7 +921,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.applyReadyLayer();
     // Vue en mouvement (pincement, glissé, molette), si la carte graphique rend vite : la vue courante est
     // redemandée dès que la précédente est arrivée — l'image se précise pendant le geste, sans attendre sa fin.
-    if (!this.stroke && !this.layerWorker.wanted && this.lastLayerEngine === "gl" && this.lastLayerMs < this.liveGlMs && !sameView(this.layerView, this.view) && this.layerAsync()) this.requestLayer();
+    if (this.effLive() && !this.stroke && !this.layerWorker.wanted && this.lastLayerEngine === "gl" && this.lastLayerMs < this.liveGlMs && !sameView(this.layerView, this.view) && this.layerAsync()) this.requestLayer();
     // Couche à refaire : dans le worker quand le dessin est gros (l'ancienne reste affichée en attendant), sinon ici.
     if (this.layerDirty && !this.gestureActive() && !this.deferRender) {
       if (!this.layerAsync()) this.renderLayer();
@@ -2658,6 +2728,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
       tool: this.currentTool(), color: b.color, picked: this.picked, sampled: this.sampled, imported: this.imported, gestures: this.gestureState, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
       edit: { op: this.editOp(), preview: !!this.pending, error: this.editError, scope: this.selected.size ? "selection" : "all" },
+      render: this.renderState(),
       library: {
         enabled: !!this.persist, status: this.libStatus, id: this.drawingId, name: this.drawingName,
         dirty: !!this.persist && this.dirty() && (this.doc.strokes.length > 0 || !!this.drawingId), progress: this.libProgress, mode: this.saveMode,
