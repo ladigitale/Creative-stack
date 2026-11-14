@@ -23,7 +23,7 @@ import { drawEmblem, drawGeneric, drawProp } from "./draw/props";
 import { drawVehicle, drawWall } from "./draw/fences";
 import { drawPlant } from "./draw/more";
 import { drawBall } from "./draw/ball";
-import { drawAssembly, drawContainer, drawPet, drawSeat, drawStreet, drawTool } from "./draw/parts";
+import { drawAssembly, drawContainer, drawPet, drawSeat, drawStreet, drawStructure, drawTool, drawWater } from "./draw/parts";
 import type { DrawEnv, ObjectDrawer } from "./draw/types";
 import { type VectorCamera, Projector } from "./project";
 import type { Shape } from "./shape";
@@ -31,7 +31,7 @@ import { type Plan, buildPlan } from "./buildplan";
 import { VECTOR_META } from "./compose";
 import { hash32 } from "../core/rng";
 
-export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem, wall: drawWall, vehicle: drawVehicle, plant: drawPlant, ball: drawBall, seat: drawSeat, assembly: drawAssembly, tool: drawTool, container: drawContainer, street: drawStreet, pet: drawPet };
+export const DRAWERS: Record<string, ObjectDrawer> = { building: drawBuilding, tree: drawTree, bush: drawBush, grass: drawGrass, flowers: drawFlowers, rock: drawRock, prop: drawProp, emblem: drawEmblem, wall: drawWall, vehicle: drawVehicle, plant: drawPlant, ball: drawBall, seat: drawSeat, assembly: drawAssembly, tool: drawTool, container: drawContainer, street: drawStreet, pet: drawPet, structure: drawStructure, water: drawWater };
 
 /** Générateurs dessinés par gabarit (même dessin pour mêmes paramètres : végétation, rochers). */
 const TEMPLATED = new Set(["tree", "bush", "grass", "rock", "plant"]);
@@ -99,7 +99,10 @@ export class VectorScene {
         const x = o.pos[0] + a * o.footprint.hx * c + b * o.footprint.hz * s, z = o.pos[2] - a * o.footprint.hx * s + b * o.footprint.hz * c;
         best = Math.max(best, this.pr.key([x, o.pos[1], z]));
       }
-      this.keys.set(o.obj, o.mode === "actor" ? this.pr.key(o.pos) : best);
+      // objets à plat (mare, piscine, voie ferrée) : ordonnés par leur centre, pour que ce qui est posé devant ou dessus passe par-dessus
+      const k0 = String(o.params.kind ?? "");
+      const flat = (o.generator === "water" && k0 !== "basin" && k0 !== "cascade") || (o.generator === "structure" && k0 === "rails");
+      this.keys.set(o.obj, o.mode === "actor" || flat ? this.pr.key(o.pos) : best);
     }
   }
 

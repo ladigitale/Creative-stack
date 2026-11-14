@@ -12,7 +12,7 @@
  * - Corps : rebond, tangage (galop), roulis, ondulation latérale de la colonne, flexion de la colonne au galop
  *   (félins, chiens), balancier de tête, queue et oreilles.
  */
-import { type Q, type V3, DEG, add, clamp, mix, norm, qAxis, qEuler, qId, qMul, qRot, scale, smoothstep, sub } from "../core/math";
+import { type Q, type V3, DEG, add, clamp, m4Point, mix, norm, qAxis, qEuler, qId, qMul, qRot, scale, smoothstep, sub } from "../core/math";
 import { twoBoneIK } from "./locomotion";
 import { AnimalSkeleton, type BirdProps, type QuadProps, type Species } from "./quadruped";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
@@ -25,7 +25,23 @@ export type AnimalMotionState = {
   mood: string;
   turn: number;
   seed: number;
+  /** Action : `drink`, `eat` (tête à la cible ou au sol), `sleep` (couché) ; les autres sont ignorées. */
+  action?: string;
+  actionTime?: number;
+  actionWeight?: number;
+  /** Hauteur de la cible (eau, nourriture) au-dessus des pieds (m) ; absent : au sol. */
+  reachY?: number;
 };
+
+/** Poids des actions animales (boire, manger, dormir). */
+function actionWeights(info: AnimalInfo, st: AnimalMotionState, sk: Skeleton) {
+  const w = clamp(st.actionWeight ?? (st.action && st.action !== "idle" ? 1 : 0), 0, 1);
+  const drink = st.action === "drink" ? w : 0, eat = st.action === "eat" ? w : 0, sleep = st.action === "sleep" ? w : 0;
+  // abaissement de la tête : 1 = au sol ; une cible haute (abreuvoir) demande moins
+  const mouthY = Math.max(0.05, sk.bone("head")?.tail[1] ?? info.W);
+  const reach = st.reachY === undefined ? 1 : clamp((mouthY - st.reachY) / (mouthY * 0.92), 0, 1);
+  return { drink, eat, sleep, lower: Math.max(drink, eat) * reach };
+}
 
 export type LegInfo = {
   id: "fl" | "fr" | "hl" | "hr";
@@ -200,18 +216,27 @@ function quadPose(sk: Skeleton, info: AnimalInfo, st: AnimalMotionState, rootPos
   rot.chest = qEuler(flexA * 0.5 + breathe * 0.6 * DEG, -undul * 0.8, 0);
 
   /* ---------- cou et tête ---------- */
-  const graze = m.graze * (1 - moving) * (info.herbivore ? 1 : 0.55);
+  const act = actionWeights(info, st, sk);
+  const graze = Math.max(m.graze * (info.herbivore ? 1 : 0.55), act.lower) * (1 - moving);
+  const lap = act.drink * (1 - moving);
+  const nap = act.sleep * (1 - moving);
   // balancier : la tête hoche 2 fois par cycle au pas, une fois au galop ; stable au trot
   const nod = moving * (mix(mix(4, 1, trotW), 7, galW) * Math.sin(TAU * (phi * mix(2, 1, galW) + 0.15)));
   const look = (1 - moving) * 14 * Math.sin(t * 0.31 + rnd(2) * 9) * (1 - graze);
   const lookUp = (1 - moving) * 4 * Math.sin(t * 0.23 + rnd(3) * 7);
   // broutage : abaisser le cou jusqu'au sol, petites saccades
-  const munch = graze * Math.sin(t * 5.2) * 3;
-  const neckP = (m.neck + nod * 0.6 - pitch / DEG * 0.6 + graze * 46 - lookUp - flexA / DEG * 0.4 + (galW * 10 + trotW * 3) * moving) * DEG;
-  rot["neck.1"] = qEuler(neckP * 0.55, look * 0.4 * DEG + undul * 0.6, 0);
-  rot["neck.2"] = qEuler(neckP * 0.45, look * 0.3 * DEG, 0);
-  rot.head = qEuler((m.head + nod * 0.4 + graze * 22 + munch - galW * 6 * moving) * DEG, look * 0.3 * DEG, look * 0.1 * DEG);
-  if (sk.has("jaw")) rot.jaw = qAxis([1, 0, 0], ((graze ? 6 + 5 * Math.sin(t * 9) : 0) + (info.species === "dog" ? 6 * moving * trotW : 0)) * DEG);
+  // boire : petits coups de langue rapides ; manger : mastication (comme le broutage) ; dormir : tête posée devant
+  const munch = graze * Math.sin(t * 5.2) * 3 * (1 - lap) + lap * 2.5 * Math.sin(t * 13);
+  const lookN = look * (1 - nap) * (1 - lap);
+  // `extra` (°) : abaissement supplémentaire pour amener la bouche à la cible (boire, manger), ajusté après la pose
+  const setNeck = (extra: number) => {
+    const neckP = (m.neck + nod * 0.6 - pitch / DEG * 0.6 + graze * 46 + extra + nap * 30 - lookUp * (1 - nap) - flexA / DEG * 0.4 + (galW * 10 + trotW * 3) * moving) * DEG;
+    rot["neck.1"] = qEuler(neckP * 0.55, lookN * 0.4 * DEG + undul * 0.6, 0);
+    rot["neck.2"] = qEuler(neckP * 0.45, lookN * 0.3 * DEG, 0);
+    rot.head = qEuler((m.head + nod * 0.4 + graze * 22 - extra * 0.3 + nap * 12 + munch - galW * 6 * moving) * DEG, lookN * 0.3 * DEG + nap * 14 * DEG, lookN * 0.1 * DEG);
+  };
+  setNeck(0);
+  if (sk.has("jaw")) rot.jaw = qAxis([1, 0, 0], ((graze ? (lap ? 4 + 4 * Math.sin(t * 13) : 6 + 5 * Math.sin(t * 9)) : 0) + (info.species === "dog" ? 6 * moving * trotW : 0)) * DEG);
   // oreilles : dressées en alerte, couchées au galop, petits frémissements
   const twitch = (k: number) => {
     const ph = (t * 0.37 + rnd(k) * 5) % 1;
@@ -219,13 +244,13 @@ function quadPose(sk: Skeleton, info: AnimalInfo, st: AnimalMotionState, rootPos
   };
   for (const [s, sg, k] of [["l", 1, 4], ["r", -1, 5]] as const) {
     if (!sk.has(`ear.${s}`)) continue;
-    const back = m.ears + galW * 25 * moving + 10 * twitch(k);
+    const back = m.ears + galW * 25 * moving + 10 * twitch(k) * (1 - nap) + nap * 18;
     rot[`ear.${s}`] = qEuler(-back * DEG * 0.8, 0, sg * (8 * twitch(k + 2) - back * 0.3) * DEG);
   }
   // queue : relevée et balancée avec l'allure, remuée (chien heureux)
   const wag = m.wag * (info.species === "dog" || info.species === "fox" ? 1 : 0.4);
   const wagA = (wag * 26 * Math.sin(t * TAU * (wag > 0.5 ? 3.2 : 0.6) + rnd(6) * 6) + 8 * Math.sin(TAU * phi) * moving) * DEG;
-  const lift = (m.tail - 10 * moving * (trotW + galW) * (info.species === "horse" ? 1 : 0.6)) * DEG;
+  const lift = (m.tail - 10 * moving * (trotW + galW) * (info.species === "horse" ? 1 : 0.6) + nap * 25) * DEG;
   const swish = info.species === "horse" || info.species === "cow" ? 10 * DEG * Math.sin(t * 0.9 + rnd(7) * 5) * (1 - moving) : 0;
   for (let i = 1; i <= 3; i++) if (sk.has(`tail.${i}`)) rot[`tail.${i}`] = qEuler(lift * (i === 1 ? 0.6 : 0.25) + (galW * moving * 6 * Math.sin(TAU * phi + i)) * DEG, (wagA + swish) * (0.4 + 0.25 * i), 0);
 
@@ -247,7 +272,8 @@ function quadPose(sk: Skeleton, info: AnimalInfo, st: AnimalMotionState, rootPos
     z *= moving;
     // pied d'appui légèrement en arrière pour les pattes avant (charge sous l'épaule)
     const f0 = leg.foot0;
-    const Fl: V3 = [f0[0], f0[1] + y, f0[2] + z];
+    // couché : pattes avant allongées devant (sphinx), postérieures repliées sous le corps, un peu écartées
+    const Fl: V3 = [f0[0] * (1 + nap * 0.35), f0[1] + y, f0[2] + z + nap * L * (leg.front ? 0.55 : 0.3)];
     // canon : suit l'inclinaison de la patte en appui, se replie en envol
     const joint = sk.bone(leg.bones[0])!.head;
     const lean = Math.atan2(joint[2] - Fl[2], joint[1] - Fl[1]) / DEG - Math.atan2(joint[2] - f0[2], joint[1] - f0[1]) / DEG;
@@ -269,11 +295,15 @@ function quadPose(sk: Skeleton, info: AnimalInfo, st: AnimalMotionState, rootPos
       const push = smoothstep(duty * 0.75, duty, u) * moving;
       toeAng = -push * 20;
     }
+    if (nap > 0) {
+      cAng = mix(cAng, -82, nap);
+      toeAng = mix(toeAng, leg.front ? -10 : 20, nap);
+    }
     legsTarget.push({ leg, F: toWorld(Fl), cAng, toeAng, planted });
     feet[leg.id] = toWorld(Fl);
   }
   // deux passes : corps, IK, abaissement du corps si une patte n'atteint pas sa cible
-  let drop = graze * L * 0.02 + moving * L * 0.01 * (trotW + galW);
+  let drop = graze * L * 0.02 + moving * L * 0.01 * (trotW + galW) + nap * L * 0.72 + act.lower * (1 - moving) * L * 0.06;
   let pose: Pose = { rot, root: rootPos, rootRot: bodyQ };
   const c0 = info.center;
   for (let pass = 0; pass < 3; pass++) {
@@ -290,8 +320,27 @@ function quadPose(sk: Skeleton, info: AnimalInfo, st: AnimalMotionState, rootPos
       if (lt.planted) worst = Math.min(worst, r);
     }
     // seules les pattes d'appui abaissent le corps (une patte en l'air peut rester tendue)
-    if (worst < 0.999 && pass < 2 && drop < L * 0.12) drop = Math.min(L * 0.12, drop + (1 - worst) * L * 1.05);
+    if (worst < 0.999 && pass < 2 && drop < L * 0.12 + nap * L * 0.72) drop = Math.min(L * 0.12 + nap * L * 0.72, drop + (1 - worst) * L * 1.05);
     else break;
+  }
+  // boire, manger : la bouche descend jusqu'à la cible (le cou d'un cheval ne suffit pas au simple broutage)
+  const hi = sk.index.head;
+  if (act.lower > 0.01 && moving < 0.5 && hi !== undefined) {
+    const hb = sk.bones[hi];
+    const want = rootPos[1] + (st.reachY ?? 0) + L * 0.05;
+    const tipY = (e: number) => {
+      setNeck(e);
+      const W = sk.world(pose);
+      return m4Point(W[hi], sub(hb.tail, hb.head))[1];
+    };
+    // recherche simple : le plus petit abaissement qui atteint la cible (au-delà, le cou se replierait sous le poitrail)
+    let best = 0, bestErr = Math.abs(tipY(0) - want);
+    for (let e = 8; e <= 64 && bestErr > 0.02; e += 8) {
+      const err = Math.abs(tipY(e) - want);
+      if (err < bestErr - 0.005) [best, bestErr] = [e, err];
+      else break;
+    }
+    setNeck(best * act.lower);
   }
   return { pose, feet };
 }
@@ -314,11 +363,16 @@ function birdPose(sk: Skeleton, info: AnimalInfo, st: AnimalMotionState, rootPos
   rot.pelvis = qEuler(breathe * 0.8 * DEG, yawW, 0);
   rot.chest = qEuler(breathe * 0.6 * DEG, 0, 0);
   // picorer (poule au repos ou en « grazing »), regards par saccades
-  const peckOn = (1 - moving) * (m.graze || info.species === "chicken" ? 1 : 0);
-  const pk = (t * 0.45 + rnd(2)) % 1;
-  const peck = peckOn * (pk < 0.18 ? Math.sin((pk / 0.18) * Math.PI) : 0) * (m.graze ? 1 : 0.6);
+  const act = actionWeights(info, st, sk);
+  const nap = act.sleep * (1 - moving);
+  // manger : picore souvent ; boire : bec plongé puis tête relevée pour avaler
+  const peckOn = (1 - moving) * Math.max(m.graze || info.species === "chicken" || info.species === "pigeon" ? 1 : 0, act.eat, act.drink) * (1 - nap);
+  const pk = (t * (act.eat ? 0.9 : act.drink ? 0.35 : 0.45) + rnd(2)) % 1;
+  const peckLen = act.drink ? 0.4 : 0.18;
+  const peck = peckOn * (pk < peckLen ? Math.sin((pk / peckLen) * Math.PI) : 0) * (m.graze || act.eat || act.drink ? 1 : 0.6) * (act.lower > 0 || !(act.eat || act.drink) ? Math.max(0.35, act.lower || 1) : 1);
+  const swallow = act.drink * (1 - moving) * (pk >= peckLen && pk < peckLen + 0.25 ? Math.sin(((pk - peckLen) / 0.25) * Math.PI) : 0);
   const sacc = Math.floor(t * 0.9 + rnd(3) * 10);
-  const lookY = (1 - moving) * (((Math.sin(sacc * 12.9898 + st.seed) * 43758.5453) % 1) * 2 - 1) * 35 * (1 - peck);
+  const lookY = (1 - moving) * (((Math.sin(sacc * 12.9898 + st.seed) * 43758.5453) % 1) * 2 - 1) * 35 * (1 - peck) * (1 - nap);
   if (sk.has("tail.1")) rot["tail.1"] = qEuler((m.tail * 0.5 + (info.species === "duck" ? 0 : -breathe)) * DEG, (info.species === "duck" ? 14 * Math.sin(t * 6) * (1 - moving) * m.wag : 0) * DEG + yawW, 0);
   for (const [s, sg] of [["l", 1], ["r", -1]] as const) if (sk.has(`wing.${s}`)) rot[`wing.${s}`] = qEuler(0, 0, sg * (m.ears < 0 ? 6 : 0) * DEG + sg * (info.waddle ? roll * 0.3 : 0));
   // pattes
@@ -347,7 +401,7 @@ function birdPose(sk: Skeleton, info: AnimalInfo, st: AnimalMotionState, rootPos
     targets.push({ leg, F: toWorld(Fl), cAng, toeAng, planted });
     feet[leg.id] = toWorld(Fl);
   });
-  let drop = 0;
+  let drop = nap * L * 0.62;
   let pose: Pose = { rot, root: rootPos, rootRot: bodyQ };
   // hochement : la tête reste fixe dans le monde pendant ~70 % du pas, puis se projette vers l'avant
   const step = stride / 2;
@@ -365,7 +419,8 @@ function birdPose(sk: Skeleton, info: AnimalInfo, st: AnimalMotionState, rootPos
     const restPoll = sk.bones[sk.index.head].head;
     const restBase = sk.bones[n1].head;
     const offL = sub(restPoll, restBase);
-    const pk3: V3 = [0, -peck * L * 0.95, peck * L * 0.25];
+    // dormir : tête rentrée dans les épaules
+    const pk3: V3 = [0, -peck * L * 0.95 - nap * L * 0.35, peck * L * 0.25 - nap * L * 0.3];
     const want = add(base, qRot(yawQ, add(add(offL, [0, (m.neck < 0 ? 0.08 : m.neck > 0 ? -0.1 : 0) * L, headZ]), pk3)));
     const X = qRot(yawQ, [1, 0, 0]);
     const ik = twoBoneIK(base, want, sk.length[n1], sk.length[n2], qRot(yawQ, [0, 0, -1]));
@@ -373,7 +428,7 @@ function birdPose(sk: Skeleton, info: AnimalInfo, st: AnimalMotionState, rootPos
     const w2 = qFromBasis(sk.axis[n2], [1, 0, 0], norm(sub(ik.end, ik.mid)), X);
     rot["neck.1"] = Skeleton.toLocal(Wq[sk.parentIdx[n1]], w1);
     rot["neck.2"] = Skeleton.toLocal(w1, w2);
-    rot.head = Skeleton.toLocal(w2, qMul(yawQ, qEuler((peck * 50 + breathe) * DEG, lookY * DEG, 0)));
+    rot.head = Skeleton.toLocal(w2, qMul(yawQ, qEuler((peck * 50 - swallow * 35 + breathe + nap * 20) * DEG, lookY * DEG, 0)));
     W = sk.world(pose);
     Wq = sk.worldQuats(W);
     let worst = 1;

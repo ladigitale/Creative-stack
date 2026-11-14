@@ -8,9 +8,11 @@ import { Mesh } from "../geom/mesh";
 import { box, cylinder, ellipsoid, extrude, lathe, tube } from "../geom/prims";
 import { ROLE } from "../style/roles";
 import { type Asset, defineGenerator } from "./types";
+import { partsBounds, partsToMesh } from "./parts";
+import { PART_VEHICLES, vehiclePartsModel } from "./vehicle-parts";
 
-const KINDS = ["carriage", "bicycle", "car", "rowboat", "sailboat", "balloon", "handcart"] as const;
-const PAINTS = ["auto", "accent", "cloth1", "cloth2", "leaf2", "water", "wood", "paper", "ink"] as const;
+const KINDS = ["carriage", "bicycle", "car", "rowboat", "sailboat", "balloon", "handcart", ...PART_VEHICLES] as const;
+const PAINTS = ["auto", "accent", "cloth1", "cloth2", "leaf2", "water", "wood", "paper", "ink", "red", "orange", "yellow", "green", "blue", "purple", "white", "black"] as const;
 
 const put = (m: Mesh, part: Mesh, p: V3, rot?: [number, number, number]) => m.append(part, m4Compose(p, rot ? qEuler(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG) : [0, 0, 0, 1]));
 
@@ -176,16 +178,31 @@ function build(kind: string, size: number, variant: number, paintName: string): 
 export const vehicle = defineGenerator({
   id: "vehicle",
   label: "Véhicule",
-  doc: "Véhicule instanciable : carriage (carrosse), bicycle (vélo), car (voiture ancienne), rowboat (barque), sailboat (voilier), balloon (montgolfière), handcart (charrette à bras). Barque et voilier : couche `onWater`. Couleur de caisse : paint (auto = selon la variante).",
+  doc: "Véhicule instanciable : carriage (carrosse), bicycle (vélo), car (voiture ancienne), rowboat (barque), sailboat (voilier), balloon (montgolfière), handcart (charrette à bras), et sur la grammaire de pièces (même modèle en 3D et en vectoriel) : moderncar (voiture moderne), van (fourgonnette), bus, truck (camion : caisse fermée ou benne selon la variante), tractor (tracteur), wagon (voiture de voyageurs ou wagon de marchandises selon la variante), locomotive (à vapeur). Barque et voilier : couche `onWater`. Wagon et locomotive : `onRails` les pose sur une voie `structure.rails` (même point, même cap). Couleur de caisse : paint (auto = selon la variante ; couleurs franches pour les véhicules modernes). Ancres : light (montgolfière), seat (conducteur), front, back.",
   tags: ["véhicule", "transport", "rue", "port", "décor"],
   schema: {
     kind: { type: "enum", default: "car", options: KINDS, doc: "Véhicule" },
     paint: { type: "enum", default: "auto", options: PAINTS, doc: "Rôle de couleur de la caisse" },
     size: { type: "number", default: 1, min: 0.5, max: 3, doc: "Échelle (montgolfière : taille de l'enveloppe)" },
     variant: { type: "int", default: -1, min: -1, max: 7, doc: "Variante (couleur, accessoires)" },
+    onRails: { type: "bool", default: false, doc: "Wagon, locomotive : posé sur les rails de structure.rails (relevé de 0,29 m)" },
   },
   build(p, ctx) {
     const variant = p.variant >= 0 ? p.variant : ctx.rng.int(0, 7);
+    if ((PART_VEHICLES as readonly string[]).includes(p.kind)) {
+      const parts = vehiclePartsModel({ ...p, variant });
+      const bb = partsBounds(parts);
+      const hx = Math.max(Math.abs(bb.min[0]), Math.abs(bb.max[0])), hz = Math.max(Math.abs(bb.min[2]), Math.abs(bb.max[2]));
+      const R = [0, 0, 0, 1] as [number, number, number, number];
+      return {
+        generator: "vehicle",
+        mesh: partsToMesh(parts, 0.85),
+        anchors: { front: { pos: [0, bb.max[1] * 0.4, bb.max[2]], rot: R, scale: 1 }, back: { pos: [0, bb.max[1] * 0.4, bb.min[2]], rot: R, scale: 1 }, seat: { pos: [p.kind === "tractor" ? 0 : 0.4, bb.max[1] * 0.55, p.kind === "bus" || p.kind === "truck" ? hz * 0.75 : p.kind === "tractor" ? -0.7 : 0.1], rot: R, scale: 1 } },
+        footprint: { hx, hz, r: Math.hypot(hx, hz) },
+        height: bb.max[1],
+        extra: { kind: p.kind },
+      };
+    }
     return build(p.kind, p.size, variant, p.paint);
   },
 });

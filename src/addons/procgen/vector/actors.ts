@@ -10,10 +10,10 @@ import { Rng } from "../core/rng";
 import { Issues, resolveParams } from "../core/schema";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
 import { type Motion, motionFor } from "../rig/motion";
-import type { ActorModel, SceneModel } from "../scene/compose";
+import { type ActorModel, type SceneModel, groundHeight, reachOf } from "../scene/compose";
 import type { ActorPose } from "./scene";
 
-export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number };
+export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
 export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest"; payload: Record<string, unknown> };
 
 export type ActorRT = {
@@ -30,7 +30,15 @@ export type ActorRT = {
   actionWeight: number;
   mood: string;
   path: [number, number][] | null;
-  goal: { x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number }; kick?: { ball: string; power: number; loft: number; tries?: number } } | null;
+  goal: {
+    x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number; action?: Action }; kick?: { ball: string; power: number; loft: number; tries?: number };
+    /** Boire, manger, dormir à une ancre `spot` : action lancée à l'arrivée, bouche au-dessus de l'ancre. */
+    then?: { action: Action; spot: V3 };
+  } | null;
+  /** Hauteur de la cible (eau, gamelle) au-dessus des pieds pendant `drink` / `eat`. */
+  reachY?: number;
+  /** Durée demandée pour l'action en cours (s). */
+  actionDur?: number;
   /** Hauteur de l'assise occupée (m) : le bassin s'y pose quand l'acteur est assis. */
   seatY?: number;
   /** Point libre devant l'assise, où l'acteur se relève. */
@@ -73,6 +81,7 @@ export class ActorSim {
       const rt: ActorRT = {
         model: a, params, mo: motionFor(a.asset), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: (a.seed * 0.618) % 1, action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
         mood: String(a.params.mood ?? params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), blink: 0, turn: 0, zones: new Set(), hidden: false, lastIntent: "", W: [],
+        seatY: a.seatY, standAt: a.standAt, reachY: a.reachY,
       };
       this.actors.set(a.id, rt);
       this.pose(rt);
@@ -94,8 +103,11 @@ export class ActorSim {
       if (it.mood) a.mood = String(it.mood);
       const toSeat = typeof it.target === "string" && /\.sit\.\d+$/.test(it.target);
       const toBall = typeof it.target === "string" && !!this.balls?.byId.get(it.target);
+      // boire, manger, dormir vers une cible : l'action commence à l'arrivée
+      const atTarget = typeof it.target === "string" && !toBall && (it.action === "drink" || it.action === "eat" || it.action === "sleep");
+      a.actionDur = Number.isFinite(it.duration) && Number(it.duration) > 0 ? Number(it.duration) : undefined;
       // en route vers une place (ou un ballon), l'acteur marche : il ne s'assied (ou ne tire) qu'à l'arrivée
-      if (it.action && !(toSeat && it.action === "sit") && !(toBall && it.action === "kick") && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
+      if (it.action && !(toSeat && it.action === "sit") && !atTarget && !(toBall && it.action === "kick") && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
         if (a.action !== it.action) {
           if (it.action !== "sit") this.standUp(a);
           a.action = it.action as Action;
@@ -117,6 +129,7 @@ export class ActorSim {
         let x = Number(it.x ?? a.pos[0]), z = Number(it.z ?? a.pos[2]);
         let seat: { x: number; y: number; z: number; yaw: number } | undefined;
         let kick: { ball: string; power: number; loft: number } | undefined;
+        let then: { action: Action; spot: V3 } | undefined;
         const ball = typeof it.target === "string" ? this.balls?.byId.get(it.target) : undefined;
         if (ball) {
           // derrière le ballon, sur la ligne acteur → ballon ; le coup part à l'arrivée
@@ -132,14 +145,24 @@ export class ActorSim {
             // place assise : on marche jusqu'à l'ancre « approach.N » (devant), puis on s'assied sur « sit.N »
             const sm = /^sit\.(\d+)$/.exec(an);
             const sp = sm ? o.anchors[an] : undefined;
-            if (sp) seat = { x: sp[0], y: sp[1] - o.pos[1], z: sp[2], yaw: o.seatYaw?.[an] ?? o.yaw };
-            const p = (sm && o.anchors[`approach.${sm[1]}`]) || (an === "spot" && o.anchors.approach) || (an && o.anchors[an]) || o.anchors.door || o.pos;
+            if (sp) seat = { x: sp[0], y: sp[1] - o.pos[1], z: sp[2], yaw: o.seatYaw?.[an] ?? o.yaw, ...(it.action === "sleep" ? { action: "sleep" as Action } : {}) };
+            // point d'eau, gamelle : `spot.N` (ou le plus proche si la cible est l'objet seul), on arrive par `approach.N`
+            let sa = an;
+            if (!sa && atTarget && !o.anchors.door) {
+              const spots = Object.keys(o.anchors).filter((k) => /^spot(\.\d+)?$/.test(k));
+              sa = spots.sort((u, v) => Math.hypot(o.anchors[u][0] - a.pos[0], o.anchors[u][2] - a.pos[2]) - Math.hypot(o.anchors[v][0] - a.pos[0], o.anchors[v][2] - a.pos[2]))[0] ?? "";
+            }
+            const spm = /^spot(?:\.(\d+))?$/.exec(sa);
+            const ap = spm ? o.anchors[spm[1] !== undefined ? `approach.${spm[1]}` : "approach"] : undefined;
+            if (spm && atTarget) then = { action: it.action as Action, spot: o.anchors[sa] };
+            const p = (sm && o.anchors[`approach.${sm[1]}`]) || ap || (sa && o.anchors[sa]) || o.anchors.door || o.pos;
             [x, z] = [p[0], p[2]];
           }
         }
         this.goto(a, x, z, it.target);
         if (a.goal && seat) a.goal.seat = seat;
         if (a.goal && kick) a.goal.kick = kick;
+        if (a.goal && then) a.goal.then = then;
       }
       if (Number.isFinite(it.facing) && !a.goal && !a.drive) a.yaw = (Number(it.facing) * Math.PI) / 180;
     }
@@ -183,13 +206,14 @@ export class ActorSim {
 
   /** Quitte une place assise : retour au point libre devant l'assise (sinon l'acteur resterait dans l'obstacle). */
   private standUp(a: ActorRT) {
-    if ((a.seatY ?? 0) > 0 && a.standAt) {
+    if (a.standAt) {
       a.pos[0] = a.standAt[0];
       a.pos[2] = a.standAt[1];
-      if (a.action === "sit") a.action = "idle";
+      if (a.action === "sit" || (a.action === "sleep" && (a.seatY ?? 0) > 0)) a.action = "idle";
     }
     a.seatY = 0;
     a.standAt = undefined;
+    a.reachY = undefined;
   }
 
   private goto(a: ActorRT, x: number, z: number, target?: string) {
@@ -259,10 +283,29 @@ export class ActorSim {
             a.seatY = g.seat.y;
             a.standAt = [g.x, g.z];
             a.speed = 0;
-            if (a.action !== "sit") {
-              a.action = "sit";
+            const sa = g.seat.action ?? "sit";
+            if (a.action !== sa) {
+              a.action = sa;
               a.actionTime = 0;
             }
+          }
+          if (g?.then) {
+            // face à la cible, la bouche au-dessus : boire au bassin, manger à la gamelle
+            const sp = g.then.spot;
+            let dx = sp[0] - a.pos[0], dz = sp[2] - a.pos[2];
+            const d = Math.hypot(dx, dz) || 1;
+            [dx, dz] = [dx / d, dz / d];
+            const r = g.then.action === "sleep" ? 0 : reachOf(a.model.asset, g.then.action, sp[1] - groundHeight(m, sp[0] - dx * 0.5, sp[2] - dz * 0.5, a.pos[1]));
+            a.standAt = [a.pos[0], a.pos[2]];
+            if (d > r) {
+              a.pos[0] = sp[0] - dx * r;
+              a.pos[2] = sp[2] - dz * r;
+            }
+            a.yaw = Math.atan2(dx, dz);
+            a.speed = 0;
+            a.reachY = sp[1] - groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+            a.action = g.then.action;
+            a.actionTime = 0;
           }
           if (g) this.onEvent({ type: "arrive", payload: { actor: a.model.id, x: round(a.pos[0]), z: round(a.pos[2]), target: g.target ?? null } });
         }
@@ -272,7 +315,7 @@ export class ActorSim {
         vx = dx / d;
         vz = dz / d;
       }
-    } else if ((a.model.behavior === "wander" || a.model.behavior === "patrol") && !(a.action === "sit" && (a.seatY ?? 0) > 0)) {
+    } else if ((a.model.behavior === "wander" || a.model.behavior === "patrol") && !(a.action === "sit" && (a.seatY ?? 0) > 0) && a.action !== "sleep") {
       a.wanderT -= dt;
       if (a.wanderT <= 0) {
         a.wanderT = 3 + ((a.model.seed * 7.3 + this.time) % 6);
@@ -313,19 +356,25 @@ export class ActorSim {
       } else this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
       a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
-    a.pos[1] = m.terrain ? m.terrain.height(a.pos[0], a.pos[2]) : a.pos[1];
+    a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
     const transient = a.action === "wave" || a.action === "cheer" || a.action === "jump" || a.action === "bow" || a.action === "point" || a.action === "kick";
     a.actionTime += dt;
     const target = a.action === "idle" ? 0 : 1;
     a.actionWeight += (target - a.actionWeight) * (1 - Math.exp(-dt * 6));
-    if (transient && a.actionTime > (a.action === "jump" ? 1.1 : a.action === "bow" ? 1.4 : a.action === "kick" ? 0.7 : 2.6)) {
+    if ((transient && a.actionDur === undefined && a.actionTime > (a.action === "jump" ? 1.1 : a.action === "bow" ? 1.4 : a.action === "kick" ? 0.7 : 2.6)) || (a.actionDur !== undefined && a.action !== "idle" && !a.goal && a.actionTime > a.actionDur)) {
       this.onEvent({ type: "actionEnd", payload: { actor: a.model.id, action: a.action } });
-      a.action = "idle";
+      a.actionDur = undefined;
+      if (a.action === "sleep" && (a.seatY ?? 0) > 0) a.action = "sit";
+      else {
+        a.action = "idle";
+        a.reachY = undefined;
+      }
     }
     a.blinkT -= dt;
     a.blink = 0;
     if (a.blinkT < 0.14) a.blink = Math.sin(clamp(1 - a.blinkT / 0.14, 0, 1) * Math.PI);
     if (a.blinkT <= 0) a.blinkT = 2 + ((a.model.seed * 17.1 + this.time) % 4);
+    if (a.action === "sleep") a.blink = Math.max(a.blink, a.actionWeight);
     for (const zn of m.zones) {
       const inside = zn.box ? a.pos[0] >= zn.box[0] && a.pos[0] <= zn.box[2] && a.pos[2] >= zn.box[1] && a.pos[2] <= zn.box[3] : Math.hypot(a.pos[0] - zn.x, a.pos[2] - zn.z) <= zn.r;
       if (inside && !a.zones.has(zn.id)) {
@@ -341,13 +390,13 @@ export class ActorSim {
 
   pose(a: ActorRT) {
     const sk = a.model.asset.skeleton!;
-    const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" ? a.seatY : 0 };
+    const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" ? a.seatY : 0, reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
     const { pose } = a.mo.pose(st);
     a.W = sk.world(pose);
   }
 
   poses(): ActorPose[] {
-    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, speed: a.speed, hidden: a.hidden, seated: a.action === "sit" && (a.seatY ?? 0) > 0, colors: a.model.asset.colors as Record<string, string> | undefined }));
+    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, speed: a.speed, hidden: a.hidden, seated: (a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0, colors: a.model.asset.colors as Record<string, string> | undefined }));
   }
 
   state(id: string) {

@@ -190,13 +190,15 @@ export function drawAnimal(pr: Projector, em: Emitter, c: AnimalInput) {
       if (species === "duck") em.add(new Pen().M(b0[0], b0[1] + hr * 0.25).Q(b1[0] + dir * hr * 0.2, b1[1] + hr * 0.15, b1[0], b1[1] - hr * 0.1).Q(b0[0] + dir * hr * 0.3, b0[1] - hr * 0.4, b0[0], b0[1] - hr * 0.25).Z(), "accent", { width: 0.5 });
       else {
         em.add(new Pen().M(b0[0], b0[1] + hr * 0.25).L(b1[0], b1[1]).L(b0[0], b0[1] - hr * 0.2).Z(), "accent", { width: 0.5 });
-        // crête et barbillons
+        // crête et barbillons (poule)
         const top = S(lerp3(h0, h1, 0.3));
+        if (species === "chicken") {
         const comb = new Pen().M(top[0] - dir * hr * 0.6, top[1] + hr * 0.7);
         for (let k = 0; k < 4; k++) comb.Q(top[0] - dir * hr * (0.45 - k * 0.3), top[1] + hr * 1.5, top[0] - dir * hr * (0.3 - k * 0.3), top[1] + hr * 0.8);
         comb.L(top[0] + dir * hr * 0.6, top[1] + hr * 0.6).Z();
         em.add(comb, "cloth2", { width: 0.45 });
         em.add(new Pen().ellipse(b0[0] - dir * hr * 0.1, b0[1] - hr * 0.55, hr * 0.18, hr * 0.3), "cloth2", { width: 0.4 });
+        }
       }
     } else {
       stroke([h0, mid, h1], [hr * 1.15, hr * 0.92, mr * 1.05], woolly ? "leather" : "skin", 0);
