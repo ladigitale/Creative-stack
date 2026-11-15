@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoContrast, bilateral, kuwahara, median, prepareImage, quantize } from "./prefilter";
+import { autoContrast, bilateral, kuwahara, kuwaharaAniso, median, prepareImage, quantize } from "./prefilter";
 import { rng, type Img } from "./painterly";
 
 const make = (w: number, h: number, f: (x: number, y: number) => number): Img => {
@@ -37,6 +37,29 @@ describe("prefilter", () => {
     expect(noise(k, 2, 15)).toBeLessThan(noise(im, 2, 15) * 0.7);
     expect(step(k)).toBeGreaterThan(0.6);
   });
+  it("Kuwahara anisotrope : plages lisses, bord franc, sans marches le long d'un bord oblique", () => {
+    const im = edge(), k = kuwaharaAniso(im, 3);
+    expect(noise(k, 2, 15)).toBeLessThan(noise(im, 2, 15) * 0.7);
+    expect(step(k)).toBeGreaterThan(0.6);
+    // Bord oblique : le classique fait des marches (forte variation le long du bord), l'anisotrope moins.
+    const diag = make(48, 48, (x, y) => (x + 0.5 * y < 34 ? 0.15 : 0.85));
+    const rough = (m: Img) => {
+      let s = 0;
+      for (let y = 8; y < 40; y++) for (let x = 1; x < 47; x++) { const i = y * 48 + x; s += Math.abs(m.r[i] - m.r[i - 48]) * Math.abs(m.r[i] - m.r[i - 1]); }
+      return s;
+    };
+    expect(rough(kuwaharaAniso(diag, 4))).toBeLessThanOrEqual(rough(kuwahara(diag, 4)) + 1e-6);
+  });
+  it("tramage : moyenne locale proche du dégradé d'origine, là où les aplats font des marches", () => {
+    const grad = make(64, 16, (x) => x / 63);
+    const flat = quantize(grad, 3), dith = quantize(grad, 3, true);
+    const errMean = (q: Img) => {
+      let e = 0;
+      for (let x = 4; x < 60; x += 4) { let a = 0, b = 0; for (let y = 0; y < 16; y++) for (let dx = 0; dx < 4; dx++) { a += q.r[y * 64 + x + dx]; b += grad.r[y * 64 + x + dx]; } e += Math.abs(a - b) / 64; }
+      return e;
+    };
+    expect(errMean(dith)).toBeLessThan(errMean(flat) * 0.6);
+  });
   it("aplats : palette réduite", () => {
     const q = quantize(make(30, 30, (x, y) => (x + y) / 58), 4);
     expect(new Set(Array.from(q.r, (v) => v.toFixed(4))).size).toBeLessThanOrEqual(4);
@@ -55,6 +78,7 @@ describe("prefilter", () => {
     expect(prepareImage(im, { style: "huile" })).toBe(im);
     expect(prepareImage(im, { style: "realiste" })).toBe(im);
     expect(prepareImage(im, { style: "illustration" })).not.toBe(im);
+    expect(prepareImage(im, { prepare: "kuwahara-aniso" })).not.toBe(im);
     expect(prepareImage(im, { style: "realiste", prepare: "bilateral" })).not.toBe(im);
   });
 });

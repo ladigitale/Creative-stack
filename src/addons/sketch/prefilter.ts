@@ -4,14 +4,17 @@
  * - `median` : efface les points isolés (poussières, trous, bruit) et garde les bords nets ;
  * - `bilateral` : lisse les surfaces sans franchir les contours (moyenne pondérée par la ressemblance de couleur) ;
  * - `kuwahara` : petites plages de couleur aux bords francs, l'image est déjà « peinte » ;
+ * - `kuwahara-aniso` : Kuwahara anisotrope (Kyprianidis, Kang et Döllner, 2009) — fenêtre en ellipse orientée le
+ *   long des formes (tenseur de structure), 8 secteurs à poids doux : les plages suivent les contours, sans
+ *   l'effet de petits carrés ;
  * - `aplats` : grandes zones de couleur (Kuwahara puis réduction à une palette par k-moyennes, puis médian) ;
  * - contraste automatique : étirement des niveaux (1 % et 99 % de la luminance) quand l'image est terne.
  * Les rayons sont relatifs au côté de l'image (même aspect à toute résolution d'analyse). `force` 0..1.
  */
-import type { Img } from "./painterly";
+import { blurImg, type Img } from "./painterly";
 
-export type PrepareFilter = "auto" | "aucun" | "median" | "bilateral" | "kuwahara" | "aplats";
-export const PREPARE_FILTERS: readonly PrepareFilter[] = ["auto", "aucun", "median", "bilateral", "kuwahara", "aplats"];
+export type PrepareFilter = "auto" | "aucun" | "median" | "bilateral" | "kuwahara" | "kuwahara-aniso" | "aplats";
+export const PREPARE_FILTERS: readonly PrepareFilter[] = ["auto", "aucun", "median", "bilateral", "kuwahara", "kuwahara-aniso", "aplats"];
 
 export type PrepareOptions = {
   /** Filtre (défaut `auto` : selon le style). */
@@ -20,6 +23,8 @@ export type PrepareOptions = {
   prepareForce?: number;
   /** Contraste automatique (défaut : non). */
   contrast?: boolean;
+  /** Aplats : tramage (Floyd–Steinberg) à la réduction de palette (défaut : non). */
+  dither?: boolean;
 };
 
 /** Unité de rayon : 1 px pour une image de 360 px de côté. */
@@ -132,8 +137,100 @@ export function kuwahara(im: Img, r: number): Img {
   return out;
 }
 
-/** Réduction à `k` couleurs (k-moyennes sur un échantillon, graine fixe), chaque pixel prenant la plus proche. */
-export function quantize(im: Img, k: number): Img {
+/**
+ * Kuwahara anisotrope. 1) Tenseur de structure (gradients de Sobel des trois canaux, lissé) : orientation locale φ
+ * et anisotropie A = (λ1 − λ2) / (λ1 + λ2). 2) Fenêtre en ellipse de demi-axes r·(α / (α + A)) et r·((α + A) / α),
+ * tournée de φ (allongée le long des formes, ronde dans les zones sans direction). 3) 8 secteurs à poids
+ * polynomiaux doux (pas de bord dur entre secteurs) sous une enveloppe gaussienne ; chaque secteur donne sa
+ * moyenne et sa variance, combinées par des poids 1 / (1 + σ^q) : le secteur le plus homogène l'emporte, sans
+ * choix brutal. `r` : rayon (px) ; `q` : netteté (8).
+ */
+export function kuwaharaAniso(im: Img, r: number, q = 8): Img {
+  const { w, h } = im;
+  const N = w * h;
+  r = Math.max(2, r);
+  // 1) Tenseur de structure.
+  const E = new Float32Array(N), F = new Float32Array(N), G = new Float32Array(N);
+  const ch = [im.r, im.g, im.b];
+  const at = (c: Float32Array, x: number, y: number) => c[Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let e = 0, f = 0, g = 0;
+    for (const c of ch) {
+      const gx = (at(c, x + 1, y - 1) + 2 * at(c, x + 1, y) + at(c, x + 1, y + 1) - at(c, x - 1, y - 1) - 2 * at(c, x - 1, y) - at(c, x - 1, y + 1)) / 4;
+      const gy = (at(c, x - 1, y + 1) + 2 * at(c, x, y + 1) + at(c, x + 1, y + 1) - at(c, x - 1, y - 1) - 2 * at(c, x, y - 1) - at(c, x + 1, y - 1)) / 4;
+      e += gx * gx; f += gx * gy; g += gy * gy;
+    }
+    const i = y * w + x;
+    E[i] = e; F[i] = f; G[i] = g;
+  }
+  const sig = Math.max(1, r / 3);
+  const T = blurImg({ w, h, r: E, g: F, b: G }, sig);
+  // 2–3) Filtre.
+  const NS = 8;
+  const alpha = 1;
+  const zeta = 0.33;
+  const eta = (zeta + Math.cos(Math.PI / NS)) / Math.sin(Math.PI / NS) ** 2;
+  const cosk = new Float32Array(NS), sink = new Float32Array(NS);
+  for (let k = 0; k < NS; k++) { cosk[k] = Math.cos((2 * Math.PI * k) / NS); sink[k] = Math.sin((2 * Math.PI * k) / NS); }
+  const out = { w, h, r: new Float32Array(N), g: new Float32Array(N), b: new Float32Array(N) };
+  const m = new Float64Array(NS * 3), s2 = new Float64Array(NS * 3), ws = new Float64Array(NS);
+  const R = Math.ceil(r * (1 + alpha) / alpha);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    const e = T.r[i], f = T.g[i], g = T.b[i];
+    const disc = Math.sqrt((e - g) * (e - g) + 4 * f * f);
+    const l1 = (e + g + disc) / 2, l2 = (e + g - disc) / 2;
+    // Direction des formes : vecteur propre de la plus petite valeur propre (perpendiculaire au gradient).
+    let tx = l1 - e, ty = -f;
+    const tl = Math.hypot(tx, ty);
+    if (tl > 1e-12) { tx /= tl; ty /= tl; } else { tx = 0; ty = 1; }
+    const A = l1 + l2 > 1e-12 ? (l1 - l2) / (l1 + l2) : 0;
+    const a = r * (alpha + A) / alpha, b = r * alpha / (alpha + A); // grand axe le long des formes
+    m.fill(0); s2.fill(0); ws.fill(0);
+    const ex = Math.ceil(Math.min(R, Math.sqrt(a * a * tx * tx + b * b * ty * ty))) ;
+    const ey = Math.ceil(Math.min(R, Math.sqrt(a * a * ty * ty + b * b * tx * tx)));
+    for (let dy = -ey; dy <= ey; dy++) {
+      const yy = Math.min(h - 1, Math.max(0, y + dy));
+      for (let dx = -ex; dx <= ex; dx++) {
+        // Coordonnées dans l'ellipse ramenée au disque unité.
+        const u = (dx * tx + dy * ty) / a, v = (-dx * ty + dy * tx) / b;
+        const d2 = u * u + v * v;
+        if (d2 > 1) continue;
+        const j = yy * w + Math.min(w - 1, Math.max(0, x + dx));
+        const c0 = im.r[j], c1 = im.g[j], c2 = im.b[j];
+        const gauss = Math.exp(-3.125 * d2);
+        for (let k = 0; k < NS; k++) {
+          // Repère du secteur k : le poids polynomial vaut (z)² devant le centre, 0 derrière.
+          const px = u * cosk[k] + v * sink[k], py = -u * sink[k] + v * cosk[k];
+          const z = px + zeta - eta * py * py;
+          if (z <= 0) continue;
+          const wt = z * z * gauss;
+          ws[k] += wt;
+          m[k * 3] += c0 * wt; m[k * 3 + 1] += c1 * wt; m[k * 3 + 2] += c2 * wt;
+          s2[k * 3] += c0 * c0 * wt; s2[k * 3 + 1] += c1 * c1 * wt; s2[k * 3 + 2] += c2 * c2 * wt;
+        }
+      }
+    }
+    let o0 = 0, o1 = 0, o2 = 0, ow = 0;
+    for (let k = 0; k < NS; k++) {
+      if (ws[k] <= 0) continue;
+      const a0 = m[k * 3] / ws[k], a1 = m[k * 3 + 1] / ws[k], a2 = m[k * 3 + 2] / ws[k];
+      const v = Math.max(0, s2[k * 3] / ws[k] - a0 * a0) + Math.max(0, s2[k * 3 + 1] / ws[k] - a1 * a1) + Math.max(0, s2[k * 3 + 2] / ws[k] - a2 * a2);
+      const wk = 1 / (1 + Math.pow(255 * Math.sqrt(v), q / 2));
+      o0 += a0 * wk; o1 += a1 * wk; o2 += a2 * wk; ow += wk;
+    }
+    if (ow > 0) { out.r[i] = o0 / ow; out.g[i] = o1 / ow; out.b[i] = o2 / ow; }
+    else { out.r[i] = im.r[i]; out.g[i] = im.g[i]; out.b[i] = im.b[i]; }
+  }
+  return out;
+}
+
+/**
+ * Réduction à `k` couleurs (k-moyennes sur un échantillon, graine fixe), chaque pixel prenant la plus proche ;
+ * avec `dither`, tramage de Floyd–Steinberg (parcours en serpentin) : l'erreur de chaque pixel est reportée sur
+ * ses voisins, les dégradés restent continus à l'œil au lieu de faire des marches.
+ */
+export function quantize(im: Img, k: number, dither = false): Img {
   const { w, h } = im;
   const N = w * h;
   const step = Math.max(1, Math.floor(N / 20000));
@@ -154,7 +251,29 @@ export function quantize(im: Img, k: number): Img {
     for (let c = 0; c < k; c++) if (acc[c * 4 + 3]) for (let j = 0; j < 3; j++) C[c * 3 + j] = acc[c * 4 + j] / acc[c * 4 + 3];
   }
   const out = { w, h, r: new Float32Array(N), g: new Float32Array(N), b: new Float32Array(N) };
-  for (let i = 0; i < N; i++) { const c = near(im.r[i], im.g[i], im.b[i]); out.r[i] = C[c * 3]; out.g[i] = C[c * 3 + 1]; out.b[i] = C[c * 3 + 2]; }
+  if (!dither) {
+    for (let i = 0; i < N; i++) { const c = near(im.r[i], im.g[i], im.b[i]); out.r[i] = C[c * 3]; out.g[i] = C[c * 3 + 1]; out.b[i] = C[c * 3 + 2]; }
+    return out;
+  }
+  const er = Float32Array.from(im.r), eg = Float32Array.from(im.g), eb = Float32Array.from(im.b);
+  const push = (x: number, y: number, k2: number, dr: number, dg: number, db: number) => {
+    if (x < 0 || x >= w || y >= h) return;
+    const j = y * w + x;
+    er[j] += dr * k2; eg[j] += dg * k2; eb[j] += db * k2;
+  };
+  for (let y = 0; y < h; y++) {
+    const ltr = (y & 1) === 0, sx = ltr ? 1 : -1;
+    for (let n = 0; n < w; n++) {
+      const x = ltr ? n : w - 1 - n, i = y * w + x;
+      const c = near(er[i], eg[i], eb[i]);
+      out.r[i] = C[c * 3]; out.g[i] = C[c * 3 + 1]; out.b[i] = C[c * 3 + 2];
+      const dr = er[i] - out.r[i], dg = eg[i] - out.g[i], db = eb[i] - out.b[i];
+      push(x + sx, y, 7 / 16, dr, dg, db);
+      push(x - sx, y + 1, 3 / 16, dr, dg, db);
+      push(x, y + 1, 5 / 16, dr, dg, db);
+      push(x + sx, y + 1, 1 / 16, dr, dg, db);
+    }
+  }
   return out;
 }
 
@@ -177,7 +296,7 @@ export function autoContrast(im: Img): Img {
 /** Filtre retenu pour un style quand `prepare` vaut `auto`. */
 export function autoFilter(style: string | undefined): PrepareFilter {
   // Réaliste : la fidélité prime (un filtre l'éloigne un peu de la photo) ; au choix de l'utilisateur.
-  if (style === "illustration") return "kuwahara";
+  if (style === "illustration") return "kuwahara-aniso";
   return "aucun";
 }
 
@@ -200,10 +319,14 @@ export function prepareImage(im: Img, opts: PrepareOptions & { style?: string })
     case "kuwahara":
       out = kuwahara(out, u * (2 + 4 * force));
       break;
+    case "kuwahara-aniso":
+      out = kuwaharaAniso(out, u * (2 + 4 * force));
+      break;
     case "aplats":
       out = kuwahara(out, u * (2 + 3 * force));
-      out = quantize(out, Math.round(24 - 16 * force));
-      out = median(out, u * 1.5);
+      out = quantize(out, Math.round(24 - 16 * force), !!opts.dither);
+      // Le médian effacerait la trame : seulement sans tramage.
+      if (!opts.dither) out = median(out, u * 1.5);
       break;
   }
   return out;
