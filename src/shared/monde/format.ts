@@ -9,6 +9,7 @@ import { DEG, Rand, hash32 } from "./math";
 import { PRESETS, type PresetOut } from "./presets";
 import { readTex, type TexSpec } from "./textures";
 import { GEN_ACTIONS, GEN_IDS, genVariants, GEN_ROLES, genPreset, isGenId, type GenRig } from "./gen";
+import { expandPrefabs, type Matiere, type PrefabFormat, type PrefabInfo } from "./prefab";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -37,7 +38,26 @@ export type PartIn = {
   glow?: number;
   /** Texture : `"rayures"` ou `{kind, color2, scale, angle, contrast}` (voir textures.ts). */
   tex?: unknown;
+  /** Matière du nuancier (`materiaux` du monde ou matières de base) : donne couleur, texture et éclat à la pièce. */
+  matiere?: string;
 } & Partial<Record<ShapeKind, unknown>>;
+
+/** Sous-modèle déplié dans un modèle (`use`) : ses pièces deviennent `<nom>_<pièce>`, sous une articulation `<nom>`. */
+export type UseIn = {
+  model?: string;
+  name?: string;
+  parent?: string;
+  at?: unknown;
+  rot?: unknown;
+  scale?: unknown;
+  /** Nombre de copies ; `i` (rang) et `n` (total) sont lisibles dans `at`, `rot`, `scale`, `params`. */
+  repeat?: unknown;
+  params?: Record<string, unknown>;
+  slots?: Record<string, unknown>;
+};
+
+/** Emplacement d'un modèle : accepte un modèle de la famille `accepte`, garni par `default` sauf choix du placement. */
+export type SlotIn = { accepte?: string; default?: string; parent?: string; at?: unknown; rot?: unknown; scale?: unknown };
 
 export type TrackIn = Partial<Record<"rx" | "ry" | "rz" | "x" | "y" | "z" | "s", number[]>> & { sync?: boolean; phase?: number };
 
@@ -60,11 +80,24 @@ export type ModelIn = {
   /** Générateur procgen (`character`, `animal.dog`, `tree`, `building`…) : forme, squelette et style procgen (3D). */
   gen?: string;
   seed?: string | number;
+  /**
+   * Arguments d'un préréglage ou d'un générateur, ou paramètres déclarés d'un prefab :
+   * `{longueur: {default: 1.6, min: 0.8, max: 4, step: 0.2, unit: "m"}, teinte: {default: "#8b5a2b"}}` (voir prefab.ts).
+   */
   params?: Record<string, unknown>;
   parts?: PartIn[];
   clips?: Record<string, ClipIn>;
   /** Clip joué par défaut par les instances nommées. */
   clip?: string;
+  /** Sous-modèles dépliés dans celui-ci. */
+  use?: UseIn[];
+  /** Emplacements à garnir (abat-jour d'une lampe, tête d'un lit). */
+  slots?: Record<string, SlotIn>;
+  /** Catalogue : famille (`luminaire`, `lit`…), étiquettes, pose prévue (`sol`, `mur`, `plafond`, `dessus`), marge libre. */
+  famille?: string;
+  tags?: string[];
+  pose?: string;
+  degagement?: number;
 };
 
 export type PlaceIn = {
@@ -88,13 +121,25 @@ export type PlaceIn = {
   turn?: number;
   size?: number[];
   seed?: string | number;
-  /** Modèle `gen` : retouche de ses `params` pour ce placement (ex. `{ animal: "fox", mood: "happy" }`). */
+  /**
+   * Valeurs des paramètres du modèle pour ce placement : retouche des `params` d'un modèle `gen`
+   * (`{ animal: "fox" }`) ou valeurs d'un prefab (`{ longueur: 2.4 }`, expressions par copie permises :
+   * `"= pick(1.2, 1.6)"`, avec `i` et `n`).
+   */
   params?: Record<string, unknown>;
+  /** Prefab : garniture de ses emplacements (`{abatJour: "abatJourBoule"}`, `{model, params}`, `null` = vide). */
+  slots?: Record<string, unknown>;
+  /** Interne (écrit par la passe des prefabs) : modèle et rôles de chaque copie d'une grille ou d'un semis. */
+  copies?: { model: string; roles?: Record<string, string> }[];
   /** Modèle `gen` : graine propre à ce placement (autre tirage du même modèle). */
   genSeed?: string | number;
 };
 
 export type MondeIn = {
+  /** Unité des longueurs écrites (pièces, placements, clips) : `m` (défaut), `cm` ou `mm`. `nodes` reste en mètres. */
+  unite?: string;
+  /** Nuancier de matières : `{chene: {color: "#b98a56", tex: "bois"}}`, lu par `matiere` des pièces. */
+  materiaux?: Record<string, unknown>;
   palette?: Record<string, string>;
   models?: Record<string, ModelIn>;
   place?: PlaceIn[];
@@ -210,6 +255,8 @@ export type Monde = {
   /** Style procgen des modèles `gen` (préréglage ou jetons, lu par le rendu). */
   style: unknown;
   traits: number;
+  /** Prefabs déclarés : paramètres, famille, emplacements, variantes construites. */
+  prefabs: Record<string, PrefabInfo>;
   issues: Issue[];
 };
 
@@ -560,9 +607,12 @@ function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue
     const path = `place.${i}`;
     const model = typeof p.model === "string" ? p.model : "";
     if (!models.has(model)) {
-      issues.push({ path, message: `modèle inconnu « ${model} »` });
+      issues.push({ path, message: `modèle inconnu « ${model.split("~")[0]} »` });
       return;
     }
+    // Prefab aux paramètres tirés par copie : chaque copie a son modèle (variante) et ses rôles de couleur
+    const copies = Array.isArray(p.copies) ? p.copies : null;
+    let copy = 0;
     const roles: Record<string, string> = {};
     if (p.roles && typeof p.roles === "object") for (const [k, v] of Object.entries(p.roles)) if (isColor(v)) roles[k] = v;
     const base: Placement = {
@@ -575,10 +625,19 @@ function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue
       clip: typeof p.clip === "string" ? p.clip : "",
       hidden: p.hidden === true,
     };
-    const shaped = models.get(model)!.parts.filter((q) => q.shape).length || 1;
+    const shapedOf = (name: string) => models.get(name)!.parts.filter((q) => q.shape).length || 1;
+    let shaped = shapedOf(model);
     const full = () => out.length >= LIMITS.placements || budget < shaped;
     const push = (pl: Placement) => {
       if (full()) return;
+      const c = copies?.[copy++];
+      if (c && typeof c.model === "string" && models.has(c.model)) {
+        const cr: Record<string, string> = {};
+        if (c.roles && typeof c.roles === "object") for (const [k, v] of Object.entries(c.roles)) if (isColor(v)) cr[k] = v;
+        pl = { ...pl, model: c.model, roles: { ...cr, ...pl.roles } };
+        shaped = shapedOf(c.model);
+        if (budget < shaped) return;
+      }
       if (pl.name) {
         if (namedParts + shaped > LIMITS.namedParts) {
           issues.push({ path, message: `plus de ${LIMITS.namedParts} pièces animées : instance ignorée` });
@@ -657,7 +716,10 @@ export function readMonde(input: unknown, previous?: Monde | null): Monde {
 
 function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
   const issues: Issue[] = [];
-  const src = genVariants((input && typeof input === "object" && !Array.isArray(input) ? input : {}) as MondeIn, issues);
+  const raw = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as MondeIn;
+  const unit = readUnit(raw.unite, issues);
+  const expanded = expandPrefabs(raw, issues, prefabFormat(unit, readMatieres(raw.materiaux, issues)));
+  const src = genVariants(expanded.src, issues);
   const palette: Record<string, string> = { ...DEFAULT_PALETTE };
   const ownPal: Record<string, string> = {};
   if (src.palette && typeof src.palette === "object") {
@@ -667,9 +729,12 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     }
   }
   const models = new Map<string, Model>();
-  const entries = Object.entries(src.models && typeof src.models === "object" ? src.models : {});
-  if (entries.length > LIMITS.models) issues.push({ path: "models", message: `plus de ${LIMITS.models} modèles` });
-  for (const [name, m] of entries.slice(0, LIMITS.models)) {
+  // Le plafond porte sur les modèles écrits ; les variantes (`nom~clé`) ont le leur (prefab.ts, gen.ts)
+  const all = Object.entries(src.models && typeof src.models === "object" ? src.models : {});
+  const written = all.filter(([n]) => !n.includes("~"));
+  if (written.length > LIMITS.models) issues.push({ path: "models", message: `plus de ${LIMITS.models} modèles` });
+  const entries = [...written.slice(0, LIMITS.models), ...all.filter(([n]) => n.includes("~"))];
+  for (const [name, m] of entries) {
     if (!m || typeof m !== "object") continue;
     const sig = `${hash32(JSON.stringify(m))}/${hash32(JSON.stringify(src.palette ?? {}))}`;
     const prev = previous?.models.get(name);
@@ -709,7 +774,132 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     view2d: { view, unit: clampN(num(v.unit, 48), 1, 2000), origin: [num(v.origin?.[0], 0), num(v.origin?.[1], 0)] },
     shadows: src.shadows !== false,
     outline: clampN(num(src.outline, 1), 0, 6),
+    prefabs: expanded.prefabs,
     issues,
+  };
+}
+
+/* ------------------------------------------------------------------ prefabs : ce qui est propre au format 3D */
+
+const UNITS: Record<string, number> = { m: 1, cm: 0.01, mm: 0.001 };
+
+function readUnit(v: unknown, issues: Issue[]): number {
+  if (v === undefined || v === null) return 1;
+  const u = own(UNITS, String(v));
+  if (u === undefined) issues.push({ path: "unite", message: `unité inconnue (${Object.keys(UNITS).join(", ")}) : mètres` });
+  return u ?? 1;
+}
+
+/** Matières de base, complétées ou remplacées par `materiaux` du monde. */
+export const MATIERES: Record<string, Matiere> = {
+  chene: { color: "#b98a56", tex: "bois" },
+  pin: { color: "#dcbf8a", tex: "bois" },
+  noyer: { color: "#6b4426", tex: "bois" },
+  hetre: { color: "#d8b48a", tex: "bois" },
+  "bois-blanc": { color: "#ece6da", tex: "bois" },
+  "bois-noir": { color: "#2a2623", tex: "bois" },
+  acier: { color: "#aab2bd", tex: "metal" },
+  laiton: { color: "#b08d57", tex: "metal" },
+  "metal-noir": { color: "#23262b", tex: "metal" },
+  lin: { color: "#d9d0c1", tex: "tissu" },
+  coton: { color: "#f1eee8", tex: "tissu" },
+  laine: { color: "#c9c2b6", tex: "tricot" },
+  marbre: { color: "#e9e7e3", tex: "marbre" },
+  pierre: { color: "#9ca3af", tex: "pierre" },
+  blanc: { color: "#f8fafc" },
+  noir: { color: "#16181d" },
+};
+
+export function readMatieres(v: unknown, issues: Issue[]): Record<string, Matiere> {
+  const out: Record<string, Matiere> = { ...MATIERES };
+  if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+  for (const [k, m] of Object.entries(v as Record<string, unknown>).slice(0, 64)) {
+    const o = typeof m === "string" ? { color: m } : m && typeof m === "object" ? (m as Record<string, unknown>) : null;
+    if (!o) continue;
+    const mat: Matiere = {};
+    if (isColor(o.color)) mat.color = o.color;
+    else if (o.color !== undefined) issues.push({ path: `materiaux.${k}.color`, message: "couleur #rrggbb attendue" });
+    if (o.tex !== undefined) mat.tex = o.tex;
+    if (typeof o.glow === "number" && Number.isFinite(o.glow)) mat.glow = o.glow;
+    out[k] = mat;
+  }
+  return out;
+}
+
+const mulN = (v: unknown, u: number): unknown => (typeof v === "number" ? v * u : v);
+const mulList = (v: unknown, u: number): unknown => (Array.isArray(v) ? v.map((x) => mulN(x, u)) : mulN(v, u));
+const mulPts = (v: unknown, u: number): unknown => (Array.isArray(v) ? v.map((q) => mulList(q, u)) : v);
+
+/** Longueurs d'une pièce écrite multipliées par `u` (les angles et les échelles ne bougent pas). */
+function scalePart(part: Record<string, unknown>, u: number): Record<string, unknown> {
+  const p: Record<string, unknown> = { ...part };
+  for (const k of ["at", "off", "box", "sphere", "capsule", "cylinder", "cone", "plane"]) if (p[k] !== undefined) p[k] = mulList(p[k], u);
+  if (Array.isArray(p.torus)) p.torus = p.torus.map((x, i) => (i < 2 ? mulN(x, u) : x));
+  else if (p.torus !== undefined) p.torus = mulN(p.torus, u);
+  if (p.lathe !== undefined) p.lathe = mulPts(p.lathe, u);
+  for (const k of ["extrude", "tube"]) {
+    const v = p[k];
+    if (Array.isArray(v)) p[k] = mulPts(v, u);
+    else if (v && typeof v === "object") {
+      const o = { ...(v as Record<string, unknown>) };
+      o.pts = mulPts(o.pts, u);
+      for (const kk of ["depth", "r", "r2"]) if (o[kk] !== undefined) o[kk] = mulN(o[kk], u);
+      p[k] = o;
+    }
+  }
+  if (p.repeat && typeof p.repeat === "object") {
+    const r = { ...(p.repeat as Record<string, unknown>) };
+    if (r.at !== undefined) r.at = mulList(r.at, u);
+    p.repeat = r;
+  }
+  return p;
+}
+
+function scaleClip(clip: Record<string, unknown>, u: number): Record<string, unknown> {
+  const tracks = clip.tracks;
+  if (!tracks || typeof tracks !== "object") return clip;
+  const out: Record<string, unknown> = {};
+  for (const [k, t] of Object.entries(tracks as Record<string, unknown>)) {
+    if (!t || typeof t !== "object") continue;
+    const tr = { ...(t as Record<string, unknown>) };
+    for (const ch of ["x", "y", "z"]) if (tr[ch] !== undefined) tr[ch] = mulList(tr[ch], u);
+    out[k] = tr;
+  }
+  return { ...clip, tracks: out };
+}
+
+function scalePlace(place: Record<string, unknown>, u: number): Record<string, unknown> {
+  const p = { ...place };
+  for (const k of ["at", "step", "area"]) if (p[k] !== undefined) p[k] = mulList(p[k], u);
+  return p;
+}
+
+/** Nombre de copies d'un placement (même calcul que `readPlacements`). */
+function copiesOf(p: Record<string, unknown>): number {
+  if (Array.isArray(p.grid)) {
+    const g = p.grid.map((v) => clampN(Math.round(num(v, 1)), 1, 200));
+    const [nx, ny, nz] = g.length >= 3 ? g : [g[0] ?? 1, 1, g[1] ?? 1];
+    return Math.min(LIMITS.placements, nx * ny * nz);
+  }
+  if (typeof p.scatter === "number") return clampN(Math.round(p.scatter), 0, LIMITS.placements);
+  return 1;
+}
+
+function prefabFormat(unit: number, matieres: Record<string, Matiere>): PrefabFormat {
+  return {
+    unit,
+    scalePart,
+    scaleClip,
+    scalePlace,
+    isGen: (m) => m.gen !== undefined,
+    matieres,
+    copies: copiesOf,
+    presetParts(model, params, seed) {
+      const builder = typeof model.preset === "string" ? own(PRESETS, model.preset) : undefined;
+      if (!builder) return null;
+      const out = builder.build(new Rand(seed), params);
+      return { parts: out.parts as Record<string, unknown>[], roles: out.roles };
+    },
   };
 }
 
@@ -730,9 +920,12 @@ export function partTex(m: Monde, part: Part): TexSpec | null {
 export function mondeSummary(m: Monde) {
   const models: Record<string, { parts: string[]; clips: string[]; roles: Record<string, string>; clip: string }> = {};
   for (const [k, md] of m.models) models[k] = { parts: md.parts.map((p) => p.name), clips: [...md.clips.keys()], roles: md.roles, clip: md.clip };
+  const hasPrefabs = Object.keys(m.prefabs).length > 0;
   return {
     models,
-    instances: m.place.filter((p) => p.name).map((p) => ({ name: p.name, model: p.model })),
+    // `prefab` : nom écrit du modèle quand l'instance est une variante de prefab (`table~k3x` → `table`)
+    instances: m.place.filter((p) => p.name).map((p) => ({ name: p.name, model: p.model, ...(own(m.prefabs, p.model.split("~")[0]) ? { prefab: p.model.split("~")[0] } : {}) })),
+    ...(hasPrefabs ? { prefabs: m.prefabs } : {}),
     decor: m.place.filter((p) => !p.name).length,
     issues: m.issues.slice(0, 50),
   };

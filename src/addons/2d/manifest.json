@@ -76,7 +76,7 @@
         },
         "monde": {
           "type": "string",
-          "description": "Monde en primitives (même JSON et mêmes nodes que sonic-3d, voir 3d/monde.md) ; aussi clé DP monde ; vue view2d top|side|front|iso"
+          "description": "Monde en primitives (même JSON et mêmes nodes que sonic-3d, voir 3d/monde.md) ; aussi clé DP monde ; vue view2d top|side|front|iso Prefabs paramétrés : params déclarés sur un modèle, expressions \"= …\" dans ses pièces, sous-modèles use, emplacements slots, valeurs par placement (params, slots)."
         },
         "monde-layer": {
           "type": "string",
@@ -84,7 +84,7 @@
         },
         "monde2d": {
           "type": "string",
-          "description": "Monde 2D natif (JSON : ciel, calques, styles, formes vectorielles, personnages et décor procéduraux en vue profil / face / dessus, modèles gen procgen vectoriels (profil, face, plongée), clips ; voir monde2d.md) ; aussi clé DP monde2d. Instances pilotées par nodes (x y rz, flip, clip, clipSpeed, clipT, roles)"
+          "description": "Monde 2D natif (JSON : ciel, calques, styles, formes vectorielles, personnages et décor procéduraux en vue profil / face / dessus, modèles gen procgen vectoriels (profil, face, plongée), clips ; voir monde2d.md) ; aussi clé DP monde2d. Instances pilotées par nodes (x y rz, flip, clip, clipSpeed, clipT, roles) Prefabs paramétrés : params déclarés sur un modèle, expressions \"= …\" dans ses pièces, sous-modèles use, emplacements slots, valeurs par placement (params, slots)."
         }
       }
     },
