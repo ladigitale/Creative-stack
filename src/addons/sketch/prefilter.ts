@@ -7,14 +7,16 @@
  * - `kuwahara-aniso` : Kuwahara anisotrope (Kyprianidis, Kang et Döllner, 2009) — fenêtre en ellipse orientée le
  *   long des formes (tenseur de structure), 8 secteurs à poids doux : les plages suivent les contours, sans
  *   l'effet de petits carrés ;
+ * - `trame-aniso` : tramage (palette réduite, Floyd–Steinberg) puis Kuwahara anisotrope : le filtre moyenne la
+ *   trame en teintes intermédiaires et l'étire le long des formes — aplats aux bords lisses, transitions douces ;
  * - `aplats` : grandes zones de couleur (Kuwahara puis réduction à une palette par k-moyennes, puis médian) ;
  * - contraste automatique : étirement des niveaux (1 % et 99 % de la luminance) quand l'image est terne.
  * Les rayons sont relatifs au côté de l'image (même aspect à toute résolution d'analyse). `force` 0..1.
  */
 import { blurImg, type Img } from "./painterly";
 
-export type PrepareFilter = "auto" | "aucun" | "median" | "bilateral" | "kuwahara" | "kuwahara-aniso" | "aplats";
-export const PREPARE_FILTERS: readonly PrepareFilter[] = ["auto", "aucun", "median", "bilateral", "kuwahara", "kuwahara-aniso", "aplats"];
+export type PrepareFilter = "auto" | "aucun" | "median" | "bilateral" | "kuwahara" | "kuwahara-aniso" | "trame-aniso" | "aplats";
+export const PREPARE_FILTERS: readonly PrepareFilter[] = ["auto", "aucun", "median", "bilateral", "kuwahara", "kuwahara-aniso", "trame-aniso", "aplats"];
 
 export type PrepareOptions = {
   /** Filtre (défaut `auto` : selon le style). */
@@ -321,6 +323,11 @@ export function prepareImage(im: Img, opts: PrepareOptions & { style?: string })
       break;
     case "kuwahara-aniso":
       out = kuwaharaAniso(out, u * (2 + 4 * force));
+      break;
+    case "trame-aniso":
+      // Assez de couleurs pour garder les teintes (16 à 48), rayon assez grand pour fondre la trame (3 à 6).
+      out = quantize(out, Math.round(48 - 32 * force), true);
+      out = kuwaharaAniso(out, u * (3 + 3 * force));
       break;
     case "aplats":
       out = kuwahara(out, u * (2 + 3 * force));

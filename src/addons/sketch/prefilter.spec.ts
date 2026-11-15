@@ -81,4 +81,15 @@ describe("prefilter", () => {
     expect(prepareImage(im, { prepare: "kuwahara-aniso" })).not.toBe(im);
     expect(prepareImage(im, { style: "realiste", prepare: "bilateral" })).not.toBe(im);
   });
+  it("trame-aniso : la trame est fondue (pas de pixels isolés), le bord reste franc", () => {
+    const grad = make(60, 40, (x) => (x < 30 ? 0.2 + 0.3 * (x / 29) : 0.85));
+    const t = prepareImage(grad, { prepare: "trame-aniso", prepareForce: 0.5 });
+    let iso = 0;
+    for (let y = 5; y < 35; y++) for (let x = 3; x < 26; x++) {
+      const i = y * 60 + x, v = t.r[i];
+      if (Math.abs(v - t.r[i - 1]) > 0.08 && Math.abs(v - t.r[i + 1]) > 0.08) iso++;
+    }
+    expect(iso).toBeLessThan(10);
+    expect(t.r[20 * 60 + 34] - t.r[20 * 60 + 25]).toBeGreaterThan(0.25);
+  });
 });

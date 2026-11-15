@@ -80,7 +80,7 @@ export class SonicPainterly extends LitElement {
   @property({ type: Number, attribute: "max-strokes" }) maxStrokes = 0;
   /** `realiste` (défaut : touches fondues, proche de l'image), `illustration` (passes visibles) ou `huile` (touches opaques). */
   @property({ type: String, attribute: "paint-style" }) paintStyle: "realiste" | "illustration" | "huile" = "realiste";
-  /** Préparation de l'image (`prefilter.ts`) : `auto` (selon le style), `aucun`, `median`, `bilateral`, `kuwahara`, `kuwahara-aniso`, `aplats`. */
+  /** Préparation de l'image (`prefilter.ts`) : `auto` (selon le style), `aucun`, `median`, `bilateral`, `kuwahara`, `kuwahara-aniso`, `trame-aniso`, `aplats`. */
   @property({ type: String, attribute: "paint-prepare" }) paintPrepare: PrepareFilter = "auto";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
