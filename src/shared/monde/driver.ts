@@ -217,12 +217,12 @@ export class MondeDriver {
     for (const inst of this.instances.values()) {
       if (!inst.visible) continue;
       const t = inst.t;
-      out.push({ name: inst.name, model: inst.model, at: [t.x, t.y, t.z], rot: [t.rx, t.ry, t.rz], scale: [t.sx, t.sy, t.sz], support: inst.carry?.support ?? "", ...info(inst.placement.model) });
+      out.push({ name: inst.name, model: inst.model, at: [t.x, t.y, t.z], rot: [t.rx, t.ry, t.rz], scale: [t.sx, t.sy, t.sz], support: inst.carry?.support ?? "", src: inst.placement.src ?? -1, ...info(inst.placement.model) });
     }
     for (const pl of m.place) {
       if (pl.name || pl.hidden) continue;
       const model = m.models.get(pl.model);
-      if (model) out.push({ name: "", model, at: pl.at, rot: pl.rot, scale: pl.scale, support: pl.on?.support ?? "", ...info(pl.model) });
+      if (model) out.push({ name: "", model, at: pl.at, rot: pl.rot, scale: pl.scale, support: pl.on?.support ?? "", src: pl.src ?? -1, ...info(pl.model) });
     }
     return out;
   }
