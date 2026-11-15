@@ -15,7 +15,8 @@ import { Painter, strokeScale } from "./paint";
 import type { VectorCamera } from "./project";
 import { VectorScene, mergeSorted, now } from "./scene";
 import { PATH_UNIT, type Shape, pathBounds } from "./shape";
-import { fitFrame, renderSVG } from "./svg";
+import { type FitSpans, fitSpans, frameOf, renderSVG } from "./svg";
+import { keepFrame } from "../render/steady";
 import { type Inks, type VectorStyle, makeInks, resolveVectorStyle } from "./vstyle";
 
 export type VectorViewState = { camera: VectorCamera; zoom: number; cx: number | null; cy: number | null; cz: number | null; lift: number | null; actor: string | null; follow: boolean };
@@ -52,6 +53,10 @@ export class VectorView {
   private center: { cu: number; cv: number; s0: number; cu0: number } = { cu: 0, cv: 0, s0: 1, cu0: 0 };
   private patterns: Record<string, CanvasPattern | null> = {};
   private off: HTMLCanvasElement | null = null;
+  /** Étendue de cadrage conservée d'une recomposition à l'autre (pas de saut de zoom quand un objet bouge). */
+  private spans: FitSpans | null = null;
+  /** Redimensionnement demandé : appliqué au début du prochain rendu (changer la taille du canevas l'efface). */
+  private needResize = true;
   dpr = 1;
   maxDpr = 2;
   play = true;
@@ -69,18 +74,28 @@ export class VectorView {
 
   /* ---------------- scène, style, vue ---------------- */
 
+  /** Vue de la recette au premier modèle ; ensuite la vue courante (pan, zoom, relevé de l'utilisateur) est conservée. */
   setModel(model: SceneModel) {
+    const first = !this.model;
     this.model = model;
     this.sim.setModel(model);
     this.sim.setHidden(this.hiddenIds);
-    const v = (model.view ?? {}) as Record<string, unknown>;
-    this.view = { camera: CAM_MAP[String(v.camera ?? "side")] ?? "side", zoom: Number(v.zoom ?? 1) || 1, cx: null, cy: null, cz: null, lift: null, actor: null, follow: v.camera === "follow" };
-    this.rebuild();
+    if (first) this.resetView(model);
+    this.rebuild(!first);
   }
 
-  private rebuild() {
+  private resetView(model: SceneModel | null) {
+    const v = (model?.view ?? {}) as Record<string, unknown>;
+    this.view = { camera: CAM_MAP[String(v.camera ?? "side")] ?? "side", zoom: Number(v.zoom ?? 1) || 1, cx: null, cy: null, cz: null, lift: null, actor: null, follow: v.camera === "follow" };
+  }
+
+  /** `keep` : même projection, l'ancien cadrage reste si l'étendue de la scène change peu. */
+  private rebuild(keep = false) {
     if (!this.model) return;
     this.scene = new VectorScene(this.model, { camera: this.view.camera, lift: this.view.lift ?? undefined }, { lightElevation: this.vs.tokens.lightElevation });
+    const f = fitSpans(this.scene);
+    const p = keep ? this.spans : null;
+    this.spans = p && keepFrame(p.spanU, f.spanU) === p.spanU && keepFrame(p.spanV, f.spanV) === p.spanV ? p : f;
     this.paths = new WeakMap();
     this.dirty = true;
     this.kick();
@@ -93,7 +108,7 @@ export class VectorView {
     this.inks = makeInks(this.vs);
     this.painter = new Painter(this.vs, this.inks);
     this.patterns = {};
-    if (this.vs.tokens.lightElevation !== prevElev) this.rebuild();
+    if (this.vs.tokens.lightElevation !== prevElev) this.rebuild(true);
     this.dirty = true;
     this.kick();
   }
@@ -101,9 +116,14 @@ export class VectorView {
     return this.vs;
   }
 
-  setView(v: unknown) {
+  /** `reset` : repart de la vue par défaut au lieu de fusionner avec la vue courante. */
+  setView(v: unknown, reset = false) {
     const o = (v ?? {}) as Record<string, unknown>;
     const prevCam = this.view.camera, prevLift = this.view.lift;
+    if (reset) {
+      this.resetView(null);
+      this.spans = null;
+    }
     if (typeof o.camera === "string") {
       this.view.camera = CAM_MAP[o.camera] ?? this.view.camera;
       this.view.follow = o.camera === "follow";
@@ -111,7 +131,7 @@ export class VectorView {
     for (const k of ["zoom", "cx", "cy", "cz", "lift"] as const) if (o[k] !== undefined && Number.isFinite(Number(o[k]))) (this.view as Record<string, unknown>)[k] = Number(o[k]);
     this.view.zoom = clamp(this.view.zoom, 0.1, 40);
     if (typeof o.actor === "string") this.view.actor = o.actor;
-    if (this.view.camera !== prevCam || this.view.lift !== prevLift) this.rebuild();
+    if (this.view.camera !== prevCam || this.view.lift !== prevLift || reset) this.rebuild();
     this.dirty = true;
     this.kick();
   }
@@ -186,7 +206,7 @@ export class VectorView {
   private layout() {
     const sc = this.scene!;
     const w = this.canvas.clientWidth || this.canvas.width || 1, h = this.canvas.clientHeight || this.canvas.height || 1;
-    const f = fitFrame(sc, w, h, 1);
+    const f = frameOf(this.spans ?? fitSpans(sc), w, h, 1);
     let cu = f.cu, cv = f.cv;
     const cu0 = cu;
     if (this.view.follow || this.view.actor) {
@@ -307,7 +327,7 @@ export class VectorView {
   render() {
     const ctx = this.ctx;
     if (!this.scene || !ctx) return;
-    this.resize();
+    this.applySize();
     this.layout();
     const t0 = now();
     const shapes = this.shapes();
@@ -579,9 +599,18 @@ export class VectorView {
     this.dirty = true;
   }
 
+  /** Demande de redimensionnement : appliqué au début du prochain rendu, juste avant de dessiner (pas d'image vide). */
   resize(force = false) {
+    this.needResize ||= force;
+    this.dirty = true;
+    this.kick();
+  }
+
+  private applySize() {
     const w = Math.max(1, this.canvas.clientWidth | 0), h = Math.max(1, this.canvas.clientHeight | 0);
     const pw = Math.round(w * this.dpr), ph = Math.round(h * this.dpr);
+    const force = this.needResize;
+    this.needResize = false;
     if (!force && this.canvas.width === pw && this.canvas.height === ph) return;
     this.canvas.width = pw;
     this.canvas.height = ph;
