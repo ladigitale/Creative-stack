@@ -71,19 +71,30 @@ export function renderSVG(shapes: Shape[], vs: VectorStyle, inks: Inks, f: SvgFr
 
 /** Cadrage par défaut d'une scène (échelle d'ajustement et centre). */
 export function fitFrame(scene: VectorScene, width: number, height: number, zoom = 1): SvgFrame {
+  return frameOf(fitSpans(scene), width, height, zoom);
+}
+
+/** Étendue projetée d'une scène (indépendante de la taille de l'écran). */
+export type FitSpans = { spanU: number; spanV: number; vTop: number; vBot: number };
+
+export function fitSpans(scene: VectorScene): FitSpans {
   const m = scene.model, pr = scene.pr;
   const W = m.size[0], D = m.size[1];
-  let vTop = -Infinity, vBot = Infinity;
+  let vTop = -Infinity;
   for (const o of m.objects) vTop = Math.max(vTop, pr.p(o.pos[0], o.pos[1] + o.height, o.pos[2])[1]);
   for (const a of m.actors) vTop = Math.max(vTop, pr.p(a.pos[0], a.pos[1] + a.asset.height, a.pos[2])[1]);
-  vBot = pr.p(0, m.bounds.min[1] + 0.5, D / 2)[1] - 0.5;
+  const vBot = pr.p(0, m.bounds.min[1] + 0.5, D / 2)[1] - 0.5;
   const farTop = pr.p(0, 0, -D / 2)[1] + 6;
   if (!Number.isFinite(vTop)) vTop = farTop;
   vTop = Math.max(vTop, farTop);
-  const spanU = W + Math.abs(pr.ax) * D, spanV = vTop - vBot + 1;
-  const s0 = Math.min(width / (spanU * 0.8), height / (spanV * 1.08));
+  return { spanU: W + Math.abs(pr.ax) * D, spanV: vTop - vBot + 1, vTop, vBot };
+}
+
+/** Cadrage (échelle et centre) d'une étendue dans un écran `width` × `height`. */
+export function frameOf(f: FitSpans, width: number, height: number, zoom = 1): SvgFrame {
+  const s0 = Math.min(width / (f.spanU * 0.8), height / (f.spanV * 1.08));
   // bas de la scène calé près du bord inférieur : la marge va au ciel
-  const cv = Math.max((vTop + vBot) / 2, vBot + (height * 0.47) / s0);
+  const cv = Math.max((f.vTop + f.vBot) / 2, f.vBot + (height * 0.47) / s0);
   return { width, height, scale: s0 * zoom, cu: 0, cv };
 }
 

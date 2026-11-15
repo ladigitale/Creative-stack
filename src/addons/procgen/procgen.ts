@@ -14,6 +14,7 @@ import { type Recipe, type SceneModel, composeSceneAsync } from "./scene/compose
 import { SCENES } from "./scene/library";
 import { resolveStyle } from "./style/style";
 import { type ActorIntent, type GameEvent, ProcgenView } from "./render/view";
+import { type ViewSync, syncView } from "./render/steady";
 import { VECTOR_STYLES, VectorView, composeVector } from "./vector/index";
 
 type AnyView = ProcgenView | VectorView;
@@ -58,7 +59,8 @@ export class SonicProcgen extends HTMLElement {
   private model: SceneModel | null = null;
   private sceneKey = "";
   private styleKey = "";
-  private viewKey = "";
+  /** Dernière entrée de vue appliquée : la vue de l'utilisateur survit aux recompositions. */
+  private viewSync: ViewSync = { key: "", modelKey: "" };
   private miscKey = "";
   private kickKey: string | null = null;
   private issues: unknown[] = [];
@@ -115,10 +117,10 @@ export class SonicProcgen extends HTMLElement {
 
   connectedCallback() {
     if (typeof ResizeObserver !== "undefined") {
+      // le redimensionnement est appliqué par la vue au début de son prochain rendu (pas d'image vide)
       this.ro = new ResizeObserver(() => {
         this.syncGestures();
         this.view?.resize();
-        this.view?.kick();
       });
       this.ro.observe(this);
     }
@@ -187,6 +189,9 @@ export class SonicProcgen extends HTMLElement {
       this.glError = mode === "vector" ? `Canvas 2D indisponible : ${(e as Error).message}` : `WebGL2 indisponible : ${(e as Error).message}`;
     }
     const v = this.view;
+    // nouvelle vue : style, vue et réglages seront appliqués au prochain modèle
+    this.styleKey = this.miscKey = "";
+    this.viewSync = { key: "", modelKey: "" };
     if (!v) return null;
     v.onEvent = (e) => this.emit(e);
     v.onFrame = () => this.queueOut();
@@ -278,7 +283,8 @@ export class SonicProcgen extends HTMLElement {
           this.error = "";
           this.composing = false;
           this.view?.setModel(this.model);
-          this.styleKey = this.viewKey = this.miscKey = "";
+          // vue conservée : seule une entrée de vue modifiée la ré-applique (voir syncView)
+          this.styleKey = this.miscKey = "";
         } catch (e) {
           this.fail(`composition : ${(e as Error).message}`);
         }
@@ -300,7 +306,6 @@ export class SonicProcgen extends HTMLElement {
           this.error = "";
           this.view?.setModel(model);
           this.styleKey = "";
-          this.viewKey = "";
           this.miscKey = "";
           this.onData();
         })
@@ -323,12 +328,9 @@ export class SonicProcgen extends HTMLElement {
       else this.view.setStyle(resolveStyle(styleIn, si));
       this.issues = [...this.issues.filter((i) => !String((i as { path: string }).path).startsWith("style")), ...si.list];
     }
-    const vIn = { ...(this.model.view ?? {}), ...(this.getAttribute("camera") ? { camera: this.getAttribute("camera") } : {}), ...((d.view as Json) ?? {}) };
-    const vk = JSON.stringify(vIn);
-    if (vk !== this.viewKey) {
-      this.viewKey = vk;
-      this.view.setView(vIn);
-    }
+    const vs = syncView(this.viewSync, this.model.view, this.getAttribute("camera"), d.view);
+    this.viewSync = vs.next;
+    if (vs.apply) this.view.setView(vs.apply, vs.reset);
     const mk = JSON.stringify([d.anim, d.actors, d.select, d.hidden, d.anchors]);
     if (mk !== this.miscKey) {
       this.miscKey = mk;

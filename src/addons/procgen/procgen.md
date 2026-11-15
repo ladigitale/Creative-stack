@@ -156,6 +156,8 @@ Rôles de couleur : `ground grass path road stone wall trim roof wood bark leaf 
 
 La composition se fait par tranches (la page reste fluide ; `status.phase = composing`, `status.progress`). Bâtiments fusionnés par tuile, objets répétés instanciés, personnages en un seul maillage chacun. Rendu à la demande, densité de pixels adaptée à la charge, arrêt hors écran, `prefers-reduced-motion` respecté (animation en pause). Une scène de village (≈ 230 objets, 6 personnages) tient en une cinquantaine d'appels de dessin.
 
+La vue de l'utilisateur (orbite, pan, zoom) est conservée à la recomposition : déplacer un objet ou changer un paramètre ne recadre pas la scène. La vue n'est ré-appliquée que si son entrée change (`view` de la recette, attribut `camera`, `view` du DataProvider) ; une nouvelle vue de recette ou caméra repart de la vue par défaut, un `view` du DataProvider se fusionne avec la vue courante. Le cadrage reste celui de la scène précédente tant que sa taille varie de moins de 50 %. Pas de clignotement : l'ancienne scène reste affichée jusqu'au remplacement, et les changements de taille (mise en page, barre d'adresse mobile, densité de pixels) sont appliqués au début du rendu suivant, dans la même image que le dessin ; la densité de pixels ne remonte qu'après plusieurs secondes fluides, jamais dans les 10 s qui suivent une baisse.
+
 ## CSP
 
 Pas d'`eval`, pas de `new Function`, pas de worker. Les recettes et expressions sont analysées par procgen lui-même.

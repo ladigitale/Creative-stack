@@ -17,6 +17,7 @@ import { ROLES } from "../style/roles";
 import { type CameraMode, DEFAULT_VIEW, type ViewState, applyView, parseView } from "./camera";
 import { type MaterialPair, type Shared, makeMaterials, sharedUniforms, toGeometry } from "./materials";
 import { MAX_BONES, POST_FRAGMENT, POST_VERTEX } from "./shaders";
+import { type Governor, governDpr, keepFrame, newGovernor } from "./steady";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
 export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest"; payload: Record<string, unknown> };
@@ -73,6 +74,7 @@ export class ProcgenView {
   private style: StyleTokens | null = null;
   private view: ViewState = { ...DEFAULT_VIEW };
   private extent = 20;
+  private fitExtent = 20;
   private rt: THREE.WebGLRenderTarget | null = null;
   private shadowRT: THREE.WebGLRenderTarget;
   private post: THREE.Mesh;
@@ -97,6 +99,9 @@ export class ProcgenView {
   play = true;
   speed = 1;
   private frameTimes: number[] = [];
+  private gov: Governor = newGovernor();
+  /** Taille de rendu à appliquer au prochain rendu (jamais hors d'un rendu : `setSize` efface le canevas). */
+  private sizeKey = "";
   fps = 0;
   private followId: string | null = null;
   private hiddenIds = new Set<string>();
@@ -140,10 +145,15 @@ export class ProcgenView {
   /* ---------------- scène ---------------- */
 
   setModel(model: SceneModel) {
+    // ancien modèle remplacé dans la même tâche : aucune image vide entre les deux
+    const first = !this.model;
     this.clearScene();
     this.model = model;
     const b = model.bounds;
-    this.extent = Math.max(4, Math.hypot(b.max[0] - b.min[0], b.max[2] - b.min[2]) / 2, (b.max[1] - b.min[1]) * 0.8);
+    this.fitExtent = Math.max(4, Math.hypot(b.max[0] - b.min[0], b.max[2] - b.min[2]) / 2, (b.max[1] - b.min[1]) * 0.8);
+    // vue de la recette au premier modèle ; ensuite la vue courante (orbite, pan, zoom de l'utilisateur) et le cadrage
+    // sont conservés tant que la taille de la scène ne change pas beaucoup
+    this.extent = first ? this.fitExtent : keepFrame(this.extent, this.fitExtent);
     this.shared.uGroundY.value = 0;
     this.shared.uWaterY.value = model.terrain?.spec.water ?? -1000;
     this.shared.uFar.value = this.extent * 6;
@@ -181,7 +191,7 @@ export class ProcgenView {
       if (this.balls) g.objs.forEach((o, i) => this.balls!.byObj.has(o) && this.ballSlots.set(o, { im, i, m0: g.matrices[i] }));
     }
     for (const a of model.actors) this.addActor(a);
-    this.view = parseView(model.view, { ...DEFAULT_VIEW, cy: 0 });
+    if (first) this.view = parseView(model.view, { ...DEFAULT_VIEW, cy: 0 });
     if (this.style) this.setStyle(this.style);
     this.dirty = this.shadowDirty = true;
     this.kick();
@@ -260,14 +270,17 @@ export class ProcgenView {
     pu.uGrain.value = s.grain;
     pu.uPaper.value = s.paper;
     pu.uVignette.value = s.vignette;
-    pu.uPixel.value = s.pixel;
+    // style pixel : obtenu par la cible de rendu basse résolution (voir applySize), pas par le post-traitement
+    pu.uPixel.value = 0;
     this.dirty = this.shadowDirty = true;
-    this.resize(true);
+    this.resize();
     this.kick();
   }
 
-  setView(v: unknown) {
-    this.view = parseView(v, this.view);
+  /** `reset` : repart de la vue par défaut (et du cadrage de la scène) au lieu de fusionner avec la vue courante. */
+  setView(v: unknown, reset = false) {
+    if (reset) this.extent = this.fitExtent;
+    this.view = parseView(v, reset ? { ...DEFAULT_VIEW, cy: 0 } : this.view);
     this.followId = this.view.camera === "follow" ? String((v as Record<string, unknown>)?.actor ?? this.followId ?? [...this.actors.keys()][0] ?? "") : null;
     this.dirty = true;
     this.kick();
@@ -789,7 +802,7 @@ export class ProcgenView {
     if (anim || this.dirty) {
       const t0 = performance.now();
       this.render();
-      this.governor(performance.now() - t0, dt);
+      this.governor(performance.now() - t0, dt, now / 1000);
       this.dirty = false;
       this.onFrame();
     }
@@ -797,38 +810,50 @@ export class ProcgenView {
     else this.running = false;
   };
 
-  private governor(ms: number, dt: number) {
+  private governor(ms: number, dt: number, now: number) {
     this.frameTimes.push(dt);
     if (this.frameTimes.length > 30) this.frameTimes.shift();
     const avg = this.frameTimes.reduce((s, x) => s + x, 0) / this.frameTimes.length;
     this.fps = avg > 0 ? Math.round(1 / avg) : 0;
-    if (this.frameTimes.length === 30) {
-      if (avg > 1 / 40 && this.dpr > 0.75) {
-        this.dpr = Math.max(0.75, this.dpr - 0.25);
-        this.frameTimes = [];
-        this.resize(true);
-      } else if (avg < 1 / 58 && ms < 8 && this.dpr < Math.min(this.maxDpr, window.devicePixelRatio || 1)) {
-        this.dpr = Math.min(this.maxDpr, this.dpr + 0.25);
-        this.frameTimes = [];
-        this.resize(true);
-      }
+    const max = Math.min(this.maxDpr, (typeof window !== "undefined" && window.devicePixelRatio) || 1);
+    const next = governDpr(this.gov, this.dpr, max, dt, ms, now);
+    // nouvelle densité appliquée au début du prochain rendu, dans la même image que le dessin
+    if (next !== this.dpr) {
+      this.dpr = next;
+      this.dirty = true;
     }
   }
 
-  resize(force = false) {
+  /**
+   * Demande de redimensionnement (changement de mise en page, densité, style pixel) : appliquée au début du prochain
+   * rendu, juste avant de dessiner. Redimensionner le canevas l'efface : le faire hors d'un rendu afficherait une
+   * image vide (clignotement).
+   */
+  resize(_force = false) {
+    this.dirty = true;
+    this.kick();
+  }
+
+  /** Ajuste canevas et cible de rendu aux dimensions voulues ; rien si elles n'ont pas changé. */
+  private applySize() {
     const w = Math.max(1, this.canvas.clientWidth | 0), h = Math.max(1, this.canvas.clientHeight | 0);
     const dpr = this.dpr;
-    const pw = Math.round(w * dpr), ph = Math.round(h * dpr);
-    if (!force && this.rt && this.rt.width === pw && this.rt.height === ph) return;
-    this.renderer.setPixelRatio(dpr);
-    this.renderer.setSize(w, h, false);
     const pixel = this.style?.pixel ?? 0;
+    const pw = Math.round(w * dpr), ph = Math.round(h * dpr);
     const rw = pixel > 0 ? Math.max(32, Math.round(w / pixel)) : pw, rh = pixel > 0 ? Math.max(18, Math.round(h / pixel)) : ph;
-    this.rt?.dispose();
-    this.rt = new THREE.WebGLRenderTarget(rw, rh, { count: 2, samples: pixel > 0 ? 0 : 4, type: THREE.HalfFloatType, depthBuffer: true });
-    for (const t of this.rt.textures) {
-      t.minFilter = t.magFilter = pixel > 0 ? THREE.NearestFilter : THREE.LinearFilter;
-      t.generateMipmaps = false;
+    const key = `${w}x${h}@${dpr}|${rw}x${rh}|${pixel > 0 ? 1 : 0}`;
+    if (this.rt && key === this.sizeKey) return;
+    this.sizeKey = key;
+    if (this.renderer.getPixelRatio() !== dpr) this.renderer.setPixelRatio(dpr);
+    const cur = this.renderer.getSize(new THREE.Vector2());
+    if (cur.x !== w || cur.y !== h || this.canvas.width !== Math.floor(w * dpr) || this.canvas.height !== Math.floor(h * dpr)) this.renderer.setSize(w, h, false);
+    if (!this.rt || this.rt.width !== rw || this.rt.height !== rh || this.rt.samples !== (pixel > 0 ? 0 : 4)) {
+      this.rt?.dispose();
+      this.rt = new THREE.WebGLRenderTarget(rw, rh, { count: 2, samples: pixel > 0 ? 0 : 4, type: THREE.HalfFloatType, depthBuffer: true });
+      for (const t of this.rt.textures) {
+        t.minFilter = t.magFilter = pixel > 0 ? THREE.NearestFilter : THREE.LinearFilter;
+        t.generateMipmaps = false;
+      }
     }
     const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
     pu.tColor.value = this.rt.textures[0];
@@ -836,7 +861,6 @@ export class ProcgenView {
     (pu.uTexel.value as THREE.Vector2).set(1 / rw, 1 / rh);
     (pu.uResolution.value as THREE.Vector2).set(rw, rh);
     pu.uPixel.value = 0;
-    this.dirty = true;
   }
 
   private updateLights(t: THREE.Vector3) {
@@ -884,7 +908,7 @@ export class ProcgenView {
 
   render() {
     if (!this.model) return;
-    this.resize();
+    this.applySize();
     const w = this.canvas.clientWidth || 1, h = this.canvas.clientHeight || 1;
     this.shared.uTime.value = this.time;
     this.shared.uWind.value = this.model.wind;

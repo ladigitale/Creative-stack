@@ -51,6 +51,37 @@ describe("addon procgen v3", () => {
     expect(out().ids.map((i: { id: string }) => i.id)).toContain("ecus.0");
   }, 30000);
 
+  it("recomposition : la vue de l'utilisateur est conservée, setView n'est rappelé que si l'entrée de vue change", async () => {
+    set("pgv", { scene: "rue", render: "vector" });
+    const host = document.createElement("div");
+    host.innerHTML = `<sonic-procgen dataProvider="pgv"></sonic-procgen>`;
+    document.body.appendChild(host);
+    const el = host.firstElementChild as any;
+    await wait(() => !!el.sceneModel && !!el.procgenView);
+    const view = el.procgenView;
+    let calls = 0;
+    const setView = view.setView.bind(view);
+    view.setView = (v: unknown, reset?: boolean) => (calls++, setView(v, reset));
+    // l'utilisateur zoome et déplace la vue
+    view.interact("zoom", -400);
+    view.interact("pan", 30, 10);
+    const mine = view.getView();
+    expect(mine.zoom).toBeGreaterThan(1.5);
+    // modification de la recette (paramètre) : nouveau modèle, même vue
+    const m0 = el.sceneModel;
+    set("pgv", { scene: "rue", render: "vector", seed: 7 });
+    await wait(() => el.sceneModel !== m0);
+    expect(el.sceneModel).not.toBe(m0);
+    expect(el.procgenView).toBe(view);
+    expect(calls).toBe(0);
+    expect(view.getView()).toEqual(mine);
+    // vue demandée par le DataProvider : appliquée
+    set("pgv", { scene: "rue", render: "vector", seed: 7, view: { zoom: 3 } });
+    await wait(() => calls > 0);
+    expect(calls).toBe(1);
+    expect(view.getView().zoom).toBe(3);
+  }, 30000);
+
   it("l'exemple n'utilise ni code ni champ libre, et branche la scène sur un store", () => {
     const tags = new Set<string>();
     const walk = (n: any) => {
