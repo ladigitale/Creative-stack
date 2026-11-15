@@ -44,6 +44,7 @@
         "density": { "type": "number", "description": "0 clair, 1 normal, 2 foncé" },
         "paper": { "type": "string", "description": "gap (étiquettes, défaut), black-mark ou continuous" },
         "copies": { "type": "number", "description": "1..50" },
+        "flip": { "type": "boolean", "description": "retourne l'impression d'un demi-tour (si l'étiquette sort à l'envers)" },
         "show-preview": { "type": "boolean", "description": "affiche l'aperçu 1 bit (dimensionner par style : width)" },
         "control": { "type": "string", "description": "DP : compteurs de commandes et réglages en direct" },
         "out-data-provider": { "type": "string", "description": "DP d'état (défaut <id>State)" },

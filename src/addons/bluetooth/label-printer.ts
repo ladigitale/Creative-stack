@@ -83,8 +83,8 @@ export function labelPixels(labelMm: [number, number], model: PrinterModel): { a
  * Du dessin (sens de lecture) aux lignes envoyées à l'imprimante : en `landscape` le dessin fait
  * `along × across` et tourne d'un quart de tour ; en `portrait` il fait `across × along`.
  */
-export function toPrintBitmap(design: Bitmap, orientation: "landscape" | "portrait", headWidthPx: number): Bitmap {
-  const turned = orientation === "landscape" ? rotateBitmap(design, 90) : design;
+export function toPrintBitmap(design: Bitmap, orientation: "landscape" | "portrait", headWidthPx: number, flip = false): Bitmap {
+  const turned = rotateBitmap(design, (orientation === "landscape" ? 90 : 0) + (flip ? 180 : 0));
   return centerInWidth(turned, headWidthPx);
 }
 
@@ -117,6 +117,8 @@ export class SonicLabelPrinter extends DeviceElement<LabelPrinterState> implemen
   @property({ type: Number }) density = 1;
   @property({ type: String }) paper = "gap";
   @property({ type: Number }) copies = 1;
+  /** Retourne l'impression d'un demi-tour (étiquette qui sort à l'envers). */
+  @property({ type: Boolean }) flip = false;
   /** Affiche l'aperçu 1 bit à la place du composant (sinon il reste invisible). */
   @property({ type: Boolean, attribute: "show-preview", reflect: true }) showPreview = false;
   /** Facteur des délais du protocole (1 ; 0 dans les tests). */
@@ -445,7 +447,7 @@ export class SonicLabelPrinter extends DeviceElement<LabelPrinterState> implemen
     if (this.busy) return false;
     this.busy = true;
     this.cancelled = false;
-    const packed = packBitmap(toPrintBitmap(design, settings.orientation, this.currentModel().widthPx));
+    const packed = packBitmap(toPrintBitmap(design, settings.orientation, this.currentModel().widthPx, this.flip));
     this.patch({ status: "ready", error: null, printing: true, progress: 0, copy: 0, copies: settings.copies });
     let error: string | null = null;
     try {

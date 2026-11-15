@@ -344,6 +344,8 @@ describe("géométrie de l'étiquette", () => {
     const print = toPrintBitmap(design, "landscape", 96);
     expect([print.width, print.height]).toEqual([96, 240]);
     expect(print.bits[95]).toBe(1); // première ligne imprimée, dernier point
+    const flipped = toPrintBitmap(design, "landscape", 96, true);
+    expect(flipped.bits[239 * 96]).toBe(1); // demi-tour : dernière ligne, premier point
     const narrow = toPrintBitmap({ width: 240, height: 80, bits: new Uint8Array(240 * 80).fill(1) }, "landscape", 96);
     expect(narrow.width).toBe(96);
     expect(Array.from(narrow.bits.subarray(0, 96)).filter(Boolean).length).toBe(80);

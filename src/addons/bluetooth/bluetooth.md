@@ -101,6 +101,7 @@ Envoyer : écrire `{ "write": { "n": 1, "text": "led on\n" } }` dans `ui.esp`.
 | `density` | 0 clair, 1 normal, 2 foncé |
 | `paper` | `gap` (étiquettes séparées, défaut), `black-mark`, `continuous` |
 | `copies` | 1..50 |
+| `flip` | Retourne l'impression d'un demi-tour, si l'étiquette sort à l'envers |
 | `show-preview` | Affiche l'aperçu 1 bit à la place du composant (largeur par `style`) |
 
 Commandes : `print {n, copies}` (défaut de `for`), `preview`, `feed`, `refresh` (relit batterie et état), `cancel` (effectif entre deux copies). Les réglages se changent en direct dans `control` : `{ "dither": "floyd", "threshold": 140, "copies": 3 }`.
