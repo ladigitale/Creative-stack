@@ -199,7 +199,16 @@ const overlaps = (z: Rect, list: number[]): boolean => {
 };
 
 /** Compteurs du dernier rendu (mesures). */
-export type GLStats = { strokes: number; batches: number; switches: number; draws: number; msaa: boolean };
+export type GLStats = {
+  strokes: number; batches: number; switches: number; draws: number; msaa: boolean;
+  /** Empreintes envoyées à la carte graphique. */
+  stamps: number;
+  /** Temps passé en JavaScript (parcours des traits, empreintes, appels WebGL), pauses exclues (ms). */
+  jsMs: number;
+};
+
+/** Chronométrage de la carte graphique (EXT_disjoint_timer_query_webgl2), quand le navigateur le fournit. */
+type TimerExt = { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number };
 
 export class GLRenderer {
   private gl: WebGL2RenderingContext;
@@ -231,8 +240,10 @@ export class GLRenderer {
   private batch: { key: number; zones: number[]; scales: number[]; box: Rect } | null = null;
   /** Zones des traits posés directement pendant que le lot est ouvert (ils ne le chevauchent pas). */
   private beside: number[] = [];
-  stats: GLStats = { strokes: 0, batches: 0, switches: 0, draws: 0, msaa: false };
+  stats: GLStats = { strokes: 0, batches: 0, switches: 0, draws: 0, msaa: false, stamps: 0, jsMs: 0 };
   lost = false;
+  private timer: TimerExt | null = null;
+  private pendingQuery: WebGLQuery | null = null;
 
   /** Moteur sur une toile (OffscreenCanvas dans un worker), ou `null` sans WebGL2. */
   static create(canvas: Canvas): GLRenderer | null {
@@ -248,6 +259,7 @@ export class GLRenderer {
     this.gl = gl;
     (canvas as unknown as EventTarget).addEventListener?.("webglcontextlost", () => { this.lost = true; });
     this.samples = Math.max(1, Math.min(4, gl.getParameter(gl.MAX_SAMPLES) as number));
+    try { this.timer = gl.getExtension("EXT_disjoint_timer_query_webgl2") as TimerExt | null; } catch { this.timer = null; }
     this.stampProg = this.prog(STAMP_VS, STAMP_FS, ["size", "tip", "useTip"]);
     this.fillProg = this.prog(FILL_VS, FILL_FS, ["size", "color"]);
     this.scaleProg = this.prog(SCALE_VS, SCALE_FS, ["size"]);
@@ -451,6 +463,7 @@ export class GLRenderer {
         if (list.arr.length < FLOATS * 262144) { const g = new Float32Array(list.arr.length * 2); g.set(list.arr); list.arr = g; }
         else this.drawStamps(list);
       }
+      this.stats.stamps++;
       const o = list.n++ * FLOATS, I = list.arr;
       I[o] = sx * dpr; I[o + 1] = sy * dpr; I[o + 2] = P; I[o + 3] = st0.rot + vr;
       I[o + 4] = st0.squash; I[o + 5] = hd;
@@ -716,7 +729,7 @@ export class GLRenderer {
     this.view = view; this.w = w; this.h = h; this.dpr = dpr;
     this.toMain.n = 0; this.toMain.tip = null; this.toScratch.n = 0; this.toScratch.tip = null;
     this.batch = null; this.beside = [];
-    this.stats = { strokes: 0, batches: 0, switches: 0, draws: 0, msaa };
+    this.stats = { strokes: 0, batches: 0, switches: 0, draws: 0, msaa, stamps: 0, jsMs: 0 };
     gl.viewport(0, 0, W, H);
     this.bound = undefined;
     this.bind(this.main!.fb);
@@ -724,14 +737,29 @@ export class GLRenderer {
     gl.clearColor(c ? c[0] * c[3] : 0, c ? c[1] * c[3] : 0, c ? c[2] * c[3] : 0, c ? c[3] : 0);
     gl.clearStencil(0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-    let t = performance.now();
+    // Chronomètre de la carte graphique : une mesure à la fois (lue plus tard, par `gpuMs()`).
+    let query: WebGLQuery | null = null;
+    if (this.timer && !this.pendingQuery) {
+      query = gl.createQuery();
+      if (query) gl.beginQuery(this.timer.TIME_ELAPSED_EXT, query);
+    }
+    const endQuery = (keep: boolean) => {
+      if (!query || !this.timer) return;
+      gl.endQuery(this.timer.TIME_ELAPSED_EXT);
+      if (keep) this.pendingQuery = query;
+      else gl.deleteQuery(query);
+      query = null;
+    };
+    const t0 = performance.now();
+    let t = t0, js = 0;
     for (const st of strokes) {
       if (!visible(st)) continue;
       this.drawOne(st);
       if (pause && performance.now() - t > 25) {
         gl.flush();
+        js += performance.now() - t;
         const go = await pause();
-        if (!go || this.lost) return false;
+        if (!go || this.lost) { endQuery(false); return false; }
         this.bound = undefined;
         t = performance.now();
       }
@@ -741,6 +769,28 @@ export class GLRenderer {
     this.blit(this.main!.fb, null, [0, 0, W, H]);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.bound = undefined;
+    endQuery(true);
+    this.stats.jsMs = js + (performance.now() - t);
     return !this.lost && !gl.isContextLost();
+  }
+
+  /** Disponible : le navigateur sait chronométrer la carte graphique. */
+  get canTimeGpu(): boolean {
+    return !!this.timer;
+  }
+
+  /**
+   * Temps passé par la carte graphique sur le dernier rendu (ms) : `undefined` tant que la mesure n'est pas
+   * prête, `null` si elle est perdue (changement de fréquence, mise en veille…) ou impossible.
+   */
+  gpuMs(): number | null | undefined {
+    const gl = this.gl, q = this.pendingQuery, T = this.timer;
+    if (!T || !q) return null;
+    if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) return undefined;
+    const disjoint = gl.getParameter(T.GPU_DISJOINT_EXT) as boolean;
+    const ns = gl.getQueryParameter(q, gl.QUERY_RESULT) as number;
+    gl.deleteQuery(q);
+    this.pendingQuery = null;
+    return disjoint ? null : ns / 1e6;
   }
 }

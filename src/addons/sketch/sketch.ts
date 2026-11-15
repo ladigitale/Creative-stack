@@ -14,7 +14,7 @@ import {
 } from "./model";
 import { blitBlend, clearDisc, compositeOf, drawStamp, drawStroke, drawStrokes, punch, scratchFor, type Surface } from "./render";
 import { intersects } from "../vector/geometry";
-import { LayerWorker, sameView, type LayerReply } from "./layer-worker";
+import { LayerWorker, sameView, type LayerResult } from "./layer-worker";
 import { StrokeStamper } from "./stamps";
 import { parseSettingsRefs, readSettings, settingsKey, snapshotSettings, type SettingsRef, type SettingsSnapshot } from "./settings";
 import { ROTATE_STEP, ViewGestures, invert, multiply, viewMatrix } from "../../shared/view2d";
@@ -59,7 +59,18 @@ const COLOR_EDIT_MODE: Record<"palette" | "levels" | "gradient", ColorMapMode> =
 const isColorEdit = (op: SketchEdit): op is "palette" | "levels" | "gradient" => op in COLOR_EDIT_MODE;
 
 /** Rendu de la couche : moteur du dernier rendu et sa durée (ms), mode demandé. */
-export type SketchRenderState = { mode: RenderMode; live: boolean; engine: string; ms: number; batches?: number; switches?: number; msaa?: boolean };
+/**
+ * Rendu de la couche. `ms` : durée dans le worker (ou sur le fil principal en `direct`). Détail (moteur `gl`) :
+ * `jsMs` préparation en JavaScript (traits, empreintes, appels WebGL), `gpuMs` temps de la carte graphique
+ * (`null` si le navigateur ne sait pas la chronométrer, absent tant que la mesure n'est pas arrivée),
+ * `latencyMs` délai entre la demande et l'arrivée de l'image (transferts et attente compris), `applyMs` temps
+ * pour la poser sur la page, `stamps` empreintes dessinées.
+ */
+export type SketchRenderState = {
+  mode: RenderMode; live: boolean; engine: string; ms: number;
+  batches?: number; switches?: number; msaa?: boolean;
+  jsMs?: number; gpuMs?: number | null; latencyMs?: number; applyMs?: number; stamps?: number;
+};
 /** `auto` : worker + carte graphique (2D si indisponible) ; `gpu` : idem ; `cpu` : worker en 2D ; `direct` : fil principal. */
 export type RenderMode = "auto" | "gpu" | "cpu" | "direct";
 const RENDER_MODES: readonly RenderMode[] = ["auto", "gpu", "cpu", "direct"];
@@ -784,9 +795,23 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /* ---------------------------------------------- rendu en arrière-plan (worker) */
 
   /** Worker de rendu de la couche (`layer-worker.ts`). */
-  private layerWorker = new LayerWorker((r) => this.onLayerReply(r));
+  private layerWorker = (() => {
+    const lw = new LayerWorker((r) => this.onLayerReply(r));
+    // Temps de la carte graphique, arrivé après l'image : rattaché au rendu affiché.
+    lw.onGpu = (id, ms) => {
+      if (id !== this.lastLayerId) { this.pendingGpu = { id, ms }; return; }
+      this.lastGpuMs = ms;
+      this.publishRender();
+    };
+    return lw;
+  })();
+  private lastLayerId = 0;
+  private lastGpuMs: number | null | undefined;
+  private pendingGpu: { id: number; ms: number | null } | null = null;
+  private lastLatency: number | undefined;
+  private lastApplyMs: number | undefined;
   /** Couche rendue par le worker, posée dès qu'aucun trait n'est en cours. */
-  private readyLayer: LayerReply | null = null;
+  private readyLayer: LayerResult | null = null;
   /** Ancienne couche gardée pour le prochain échange (pas de grande allocation à chaque rendu). */
   private spareLayer: HTMLCanvasElement | null = null;
 
@@ -810,7 +835,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (!this.layerWorker.request(this.doc.strokes, this.view, w, h, dpr, this.backgroundColor())) { this.layerDirty = true; this.schedule(); }
   }
 
-  private onLayerReply(r: LayerReply): void {
+  private onLayerReply(r: LayerResult): void {
     if (!r.bitmap) {
       // Worker en panne (repli sur le fil principal) ou copie désynchronisée (renvoyée à la prochaine demande).
       this.layerDirty = true;
@@ -838,6 +863,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.layerDirty = true;
       return;
     }
+    const tA = performance.now();
     const W = Math.round(w * dpr), H = Math.round(h * dpr);
     let c = this.spareLayer;
     if (!c || c.width !== W || c.height !== H) {
@@ -863,16 +889,30 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.lastLayerMs = r.ms;
     this.lastLayerEngine = r.engine ?? "";
     this.lastLayerStats = r.stats;
+    this.lastLatency = r.latency;
+    this.lastApplyMs = performance.now() - tA;
+    this.lastLayerId = r.id;
+    this.lastGpuMs = undefined;
+    if (this.pendingGpu?.id === r.id) this.lastGpuMs = this.pendingGpu.ms;
+    this.pendingGpu = null;
     this.publishRender();
   }
-  private lastLayerStats: { batches: number; switches: number; msaa: boolean } | undefined;
+  private lastLayerStats: { batches: number; switches: number; msaa: boolean; stamps?: number; jsMs?: number } | undefined;
 
   /** État du rendu, publié à part (sans passer par la sauvegarde). */
   private renderState(): SketchRenderState {
     const st = this.lastLayerStats;
     return {
       mode: this.effMode(), live: this.effLive(), engine: this.lastLayerEngine, ms: Math.round(this.lastLayerMs),
-      ...(st && this.lastLayerEngine === "gl" ? { batches: st.batches, switches: st.switches, msaa: st.msaa } : {}),
+      ...(st && this.lastLayerEngine === "gl" ? {
+        batches: st.batches, switches: st.switches, msaa: st.msaa, stamps: st.stamps,
+        ...(st.jsMs !== undefined ? { jsMs: Math.round(st.jsMs) } : {}),
+        ...(this.lastGpuMs !== undefined ? { gpuMs: this.lastGpuMs === null ? null : Math.round(this.lastGpuMs * 10) / 10 } : {}),
+      } : {}),
+      ...(this.lastLayerEngine === "gl" || this.lastLayerEngine === "2d" ? {
+        ...(this.lastLatency !== undefined ? { latencyMs: Math.round(this.lastLatency) } : {}),
+        ...(this.lastApplyMs !== undefined ? { applyMs: Math.round(this.lastApplyMs * 10) / 10 } : {}),
+      } : {}),
     };
   }
   /** Réglage de rendu changé : couche refaite avec le nouveau moteur. */

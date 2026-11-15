@@ -14,6 +14,9 @@ export type LayerMsg =
   | { type: "append"; rev: number; strokes: Stroke[] }
   | { type: "render"; id: number; rev: number; len: number; view: View; w: number; h: number; dpr: number; bg: string | null; gl?: boolean };
 
+/** Temps de la carte graphique d'un rendu, envoyé à part quand la mesure est prête. */
+export type LayerGpu = { gpu: true; id: number; gpuMs: number | null };
+
 export type LayerReply = { id: number; rev: number; len: number; view: View; w: number; h: number; dpr: number; bitmap?: ImageBitmap; error?: string; ms: number; engine?: "gl" | "2d"; stats?: GLStats };
 
 type Scope = { onmessage: ((e: MessageEvent<LayerMsg>) => void) | null; postMessage: (m: unknown, t?: Transferable[]) => void };
@@ -26,6 +29,16 @@ let canvas: OffscreenCanvas | null = null;
 /** Moteur WebGL2 (carte graphique) ; `false` : indisponible ou en échec, rendu 2D. */
 let glr: GLRenderer | null | false = null;
 let glCanvas: OffscreenCanvas | null = null;
+
+/** Lit le chronomètre de la carte graphique dès qu'il est prêt (au plus ~2 s), et l'envoie. */
+function pollGpu(g: GLRenderer, id: number, tries = 0): void {
+  setTimeout(() => {
+    let v: number | null | undefined;
+    try { v = g.gpuMs(); } catch { v = null; }
+    if (v === undefined && tries < 40) return pollGpu(g, id, tries + 1);
+    scope.postMessage({ gpu: true, id, gpuMs: v ?? null } satisfies LayerGpu);
+  }, tries < 5 ? 16 : 50);
+}
 
 const yieldNow = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -45,7 +58,9 @@ async function render(m: Extract<LayerMsg, { type: "render" }>): Promise<void> {
         if (latest !== m.id) return;
         if (done) {
           const bitmap = glCanvas!.transferToImageBitmap();
-          scope.postMessage({ ...base, bitmap, ms: performance.now() - t0, engine: "gl", stats: glr.stats }, [bitmap]);
+          scope.postMessage({ ...base, bitmap, ms: performance.now() - t0, engine: "gl", stats: { ...glr.stats } }, [bitmap]);
+          if (glr.canTimeGpu) pollGpu(glr, m.id);
+          else scope.postMessage({ gpu: true, id: m.id, gpuMs: null } satisfies LayerGpu);
           return;
         }
         if (glr.lost) glr = false;
