@@ -262,7 +262,7 @@ export class Monde3d {
       } else meshes.push(null);
     });
     let shadow: THREE.Mesh | null = null;
-    if (m.shadows) {
+    if (m.shadows && !inst.placement.noShadow) {
       shadowMat ??= new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false });
       shadow = new THREE.Mesh(SHADOW_GEO, shadowMat);
       shadow.name = "";

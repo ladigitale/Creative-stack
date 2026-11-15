@@ -26,6 +26,13 @@ export const TEX_KINDS = [
   "tricot",
   "nuages",
   "camouflage",
+  "parquet",
+  "chevron",
+  "moquette",
+  "beton",
+  "gravier",
+  "dalles",
+  "paillis",
 ] as const;
 export type TexKind = (typeof TEX_KINDS)[number];
 
@@ -51,6 +58,15 @@ const ALIASES: Record<string, TexKind> = {
   knit: "tricot",
   clouds: "nuages",
   camo: "camouflage",
+  "baton-rompu": "chevron",
+  herringbone: "chevron",
+  carpet: "moquette",
+  concrete: "beton",
+  gravel: "gravier",
+  slabs: "dalles",
+  mulch: "paillis",
+  gazon: "herbe",
+  pelouse: "herbe",
 };
 
 export type TexSpec = {
@@ -86,6 +102,13 @@ const DEFAULT_SCALE: Record<TexKind, number> = {
   tricot: 12,
   nuages: 0.6,
   camouflage: 1.5,
+  parquet: 1,
+  chevron: 1,
+  moquette: 4,
+  beton: 0.5,
+  gravier: 1.5,
+  dalles: 1,
+  paillis: 2,
 };
 
 /** Lit une texture écrite par l'agent ; null si absente ou inconnue (problème signalé via `issue`). */
@@ -174,6 +197,40 @@ function sample(kind: TexKind, u: number, v: number, seed: number): number {
     }
     case "bruit":
       return fbm(u, v, 4, seed);
+    case "parquet": {
+      // lames de 12,5 cm × 50 cm (à l'échelle 1), joints décalés d'un rang à l'autre, teinte par lame
+      const row = Math.floor(v * 8);
+      const x = u * 2 + (row % 2) * 0.5 + (row % 4 >= 2 ? 0.25 : 0);
+      const joint = mod(v * 8, 1) < 0.05 || mod(x, 1) < 0.012;
+      if (joint) return 0.95;
+      return hash(mod(Math.floor(x), 2), row, seed) * 0.35 + fbm(u * 2, v * 8, 8, seed + 5, 2) * 0.2;
+    }
+    case "chevron": {
+      // bâtons en zigzag : quatre bandes par tuile, pente inversée d'une bande à l'autre
+      const band = Math.floor(u * 4);
+      const f = mod(u * 4, 1);
+      const d = v * 8 + (band % 2 ? f : 1 - f) * 2;
+      if (mod(d, 1) < 0.07 || f < 0.02) return 0.95;
+      return hash(mod(Math.floor(d), 8), band, seed) * 0.35 + fbm(u * 4, v * 4, 8, seed + 5, 2) * 0.15;
+    }
+    case "moquette":
+      return fbm(u, v, 64, seed, 2) * 0.5 + hash(Math.floor(u * 128), Math.floor(v * 128), seed) * 0.4;
+    case "beton":
+      return fbm(u, v, 3, seed, 4) * 0.4 + (cells(u, v, 24, seed + 2)[0] < 0.07 ? 0.5 : 0);
+    case "gravier": {
+      const [d1, d2] = cells(u, v, 12, seed);
+      return d2 - d1 < 0.08 ? 1 : fbm(u, v, 12, seed + 1, 2) * 0.5 * (1 - d1);
+    }
+    case "dalles": {
+      const row = Math.floor(v * 2);
+      const x = u * 2 + (row % 2) * 0.5;
+      if (mod(x, 1) < 0.02 || mod(v * 2, 1) < 0.02) return 1;
+      return fbm(u, v, 4, seed, 3) * 0.22 + hash(mod(Math.floor(x), 2), row, seed) * 0.15;
+    }
+    case "paillis": {
+      const n = fbm(u, v, 8, seed, 3);
+      return Math.pow(Math.abs(Math.sin((u * 14 + v * 9 + n * 6) * Math.PI)), 2) * 0.5 + fbm(u, v, 32, seed + 3, 2) * 0.5;
+    }
     case "grain":
       return fbm(u, v, 32, seed, 2) * 0.6 + hash(Math.floor(u * 256), Math.floor(v * 256), seed) * 0.4;
     case "rayures":
