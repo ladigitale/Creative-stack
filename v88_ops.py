@@ -19,6 +19,13 @@ def item(mode, lib, hint):
 def engine(eq, txt):
     return {"tagName": "sonic-if", "attributes": {"dataProvider": "etat.render", "key": "engine", "equals": eq}, "nodes": [{"tagName": "span", "textContent": txt}]}
 
+def detail(label, key, unit):
+    return {"tagName": "div", "attributes": {"style": "display:contents"}, "nodes": [
+        {"tagName": "span", "textContent": label},
+        {"tagName": "span", "nodes": [
+            {"tagName": "sonic-value", "attributes": {"dataProvider": "etat.render", "key": key, "default": "n/d"}},
+            {"tagName": "span", "textContent": (" " + unit) if unit else ""}]}]}
+
 def panel():
     return {"tagName": "div", "attributes": {"slot": "content", "style": "padding:10px 12px;width:250px;box-sizing:border-box"}, "nodes": [
         {"tagName": "sonic-fieldset", "attributes": {"variant": "ghost", "tight": "", "label": "Rendu de la toile"}, "nodes": [
@@ -36,7 +43,12 @@ def panel():
                         {"tagName": "span", "textContent": "Dernier rendu :"},
                         {"tagName": "sonic-value", "attributes": {"dataProvider": "etat.render", "key": "ms"}},
                         {"tagName": "span", "textContent": "ms ·"},
-                        engine("gl", "carte graphique"), engine("2d", "processeur"), engine("direct", "fil principal")]}]}]}]}]}
+                        engine("gl", "carte graphique"), engine("2d", "processeur"), engine("direct", "fil principal")]},
+                    {"tagName": "sonic-if", "attributes": {"dataProvider": "etat.render", "key": "engine", "equals": "gl"}, "nodes": [
+                        {"tagName": "div", "attributes": {"style": "font-size:11px;opacity:.6;display:grid;grid-template-columns:auto auto;gap:1px 10px;margin-top:6px;font-variant-numeric:tabular-nums"}, "nodes": [
+                            detail("Préparation (JS)", "jsMs", "ms"), detail("Carte graphique", "gpuMs", "ms"),
+                            detail("Attente totale", "latencyMs", "ms"), detail("Pose", "applyMs", "ms"),
+                            detail("Empreintes", "stamps", ""), detail("Changements de cible", "switches", "")]}]}]}]}]}]}
 
 def pop(placement):
     return {"tagName": "sonic-pop", "attributes": {"placement": placement}, "nodes": [
