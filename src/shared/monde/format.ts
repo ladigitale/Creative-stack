@@ -281,6 +281,8 @@ export type Placement = {
   on?: { support: string; surface: string; local: [number, number, number]; yaw: number };
   /** Pas d'ombre au sol (voir `PlaceIn.shadow`). */
   noShadow?: boolean;
+  /** Rang de l'entrée de `place` écrite qui l'a produit (-1 : murs, sols et plafond de l'`espace`). */
+  src?: number;
 };
 
 /**
@@ -781,7 +783,7 @@ function readPlacements(list: unknown, models: Map<string, Model>, prefabs: Reco
       const b = measured ? boxOf(mname) : DEFAULT_BOUNDS;
       const made = mk(b);
       if (!made) return;
-      const pl: Placement = { ...made, model: mname, roles: { ...cr, ...made.roles } };
+      const pl: Placement = { ...made, model: mname, roles: { ...cr, ...made.roles }, src: i };
       if (pl.name) {
         if (namedParts + shaped > LIMITS.namedParts) {
           issues.push({ path, message: `plus de ${LIMITS.namedParts} pièces animées : instance ignorée` });
@@ -1029,6 +1031,9 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
       if (r) textures[k] = r;
     }
   const place = readPlacements(src.place, models, expanded.prefabs, issues, conflicts);
+  // rangs des entrées écrites : l'espace ajoute ses murs, sols et plafond en tête
+  const added = (Array.isArray(src.place) ? src.place.length : 0) - (Array.isArray(raw0.place) ? raw0.place.length : 0);
+  for (const pl of place) pl.src = (pl.src ?? 0) - added >= 0 ? (pl.src ?? 0) - added : -1;
   nameCarried(place, models, expanded.prefabs);
   const posed = place.some((p) => p.on) || (Array.isArray(raw0.place) && raw0.place.some((p) => p && typeof p === "object" && (p as PlaceIn).stack !== undefined));
   let marks: Obb[] = [];

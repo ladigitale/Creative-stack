@@ -262,8 +262,21 @@ appui et se déplacer lui-même (pas sur un mur : il y reste du décor).
   encore, `snaps` parmi `mur`, `aligne-x`, `aligne-z`, `grille`, `deplace`, et **`place`** = l'entrée `place` à
   écrire dans le monde pour rendre la pose durable (unité du document : `at`/`rot`, ou `on` + `at` sur un appui).
 
-Le rangement ne réécrit pas le monde : c'est au store de recopier `place` dans `monde.place` s'il veut garder la
-pose (sinon un nouveau monde publié replace l'objet).
+Le rangement ne réécrit pas le monde : c'est au store de recopier la pose s'il veut la garder (sinon un nouveau
+monde publié replace l'objet). Fonctions JSONata de `sonic-store` pour cela :
+
+| Fonction | Rend |
+| --- | --- |
+| `$mondePlace($state.monde, $action.payload)` | Le monde où l'entrée de l'objet porte la pose (`on` / `against` / `at` / `rot` de `payload.place`). `payload` = `placed` ou le `payload` de l'action `place`. Un objet nommé d'office (`bureau-lampe1`) est retrouvé par `src` (rang de son entrée) et reçoit ce nom. Une entrée à plusieurs copies (`stack`, `grid`, `scatter`, `copies`) n'est pas modifiée |
+| `$mondeAdd($state.monde, {"model": "lit", "params": {…}}, [x, z]?)` | Le monde avec l'objet ajouté (nommé `lit1`, `lit2`… sans `name`) à la place libre la plus proche du point visé (mètres ; centre de l'espace par défaut), avec l'appui de sa nature. Lit le monde complet (15 à 60 ms) : `budget-ms="200"` sur le store |
+| `$mondeRemove($state.monde, "bureau", src?)` | Le monde sans l'objet ni ce qui est posé dessus (de proche en proche) |
+
+```json
+{ "tagName": "sonic-store", "attributes": { "id": "chambre", "budget-ms": "200", "history": "30",
+  "reducer": "$action.type = \"place\" ? $merge([$state, {\"monde\": $mondePlace($state.monde, $action.payload)}]) : $action.type = \"add\" ? $merge([$state, {\"monde\": $mondeAdd($state.monde, $action.payload)}]) : $state" } }
+```
+
+avec `sonic-3d drag=".*" target="chambre"` : chaque lâcher envoie `place`, le monde est réécrit, la pose reste.
 
 ### Déplacements en jeu
 

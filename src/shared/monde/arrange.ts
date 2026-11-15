@@ -29,6 +29,8 @@ export type Body = {
   pose: string;
   /** Instance qui le porte (vide : aucune). */
   support: string;
+  /** Rang de l'entrée de `place` écrite (voir `Placement.src`). */
+  src?: number;
 };
 
 export type Arranged = {
@@ -314,6 +316,8 @@ export type PlacedInfo = {
   snaps: string[];
   /** Clés à fusionner dans le placement de l'instance (`on` / `at` / `rot`, unité du document). */
   place: Record<string, unknown>;
+  /** Rang de son entrée dans `monde.place` (-1 : inconnu) : voir `$mondePlace`. */
+  src: number;
 };
 
 export function placedInfo(name: string, res: Arranged, bodies: Body[], unit: number): PlacedInfo {
@@ -333,5 +337,5 @@ export function placedInfo(name: string, res: Arranged, bodies: Body[], unit: nu
     const deg = (res.carry.yaw * 180) / Math.PI;
     place = { on: sup.name, against: null, at: [r4(((lx - ox) * k) / unit), r4((second * k) / unit)], rot: [0, r4(deg), 0] };
   } else place = { on: null, against: null, at: [r4(res.at[0] / unit), r4(res.at[1] / unit), r4(res.at[2] / unit)], rot: [0, r4((res.ry * 180) / Math.PI), 0] };
-  return { objectId: name, x: r4(res.at[0]), y: r4(res.at[1]), z: r4(res.at[2]), ry: r4(res.ry), valid: res.valid, hits: res.hits, snaps: res.snaps, place };
+  return { objectId: name, x: r4(res.at[0]), y: r4(res.at[1]), z: r4(res.at[2]), ry: r4(res.ry), valid: res.valid, hits: res.hits, snaps: res.snaps, place, src: me?.src ?? -1 };
 }

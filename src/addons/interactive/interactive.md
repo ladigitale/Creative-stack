@@ -174,6 +174,10 @@ $action.type = 'pinch' ? $merge([$state, {'zoom': $clamp($state.zoom * $action.p
 : $state
 ```
 
+## World editing helpers
+
+`$mondePlace(monde, placed)`, `$mondeAdd(monde, entry, [x, z]?)` and `$mondeRemove(monde, name, src?)` edit the JSON of a `monde` (sonic-3d / sonic-2d world format): keep a dragged pose, add an object at the nearest free spot, remove an object and what stands on it. See `../3d/monde.md`, « Édition ». `$mondeAdd` reads the whole world (lazy-loaded, 15–60 ms): give the store `budget-ms="200"`.
+
 ## Reducer purity
 
 Injected: `$rand`, `$randInt`, `$clamp`, `$range`, `$set`, `$matrix`, `$rotate`.  
