@@ -25,6 +25,7 @@
  * fusionnées en bloc avec son opacité) : chaque passe corrige ce que les précédentes ont laissé. Traits tracés le
  * long des formes (orientation du tenseur de structure). Fonction pure, utilisable dans le navigateur et dans Node.
  */
+import { prepareImage } from "./prefilter";
 import { blurImg, hex, rng, toFloat, type Img, type PainterlyOptions, type PainterlyResult, type PaintSource } from "./painterly";
 
 type Blend = "normal" | "multiply" | "screen";
@@ -50,7 +51,8 @@ const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 export function illustrateImage(src: PaintSource, opts: PainterlyOptions = {}): PainterlyResult {
   const detail = clamp01(opts.detail ?? 0.6);
-  const im = toFloat(src, Math.max(48, Math.min(1200, opts.maxSide ?? 360)));
+  // Préparation : lissage qui garde les bords (bruit et petits points ne coûtent plus de touches).
+  const im = prepareImage(toFloat(src, Math.max(48, Math.min(1200, opts.maxSide ?? 360))), opts);
   const { w, h } = im;
   const N = w * h;
   const side = Math.max(w, h);

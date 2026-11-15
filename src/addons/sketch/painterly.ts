@@ -12,7 +12,9 @@
 
 export type PaintSource = { width: number; height: number; data: ArrayLike<number> };
 
-export type PainterlyOptions = {
+import { prepareImage, type PrepareOptions } from "./prefilter";
+
+export type PainterlyOptions = PrepareOptions & {
   /**
    * Manière de peindre : `realiste` (défaut de `sonic-painterly`, `illustrate.ts`) reconstruit l'image par touches
    * posées fondues (aérographe, glacis en Produit et Écran, dureté selon la netteté de l'image) ; `illustration`
@@ -128,7 +130,7 @@ export const hex = (r: number, g: number, b: number) =>
 /** Peint l'image en gestes. */
 export function paintImage(src: PaintSource, opts: PainterlyOptions = {}): PainterlyResult {
   const detail = Math.max(0, Math.min(1, opts.detail ?? 0.6));
-  const im = toFloat(src, Math.max(32, Math.min(1200, opts.maxSide ?? 360)));
+  const im = prepareImage(toFloat(src, Math.max(32, Math.min(1200, opts.maxSide ?? 360))), { ...opts, style: "huile" });
   const { w, h } = im;
   const N = w * h;
   const rand = rng(opts.seed ?? 7);

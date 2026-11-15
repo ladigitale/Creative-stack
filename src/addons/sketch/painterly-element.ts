@@ -1,4 +1,5 @@
 import { LitElement, css, html } from "lit";
+import { PREPARE_FILTERS, type PrepareFilter } from "./prefilter";
 import { customElement, property } from "lit/decorators.js";
 import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp, plain } from "../../shared/audio/dp";
@@ -24,7 +25,7 @@ export type PainterlyState = {
 };
 
 const IDLE: PainterlyState = { status: "idle", error: null, url: null, width: 0, height: 0, strokes: 0, layers: [], residual: 0, ms: 0, runs: 0 };
-const OPTION_KEYS = ["maxSide", "detail", "layers", "threshold", "maxLength", "curvature", "opacity", "jitter", "maxStrokes", "frame", "seed", "background", "style", "focus", "optimizeMs"] as const;
+const OPTION_KEYS = ["maxSide", "detail", "layers", "threshold", "maxLength", "curvature", "opacity", "jitter", "maxStrokes", "frame", "seed", "background", "style", "focus", "optimizeMs", "prepare", "prepareForce", "contrast"] as const;
 
 /** URL d'image acceptée (`https:`, `blob:`, `data:image/…` ; `http:` pour localhost), ou null. */
 export function imageUrlOf(v: unknown): string | null {
@@ -47,6 +48,8 @@ export function readPainterlyOptions(v: unknown): PainterlyOptions {
       if (f && typeof f === "object" && num(f.x) !== undefined && num(f.y) !== undefined) out.focus = { x: num(f.x)!, y: num(f.y)!, ...(num(f.r) !== undefined ? { r: num(f.r)! } : {}) };
       continue;
     }
+    if (k === "prepare") { if (typeof x === "string" && PREPARE_FILTERS.includes(x as PrepareFilter)) out.prepare = x as PrepareFilter; continue; }
+    if (k === "contrast") { if (typeof x === "boolean") out.contrast = x; else if (x === "oui" || x === "non") out.contrast = x === "oui"; continue; }
     if (k === "background") { if (typeof x === "string" && /^#[0-9a-f]{6}$/i.test(x)) out.background = x; continue; }
     const n = typeof x === "number" ? x : typeof x === "string" && x.trim() !== "" ? Number(x) : NaN;
     if (Number.isFinite(n)) (out as Record<string, number>)[k] = n;
@@ -77,6 +80,8 @@ export class SonicPainterly extends LitElement {
   @property({ type: Number, attribute: "max-strokes" }) maxStrokes = 0;
   /** `realiste` (défaut : touches fondues, proche de l'image), `illustration` (passes visibles) ou `huile` (touches opaques). */
   @property({ type: String, attribute: "paint-style" }) paintStyle: "realiste" | "illustration" | "huile" = "realiste";
+  /** Préparation de l'image (`prefilter.ts`) : `auto` (selon le style), `aucun`, `median`, `bilateral`, `kuwahara`, `aplats`. */
+  @property({ type: String, attribute: "paint-prepare" }) paintPrepare: PrepareFilter = "auto";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
   private state: PainterlyState = { ...IDLE };
@@ -152,7 +157,7 @@ export class SonicPainterly extends LitElement {
 
   /** Réglages effectifs : attributs, puis `params`. */
   options(): PainterlyOptions {
-    const o: PainterlyOptions = { maxSide: this.maxSide, detail: this.detail, style: this.paintStyle === "huile" || this.paintStyle === "illustration" ? this.paintStyle : "realiste", ...this.live };
+    const o: PainterlyOptions = { maxSide: this.maxSide, detail: this.detail, style: this.paintStyle === "huile" || this.paintStyle === "illustration" ? this.paintStyle : "realiste", prepare: PREPARE_FILTERS.includes(this.paintPrepare) ? this.paintPrepare : "auto", ...this.live };
     if (this.maxStrokes > 0 && this.live.maxStrokes === undefined) o.maxStrokes = this.maxStrokes;
     if (!o.maxStrokes) o.maxStrokes = STROKES_DEFAULT[o.style ?? "realiste"];
     return o;
