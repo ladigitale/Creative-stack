@@ -5,6 +5,7 @@ import { playback, wantsOffscreenPlay } from "./playback";
 import { reload } from "./reload";
 import { SceneRuntime } from "./scene-runtime";
 import { status } from "./status";
+import { mondeBind } from "./monde-bind";
 
 export type EnsureHost = {
   releasing: boolean;
@@ -57,6 +58,8 @@ async function ensureRuntime(host: EnsureHost) {
       minPolar: reload.degToRad(host.minPolar),
       maxPolar: reload.degToRad(host.maxPolar),
     });
+    // ce que le monde signale après coup (modèle procgen mesuré, rangement) repasse par l'élément
+    mondeBind.hook(host as never);
     host.runtime.setDamping(host.damping);
     reload.applyOrbitLimits(host as never);
     syncSize(host);

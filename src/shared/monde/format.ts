@@ -13,7 +13,7 @@ import { expandPrefabs, type Matiere, type PrefabFormat, type PrefabInfo } from 
 import { boundsOf, DEFAULT_BOUNDS, inPolygon, localOn, surfaceNames, surfaceOf, turnY, type Box3, type Face, type From, type Surface } from "./supports";
 import { expandEspace } from "./espace";
 import { CATALOGUE } from "./catalogue";
-import { findConflicts } from "./collide";
+import { findAll, type Obb } from "./collide";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -167,9 +167,10 @@ export type PlaceIn = {
 export type MondeIn = {
   /**
    * Recherche des collisions entre objets posés (liste `conflicts`) : faite d'office dès que le monde a un `espace`
-   * ou pose des objets (`on`, `against`, `stack`) ; `true` la force, `false` la coupe.
+   * ou pose des objets (`on`, `against`, `stack`) ; `true` la force, `false` la coupe, `"montrer"` la force et
+   * entoure de rouge à l'écran les objets en conflit.
    */
-  collisions?: boolean;
+  collisions?: boolean | "montrer";
   /** Pièce ou parcelle : contour, bords (murs, clôtures) percés d'ouvertures, zones de sol, plafond (voir espace.ts). */
   espace?: unknown;
   /** Unité des longueurs écrites (pièces, placements, clips) : `m` (défaut), `cm` ou `mm`. `nodes` reste en mètres. */
@@ -313,6 +314,13 @@ export type Monde = {
   prefabs: Record<string, PrefabInfo>;
   /** Poses à revoir (voir `Conflict`). */
   conflicts: Conflict[];
+  /** `collisions: "montrer"` : boîtes des objets en conflit, à dessiner par le rendu. */
+  marks: Obb[];
+  /** Recherche des collisions : `non`, `oui` (liste `conflicts`), `montrer` (liste et arêtes rouges). */
+  collide: "non" | "oui" | "montrer";
+  /** Contour de l'`espace` en mètres (`null` sans espace) et facteur de l'unité du document vers le mètre. */
+  contour: number[][] | null;
+  unit: number;
   issues: Issue[];
 };
 
@@ -661,6 +669,40 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
 /** Emprise au sol : cercle `r` (écart entre copies) et rectangle orienté `hx` × `hz` (zones à éviter). */
 type Foot = { x: number; z: number; r: number; hx: number; hz: number; yaw: number; name: string; base: string };
 
+/**
+ * Les objets sans nom posés sur un meuble nommé (lampe sur un bureau) en reçoivent un, `<appui>-<modèle><n>` : ils
+ * suivent alors leur appui quand on le déplace, et se déplacent eux-mêmes. Pas sur les murs ni les menuiseries, qui
+ * ne bougent pas (le décor y reste instancié), et dans la limite des instances nommées.
+ */
+function nameCarried(place: Placement[], models: Map<string, Model>, prefabs: Record<string, PrefabInfo>): void {
+  const byName = new Map(place.filter((p) => p.name).map((p) => [p.name, p]));
+  let named = byName.size;
+  let parts = 0;
+  for (const p of byName.values()) parts += models.get(p.model)?.parts.length ?? 0;
+  const fixed = (p: Placement) => p.model.startsWith("espace:") || (Object.prototype.hasOwnProperty.call(prefabs, p.model.split("~")[0]) && prefabs[p.model.split("~")[0]].famille === "ouverture");
+  const count: Record<string, number> = {};
+  // un objet posé sur un objet tout juste nommé (vase sur un plateau posé sur la table) : plusieurs passes
+  for (let pass = 0, again = true; again && pass < 4; pass++) {
+    again = false;
+    for (const pl of place) {
+      if (pl.name || !pl.on) continue;
+      const sup = byName.get(pl.on.support);
+      if (!sup || fixed(sup)) continue;
+      const n = models.get(pl.model)?.parts.length ?? 0;
+      if (named + 1 > LIMITS.named || parts + n > LIMITS.namedParts) return;
+      const base = pl.model.split("~")[0].replace(/[^\w-]/g, "");
+      let name = "";
+      do name = `${pl.on.support}-${base}${(count[`${pl.on.support}-${base}`] = (count[`${pl.on.support}-${base}`] ?? 0) + 1)}`;
+      while (byName.has(name));
+      pl.name = name;
+      byName.set(name, pl);
+      named++;
+      parts += n;
+      again = true;
+    }
+  }
+}
+
 function readPlacements(list: unknown, models: Map<string, Model>, prefabs: Record<string, PrefabInfo>, issues: Issue[], conflicts: Conflict[]): Placement[] {
   const out: Placement[] = [];
   const names = new Set<string>();
@@ -987,9 +1029,15 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
       if (r) textures[k] = r;
     }
   const place = readPlacements(src.place, models, expanded.prefabs, issues, conflicts);
+  nameCarried(place, models, expanded.prefabs);
   const posed = place.some((p) => p.on) || (Array.isArray(raw0.place) && raw0.place.some((p) => p && typeof p === "object" && (p as PlaceIn).stack !== undefined));
-  if (raw0.collisions === true || (raw0.collisions !== false && (esp.contour || posed)))
-    conflicts.push(...findConflicts(place, models, { contour: esp.contour, familleOf: (base) => own(expanded.prefabs, base)?.famille ?? "", softOf: (base) => own(expanded.prefabs, base)?.souple === true }));
+  let marks: Obb[] = [];
+  const collide = raw0.collisions === "montrer" ? "montrer" : raw0.collisions === true || (raw0.collisions !== false && (esp.contour || posed)) ? "oui" : "non";
+  if (collide !== "non") {
+    const found = findAll(place, models, { contour: esp.contour, familleOf: (base) => own(expanded.prefabs, base)?.famille ?? "", softOf: (base) => own(expanded.prefabs, base)?.souple === true });
+    conflicts.push(...found.conflicts);
+    if (raw0.collisions === "montrer") marks = found.marks;
+  }
   return {
     palette,
     models,
@@ -1007,6 +1055,10 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     outline: clampN(num(src.outline, 1), 0, 6),
     prefabs: expanded.prefabs,
     conflicts,
+    marks,
+    collide,
+    contour: esp.contour,
+    unit,
     issues,
   };
 }

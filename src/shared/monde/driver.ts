@@ -6,14 +6,19 @@
  * - `nodes.<instance>_<pièce>` : surcharge d'une pièce (`visible`, `color`, `opacity`, …) laissée au rendu ;
  * - `nodes.<instance>.on` : `"<appui>"` ou `"<appui>@<surface>"` pose l'instance sur une autre (avec `at: [x, z]`
  *   depuis le centre de la surface, `ease`, `lift`), `null` la détache sur place. Une instance posée suit son appui
- *   (position, cap, échelle uniforme) ; lui donner `x`, `y` ou `z` la détache.
+ *   (position, cap, échelle uniforme) ; lui donner `x`, `y` ou `z` la détache ;
+ * - `nodes.<instance>.move` : `[x, z]` range l'instance au point visé (voir arrange.ts) : appui choisi selon sa nature,
+ *   aimantation aux murs, aux voisins et à la grille, place libre la plus proche si elle gêne. `ease` anime le trajet.
+ *   Le résultat (`placed`) dit où elle est et si la pose est valide.
  *
  * Commun aux deux rendus : la même suite de patchs donne la même pose et le même clip en 2D et en 3D.
  */
 import { easeCurve, isNum, patchOf, type NodeCurve, type NodePatch } from "../nodes";
-import { isColor, type Model, type Monde, type Placement } from "./format";
+import { isColor, type Conflict, type Model, type Monde, type Placement } from "./format";
+import { findAll, type Obb } from "./collide";
 import { clipState, samplePose, setClip, STRIDE, type ClipState } from "./pose";
 import { boundsOf, DEFAULT_BOUNDS, localOn, surfaceOf, turnY } from "./supports";
+import { arrange, type Arranged, type ArrangeOptions, type Body } from "./arrange";
 
 /** Canaux de transformation d'une instance. */
 const CH = ["x", "y", "z", "rx", "ry", "rz", "sx", "sy", "sz", "opacity"] as const;
@@ -45,6 +50,10 @@ export type InstanceState = {
   liftY: number;
   /** Posée sur une autre instance : position dans le repère de l'appui, cap propre, glissement en cours. */
   carry: Carry | null;
+  /** Dernier rangement demandé par `move` ou par un glisser (voir arrange.ts). */
+  placed: Arranged | null;
+  /** Position tenue par le pilote depuis un rangement (le rendu la recopie, même s'il gère d'habitude les positions). */
+  driven: boolean;
 };
 
 export type Carry = {
@@ -113,6 +122,8 @@ export class MondeDriver {
         tween: null,
         liftY: 0,
         carry: pl.on ? { ...pl.on, local: [...pl.on.local], depth: 0, move: null } : null,
+        placed: null,
+        driven: false,
       });
     }
     this.instances.clear();
@@ -142,6 +153,92 @@ export class MondeDriver {
     this.carried = [];
     for (const inst of this.instances.values()) if (depthOf(inst, 0) > 0) this.carried.push(inst);
     this.carried.sort((a, b) => a.carry!.depth - b.carry!.depth);
+  }
+
+  /** Objets de la scène à leur position courante (instances pilotées et décor), pour le rangement. */
+  /**
+   * Conflits de la scène telle qu'elle est maintenant (instances déplacées comprises) ; `null` si le monde ne cherche
+   * pas les collisions. Les objets non rangés gardent les conflits d'appui relevés à la lecture (`hors-appui`).
+   */
+  collisions(): { conflicts: Conflict[]; marks: Obb[] } | null {
+    const m = this.monde;
+    if (!m || m.collide === "non") return null;
+    const place: Placement[] = m.place.map((pl) => {
+      const inst = pl.name ? this.instances.get(pl.name) : undefined;
+      if (!inst) return pl;
+      const t = inst.t;
+      return { ...pl, hidden: !inst.visible, at: [t.x, t.y, t.z], rot: [t.rx, t.ry, t.rz], scale: [t.sx, t.sy, t.sz] };
+    });
+    const own = (base: string) => (Object.prototype.hasOwnProperty.call(m.prefabs, base) ? m.prefabs[base] : null);
+    const found = findAll(place, m.models, { contour: m.contour, familleOf: (base) => own(base)?.famille ?? "", softOf: (base) => own(base)?.souple === true });
+    const kept = m.conflicts.filter((c) => c.type === "hors-appui" && !this.instances.get(c.a)?.placed);
+    return { conflicts: [...kept, ...found.conflicts], marks: m.collide === "montrer" ? found.marks : [] };
+  }
+
+  /** Vrai si l'instance peut être rangée ailleurs : ni élément de l'espace (murs, sols, plafond), ni ouverture. */
+  movable(name: string): boolean {
+    const inst = this.instances.get(name);
+    if (!inst || !this.monde) return false;
+    const model = inst.placement.model;
+    if (model.startsWith("espace:")) return false;
+    const base = model.split("~")[0];
+    const p = Object.prototype.hasOwnProperty.call(this.monde.prefabs, base) ? this.monde.prefabs[base] : null;
+    return p?.famille !== "ouverture";
+  }
+
+  bodies(): Body[] {
+    const m = this.monde;
+    if (!m) return [];
+    const info = (model: string) => {
+      const base = model.split("~")[0];
+      const p = Object.prototype.hasOwnProperty.call(m.prefabs, base) ? m.prefabs[base] : null;
+      return { base, famille: p?.famille ?? "", soft: p?.souple === true, pose: p?.pose ?? "" };
+    };
+    const out: Body[] = [];
+    for (const inst of this.instances.values()) {
+      if (!inst.visible) continue;
+      const t = inst.t;
+      out.push({ name: inst.name, model: inst.model, at: [t.x, t.y, t.z], rot: [t.rx, t.ry, t.rz], scale: [t.sx, t.sy, t.sz], support: inst.carry?.support ?? "", ...info(inst.placement.model) });
+    }
+    for (const pl of m.place) {
+      if (pl.name || pl.hidden) continue;
+      const model = m.models.get(pl.model);
+      if (model) out.push({ name: "", model, at: pl.at, rot: pl.rot, scale: pl.scale, support: pl.on?.support ?? "", ...info(pl.model) });
+    }
+    return out;
+  }
+
+  /**
+   * Range `name` au point visé (x, z) et applique la pose trouvée. `ms` > 0 : trajet animé. Rend le résultat
+   * (aussi gardé dans `placed`), ou `null` si l'instance est inconnue.
+   */
+  arrangeTo(name: string, x: number, z: number, now: number, ms = 0, curve: NodeCurve = "inOut", opt: ArrangeOptions = {}): Arranged | null {
+    const inst = this.instances.get(name);
+    if (!inst || !this.monde || !this.movable(name)) return null;
+    const res = arrange(this.bodies(), name, x, z, { contour: this.monde.contour, ...opt });
+    if (!res) return null;
+    inst.placed = res;
+    inst.driven = true;
+    const sup = res.carry ? this.instances.get(res.carry.support) : undefined;
+    if (res.carry && sup) {
+      const k = sup.t.sx || 1;
+      const [fx, fz] = turnY(inst.t.x - sup.t.x, inst.t.z - sup.t.z, -sup.t.ry);
+      const from: [number, number, number] = [fx / k, (inst.t.y - sup.t.y) / k, fz / k];
+      inst.carry = { ...res.carry, local: ms > 0 ? from : [...res.carry.local], depth: 0, move: ms > 0 ? { start: now, ms, curve, from, to: [...res.carry.local], lift: 0 } : null };
+      inst.tween = null;
+    } else {
+      inst.carry = null;
+      const to = { x: res.at[0], y: res.at[1], z: res.at[2], ry: res.ry };
+      if (ms > 0) inst.tween = { start: now, ms, curve, keys: ["x", "y", "z", "ry"], from: { x: inst.t.x, y: inst.t.y, z: inst.t.z, ry: inst.t.ry }, to, lift: 0 };
+      else {
+        Object.assign(inst.t, to);
+        inst.tween = null;
+      }
+    }
+    inst.liftY = 0;
+    inst.transformDirty = true;
+    this.chain();
+    return res;
   }
 
   /** Pose `inst` sur une surface d'une autre instance (`at` : [x, z] depuis le centre, ramené dans le contour). */
@@ -194,12 +291,20 @@ export class MondeDriver {
         res.roles = true;
       }
     }
+    // Rangement : « mets-la ici », appui, aimantation et collisions décidés par arrange.ts
+    const move = (raw as { move?: unknown } | null)?.move;
+    if (Array.isArray(move) && isNum(move[0]) && isNum(move[move.length > 2 ? 2 : 1])) {
+      const ms = animate && isNum(p.ease?.ms) ? Math.max(0, p.ease!.ms!) : 0;
+      if (this.arrangeTo(name, move[0], move[move.length > 2 ? 2 : 1] as number, now, ms, p.ease?.curve ?? "inOut")) res.transform = true;
+      return res;
+    }
     // Appui : poser sur une autre instance, détacher, tourner sur place (vaut aussi quand le rendu gère les positions)
     const on = (raw as { on?: unknown } | null)?.on;
     if (typeof on === "string" && on) {
       const ms = animate && isNum(p.ease?.ms) ? Math.max(0, p.ease!.ms!) : 0;
       if (this.attach(inst, on, (raw as { at?: unknown }).at, now, ms, p.ease?.curve ?? "inOut", isNum(p.lift) ? p.lift : 0)) res.transform = true;
-    } else if (inst.carry && (on === null || isNum(p.x) || isNum(p.y) || isNum(p.z))) {
+    } else if (isNum(p.x) || isNum(p.y) || isNum(p.z)) inst.driven = false;
+    if (typeof on !== "string" && inst.carry && (on === null || isNum(p.x) || isNum(p.y) || isNum(p.z))) {
       // détachée sur place, ou parce qu'on lui donne une position
       inst.carry = null;
       this.chain();

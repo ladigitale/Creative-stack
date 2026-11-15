@@ -90,7 +90,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 
 | Nœud | Champs |
 |---|---|
-| `<instance>` | `x y z` (m), `rx ry rz` (rad), `scale`, `visible`, `opacity`, `ease {ms, curve}`, `lift` (saut en arc pendant l'interpolation) ; **`clip`** (nom), **`clipSpeed`** (1 = normal, garde la phase), **`clipT`** (0..1 : pose figée, `null` pour relâcher) ; **`roles`** `{"maillot": "#…"}` |
+| `<instance>` | `x y z` (m), `rx ry rz` (rad), `scale`, `visible`, `opacity`, `ease {ms, curve}`, `lift` (saut en arc pendant l'interpolation) ; **`clip`** (nom), **`clipSpeed`** (1 = normal, garde la phase), **`clipT`** (0..1 : pose figée, `null` pour relâcher) ; **`roles`** `{"maillot": "#…"}` ; **`move`** `[x, z]` (m) : range l'objet au point visé (voir Édition) |
 | `<instance>_<pièce>` | `visible`, `color`, `opacity` (3D : aussi `emissive`, `rx`…) |
 
 Republier la même valeur ne relance rien. Les instances gardent leur état quand le monde change (ajout d'un arbre,
@@ -101,7 +101,8 @@ retouche d'un modèle) : seuls les modèles modifiés sont reconstruits.
 `out-data-provider` (distinct du `dataProvider`) reçoit `mondeInfo : {models: {nom: {parts, clips, roles, clip}}, instances: [{name, model}], decor, issues}`.
 Avec des prefabs : `mondeInfo.prefabs = {nom: {params, famille, tags, pose, degagement, slots, variants}}` (de quoi bâtir un
 formulaire ou un catalogue) et `instances[].prefab` = nom écrit du modèle (`model` est alors sa variante `nom~clé`).
-Avec des appuis : `instances[].on` = `appui@surface` et `mondeInfo.conflicts` (voir Pose).
+Avec des appuis : `instances[].on` = `appui@surface` et `mondeInfo.conflicts` (voir Pose), recalculés après chaque
+rangement (`move`, glisser). Un rangement publie aussi `placed` (voir Édition).
 `issues` liste les erreurs du JSON (chemin + message) : une erreur n'empêche jamais le rendu du reste.
 Tap : `pick` avec `objectId` = instance (en 2D, `part` en plus).
 
@@ -217,8 +218,10 @@ maillage réel des modèles : pas de moteur physique.
   | `hors-appui` | Objet plus grand que sa surface d'appui, ou ramené dans son contour |
 
   La recherche se fait d'office dès que le monde a un `espace` ou pose des objets (`on`, `against`, `stack`) ;
-  `"collisions": true` la force, `false` la coupe. Ne sont pas testés : sols, plafond, objets plats de moins de 3 cm
-  (tapis), modèles `gen` (pas de boîte mesurable), décor sans nom au-delà de 800 placements. Un modèle `"souple": true`
+  `"collisions": true` la force, `false` la coupe, **`"montrer"`** la force et entoure de rouge à l'écran (3D) les
+  boîtes des objets en conflit. Ne sont pas testés : sols, plafond, objets plats de moins de 3 cm (tapis), décor sans
+  nom au-delà de 800 placements. Un modèle `gen` est mesuré par le rendu une fois généré (4 tranches horizontales de
+  son maillage), puis testé comme les autres. Un modèle `"souple": true`
   (plante, coussin, rideau du catalogue) tolère 10 cm. `a` et `b` sont des noms d'instance, ou `modèle#rang` pour le
   décor sans nom. Un modèle de plus de 40 pièces est ramené à une seule boîte.
 - Faces d'appui : `"surface": {"name": "top", "face": "+z", "from": "coin"}` sur une pièce en fait une face verticale
@@ -228,6 +231,35 @@ maillage réel des modèles : pas de moteur physique.
 - `within: [[x, z], …]` limite un semis au sol à un polygone ; `shadow: false` retire l'ombre au sol d'une instance
   (automatique pour ce qui est posé sur un appui).
 - Limites : échelle d'appui uniforme, inclinaison de l'appui ignorée. Format `monde` seulement (pas `monde2d`).
+
+## Édition : ranger, glisser, aimanter
+
+« Mets ce meuble ici » : à partir d'un point visé `[x, z]` (mètres), le monde range l'objet proprement.
+
+1. **Appui selon la nature** (`pose` du prefab) : `mur` (cadre, applique, étagère murale) → le mur le plus proche, à
+   la même hauteur ; `plafond` (suspension) → le plafond ; `dessus` (lampe, plante, coussin) → le dessus le plus haut
+   sous le point (bureau, commode…), sinon le sol ; le reste au sol.
+2. **Aimantation** : dos au mur quand l'objet en a un et en est à moins de 30 cm (plus sa profondeur), tourné vers la
+   pièce ; bords alignés sur ceux des voisins au sol à moins de 8 cm (`aligne-x`, `aligne-z`) ; sinon grille de 5 cm.
+3. **Collisions** : si la pose gêne (boîtes orientées, passage des portes, devant des fenêtres, hors de l'espace),
+   l'objet glisse vers la place libre la plus proche (jusqu'à 1,5 m) : le long de son mur, puis au sol (meuble), ou
+   sur les autres murs (objet mural). Sans place libre, la pose est faite telle quelle avec `valid: false`.
+
+Ce qui est posé sur l'objet le suit. Les murs, sols, plafond et menuiseries de l'`espace` ne se déplacent pas. Un
+objet sans nom posé sur un meuble nommé reçoit un nom, `<appui>-<modèle><n>` (`bureau-lampe1`), pour suivre son
+appui et se déplacer lui-même (pas sur un mur : il y reste du décor).
+
+- **Par les données** : `nodes.commode = {"move": [1.2, 3.0], "ease": {"ms": 300}}`.
+- **Au pointeur (3D)** : attribut `drag` = regex des instances déplaçables (`".*"` : toutes). L'objet saisi suit le
+  pointeur, rangé à chaque instant (arêtes rouges à jour avec `collisions: "montrer"`), l'orbite est suspendue
+  pendant le glisser. Au lâcher, `target` reçoit `{type: "place", payload}` et l'élément émet l'évènement `place`.
+- **Résultat** (clé de sortie `placed`, et `payload` de l'action `place`) :
+  `{objectId, x, y, z, ry, valid, hits, snaps, place}` — position en mètres, cap en radians, `hits` = ce qui gêne
+  encore, `snaps` parmi `mur`, `aligne-x`, `aligne-z`, `grille`, `deplace`, et **`place`** = l'entrée `place` à
+  écrire dans le monde pour rendre la pose durable (unité du document : `at`/`rot`, ou `on` + `at` sur un appui).
+
+Le rangement ne réécrit pas le monde : c'est au store de recopier `place` dans `monde.place` s'il veut garder la
+pose (sinon un nouveau monde publié replace l'objet).
 
 ## Espace : pièce ou parcelle
 

@@ -24,7 +24,53 @@ export type Surface = { face: Face; from: From; y: number; y0: number; x0: numbe
 type Measure = { bounds: Box3 | null; parts: (Box3 | null)[] };
 const cache = new WeakMap<Model, Measure>();
 
+/**
+ * Mesures des modèles `gen` : leur maillage n'existe qu'une fois généré par procgen, côté rendu, qui le déclare ici
+ * (`measureGen`). Emprise entière et tranches horizontales (une chaise = assise large en bas, dossier mince en haut).
+ */
+export type GenMeasure = { bounds: Box3; slabs: Box3[] };
+const genMeasures = new Map<string, GenMeasure>();
+const GEN_SLABS = 4;
+const genKey = (g: { id: string; seed: string; params: Record<string, unknown> }) => `${g.id}|${g.seed}|${JSON.stringify(g.params)}`;
+
+/** Déclare le maillage d'un modèle `gen` (positions x, y, z à la suite, repère du modèle). Vrai si la mesure est nouvelle. */
+export function measureGen(g: { id: string; seed: string; params: Record<string, unknown> }, pos: ArrayLike<number>): boolean {
+  const key = genKey(g);
+  if (genMeasures.has(key) || pos.length < 9) return false;
+  const bounds: Box3 = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+  for (let k = 0; k < pos.length; k += 3)
+    for (let a = 0; a < 3; a++) {
+      const v = pos[k + a];
+      if (v < bounds.min[a]) bounds.min[a] = v;
+      if (v > bounds.max[a]) bounds.max[a] = v;
+    }
+  const h = bounds.max[1] - bounds.min[1];
+  const slabs: Box3[] = Array.from({ length: GEN_SLABS }, () => ({ min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] }) as Box3);
+  if (h > 1e-6)
+    for (let k = 0; k < pos.length; k += 3) {
+      const s = slabs[Math.min(GEN_SLABS - 1, Math.floor(((pos[k + 1] - bounds.min[1]) / h) * GEN_SLABS))];
+      for (const a of [0, 2]) {
+        const v = pos[k + a];
+        if (v < s.min[a]) s.min[a] = v;
+        if (v > s.max[a]) s.max[a] = v;
+      }
+    }
+  slabs.forEach((s, i) => {
+    s.min[1] = bounds.min[1] + (i * h) / GEN_SLABS;
+    s.max[1] = bounds.min[1] + ((i + 1) * h) / GEN_SLABS;
+  });
+  genMeasures.set(key, { bounds, slabs: slabs.filter((s) => Number.isFinite(s.min[0])) });
+  if (genMeasures.size > 400) genMeasures.delete(genMeasures.keys().next().value as string);
+  return true;
+}
+
+export function genMeasure(model: Model): GenMeasure | null {
+  return model.gen ? (genMeasures.get(genKey(model.gen)) ?? null) : null;
+}
+
 function measure(model: Model): Measure {
+  // un modèle gen n'est pas gardé en cache : sa mesure arrive après la première lecture
+  if (model.gen) return { bounds: genMeasure(model)?.bounds ?? null, parts: model.parts.map(() => null) };
   const hit = cache.get(model);
   if (hit) return hit;
   const n = model.parts.length;

@@ -12,7 +12,7 @@ import type { Conflict, Model, Placement } from "./format";
 import { geometryOf } from "./geometry";
 import { m4, m4Compose, type M4, type V3 } from "./math";
 import { forward, STRIDE } from "./pose";
-import { inPolygon } from "./supports";
+import { genMeasure, inPolygon } from "./supports";
 
 /** Boîte orientée : centre, trois axes unitaires, demi-dimensions le long de chacun. */
 export type Obb = { c: V3; ax: [V3, V3, V3]; h: V3 };
@@ -48,6 +48,9 @@ function normalize(v: V3): V3 {
 
 /** Boîtes d'un modèle au repos, dans son repère : une par pièce dessinée (une seule, englobante, au-delà de 40 pièces). */
 export function boxesOf(model: Model): Obb[] {
+  // modèle procgen : tranches mesurées par le rendu une fois le maillage généré (aucune avant)
+  if (model.gen)
+    return (genMeasure(model)?.slabs ?? []).map((s) => ({ c: [(s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, (s.min[2] + s.max[2]) / 2], ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h: [(s.max[0] - s.min[0]) / 2, (s.max[1] - s.min[1]) / 2, (s.max[2] - s.min[2]) / 2] }) as Obb);
   const hit = cache.get(model);
   if (hit) return hit;
   const n = model.parts.length;
@@ -117,8 +120,41 @@ type Item = { who: string; base: string; pl: Placement; boxes: Obb[]; lo: V3; hi
 
 const mat = m4();
 function placed(pl: Placement, model: Model): Obb[] {
-  m4Compose(mat, pl.at[0], pl.at[1], pl.at[2], pl.rot[0], pl.rot[1], pl.rot[2], pl.scale[0], pl.scale[1], pl.scale[2]);
+  return placeBoxes(model, pl.at, pl.rot, pl.scale);
+}
+
+/** Boîtes d'un modèle posé (position, rotation en radians, échelle), dans le repère du monde. */
+export function placeBoxes(model: Model, at: readonly number[], rot: readonly number[], scale: readonly number[]): Obb[] {
+  m4Compose(mat, at[0], at[1], at[2], rot[0], rot[1], rot[2], scale[0], scale[1], scale[2]);
   return boxesOf(model).map((b) => transform(b, mat));
+}
+
+/** Boîte alignée sur le monde qui contient des boîtes orientées. */
+export function hull(boxes: Obb[]): { lo: V3; hi: V3 } {
+  const lo: V3 = [Infinity, Infinity, Infinity], hi: V3 = [-Infinity, -Infinity, -Infinity];
+  for (const b of boxes) {
+    const e = extent(b);
+    for (let a = 0; a < 3; a++) {
+      lo[a] = Math.min(lo[a], b.c[a] - e[a]);
+      hi[a] = Math.max(hi[a], b.c[a] + e[a]);
+    }
+  }
+  return { lo, hi };
+}
+
+/**
+ * Dégagement d'une menuiserie posée : le passage d'une porte (aussi profond que large, 1 m au plus) ou les 15 cm
+ * devant une fenêtre, à sa hauteur.
+ */
+export function clearanceBox(model: Model, at: readonly number[], rot: readonly number[], scale: readonly number[]): Obb | null {
+  const bs = boxesOf(model);
+  if (!bs.length) return null;
+  const { lo, hi } = hull(bs);
+  const w = hi[0] - lo[0], hgt = hi[1] - lo[1];
+  const depth = at[1] < 0.05 ? Math.min(1, w) : 0.15;
+  const local: Obb = { c: [(lo[0] + hi[0]) / 2, lo[1] + hgt / 2, hi[2] + depth / 2 + 0.02], ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h: [w / 2 - 0.03, hgt / 2 - 0.03, depth / 2] };
+  m4Compose(mat, at[0], at[1], at[2], rot[0], rot[1], rot[2], scale[0], scale[1], scale[2]);
+  return transform(local, mat);
 }
 
 export type CollideOptions = {
@@ -135,16 +171,21 @@ export type CollideOptions = {
 /**
  * Conflits entre objets posés : `chevauchement` (deux objets se pénètrent, ou un objet traverse un mur),
  * `degagement` (objet dans le passage d'une porte ou devant une fenêtre), `hors-espace` (objet hors du contour).
- * Ignorés : sols, plafond, objets plats (tapis), clôtures et modèles procgen (sans boîte mesurable).
+ * Ignorés : sols, plafond, objets plats (tapis) ; un modèle procgen n'est testé qu'une fois mesuré par le rendu.
  */
 export function findConflicts(place: Placement[], models: Map<string, Model>, opt: CollideOptions): Conflict[] {
+  return findAll(place, models, opt).conflicts;
+}
+
+/** Comme `findConflicts`, avec les boîtes des objets en conflit (`marks`, pour les montrer à l'écran). */
+export function findAll(place: Placement[], models: Map<string, Model>, opt: CollideOptions): { conflicts: Conflict[]; marks: Obb[] } {
   const many = place.length > (opt.max ?? 800);
   const items: Item[] = [];
   const counts: Record<string, number> = {};
   for (const pl of place) {
     if (pl.hidden || (many && !pl.name)) continue;
     const model = models.get(pl.model);
-    if (!model || model.gen) continue;
+    if (!model) continue;
     const base = pl.model.split("~")[0];
     if (base.startsWith("espace:zone_") || base === "espace:plafond") continue;
     const boxes = placed(pl, model);
@@ -165,33 +206,25 @@ export function findConflicts(place: Placement[], models: Map<string, Model>, op
   }
   const out: Conflict[] = [];
   const seen = new Set<string>();
+  const marked = new Set<Item>();
+  const byWho = new Map(items.map((it) => [it.who, it]));
   const add = (a: string, b: string, type: Conflict["type"]) => {
     const key = `${a}|${b}|${type}`;
     if (seen.has(key) || out.length >= 200) return;
     seen.add(key);
     out.push({ a, b, type });
+    for (const n of [a, b]) {
+      const it = byWho.get(n);
+      if (it && it.kind === "objet") marked.add(it);
+    }
   };
 
   // Dégagement des ouvertures : le battant d'une porte, l'accès à une fenêtre
   const clear: { who: string; box: Obb; lo: V3; hi: V3 }[] = [];
   for (const it of items) {
     if (it.kind !== "ouverture") continue;
-    const model = models.get(it.pl.model)!;
-    const bs = boxesOf(model);
-    const lo: V3 = [Infinity, Infinity, Infinity], hi: V3 = [-Infinity, -Infinity, -Infinity];
-    for (const b of bs) {
-      const e = extent(b);
-      for (let a = 0; a < 3; a++) {
-        lo[a] = Math.min(lo[a], b.c[a] - e[a]);
-        hi[a] = Math.max(hi[a], b.c[a] + e[a]);
-      }
-    }
-    const w = hi[0] - lo[0], hgt = hi[1] - lo[1];
-    // porte (part du sol) : un passage aussi profond que large ; fenêtre : 15 cm devant le vitrage
-    const depth = it.pl.at[1] < 0.05 ? Math.min(1, w) : 0.15;
-    const local: Obb = { c: [(lo[0] + hi[0]) / 2, lo[1] + hgt / 2, hi[2] + depth / 2 + 0.02], ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h: [w / 2 - 0.03, hgt / 2 - 0.03, depth / 2] };
-    m4Compose(mat, it.pl.at[0], it.pl.at[1], it.pl.at[2], it.pl.rot[0], it.pl.rot[1], it.pl.rot[2], it.pl.scale[0], it.pl.scale[1], it.pl.scale[2]);
-    const box = transform(local, mat);
+    const box = clearanceBox(models.get(it.pl.model)!, it.pl.at, it.pl.rot, it.pl.scale);
+    if (!box) continue;
     const e = extent(box);
     clear.push({ who: it.who, box, lo: [box.c[0] - e[0], box.c[1] - e[1], box.c[2] - e[2]], hi: [box.c[0] + e[0], box.c[1] + e[1], box.c[2] + e[2]] });
   }
@@ -239,5 +272,5 @@ export function findConflicts(place: Placement[], models: Map<string, Model>, op
       if (outside) add(a.who, "espace", "hors-espace");
     }
   }
-  return out;
+  return { conflicts: out, marks: [...marked].flatMap((it) => it.boxes) };
 }

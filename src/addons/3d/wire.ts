@@ -34,7 +34,8 @@ type WireHost = LifeHost & {
 
 function connect(host: WireHost) {
   host.addEventListener("pointermove", host.onPointerMove as EventListener);
-  host.addEventListener("pointerdown", host.onPointerDown as EventListener);
+  // en capture : le glisser d'un objet passe avant l'orbite de la caméra (qui écoute le canvas)
+  host.addEventListener("pointerdown", host.onPointerDown as EventListener, true);
   host.addEventListener("pointerup", host.onPointerUp as EventListener);
   host.addEventListener("dblclick", host.onDblClick);
   host.addEventListener("pointerleave", host.onPointerLeave);
@@ -45,7 +46,7 @@ function connect(host: WireHost) {
 
 function disconnect(host: WireHost) {
   host.removeEventListener("pointermove", host.onPointerMove as EventListener);
-  host.removeEventListener("pointerdown", host.onPointerDown as EventListener);
+  host.removeEventListener("pointerdown", host.onPointerDown as EventListener, true);
   host.removeEventListener("pointerup", host.onPointerUp as EventListener);
   host.removeEventListener("dblclick", host.onDblClick);
   host.removeEventListener("pointerleave", host.onPointerLeave);
