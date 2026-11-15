@@ -13,7 +13,7 @@
 import { easeCurve, isNum, patchOf, type NodeCurve, type NodePatch } from "../nodes";
 import { isColor, type Model, type Monde, type Placement } from "./format";
 import { clipState, samplePose, setClip, STRIDE, type ClipState } from "./pose";
-import { boundsOf, DEFAULT_BOUNDS, surfaceOf, turnY } from "./supports";
+import { boundsOf, DEFAULT_BOUNDS, localOn, surfaceOf, turnY } from "./supports";
 
 /** Canaux de transformation d'une instance. */
 const CH = ["x", "y", "z", "rx", "ry", "rz", "sx", "sy", "sz", "opacity"] as const;
@@ -153,12 +153,8 @@ export class MondeDriver {
     if (!s) return false;
     const b = boundsOf(inst.model) ?? DEFAULT_BOUNDS;
     const k = sup.t.sx || 1;
-    const r = Math.max(Math.abs(b.min[0]), Math.abs(b.max[0]), Math.abs(b.min[2]), Math.abs(b.max[2])) * Math.abs(inst.t.sx) / k;
-    const hw = Math.max(0, (s.x1 - s.x0) / 2 - r), hd = Math.max(0, (s.z1 - s.z0) / 2 - r);
     const a = Array.isArray(at) ? at : [];
-    const lx = Math.max(-hw, Math.min(hw, isNum(a[0]) ? a[0] : 0));
-    const lz = Math.max(-hd, Math.min(hd, isNum(a[a.length > 2 ? 2 : 1]) ? (a[a.length > 2 ? 2 : 1] as number) : 0));
-    const to: [number, number, number] = [(s.x0 + s.x1) / 2 + lx, s.y - (b.min[1] * inst.t.sy) / k, (s.z0 + s.z1) / 2 + lz];
+    const to = localOn(s, b, [inst.t.sx, inst.t.sy, inst.t.sz], k, [isNum(a[0]) ? a[0] : 0, isNum(a[a.length > 2 ? 2 : 1]) ? (a[a.length > 2 ? 2 : 1] as number) : 0]).local;
     // position actuelle exprimée dans le repère du nouvel appui : le déplacement part d'où est l'objet
     const [fx, fz] = turnY(inst.t.x - sup.t.x, inst.t.z - sup.t.z, -sup.t.ry);
     const from: [number, number, number] = [fx / k, (inst.t.y - sup.t.y) / k, fz / k];

@@ -11,8 +11,15 @@ import { m4, type M4 } from "./math";
 import { forward, STRIDE } from "./pose";
 
 export type Box3 = { min: [number, number, number]; max: [number, number, number] };
-/** Surface d'appui, dans le repère du modèle au repos : rectangle horizontal à la hauteur `y`. */
-export type Surface = { y: number; x0: number; x1: number; z0: number; z1: number };
+/** Face qui reçoit : dessus (`top`), face verticale tournée vers +z (`+z` : un mur vu de l'intérieur), dessous (`-y` : un plafond). */
+export type Face = "top" | "+z" | "-y";
+/** D'où `at` se compte : centre de la surface, origine du modèle, ou coin (x mini, bas). */
+export type From = "centre" | "origine" | "coin";
+/**
+ * Surface d'appui, dans le repère du modèle au repos : boîte des pièces qui la portent. `y` = dessus, `y0` = dessous,
+ * `z` = face avant (+z).
+ */
+export type Surface = { face: Face; from: From; y: number; y0: number; x0: number; x1: number; z0: number; z1: number; z: number };
 
 type Measure = { bounds: Box3 | null; parts: (Box3 | null)[] };
 const cache = new WeakMap<Model, Measure>();
@@ -86,11 +93,67 @@ export function surfaceOf(model: Model, name: string): Surface | null {
         box.max[a] = Math.max(box.max[a], b.max[a]);
       }
   };
-  model.parts.forEach((p, i) => p.surface === name && add(m.parts[i]));
+  let face: Face = "top", from: From = "centre";
+  model.parts.forEach((p, i) => {
+    if (p.surface !== name || !m.parts[i]) return;
+    add(m.parts[i]);
+    face = p.face;
+    from = p.from;
+  });
   if (!box) model.parts.forEach((p, i) => p.name === name && add(m.parts[i]));
   if (!box && name === "top") add(m.bounds);
   const b = box as Box3 | null;
-  return b ? { y: b.max[1], x0: b.min[0], x1: b.max[0], z0: b.min[2], z1: b.max[2] } : null;
+  return b ? { face, from, y: b.max[1], y0: b.min[1], x0: b.min[0], x1: b.max[0], z0: b.min[2], z1: b.max[2], z: b.max[2] } : null;
+}
+
+/**
+ * Position d'un objet posé sur une surface, dans le repère du modèle d'appui (unités de ce modèle).
+ * `b`, `sc` : emprise et échelle de l'objet ; `k` : échelle (uniforme) de l'appui ; `at` : deux nombres (dessus et
+ * dessous : x, z ; face verticale : distance le long de la face, hauteur de la base) ; `level` : rang dans une pile.
+ * `u`, `v`, `r` : centre et rayon de l'emprise sur la surface (pour éviter les chevauchements).
+ */
+export function localOn(s: Surface, b: Box3, sc: readonly number[], k: number, at: readonly number[], level = 0) {
+  const hx = (Math.max(Math.abs(b.min[0]), Math.abs(b.max[0])) * Math.abs(sc[0])) / k;
+  const hz = (Math.max(Math.abs(b.min[2]), Math.abs(b.max[2])) * Math.abs(sc[2])) / k;
+  const h = ((b.max[1] - b.min[1]) * Math.abs(sc[1])) / k;
+  const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2;
+  let fits = true, clamped = false;
+  const fit = (want: number, lo: number, hi: number, mid: number): number => {
+    if (lo > hi + 1e-6) {
+      fits = false;
+      return mid;
+    }
+    const got = Math.max(lo, Math.min(hi, want));
+    if (Math.abs(got - want) > 1e-6) clamped = true;
+    return got;
+  };
+  if (s.face === "+z") {
+    const ox = s.from === "coin" ? s.x0 : s.from === "centre" ? cx : 0;
+    const oy = s.from === "coin" ? s.y0 : s.from === "centre" ? (s.y0 + s.y) / 2 : 0;
+    const x = fit(ox + at[0], s.x0 + hx, s.x1 - hx, cx);
+    // hauteur de la base de l'objet, gardé entre le bas et le haut de la face
+    const base = fit(oy + at[1], s.y0, s.y - h, s.y0);
+    const local: [number, number, number] = [x, base - (b.min[1] * sc[1]) / k, s.z - (b.min[2] * sc[2]) / k];
+    return { local, u: x, v: base + h / 2, r: hx, fits, clamped };
+  }
+  const r = Math.max(hx, hz);
+  const ox = s.from === "coin" ? s.x0 : s.from === "centre" ? cx : 0;
+  const oz = s.from === "coin" ? s.z0 : s.from === "centre" ? cz : 0;
+  const x = fit(ox + at[0], s.x0 + r, s.x1 - r, cx);
+  const z = fit(oz + at[1], s.z0 + r, s.z1 - r, cz);
+  const y = s.face === "-y" ? s.y0 - (b.max[1] * sc[1]) / k : s.y + (-b.min[1] * sc[1]) / k + level * h;
+  const local: [number, number, number] = [x, y, z];
+  return { local, u: x, v: z, r, fits, clamped };
+}
+
+/** Vrai si le point (x, z) est dans le polygone `pts` ([[x, z], …]). */
+export function inPolygon(x: number, z: number, pts: readonly (readonly number[])[]): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, zi] = pts[i], [xj, zj] = pts[j];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 /** Noms des surfaces adressables d'un modèle (pour les messages et la sortie). */

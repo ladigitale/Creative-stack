@@ -132,7 +132,7 @@ export class Monde2d {
   private buildInstance(m: Monde, inst: InstanceState) {
     const model = inst.model;
     let shadow: Graphics | null = null;
-    if (m.shadows) {
+    if (m.shadows && !inst.placement.noShadow) {
       shadow = new Graphics();
       shadow.label = `${inst.name}~ombre`;
       this.container.addChild(shadow);

@@ -205,8 +205,70 @@ maillage réel des modèles : pas de moteur physique.
   tourne sur son appui.
 - **À revoir** : `mondeInfo.conflicts = [{a, b, type}]`, `type` = `hors-appui` (objet plus grand que la surface ou
   ramené dans son contour) ou `chevauchement` (deux objets posés au même endroit). La pose est faite quand même.
-- Limites : appui horizontal seulement (pas de mur ni de plafond), échelle d'appui uniforme, inclinaison de l'appui
-  ignorée. Format `monde` seulement (pas `monde2d`).
+- Faces d'appui : `"surface": {"name": "top", "face": "+z", "from": "coin"}` sur une pièce en fait une face verticale
+  (`at` = `[distance le long de la face, hauteur de la base]`, dos de l'objet contre la face) ; `"face": "-y"` un
+  dessous où l'on suspend. `from` : `centre` (défaut), `origine` du modèle, ou `coin`. Les murs et le plafond d'un
+  `espace` sont faits ainsi. `against: "<instance>"` = `on` avec la base au sol.
+- `within: [[x, z], …]` limite un semis au sol à un polygone ; `shadow: false` retire l'ombre au sol d'une instance
+  (automatique pour ce qui est posé sur un appui).
+- Limites : échelle d'appui uniforme, inclinaison de l'appui ignorée. Format `monde` seulement (pas `monde2d`).
+
+## Espace : pièce ou parcelle
+
+La clé `espace` décrit un lieu par son contour : le sol, les murs percés de portes et de fenêtres, le plafond, ou une
+parcelle avec ses clôtures et ses zones. Elle produit des instances nommées ordinaires, sur lesquelles tout se pose.
+
+```json
+{ "unite": "cm",
+  "espace": {
+    "contour": [[0, 0], [420, 0], [420, 310], [0, 310]], "hauteur": 250,
+    "bords": [ { "couleur": "#f4f1ea" },
+               { "bord": 1, "ouvertures": [ { "type": "fenetre", "at": 155, "largeur": 140, "hauteur": 125, "allege": 90 } ] },
+               { "bord": 3, "couleur": "#2f5d62", "ouvertures": [ { "type": "porte", "at": 250 } ] } ],
+    "zones": [ { "nom": "plancher", "revetement": "chevron" } ] },
+  "place": [
+    { "model": "lit", "name": "lit", "against": "mur2", "at": 70 },
+    { "model": "etagere", "name": "e1", "on": "mur0", "at": [110, 120] },
+    { "model": "suspension", "on": "plafond", "at": [210, 155] },
+    { "model": "tapis", "on": "plancher", "at": [230, 150] } ] }
+```
+
+- **`contour`** : `[[x, z], …]` (3 à 60 points, sens quelconque, concave accepté). Le bord `i` va du point `i` au suivant.
+- **`hauteur`** : hauteur des murs. Sans elle, pas de mur par défaut (parcelle).
+- **`bords`** : une entrée sans `bord` vaut pour tous, une entrée `{"bord": i, …}` la complète pour ce bord.
+  `type` : `mur` (défaut d'une pièce), `aucun`, ou une clôture procgen `haie`, `cloture`, `palissade`, `muret`,
+  `pierre-seche`, `grille`, `bambou`. `hauteur`, `epaisseur`, `couleur` ou `matiere`, `tex`, `ouvertures`.
+- **`ouvertures`** : `{type | model, at, largeur, hauteur, allege, params, name}`. `at` = distance du **coin gauche
+  du mur vu de l'intérieur** au milieu de l'ouverture. Le mur est découpé autour ; la menuiserie est un prefab posé
+  dans son épaisseur : `fenetre`, `porte`, `portail` de base (paramètres `largeur`, `hauteur`, `cadre`, `teinte`), ou
+  un modèle du monde du même nom ou désigné par `model` (il reçoit `largeur` et `hauteur` s'il les déclare).
+- **`zones`** : `{nom, contour, revetement, couleur, tex, layers}`. Sans `contour` la zone couvre tout l'espace.
+  Revêtements : `parquet`, `chevron`, `moquette`, `carrelage`, `beton`, `lino`, `gazon`, `dalles`, `terrasse`,
+  `gravier`, `paillis`, `terre`, `sable`, `eau`. `layers` sème des modèles dans le contour de la zone :
+  `{model, cell, density, count, spacing, avoid, params}` (une copie par carré de côté `cell`, gardée selon `density`).
+- **`plafond`** : `true` ou `{"couleur": …}` (vu de dessous seulement).
+- **`murs`** : par défaut un mur n'a qu'une face, tournée vers la pièce : de dehors on voit à travers, la pièce se
+  regarde de tous côtés comme une maquette. `"murs": "pleins"` donne des murs épais et opaques.
+
+**Instances créées** : `mur0`, `mur1`… (une par bord en `mur`), `plafond`, une par zone (son `nom` ; `plancher` par
+défaut), `fenetre0`, `porte0`, `portail0`… Elles se pilotent et se colorent comme les autres.
+
+**Poser dans l'espace** (voir Pose) :
+
+| Écriture | Effet |
+| --- | --- |
+| `"on": "mur0", "at": [x, h]` | Dos contre le mur, à `x` du coin gauche (vu de l'intérieur), base à la hauteur `h` |
+| `"against": "mur0", "at": x` | La même chose avec la base au sol (lit, bureau, armoire) |
+| `"on": "plafond", "at": [x, z]` | Suspendu : le haut de l'objet touche le plafond, en coordonnées de la pièce |
+| `"on": "<zone>", "at": [x, z]` | Posé sur la zone, en coordonnées de la pièce |
+
+Un modèle destiné à un mur a son dos en `z = 0` et s'étend vers `+z` ; un modèle suspendu a son point d'accroche en
+`y = 0` et descend vers `-y`.
+
+Textures de sol ajoutées au nuancier commun : `parquet`, `chevron`, `moquette`, `beton`, `gravier`, `dalles`, `paillis`.
+
+Limites : pas de sous-pente, pas de soleil réglable, pas de contrôle des objets devant une ouverture ; une zone est
+ramenée à son rectangle englobant pour la pose (un contour concave peut laisser un objet hors de la pièce).
 
 ## Modèles `gen` : générateurs procgen (3D)
 
