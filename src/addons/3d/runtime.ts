@@ -293,6 +293,7 @@ export class SceneRuntime {
     const now = performance.now();
     if (this.mondeData) this.monde.step(now);
     this.nodes.step(now);
+    if (this.mondeData) this.monde.follow();
     this.stepLook(now);
     this.controls?.update();
     if (this.postFx.isEnabled) {
