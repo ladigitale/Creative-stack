@@ -101,6 +101,7 @@ retouche d'un modèle) : seuls les modèles modifiés sont reconstruits.
 `out-data-provider` (distinct du `dataProvider`) reçoit `mondeInfo : {models: {nom: {parts, clips, roles, clip}}, instances: [{name, model}], decor, issues}`.
 Avec des prefabs : `mondeInfo.prefabs = {nom: {params, famille, tags, pose, degagement, slots, variants}}` (de quoi bâtir un
 formulaire ou un catalogue) et `instances[].prefab` = nom écrit du modèle (`model` est alors sa variante `nom~clé`).
+Avec des appuis : `instances[].on` = `appui@surface` et `mondeInfo.conflicts` (voir Pose).
 `issues` liste les erreurs du JSON (chemin + message) : une erreur n'empêche jamais le rendu du reste.
 Tap : `pick` avec `objectId` = instance (en 2D, `part` en plus).
 
@@ -167,6 +168,45 @@ variante : c'est un rôle de couleur de la copie (`~nom`), modifiable en jeu par
 "#…"}`. Tout autre paramètre crée une variante par valeur : donner un `step` ou des `options` aux paramètres tirés au
 hasard. Plafonds : 32 variantes par modèle, 512 par monde ; au-delà la variante la plus proche est réutilisée et une
 `issue` le dit. Changer un paramètre d'une instance dans le store ne reconstruit que la nouvelle variante.
+
+## Pose : appuis, piles, semis sans chevauchement
+
+Un placement peut dire **sur quoi** il repose au lieu de donner une hauteur. La pose est calculée à la lecture, sur le
+maillage réel des modèles : pas de moteur physique.
+
+```json
+{ "place": [
+  { "model": "table", "name": "t1", "at": [4, 0, 2], "rot": [0, 90, 0] },
+  { "model": "paquet", "name": "colis", "on": "t1", "at": [0.5, 0.1], "turn": 20 },
+  { "model": "livre", "on": "t1@tablette", "scatter": 5, "spacing": 0.02 },
+  { "model": "caisse", "on": "sol", "at": [8, 0, 2], "stack": 3 },
+  { "model": "arbre", "on": "sol", "scatter": 200, "area": [-40, -40, 40, 40], "spacing": 1.5, "avoid": ["route", "batiment"] }
+] }
+```
+
+- **`on: "<instance>"`** ou **`"<instance>@<surface>"`** : posé sur une instance **nommée** (écrite avant ou après, peu
+  importe). `at` vaut alors `[x, z]` depuis le centre de la surface, dans le repère de l'appui (il tourne avec lui) ;
+  l'objet est ramené dans le contour de la surface. Sa base (point le plus bas du modèle) touche la surface.
+- **Surfaces** : `top` (défaut) est le dessus de la pièce marquée `"surface": "top"`, sinon le dessus de tout le modèle.
+  Une pièce marquée `"surface": "<nom>"`, ou simplement nommée, est adressable par ce nom (`t1@tablette`). Un modèle
+  `gen` n'a pas de surface mesurable (on peut le poser, pas poser dessus).
+- **`on: "sol"`** : la base du modèle est posée à la hauteur `at[1]` (utile quand l'origine du modèle n'est pas à sa base).
+- **`stack: n`** : `n` copies empilées (au sol ou sur un appui), avec un léger désordre. Les copies ne sont pas nommées.
+- **`grid` / `scatter` sur un appui** : la grille se répartit sur la surface (`step` facultatif) ; le semis ne chevauche
+  ni ses copies ni ce qui est déjà posé sur la surface.
+- **`spacing`** (semis) : écart minimal entre copies, au-delà de leur emprise. **`avoid`** (semis au sol) : noms
+  d'instances, de modèles, de `famille` ou de `tags` dont l'emprise (rectangle au sol, tourné comme l'objet) est
+  interdite ; seuls les placements écrits **avant** le semis comptent. Les copies sans place libre sont sautées et
+  comptées dans une `issue`.
+- **Suivre l'appui** : une instance nommée posée sur une instance nommée la suit (position, cap, échelle uniforme)
+  quand `nodes` la déplace, de proche en proche (livre sur paquet sur table). Le décor sans nom est posé une fois.
+- **En jeu** : `nodes.colis = {"on": "t2@top", "at": [0, 0.1], "ease": {"ms": 300}, "lift": 0.3}` déplace l'objet
+  d'un appui à l'autre ; `"on": null` le détache sur place ; lui donner `x`, `y` ou `z` le détache aussi ; `ry` le
+  tourne sur son appui.
+- **À revoir** : `mondeInfo.conflicts = [{a, b, type}]`, `type` = `hors-appui` (objet plus grand que la surface ou
+  ramené dans son contour) ou `chevauchement` (deux objets posés au même endroit). La pose est faite quand même.
+- Limites : appui horizontal seulement (pas de mur ni de plafond), échelle d'appui uniforme, inclinaison de l'appui
+  ignorée. Format `monde` seulement (pas `monde2d`).
 
 ## Modèles `gen` : générateurs procgen (3D)
 

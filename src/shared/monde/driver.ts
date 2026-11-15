@@ -3,13 +3,17 @@
  *
  * - `nodes.<instance>` : `x y z` (mètres), `rx ry rz` (radians), `scale`, `visible`, `opacity`, `ease`, `lift`
  *   (position et orientation de l'instance), `clip`, `clipSpeed`, `clipT` (animation), `roles` (couleurs) ;
- * - `nodes.<instance>_<pièce>` : surcharge d'une pièce (`visible`, `color`, `opacity`, …) laissée au rendu.
+ * - `nodes.<instance>_<pièce>` : surcharge d'une pièce (`visible`, `color`, `opacity`, …) laissée au rendu ;
+ * - `nodes.<instance>.on` : `"<appui>"` ou `"<appui>@<surface>"` pose l'instance sur une autre (avec `at: [x, z]`
+ *   depuis le centre de la surface, `ease`, `lift`), `null` la détache sur place. Une instance posée suit son appui
+ *   (position, cap, échelle uniforme) ; lui donner `x`, `y` ou `z` la détache.
  *
  * Commun aux deux rendus : la même suite de patchs donne la même pose et le même clip en 2D et en 3D.
  */
 import { easeCurve, isNum, patchOf, type NodeCurve, type NodePatch } from "../nodes";
 import { isColor, type Model, type Monde, type Placement } from "./format";
 import { clipState, samplePose, setClip, STRIDE, type ClipState } from "./pose";
+import { boundsOf, DEFAULT_BOUNDS, surfaceOf, turnY } from "./supports";
 
 /** Canaux de transformation d'une instance. */
 const CH = ["x", "y", "z", "rx", "ry", "rz", "sx", "sy", "sz", "opacity"] as const;
@@ -39,6 +43,18 @@ export type InstanceState = {
   tween: { start: number; ms: number; curve: NodeCurve; keys: Ch[]; from: Partial<Record<Ch, number>>; to: Partial<Record<Ch, number>>; lift: number } | null;
   /** Hauteur ajoutée par `lift` à l'instant courant. */
   liftY: number;
+  /** Posée sur une autre instance : position dans le repère de l'appui, cap propre, glissement en cours. */
+  carry: Carry | null;
+};
+
+export type Carry = {
+  support: string;
+  surface: string;
+  local: [number, number, number];
+  yaw: number;
+  /** Rang dans la chaîne d'appuis (un livre sur une boîte sur une table : 2). */
+  depth: number;
+  move: { start: number; ms: number; curve: NodeCurve; from: [number, number, number]; to: [number, number, number]; lift: number } | null;
 };
 
 export type PatchResult = { pose: boolean; roles: boolean; transform: boolean };
@@ -59,6 +75,7 @@ export class MondeDriver {
       if (prev && prev.model.name === model.name && prev.model.parts.length === model.parts.length) {
         // ce que le JSON change pour cette instance est appliqué ; le reste (pilotage par nodes) est gardé
         const pp = prev.placement;
+        if (JSON.stringify(pp.on ?? null) !== JSON.stringify(pl.on ?? null)) prev.carry = pl.on ? { ...pl.on, local: [...pl.on.local], depth: 0, move: null } : null;
         if (JSON.stringify([pp.at, pp.rot, pp.scale]) !== JSON.stringify([pl.at, pl.rot, pl.scale])) {
           Object.assign(prev.t, { x: pl.at[0], y: pl.at[1], z: pl.at[2], rx: pl.rot[0], ry: pl.rot[1], rz: pl.rot[2], sx: pl.scale[0], sy: pl.scale[1], sz: pl.scale[2] });
           prev.tween = null;
@@ -95,11 +112,62 @@ export class MondeDriver {
         transformDirty: true,
         tween: null,
         liftY: 0,
+        carry: pl.on ? { ...pl.on, local: [...pl.on.local], depth: 0, move: null } : null,
       });
     }
     this.instances.clear();
     for (const [k, v] of next) this.instances.set(k, v);
     this.monde = m;
+    this.chain();
+  }
+
+  /** Instances posées, de l'appui vers l'objet posé (un appui est toujours traité avant ce qu'il porte). */
+  private carried: InstanceState[] = [];
+  get carriedInstances(): readonly InstanceState[] {
+    return this.carried;
+  }
+
+  private chain(): void {
+    const depthOf = (inst: InstanceState, guard: number): number => {
+      const c = inst.carry;
+      if (!c) return 0;
+      const sup = this.instances.get(c.support);
+      // appui disparu ou boucle : l'instance reste où elle est
+      if (!sup || sup === inst || guard > 16) {
+        inst.carry = null;
+        return 0;
+      }
+      return (c.depth = depthOf(sup, guard + 1) + 1);
+    };
+    this.carried = [];
+    for (const inst of this.instances.values()) if (depthOf(inst, 0) > 0) this.carried.push(inst);
+    this.carried.sort((a, b) => a.carry!.depth - b.carry!.depth);
+  }
+
+  /** Pose `inst` sur une surface d'une autre instance (`at` : [x, z] depuis le centre, ramené dans le contour). */
+  private attach(inst: InstanceState, on: string, at: unknown, now: number, ms: number, curve: NodeCurve, lift: number): boolean {
+    const [supName, surface = "top"] = on.split("@");
+    const sup = this.instances.get(supName);
+    if (!sup || sup === inst) return false;
+    const s = surfaceOf(sup.model, surface || "top");
+    if (!s) return false;
+    const b = boundsOf(inst.model) ?? DEFAULT_BOUNDS;
+    const k = sup.t.sx || 1;
+    const r = Math.max(Math.abs(b.min[0]), Math.abs(b.max[0]), Math.abs(b.min[2]), Math.abs(b.max[2])) * Math.abs(inst.t.sx) / k;
+    const hw = Math.max(0, (s.x1 - s.x0) / 2 - r), hd = Math.max(0, (s.z1 - s.z0) / 2 - r);
+    const a = Array.isArray(at) ? at : [];
+    const lx = Math.max(-hw, Math.min(hw, isNum(a[0]) ? a[0] : 0));
+    const lz = Math.max(-hd, Math.min(hd, isNum(a[a.length > 2 ? 2 : 1]) ? (a[a.length > 2 ? 2 : 1] as number) : 0));
+    const to: [number, number, number] = [(s.x0 + s.x1) / 2 + lx, s.y - (b.min[1] * inst.t.sy) / k, (s.z0 + s.z1) / 2 + lz];
+    // position actuelle exprimée dans le repère du nouvel appui : le déplacement part d'où est l'objet
+    const [fx, fz] = turnY(inst.t.x - sup.t.x, inst.t.z - sup.t.z, -sup.t.ry);
+    const from: [number, number, number] = [fx / k, (inst.t.y - sup.t.y) / k, fz / k];
+    inst.carry = { support: supName, surface: surface || "top", local: ms > 0 ? from : to, yaw: inst.t.ry - sup.t.ry, depth: 0, move: ms > 0 ? { start: now, ms, curve, from, to, lift } : null };
+    inst.tween = null;
+    inst.liftY = 0;
+    inst.transformDirty = true;
+    this.chain();
+    return true;
   }
 
   /**
@@ -130,6 +198,22 @@ export class MondeDriver {
         res.roles = true;
       }
     }
+    // Appui : poser sur une autre instance, détacher, tourner sur place (vaut aussi quand le rendu gère les positions)
+    const on = (raw as { on?: unknown } | null)?.on;
+    if (typeof on === "string" && on) {
+      const ms = animate && isNum(p.ease?.ms) ? Math.max(0, p.ease!.ms!) : 0;
+      if (this.attach(inst, on, (raw as { at?: unknown }).at, now, ms, p.ease?.curve ?? "inOut", isNum(p.lift) ? p.lift : 0)) res.transform = true;
+    } else if (inst.carry && (on === null || isNum(p.x) || isNum(p.y) || isNum(p.z))) {
+      // détachée sur place, ou parce qu'on lui donne une position
+      inst.carry = null;
+      this.chain();
+    }
+    if (inst.carry && isNum(p.ry)) {
+      const sup = this.instances.get(inst.carry.support);
+      inst.carry.yaw = p.ry - (sup ? sup.t.ry : 0);
+      inst.transformDirty = true;
+      res.transform = true;
+    }
     if (!transforms) return res;
     const to: Partial<Record<Ch, number>> = {};
     for (const k of ["x", "y", "z", "rx", "ry", "rz", "opacity"] as const) if (isNum(p[k])) to[k] = p[k] as number;
@@ -138,6 +222,13 @@ export class MondeDriver {
     if (typeof p.visible === "boolean" && p.visible !== inst.visible) {
       inst.visible = p.visible;
       res.transform = true;
+    }
+    if (inst.carry) {
+      // posée : position et cap viennent de l'appui
+      delete to.x;
+      delete to.y;
+      delete to.z;
+      delete to.ry;
     }
     const keys = Object.keys(to) as Ch[];
     if (keys.length) {
@@ -180,6 +271,31 @@ export class MondeDriver {
         inst.poseChanged = true;
         if (inst.active) busy = true;
       }
+    }
+    // Les instances posées suivent leur appui (position, cap, échelle uniforme), de proche en proche
+    for (const inst of this.carried) {
+      const c = inst.carry;
+      const sup = c ? this.instances.get(c.support) : undefined;
+      if (!c || !sup) continue;
+      let lift = 0;
+      if (c.move) {
+        const u = Math.min(1, (now - c.move.start) / c.move.ms);
+        const e = easeCurve(c.move.curve, u);
+        for (let a = 0; a < 3; a++) c.local[a] = c.move.from[a] + (c.move.to[a] - c.move.from[a]) * e;
+        lift = c.move.lift ? c.move.lift * 4 * u * (1 - u) : 0;
+        if (u >= 1) c.move = null;
+        else busy = true;
+        inst.transformDirty = true;
+      }
+      if (!sup.transformDirty && !inst.transformDirty) continue;
+      const k = sup.t.sx || 1;
+      const [dx, dz] = turnY(c.local[0] * k, c.local[2] * k, sup.t.ry);
+      inst.t.x = sup.t.x + dx;
+      inst.t.y = sup.t.y + sup.liftY + c.local[1] * k;
+      inst.t.z = sup.t.z + dz;
+      inst.t.ry = sup.t.ry + c.yaw;
+      inst.liftY = lift;
+      inst.transformDirty = true;
     }
     return busy;
   }

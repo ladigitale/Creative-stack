@@ -76,7 +76,7 @@
         },
         "monde": {
           "type": "string",
-          "description": "Monde en primitives (même JSON et mêmes nodes que sonic-3d, voir 3d/monde.md) ; aussi clé DP monde ; vue view2d top|side|front|iso Prefabs paramétrés : params déclarés sur un modèle, expressions \"= …\" dans ses pièces, sous-modèles use, emplacements slots, valeurs par placement (params, slots)."
+          "description": "Monde en primitives (même JSON et mêmes nodes que sonic-3d, voir 3d/monde.md) ; aussi clé DP monde ; vue view2d top|side|front|iso Prefabs paramétrés : params déclarés sur un modèle, expressions \"= …\" dans ses pièces, sous-modèles use, emplacements slots, valeurs par placement (params, slots). Pose : on \"instance@surface\" ou \"sol\", stack, spacing, avoid ; nodes.<instance>.on pour changer d’appui."
         },
         "monde-layer": {
           "type": "string",

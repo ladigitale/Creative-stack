@@ -10,6 +10,7 @@ import { PRESETS, type PresetOut } from "./presets";
 import { readTex, type TexSpec } from "./textures";
 import { GEN_ACTIONS, GEN_IDS, genVariants, GEN_ROLES, genPreset, isGenId, type GenRig } from "./gen";
 import { expandPrefabs, type Matiere, type PrefabFormat, type PrefabInfo } from "./prefab";
+import { boundsOf, DEFAULT_BOUNDS, surfaceNames, surfaceOf, turnY, type Box3, type Surface } from "./supports";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -40,6 +41,8 @@ export type PartIn = {
   tex?: unknown;
   /** Matière du nuancier (`materiaux` du monde ou matières de base) : donne couleur, texture et éclat à la pièce. */
   matiere?: string;
+  /** Surface d'appui : le dessus de la pièce reçoit les objets posés par `on: "<instance>@<nom>"` (`top` par défaut). */
+  surface?: string;
 } & Partial<Record<ShapeKind, unknown>>;
 
 /** Sous-modèle déplié dans un modèle (`use`) : ses pièces deviennent `<nom>_<pièce>`, sous une articulation `<nom>`. */
@@ -131,6 +134,17 @@ export type PlaceIn = {
   slots?: Record<string, unknown>;
   /** Interne (écrit par la passe des prefabs) : modèle et rôles de chaque copie d'une grille ou d'un semis. */
   copies?: { model: string; roles?: Record<string, string> }[];
+  /**
+   * Appui : `"sol"` (base posée à la hauteur `at[1]`), `"<instance>"` ou `"<instance>@<surface>"` (posé sur le dessus
+   * d'une instance nommée). Sur un appui, `at` vaut `[x, z]` depuis le centre de la surface, dans le repère de l'appui.
+   */
+  on?: string;
+  /** Pile de `stack` copies les unes sur les autres. */
+  stack?: number;
+  /** Semis : écart minimal entre copies (au-delà de leur emprise). */
+  spacing?: number;
+  /** Semis : ne rien poser sur l'emprise de ces instances, modèles, familles ou étiquettes déjà placés. */
+  avoid?: string[];
   /** Modèle `gen` : graine propre à ce placement (autre tirage du même modèle). */
   genSeed?: string | number;
 };
@@ -189,6 +203,8 @@ export type Part = {
   hidden: boolean;
   glow: number;
   tex: TexSpec | null;
+  /** Nom de surface d'appui (vide : aucune). */
+  surface: string;
 };
 
 export type Track = { part: number; ch: number; keys: number[]; phase: number };
@@ -233,7 +249,15 @@ export type Placement = {
   roles: Record<string, string>;
   clip: string;
   hidden: boolean;
+  /**
+   * Posé sur une instance nommée : position dans le repère de l'appui (unités du modèle d'appui) et cap propre.
+   * Une instance nommée ainsi posée suit son appui quand il bouge.
+   */
+  on?: { support: string; surface: string; local: [number, number, number]; yaw: number };
 };
+
+/** Pose à revoir : objet plus grand que son appui, hors de sa surface, ou chevauchant un voisin. */
+export type Conflict = { a: string; b: string; type: "chevauchement" | "hors-appui" };
 
 export type View2d = { view: "top" | "side" | "front" | "iso"; unit: number; origin: [number, number] };
 
@@ -257,6 +281,8 @@ export type Monde = {
   traits: number;
   /** Prefabs déclarés : paramètres, famille, emplacements, variantes construites. */
   prefabs: Record<string, PrefabInfo>;
+  /** Poses à revoir (voir `Conflict`). */
+  conflicts: Conflict[];
   issues: Issue[];
 };
 
@@ -469,6 +495,7 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
       hidden: p.hidden === true,
       glow: clampN(num(p.glow, 0), 0, 1),
       tex: readTex(p.tex, (message) => issues.push({ path: `${path2}.tex`, message })),
+      surface: typeof p.surface === "string" ? p.surface.replace(/[^\w.-]/g, "") : "",
     });
     const at = vec3(p.at, [0, 0, 0]);
     const rot = vec3(p.rot, [0, 0, 0]).map((v) => v * DEG) as [number, number, number];
@@ -594,25 +621,36 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
   return { name, sig: "", parts: sorted, clips, clip, roles, gen, issues: [] };
 }
 
-function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue[]): Placement[] {
+/** Emprise au sol : cercle `r` (écart entre copies) et rectangle orienté `hx` × `hz` (zones à éviter). */
+type Foot = { x: number; z: number; r: number; hx: number; hz: number; yaw: number; name: string; base: string };
+
+function readPlacements(list: unknown, models: Map<string, Model>, prefabs: Record<string, PrefabInfo>, issues: Issue[], conflicts: Conflict[]): Placement[] {
   const out: Placement[] = [];
   const names = new Set<string>();
+  const byName = new Map<string, Placement>();
   let named = 0;
   const arr = (Array.isArray(list) ? list : []).slice(0, 2000);
   if (Array.isArray(list) && list.length > 2000) issues.push({ path: "place", message: "plus de 2000 entrées : la suite est ignorée" });
   let budget: number = LIMITS.parts;
   let namedParts = 0;
-  arr.forEach((raw, i) => {
-    const p = (raw && typeof raw === "object" ? raw : {}) as PlaceIn;
+  const entry = (raw: unknown) => (raw && typeof raw === "object" ? raw : {}) as PlaceIn;
+  const supportOf = (p: PlaceIn) => (typeof p.on === "string" && p.on && p.on !== "sol" ? p.on.split("@")[0] : "");
+  // Emprises au sol : tenues seulement si un semis les consulte (`spacing`, `avoid`)
+  const trackGround = arr.some((r) => entry(r).spacing !== undefined || Array.isArray(entry(r).avoid));
+  const ground: Foot[] = [];
+  /** Emprises déjà posées sur chaque surface (`instance@surface`, repère de l'appui). */
+  const onSurface = new Map<string, Foot[]>();
+  const boxOf = (name: string): Box3 => boundsOf(models.get(name)!) ?? DEFAULT_BOUNDS;
+  const radius = (b: Box3, sc: [number, number, number]) => Math.max(Math.abs(b.min[0]), Math.abs(b.max[0])) * Math.abs(sc[0]) > Math.max(Math.abs(b.min[2]), Math.abs(b.max[2])) * Math.abs(sc[2]) ? Math.max(Math.abs(b.min[0]), Math.abs(b.max[0])) * Math.abs(sc[0]) : Math.max(Math.abs(b.min[2]), Math.abs(b.max[2])) * Math.abs(sc[2]);
+
+  const handle = (raw: unknown, i: number) => {
+    const p = entry(raw);
     const path = `place.${i}`;
     const model = typeof p.model === "string" ? p.model : "";
     if (!models.has(model)) {
       issues.push({ path, message: `modèle inconnu « ${model.split("~")[0]} »` });
       return;
     }
-    // Prefab aux paramètres tirés par copie : chaque copie a son modèle (variante) et ses rôles de couleur
-    const copies = Array.isArray(p.copies) ? p.copies : null;
-    let copy = 0;
     const roles: Record<string, string> = {};
     if (p.roles && typeof p.roles === "object") for (const [k, v] of Object.entries(p.roles)) if (isColor(v)) roles[k] = v;
     const base: Placement = {
@@ -625,33 +663,74 @@ function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue
       clip: typeof p.clip === "string" ? p.clip : "",
       hidden: p.hidden === true,
     };
+
+    // Appui : surface d'une instance nommée déjà placée, ou le sol
+    const onSol = p.on === "sol";
+    const supName = supportOf(p);
+    let sup: { pl: Placement; s: Surface; key: string; surface: string } | null = null;
+    if (supName) {
+      const surface = (p.on as string).split("@")[1] || "top";
+      const spl = byName.get(supName);
+      const sm = spl ? models.get(spl.model)! : null;
+      const s = sm ? surfaceOf(sm, surface) : null;
+      if (!spl || !sm) issues.push({ path: `${path}.on`, message: `appui inconnu « ${supName} » (une instance nommée)` });
+      else if (!s) issues.push({ path: `${path}.on`, message: sm.gen ? `« ${supName} » vient d'un générateur : pas de surface d'appui mesurable` : `surface inconnue « ${surface} » sur « ${supName} » (${surfaceNames(sm).join(", ")})` });
+      else sup = { pl: spl, s, key: `${supName}@${surface}`, surface };
+    }
+    const measured = !!sup || onSol || trackGround || typeof p.stack === "number";
+
+    // Prefab aux paramètres tirés par copie : chaque copie a son modèle (variante) et ses rôles de couleur
+    const copies = Array.isArray(p.copies) ? p.copies : null;
+    let copy = 0;
     const shapedOf = (name: string) => models.get(name)!.parts.filter((q) => q.shape).length || 1;
     let shaped = shapedOf(model);
     const full = () => out.length >= LIMITS.placements || budget < shaped;
-    const push = (pl: Placement) => {
+    /** Ajoute une copie ; `mk` reçoit le modèle de la copie et son emprise, et rend le placement (ou `null` : copie sautée). */
+    const emit = (mk: (b: Box3) => Placement | null) => {
       if (full()) return;
       const c = copies?.[copy++];
+      let mname = model;
+      const cr: Record<string, string> = {};
       if (c && typeof c.model === "string" && models.has(c.model)) {
-        const cr: Record<string, string> = {};
+        mname = c.model;
         if (c.roles && typeof c.roles === "object") for (const [k, v] of Object.entries(c.roles)) if (isColor(v)) cr[k] = v;
-        pl = { ...pl, model: c.model, roles: { ...cr, ...pl.roles } };
-        shaped = shapedOf(c.model);
+        shaped = shapedOf(mname);
         if (budget < shaped) return;
       }
+      const b = measured ? boxOf(mname) : DEFAULT_BOUNDS;
+      const made = mk(b);
+      if (!made) return;
+      const pl: Placement = { ...made, model: mname, roles: { ...cr, ...made.roles } };
       if (pl.name) {
         if (namedParts + shaped > LIMITS.namedParts) {
           issues.push({ path, message: `plus de ${LIMITS.namedParts} pièces animées : instance ignorée` });
           return;
         }
         namedParts += shaped;
+        byName.set(pl.name, pl);
       }
       budget -= shaped;
       out.push(pl);
+      if (trackGround && !pl.on)
+        ground.push({
+          x: pl.at[0] + ((b.min[0] + b.max[0]) / 2) * pl.scale[0],
+          z: pl.at[2] + ((b.min[2] + b.max[2]) / 2) * pl.scale[2],
+          r: radius(b, pl.scale),
+          hx: ((b.max[0] - b.min[0]) / 2) * Math.abs(pl.scale[0]),
+          hz: ((b.max[2] - b.min[2]) / 2) * Math.abs(pl.scale[2]),
+          yaw: pl.rot[1],
+          name: pl.name,
+          base: mname.split("~")[0],
+        });
     };
+
     const rnd = new Rand(`${p.seed ?? i}/${model}`);
     const jitter = Math.max(0, num(p.jitter, 0));
     const turn = dim(num(p.turn, 0)) * DEG;
     const size = Array.isArray(p.size) ? [num(p.size[0], 1), num(p.size[1], num(p.size[0], 1))] : null;
+    const spacing = Math.max(0, num(p.spacing, 0));
+    const avoid = Array.isArray(p.avoid) ? p.avoid.filter((v): v is string => typeof v === "string").slice(0, 16) : [];
+    const avoided = (f: Foot) => avoid.includes(f.name) || avoid.includes(f.base) || avoid.includes(own(prefabs, f.base)?.famille ?? "\u0000") || (own(prefabs, f.base)?.tags ?? []).some((t) => avoid.includes(t));
     const vary = (pl: Placement, step: number): Placement => {
       const s = size ? rnd.range(size[0], size[1]) : 1;
       return {
@@ -661,41 +740,147 @@ function readPlacements(list: unknown, models: Map<string, Model>, issues: Issue
         scale: [pl.scale[0] * s, pl.scale[1] * s, pl.scale[2] * s],
       };
     };
+    /** Base posée au sol (`on: "sol"`) ; `level` : rang dans une pile. */
+    const rest = (pl: Placement, b: Box3, level = 0): Placement => (onSol || level ? { ...pl, at: [pl.at[0], pl.at[1] - (onSol ? b.min[1] * pl.scale[1] : 0) + level * (b.max[1] - b.min[1]) * pl.scale[1], pl.at[2]] } : pl);
+    /** Pose sur l'appui : `lx`, `lz` dans le repère de la surface (centre = 0), ramenés dans son contour. */
+    const settle = (pl: Placement, b: Box3, lx: number, lz: number, level: number, who: string, strict: boolean): Placement | null => {
+      const S = sup!;
+      const k = S.pl.scale[0] || 1;
+      const r = radius(b, pl.scale) / k;
+      const hw = (S.s.x1 - S.s.x0) / 2, hd = (S.s.z1 - S.s.z0) / 2;
+      const cx = (S.s.x0 + S.s.x1) / 2, cz = (S.s.z0 + S.s.z1) / 2;
+      if (r > hw + 1e-6 || r > hd + 1e-6) {
+        if (!level && strict) conflicts.push({ a: who, b: S.key, type: "hors-appui" });
+        lx = Math.abs(lx) > Math.max(0, hw - r) ? 0 : lx;
+        lz = Math.abs(lz) > Math.max(0, hd - r) ? 0 : lz;
+      } else {
+        const nx = clampN(lx, -(hw - r), hw - r), nz = clampN(lz, -(hd - r), hd - r);
+        if (strict && !level && (Math.abs(nx - lx) > 1e-6 || Math.abs(nz - lz) > 1e-6)) conflicts.push({ a: who, b: S.key, type: "hors-appui" });
+        lx = nx;
+        lz = nz;
+      }
+      const feet = onSurface.get(S.key) ?? [];
+      if (!level) {
+        const hit = feet.find((f) => Math.hypot(f.x - lx, f.z - lz) < f.r + r + spacing - 1e-6);
+        if (hit) {
+          if (!strict) return null;
+          conflicts.push({ a: who, b: hit.name, type: "chevauchement" });
+        }
+        feet.push({ x: lx, z: lz, r, hx: r, hz: r, yaw: 0, name: who, base: "" });
+        onSurface.set(S.key, feet);
+      }
+      const ly = S.s.y + (-b.min[1] * pl.scale[1] + level * (b.max[1] - b.min[1]) * pl.scale[1]) / k;
+      const yaw = S.pl.rot[1];
+      const [wx, wz] = turnY((cx + lx) * k, (cz + lz) * k, yaw);
+      return {
+        ...pl,
+        at: [S.pl.at[0] + wx, S.pl.at[1] + ly * k, S.pl.at[2] + wz],
+        rot: [pl.rot[0], pl.rot[1] + yaw, pl.rot[2]],
+        on: { support: supName, surface: S.surface, local: [cx + lx, ly, cz + lz], yaw: pl.rot[1] },
+      };
+    };
+    const TRIES = 30;
+    let skipped = 0;
+
     if (Array.isArray(p.grid)) {
       const g = p.grid.map((v) => clampN(Math.round(num(v, 1)), 1, 200));
       const [nx, ny, nz] = g.length >= 3 ? g : [g[0] ?? 1, 1, g[1] ?? 1];
-      const st = vec3(p.step, [1, 1, 1]);
       if (nx * ny * nz > LIMITS.placements) issues.push({ path, message: `grille de ${nx * ny * nz} copies : limitée à ${LIMITS.placements}` });
-      for (let a = 0; a < nx && !full(); a++)
-        for (let b = 0; b < ny && !full(); b++)
-          for (let c = 0; c < nz && !full(); c++)
-            push(vary({ ...base, at: [base.at[0] + a * st[0], base.at[1] + b * st[1], base.at[2] + c * st[2]] }, Math.min(Math.abs(st[0]) || 1, Math.abs(st[2]) || 1)));
-      return;
-    }
-    if (typeof p.scatter === "number") {
+      if (sup) {
+        // grille répartie sur la surface (ou au pas donné), centrée
+        const w = sup.s.x1 - sup.s.x0, d = sup.s.z1 - sup.s.z0;
+        const st = Array.isArray(p.step) ? [num(p.step[0], w / nx), num(p.step[p.step.length > 2 ? 2 : 1], d / nz)] : [w / nx, d / nz];
+        for (let a = 0; a < nx && !full(); a++)
+          for (let c = 0; c < nz && !full(); c++) emit((b) => settle(vary({ ...base, at: [0, 0, 0] }, 0), b, (a - (nx - 1) / 2) * st[0], (c - (nz - 1) / 2) * st[1], 0, path, false));
+      } else {
+        const st = vec3(p.step, [1, 1, 1]);
+        for (let a = 0; a < nx && !full(); a++)
+          for (let b2 = 0; b2 < ny && !full(); b2++)
+            for (let c = 0; c < nz && !full(); c++)
+              emit((b) => rest(vary({ ...base, at: [base.at[0] + a * st[0], base.at[1] + b2 * st[1], base.at[2] + c * st[2]] }, Math.min(Math.abs(st[0]) || 1, Math.abs(st[2]) || 1)), b));
+      }
+    } else if (typeof p.scatter === "number") {
       const n = clampN(Math.round(p.scatter), 0, LIMITS.placements);
-      const ar = Array.isArray(p.area) ? p.area.map((v) => num(v, 0)) : [-5, -5, 5, 5];
-      for (let k = 0; k < n && !full(); k++) {
-        const pl = vary({ ...base, at: [rnd.range(ar[0], ar[2]), base.at[1], rnd.range(ar[1], ar[3])] }, 0);
-        if (!turn) pl.rot = [pl.rot[0], rnd.range(0, Math.PI * 2), pl.rot[2]];
-        push(pl);
+      if (sup) {
+        const hw = (sup.s.x1 - sup.s.x0) / 2, hd = (sup.s.z1 - sup.s.z0) / 2;
+        for (let k = 0; k < n && !full(); k++)
+          emit((b) => {
+            const pl0 = vary({ ...base, at: [0, 0, 0] }, 0);
+            if (!turn) pl0.rot = [pl0.rot[0], rnd.range(0, Math.PI * 2), pl0.rot[2]];
+            for (let t = 0; t < TRIES; t++) {
+              const got = settle(pl0, b, rnd.range(-hw, hw), rnd.range(-hd, hd), 0, path, false);
+              if (got) return got;
+            }
+            skipped++;
+            return null;
+          });
+      } else {
+        const ar = Array.isArray(p.area) ? p.area.map((v) => num(v, 0)) : [-5, -5, 5, 5];
+        const mine: Foot[] = [];
+        for (let k = 0; k < n && !full(); k++)
+          emit((b) => {
+            for (let t = 0; t < (spacing || avoid.length ? TRIES : 1); t++) {
+              const pl = vary({ ...base, at: [rnd.range(ar[0], ar[2]), base.at[1], rnd.range(ar[1], ar[3])] }, 0);
+              if (!turn) pl.rot = [pl.rot[0], rnd.range(0, Math.PI * 2), pl.rot[2]];
+              if (spacing || avoid.length) {
+                const r = radius(b, pl.scale);
+                const near = (f: Foot, gap: number) => Math.hypot(f.x - pl.at[0], f.z - pl.at[2]) < f.r + r + gap;
+                // zone à éviter : rectangle de l'emprise, tourné comme l'objet
+                const inside = (f: Foot) => {
+                  const [lx, lz] = turnY(pl.at[0] - f.x, pl.at[2] - f.z, -f.yaw);
+                  return Math.hypot(Math.max(0, Math.abs(lx) - f.hx), Math.max(0, Math.abs(lz) - f.hz)) < r + spacing;
+                };
+                if ((spacing && mine.some((f) => near(f, spacing))) || (avoid.length && ground.some((f) => avoided(f) && inside(f)))) continue;
+                mine.push({ x: pl.at[0], z: pl.at[2], r, hx: r, hz: r, yaw: 0, name: "", base: "" });
+              }
+              return rest(pl, b);
+            }
+            skipped++;
+            return null;
+          });
       }
-      return;
+    } else {
+      const name = typeof p.name === "string" ? p.name.replace(/[^\w-]/g, "") : "";
+      const stack = typeof p.stack === "number" ? clampN(Math.round(p.stack), 1, 64) : 1;
+      if (name && stack === 1) {
+        if (names.has(name)) {
+          issues.push({ path, message: `nom d'instance en double « ${name} »` });
+          return;
+        }
+        if (++named > LIMITS.named) {
+          issues.push({ path, message: `plus de ${LIMITS.named} instances nommées` });
+          return;
+        }
+        names.add(name);
+      }
+      // sur un appui, `at` = [x, z] (ou [x, y, z]) depuis le centre de la surface
+      const la = Array.isArray(p.at) ? [num(p.at[0], 0), num(p.at[p.at.length > 2 ? 2 : 1], 0)] : [0, 0];
+      for (let level = 0; level < stack && !full(); level++)
+        emit((b) => {
+          let pl = vary({ ...base, name: stack === 1 ? name : "" }, 0);
+          if (level) {
+            // pile : léger désordre, comme une pile faite à la main
+            const r = radius(b, pl.scale);
+            pl = { ...pl, at: [pl.at[0] + rnd.range(-1, 1) * r * 0.04, pl.at[1], pl.at[2] + rnd.range(-1, 1) * r * 0.04], rot: [pl.rot[0], pl.rot[1] + rnd.range(-1, 1) * (turn || 6 * DEG), pl.rot[2]] };
+          }
+          if (sup) return settle({ ...pl, at: [0, 0, 0] }, b, la[0] + (pl.at[0] - base.at[0]), la[1] + (pl.at[2] - base.at[2]), level, name || path, level === 0);
+          return rest(pl, b, level);
+        });
     }
-    const name = typeof p.name === "string" ? p.name.replace(/[^\w-]/g, "") : "";
-    if (name) {
-      if (names.has(name)) {
-        issues.push({ path, message: `nom d'instance en double « ${name} »` });
-        return;
-      }
-      if (++named > LIMITS.named) {
-        issues.push({ path, message: `plus de ${LIMITS.named} instances nommées` });
-        return;
-      }
-      names.add(name);
-    }
-    push(vary({ ...base, name }, 0));
-  });
+    if (skipped) issues.push({ path, message: `${skipped} copie(s) sans place libre (appui plein, spacing ou avoid trop stricts)` });
+  };
+
+  // Les objets posés sur une instance viennent après elle, quel que soit l'ordre d'écriture
+  const waiting: number[] = [];
+  arr.forEach((raw, i) => (supportOf(entry(raw)) ? waiting.push(i) : handle(raw, i)));
+  for (let round = 0; round < 8 && waiting.length; round++) {
+    const still: number[] = [];
+    for (const i of waiting) (byName.has(supportOf(entry(arr[i]))) ? handle(arr[i], i) : still.push(i));
+    if (still.length === waiting.length) break;
+    waiting.length = 0;
+    waiting.push(...still);
+  }
+  for (const i of waiting) handle(arr[i], i);
   if (budget <= 0 || out.length >= LIMITS.placements) issues.push({ path: "place", message: `budget atteint (${LIMITS.placements} copies, ${LIMITS.parts} pièces) : placements suivants ignorés` });
   return out;
 }
@@ -753,6 +938,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
   const view = (VIEWS as readonly string[]).includes(String(v.view)) ? (v.view as View2d["view"]) : "top";
   const look = (LOOKS as readonly string[]).includes(String(src.look)) ? (src.look as Monde["look"]) : "doux";
   const detail = src.detail === "low" ? 0 : src.detail === "high" ? 2 : 1;
+  const conflicts: Conflict[] = [];
   const textures: Record<string, TexSpec> = {};
   if (src.textures && typeof src.textures === "object")
     for (const [k, t] of Object.entries(src.textures)) {
@@ -768,13 +954,14 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     brume: clampN(num(src.brume, 0), 0, 1),
     style: src.style ?? null,
     traits: clampN(num(src.traits, 1), 0, 3),
-    place: readPlacements(src.place, models, issues),
+    place: readPlacements(src.place, models, expanded.prefabs, issues, conflicts),
     look,
     detail,
     view2d: { view, unit: clampN(num(v.unit, 48), 1, 2000), origin: [num(v.origin?.[0], 0), num(v.origin?.[1], 0)] },
     shadows: src.shadows !== false,
     outline: clampN(num(src.outline, 1), 0, 6),
     prefabs: expanded.prefabs,
+    conflicts,
     issues,
   };
 }
@@ -870,7 +1057,7 @@ function scaleClip(clip: Record<string, unknown>, u: number): Record<string, unk
 
 function scalePlace(place: Record<string, unknown>, u: number): Record<string, unknown> {
   const p = { ...place };
-  for (const k of ["at", "step", "area"]) if (p[k] !== undefined) p[k] = mulList(p[k], u);
+  for (const k of ["at", "step", "area", "spacing"]) if (p[k] !== undefined) p[k] = mulList(p[k], u);
   return p;
 }
 
@@ -882,6 +1069,7 @@ function copiesOf(p: Record<string, unknown>): number {
     return Math.min(LIMITS.placements, nx * ny * nz);
   }
   if (typeof p.scatter === "number") return clampN(Math.round(p.scatter), 0, LIMITS.placements);
+  if (typeof p.stack === "number") return clampN(Math.round(p.stack), 1, 64);
   return 1;
 }
 
@@ -924,7 +1112,10 @@ export function mondeSummary(m: Monde) {
   return {
     models,
     // `prefab` : nom écrit du modèle quand l'instance est une variante de prefab (`table~k3x` → `table`)
-    instances: m.place.filter((p) => p.name).map((p) => ({ name: p.name, model: p.model, ...(own(m.prefabs, p.model.split("~")[0]) ? { prefab: p.model.split("~")[0] } : {}) })),
+    instances: m.place
+      .filter((p) => p.name)
+      .map((p) => ({ name: p.name, model: p.model, ...(own(m.prefabs, p.model.split("~")[0]) ? { prefab: p.model.split("~")[0] } : {}), ...(p.on ? { on: `${p.on.support}@${p.on.surface}` } : {}) })),
+    ...(m.conflicts.length ? { conflicts: m.conflicts.slice(0, 50) } : {}),
     ...(hasPrefabs ? { prefabs: m.prefabs } : {}),
     decor: m.place.filter((p) => !p.name).length,
     issues: m.issues.slice(0, 50),

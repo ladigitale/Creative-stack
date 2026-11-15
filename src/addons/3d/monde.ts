@@ -18,6 +18,7 @@ import { partColor, partTex, type Model, type Monde, type Placement } from "../.
 import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/textures";
 import { MondeDriver, type InstanceState } from "../../shared/monde/driver";
 import { STRIDE } from "../../shared/monde/pose";
+import { turnY } from "../../shared/monde/supports";
 import type { NodesSpec } from "./nodes";
 import { aliasBone, genMotion } from "../../shared/monde/gen";
 import type { GenActor, GenKit } from "../procgen/index";
@@ -461,10 +462,52 @@ export class Monde3d {
     for (const [name, p] of Object.entries(spec)) {
       if (name === "$reset") continue;
       if (this.kit !== null || this.pgLoad) this.genPartPatch(name, p);
+      // pose sur un appui : le pilote part de la position réellement affichée (l'instance est un nœud de la scène)
+      const on = p && typeof p === "object" ? (p as { on?: unknown }).on : undefined;
+      if (typeof on === "string") {
+        this.syncT(name);
+        this.syncT(on.split("@")[0]);
+      } else if (this.driver.instances.get(name)?.carry) this.syncT(this.driver.instances.get(name)!.carry!.support);
       const r = this.driver.apply(name, p, now, true, false);
-      if (r && (r.pose || r.roles)) any = true;
+      if (r && (r.pose || r.roles || r.transform)) any = true;
     }
     return any;
+  }
+
+  /** Reporte dans le pilote la position affichée d'une instance (déplacée par `NodeOverrides`). */
+  private syncT(name: string): void {
+    const inst = this.driver.instances.get(name);
+    const root = this.built.get(name)?.joints[0]?.parent;
+    if (!inst || !root) return;
+    Object.assign(inst.t, { x: root.position.x, y: root.position.y, z: root.position.z, ry: root.rotation.y, sx: root.scale.x, sy: root.scale.y, sz: root.scale.z });
+  }
+
+  /**
+   * Les instances posées suivent leur appui : position, cap et échelle uniforme du nœud d'appui tel qu'affiché.
+   * Appelé aussi après l'avance des surcharges `nodes`, pour suivre un appui en mouvement sans image de retard.
+   */
+  follow(): boolean {
+    let moved = false;
+    for (const inst of this.driver.carriedInstances) {
+      const c = inst.carry;
+      const root = this.built.get(inst.name)?.joints[0]?.parent;
+      const sup = c ? this.built.get(c.support)?.joints[0]?.parent : null;
+      if (!c || !root || !sup) continue;
+      const k = sup.scale.x || 1;
+      const [dx, dz] = turnY(c.local[0] * k, c.local[2] * k, sup.rotation.y);
+      const lift = c.move && c.move.lift ? c.move.lift * 4 * this.moveU(c, this.lastStep) * (1 - this.moveU(c, this.lastStep)) : 0;
+      const x = sup.position.x + dx, y = sup.position.y + c.local[1] * k + lift, z = sup.position.z + dz, ry = sup.rotation.y + c.yaw;
+      if (root.position.x !== x || root.position.y !== y || root.position.z !== z || root.rotation.y !== ry) {
+        root.position.set(x, y, z);
+        root.rotation.y = ry;
+        moved = true;
+      }
+    }
+    return moved;
+  }
+
+  private moveU(c: NonNullable<InstanceState["carry"]>, now: number): number {
+    return c.move ? Math.max(0, Math.min(1, (now - c.move.start) / c.move.ms)) : 1;
   }
 
   /** `nodes.<instance>_<pièce>` d'un acteur procgen : `emissive` / `emissiveColor` deviennent un éclat de l'acteur. */
@@ -490,6 +533,7 @@ export class Monde3d {
     let changed = busy;
     const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
     this.lastStep = now;
+    if (this.follow()) changed = true;
     this.kit?.tick(now / 1000);
     for (const b of this.built.values()) {
       const inst = b.inst;
