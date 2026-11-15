@@ -270,6 +270,8 @@ monde publié replace l'objet). Fonctions JSONata de `sonic-store` pour cela :
 | `$mondePlace($state.monde, $action.payload)` | Le monde où l'entrée de l'objet porte la pose (`on` / `against` / `at` / `rot` de `payload.place`). `payload` = `placed` ou le `payload` de l'action `place`. Un objet nommé d'office (`bureau-lampe1`) est retrouvé par `src` (rang de son entrée) et reçoit ce nom. Une entrée à plusieurs copies (`stack`, `grid`, `scatter`, `copies`) n'est pas modifiée |
 | `$mondeAdd($state.monde, {"model": "lit", "params": {…}}, [x, z]?)` | Le monde avec l'objet ajouté (nommé `lit1`, `lit2`… sans `name`) à la place libre la plus proche du point visé (mètres ; centre de l'espace par défaut), avec l'appui de sa nature. Lit le monde complet (15 à 60 ms) : `budget-ms="200"` sur le store |
 | `$mondeRemove($state.monde, "bureau", src?)` | Le monde sans l'objet ni ce qui est posé dessus (de proche en proche) |
+| `$mondeParams($state.monde, "commode1", {"tiroirs": 5, "facade": "#e07a5f"}, src?)` | Le monde où les paramètres de prefab de l'objet sont changés (`null` : retour au défaut) |
+| `$mondeTurn($state.monde, "commode1", 90?, src?)` | Le monde où l'objet a tourné sur place (quart de tour par défaut), rangé comme un glisser avec ce cap (lit le monde complet) |
 
 ```json
 { "tagName": "sonic-store", "attributes": { "id": "chambre", "budget-ms": "200", "history": "30",
@@ -277,6 +279,10 @@ monde publié replace l'objet). Fonctions JSONata de `sonic-store` pour cela :
 ```
 
 avec `sonic-3d drag=".*" target="chambre"` : chaque lâcher envoie `place`, le monde est réécrit, la pose reste.
+
+Un tap (`pick`) sur un objet déplaçable du monde ajoute au `payload` `instance` (son nom, même si le tap touche une
+pièce `commode1_tiroir1`, et jamais un mur ou le sol) et `src` (rang de son entrée) : de quoi le sélectionner puis
+l'éditer avec les fonctions ci-dessus. Un appui ne devient un glisser qu'au-delà de 4 px.
 
 ### Déplacements en jeu
 

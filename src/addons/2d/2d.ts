@@ -716,6 +716,8 @@ export class Sonic2d extends LitElement {
   private onMove = (e: PointerEvent) => {
     const d = this.dragging;
     if (!d || e.pointerId !== d.id) return;
+    // un tap qui tremble n'est pas un glisser : l'objet ne part qu'au-delà de quelques pixels
+    if (!d.last && this.tap && Math.hypot(e.clientX - this.tap.x, e.clientY - this.tap.y) < 4) return;
     [d.sx, d.sy] = this.scenePoint(e);
     this.moveDrag();
   };
@@ -777,7 +779,10 @@ export class Sonic2d extends LitElement {
       const [lx, ly] = scene.layerPoint(this.mondeLayer || "monde", sx, sy);
       const mh = this.mondeR.pick(lx, ly);
       if (mh && (!re || re.test(mh.instance))) {
-        dispatch(this.target, { type, payload: { objectId: mh.instance, part: mh.part, x: r2(lx), y: r2(ly) } });
+        // objet déplaçable du monde : `instance` et rang de son entrée (comme en 3D)
+        const drv = this.mondeR.driver;
+        const world = drv.movable(mh.instance) ? { instance: mh.instance, src: drv.instances.get(mh.instance)?.placement.src ?? -1 } : {};
+        dispatch(this.target, { type, payload: { objectId: mh.instance, part: mh.part, x: r2(lx), y: r2(ly), ...world } });
         return;
       }
     }

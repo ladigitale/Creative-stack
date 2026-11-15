@@ -3,7 +3,7 @@
  * `$random` / `$now` volontairement absents — rejouabilité.
  */
 import type { Expression } from "jsonata";
-import { mondePlace, mondeRemove } from "../../shared/monde/edit";
+import { mondeParams, mondePlace, mondeRemove } from "../../shared/monde/edit";
 
 /** mulberry32 → { value: 0..1, seed } */
 export function rand(seed: unknown): { value: number; seed: number } {
@@ -98,6 +98,8 @@ export function registerInteractiveHelpers(expression: Expression): void {
   // édition d'un monde (format monde de sonic-3d / sonic-2d)
   expression.registerFunction("mondePlace", mondePlace);
   expression.registerFunction("mondeRemove", mondeRemove);
+  expression.registerFunction("mondeParams", mondeParams);
   // lit le monde complet : chargé à la première utilisation (réducteur asynchrone, prévoir budget-ms ≈ 200)
   expression.registerFunction("mondeAdd", async (monde: unknown, entry: unknown, at?: unknown) => (await import("../../shared/monde/edit-add")).mondeAdd(monde, entry, at));
+  expression.registerFunction("mondeTurn", async (monde: unknown, name: unknown, deg?: unknown, src?: unknown) => (await import("../../shared/monde/edit-add")).mondeTurn(monde, name, deg, src));
 }

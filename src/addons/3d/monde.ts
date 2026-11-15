@@ -310,6 +310,9 @@ export class Monde3d {
       shadow.renderOrder = -1;
       const r = radiusOf(model) * Math.max(pl.scale[0], pl.scale[2]);
       shadow.scale.set(r, 1, r);
+      // au pied de l'instance dès sa création (sinon à l'origine jusqu'à son premier mouvement)
+      shadow.position.set(pl.at[0], 0.005, pl.at[2]);
+      shadow.visible = root.visible;
       this.group.add(shadow);
     }
     this.group.add(root);
@@ -588,6 +591,11 @@ export class Monde3d {
     if (!r) return;
     this.drawMarks(r.marks);
     if (!live) this.onConflicts?.(r.conflicts);
+  }
+
+  /** Rang de l'entrée de `place` écrite d'une instance (-1 : inconnu). */
+  srcOf(name: string): number {
+    return this.driver.instances.get(name)?.placement.src ?? -1;
   }
 
   /** Cap affiché d'une instance (radians). */

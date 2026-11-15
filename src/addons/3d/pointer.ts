@@ -4,6 +4,9 @@ import { TAP_MAX_MOVE_PX, TAP_MAX_MS } from "./constants";
 import type { SceneHit } from "./pick";
 import type { SceneRuntime } from "./runtime";
 
+/** Distance (px) au-delà de laquelle un appui sur un objet devient un glisser. */
+const DRAG_START_PX = 4;
+
 export type PointerHost = {
   pointerX: number;
   pointerY: number;
@@ -13,7 +16,7 @@ export type PointerHost = {
   pickNames: string;
   pickEmpty: boolean;
   drag?: string;
-  dragging?: { name: string; last: unknown; id: number; x: number; y: number; ry: number | undefined; stop: () => void } | null;
+  dragging?: { name: string; last: unknown; id: number; x: number; y: number; cx: number; cy: number; ry: number | undefined; stop: () => void } | null;
   setPointerCapture?: (id: number) => void;
   releasePointerCapture?: (id: number) => void;
   tapStart: { x: number; y: number; t: number } | null;
@@ -43,6 +46,8 @@ function onMove(host: PointerHost, e: PointerEvent) {
   host.pointerX = p.x;
   host.pointerY = p.y;
   if (host.dragging && host.runtime) {
+    // un tap qui tremble n'est pas un glisser : l'objet ne part qu'au-delà de quelques pixels
+    if (!host.dragging.last && Math.hypot(e.clientX - host.dragging.cx, e.clientY - host.dragging.cy) < DRAG_START_PX) return;
     host.dragging.x = p.x;
     host.dragging.y = p.y;
     const res = host.runtime.dragMove(host.dragging.name, p.x, p.y, host.dragging.ry);
@@ -62,7 +67,7 @@ function onDown(host: PointerHost, e: PointerEvent) {
   if (host.drag && host.runtime?.ready && e.button === 0) {
     const name = host.runtime.dragStart(p.x, p.y, host.drag);
     if (name) {
-      const drag = { name, last: null as unknown, id: e.pointerId, x: p.x, y: p.y, ry: undefined as number | undefined, stop: () => {} };
+      const drag = { name, last: null as unknown, id: e.pointerId, x: p.x, y: p.y, cx: e.clientX, cy: e.clientY, ry: undefined as number | undefined, stop: () => {} };
       // R, Q / E, molette : tourner l'objet saisi
       drag.stop = listenTurn(host as unknown as HTMLElement, (d) => {
         const rt = host.runtime;
@@ -100,6 +105,14 @@ function onDown(host: PointerHost, e: PointerEvent) {
  * Tap (déplacement < 6 px, durée < 400 ms) → action vers `target`.
  * Un drag d'orbite n'envoie rien.
  */
+/** Tap sur un `monde` : l'objet déplaçable touché (`instance`) et le rang de son entrée (`src`). */
+function worldOf(host: PointerHost, x: number, y: number): { instance?: string; src?: number } {
+  const rt = host.runtime;
+  if (!rt) return {};
+  const instance = rt.worldInstanceAt?.(x, y) ?? "";
+  return instance ? { instance, src: rt.worldSrcOf?.(instance) ?? -1 } : {};
+}
+
 function onUp(host: PointerHost, e: PointerEvent) {
   const drag = host.dragging;
   if (drag) {
@@ -134,7 +147,7 @@ function onUp(host: PointerHost, e: PointerEvent) {
   if (hit) {
     dispatch(host.target, {
       type,
-      payload: { objectId: hit.objectId, x: hit.x, y: hit.y, z: hit.z },
+      payload: { objectId: hit.objectId, x: hit.x, y: hit.y, z: hit.z, ...worldOf(host, p.x, p.y) },
     });
   } else if (host.pickEmpty) {
     dispatch(host.target, { type, payload: { objectId: null } });

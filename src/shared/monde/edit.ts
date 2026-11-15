@@ -86,3 +86,24 @@ export function freeName(monde: unknown, base: string): string {
   while (taken.has(`${stem}${n}`)) n++;
   return `${stem}${n}`;
 }
+
+/**
+ * Change des paramètres de prefab d'un objet (`{"largeur": 1.4, "couette": "#e07a5f"}` fusionnés dans son
+ * `params` ; valeur `null` : paramètre retiré, retour au défaut). `src` retrouve un objet nommé d'office.
+ */
+export function mondeParams(monde: unknown, name: unknown, params: unknown, src?: unknown): unknown {
+  if (!isObj(monde) || !Array.isArray(monde.place) || typeof name !== "string" || !name || !isObj(params)) return monde;
+  const i = entryOf(monde.place, name, src);
+  if (i < 0) return monde;
+  const e = monde.place[i] as Obj;
+  const next: Obj = { ...e, params: { ...(isObj(e.params) ? e.params : {}) } };
+  if (!next.name && !MANY.some((k) => e[k] !== undefined)) next.name = name;
+  const ps = next.params as Obj;
+  for (const [k, v] of Object.entries(params)) {
+    if (v === null) delete ps[k];
+    else if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") ps[k] = v;
+  }
+  const place = monde.place.slice();
+  place[i] = next;
+  return { ...monde, place };
+}
