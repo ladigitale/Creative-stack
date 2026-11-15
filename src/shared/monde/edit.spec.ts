@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import jsonata from "jsonata";
-import { freeName, mondePlace, mondeRemove } from "./edit";
-import { mondeAdd } from "./edit-add";
+import { freeName, mondeParams, mondePlace, mondeRemove } from "./edit";
+import { mondeAdd, mondeTurn } from "./edit-add";
 import { readMonde } from "./format";
 import { MondeDriver } from "./driver";
 import { placedInfo } from "./arrange";
@@ -78,5 +78,18 @@ describe("édition du monde écrit", () => {
     expect(s2.monde.place[2].at).toEqual(placed.place.at);
     const s3 = (await expr.evaluate(s2, { state: s2, action: { type: "add", payload: { model: "plante" } } })) as { monde: { place: Record<string, unknown>[] } };
     expect(s3.monde.place).toHaveLength(4);
+  });
+
+  it("$mondeParams change les paramètres d'un objet ; $mondeTurn le tourne d'un quart de tour sur place", () => {
+    const w = mondeParams(chambre(), "commode", { tiroirs: 5, facade: "#e07a5f", largeur: null }) as { place: Record<string, unknown>[] };
+    expect(w.place[2].params).toEqual({ tiroirs: 5, facade: "#e07a5f" });
+    const lamp = mondeParams(chambre(), "bureau-lampe1", { abat: "boule" }, 1) as { place: Record<string, unknown>[] };
+    expect(lamp.place[1]).toMatchObject({ name: "bureau-lampe1", params: { abat: "boule" } });
+    const before = readMonde(chambre()).place.find((p) => p.name === "commode")!;
+    const t = mondeTurn(chambre(), "commode") as ReturnType<typeof chambre>;
+    const after = readMonde(t).place.find((p) => p.name === "commode")!;
+    expect(Math.cos(after.rot[1] - before.rot[1] - Math.PI / 2)).toBeCloseTo(1);
+    expect(Math.hypot(after.at[0] - before.at[0], after.at[2] - before.at[2])).toBeLessThan(0.1);
+    expect(mondeTurn(chambre(), "mur0")).toEqual(chambre());
   });
 });

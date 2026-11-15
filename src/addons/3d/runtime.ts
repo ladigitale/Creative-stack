@@ -309,10 +309,9 @@ export class SceneRuntime {
     return ops.pick(this.asOpsCtx(), normX, normY, names);
   }
 
-  /** Glisser d'une instance du monde : nom de l'instance saisie sous le pointeur (vide : aucune), orbite suspendue. */
-  dragStart(normX: number, normY: number, names?: string): string {
-    if (!this.mondeData) return "";
-    if (!this.content) return "";
+  /** Objet du monde déplaçable sous le pointeur (le décor et l'espace ne comptent pas) ; vide : aucun. */
+  worldInstanceAt(normX: number, normY: number, names?: string): string {
+    if (!this.mondeData || !this.content) return "";
     let re: RegExp | null = null;
     try {
       re = names ? new RegExp(names) : null;
@@ -321,15 +320,21 @@ export class SceneRuntime {
     }
     this.dragNdc.set(normX * 2 - 1, -(normY * 2 - 1));
     this.raycaster.setFromCamera(this.dragNdc, this.activeCam);
-    // premier objet nommé du monde sous le pointeur : le décor (murs, sol, semis) ne se saisit pas, il ne masque pas non plus
-    let name = "";
     for (const h of this.raycaster.intersectObject(this.content, true)) {
       const n = this.monde.instanceOfObject(h.object);
-      if (n && (!re || re.test(n))) {
-        name = n;
-        break;
-      }
+      if (n && (!re || re.test(n))) return n;
     }
+    return "";
+  }
+
+  /** Rang de l'entrée de `place` d'une instance du monde (-1 : inconnu). */
+  worldSrcOf(name: string): number {
+    return this.monde.srcOf(name);
+  }
+
+  /** Glisser d'une instance du monde : nom de l'instance saisie sous le pointeur (vide : aucune), orbite suspendue. */
+  dragStart(normX: number, normY: number, names?: string): string {
+    const name = this.worldInstanceAt(normX, normY, names);
     if (!name) return "";
     this.dragPlaneY = this.monde.heightOf(name);
     if (this.controls) this.controls.enabled = false;

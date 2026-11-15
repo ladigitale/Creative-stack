@@ -37,3 +37,23 @@ export function mondeAdd(monde: unknown, entry: unknown, at?: unknown): unknown 
   if (!res) return next;
   return mondePlace(next, placedInfo(name, res, d.bodies(), m.unit));
 }
+
+/**
+ * `$mondeTurn($monde, nom, degrés?, src?)` : tourne l'objet sur place (quart de tour par défaut) puis le range comme
+ * un glisser au même point avec ce cap (place libre la plus proche s'il gêne), et garde la pose dans le monde.
+ */
+export function mondeTurn(monde: unknown, name: unknown, deg?: unknown, src?: unknown): unknown {
+  if (!isObj(monde) || typeof name !== "string" || !name) return monde;
+  const m = readMonde(monde);
+  const d = new MondeDriver();
+  d.setMonde(m, 0);
+  d.step(0);
+  // objet nommé d'office : retrouvé par le rang de son entrée
+  const id = d.instances.has(name) ? name : [...d.instances.values()].find((i) => i.placement.src === src)?.name ?? "";
+  const inst = id ? d.instances.get(id) : undefined;
+  if (!inst || !d.movable(id)) return monde;
+  const step = typeof deg === "number" && isFinite(deg) ? deg : 90;
+  const res = d.arrangeTo(id, inst.t.x, inst.t.z, 0, 0, "inOut", { ry: inst.t.ry + (step * Math.PI) / 180 });
+  if (!res) return monde;
+  return mondePlace(monde, placedInfo(id, res, d.bodies(), m.unit));
+}
