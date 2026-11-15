@@ -92,6 +92,6 @@ describe("catalogue de mobilier", () => {
     const lampe = m.place.find((p) => p.model.startsWith("lampe~"))!;
     expect(lampe.at[1]).toBeCloseTo(0.74);
     const coussin = m.place.find((p) => p.model.startsWith("coussin~"))!;
-    expect(coussin.at[1]).toBeCloseTo(1.86, 1);
+    expect(coussin.at[1]).toBeCloseTo(1.91, 1);
   });
 });

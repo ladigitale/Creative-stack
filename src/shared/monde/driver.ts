@@ -154,7 +154,7 @@ export class MondeDriver {
     const b = boundsOf(inst.model) ?? DEFAULT_BOUNDS;
     const k = sup.t.sx || 1;
     const a = Array.isArray(at) ? at : [];
-    const to = localOn(s, b, [inst.t.sx, inst.t.sy, inst.t.sz], k, [isNum(a[0]) ? a[0] : 0, isNum(a[a.length > 2 ? 2 : 1]) ? (a[a.length > 2 ? 2 : 1] as number) : 0]).local;
+    const to = localOn(s, b, [inst.t.sx, inst.t.sy, inst.t.sz], k, [isNum(a[0]) ? a[0] : 0, isNum(a[a.length > 2 ? 2 : 1]) ? (a[a.length > 2 ? 2 : 1] as number) : 0], 0, inst.t.ry - sup.t.ry).local;
     // position actuelle exprimée dans le repère du nouvel appui : le déplacement part d'où est l'objet
     const [fx, fz] = turnY(inst.t.x - sup.t.x, inst.t.z - sup.t.z, -sup.t.ry);
     const from: [number, number, number] = [fx / k, (inst.t.y - sup.t.y) / k, fz / k];

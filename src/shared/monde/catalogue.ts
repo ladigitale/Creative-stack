@@ -37,8 +37,8 @@ const lit: Obj = {
   vars: { H: "= type == 'simple' ? 0.3 : type == 'mezzanine' ? 1.7 : 1.5", W: "= largeur + 0.06", L: "= longueur + 0.06", haut: "= type != 'simple'" },
   parts: [
     { name: "sommier", box: ["= W", 0.12, "= L"], at: [0, "= H - 0.06", "= L / 2"], matiere: "= structure" },
-    { name: "matelas", box: ["= largeur", 0.16, "= longueur", 0.03], at: [0, "= H + 0.08", "= L / 2"], color: "= drap", surface: "top" },
-    { name: "couette", box: ["= largeur + 0.02", 0.06, "= longueur * 0.62", 0.03], at: [0, "= H + 0.18", "= L - longueur * 0.31 - 0.03"], color: "= couette", tex: "tissu" },
+    { name: "matelas", box: ["= largeur", 0.16, "= longueur", 0.03], at: [0, "= H + 0.08", "= L / 2"], color: "= drap" },
+    { name: "couette", box: ["= largeur + 0.02", 0.06, "= longueur * 0.62", 0.03], at: [0, "= H + 0.18", "= L - longueur * 0.31 - 0.03"], color: "= couette", tex: "tissu", surface: "top" },
     { name: "oreiller", if: "= largeur < 1.3", box: ["= largeur * 0.72", 0.1, 0.36, 0.04], at: [0, "= H + 0.2", 0.26], color: "#ffffff" },
     { name: "oreillers", if: "= largeur >= 1.3", box: ["= largeur * 0.42", 0.1, 0.36, 0.04], at: ["= largeur / 4", "= H + 0.2", 0.26], mirror: "x", color: "#ffffff" },
     { name: "piedTete", box: [0.07, "= haut ? H + 0.4 : H - 0.12", 0.07], at: ["= W / 2 - 0.035", "= (haut ? H + 0.4 : H - 0.12) / 2", 0.035], mirror: "x", matiere: "= structure" },
@@ -146,6 +146,7 @@ const tapis: Obj = {
 
 const coussin: Obj = {
   famille: "coussin",
+  souple: true,
   pose: "dessus",
   tags: ["chambre", "salon"],
   params: { forme: pick("carre", "rond"), taille: len(0.45, 0.3, 0.8, 0.05), teinte: col("#e0a458") },
@@ -157,6 +158,7 @@ const coussin: Obj = {
 
 const rideau: Obj = {
   famille: "rideau",
+  souple: true,
   pose: "mur",
   tags: ["chambre", "salon"],
   params: { largeur: len(1.6, 0.6, 4, 0.1), hauteur: len(2.2, 1, 3, 0.1), ouverture: pick(0.5, 0, 0.25, 0.75, 1), teinte: col("#d9d0c1"), tringle: mat("metal-noir") },
@@ -241,6 +243,7 @@ const cadre: Obj = {
 
 const plante: Obj = {
   famille: "plante",
+  souple: true,
   pose: "sol",
   tags: ["salon", "chambre", "terrasse"],
   params: { forme: pick("buisson", "palmier", "cactus"), taille: len(0.8, 0.2, 2.2, 0.1), pot: col("#b5651d"), feuillage: col("#2e7d32") },

@@ -109,12 +109,17 @@ export function surfaceOf(model: Model, name: string): Surface | null {
 /**
  * Position d'un objet posé sur une surface, dans le repère du modèle d'appui (unités de ce modèle).
  * `b`, `sc` : emprise et échelle de l'objet ; `k` : échelle (uniforme) de l'appui ; `at` : deux nombres (dessus et
- * dessous : x, z ; face verticale : distance le long de la face, hauteur de la base) ; `level` : rang dans une pile.
+ * dessous : x, z ; face verticale : distance le long de la face, hauteur de la base) ; `level` : rang dans une pile ;
+ * `yaw` : cap de l'objet par rapport à l'appui.
  * `u`, `v`, `r` : centre et rayon de l'emprise sur la surface (pour éviter les chevauchements).
  */
-export function localOn(s: Surface, b: Box3, sc: readonly number[], k: number, at: readonly number[], level = 0) {
-  const hx = (Math.max(Math.abs(b.min[0]), Math.abs(b.max[0])) * Math.abs(sc[0])) / k;
-  const hz = (Math.max(Math.abs(b.min[2]), Math.abs(b.max[2])) * Math.abs(sc[2])) / k;
+export function localOn(s: Surface, b: Box3, sc: readonly number[], k: number, at: readonly number[], level = 0, yaw = 0) {
+  const ex = (Math.max(Math.abs(b.min[0]), Math.abs(b.max[0])) * Math.abs(sc[0])) / k;
+  const ez = (Math.max(Math.abs(b.min[2]), Math.abs(b.max[2])) * Math.abs(sc[2])) / k;
+  // emprise de l'objet tourné sur son appui (un livre de travers prend plus de place en largeur)
+  const cy = Math.abs(Math.cos(yaw)), sy = Math.abs(Math.sin(yaw));
+  const hx = s.face === "+z" ? ex : cy * ex + sy * ez;
+  const hz = s.face === "+z" ? ez : sy * ex + cy * ez;
   const h = ((b.max[1] - b.min[1]) * Math.abs(sc[1])) / k;
   const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2;
   let fits = true, clamped = false;
@@ -139,8 +144,8 @@ export function localOn(s: Surface, b: Box3, sc: readonly number[], k: number, a
   const r = Math.max(hx, hz);
   const ox = s.from === "coin" ? s.x0 : s.from === "centre" ? cx : 0;
   const oz = s.from === "coin" ? s.z0 : s.from === "centre" ? cz : 0;
-  const x = fit(ox + at[0], s.x0 + r, s.x1 - r, cx);
-  const z = fit(oz + at[1], s.z0 + r, s.z1 - r, cz);
+  const x = fit(ox + at[0], s.x0 + hx, s.x1 - hx, cx);
+  const z = fit(oz + at[1], s.z0 + hz, s.z1 - hz, cz);
   const y = s.face === "-y" ? s.y0 - (b.max[1] * sc[1]) / k : s.y + (-b.min[1] * sc[1]) / k + level * h;
   const local: [number, number, number] = [x, y, z];
   return { local, u: x, v: z, r, fits, clamped };

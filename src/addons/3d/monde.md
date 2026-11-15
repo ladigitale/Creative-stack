@@ -203,8 +203,24 @@ maillage réel des modèles : pas de moteur physique.
 - **En jeu** : `nodes.colis = {"on": "t2@top", "at": [0, 0.1], "ease": {"ms": 300}, "lift": 0.3}` déplace l'objet
   d'un appui à l'autre ; `"on": null` le détache sur place ; lui donner `x`, `y` ou `z` le détache aussi ; `ry` le
   tourne sur son appui.
-- **À revoir** : `mondeInfo.conflicts = [{a, b, type}]`, `type` = `hors-appui` (objet plus grand que la surface ou
-  ramené dans son contour) ou `chevauchement` (deux objets posés au même endroit). La pose est faite quand même.
+- **Collisions** : `mondeInfo.conflicts = [{a, b, type}]` liste ce qui est à revoir ; la pose est faite quand même.
+  Chaque pièce dessinée d'un modèle est une **boîte orientée**, et deux objets sont en conflit quand deux de leurs
+  boîtes se pénètrent de plus de 1,2 cm (test des axes séparateurs, en 3D) : une chaise glissée sous une table ne la
+  touche pas, une pile trop haute sous une tablette touche le plateau, un meuble qui traverse un mur est vu, deux
+  objets longs côte à côte ne se gênent pas. Un contact (objet sur son appui, dos au mur) n'est pas un conflit.
+
+  | `type` | Sens |
+  | --- | --- |
+  | `chevauchement` | Deux objets se pénètrent, ou un objet traverse un mur |
+  | `degagement` | Objet dans le passage d'une porte (aussi profond que large) ou à moins de 15 cm devant une fenêtre, à sa hauteur |
+  | `hors-espace` | Objet qui sort du contour de l'`espace` |
+  | `hors-appui` | Objet plus grand que sa surface d'appui, ou ramené dans son contour |
+
+  La recherche se fait d'office dès que le monde a un `espace` ou pose des objets (`on`, `against`, `stack`) ;
+  `"collisions": true` la force, `false` la coupe. Ne sont pas testés : sols, plafond, objets plats de moins de 3 cm
+  (tapis), modèles `gen` (pas de boîte mesurable), décor sans nom au-delà de 800 placements. Un modèle `"souple": true`
+  (plante, coussin, rideau du catalogue) tolère 10 cm. `a` et `b` sont des noms d'instance, ou `modèle#rang` pour le
+  décor sans nom. Un modèle de plus de 40 pièces est ramené à une seule boîte.
 - Faces d'appui : `"surface": {"name": "top", "face": "+z", "from": "coin"}` sur une pièce en fait une face verticale
   (`at` = `[distance le long de la face, hauteur de la base]`, dos de l'objet contre la face) ; `"face": "-y"` un
   dessous où l'on suspend. `from` : `centre` (défaut), `origine` du modèle, ou `coin`. Les murs et le plafond d'un

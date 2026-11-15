@@ -52,6 +52,8 @@ export type PrefabInfo = {
   /** Marge libre à garder autour de l'objet (unité du document). */
   degagement: number;
   slots: Record<string, SlotSpec>;
+  /** Objet souple (plante, coussin, rideau) : il peut frôler ses voisins sans que ce soit une collision. */
+  souple: boolean;
   /** Variantes construites pour ce monde. */
   variants: string[];
 };
@@ -220,6 +222,7 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
     (Array.isArray(m.parts) && m.parts.some((p) => isObj(p) && p.if !== undefined)) ||
     isObj(m.slots) ||
     typeof m.famille === "string" ||
+    m.souple === true ||
     hasExpr(m.parts) ||
     hasExpr(m.clips) ||
     (Array.isArray(m.parts) && m.parts.some((p) => isObj(p) && p.matiere !== undefined));
@@ -279,6 +282,7 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
       tags: Array.isArray(raw.tags) ? raw.tags.filter((t): t is string => typeof t === "string").slice(0, 16) : [],
       pose: typeof raw.pose === "string" ? raw.pose.slice(0, 20) : "",
       degagement: fin(raw.degagement) ? Math.max(0, raw.degagement) : 0,
+      souple: raw.souple === true,
       slots: Object.fromEntries(Object.entries(slots).map(([k, s]) => [k, { accepte: s.accepte, default: s.default }])),
       variants: [],
     };
@@ -508,7 +512,7 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
       nVariants++;
       t.variants.set(vname, values);
       t.info.variants.push(vname);
-      const { params: _p, use: _u, slots: _s, parts: _parts, clips, famille: _f, tags: _t, pose: _po, degagement: _d, vars: _v, unite: _un, ...rest } = t.raw;
+      const { params: _p, use: _u, slots: _s, parts: _parts, clips, famille: _f, tags: _t, pose: _po, degagement: _d, vars: _v, unite: _un, souple: _so, ...rest } = t.raw;
       const parts = build(t, values, slots, `${t.raw.seed ?? t.name}/${vname}`, false, [], `models.${t.name}`);
       const model: Obj = { ...rest, parts };
       if (t.preset) {
