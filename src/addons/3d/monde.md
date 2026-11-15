@@ -16,6 +16,7 @@ DP `jeu` : `{ "monde": {…}, "nodes": { "p0": { "x": 2, "z": 1, "ry": 1.57, "cl
 
 Mètres, **y vers le haut**, le sol en `y = 0`, l'avant d'un modèle vers **+z**. Rotations en **degrés** dans le JSON
 du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ.
+`unite: "cm"` (ou `mm`) permet d'écrire le monde dans une autre unité (voir Prefabs paramétrés) ; `nodes` reste en mètres.
 
 ## Clés du monde
 
@@ -98,8 +99,74 @@ retouche d'un modèle) : seuls les modèles modifiés sont reconstruits.
 ## Sortie
 
 `out-data-provider` (distinct du `dataProvider`) reçoit `mondeInfo : {models: {nom: {parts, clips, roles, clip}}, instances: [{name, model}], decor, issues}`.
+Avec des prefabs : `mondeInfo.prefabs = {nom: {params, famille, tags, pose, degagement, slots, variants}}` (de quoi bâtir un
+formulaire ou un catalogue) et `instances[].prefab` = nom écrit du modèle (`model` est alors sa variante `nom~clé`).
 `issues` liste les erreurs du JSON (chemin + message) : une erreur n'empêche jamais le rendu du reste.
 Tap : `pick` avec `objectId` = instance (en 2D, `part` en plus).
+
+## Prefabs paramétrés
+
+Un modèle en pièces peut déclarer des **paramètres**, les utiliser dans ses pièces par des **expressions**, contenir
+d'autres modèles (`use`) et offrir des **emplacements** (`slots`). Chaque placement donne ses valeurs : un seul modèle
+écrit, autant de déclinaisons que voulu.
+
+```json
+{
+  "models": {
+    "chaise": { "parts": [ { "name": "assise", "box": [0.42, 0.04, 0.42], "at": [0, 0.45, 0], "role": "bois" } ] },
+    "table": {
+      "params": {
+        "longueur": { "default": 1.6, "min": 0.8, "max": 4, "step": 0.2, "unit": "m" },
+        "couverts": { "default": 4, "options": [2, 4, 6] },
+        "teinte": { "default": "#8b5a2b" }
+      },
+      "parts": [
+        { "name": "plateau", "box": ["= longueur", 0.05, 0.8, 0.02], "at": [0, 0.75, 0], "color": "= teinte" },
+        { "name": "pied", "cylinder": [0.03, 0.75], "at": ["= longueur / 2 - 0.08", 0, 0.32], "mirror": "x" }
+      ],
+      "use": [ { "model": "chaise", "repeat": "= couverts / 2", "rot": [0, 180, 0],
+                 "at": ["= (i + 0.5) * longueur / (couverts / 2) - longueur / 2", 0, 0.6] } ]
+    }
+  },
+  "place": [
+    { "model": "table", "name": "t1", "params": { "longueur": 2.4, "couverts": 6 } },
+    { "model": "table", "scatter": 40, "area": [-30, -30, 30, 30],
+      "params": { "longueur": "= pick(1.2, 1.6, 2.4)", "teinte": "= pick('#8b5a2b', '#5b3a1e')" } }
+  ]
+}
+```
+
+- **`params.<nom>`** : `{default, min, max, step, options, unit, doc, type}`. `type` se déduit du défaut : `nombre`,
+  `choix` (dès qu'il y a `options`), `couleur` (`#rrggbb`), `bool`, `texte` ; `matiere` se déclare. `unit` est une
+  indication pour les interfaces. Une valeur nue (`"hauteur": 2`) vaut `{default: 2}`.
+- **Expressions** : toute valeur d'une pièce, d'un `use`, d'un emplacement ou d'un clip peut être `"= …"` : paramètres
+  du modèle, `+ - * / % ^`, comparaisons, `a ? b : c`, `min max clamp mix abs floor round sqrt pow sin cos` (degrés),
+  `rand(a, b)`, `randint`, `pick(…)`, `chance(p)`, `noise(x, y)`. Aucun code n'est exécuté.
+- **`use`** : `{model, name, parent, at, rot, scale, repeat, params, slots}`. Le sous-modèle est déplié : une
+  articulation `<name>` (pilotable, animable) puis ses pièces `<name>_<pièce>`. Avec `repeat`, les copies s'appellent
+  `<name>0…` et lisent `i` (rang) et `n` (total). 4 niveaux au plus, 64 sous-modèles par modèle ; un modèle `gen` ne se
+  déplie pas (le placer à part).
+- **`slots`** : `{"abatJour": {"accepte": "abat-jour", "at": [0, "= hauteur", 0], "default": "cone"}}` réserve un
+  emplacement aux modèles de la `famille` indiquée. Le placement choisit : `"slots": {"abatJour": "boule"}`,
+  `{"model": "boule", "params": {…}}` ou `null` (vide).
+- **`matiere`** sur une pièce : nom du nuancier, qui donne couleur, texture et éclat. Matières de base : `chene`, `pin`,
+  `noyer`, `hetre`, `bois-blanc`, `bois-noir`, `acier`, `laiton`, `metal-noir`, `lin`, `coton`, `laine`, `marbre`,
+  `pierre`, `blanc`, `noir` ; `materiaux` du monde en ajoute ou en remplace
+  (`{"rose": "#ff66aa", "velours": {"color": "#7c2d12", "tex": "tissu"}}`).
+- **Catalogue** : `famille`, `tags`, `pose` (`sol`, `mur`, `plafond`, `dessus`), `degagement` décrivent le modèle ; ils
+  sont publiés tels quels (voir Sortie).
+- **Placement** : `params` accepte des expressions tirées **par copie** dans une grille ou un semis (`i`, `n`, `rand`,
+  `pick`). Un nombre tiré sans `step` est ramené à 16 paliers (entre `min` et `max`).
+- **`unite`** (clé du monde) : `m` (défaut), `cm` ou `mm`. Elle vaut pour les longueurs écrites : pièces, `use`,
+  placements (`at`, `step`, `area`), translations de clips, et donc les paramètres qui les nourrissent. Les
+  préréglages, les modèles `gen`, `view2d` et **`nodes` restent en mètres**.
+
+**Coût.** Chaque jeu de valeurs distinct devient une *variante* : un modèle ordinaire `table~<clé>`, construit une fois
+et instancié comme n'importe quel décor. Un paramètre de couleur lu seulement par `"color": "= nom"` ne crée **aucune**
+variante : c'est un rôle de couleur de la copie (`~nom`), modifiable en jeu par `nodes.<instance>.roles = {"~teinte":
+"#…"}`. Tout autre paramètre crée une variante par valeur : donner un `step` ou des `options` aux paramètres tirés au
+hasard. Plafonds : 32 variantes par modèle, 512 par monde ; au-delà la variante la plus proche est réutilisée et une
+`issue` le dit. Changer un paramètre d'une instance dans le store ne reconstruit que la nouvelle variante.
 
 ## Modèles `gen` : générateurs procgen (3D)
 

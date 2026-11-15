@@ -90,6 +90,25 @@ controle tacle chute plongeon` ; `roles` `maillot short chaussette peau cheveux 
 `rz` est le **cap** (le personnage est redessiné tourné, l'image ne pivote pas). Le personnage porte son ombre.
 Dessin cadencé à `fpsGen` (24 images/s) ; décor dessiné une fois. Tap : `{objectId: instance}`.
 
+## Prefabs paramétrés
+
+Mêmes règles que le format « monde » (voir `3d/monde.md`, section Prefabs paramétrés), en pixels : `params` déclarés
+sur le modèle, expressions `"= …"` dans les pièces, sous-modèles `use` (pièces `<nom>_<pièce>`), emplacements `slots`,
+`matiere`, fiche `famille` / `tags` / `pose`, et `params` / `slots` par placement (expressions tirées par copie dans une
+grille ou un semis). Pas de clé `unite` : tout est en pixels.
+
+```json
+{ "models": { "fanion": {
+    "params": { "h": { "default": 60, "min": 20, "max": 200, "step": 20, "unit": "px" }, "teinte": { "default": "#e11d48" } },
+    "parts": [ { "name": "mat", "rect": [4, "= h"], "at": [0, "= -h / 2"], "color": "#334155" },
+               { "name": "toile", "poly": [[0, 0], [30, 8], [0, 16]], "at": [2, "= -h"], "color": "= teinte" } ] } },
+  "place": [ { "model": "fanion", "grid": [10, 3], "step": [40, 60],
+               "params": { "h": "= pick(40, 60, 80)", "teinte": "= pick('#e11d48', '#2563eb')" } } ] }
+```
+
+Une couleur lue par `"color": "= nom"` ne crée pas de variante (rôle `~nom` de la copie) ; les autres paramètres créent
+une variante par valeur distincte (32 par modèle). `monde2dInfo.prefabs` publie les fiches.
+
 ## Préréglages (`preset`)
 
 | Nom | Contenu | `params` |

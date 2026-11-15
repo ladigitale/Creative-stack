@@ -7,7 +7,8 @@
  * Lecture tolérante : jamais d'exception, problèmes listés dans `issues`.
  */
 import { DEG, Rand, hash32 } from "../monde/math";
-import { isColor, own, readMonde, type Model } from "../monde/format";
+import { isColor, own, readMatieres, readMonde, type Model } from "../monde/format";
+import { expandPrefabs, type PrefabInfo } from "../monde/prefab";
 import { GEN_IDS, genVariants, isGenId, type GenRig } from "../monde/gen";
 import { readTex, type TexSpec } from "../monde/textures";
 import type { Clip, ClipIn, Issue, Track } from "../monde/format";
@@ -74,12 +75,23 @@ export type Model2In = {
   parts?: Part2In[];
   clips?: Record<string, Clip2In>;
   clip?: string;
+  /** Prefab (voir monde/prefab.ts) : sous-modèles dépliés, emplacements, fiche de catalogue. `params` déclare alors ses paramètres. */
+  use?: Record<string, unknown>[];
+  slots?: Record<string, Record<string, unknown>>;
+  famille?: string;
+  tags?: string[];
+  pose?: string;
+  degagement?: number;
 };
 
 export type Place2In = {
   model?: string;
-  /** Modèle `gen` : retouche de ses `params` pour ce placement (ex. `{ animal: "fox" }`). */
+  /** Retouche des `params` d'un modèle `gen` (ex. `{ animal: "fox" }`) ou valeurs d'un prefab (expressions par copie permises). */
   params?: Record<string, unknown>;
+  /** Prefab : garniture de ses emplacements. */
+  slots?: Record<string, unknown>;
+  /** Interne (passe des prefabs) : modèle et rôles de chaque copie d'une grille ou d'un semis. */
+  copies?: { model: string; roles?: Record<string, string> }[];
   /** Modèle `gen` : graine propre à ce placement. */
   genSeed?: string | number;
   name?: string;
@@ -106,6 +118,8 @@ export type Place2In = {
 export type Layer2In = { name?: string; parallax?: number; ysort?: boolean };
 
 export type Monde2dIn = {
+  /** Nuancier de matières lu par `matiere` des pièces (voir monde/format.ts). */
+  materiaux?: Record<string, unknown>;
   palette?: Record<string, string>;
   models?: Record<string, Model2In>;
   place?: Place2In[];
@@ -231,6 +245,8 @@ export type Monde2d = {
   textures: Record<string, TexSpec>;
   texture: TexSpec | null;
   detail: number;
+  /** Prefabs déclarés : paramètres, famille, emplacements, variantes construites. */
+  prefabs: Record<string, PrefabInfo>;
   issues: Issue[];
 };
 
@@ -754,10 +770,14 @@ function readPlace2(list: unknown, models: Map<string, Model2>, layers: Layer2[]
     const model = typeof p.model === "string" ? p.model : "";
     const md = models.get(model);
     if (!md) {
-      issues.push({ path, message: `modèle inconnu « ${model} »` });
+      issues.push({ path, message: `modèle inconnu « ${model.split("~")[0]} »` });
       return;
     }
-    const shaped = md.parts.filter((q) => q.shape).length || 1;
+    const shapedOf = (name: string) => models.get(name)!.parts.filter((q) => q.shape).length || 1;
+    let shaped = shapedOf(model);
+    // Prefab aux paramètres tirés par copie : chaque copie a son modèle (variante) et ses rôles de couleur
+    const copies = Array.isArray(p.copies) ? p.copies : null;
+    let copy = 0;
     const roles: Record<string, string> = {};
     if (p.roles && typeof p.roles === "object") for (const [k, v] of Object.entries(p.roles)) if (isColor(v)) roles[k] = v;
     const layer = typeof p.layer === "string" && layers.some((l) => l.name === p.layer) ? p.layer : defLayer;
@@ -779,6 +799,14 @@ function readPlace2(list: unknown, models: Map<string, Model2>, layers: Layer2[]
     const full = () => out.length >= LIMITS2.placements || budget < shaped;
     const push = (pl: Placement2) => {
       if (full()) return;
+      const c = copies?.[copy++];
+      if (c && typeof c.model === "string" && models.has(c.model)) {
+        const cr: Record<string, string> = {};
+        if (c.roles && typeof c.roles === "object") for (const [k, v] of Object.entries(c.roles)) if (isColor(v)) cr[k] = v;
+        pl = { ...pl, model: c.model, roles: { ...cr, ...pl.roles } };
+        shaped = shapedOf(c.model);
+        if (budget < shaped) return;
+      }
       if (pl.name) {
         if (namedParts + shaped > LIMITS2.namedParts) {
           issues.push({ path, message: `plus de ${LIMITS2.namedParts} pièces animées : instance ignorée` });
@@ -849,7 +877,29 @@ export function readMonde2d(input: unknown, previous?: Monde2d | null): Monde2d 
 
 function readUnsafe(input: unknown, previous?: Monde2d | null): Monde2d {
   const issues: Issue[] = [];
-  const src = genVariants((input && typeof input === "object" && !Array.isArray(input) ? input : {}) as Monde2dIn, issues);
+  const raw = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as Monde2dIn;
+  const same = <T,>(v: T) => v;
+  const expanded = expandPrefabs(raw, issues, {
+    unit: 1,
+    scalePart: same,
+    scaleClip: same,
+    scalePlace: same,
+    isGen: (m) => m.gen !== undefined,
+    matieres: readMatieres(raw.materiaux, issues),
+    copies: (p) =>
+      Array.isArray(p.grid)
+        ? Math.min(LIMITS2.placements, clampN(Math.round(num(p.grid[0], 1)), 1, 500) * clampN(Math.round(num(p.grid[1], 1)), 1, 500))
+        : typeof p.scatter === "number"
+          ? clampN(Math.round(p.scatter), 0, LIMITS2.placements)
+          : 1,
+    presetParts(model, params, seed) {
+      const builder = typeof model.preset === "string" ? own(PRESETS2D, model.preset) : undefined;
+      if (!builder) return null;
+      const out = builder.build(new Rand(seed), params);
+      return { parts: out.parts as Record<string, unknown>[], roles: out.roles };
+    },
+  });
+  const src = genVariants(expanded.src, issues);
   const palette: Record<string, string> = { ...DEFAULT_PALETTE };
   const ownPal: Record<string, string> = {};
   if (src.palette && typeof src.palette === "object")
@@ -860,10 +910,13 @@ function readUnsafe(input: unknown, previous?: Monde2d | null): Monde2d {
   const detail = src.detail === "low" ? 0 : src.detail === "high" ? 2 : 1;
   const seg = SEG[detail];
   const models = new Map<string, Model2>();
-  const entries = Object.entries(src.models && typeof src.models === "object" ? src.models : {});
-  if (entries.length > LIMITS2.models) issues.push({ path: "models", message: `plus de ${LIMITS2.models} modèles` });
+  // Le plafond porte sur les modèles écrits ; les variantes (`nom~clé`) ont le leur
+  const all = Object.entries(src.models && typeof src.models === "object" ? src.models : {});
+  const written = all.filter(([n]) => !n.includes("~"));
+  if (written.length > LIMITS2.models) issues.push({ path: "models", message: `plus de ${LIMITS2.models} modèles` });
+  const entries = [...written.slice(0, LIMITS2.models), ...all.filter(([n]) => n.includes("~"))];
   const palSig = hash32(JSON.stringify(src.palette ?? {}));
-  for (const [name, m] of entries.slice(0, LIMITS2.models)) {
+  for (const [name, m] of entries) {
     if (!m || typeof m !== "object") continue;
     const sig = `${hash32(JSON.stringify(m))}/${palSig}/${detail}`;
     const prev = previous?.models.get(name);
@@ -926,6 +979,7 @@ function readUnsafe(input: unknown, previous?: Monde2d | null): Monde2d {
     textures,
     texture: readTex(src.texture ?? (style === "gouache" ? "grain" : undefined), (message) => issues.push({ path: "texture", message })),
     detail,
+    prefabs: expanded.prefabs,
     issues,
   };
 }
@@ -949,7 +1003,8 @@ export function monde2dSummary(m: Monde2d) {
   for (const [k, md] of m.models) models[k] = { parts: md.parts.map((p) => p.name), clips: [...md.clips.keys()], roles: md.roles, clip: md.clip };
   return {
     models,
-    instances: m.place.filter((p) => p.name).map((p) => ({ name: p.name, model: p.model, layer: p.layer })),
+    instances: m.place.filter((p) => p.name).map((p) => ({ name: p.name, model: p.model, layer: p.layer, ...(own(m.prefabs, p.model.split("~")[0]) ? { prefab: p.model.split("~")[0] } : {}) })),
+    ...(Object.keys(m.prefabs).length ? { prefabs: m.prefabs } : {}),
     decor: m.place.filter((p) => !p.name).length,
     layers: m.layers.map((l) => l.name),
     issues: m.issues.slice(0, 50),
