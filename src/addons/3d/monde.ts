@@ -179,6 +179,8 @@ export class Monde3d {
   onMeasured: (() => void) | null = null;
   /** Appelé après un rangement (`nodes.<instance>.move`) : résultat à publier. */
   onPlaced: ((p: PlacedInfo) => void) | null = null;
+  /** Déplacement en jeu gêné par un obstacle (`collide`) : instance, point atteint, ce qui gêne. */
+  onContact: ((c: { objectId: string; x: number; z: number; hits: string[]; blocked: boolean }) => void) | null = null;
   /** Conflits recalculés après un rangement (glisser, `nodes.<instance>.move`). */
   onConflicts: ((c: Conflict[]) => void) | null = null;
   /** Boîtes des objets en conflit (`collisions: "montrer"`). */
@@ -500,6 +502,29 @@ export class Monde3d {
    * Patchs `nodes` d'instances : clip et couleurs ici ; position / orientation laissées à `NodeOverrides`
    * (l'instance est un nœud nommé comme un autre).
    */
+  /**
+   * Patchs `{x, z, collide}` ramenés au point atteint sans traverser d'obstacle (walk.ts), avant toute application
+   * (le monde et les surcharges de nœuds reçoivent la même valeur). Rend `spec` tel quel s'il n'y a rien à corriger.
+   */
+  guardNodes(spec: NodesSpec): NodesSpec {
+    let out: Record<string, unknown> | null = null;
+    let synced = false;
+    for (const [name, p] of Object.entries(spec)) {
+      const c = p && typeof p === "object" ? (p as { collide?: unknown }).collide : undefined;
+      if (c === undefined || c === false || !this.driver.instances.has(name)) continue;
+      if (!synced) {
+        for (const n of this.built.keys()) this.syncT(n);
+        synced = true;
+      }
+      const g = this.driver.guard(name, p);
+      if (!g) continue;
+      out ??= { ...(spec as Record<string, unknown>) };
+      out[name] = g.patch;
+      if (g.walked.hits.length) this.onContact?.({ objectId: name, ...g.walked });
+    }
+    return (out ?? spec) as NodesSpec;
+  }
+
   applyNodes(spec: NodesSpec, now: number): boolean {
     let any = false;
     let moved = false;
@@ -539,10 +564,10 @@ export class Monde3d {
   }
 
   /** Glisser : range l'instance au point visé, tout de suite (voir arrange.ts). */
-  dragTo(name: string, x: number, z: number, now: number): PlacedInfo | null {
+  dragTo(name: string, x: number, z: number, now: number, ry?: number): PlacedInfo | null {
     if (!this.monde) return null;
     for (const n of this.built.keys()) if (n !== name) this.syncT(n);
-    const res = this.driver.arrangeTo(name, x, z, now);
+    const res = this.driver.arrangeTo(name, x, z, now, 0, "inOut", ry === undefined ? {} : { ry });
     if (!res) return null;
     this.follow();
     this.refreshConflicts(true);
@@ -563,6 +588,11 @@ export class Monde3d {
     if (!r) return;
     this.drawMarks(r.marks);
     if (!live) this.onConflicts?.(r.conflicts);
+  }
+
+  /** Cap affiché d'une instance (radians). */
+  headingOf(name: string): number {
+    return this.built.get(name)?.joints[0]?.parent?.rotation.y ?? this.driver.instances.get(name)?.t.ry ?? 0;
   }
 
   /** Hauteur affichée d'une instance (plan dans lequel on la fait glisser). */

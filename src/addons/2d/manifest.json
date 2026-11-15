@@ -62,6 +62,10 @@
           "type": "boolean",
           "description": "Envoie aussi {objectId:null, x, y} (coordonnées du monde) pour un tap hors sprite"
         },
+        "drag": {
+          "type": "string",
+          "description": "Glisser les instances d'un monde : regex des noms déplaçables (.* : toutes). L'objet suit le pointeur, rangé en direct (appui, aimantation aux murs et aux voisins, collisions) ; vue de dessus et iso : tout le sol, profil et face : l'axe horizontal de l'écran. R / Maj+R (quart de tour), Q / E ou la molette le tournent pendant le geste. Au lâcher target reçoit {type:\"place\", payload:{objectId,x,y,z,ry,valid,hits,snaps,place}} et la sortie publie placed"
+        },
         "out-data-provider": {
           "type": "string",
           "description": "DataProvider où publier {status, error, count, missing, errors}"

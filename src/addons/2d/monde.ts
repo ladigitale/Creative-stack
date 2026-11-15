@@ -8,11 +8,13 @@
 import { BufferImageSource, Container, FillPattern, Graphics, GraphicsContext, Matrix, Texture } from "pixi.js";
 import { geometryOf } from "../../shared/monde/geometry";
 import { m4, m4Compose, type M4, type V3 } from "../../shared/monde/math";
-import { isColor, partColor, partTex, type Model, type Monde, type Part, type Placement } from "../../shared/monde/format";
+import { isColor, partColor, partTex, type Conflict, type Model, type Monde, type Part, type Placement } from "../../shared/monde/format";
+import { placedInfo, type PlacedInfo } from "../../shared/monde/arrange";
+import type { Obb } from "../../shared/monde/collide";
 import { MondeDriver, type InstanceState } from "../../shared/monde/driver";
 import { forward, STRIDE } from "../../shared/monde/pose";
 import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/textures";
-import { affineOf, basisOf, bucketDir, bucketOf, depthOf, localDir, projOf, samplePoints, silhouette, type Proj } from "../../shared/monde/view2d";
+import { affineOf, basisOf, bucketDir, bucketOf, depthOf, groundPoint, hull as hull2, localDir, projOf, samplePoints, silhouette, type Proj } from "../../shared/monde/view2d";
 import { shade } from "../../shared/monde/math";
 import { isNum, patchOf } from "../../shared/nodes";
 
@@ -98,6 +100,12 @@ export class Monde2d {
   private aff: number[] = [0, 0, 0, 0, 0, 0];
   private mat = new Matrix();
 
+  /** Résultat d'un rangement (`nodes.<instance>.move`, fin d'un glisser). */
+  onPlaced: ((p: PlacedInfo) => void) | null = null;
+  /** Conflits recalculés après un rangement. */
+  onConflicts: ((c: Conflict[]) => void) | null = null;
+  private marks: Graphics | null = null;
+
   constructor(private invalidate: () => void) {
     this.container.sortableChildren = true;
     this.container.label = "monde";
@@ -115,7 +123,74 @@ export class Monde2d {
     this.buildStatics(m);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.step(now, true);
+    this.drawMarks(m.marks);
     this.invalidate();
+  }
+
+  /** Contours rouges (projetés) des boîtes en conflit, par-dessus la scène. */
+  private drawMarks(boxes: Obb[]) {
+    const m = this.monde;
+    if (this.marks) {
+      this.marks.destroy();
+      this.marks = null;
+    }
+    if (!m || !boxes.length) return;
+    const g = new Graphics();
+    g.zIndex = 1e9;
+    const { unit, origin } = m.view2d;
+    const P = this.proj;
+    for (const b of boxes) {
+      const pts: number[] = [];
+      for (let i = 0; i < 8; i++) {
+        const s = [i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1];
+        const c = [0, 1, 2].map((a) => b.c[a] + s[0] * b.ax[0][a] * b.h[0] + s[1] * b.ax[1][a] * b.h[1] + s[2] * b.ax[2][a] * b.h[2]);
+        pts.push(origin[0] + (P.px[0] * c[0] + P.px[1] * c[1] + P.px[2] * c[2]) * unit, origin[1] + (P.py[0] * c[0] + P.py[1] * c[1] + P.py[2] * c[2]) * unit);
+      }
+      const h = hull2(pts);
+      if (h.length >= 6) g.poly(h, true).stroke({ color: "#ff2d2d", width: 1.5, alpha: 0.9 });
+    }
+    this.marks = g;
+    this.container.addChild(g);
+  }
+
+  /** Instance déplaçable sous un point du calque (vide : aucune) ; `names` : regex des noms permis. */
+  grab(x: number, y: number, names: string): string {
+    let re: RegExp | null = null;
+    try {
+      re = names && names !== ".*" ? new RegExp(names) : null;
+    } catch {
+      return "";
+    }
+    const hit = this.pick(x, y, (n) => this.driver.movable(n) && (!re || re.test(n)));
+    return hit?.instance ?? "";
+  }
+
+  /** Glisser : range l'instance au point du sol visé sous (x, y) du calque, à sa hauteur ; `ry` : cap voulu. */
+  dragTo(name: string, x: number, y: number, now: number, ry?: number): PlacedInfo | null {
+    const m = this.monde;
+    const inst = this.driver.instances.get(name);
+    if (!m || !inst) return null;
+    const [gx, gz] = groundPoint(this.proj, m.view2d.unit, m.view2d.origin[0], m.view2d.origin[1], x, y, inst.t.y, [inst.t.x, inst.t.z]);
+    const res = this.driver.arrangeTo(name, gx, gz, now, 0, "inOut", ry === undefined ? {} : { ry });
+    if (!res) return null;
+    this.refreshConflicts(true);
+    this.invalidate();
+    return placedInfo(name, res, this.driver.bodies(), m.unit);
+  }
+
+  /** Fin d'un glisser : résultat et conflits publiés. */
+  dropped(name: string): void {
+    const inst = this.driver.instances.get(name);
+    if (inst?.placed && this.monde) this.onPlaced?.(placedInfo(name, inst.placed, this.driver.bodies(), this.monde.unit));
+    this.refreshConflicts();
+  }
+
+  /** Conflits sur les positions courantes ; `live` (pendant un glisser) : arêtes seulement. */
+  refreshConflicts(live = false): void {
+    const r = this.driver.collisions();
+    if (!r) return;
+    this.drawMarks(r.marks);
+    if (!live) this.onConflicts?.(r.conflicts);
   }
 
   private pointsOf(p: Part, detail: number): Float32Array | null {
@@ -200,10 +275,29 @@ export class Monde2d {
     }
   }
 
+  /** Déplacement en jeu gêné par un obstacle (`collide`). */
+  onContact: ((c: { objectId: string; x: number; z: number; hits: string[]; blocked: boolean }) => void) | null = null;
+
+  /** Patch `{x, z, collide}` ramené au point atteint sans traverser d'obstacle (walk.ts) ; sinon tel quel. */
+  guard(name: string, p: unknown): unknown {
+    const g = this.driver.guard(name, p);
+    if (!g) return p;
+    if (g.walked.hits.length) this.onContact?.({ objectId: name, ...g.walked });
+    return g.patch;
+  }
+
   /** Patch d'une instance (transformations comprises) ou d'une pièce `<instance>_<pièce>`. */
   apply(name: string, p: unknown, now: number, animate: boolean): boolean {
     const r = this.driver.apply(name, p, now, animate, true);
-    if (r) return r.pose || r.roles || r.transform;
+    if (r) {
+      // rangement demandé par `move` : résultat publié, conflits recalculés
+      if (p && typeof p === "object" && Array.isArray((p as { move?: unknown }).move)) {
+        const inst = this.driver.instances.get(name);
+        if (inst?.placed && this.monde) this.onPlaced?.(placedInfo(name, inst.placed, this.driver.bodies(), this.monde.unit));
+        this.refreshConflicts();
+      }
+      return r.pose || r.roles || r.transform;
+    }
     const hit = this.partIndex.get(name);
     if (!hit) return false;
     const patch = patchOf(p);
@@ -317,10 +411,10 @@ export class Monde2d {
   }
 
   /** Instance (et pièce) sous un point de la scène (coordonnées du calque) ; la plus proche d'abord. */
-  pick(x: number, y: number): { instance: string; part: string } | null {
+  pick(x: number, y: number, accept?: (instance: string) => boolean): { instance: string; part: string } | null {
     let best: { instance: string; part: string; z: number } | null = null;
     for (const b of this.built.values()) {
-      if (!b.inst.visible) continue;
+      if (!b.inst.visible || (accept && !accept(b.inst.name))) continue;
       b.parts.forEach((pv, i) => {
         if (!pv || !pv.g.visible || pv.hull.length < 6) return;
         const lt = pv.g.localTransform;
@@ -348,6 +442,7 @@ export class Monde2d {
     this.built.clear();
     this.partIndex.clear();
     this.statics = [];
+    this.marks = null;
   }
 
   destroy() {

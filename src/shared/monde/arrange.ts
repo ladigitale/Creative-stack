@@ -54,6 +54,11 @@ export type ArrangeOptions = {
   contour?: number[][] | null;
   /** Faux : pas de recherche d'une place libre (la pose visée est jugée telle quelle). */
   resolve?: boolean;
+  /**
+   * Cap voulu (radians) : l'objet le garde (au sol, au plafond, sur un meuble) et ne se colle dos à un mur que si ce
+   * cap y tourne déjà le dos (à 45° près). Sans `ry` : cap actuel, et le mur proche l'oriente vers la pièce.
+   */
+  ry?: number;
 };
 
 const flat = (b: Body) => {
@@ -68,6 +73,7 @@ export function arrange(bodies: Body[], name: string, x: number, z: number, opt:
   const me = bodies.find((b) => b.name === name);
   if (!me) return null;
   const grid = opt.grid ?? 0.05, wallSnap = opt.wall ?? 0.3, alignSnap = opt.align ?? 0.08;
+  const want = isFinite(opt.ry ?? NaN) ? opt.ry! : me.rot[1];
   const B = boundsOf(me.model) ?? DEFAULT_BOUNDS;
   const sc = me.scale;
   // ce que je porte me suit : ce n'est pas un obstacle
@@ -158,7 +164,7 @@ export function arrange(bodies: Body[], name: string, x: number, z: number, opt:
       fallbacks.push((d, dir) => (dir === 0 || dir === 8 ? on(w.lx + (dir === 0 ? d : -d) / kk) : null));
     }
   } else if (me.pose === "plafond" && ceiling) {
-    const make = (px: number, pz: number): Pose => onSurface(ceiling, ...origin(ceiling.s, ...toLocal(ceiling, round(px), round(pz))), me.rot[1] - ceiling.b.rot[1]);
+    const make = (px: number, pz: number): Pose => onSurface(ceiling, ...origin(ceiling.s, ...toLocal(ceiling, round(px), round(pz))), want - ceiling.b.rot[1]);
     pose = make(x, z);
     slide = (d, dir) => make(x + Math.cos((dir * Math.PI) / 8) * d, z + Math.sin((dir * Math.PI) / 8) * d);
   } else {
@@ -173,16 +179,18 @@ export function arrange(bodies: Body[], name: string, x: number, z: number, opt:
       }
     if (top) {
       const t = top;
-      const make = (lx: number, lz: number): Pose => onSurface(t.f, ...origin(t.f.s, lx, lz), me.rot[1] - t.f.b.rot[1]);
+      const make = (lx: number, lz: number): Pose => onSurface(t.f, ...origin(t.f.s, lx, lz), want - t.f.b.rot[1]);
       pose = make(t.lx, t.lz);
       slide = (d, dir) => make(t.lx + Math.cos((dir * Math.PI) / 8) * d, t.lz + Math.sin((dir * Math.PI) / 8) * d);
     } else {
       const y = -B.min[1] * sc[1];
-      let ry = me.rot[1];
+      let ry = want;
       let px = x, pz = z;
       let alongWall: { f: { b: Body; s: Surface }; lx: number } | null = null;
       // dos au mur quand l'objet en a un et qu'il en est proche
-      if (hasBack && wall && wall.lz * (wall.f.b.scale[0] || 1) < wallSnap + depth) {
+      // un cap imposé qui ne tourne pas le dos à ce mur : pas d'aimantation au mur
+      const facing = opt.ry === undefined || !wall || Math.abs(Math.atan2(Math.sin(want - wall.f.b.rot[1]), Math.cos(want - wall.f.b.rot[1]))) < Math.PI / 4;
+      if (hasBack && wall && facing && wall.lz * (wall.f.b.scale[0] || 1) < wallSnap + depth) {
         alongWall = { f: wall.f, lx: wall.lx };
         snaps.push("mur");
       }

@@ -66,6 +66,17 @@ function hook(host: MondeHost) {
       /* pas de DP de sortie */
     }
   };
+  // déplacement en jeu gêné par un obstacle (`collide`) : clé de sortie `contact`
+  host.runtime.monde.onContact = (c) => {
+    const out = host.outDataProvider?.trim();
+    if (!out || out === host.dataProvider?.trim()) return;
+    if (!host.outPublisher) host.bindOutPublisher();
+    try {
+      (host.outPublisher as Record<string, { set: (v: unknown) => void }> | null)?.contact?.set({ ...c, t: Date.now() });
+    } catch {
+      /* pas de DP de sortie */
+    }
+  };
   // conflits recalculés après un rangement : le résumé publié suit la scène
   host.runtime.monde.onConflicts = (conflicts) => {
     if (!host.mondeParsed) return;

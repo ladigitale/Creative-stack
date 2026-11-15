@@ -43,7 +43,7 @@
         },
         "drag": {
           "type": "string",
-          "description": "Glisser les instances d'un monde : regex des noms déplaçables (.* : toutes). L'instance suit le pointeur, rangée en direct (appui, aimantation aux murs et aux voisins, collisions) ; au lâcher target reçoit {type:\"place\", payload:{objectId,x,y,z,ry,valid,hits,snaps,place}} et la clé de sortie placed est publiée"
+          "description": "Glisser les instances d'un monde : regex des noms déplaçables (.* : toutes). L'instance suit le pointeur, rangée en direct (appui, aimantation aux murs et aux voisins, collisions) ; R / Maj+R (quart de tour), Q / E ou la molette le tournent pendant le geste ; au lâcher target reçoit {type:\"place\", payload:{objectId,x,y,z,ry,valid,hits,snaps,place}} et la clé de sortie placed est publiée"
         },
         "fov": {
           "type": "number"
