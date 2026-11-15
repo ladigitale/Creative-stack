@@ -25,7 +25,7 @@ export type PainterlyState = {
 };
 
 const IDLE: PainterlyState = { status: "idle", error: null, url: null, width: 0, height: 0, strokes: 0, layers: [], residual: 0, ms: 0, runs: 0 };
-const OPTION_KEYS = ["maxSide", "detail", "layers", "threshold", "maxLength", "curvature", "opacity", "jitter", "maxStrokes", "frame", "seed", "background", "style", "focus", "optimizeMs", "prepare", "prepareForce", "contrast"] as const;
+const OPTION_KEYS = ["maxSide", "detail", "layers", "threshold", "maxLength", "curvature", "opacity", "jitter", "maxStrokes", "frame", "seed", "background", "style", "focus", "optimizeMs", "prepare", "prepareForce", "contrast", "dither"] as const;
 
 /** URL d'image acceptée (`https:`, `blob:`, `data:image/…` ; `http:` pour localhost), ou null. */
 export function imageUrlOf(v: unknown): string | null {
@@ -49,7 +49,7 @@ export function readPainterlyOptions(v: unknown): PainterlyOptions {
       continue;
     }
     if (k === "prepare") { if (typeof x === "string" && PREPARE_FILTERS.includes(x as PrepareFilter)) out.prepare = x as PrepareFilter; continue; }
-    if (k === "contrast") { if (typeof x === "boolean") out.contrast = x; else if (x === "oui" || x === "non") out.contrast = x === "oui"; continue; }
+    if (k === "contrast" || k === "dither") { if (typeof x === "boolean") out[k] = x; else if (x === "oui" || x === "non") out[k] = x === "oui"; continue; }
     if (k === "background") { if (typeof x === "string" && /^#[0-9a-f]{6}$/i.test(x)) out.background = x; continue; }
     const n = typeof x === "number" ? x : typeof x === "string" && x.trim() !== "" ? Number(x) : NaN;
     if (Number.isFinite(n)) (out as Record<string, number>)[k] = n;
@@ -80,7 +80,7 @@ export class SonicPainterly extends LitElement {
   @property({ type: Number, attribute: "max-strokes" }) maxStrokes = 0;
   /** `realiste` (défaut : touches fondues, proche de l'image), `illustration` (passes visibles) ou `huile` (touches opaques). */
   @property({ type: String, attribute: "paint-style" }) paintStyle: "realiste" | "illustration" | "huile" = "realiste";
-  /** Préparation de l'image (`prefilter.ts`) : `auto` (selon le style), `aucun`, `median`, `bilateral`, `kuwahara`, `aplats`. */
+  /** Préparation de l'image (`prefilter.ts`) : `auto` (selon le style), `aucun`, `median`, `bilateral`, `kuwahara`, `kuwahara-aniso`, `aplats`. */
   @property({ type: String, attribute: "paint-prepare" }) paintPrepare: PrepareFilter = "auto";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
