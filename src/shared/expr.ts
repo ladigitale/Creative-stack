@@ -30,6 +30,7 @@ export const FUNCTIONS: Record<string, { arity: [number, number]; doc: string; f
   mix: { arity: [3, 3], doc: "mix(a, b, t)", fn: (_, [a, b, t]) => num(a) + (num(b) - num(a)) * num(t) },
   abs: { arity: [1, 1], doc: "valeur absolue", fn: (_, [x]) => Math.abs(num(x)) },
   floor: { arity: [1, 1], doc: "partie entière", fn: (_, [x]) => Math.floor(num(x)) },
+  ceil: { arity: [1, 1], doc: "entier supérieur", fn: (_, [x]) => Math.ceil(num(x)) },
   round: { arity: [1, 1], doc: "arrondi", fn: (_, [x]) => Math.round(num(x)) },
   sqrt: { arity: [1, 1], doc: "racine", fn: (_, [x]) => Math.sqrt(Math.max(0, num(x))) },
   pow: { arity: [2, 2], doc: "puissance", fn: (_, [x, y]) => Math.pow(num(x), num(y)) },

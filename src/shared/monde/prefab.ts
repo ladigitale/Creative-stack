@@ -5,6 +5,11 @@
  * les utiliser dans ses pièces par des expressions sûres (`"= longueur / 2"`), contenir d'autres modèles (`use`) et
  * offrir des emplacements à garnir (`slots`). Chaque placement fournit ses valeurs (`params`, `slots`).
  *
+ * Aides d'écriture : `vars` (valeurs intermédiaires nommées, calculées une fois : `{"H": "= type == 'haut' ? 1.7 : 0.3"}`)
+ * et `if` sur une pièce ou un `use` (gardé seulement si l'expression est vraie). Un modèle peut être écrit en mètres
+ * quelle que soit l'unité du document (`"unite": "m"`) : ses paramètres marqués `"unit": "m"` se donnent alors dans
+ * l'unité du document et sont convertis ; c'est ainsi que sont écrits les modèles de catalogue.
+ *
  * Ce fichier est une passe sur le JSON d'entrée, avant la lecture : chaque jeu de valeurs distinct devient un modèle
  * ordinaire `<nom>~<clé>` (une « variante »), aux pièces résolues en nombres. Le reste de la chaîne (lecture, rendu 3D,
  * rendu 2D, instanciation du décor) ne voit que des modèles ordinaires : une variante est construite une fois, quel que
@@ -47,6 +52,8 @@ export type PrefabInfo = {
   /** Marge libre à garder autour de l'objet (unité du document). */
   degagement: number;
   slots: Record<string, SlotSpec>;
+  /** Objet souple (plante, coussin, rideau) : il peut frôler ses voisins sans que ce soit une collision. */
+  souple: boolean;
   /** Variantes construites pour ce monde. */
   variants: string[];
 };
@@ -70,6 +77,13 @@ export type PrefabFormat = {
   matieres: Record<string, Matiere>;
   /** Copies d'un placement en grille ou en semis (même calcul que le lecteur). */
   copies(place: Obj): number;
+  /** Nom de l'unité du document (`m`, `cm`, `mm`), pour les fiches publiées. */
+  unitName?: string;
+  /**
+   * Modèles de catalogue : disponibles par leur nom sans être écrits dans `models` (un modèle écrit du même nom
+   * l'emporte). Seuls ceux qu'un placement ou un autre modèle utilise sont construits.
+   */
+  catalogue?: Record<string, Obj>;
 };
 
 export const PREFAB_LIMITS = {
@@ -175,6 +189,8 @@ export function fitParam(spec: ParamSpec, v: unknown, random: boolean, path: str
 type Template = {
   name: string;
   raw: Obj;
+  /** Écrit en mètres quelle que soit l'unité du document (`unite: "m"`). */
+  native: boolean;
   specs: Record<string, ParamSpec>;
   /** Paramètres de couleur sans effet sur la forme : rôle de couleur de la copie. */
   free: Set<string>;
@@ -191,18 +207,22 @@ type SlotChoice = { model: string; params: Obj } | null;
  * Un monde sans prefab (ni unité, ni paramètre déclaré, ni `use`, ni expression) est rendu tel quel.
  */
 export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(src: T, issues: PrefabIssue[], fmt: PrefabFormat): { src: T; prefabs: Record<string, PrefabInfo> } {
-  const models = isObj(src.models) ? (src.models as Record<string, unknown>) : null;
+  const models: Record<string, unknown> = isObj(src.models) ? (src.models as Record<string, unknown>) : {};
   const prefabs: Record<string, PrefabInfo> = {};
-  if (!models) return { src, prefabs };
   const u = fmt.unit;
   const place = Array.isArray(src.place) ? (src.place as unknown[]) : [];
 
-  const modelOf = (name: string): Obj | null => (has(models, name) && isObj(models[name]) ? (models[name] as Obj) : null);
+  const cat = fmt.catalogue ?? {};
+  const modelOf = (name: string): Obj | null => (has(models, name) ? (isObj(models[name]) ? (models[name] as Obj) : null) : has(cat, name) ? cat[name] : null);
   const featured = (m: Obj) =>
     (isObj(m.params) && Object.values(m.params).some((v) => isObj(v) && has(v, "default"))) ||
     Array.isArray(m.use) ||
+    isObj(m.vars) ||
+    m.unite !== undefined ||
+    (Array.isArray(m.parts) && m.parts.some((p) => isObj(p) && p.if !== undefined)) ||
     isObj(m.slots) ||
     typeof m.famille === "string" ||
+    m.souple === true ||
     hasExpr(m.parts) ||
     hasExpr(m.clips) ||
     (Array.isArray(m.parts) && m.parts.some((p) => isObj(p) && p.matiere !== undefined));
@@ -213,7 +233,7 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
   for (const p of place) {
     if (!isObj(p) || typeof p.model !== "string") continue;
     const m = modelOf(p.model);
-    if (m && !fmt.isGen(m) && (isObj(p.params) || isObj(p.slots))) todo.add(p.model);
+    if (m && !fmt.isGen(m) && (isObj(p.params) || isObj(p.slots) || !has(models, p.model))) todo.add(p.model);
   }
   if (!todo.size && u === 1) return { src, prefabs };
 
@@ -250,7 +270,7 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
         else eachExpr(v, (e) => note(e, false));
       }
     }
-    for (const k of ["use", "slots", "clips"]) eachExpr(raw[k], (e) => note(e, false));
+    for (const k of ["use", "slots", "clips", "vars"]) eachExpr(raw[k], (e) => note(e, false));
     const free = new Set<string>();
     for (const [k, s] of Object.entries(specs)) {
       const e = uses.get(k);
@@ -262,23 +282,38 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
       tags: Array.isArray(raw.tags) ? raw.tags.filter((t): t is string => typeof t === "string").slice(0, 16) : [],
       pose: typeof raw.pose === "string" ? raw.pose.slice(0, 20) : "",
       degagement: fin(raw.degagement) ? Math.max(0, raw.degagement) : 0,
+      souple: raw.souple === true,
       slots: Object.fromEntries(Object.entries(slots).map(([k, s]) => [k, { accepte: s.accepte, default: s.default }])),
       variants: [],
     };
-    const t: Template = { name, raw, specs, free, slots, info, variants: new Map(), preset: typeof raw.preset === "string" };
+    const native = raw.unite === "m";
+    if (raw.unite !== undefined && !native) issues.push({ path: `${path}.unite`, message: 'seule valeur admise sur un modèle : "m" (modèle écrit en mètres)' });
+    // fiche publiée dans l'unité du document : les longueurs d'un modèle écrit en mètres y sont converties
+    if (native && u !== 1)
+      info.params = Object.fromEntries(
+        Object.entries(specs).map(([k, sp]) => {
+          if (sp.unit !== "m") return [k, sp];
+          const c = (v: unknown) => (typeof v === "number" ? round4(v / u) : v);
+          return [k, { ...sp, default: c(sp.default) as Value, ...(sp.min !== undefined ? { min: c(sp.min) as number } : {}), ...(sp.max !== undefined ? { max: c(sp.max) as number } : {}), ...(sp.step !== undefined ? { step: c(sp.step) as number } : {}), ...(sp.options ? { options: sp.options.map((o) => c(o) as Value) } : {}), unit: fmt.unitName ?? "m" }];
+        }),
+      );
+    const t: Template = { name, raw, native, specs, free, slots, info, variants: new Map(), preset: typeof raw.preset === "string" };
     templates.set(name, t);
     return t;
   };
 
   /** Valeurs d'un jeu de paramètres donné à un prefab (expressions évaluées dans `scope`). */
-  const valuesOf = (t: Template, given: unknown, scope: Scope, path: string): Record<string, Value> => {
+  const valuesOf = (t: Template, given: unknown, scope: Scope, path: string, givenUnit = u): Record<string, Value> => {
     const g = isObj(given) ? given : {};
+    // longueurs données dans une unité (document, ou mètres depuis un modèle écrit en mètres), attendues dans une autre
+    const conv = givenUnit / (t.native ? 1 : u);
     const err = (p: string, m: string) => issues.push({ path: p || path, message: m });
     const out: Record<string, Value> = {};
     for (const [k, spec] of Object.entries(t.specs)) {
       const raw = has(g, k) ? g[k] : undefined;
       const random = isExpr(raw);
-      const v = random ? resolveDeep(raw, scope, err, `${path}.${k}`, undefined) : raw;
+      let v = random ? resolveDeep(raw, scope, err, `${path}.${k}`, undefined) : raw;
+      if (conv !== 1 && spec.unit === "m" && typeof v === "number") v = round4(v * conv);
       out[k] = fitParam(spec, v, random, `${path}.${k}`, issues);
     }
     for (const [k, raw] of Object.entries(g)) {
@@ -330,10 +365,19 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
     const scope: Scope = { vars: { ...values }, rng };
     const err = (p: string, m: string) => issues.push({ path: p || path, message: m });
     const out: Obj[] = [];
+    // un modèle écrit en mètres ne subit pas la conversion d'unité du document
+    const tu = t.native ? 1 : u;
+    if (isObj(t.raw.vars))
+      for (const [k, v] of Object.entries(t.raw.vars).slice(0, 32)) {
+        const val = resolveDeep(v, scope, err, `${path}.vars.${k}`, 0);
+        if (typeof val === "number" || typeof val === "string" || typeof val === "boolean") scope.vars[k] = val;
+      }
+    const kept = (o: Obj, where: string): boolean => o.if === undefined || !!resolveDeep(o.if, scope, err, `${where}.if`, false);
     const rawParts = Array.isArray(t.raw.parts) ? t.raw.parts : [];
     rawParts.forEach((rp, i) => {
-      if (!isObj(rp)) return;
+      if (!isObj(rp) || !kept(rp, `${path}.parts.${i}`)) return;
       const src0: Obj = { ...rp };
+      delete src0.if;
       if (!inline && isExpr(src0.color)) {
         const v = src0.color.trimStart().slice(1).trim();
         if (t.free.has(v)) {
@@ -354,13 +398,13 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
         part = { ...part };
         delete part.matiere;
       }
-      out.push(u !== 1 ? fmt.scalePart(part, u) : part);
+      out.push(tu !== 1 ? fmt.scalePart(part, tu) : part);
     });
 
     // Sous-modèles : `use` écrits, puis emplacements garnis
     type Use = { raw: Obj; path: string; choice?: SlotChoice };
     const uses: Use[] = [];
-    (Array.isArray(t.raw.use) ? t.raw.use : []).slice(0, PREFAB_LIMITS.uses).forEach((x, i) => isObj(x) && uses.push({ raw: x, path: `${path}.use.${i}` }));
+    (Array.isArray(t.raw.use) ? t.raw.use : []).slice(0, PREFAB_LIMITS.uses).forEach((x, i) => isObj(x) && kept(x, `${path}.use.${i}`) && uses.push({ raw: x, path: `${path}.use.${i}` }));
     for (const [k, s] of Object.entries(t.slots)) if (slots[k]) uses.push({ raw: { ...s.raw, name: k }, path: `${path}.slots.${k}`, choice: slots[k] });
     const taken = new Set<string>();
     let total = 0;
@@ -388,15 +432,16 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
           issues.push({ path: use.path, message: `plus de ${PREFAB_LIMITS.uses} sous-modèles : suite ignorée` });
           break;
         }
-        const sc: Scope = { vars: { ...values, i: k, n }, rng: rng.fork(`${baseName}/${k}`) };
+        const sc: Scope = { vars: { ...scope.vars, i: k, n }, rng: rng.fork(`${baseName}/${k}`) };
         let nm = n > 1 ? `${baseName}${k}` : baseName;
         while (taken.has(nm)) nm += "_";
         taken.add(nm);
         const joint: Obj = { name: nm };
         for (const key of ["at", "rot", "scale", "parent"]) if (use.raw[key] !== undefined) joint[key] = resolveDeep(use.raw[key], sc, err, `${use.path}.${key}`, 0);
-        out.push(u !== 1 ? fmt.scalePart(joint, u) : joint);
+        out.push(tu !== 1 ? fmt.scalePart(joint, tu) : joint);
         const given = use.choice ? use.choice.params : use.raw.params;
-        const subValues = valuesOf(sub, given, sc, `${use.path}.params`);
+        // un `use` parle l'unité du modèle qui le contient ; un emplacement garni par le placement, celle du document
+        const subValues = valuesOf(sub, given, sc, `${use.path}.params`, use.choice ? u : tu);
         const subSlots = slotsOf(sub, use.raw.slots, `${use.path}.slots`);
         const subSeed = `${seed}/${nm}`;
         let parts = build(sub, subValues, subSlots, subSeed, true, [...stack, t.name], `models.${mname}`);
@@ -467,7 +512,7 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
       nVariants++;
       t.variants.set(vname, values);
       t.info.variants.push(vname);
-      const { params: _p, use: _u, slots: _s, parts: _parts, clips, famille: _f, tags: _t, pose: _po, degagement: _d, ...rest } = t.raw;
+      const { params: _p, use: _u, slots: _s, parts: _parts, clips, famille: _f, tags: _t, pose: _po, degagement: _d, vars: _v, unite: _un, souple: _so, ...rest } = t.raw;
       const parts = build(t, values, slots, `${t.raw.seed ?? t.name}/${vname}`, false, [], `models.${t.name}`);
       const model: Obj = { ...rest, parts };
       if (t.preset) {
@@ -477,7 +522,7 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
       if (isObj(clips)) {
         const scope: Scope = { vars: { ...values }, rng: new Rng(`${t.name}/clips`) };
         const res = resolveDeep(clips, scope, (p, m) => issues.push({ path: p || `models.${t.name}.clips`, message: m }), `models.${t.name}.clips`, 0) as Obj;
-        model.clips = u !== 1 ? Object.fromEntries(Object.entries(res).map(([k, c]) => [k, isObj(c) ? fmt.scaleClip(c, u) : c])) : res;
+        model.clips = u !== 1 && !t.native ? Object.fromEntries(Object.entries(res).map(([k, c]) => [k, isObj(c) ? fmt.scaleClip(c, u) : c])) : res;
       }
       outModels[vname] = model;
     }
@@ -518,6 +563,7 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
     const t = template(name);
     if (t) prefabs[name] = t.info;
   }
+  for (const name of todo) if (!has(models, name) && templates.get(name)?.info.variants.length) prefabs[name] = templates.get(name)!.info;
   for (const name of todo) if (!has(prefabs, name) && templates.get(name)?.info.variants.length && Object.keys(templates.get(name)!.specs).length) prefabs[name] = templates.get(name)!.info;
   return { src: { ...src, models: outModels, place: outPlace }, prefabs };
 }

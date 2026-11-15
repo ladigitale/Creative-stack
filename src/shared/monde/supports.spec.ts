@@ -79,7 +79,8 @@ describe("pose sur un appui", () => {
     });
     const a = m.place.find((p) => p.name === "a")!;
     expect(a.at[0]).toBeCloseTo(0.8 - 0.15);
-    expect(m.conflicts).toEqual(expect.arrayContaining([{ a: "a", b: "t@top", type: "hors-appui" }, { a: "b", b: "a", type: "chevauchement" }, { a: "trop", b: "t@top", type: "hors-appui" }]));
+    expect(m.conflicts).toEqual(expect.arrayContaining([{ a: "a", b: "t@top", type: "hors-appui" }, { a: "trop", b: "t@top", type: "hors-appui" }]));
+    expect(m.conflicts.some((c) => c.type === "chevauchement" && [c.a, c.b].sort().join() === "a,b")).toBe(true);
     expect(mondeSummary(m).conflicts).toHaveLength(m.conflicts.length);
   });
 

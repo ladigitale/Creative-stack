@@ -62,17 +62,17 @@ type Opening = { x0: number; x1: number; y0: number; y1: number; raw: Obj; model
 
 /**
  * Transforme `espace` en modèles et placements. `unit` : facteur de l'unité du document vers le mètre (0,01 pour des
- * centimètres). Ne lève jamais ; sans `espace`, rend l'entrée telle quelle.
+ * centimètres). Ne lève jamais ; sans `espace`, rend l'entrée telle quelle. `contour` : le contour en mètres.
  */
-export function expandEspace<T extends { espace?: unknown; models?: unknown; place?: unknown }>(src: T, issues: EspaceIssue[], unit: number): T {
+export function expandEspace<T extends { espace?: unknown; models?: unknown; place?: unknown }>(src: T, issues: EspaceIssue[], unit: number): { src: T; contour: number[][] | null } {
   const e = src.espace;
-  if (!isObj(e)) return src;
+  if (!isObj(e)) return { src, contour: null };
   /** Longueur donnée en mètres, dans l'unité du document. */
   const U = (m: number) => m / unit;
   const pts = (Array.isArray(e.contour) ? e.contour : []).filter((q): q is number[] => Array.isArray(q) && q.length >= 2 && fin(q[0]) && fin(q[1])).map((q) => [q[0], q[1]]);
   if (pts.length < 3) {
     issues.push({ path: "espace.contour", message: "au moins 3 points [x, z]" });
-    return src;
+    return { src, contour: null };
   }
   if (pts.length > 60) {
     issues.push({ path: "espace.contour", message: "plus de 60 points : la suite est ignorée" });
@@ -256,7 +256,7 @@ export function expandEspace<T extends { espace?: unknown; models?: unknown; pla
 
   const { espace: _e, ...rest } = src;
   // les modèles et placements écrits passent après : ils peuvent s'appuyer sur les murs, et un modèle écrit l'emporte
-  return { ...(rest as T), models: { ...models, ...userModels }, place: [...place, ...(Array.isArray(src.place) ? src.place : [])] };
+  return { src: { ...(rest as T), models: { ...models, ...userModels }, place: [...place, ...(Array.isArray(src.place) ? src.place : [])] }, contour: pts.map(([x, z]) => [x * unit, z * unit]) };
 }
 
 function polygonArea(p: number[][]): number {

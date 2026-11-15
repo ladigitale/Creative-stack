@@ -12,6 +12,8 @@ import { GEN_ACTIONS, GEN_IDS, genVariants, GEN_ROLES, genPreset, isGenId, type 
 import { expandPrefabs, type Matiere, type PrefabFormat, type PrefabInfo } from "./prefab";
 import { boundsOf, DEFAULT_BOUNDS, inPolygon, localOn, surfaceNames, surfaceOf, turnY, type Box3, type Face, type From, type Surface } from "./supports";
 import { expandEspace } from "./espace";
+import { CATALOGUE } from "./catalogue";
+import { findConflicts } from "./collide";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -106,6 +108,8 @@ export type ModelIn = {
   tags?: string[];
   pose?: string;
   degagement?: number;
+  /** Objet souple (plante, coussin, tissu) : il peut frôler ses voisins sans que ce soit signalé comme une collision. */
+  souple?: boolean;
 };
 
 export type PlaceIn = {
@@ -161,6 +165,11 @@ export type PlaceIn = {
 };
 
 export type MondeIn = {
+  /**
+   * Recherche des collisions entre objets posés (liste `conflicts`) : faite d'office dès que le monde a un `espace`
+   * ou pose des objets (`on`, `against`, `stack`) ; `true` la force, `false` la coupe.
+   */
+  collisions?: boolean;
   /** Pièce ou parcelle : contour, bords (murs, clôtures) percés d'ouvertures, zones de sol, plafond (voir espace.ts). */
   espace?: unknown;
   /** Unité des longueurs écrites (pièces, placements, clips) : `m` (défaut), `cm` ou `mm`. `nodes` reste en mètres. */
@@ -273,8 +282,12 @@ export type Placement = {
   noShadow?: boolean;
 };
 
-/** Pose à revoir : objet plus grand que son appui, hors de sa surface, ou chevauchant un voisin. */
-export type Conflict = { a: string; b: string; type: "chevauchement" | "hors-appui" };
+/**
+ * Pose à revoir : `hors-appui` (objet plus grand que sa surface, ou ramené dans son contour), `chevauchement` (deux
+ * objets se pénètrent, ou un objet traverse un mur), `degagement` (objet dans le passage d'une porte ou devant une
+ * fenêtre), `hors-espace` (objet hors du contour de la pièce). Voir collide.ts.
+ */
+export type Conflict = { a: string; b: string; type: "chevauchement" | "hors-appui" | "degagement" | "hors-espace" };
 
 export type View2d = { view: "top" | "side" | "front" | "iso"; unit: number; origin: [number, number] };
 
@@ -772,15 +785,13 @@ function readPlacements(list: unknown, models: Map<string, Model>, prefabs: Reco
     const settle = (pl: Placement, b: Box3, a0: number, a1: number, level: number, who: string, strict: boolean): Placement | null => {
       const S = sup!;
       const k = S.pl.scale[0] || 1;
-      const got = localOn(S.s, b, pl.scale, k, [a0, a1], level);
+      const got = localOn(S.s, b, pl.scale, k, [a0, a1], level, pl.rot[1]);
       if (strict && !level && (!got.fits || got.clamped)) conflicts.push({ a: who, b: S.key, type: "hors-appui" });
       const feet = onSurface.get(S.key) ?? [];
       if (!level) {
         const hit = feet.find((f) => Math.hypot(f.x - got.u, f.z - got.v) < f.r + got.r + spacing - 1e-6);
-        if (hit) {
-          if (!strict) return null;
-          conflicts.push({ a: who, b: hit.name, type: "chevauchement" });
-        }
+        // semis et grilles : la copie cherche une autre place ; un objet placé à la main est jugé par ses boîtes (collide.ts)
+        if (hit && !strict) return null;
         feet.push({ x: got.u, z: got.v, r: got.r, hx: got.r, hz: got.r, yaw: 0, name: who, base: "" });
         onSurface.set(S.key, feet);
       }
@@ -931,7 +942,8 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
   const issues: Issue[] = [];
   const raw0 = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as MondeIn;
   const unit = readUnit(raw0.unite, issues);
-  const raw = expandEspace(raw0, issues, unit);
+  const esp = expandEspace(raw0, issues, unit);
+  const raw = esp.src;
   const expanded = expandPrefabs(raw, issues, prefabFormat(unit, readMatieres(raw.materiaux, issues)));
   const src = genVariants(expanded.src, issues);
   const palette: Record<string, string> = { ...DEFAULT_PALETTE };
@@ -974,6 +986,10 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
       const r = readTex(t, (message) => issues.push({ path: `textures.${k}`, message }));
       if (r) textures[k] = r;
     }
+  const place = readPlacements(src.place, models, expanded.prefabs, issues, conflicts);
+  const posed = place.some((p) => p.on) || (Array.isArray(raw0.place) && raw0.place.some((p) => p && typeof p === "object" && (p as PlaceIn).stack !== undefined));
+  if (raw0.collisions === true || (raw0.collisions !== false && (esp.contour || posed)))
+    conflicts.push(...findConflicts(place, models, { contour: esp.contour, familleOf: (base) => own(expanded.prefabs, base)?.famille ?? "", softOf: (base) => own(expanded.prefabs, base)?.souple === true }));
   return {
     palette,
     models,
@@ -983,7 +999,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     brume: clampN(num(src.brume, 0), 0, 1),
     style: src.style ?? null,
     traits: clampN(num(src.traits, 1), 0, 3),
-    place: readPlacements(src.place, models, expanded.prefabs, issues, conflicts),
+    place,
     look,
     detail,
     view2d: { view, unit: clampN(num(v.unit, 48), 1, 2000), origin: [num(v.origin?.[0], 0), num(v.origin?.[1], 0)] },
@@ -1012,8 +1028,8 @@ export const MATIERES: Record<string, Matiere> = {
   pin: { color: "#dcbf8a", tex: "bois" },
   noyer: { color: "#6b4426", tex: "bois" },
   hetre: { color: "#d8b48a", tex: "bois" },
-  "bois-blanc": { color: "#ece6da", tex: "bois" },
-  "bois-noir": { color: "#2a2623", tex: "bois" },
+  "bois-blanc": { color: "#ece6da", tex: { kind: "bois", contrast: 0.18 } },
+  "bois-noir": { color: "#2a2623", tex: { kind: "bois", contrast: 0.3 } },
   acier: { color: "#aab2bd", tex: "metal" },
   laiton: { color: "#b08d57", tex: "metal" },
   "metal-noir": { color: "#23262b", tex: "metal" },
@@ -1106,6 +1122,8 @@ function copiesOf(p: Record<string, unknown>): number {
 function prefabFormat(unit: number, matieres: Record<string, Matiere>): PrefabFormat {
   return {
     unit,
+    unitName: Object.keys(UNITS).find((k) => UNITS[k] === unit) ?? "m",
+    catalogue: CATALOGUE,
     scalePart,
     scaleClip,
     scalePlace,

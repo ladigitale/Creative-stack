@@ -203,8 +203,24 @@ maillage réel des modèles : pas de moteur physique.
 - **En jeu** : `nodes.colis = {"on": "t2@top", "at": [0, 0.1], "ease": {"ms": 300}, "lift": 0.3}` déplace l'objet
   d'un appui à l'autre ; `"on": null` le détache sur place ; lui donner `x`, `y` ou `z` le détache aussi ; `ry` le
   tourne sur son appui.
-- **À revoir** : `mondeInfo.conflicts = [{a, b, type}]`, `type` = `hors-appui` (objet plus grand que la surface ou
-  ramené dans son contour) ou `chevauchement` (deux objets posés au même endroit). La pose est faite quand même.
+- **Collisions** : `mondeInfo.conflicts = [{a, b, type}]` liste ce qui est à revoir ; la pose est faite quand même.
+  Chaque pièce dessinée d'un modèle est une **boîte orientée**, et deux objets sont en conflit quand deux de leurs
+  boîtes se pénètrent de plus de 1,2 cm (test des axes séparateurs, en 3D) : une chaise glissée sous une table ne la
+  touche pas, une pile trop haute sous une tablette touche le plateau, un meuble qui traverse un mur est vu, deux
+  objets longs côte à côte ne se gênent pas. Un contact (objet sur son appui, dos au mur) n'est pas un conflit.
+
+  | `type` | Sens |
+  | --- | --- |
+  | `chevauchement` | Deux objets se pénètrent, ou un objet traverse un mur |
+  | `degagement` | Objet dans le passage d'une porte (aussi profond que large) ou à moins de 15 cm devant une fenêtre, à sa hauteur |
+  | `hors-espace` | Objet qui sort du contour de l'`espace` |
+  | `hors-appui` | Objet plus grand que sa surface d'appui, ou ramené dans son contour |
+
+  La recherche se fait d'office dès que le monde a un `espace` ou pose des objets (`on`, `against`, `stack`) ;
+  `"collisions": true` la force, `false` la coupe. Ne sont pas testés : sols, plafond, objets plats de moins de 3 cm
+  (tapis), modèles `gen` (pas de boîte mesurable), décor sans nom au-delà de 800 placements. Un modèle `"souple": true`
+  (plante, coussin, rideau du catalogue) tolère 10 cm. `a` et `b` sont des noms d'instance, ou `modèle#rang` pour le
+  décor sans nom. Un modèle de plus de 40 pièces est ramené à une seule boîte.
 - Faces d'appui : `"surface": {"name": "top", "face": "+z", "from": "coin"}` sur une pièce en fait une face verticale
   (`at` = `[distance le long de la face, hauteur de la base]`, dos de l'objet contre la face) ; `"face": "-y"` un
   dessous où l'on suspend. `from` : `centre` (défaut), `origine` du modèle, ou `coin`. Les murs et le plafond d'un
@@ -269,6 +285,65 @@ Textures de sol ajoutées au nuancier commun : `parquet`, `chevron`, `moquette`,
 
 Limites : pas de sous-pente, pas de soleil réglable, pas de contrôle des objets devant une ouverture ; une zone est
 ramenée à son rectangle englobant pour la pose (un contour concave peut laisser un objet hors de la pièce).
+
+## Catalogue de mobilier
+
+Vingt prefabs sont disponibles par leur nom, sans les écrire dans `models` : un placement suffit.
+
+```json
+{ "unite": "cm",
+  "espace": { "contour": [[0, 0], [440, 0], [440, 330], [0, 330]], "hauteur": 250, "zones": [ { "nom": "plancher", "revetement": "parquet" } ] },
+  "place": [
+    { "model": "lit", "name": "lit", "against": "mur2", "at": 85, "params": { "type": "mezzanine", "couette": "#e07a5f" } },
+    { "model": "bureau", "name": "bureau", "against": "mur0", "at": 310, "params": { "largeur": 140, "caisson": true } },
+    { "model": "lampe", "on": "bureau", "at": [-50, 0], "params": { "abat": "boule" } },
+    { "model": "etagere", "on": "mur0", "at": [120, 125], "params": { "niveaux": 3, "largeur": 100 } },
+    { "model": "rideau", "on": "mur1", "at": [165, 3], "params": { "largeur": 190, "hauteur": 235 } },
+    { "model": "suspension", "on": "plafond", "at": [220, 165] },
+    { "model": "tapis", "on": "plancher", "at": [240, 150], "params": { "forme": "rond", "largeur": 150 } },
+    { "model": "coussin", "on": "lit" } ] }
+```
+
+| Modèle | Famille | Pose | Paramètres (premier choix ou valeur entre parenthèses = défaut ; longueurs en mètres, à écrire dans l'unité du document) |
+| --- | --- | --- | --- |
+| `lit` | lit | sol | type simple / mezzanine / superpose ; largeur 0.9 / 1.2 / 1.4 / 1.6 ; longueur 2 / 1.9 / 2.1 ; structure (matière, pin) ; drap (couleur) ; couette (couleur) ; tete oui |
+| `bureau` | bureau | sol | largeur 0.8–2.4 m (1.2) ; profondeur 0.6 / 0.5 / 0.7 / 0.8 ; hauteur 0.5–1.1 m (0.74) ; plateau (matière, chene) ; pietement panneaux / metal / treteaux ; teinte (couleur) ; caisson non |
+| `table` | table | sol | forme rectangle / ronde ; largeur 0.4–3 m (1.2) ; profondeur 0.4–1.6 m (0.8) ; hauteur 0.3–1.1 m (0.74) ; plateau (matière, chene) ; pieds (matière, metal-noir) |
+| `etagere` | etagere | mur | pose mur / sol ; largeur 0.3–2.4 m (0.8) ; niveaux 3 / 1 / 2 / 4 / 5 / 6 ; ecart 0.2–0.5 m (0.32) ; profondeur 0.22 / 0.15 / 0.3 / 0.4 ; structure (matière, chene) ; fond non |
+| `armoire` | rangement | sol | largeur 0.5–3 m (1) ; hauteur 1.2–2.6 m (2) ; profondeur 0.6 / 0.45 / 0.65 ; portes battantes / coulissantes ; structure (matière, bois-blanc) ; facade (couleur) |
+| `commode` | rangement | sol | largeur 0.4–1.8 m (0.8) ; hauteur 0.4–1.3 m (0.8) ; profondeur 0.45 / 0.35 / 0.55 ; tiroirs 3 / 1 / 2 / 4 / 5 ; structure (matière, chene) ; facade (couleur) |
+| `tapis` | tapis | sol | forme rectangle / rond ; largeur 0.5–4 m (1.6) ; longueur 0.5–4 m (1.1) ; teinte (couleur) ; motif uni / tricot / rayures / pois / damier |
+| `coussin` | coussin | dessus | forme carre / rond ; taille 0.3–0.8 m (0.45) ; teinte (couleur) |
+| `rideau` | rideau | mur | largeur 0.6–4 m (1.6) ; hauteur 1–3 m (2.2) ; ouverture 0.5 / 0 / 0.25 / 0.75 / 1 ; teinte (couleur) ; tringle (matière, metal-noir) |
+| `lampadaire` | luminaire | sol | hauteur 1.1–1.9 m (1.5) ; abat cone / cylindre / boule ; teinte (couleur) ; structure (matière, laiton) ; allume oui |
+| `lampe` | luminaire | dessus | hauteur 0.25–0.7 m (0.4) ; abat cone / cylindre / boule ; teinte (couleur) ; structure (matière, laiton) ; allume oui |
+| `suspension` | luminaire | plafond | longueur 0.2–1.6 m (0.6) ; abat cone / cylindre / boule ; teinte (couleur) ; structure (matière, laiton) ; allume oui |
+| `applique` | luminaire | mur | teinte (couleur) ; structure (matière, laiton) ; allume oui |
+| `cadre` | decoration | mur | largeur 0.15–2 m (0.5) ; hauteur 0.15–2 m (0.4) ; cadre (couleur) ; image (couleur) ; miroir non |
+| `plante` | plante | sol | forme buisson / palmier / cactus ; taille 0.2–2.2 m (0.8) ; pot (couleur) ; feuillage (couleur) |
+| `bac` | jardin | sol | largeur 0.4–3 m (1.2) ; profondeur 0.3–1.5 m (0.4) ; hauteur 0.2–0.9 m (0.4) ; structure (matière, pin) |
+| `potager` | jardin | sol | largeur 0.6–3 m (1.2) ; longueur 0.6–4 m (1.2) ; rangs 4 / 2 / 3 / 5 / 6 ; structure (matière, pin) ; pousse (couleur) |
+| `cabane` | jardin | sol | largeur 1.5–5 m (2.4) ; profondeur 1.5–4 m (2) ; hauteur 1.8–2.6 m (2) ; structure (matière, pin) ; toit (couleur) ; porte (couleur) |
+| `barbecue` | jardin | sol | teinte (couleur) |
+| `borne` | luminaire | sol | hauteur 0.3–1.2 m (0.6) ; teinte (couleur) ; structure (matière, metal-noir) ; allume oui |
+
+- Les longueurs s'écrivent dans l'unité du document (`largeur: 140` en centimètres, `1.4` en mètres) ; les fiches de
+  `mondeInfo.prefabs` (défaut, bornes, options) sont publiées dans cette unité.
+- **Pose** : `sol` = base en y = 0 (dos en z = 0 pour ce qui va contre un mur : `against`) ; `mur` = dos en z = 0
+  (`on: "mur0"`) ; `plafond` = accroche en y = 0 (`on: "plafond"`) ; `dessus` = à poser sur un meuble (`on: "bureau"`).
+- **Appuis** : `lit` (matelas), `bureau`, `table`, `commode` et `bac` reçoivent des objets par `on` ; chaque planche d'une
+  `etagere` est adressable (`on: "etagere1@planche2"`).
+- **Matières** : nom du nuancier (`chene`, `pin`, `noyer`, `bois-blanc`, `acier`, `laiton`, `metal-noir`…) ou d'une
+  matière de `materiaux`. **Couleurs** : `#rrggbb` ; elles ne coûtent rien (pas de variante).
+- Un modèle écrit dans `models` sous le même nom remplace celui du catalogue. Seuls les modèles utilisés sont construits.
+- **Assises et végétal** : ils viennent des générateurs procgen, pas du catalogue : `{"gen": "seat.chair"}`,
+  `seat.armchair`, `seat.sofa`, `seat.pouf`, `seat.beanbag`, `seat.bench`, `seat.deckchair`… ; `{"gen": "tree"}`,
+  `bush`, `flowers`. Un modèle `gen` se pose (`on`, `against`) mais ne sert pas d'appui.
+
+**Écrire un prefab** : deux aides en plus des paramètres et des expressions. `vars` nomme des valeurs intermédiaires
+(`{"H": "= type == 'mezzanine' ? 1.7 : 0.3"}`) ; `if` sur une pièce ou un `use` ne la garde que si l'expression est
+vraie (`"if": "= type != 'simple'"`). `"unite": "m"` sur un modèle le déclare écrit en mètres quelle que soit l'unité
+du document : ses paramètres marqués `"unit": "m"` sont alors convertis (c'est le cas de tout le catalogue).
 
 ## Modèles `gen` : générateurs procgen (3D)
 
