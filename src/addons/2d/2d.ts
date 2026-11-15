@@ -9,7 +9,9 @@ import { Monde2dRenderer } from "./monde2d";
 import { monde2dSummary, readMonde2d, type Monde2d as Monde2dData } from "../../shared/monde2d/format";
 import type { Layer } from "./model";
 import { hash32 } from "../../shared/monde/math";
-import { mondeSummary, readMonde, type Monde } from "../../shared/monde/format";
+import { mondeSummary, readMonde, type Conflict, type Monde } from "../../shared/monde/format";
+import type { PlacedInfo } from "../../shared/monde/arrange";
+import { listenTurn, wrapAngle } from "../../shared/monde/turn-keys";
 import { TAP_MAX_MOVE_PX, TAP_MAX_MS, easeCurve, isNum, namesRegex, type NodeCurve } from "../../shared/nodes";
 import { MAX_SPRITES, defaultCamera, parseLayers, parseSprite, readCamera, type Camera, type SpriteSpec } from "./model";
 import { Scene2D } from "./scene";
@@ -93,6 +95,12 @@ export class Sonic2d extends LitElement {
 
   /** Monde 2D natif (formes vectorielles, calques) ; aussi clé `monde2d` du dataProvider. */
   @property({ type: String }) monde2d = "";
+  /**
+   * Glisser les instances d'un `monde` : regex des noms déplaçables (`".*"` : toutes). L'objet suit le pointeur, rangé
+   * à chaque instant (appui, aimantation, collisions) ; R / Maj+R, Q / E ou la molette le tournent pendant le geste.
+   * Au lâcher, `target` reçoit `{type: "place", payload}` et la sortie publie `placed`.
+   */
+  @property({ type: String }) drag = "";
 
   private m2: Monde2dRenderer | null = null;
   private m2Ref: unknown = undefined;
@@ -103,6 +111,12 @@ export class Sonic2d extends LitElement {
   private mondeSig = "";
   private mondeParsed: Monde | null = null;
   private mondePatch = new Map<string, string>();
+  /** Glisser en cours : instance, dernier point (px de la scène), cap voulu (après une rotation), dernier résultat. */
+  private dragging: { name: string; id: number; sx: number; sy: number; ry: number | undefined; last: PlacedInfo | null; stop: () => void } | null = null;
+  private placedOut: PlacedInfo | null = null;
+  private contactOut: Record<string, unknown> | null = null;
+  /** Conflits recalculés depuis la lecture du monde (après un rangement). */
+  private liveConflicts: Conflict[] | null = null;
 
   private scene: Scene2D | null = null;
   private canvas: HTMLCanvasElement | null = null;
@@ -173,6 +187,7 @@ export class Sonic2d extends LitElement {
     this.canvas = this.renderRoot.querySelector("canvas");
     this.addEventListener("pointerdown", this.onDown);
     this.addEventListener("pointerup", this.onUp);
+    this.addEventListener("pointermove", this.onMove);
     this.resizeObserver = new ResizeObserver(() => this.syncSize());
     this.resizeObserver.observe(this);
     void this.build();
@@ -256,6 +271,18 @@ export class Sonic2d extends LitElement {
     this.m2Sig = "";
     this.syncMonde2d((this.publisher?.get() as Record<string, unknown> | null)?.monde2d);
     this.mondeR = new Monde2d(() => this.invalidate());
+    this.mondeR.onPlaced = (info) => {
+      this.placedOut = info;
+      this.publishOut();
+    };
+    this.mondeR.onContact = (c) => {
+      this.contactOut = { ...c, t: Date.now() };
+      this.publishOut();
+    };
+    this.mondeR.onConflicts = (c) => {
+      this.liveConflicts = c;
+      this.publishOut();
+    };
     scene.attachExtra(this.mondeR.container, this.mondeLayer || "monde");
     this.mondeRef = undefined;
     this.mondeSig = "";
@@ -415,6 +442,7 @@ export class Sonic2d extends LitElement {
       return;
     }
     this.mondeParsed = readMonde(src, this.mondeParsed);
+    this.liveConflicts = null;
     if (bad) this.mondeParsed.issues.push({ path: "", message: "attribut monde : JSON invalide" });
     try {
       r.set(this.mondeParsed, performance.now());
@@ -516,7 +544,8 @@ export class Sonic2d extends LitElement {
       const sig = JSON.stringify(p);
       if (this.mondePatch.get(name) === sig) continue;
       this.mondePatch.set(name, sig);
-      r.apply(name, p, now, animate);
+      // `collide` : ramené au point atteint sans traverser d'obstacle
+      r.apply(name, r.guard(name, p), now, animate);
     }
     return rest;
   }
@@ -631,7 +660,9 @@ export class Sonic2d extends LitElement {
       count: scene?.count ?? 0,
       missing: scene?.nodes.missing ?? 0,
       errors: [...this.layerErrors, ...this.childErrors, ...this.listErrors],
-      ...(this.mondeParsed ? { mondeInfo: mondeSummary(this.mondeParsed) } : {}),
+      ...(this.mondeParsed ? { mondeInfo: this.mondeInfo(this.mondeParsed) } : {}),
+      ...(this.placedOut ? { placed: this.placedOut } : {}),
+      ...(this.contactOut ? { contact: this.contactOut } : {}),
       ...(this.m2Parsed ? { monde2dInfo: this.m2Info ?? (this.m2Info = monde2dSummary(this.m2Parsed)) } : {}),
     };
     const sig = JSON.stringify(next);
@@ -640,14 +671,84 @@ export class Sonic2d extends LitElement {
     set(out, next);
   }
 
+  /** Résumé du monde ; conflits recalculés après un rangement s'il y en a eu un. */
+  private mondeInfo(m: Monde): Record<string, unknown> {
+    const sum = mondeSummary(m) as Record<string, unknown>;
+    if (this.liveConflicts) {
+      delete sum.conflicts;
+      if (this.liveConflicts.length) sum.conflicts = this.liveConflicts.slice(0, 50);
+    }
+    return sum;
+  }
+
   /* ------------------------------------------------------------ taps */
+
+  /** Point du pointeur en px de la scène. */
+  private scenePoint(e: PointerEvent): [number, number] {
+    const rect = this.getBoundingClientRect();
+    const k = rect.width / this.width || 1;
+    return [(e.clientX - rect.left) / k, (e.clientY - rect.top) / k];
+  }
 
   private onDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     this.tap = { x: e.clientX, y: e.clientY, t: performance.now() };
+    const r = this.mondeR, scene = this.scene;
+    if (!this.drag || !r?.instanceCount || !scene?.isReady || this.dragging) return;
+    const [sx, sy] = this.scenePoint(e);
+    const [lx, ly] = scene.layerPoint(this.mondeLayer || "monde", sx, sy);
+    const name = r.grab(lx, ly, this.drag);
+    if (!name) return;
+    const state = { name, id: e.pointerId, sx, sy, ry: undefined as number | undefined, last: null as PlacedInfo | null, stop: () => {} };
+    state.stop = listenTurn(this, (d) => {
+      const t = this.mondeR?.driver.instances.get(name)?.t;
+      state.ry = wrapAngle((state.ry ?? t?.ry ?? 0) + d);
+      this.moveDrag();
+    });
+    this.dragging = state;
+    try {
+      this.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointeur déjà relâché */
+    }
   };
 
+  private onMove = (e: PointerEvent) => {
+    const d = this.dragging;
+    if (!d || e.pointerId !== d.id) return;
+    [d.sx, d.sy] = this.scenePoint(e);
+    this.moveDrag();
+  };
+
+  private moveDrag(): void {
+    const d = this.dragging, r = this.mondeR, scene = this.scene;
+    if (!d || !r || !scene) return;
+    const [lx, ly] = scene.layerPoint(this.mondeLayer || "monde", d.sx, d.sy);
+    const res = r.dragTo(d.name, lx, ly, performance.now(), d.ry);
+    if (res) d.last = res;
+    this.invalidate();
+  }
+
   private onUp = (e: PointerEvent) => {
+    const drag = this.dragging;
+    if (drag && e.pointerId === drag.id) {
+      this.dragging = null;
+      drag.stop();
+      try {
+        this.releasePointerCapture(drag.id);
+      } catch {
+        /* rien à relâcher */
+      }
+      // un vrai glisser se conclut par l'action « place » ; un simple tap reste un tap
+      if (drag.last && this.mondeR) {
+        this.mondeR.dropped(drag.name);
+        const payload = this.placedOut ?? drag.last;
+        if (this.target) dispatch(this.target, { type: "place", payload });
+        this.dispatchEvent(new CustomEvent("place", { detail: payload, bubbles: true, composed: true }));
+        this.tap = null;
+        return;
+      }
+    }
     const start = this.tap;
     this.tap = null;
     const scene = this.scene;

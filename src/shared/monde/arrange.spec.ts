@@ -227,4 +227,19 @@ describe("conflits de la scène après un rangement", () => {
     expect(d.movable("bureau-lampe1")).toBe(true);
     expect(d.movable("mur0")).toBe(false);
   });
+
+  it("cap voulu : gardé, et pas d'aimantation à un mur auquel il ne tourne pas le dos", () => {
+    const d = drive(piece([{ model: "commode", name: "c", at: [200, 0, 150] }]));
+    // près du mur du fond (z = 3,1), cap tourné de 90° : reste libre, garde son cap
+    const r = d.arrangeTo("c", 2.0, 2.8, 1, 0, "inOut", { ry: Math.PI / 2 })!;
+    expect(r.snaps).not.toContain("mur");
+    expect(r.ry).toBeCloseTo(Math.PI / 2);
+    // cap qui tourne déjà le dos au mur : collé
+    const r2 = d.arrangeTo("c", 2.0, 2.8, 2, 0, "inOut", { ry: Math.PI - 0.2 })!;
+    expect(r2.snaps).toContain("mur");
+    expect(Math.cos(r2.ry)).toBeCloseTo(-1);
+    // par nodes : move + ry
+    d.apply("c", { move: [1.0, 1.5], ry: 0.5 }, 3, false, true);
+    expect(d.instances.get("c")!.t.ry).toBeCloseTo(0.5);
+  });
 });

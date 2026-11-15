@@ -146,3 +146,17 @@ export function affineOf(w: M4, u: V3, v: V3, p: Proj, unit: number, ox: number,
 export function depthOf(p: Proj, x: number, y: number, z: number): number {
   return p.depth[0] * x + p.depth[1] * y + p.depth[2] * z;
 }
+
+/**
+ * Point du sol visé à l'écran : (x, z) monde à la hauteur `h`, depuis un point du calque (`lx`, `ly`). En vue de
+ * dessus et iso, l'inverse exact de la projection ; en profil et de face, seul l'axe horizontal de l'écran est
+ * connu : l'autre coordonnée reste celle de `keep`.
+ */
+export function groundPoint(p: Proj, unit: number, ox: number, oy: number, lx: number, ly: number, h: number, keep: [number, number]): [number, number] {
+  const u = (lx - ox) / unit - p.px[1] * h, v = (ly - oy) / unit - p.py[1] * h;
+  const det = p.px[0] * p.py[2] - p.px[2] * p.py[0];
+  if (Math.abs(det) > 1e-6) return [(u * p.py[2] - v * p.px[2]) / det, (p.px[0] * v - p.py[0] * u) / det];
+  // l'écran ne montre qu'un axe du sol : celui de px
+  if (Math.abs(p.px[0]) >= Math.abs(p.px[2])) return [(u - p.px[2] * keep[1]) / p.px[0], keep[1]];
+  return [keep[0], (u - p.px[0] * keep[0]) / p.px[2]];
+}

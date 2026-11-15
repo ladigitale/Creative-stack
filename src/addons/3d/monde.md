@@ -90,7 +90,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 
 | Nœud | Champs |
 |---|---|
-| `<instance>` | `x y z` (m), `rx ry rz` (rad), `scale`, `visible`, `opacity`, `ease {ms, curve}`, `lift` (saut en arc pendant l'interpolation) ; **`clip`** (nom), **`clipSpeed`** (1 = normal, garde la phase), **`clipT`** (0..1 : pose figée, `null` pour relâcher) ; **`roles`** `{"maillot": "#…"}` ; **`move`** `[x, z]` (m) : range l'objet au point visé (voir Édition) |
+| `<instance>` | `x y z` (m), `rx ry rz` (rad), `scale`, `visible`, `opacity`, `ease {ms, curve}`, `lift` (saut en arc pendant l'interpolation) ; **`clip`** (nom), **`clipSpeed`** (1 = normal, garde la phase), **`clipT`** (0..1 : pose figée, `null` pour relâcher) ; **`roles`** `{"maillot": "#…"}` ; **`move`** `[x, z]` (m) : range l'objet au point visé, `ry` en plus = cap voulu (voir Édition) ; **`collide`** `"glisser"` \| `"bloquer"` \| `true` avec `x` / `z` : le déplacement s'arrête aux obstacles (voir Déplacements en jeu) |
 | `<instance>_<pièce>` | `visible`, `color`, `opacity` (3D : aussi `emissive`, `rx`…) |
 
 Republier la même valeur ne relance rien. Les instances gardent leur état quand le monde change (ajout d'un arbre,
@@ -249,10 +249,14 @@ Ce qui est posé sur l'objet le suit. Les murs, sols, plafond et menuiseries de 
 objet sans nom posé sur un meuble nommé reçoit un nom, `<appui>-<modèle><n>` (`bureau-lampe1`), pour suivre son
 appui et se déplacer lui-même (pas sur un mur : il y reste du décor).
 
-- **Par les données** : `nodes.commode = {"move": [1.2, 3.0], "ease": {"ms": 300}}`.
-- **Au pointeur (3D)** : attribut `drag` = regex des instances déplaçables (`".*"` : toutes). L'objet saisi suit le
-  pointeur, rangé à chaque instant (arêtes rouges à jour avec `collisions: "montrer"`), l'orbite est suspendue
-  pendant le glisser. Au lâcher, `target` reçoit `{type: "place", payload}` et l'élément émet l'évènement `place`.
+- **Par les données** : `nodes.commode = {"move": [1.2, 3.0], "ease": {"ms": 300}}` ; avec `"ry": 1.57` (radians),
+  l'objet garde ce cap et ne se colle dos à un mur que s'il lui tourne déjà le dos (à 45° près).
+- **Au pointeur** : attribut `drag` de `sonic-3d` et de `sonic-2d` = regex des instances déplaçables (`".*"` :
+  toutes). L'objet saisi suit le pointeur, rangé à chaque instant (arêtes rouges à jour avec `collisions:
+  "montrer"`) ; en 3D l'orbite est suspendue pendant le geste. En 2D, vue de dessus et iso : tout le sol ; profil et
+  face : l'axe horizontal de l'écran seulement. **Tourner** pendant le geste : R (quart de tour, Maj+R dans l'autre
+  sens), Q / E ou la molette (15°). Au lâcher, `target` reçoit `{type: "place", payload}` et l'élément émet
+  l'évènement `place`.
 - **Résultat** (clé de sortie `placed`, et `payload` de l'action `place`) :
   `{objectId, x, y, z, ry, valid, hits, snaps, place}` — position en mètres, cap en radians, `hits` = ce qui gêne
   encore, `snaps` parmi `mur`, `aligne-x`, `aligne-z`, `grille`, `deplace`, et **`place`** = l'entrée `place` à
@@ -260,6 +264,20 @@ appui et se déplacer lui-même (pas sur un mur : il y reste du décor).
 
 Le rangement ne réécrit pas le monde : c'est au store de recopier `place` dans `monde.place` s'il veut garder la
 pose (sinon un nouveau monde publié replace l'objet).
+
+### Déplacements en jeu
+
+`nodes.perso = {"x": 3, "z": 1.5, "collide": "glisser", "ease": {"ms": 400}}` : le trajet de la position actuelle
+au point demandé est parcouru par pas de 10 cm contre les boîtes de la scène, et `x` / `z` sont ramenés au point
+atteint avant d'être appliqués (même valeur pour le rendu et le pilote). `glisser` (ou `true`) longe l'obstacle (un
+axe seul quand les deux sont bloqués) ; `bloquer` s'arrête au dernier point libre. Ne gênent pas : ce que l'objet
+porte et ce qui le porte, sols, plafond, objets plats, portes et fenêtres (on passe par l'ouverture, le mur autour
+arrête), et ce qu'il chevauchait déjà au départ. Un modèle `gen` pas encore mesuré compte pour une boîte de
+50 × 100 × 50 cm.
+
+Quand quelque chose gêne, la sortie publie `contact = {objectId, x, z, hits, blocked, t}` (`hits` : instances ou
+modèles touchés, `t` : horodatage, qui change à chaque contact). Pour un jeu, le store écrit la position voulue à
+chaque pas et lit `contact` pour réagir (son, rebond, ramasser un objet).
 
 ## Espace : pièce ou parcelle
 

@@ -1,4 +1,5 @@
 import { dispatch } from "../interactive";
+import { listenTurn, wrapAngle } from "../../shared/monde/turn-keys";
 import { TAP_MAX_MOVE_PX, TAP_MAX_MS } from "./constants";
 import type { SceneHit } from "./pick";
 import type { SceneRuntime } from "./runtime";
@@ -12,7 +13,7 @@ export type PointerHost = {
   pickNames: string;
   pickEmpty: boolean;
   drag?: string;
-  dragging?: { name: string; last: unknown; id: number } | null;
+  dragging?: { name: string; last: unknown; id: number; x: number; y: number; ry: number | undefined; stop: () => void } | null;
   setPointerCapture?: (id: number) => void;
   releasePointerCapture?: (id: number) => void;
   tapStart: { x: number; y: number; t: number } | null;
@@ -42,7 +43,9 @@ function onMove(host: PointerHost, e: PointerEvent) {
   host.pointerX = p.x;
   host.pointerY = p.y;
   if (host.dragging && host.runtime) {
-    const res = host.runtime.dragMove(host.dragging.name, p.x, p.y);
+    host.dragging.x = p.x;
+    host.dragging.y = p.y;
+    const res = host.runtime.dragMove(host.dragging.name, p.x, p.y, host.dragging.ry);
     if (res) host.dragging.last = res;
     return;
   }
@@ -59,7 +62,16 @@ function onDown(host: PointerHost, e: PointerEvent) {
   if (host.drag && host.runtime?.ready && e.button === 0) {
     const name = host.runtime.dragStart(p.x, p.y, host.drag);
     if (name) {
-      host.dragging = { name, last: null, id: e.pointerId };
+      const drag = { name, last: null as unknown, id: e.pointerId, x: p.x, y: p.y, ry: undefined as number | undefined, stop: () => {} };
+      // R, Q / E, molette : tourner l'objet saisi
+      drag.stop = listenTurn(host as unknown as HTMLElement, (d) => {
+        const rt = host.runtime;
+        if (!rt) return;
+        drag.ry = wrapAngle((drag.ry ?? rt.headingOf(name)) + d);
+        const res = rt.dragMove(name, drag.x, drag.y, drag.ry);
+        if (res) drag.last = res;
+      });
+      host.dragging = drag;
       // l'orbite ne démarre pas : l'objet suit le pointeur
       e.stopPropagation();
       try {
@@ -92,6 +104,7 @@ function onUp(host: PointerHost, e: PointerEvent) {
   const drag = host.dragging;
   if (drag) {
     host.dragging = null;
+    drag.stop();
     host.runtime?.dragEnd(drag.name, !!drag.last);
     try {
       host.releasePointerCapture?.(drag.id);

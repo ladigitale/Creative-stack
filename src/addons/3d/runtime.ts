@@ -263,8 +263,10 @@ export class SceneRuntime {
   applyNodes(spec: NodesSpec, animate = true): boolean {
     if (!this._ready) return false;
     const now = performance.now();
-    const a = this.mondeData ? this.monde.applyNodes(spec, now) : false;
-    return this.nodes.apply(spec, now, animate) || a;
+    // déplacements `collide` : ramenés au point atteint avant d'être appliqués
+    const sp = this.mondeData ? this.monde.guardNodes(spec) : spec;
+    const a = this.mondeData ? this.monde.applyNodes(sp, now) : false;
+    return this.nodes.apply(sp, now, animate) || a;
   }
   fitToContent() {
     ops.fitToContent(this.asOpsCtx());
@@ -335,16 +337,21 @@ export class SceneRuntime {
   }
 
   /** Point visé sur le plan horizontal de l'instance, puis rangement (appui, aimantation, collisions). */
-  dragMove(name: string, normX: number, normY: number): PlacedInfo | null {
+  dragMove(name: string, normX: number, normY: number, ry?: number): PlacedInfo | null {
     this.dragNdc.set(normX * 2 - 1, -(normY * 2 - 1));
     this.raycaster.setFromCamera(this.dragNdc, this.activeCam);
     const ray = this.raycaster.ray;
     if (Math.abs(ray.direction.y) < 1e-4) return null;
     const t = (this.dragPlaneY - ray.origin.y) / ray.direction.y;
     if (t <= 0) return null;
-    const res = this.monde.dragTo(name, ray.origin.x + ray.direction.x * t, ray.origin.z + ray.direction.z * t, performance.now());
+    const res = this.monde.dragTo(name, ray.origin.x + ray.direction.x * t, ray.origin.z + ray.direction.z * t, performance.now(), ry);
     this.render();
     return res;
+  }
+
+  /** Cap affiché d'une instance du monde (radians). */
+  headingOf(name: string): number {
+    return this.monde.headingOf(name);
   }
 
   /** Fin du glisser ; `moved` : l'objet a bougé (résultat publié, conflits recalculés). */

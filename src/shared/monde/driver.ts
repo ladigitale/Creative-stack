@@ -16,6 +16,7 @@
 import { easeCurve, isNum, patchOf, type NodeCurve, type NodePatch } from "../nodes";
 import { isColor, type Conflict, type Model, type Monde, type Placement } from "./format";
 import { findAll, type Obb } from "./collide";
+import { walk, type Walked, type WalkMode } from "./walk";
 import { clipState, samplePose, setClip, STRIDE, type ClipState } from "./pose";
 import { boundsOf, DEFAULT_BOUNDS, localOn, surfaceOf, turnY } from "./supports";
 import { arrange, type Arranged, type ArrangeOptions, type Body } from "./arrange";
@@ -175,6 +176,24 @@ export class MondeDriver {
     return { conflicts: [...kept, ...found.conflicts], marks: m.collide === "montrer" ? found.marks : [] };
   }
 
+  /**
+   * Déplacement en jeu qui respecte les obstacles : un patch `{x, z, collide: "glisser" | "bloquer" | true}` voit
+   * son `x` / `z` ramené au point atteint (walk.ts). Sans `collide` ni `x` / `z` : `null`, le patch passe tel quel.
+   */
+  guard(name: string, raw: unknown): { patch: Record<string, unknown>; walked: Walked } | null {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const p = raw as Record<string, unknown>;
+    const c = p.collide;
+    if (c !== true && c !== "glisser" && c !== "bloquer") return null;
+    if (!isNum(p.x) && !isNum(p.z)) return null;
+    const inst = this.instances.get(name);
+    if (!inst) return null;
+    const mode: WalkMode = c === "bloquer" ? "bloquer" : "glisser";
+    const walked = walk(this.bodies(), name, isNum(p.x) ? p.x : inst.t.x, isNum(p.z) ? p.z : inst.t.z, mode);
+    if (!walked) return null;
+    return { patch: { ...p, x: walked.x, z: walked.z }, walked };
+  }
+
   /** Vrai si l'instance peut être rangée ailleurs : ni élément de l'espace (murs, sols, plafond), ni ouverture. */
   movable(name: string): boolean {
     const inst = this.instances.get(name);
@@ -295,7 +314,8 @@ export class MondeDriver {
     const move = (raw as { move?: unknown } | null)?.move;
     if (Array.isArray(move) && isNum(move[0]) && isNum(move[move.length > 2 ? 2 : 1])) {
       const ms = animate && isNum(p.ease?.ms) ? Math.max(0, p.ease!.ms!) : 0;
-      if (this.arrangeTo(name, move[0], move[move.length > 2 ? 2 : 1] as number, now, ms, p.ease?.curve ?? "inOut")) res.transform = true;
+      // `ry` avec `move` : cap voulu (radians), gardé par le rangement
+      if (this.arrangeTo(name, move[0], move[move.length > 2 ? 2 : 1] as number, now, ms, p.ease?.curve ?? "inOut", isNum(p.ry) ? { ry: p.ry } : {})) res.transform = true;
       return res;
     }
     // Appui : poser sur une autre instance, détacher, tourner sur place (vaut aussi quand le rendu gère les positions)
