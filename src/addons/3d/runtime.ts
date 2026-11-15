@@ -17,6 +17,7 @@ import { tune, type TuneCtx } from "./tune";
 import type { Sonic3dAsset, Sonic3dOutput } from "./types";
 import { view, type ViewCtx } from "./view";
 import { Monde3d } from "./monde";
+import type { PlacedInfo } from "../../shared/monde/arrange";
 import { load as loadOps } from "./load";
 import type { Monde } from "../../shared/monde/format";
 
@@ -305,6 +306,56 @@ export class SceneRuntime {
   pick(normX: number, normY: number, names?: string): SceneHit | null {
     return ops.pick(this.asOpsCtx(), normX, normY, names);
   }
+
+  /** Glisser d'une instance du monde : nom de l'instance saisie sous le pointeur (vide : aucune), orbite suspendue. */
+  dragStart(normX: number, normY: number, names?: string): string {
+    if (!this.mondeData) return "";
+    if (!this.content) return "";
+    let re: RegExp | null = null;
+    try {
+      re = names ? new RegExp(names) : null;
+    } catch {
+      return "";
+    }
+    this.dragNdc.set(normX * 2 - 1, -(normY * 2 - 1));
+    this.raycaster.setFromCamera(this.dragNdc, this.activeCam);
+    // premier objet nommé du monde sous le pointeur : le décor (murs, sol, semis) ne se saisit pas, il ne masque pas non plus
+    let name = "";
+    for (const h of this.raycaster.intersectObject(this.content, true)) {
+      const n = this.monde.instanceOfObject(h.object);
+      if (n && (!re || re.test(n))) {
+        name = n;
+        break;
+      }
+    }
+    if (!name) return "";
+    this.dragPlaneY = this.monde.heightOf(name);
+    if (this.controls) this.controls.enabled = false;
+    return name;
+  }
+
+  /** Point visé sur le plan horizontal de l'instance, puis rangement (appui, aimantation, collisions). */
+  dragMove(name: string, normX: number, normY: number): PlacedInfo | null {
+    this.dragNdc.set(normX * 2 - 1, -(normY * 2 - 1));
+    this.raycaster.setFromCamera(this.dragNdc, this.activeCam);
+    const ray = this.raycaster.ray;
+    if (Math.abs(ray.direction.y) < 1e-4) return null;
+    const t = (this.dragPlaneY - ray.origin.y) / ray.direction.y;
+    if (t <= 0) return null;
+    const res = this.monde.dragTo(name, ray.origin.x + ray.direction.x * t, ray.origin.z + ray.direction.z * t, performance.now());
+    this.render();
+    return res;
+  }
+
+  /** Fin du glisser ; `moved` : l'objet a bougé (résultat publié, conflits recalculés). */
+  dragEnd(name: string, moved: boolean) {
+    if (this.controls) this.controls.enabled = true;
+    if (!moved) return;
+    this.monde.dropped(name);
+    this.render();
+  }
+  private dragPlaneY = 0;
+  private dragNdc = new THREE.Vector2();
   setHoverAt(
     normX: number,
     normY: number,

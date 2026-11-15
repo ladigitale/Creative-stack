@@ -11,6 +11,10 @@ export type PointerHost = {
   pickActionType: string;
   pickNames: string;
   pickEmpty: boolean;
+  drag?: string;
+  dragging?: { name: string; last: unknown; id: number } | null;
+  setPointerCapture?: (id: number) => void;
+  releasePointerCapture?: (id: number) => void;
   tapStart: { x: number; y: number; t: number } | null;
   runtime: SceneRuntime | null;
   lastHit: SceneHit | null;
@@ -37,6 +41,11 @@ function onMove(host: PointerHost, e: PointerEvent) {
   const p = normPointer(host, e);
   host.pointerX = p.x;
   host.pointerY = p.y;
+  if (host.dragging && host.runtime) {
+    const res = host.runtime.dragMove(host.dragging.name, p.x, p.y);
+    if (res) host.dragging.last = res;
+    return;
+  }
   if (host.pick && host.runtime?.ready) {
     // Avec `target`, c'est le store qui pilote l'apparence : pas de surlignage bleu.
     host.runtime.setHoverAt(p.x, p.y, host.pickNames, !host.target);
@@ -47,6 +56,19 @@ function onDown(host: PointerHost, e: PointerEvent) {
   const p = normPointer(host, e);
   host.pointerX = p.x;
   host.pointerY = p.y;
+  if (host.drag && host.runtime?.ready && e.button === 0) {
+    const name = host.runtime.dragStart(p.x, p.y, host.drag);
+    if (name) {
+      host.dragging = { name, last: null, id: e.pointerId };
+      // l'orbite ne démarre pas : l'objet suit le pointeur
+      e.stopPropagation();
+      try {
+        host.setPointerCapture?.(e.pointerId);
+      } catch {
+        /* pointeur déjà relâché */
+      }
+    }
+  }
   if (!host.pick || !host.runtime) return;
   if (e.button !== 0) return;
   host.tapStart = { x: e.clientX, y: e.clientY, t: performance.now() };
@@ -67,6 +89,23 @@ function onDown(host: PointerHost, e: PointerEvent) {
  * Un drag d'orbite n'envoie rien.
  */
 function onUp(host: PointerHost, e: PointerEvent) {
+  const drag = host.dragging;
+  if (drag) {
+    host.dragging = null;
+    host.runtime?.dragEnd(drag.name, !!drag.last);
+    try {
+      host.releasePointerCapture?.(drag.id);
+    } catch {
+      /* rien à relâcher */
+    }
+    // un simple tap sur l'objet reste un tap ; un vrai glisser se conclut par l'action « place »
+    if (drag.last) {
+      if (host.target) dispatch(host.target, { type: "place", payload: drag.last });
+      host.dispatchEvent(new CustomEvent("place", { detail: drag.last, bubbles: true, composed: true }));
+      host.tapStart = null;
+      return;
+    }
+  }
   const start = host.tapStart;
   host.tapStart = null;
   if (!start || e.button !== 0) return;

@@ -41,6 +41,10 @@
           "type": "boolean",
           "description": "Envoie {objectId:null} pour un tap dans le vide"
         },
+        "drag": {
+          "type": "string",
+          "description": "Glisser les instances d'un monde : regex des noms déplaçables (.* : toutes). L'instance suit le pointeur, rangée en direct (appui, aimantation aux murs et aux voisins, collisions) ; au lâcher target reçoit {type:\"place\", payload:{objectId,x,y,z,ry,valid,hits,snaps,place}} et la clé de sortie placed est publiée"
+        },
         "fov": {
           "type": "number"
         },

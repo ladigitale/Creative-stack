@@ -14,11 +14,13 @@
 import * as THREE from "three";
 import { geometryOf, type Geo } from "../../shared/monde/geometry";
 import { m4, m4Compose, m4Mul } from "../../shared/monde/math";
-import { partColor, partTex, type Model, type Monde, type Placement } from "../../shared/monde/format";
+import { partColor, partTex, type Conflict, type Model, type Monde, type Placement } from "../../shared/monde/format";
 import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/textures";
 import { MondeDriver, type InstanceState } from "../../shared/monde/driver";
 import { STRIDE } from "../../shared/monde/pose";
-import { turnY } from "../../shared/monde/supports";
+import { measureGen, turnY } from "../../shared/monde/supports";
+import type { Obb } from "../../shared/monde/collide";
+import { placedInfo, type PlacedInfo } from "../../shared/monde/arrange";
 import type { NodesSpec } from "./nodes";
 import { aliasBone, genMotion } from "../../shared/monde/gen";
 import type { GenActor, GenKit } from "../procgen/index";
@@ -173,6 +175,14 @@ export class Monde3d {
   private spare = new Map<string, { sig: string; actor: GenActor; glow: number; glowColor: string }>();
   /** Appelé quand un élément généré à part (procgen) est prêt : un rendu suffit. */
   onAsync: (() => void) | null = null;
+  /** Appelé quand un modèle procgen vient d'être mesuré : le monde est à relire (pose et collisions exactes). */
+  onMeasured: (() => void) | null = null;
+  /** Appelé après un rangement (`nodes.<instance>.move`) : résultat à publier. */
+  onPlaced: ((p: PlacedInfo) => void) | null = null;
+  /** Conflits recalculés après un rangement (glisser, `nodes.<instance>.move`). */
+  onConflicts: ((c: Conflict[]) => void) | null = null;
+  /** Boîtes des objets en conflit (`collisions: "montrer"`). */
+  private marks: THREE.LineSegments | null = null;
 
   constructor() {
     this.group.name = "monde";
@@ -207,6 +217,35 @@ export class Monde3d {
     this.spare.clear();
     for (const b of this.oldBuffers.values()) b.dispose();
     this.oldBuffers.clear();
+    this.drawMarks(m.marks);
+  }
+
+  /** Arêtes rouges des boîtes en conflit, toujours visibles (dessinées par-dessus la scène). */
+  private drawMarks(boxes: Obb[]) {
+    if (this.marks) {
+      this.group.remove(this.marks);
+      this.marks.geometry.dispose();
+      (this.marks.material as THREE.Material).dispose();
+      this.marks = null;
+    }
+    if (!boxes.length) return;
+    const pos: number[] = [];
+    const EDGES = [0, 1, 1, 3, 3, 2, 2, 0, 4, 5, 5, 7, 7, 6, 6, 4, 0, 4, 1, 5, 2, 6, 3, 7];
+    for (const b of boxes) {
+      const corner = (i: number) => {
+        const s = [i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1];
+        return [0, 1, 2].map((a) => b.c[a] + s[0] * b.ax[0][a] * b.h[0] + s[1] * b.ax[1][a] * b.h[1] + s[2] * b.ax[2][a] * b.h[2]);
+      };
+      for (const e of EDGES) pos.push(...corner(e));
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    this.marks = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xff2d2d, depthTest: false, transparent: true }));
+    this.marks.name = "";
+    this.marks.renderOrder = 10;
+    // repère visuel seulement : ni pick ni glisser
+    this.marks.raycast = () => {};
+    this.group.add(this.marks);
   }
 
   /** Ciel et brume du monde ; ceux de la scène sont rendus quand le monde n'en donne plus. */
@@ -297,6 +336,8 @@ export class Monde3d {
       return j;
     });
     const shadow = this.makeShadow(m, 0.35 * Math.max(pl.scale[0], pl.scale[2]));
+    // placée tout de suite sous l'instance (sinon elle reste à l'origine jusqu'au premier pas d'animation)
+    shadow?.position.set(pl.at[0], 0.005, pl.at[2]);
     this.group.add(root);
     const kept = this.spare.get(inst.name);
     const b: Built = { inst, joints, meshes: [], mats: new Map(), matKey: [], shadow, rolesRev: inst.rolesRev, gen: { actor: null, bones: model.parts.map((p) => aliasBone(p.name)), glow: kept?.glow ?? 0, glowColor: kept?.glowColor ?? "", step: new Map(), rootOff: [0, 0, 0] } };
@@ -324,6 +365,7 @@ export class Monde3d {
       if (this.built.get(inst.name) !== b) return;
       const res = kit.build(spec, spec.rig !== "none");
       this.reportGen(m, model.name, res.issues);
+      if (res.asset && measureGen(spec, res.asset.mesh.pos)) this.onMeasured?.();
       if (!res.asset || this.built.get(inst.name) !== b) return;
       attach(new this.pg!.GenActor(kit, res.asset, inst.roles, `${spec.seed}/${inst.name}`));
     };
@@ -414,6 +456,7 @@ export class Monde3d {
           const make = (kit: GenKit) => {
             const res = kit.build(spec, false);
             this.reportGen(m, name, res.issues);
+            if (res.asset && measureGen(spec, res.asset.mesh.pos)) this.onMeasured?.();
             if (!res.asset || m !== this.monde) return;
             const g = kit.instanced(res.asset, mats, `${name}~decor`, group[0].roles);
             this.group.add(g);
@@ -459,19 +502,72 @@ export class Monde3d {
    */
   applyNodes(spec: NodesSpec, now: number): boolean {
     let any = false;
+    let moved = false;
     for (const [name, p] of Object.entries(spec)) {
       if (name === "$reset") continue;
       if (this.kit !== null || this.pgLoad) this.genPartPatch(name, p);
       // pose sur un appui : le pilote part de la position réellement affichée (l'instance est un nœud de la scène)
       const on = p && typeof p === "object" ? (p as { on?: unknown }).on : undefined;
-      if (typeof on === "string") {
+      const move = p && typeof p === "object" && Array.isArray((p as { move?: unknown }).move);
+      if (move) {
+        // le rangement regarde toute la scène : positions affichées de toutes les instances
+        for (const n of this.built.keys()) this.syncT(n);
+      } else if (typeof on === "string") {
         this.syncT(name);
         this.syncT(on.split("@")[0]);
       } else if (this.driver.instances.get(name)?.carry) this.syncT(this.driver.instances.get(name)!.carry!.support);
       const r = this.driver.apply(name, p, now, true, false);
       if (r && (r.pose || r.roles || r.transform)) any = true;
+      const inst = move ? this.driver.instances.get(name) : undefined;
+      if (inst?.placed && this.monde) {
+        this.onPlaced?.(placedInfo(name, inst.placed, this.driver.bodies(), this.monde.unit));
+        moved = true;
+      }
     }
+    if (moved) this.refreshConflicts();
     return any;
+  }
+
+  /** Instance nommée et visible à laquelle appartient un objet de la scène (vide : décor ou hors monde). */
+  instanceOfObject(obj: THREE.Object3D): string {
+    for (let o: THREE.Object3D | null = obj; o; o = o.parent) {
+      if (!o.visible) return "";
+      const root: THREE.Object3D | null | undefined = o.name ? this.built.get(o.name)?.joints[0]?.parent : null;
+      if (root === o) return this.driver.movable(o.name) ? o.name : "";
+    }
+    return "";
+  }
+
+  /** Glisser : range l'instance au point visé, tout de suite (voir arrange.ts). */
+  dragTo(name: string, x: number, z: number, now: number): PlacedInfo | null {
+    if (!this.monde) return null;
+    for (const n of this.built.keys()) if (n !== name) this.syncT(n);
+    const res = this.driver.arrangeTo(name, x, z, now);
+    if (!res) return null;
+    this.follow();
+    this.refreshConflicts(true);
+    return placedInfo(name, res, this.driver.bodies(), this.monde.unit);
+  }
+
+  /** Fin d'un glisser : le résultat est publié (comme pour `nodes.<instance>.move`) et les conflits aussi. */
+  dropped(name: string): void {
+    const inst = this.driver.instances.get(name);
+    if (inst?.placed && this.monde) this.onPlaced?.(placedInfo(name, inst.placed, this.driver.bodies(), this.monde.unit));
+    this.refreshConflicts();
+  }
+
+  /** Conflits sur les positions courantes : arêtes rouges redessinées ; `live` (pendant un glisser) : sans publication. */
+  refreshConflicts(live = false): void {
+    for (const n of this.built.keys()) this.syncT(n);
+    const r = this.driver.collisions();
+    if (!r) return;
+    this.drawMarks(r.marks);
+    if (!live) this.onConflicts?.(r.conflicts);
+  }
+
+  /** Hauteur affichée d'une instance (plan dans lequel on la fait glisser). */
+  heightOf(name: string): number {
+    return this.built.get(name)?.joints[0]?.parent?.position.y ?? 0;
   }
 
   /** Reporte dans le pilote la position affichée d'une instance (déplacée par `NodeOverrides`). */
@@ -488,6 +584,19 @@ export class Monde3d {
    */
   follow(): boolean {
     let moved = false;
+    // instances rangées par le pilote (move, glisser) : sa position fait foi jusqu'à la prochaine position donnée par nodes
+    for (const b of this.built.values()) {
+      const inst = b.inst;
+      if (!inst.driven || inst.carry) continue;
+      const root = b.joints[0]?.parent;
+      if (!root) continue;
+      const y = inst.t.y + inst.liftY;
+      if (root.position.x !== inst.t.x || root.position.y !== y || root.position.z !== inst.t.z || root.rotation.y !== inst.t.ry) {
+        root.position.set(inst.t.x, y, inst.t.z);
+        root.rotation.y = inst.t.ry;
+        moved = true;
+      }
+    }
     for (const inst of this.driver.carriedInstances) {
       const c = inst.carry;
       const root = this.built.get(inst.name)?.joints[0]?.parent;

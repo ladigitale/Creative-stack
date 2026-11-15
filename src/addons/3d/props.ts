@@ -34,6 +34,11 @@ export class Sonic3dProps extends LitElement {
   pickActionType = "pick";
   @property({ type: String, attribute: "pick-names" }) pickNames = "";
   @property({ type: Boolean, attribute: "pick-empty" }) pickEmpty = false;
+  /**
+   * Glisser les instances d'un `monde` : regex des noms déplaçables (`".*"` : toutes). L'instance suit le pointeur,
+   * rangée à chaque instant (appui, aimantation, collisions) ; au lâcher, `target` reçoit `{type: "place", payload}`.
+   */
+  @property({ type: String }) drag = "";
   @property({ reflect: true })
   camera: Sonic3dCameraMode = Sonic3dCameraMode.Orbit;
   @property({ type: Number }) fov = DEFAULT_FOV;
