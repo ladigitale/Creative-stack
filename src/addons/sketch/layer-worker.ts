@@ -1,8 +1,10 @@
 import type { Stroke, View } from "./model";
-import type { LayerMsg, LayerReply } from "./layer-worker-entry";
+import type { LayerGpu, LayerMsg, LayerReply } from "./layer-worker-entry";
 import { LAYER_WORKER_SOURCE } from "./layer-worker-source";
 
 export type { LayerReply };
+/** Réponse du worker, plus le délai entre la demande et l'arrivée de l'image (ms, fil principal). */
+export type LayerResult = LayerReply & { latency?: number };
 
 /**
  * Rendu de la couche en arrière-plan : un Web Worker (script en blob:, compatible CSP des artefacts) garde une
@@ -20,9 +22,11 @@ export class LayerWorker {
   private seq = 0;
   ok: boolean;
   /** Dernière demande (les réponses plus anciennes sont ignorées). */
-  wanted: { id: number; rev: number; len: number; view: View; w: number; h: number; dpr: number; gl: boolean } | null = null;
+  wanted: { id: number; rev: number; len: number; view: View; w: number; h: number; dpr: number; gl: boolean; at: number } | null = null;
+  /** Temps de la carte graphique, arrivé après l'image (id du rendu, ms ou `null`). */
+  onGpu: ((id: number, ms: number | null) => void) | null = null;
 
-  constructor(private onReply: (r: LayerReply) => void, enabled = true) {
+  constructor(private onReply: (r: LayerResult) => void, enabled = true) {
     this.ok = enabled && LayerWorker.supported();
   }
 
@@ -68,7 +72,7 @@ export class LayerWorker {
     const q = this.wanted;
     if (q && q.rev === rev && q.len === len && q.w === w && q.h === h && q.dpr === dpr && q.gl === this.gl && sameView(q.view, view)) return true;
     const id = ++this.seq;
-    this.wanted = { id, rev, len, view: { ...view }, w, h, dpr, gl: this.gl };
+    this.wanted = { id, rev, len, view: { ...view }, w, h, dpr, gl: this.gl, at: performance.now() };
     try {
       this.worker!.postMessage({ type: "render", id, rev, len, view: { ...view }, w, h, dpr, bg, gl: this.gl } satisfies LayerMsg);
     } catch {
@@ -94,11 +98,13 @@ export class LayerWorker {
     try {
       this.url = URL.createObjectURL(new Blob([LAYER_WORKER_SOURCE], { type: "text/javascript" }));
       const w = new Worker(this.url, { name: "sonic-sketch-layer" });
-      w.onmessage = (e: MessageEvent<LayerReply>) => {
-        const r = e.data;
+      w.onmessage = (e: MessageEvent<LayerReply | LayerGpu>) => {
+        if ("gpu" in e.data) { this.onGpu?.(e.data.id, e.data.gpuMs); return; }
+        const r = e.data as LayerResult;
         const q = this.wanted;
         if (!q || r.id !== q.id) { r.bitmap?.close(); return; }
         this.wanted = null;
+        r.latency = performance.now() - q.at;
         if (r.error === "désynchronisé") { this.sent = []; r.bitmap?.close(); }
         this.onReply(r);
       };
@@ -120,7 +126,7 @@ export class LayerWorker {
     const q = this.wanted;
     this.ok = false;
     this.stop();
-    if (q) { const { gl: _gl, ...r } = q; this.onReply({ ...r, error: "worker indisponible", ms: 0 }); }
+    if (q) { const { gl: _gl, at: _at, ...r } = q; this.onReply({ ...r, error: "worker indisponible", ms: 0 }); }
     this.wanted = null;
   }
 
