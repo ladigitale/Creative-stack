@@ -40,6 +40,7 @@
     "./text": "./src/addons/text/index.ts",
     "./markdown": "./src/addons/markdown/index.ts",
     "./map": "./src/addons/map/index.ts",
+    "./bluetooth": "./src/addons/bluetooth/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",
     "./shared/*": "./src/shared/*.ts",

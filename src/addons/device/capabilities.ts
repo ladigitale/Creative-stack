@@ -14,7 +14,7 @@ export type Capability = {
 };
 
 export const CAPABILITY_KEYS = [
-  "fullscreen", "pointerLock", "wakeLock", "gamepad", "midi", "orientation", "clipboard", "share", "vibrate", "camera", "microphone", "audio", "screen",
+  "fullscreen", "pointerLock", "wakeLock", "gamepad", "midi", "orientation", "clipboard", "share", "vibrate", "camera", "microphone", "audio", "screen", "bluetooth",
 ] as const;
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
 
@@ -40,9 +40,10 @@ const META: Record<CapabilityKey, { policy: string | null; query: string | null 
   microphone: { policy: "microphone", query: "microphone" },
   audio: { policy: null, query: null },
   screen: { policy: "display-capture", query: null },
+  bluetooth: { policy: "bluetooth", query: null },
 };
 
-type Nav = Navigator & { wakeLock?: unknown; requestMIDIAccess?: unknown; share?: unknown; vibrate?: unknown; getGamepads?: unknown };
+type Nav = Navigator & { wakeLock?: unknown; requestMIDIAccess?: unknown; share?: unknown; vibrate?: unknown; getGamepads?: unknown; bluetooth?: unknown };
 
 /** Détection par présence de l'API, sans rien appeler qui ouvre une demande de permission. */
 function detectSupport(): Record<CapabilityKey, boolean> {
@@ -63,13 +64,14 @@ function detectSupport(): Record<CapabilityKey, boolean> {
     microphone: !!n.mediaDevices?.getUserMedia,
     audio: typeof (w as { AudioContext?: unknown }).AudioContext !== "undefined" || typeof w.webkitAudioContext !== "undefined",
     screen: !!n.mediaDevices?.getDisplayMedia,
+    bluetooth: !!n.bluetooth,
   };
 }
 
 /**
  * Ce que l'environnement autorise, en un seul DataProvider : pour chaque fonction (`fullscreen`, `pointerLock`,
  * `wakeLock`, `gamepad`, `midi`, `orientation`, `clipboard`, `share`, `vibrate`, `camera`, `microphone`, `audio`,
- * `screen`) : `{ supported, allowed, permission }`, plus `embedded` (iframe) et `secureContext`.
+ * `screen`, `bluetooth`) : `{ supported, allowed, permission }`, plus `embedded` (iframe) et `secureContext`.
  *
  * Aucune demande de permission n'est déclenchée : détection par présence de l'API, lecture de la Permissions
  * Policy de la page et `navigator.permissions.query` quand le navigateur connaît le nom. Un artefact lit
