@@ -12,6 +12,7 @@ import { GEN_ACTIONS, GEN_IDS, genVariants, GEN_ROLES, genPreset, isGenId, type 
 import { expandPrefabs, type Matiere, type PrefabFormat, type PrefabInfo } from "./prefab";
 import { boundsOf, DEFAULT_BOUNDS, inPolygon, localOn, surfaceNames, surfaceOf, turnY, type Box3, type Face, type From, type Surface } from "./supports";
 import { expandEspace } from "./espace";
+import { CATALOGUE } from "./catalogue";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -1012,8 +1013,8 @@ export const MATIERES: Record<string, Matiere> = {
   pin: { color: "#dcbf8a", tex: "bois" },
   noyer: { color: "#6b4426", tex: "bois" },
   hetre: { color: "#d8b48a", tex: "bois" },
-  "bois-blanc": { color: "#ece6da", tex: "bois" },
-  "bois-noir": { color: "#2a2623", tex: "bois" },
+  "bois-blanc": { color: "#ece6da", tex: { kind: "bois", contrast: 0.18 } },
+  "bois-noir": { color: "#2a2623", tex: { kind: "bois", contrast: 0.3 } },
   acier: { color: "#aab2bd", tex: "metal" },
   laiton: { color: "#b08d57", tex: "metal" },
   "metal-noir": { color: "#23262b", tex: "metal" },
@@ -1106,6 +1107,8 @@ function copiesOf(p: Record<string, unknown>): number {
 function prefabFormat(unit: number, matieres: Record<string, Matiere>): PrefabFormat {
   return {
     unit,
+    unitName: Object.keys(UNITS).find((k) => UNITS[k] === unit) ?? "m",
+    catalogue: CATALOGUE,
     scalePart,
     scaleClip,
     scalePlace,
