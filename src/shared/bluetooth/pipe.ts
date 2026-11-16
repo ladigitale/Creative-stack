@@ -16,6 +16,8 @@ export type SonicBytePipe = {
   readonly pipeReady: boolean;
   /** Nom annoncé de l'appareil (détection de modèle par les pilotes). */
   readonly deviceName: string;
+  /** Profil de transport effectivement ouvert (`luck`, `niimbot`…), quand le transport en connaît plusieurs. */
+  readonly pipeProfile?: string;
   /** Écrit en file, par morceaux. Ne lève jamais : `false` si déconnecté, refusé ou interrompu. */
   writeBytes(data: Uint8Array, opts?: PipeWriteOptions): Promise<boolean>;
   /** Notifications reçues ; retourne la désinscription. */

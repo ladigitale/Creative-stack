@@ -96,10 +96,12 @@ export const PROFILES: Record<string, BluetoothProfile> = {
     source: "github.com/rbaron/catprinter",
   },
   niimbot: {
-    filters: [{ services: [NIIMBOT] }],
+    // Par service, et par début de nom : certains modèles n'annoncent pas le service avant la connexion.
+    filters: [{ services: [NIIMBOT] }, ...["D11", "D10", "B1", "B2", "B3", "M2"].map((namePrefix) => ({ namePrefix }))],
     channels: { tx: `${NIIMBOT}/bef8d6c9-9c21-4c9e-b632-bd58c1009f9f`, rx: `${NIIMBOT}/bef8d6c9-9c21-4c9e-b632-bd58c1009f9f` },
     notify: ["rx"],
-    chunkSize: 20,
+    // Un paquet par écriture : les lignes d'image dépassent 20 octets.
+    chunkSize: 200,
     gapMs: 0,
     validated: false,
     source: "printers.niim.blue",

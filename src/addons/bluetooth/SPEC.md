@@ -204,7 +204,7 @@ Vecteur de test : image 96×240 → en-tête `1D 76 30 00 0C 00 F0 00`, 2880 oct
 | `phomemo` | M110, M02, T02, D30 | ESC/POS avec extensions constructeur, morceaux de 128 | D | non testé |
 | `niimbot` | D11, D110, B1, B21, B1 Pro, B21 Pro, M2 | protocole à paquets, deux variantes de tâche d'impression | D | non testé |
 
-`niimbot` : ne pas réécrire le protocole. Évaluer `@mmote/niimbluelib` (référence de NiimBlue) ou `niimbot-web-bluetooth` (MIT, sans dépendance) ; vérifier licence et taille, charger à la demande.
+`niimbot` : écrit (`printer/niimbot.ts`, cinq variantes de tâche reprises de `@mmote/niimbluelib`, sans dépendance), non testé sur matériel. Note d'origine : ne pas réécrire le protocole. Évaluer `@mmote/niimbluelib` (référence de NiimBlue) ou `niimbot-web-bluetooth` (MIT, sans dépendance) ; vérifier licence et taille, charger à la demande.
 
 Table des modèles (`models.ts`) : préfixe de nom → `{ protocol, widthPx, dpi, labelMm par défaut }`. Modèle inconnu : `issues` l'indique et `width-px` devient obligatoire.
 

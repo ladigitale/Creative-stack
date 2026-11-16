@@ -36,7 +36,7 @@ Le dessin est fait dans le sens de lecture : pour une étiquette `30x12`, 240 ×
 
 | Attribut | Rôle |
 |---|---|
-| `profile` | Profil nommé (tableau ci-dessous) |
+| `profile` | Profil nommé (tableau ci-dessous), ou plusieurs séparés par des espaces (`"luck niimbot"`, 4 au plus) : le sélecteur réunit leurs filtres et le profil dont le service est présent sur l'appareil choisi est retenu (clé `profile` de l'état) |
 | `filters` | JSON `[{ "namePrefix": "MonAppareil" }, { "services": ["heart_rate"] }]`, ajouté aux filtres du profil |
 | `services` | Services à ouvrir en plus, séparés par des espaces (`180f`, UUID complet, ou nom standard) |
 | `channels` | JSON `{ "tx": "18f0/2af1", "rx": "18f0/2af0" }` : alias → `service/caractéristique`. `tx` = écriture par défaut, `rx` = notifications |
@@ -68,7 +68,8 @@ Le dessin est fait dans le sens de lecture : pour une étiquette `30x12`, 240 ×
 | `uart-nus` | ESP32, micro:bit, Espruino, Adafruit (Nordic UART) | `6e400002` / `6e400003` | non testé |
 | `uart-issc`, `uart-hm10` | Modules série Microchip, HM-10 | | non testé |
 | `heart-rate`, `battery`, `csc`, `cycling-power` | Capteurs standard : valeur brute dans `values.rx.bytes` | UUID Bluetooth SIG | non testé |
-| `midi`, `cat`, `niimbot` | Canaux déclarés ; pas encore de pilote au-dessus | | non testé |
+| `niimbot` | Imprimantes d'étiquettes Niimbot (D11, D110, D101, B1, B21, B18…) | `e7810a71…` : une caractéristique en écriture et notification, un paquet par écriture | écrit d'après `printers.niim.blue`, non testé sur matériel |
+| `midi`, `cat` | Canaux déclarés ; pas encore de pilote au-dessus | | non testé |
 
 Exemple sans pilote, un ESP32 qui envoie des lignes de texte :
 
@@ -120,4 +121,22 @@ Commandes : `print {n, copies}` (défaut de `for`), `preview`, `feed`, `refresh`
 | Autres Fichero, LuckP, DP, L12, L13 | `luck-lujiang` + `width-px` | selon modèle | non testé |
 | Tickets 58 mm ESC/POS | `escpos` + `width-px="384"` | 384 points | non testé |
 
-Imprimantes « chat » (GB01, MX05…), Phomemo et Niimbot : prévues, pas encore écrites (voir `SPEC.md`).
+| Niimbot D11, D110, D101, B16, B18, B1, B21 (`D110-…`, `B1-…`) | `niimbot` (transport `profile="niimbot"`) | lue sur l'imprimante : 96 points (D11, D110, B18), 192 (D101), 384 (B1, B21) | écrit d'après la documentation communautaire, **non testé sur matériel** |
+
+Imprimantes « chat » (GB01, MX05…) et Phomemo : prévues, pas encore écrites (voir `SPEC.md`).
+
+### Niimbot
+
+Le transport est `profile="niimbot"`, ou `profile="luck niimbot"` pour accepter une Fichero ou une Niimbot avec le même bouton. `protocol="auto"` reconnaît l'imprimante à son nom, sinon au profil retenu, puis lit son modèle : la tête (`head`) et l'étiquette par défaut en découlent (30 x 12 mm sur les petites, 50 x 30 mm sur B1 et B21 : donner `label-mm` si le rouleau diffère).
+
+La séquence d'impression dépend du modèle. `niimbot` la choisit d'après le modèle lu ; pour une imprimante que la table ne connaît pas, ou si rien ne sort, imposer une variante :
+
+| `protocol` | Séquence | Modèles |
+|---|---|---|
+| `niimbot-d110` | effacement, page, dimensions sur 4 octets, quantité, lignes, attente par l'état d'impression | D110, D11 récents, B16, B18, B21S |
+| `niimbot-b1` | début de tâche sur 7 octets, dimensions sur 6 octets | B1, B21 C2B, D110 M, D101 |
+| `niimbot-d11v1` | dimensions sur 2 octets, fin annoncée par l'imprimante | anciens D11 |
+| `niimbot-b21v1` | comptes de points en total, fin obtenue en répétant la fin de tâche | B21 d'origine |
+| `niimbot-v4` | dimensions sur 13 octets | D11 H, B1 Pro, B21 Pro, protocoles 4 et plus |
+
+`density` 0, 1, 2 devient la noirceur minimale, normale et maximale du modèle. `paper` : `gap`, `black-mark`, `continuous`. La commande `feed` n'a pas d'équivalent commun : elle ne fait rien. Les rouleaux à puce RFID ne sont ni lus ni écrits.

@@ -104,7 +104,11 @@ export function toPrintBitmap(design: Bitmap, orientation: "landscape" | "portra
 export class SonicLabelPrinter extends DeviceElement<LabelPrinterState> implements SonicFrameSource {
   @property({ type: String }) transport = "";
   @property({ type: String }) source = "";
-  /** `auto` (d'après le nom de l'appareil), `luck-aiyin`, `luck-lujiang`, `escpos`. */
+  /**
+   * `auto` (d'après le nom de l'appareil, puis le profil du transport), `luck-aiyin`, `luck-lujiang`, `escpos`,
+   * `niimbot` (variante choisie d'après le modèle), ou une variante imposée `niimbot-d110`, `niimbot-b1`,
+   * `niimbot-d11v1`, `niimbot-b21v1`, `niimbot-v4`.
+   */
   @property({ type: String }) protocol = "auto";
   /** Largeur de la tête en points, pour un modèle inconnu (multiple de 8). */
   @property({ type: Number, attribute: "width-px" }) widthPx = 0;
@@ -307,7 +311,7 @@ export class SonicLabelPrinter extends DeviceElement<LabelPrinterState> implemen
     const named = modelFromName(pipe.deviceName);
     let id = this.protocol;
     if (id === "auto" || !id) {
-      id = named?.protocol ?? "luck-aiyin";
+      id = named?.protocol ?? (pipe.pipeProfile === "niimbot" ? "niimbot" : "luck-aiyin");
       if (!named) issues.push(`modèle non reconnu (« ${pipe.deviceName} ») : protocole ${id} supposé, préciser protocol et width-px`);
     }
     const impl = createProtocol(id);
@@ -316,7 +320,7 @@ export class SonicLabelPrinter extends DeviceElement<LabelPrinterState> implemen
       return;
     }
     this.impl = impl;
-    this.model = named && named.protocol === id ? named : DEFAULT_MODELS[id as ProtocolId];
+    this.model = named && (named.protocol === id || (named.protocol === "niimbot" && id.startsWith("niimbot"))) ? named : DEFAULT_MODELS[id as ProtocolId];
     const link = new PrinterLink(pipe, this.timeScale);
     this.link = link;
     const info = await impl.info(link);
