@@ -10,12 +10,18 @@
  * - `sonic-value` : `format="00000"` (pad) ou `format="intl:fr-FR[:currency:EUR|:percent]"`.
  * - `sonic-value` : une valeur texte qui commence par `[` ou `{` sans être du JSON
  *   (« [Espace] pause ») ne fait plus planter le setter `props` du Subscriber.
+ * - `sonic-states` : le contenu affiché n'est plus recréé à chaque rendu (clé stable, assignation
+ *   d'une valeur identique ignorée) ; défilement, focus et saisie sont conservés.
  *
  * Les classes sont lues dans `customElements` (pas via l'import) : en mode bundle autonome,
  * c'est la classe de Concorde core de la page qui est complétée, pas la copie embarquée.
  */
 import { html, nothing, type ReactiveController, type TemplateResult } from "lit";
+import { repeat } from "lit/directives/repeat.js";
+import { templateContent } from "lit/directives/template-content.js";
 import { HTML, PublisherManager } from "@supersoniks/concorde/utils";
+import Objects from "@supersoniks/concorde/core/utils/Objects";
+import UrlPattern from "@supersoniks/concorde/core/utils/url-pattern";
 import "@supersoniks/concorde/if";
 import "@supersoniks/concorde/value";
 
@@ -362,6 +368,166 @@ function patchPop(ctor: PopCtor): void {
 }
 
 // ---------------------------------------------------------------------------
+// sonic-states : ne plus recréer le contenu affiché à chaque rendu.
+//
+// Concorde 5.1.3 / 6.0.0 (`src/core/components/functional/states/states.ts`) :
+// - `onStateAssign` appelle `requestUpdate()` à chaque assignation du publisher de `data-path`,
+//   même quand la valeur n'a pas changé (une assignation du parent notifie aussi l'enfant) ;
+// - `render()` passe à `repeat` la clé `index + new Date().getTime()` : la clé change à chaque
+//   rendu, Lit détruit et recrée tout le contenu des templates (champs, listes, sonic-sdui…) :
+//   défilement remis à 0, focus et saisie perdus. Le Subscriber re-rend aussi l'élément à chaque
+//   assignation de son dataProvider, donc à chaque frappe dans un champ du même DataProvider.
+// Correctif : garde d'égalité sur l'assignation et clé stable (template + état). Le contenu n'est
+// recréé que si l'état ou le template retenu change (comme avant dans ce cas). Appliqué seulement
+// tant que le `render` d'origine contient la clé horodatée : une correction amont le désactive.
+
+const PATCHED_STATES = Symbol.for("creative-stack.compat.states");
+const GUARDED_ASSIGN = Symbol("guardedStateAssign");
+
+type StatesHost = LitHost & {
+  state: unknown;
+  inverted: boolean;
+  states?: unknown;
+  statePath: string;
+  statePublisher?: Publisher;
+  onStateAssign: ((value: unknown) => void) & { [GUARDED_ASSIGN]?: true };
+  templatePartsList: HTMLTemplateElement[];
+  templateValueAttribute: string;
+  handleStates(state: string): unknown[];
+};
+
+/** Vrai si l'assignation `next` ne change rien à l'état affiché `current` (exportée pour les tests). */
+export function sameStateValue(current: unknown, next: unknown): boolean {
+  if (current === next) return true;
+  const primitive = (v: unknown) => v == null || (typeof v !== "object" && typeof v !== "function");
+  // Objets : toujours une mise à jour (deux objets distincts donneraient le même String()).
+  if (!primitive(current) || !primitive(next)) return false;
+  if (current == null || next == null) return false;
+  return String(current) === String(next);
+}
+
+/** Le `render` d'origine utilise-t-il encore la clé horodatée ? (sinon : corrigé en amont). */
+export function statesRenderNeedsStableKey(render: unknown): boolean {
+  if (typeof render !== "function") return false;
+  const src = Function.prototype.toString.call(render);
+  // Tolère la sortie des compilateurs : `(/* @__PURE__ */ new Date()).getTime()`.
+  return /new Date\(\)[\s\S]{0,4}\.getTime\(\)|Date\.now\(\)/.test(src);
+}
+
+const templateIds = new WeakMap<HTMLTemplateElement, number>();
+let nextTemplateId = 0;
+function templateId(t: HTMLTemplateElement): number {
+  let id = templateIds.get(t);
+  if (id === undefined) {
+    id = ++nextTemplateId;
+    templateIds.set(t, id);
+  }
+  return id;
+}
+
+/** Remplace (une fois par instance) `onStateAssign` par une version qui ignore les valeurs inchangées. */
+function guardStateAssign(el: StatesHost): void {
+  const original = el.onStateAssign;
+  if (typeof original !== "function" || original[GUARDED_ASSIGN]) return;
+  const guarded = ((value: unknown) => {
+    if (sameStateValue(el.state, value)) return;
+    original(value);
+  }) as StatesHost["onStateAssign"];
+  guarded[GUARDED_ASSIGN] = true;
+  // Même référence pour l'offAssign de disconnectedCallback et les reconnexions suivantes.
+  el.onStateAssign = guarded;
+  // connectedCallback (capturé par customElements.define) a déjà abonné l'original : on échange.
+  const pub = el.statePublisher;
+  if (el.statePath && pub && el.isConnected) {
+    pub.offAssign(original);
+    pub.onAssign(guarded, false);
+  }
+}
+
+/**
+ * Copie fidèle de `SonicStates.render()` (Concorde 5.1.3 / 6.0.0) ; seule la clé de `repeat`
+ * change : `template + état` au lieu de `index + new Date().getTime()`.
+ */
+function renderStatesStable(this: StatesHost): unknown {
+  let state = this.state as string;
+  if ((!Array.isArray(state) && Objects.isObject(state)) || state == null) {
+    state = "";
+  }
+
+  const programmaticTemplates = this.handleStates(state);
+  if (programmaticTemplates.length > 0) {
+    return html`${programmaticTemplates}`;
+  }
+
+  const templates: HTMLTemplateElement[] = [];
+  for (const t of this.templatePartsList) {
+    let path = t.getAttribute(this.templateValueAttribute) as string;
+    let stateToMatch = state;
+    if (this.inverted) {
+      stateToMatch = path;
+      path = state;
+    }
+    if (path == "") path = this.inverted ? ".*?" : "^$";
+    const regexp = new RegExp(path);
+    if (regexp.test(stateToMatch + "")) {
+      templates.push(t);
+      t.removeAttribute("mode");
+    } else {
+      const urlPattern = new UrlPattern(path) as UrlPattern & { names: string[] };
+      if (urlPattern.names.length > 0 && urlPattern.match(stateToMatch)) {
+        t.setAttribute("mode", "patternMatching");
+        templates.push(t);
+      }
+    }
+  }
+
+  const stateKey = String(state);
+  return html`${repeat(
+    templates,
+    (template) => templateId(template) + "\u0001" + stateKey,
+    (template) => {
+      if (template?.hasAttribute("dataProviderExpression")) {
+        const dataProviderExpression = template.getAttribute("dataProviderExpression") as string;
+        let dataProvider = "";
+        let stateToMatch = state;
+        let path: string = template.getAttribute(this.templateValueAttribute) as string;
+        if (this.inverted) {
+          stateToMatch = path;
+          path = state;
+        }
+        if (path == "") path = this.inverted ? "*" : "^$";
+        if (template.getAttribute("mode") == "patternMatching") {
+          const matcher = new UrlPattern(path);
+          const filler = new UrlPattern(dataProviderExpression);
+          dataProvider = filler.stringify(matcher.match(stateToMatch));
+        } else {
+          const regexp = new RegExp(path);
+          const match = (stateToMatch + "").match(regexp);
+          if (match) {
+            dataProvider = match.shift()?.replace(regexp, dataProviderExpression) as string;
+          }
+        }
+        return html`<div style="display:contents" dataProvider="${dataProvider}">
+          ${templateContent(template)}
+        </div>`;
+      }
+      return templateContent(template);
+    },
+  )}`;
+}
+
+function patchStates(ctor: CustomElementConstructor): void {
+  const proto = ctor.prototype as StatesHost & { [PATCHED_STATES]?: boolean };
+  if (Object.prototype.hasOwnProperty.call(proto, PATCHED_STATES)) return;
+  proto[PATCHED_STATES] = true;
+  if (!statesRenderNeedsStableKey(proto.render)) return;
+  proto.render = function (this: StatesHost) {
+    guardStateAssign(this);
+    return renderStatesStable.call(this);
+  };
+}
+
+// ---------------------------------------------------------------------------
 
 let installed = false;
 
@@ -378,6 +544,9 @@ export function installConcordeCompat(): void {
   const popCtor = customElements.get("sonic-pop");
   if (popCtor) patchPop(popCtor as PopCtor);
   else void customElements.whenDefined("sonic-pop").then((c) => patchPop(c as PopCtor));
+  const statesCtor = customElements.get("sonic-states");
+  if (statesCtor) patchStates(statesCtor);
+  else void customElements.whenDefined("sonic-states").then((c) => patchStates(c));
 }
 
 installConcordeCompat();
