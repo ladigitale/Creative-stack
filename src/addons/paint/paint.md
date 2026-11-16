@@ -23,6 +23,7 @@
 | `roundness` | Aplatissement de la pointe, 1 intacte à 0,05 très plate (pinceau plat, calligraphie avec `angle`) |
 | `blend` | Mode de fusion du trait avec la toile : `normal`, `multiply` (produit), `screen` (écran), `overlay` (incrustation), `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity`. Le trait est peint sur un calque puis fusionné : il ne se fusionne pas avec lui-même. Sans effet sur la gomme |
 | `brush-from` | DP de réglages en direct `{ color, size, hardness, opacity, spacing, smoothing, tool, pressure, tip, angle, blend… }` : une palette en SDUI écrit dedans |
+| `persist` | clé d'enregistrement local (lettres, chiffres, `.`, `_`, `-`) : l'image est gardée dans le navigateur (IndexedDB), réenregistrée moins d'une seconde après chaque changement et quand la page est masquée, puis rouverte au chargement ; l'état publie `stored` (`off`, `loading`, `saving`, `saved`, `error`) |
 | `control` | DP de commandes à compteur : `{ undo: n, redo: n, clear: n, save: n, stamp: n }` (la commande part quand `n` augmente) |
 | `stamp-from` | Sources d'images fondues dans la toile à la commande `stamp` (sélecteurs `#id` séparés par des virgules, du dessous vers le dessus) : voir « Calques » |
 | `view-sync` | Toile navigable : DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit (voir « Calques ») |

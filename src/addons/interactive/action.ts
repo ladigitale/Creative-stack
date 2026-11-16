@@ -6,9 +6,10 @@ const tagName = "sonic-action";
 
 /**
  * Wrapper : envoie une action à un store.
- * Par défaut au `pointerdown` (réactivité des croix directionnelles et des jeux ; `hold-repeat="170,50"` pour d-pad tactile).
- * `trigger="click"` : au clic, comme un bouton Concorde (interfaces : onglets, « Détails », filtres), donc annulable
- * en sortant du bouton avant de relâcher et sans déclenchement à l'appui d'un doigt qui défile.
+ * Par défaut au clic, comme un bouton Concorde : annulable en sortant du bouton avant de relâcher, et sans
+ * déclenchement à l'appui d'un doigt qui fait défiler la page.
+ * `trigger="pointerdown"` : dès l'appui (jeux, croix directionnelles, manettes tactiles). `hold-repeat="170,50"`
+ * (répétition tant que l'appui dure) part lui aussi de l'appui, sans avoir à écrire `trigger`.
  * Tout autre nom (ex. `trigger="hide"`) : l'action part quand un ENFANT DIRECT émet cet évènement, même s'il ne
  * remonte pas (écouté en capture) — garder un store au courant de la fermeture d'un `sonic-modal` (croix, fond,
  * Échap) : `<sonic-action trigger="hide" target="ui" type="close"><sonic-modal …>`.
@@ -33,9 +34,20 @@ export class SonicAction extends LitElement {
   @property({ type: String, attribute: "hold-repeat" })
   holdRepeat = "";
 
-  /** "pointerdown" (défaut, jeux et manettes tactiles), "click" (interfaces) ou un nom d'évènement d'un enfant direct. */
+  /**
+   * "click" (défaut), "pointerdown" (jeux et manettes tactiles) ou un nom d'évènement d'un enfant direct.
+   * Vide : clic, ou appui si `hold-repeat` est renseigné.
+   */
   @property({ type: String })
-  trigger: string = "pointerdown";
+  trigger: string = "";
+
+  /** Déclencheur effectif : "click", "pointerdown", ou "" pour un évènement d'un enfant direct. */
+  private mode(): "click" | "pointerdown" | "" {
+    const t = (this.trigger || "").trim();
+    if (t === "click" || t === "pointerdown") return t;
+    if (t) return "";
+    return this.holdRepeat.trim() ? "pointerdown" : "click";
+  }
 
   private customTrigger = "";
 
@@ -45,7 +57,7 @@ export class SonicAction extends LitElement {
   };
 
   private syncCustomTrigger(): void {
-    const t = this.trigger === "click" || this.trigger === "pointerdown" ? "" : (this.trigger || "").trim();
+    const t = this.mode() ? "" : (this.trigger || "").trim();
     if (t === this.customTrigger) return;
     if (this.customTrigger) this.removeEventListener(this.customTrigger, this.onCustom, true);
     this.customTrigger = t;
@@ -76,11 +88,11 @@ export class SonicAction extends LitElement {
   private holdInterval: number | null = null;
 
   private onClick = () => {
-    if (this.trigger === "click") this.emit();
+    if (this.mode() === "click") this.emit();
   };
 
   private onPointerDown = (e: PointerEvent) => {
-    if (this.trigger !== "pointerdown" && this.trigger) return;
+    if (this.mode() !== "pointerdown") return;
     if (e.button != null && e.button !== 0) return;
     this.emit();
     const parts = this.holdRepeat.split(",").map((s) => Number(s.trim()));

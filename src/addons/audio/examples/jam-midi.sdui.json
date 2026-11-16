@@ -257,6 +257,7 @@
        "attributes": {
         "target": "jam",
         "type": "pad",
+        "trigger": "pointerdown",
         "payload": "0"
        },
        "nodes": [
@@ -284,6 +285,7 @@
        "attributes": {
         "target": "jam",
         "type": "pad",
+        "trigger": "pointerdown",
         "payload": "1"
        },
        "nodes": [
@@ -311,6 +313,7 @@
        "attributes": {
         "target": "jam",
         "type": "pad",
+        "trigger": "pointerdown",
         "payload": "2"
        },
        "nodes": [
@@ -338,6 +341,7 @@
        "attributes": {
         "target": "jam",
         "type": "pad",
+        "trigger": "pointerdown",
         "payload": "3"
        },
        "nodes": [
@@ -365,6 +369,7 @@
        "attributes": {
         "target": "jam",
         "type": "pad",
+        "trigger": "pointerdown",
         "payload": "4"
        },
        "nodes": [
@@ -392,6 +397,7 @@
        "attributes": {
         "target": "jam",
         "type": "pad",
+        "trigger": "pointerdown",
         "payload": "5"
        },
        "nodes": [

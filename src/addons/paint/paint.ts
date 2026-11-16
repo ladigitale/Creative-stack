@@ -11,6 +11,7 @@ import { ROTATE_STEP, ViewGestures, fitBox, invert, multiply, sanitizeView2D, sc
 import { ViewSync } from "../../shared/view-sync";
 import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
 import { PalmGuard, VelocityPressure, pressureCurve, readPen, sanitizeTouchMode } from "../../shared/pen";
+import { persistKey, readPaint, writePaint } from "./persist";
 
 /** Zoom de la vue d'une toile navigable (pixels d'écran par pixel de toile). */
 const NAV_MIN_ZOOM = 0.01;
@@ -35,6 +36,8 @@ export type PaintState = {
   picked: string | null;
   /** Dernier enregistrement (`control.save`) : à brancher sur `sonic-media-download source="…last"`. */
   last: { url: string; mime: string; width: number; height: number; size: number } | null;
+  /** Enregistrement local (`persist`) : off (pas de clé), loading, saving, saved ou error. */
+  stored: "off" | "loading" | "saving" | "saved" | "error";
   /** Toile navigable : vue (centre en pixels de toile, zoom, rotation en radians). Sinon zoom 1, rotation 0. */
   x: number;
   y: number;
@@ -52,7 +55,8 @@ export type PaintState = {
  *
  * Réglages par attributs ou en direct par `brush-from` (DP `{ color, size, hardness, opacity, tool… }`) ;
  * commandes par `control` (compteurs : `undo`, `redo`, `clear`, `save`). `in-data-provider` charge une
- * image de départ. État dans `out-data-provider`.
+ * image de départ. État dans `out-data-provider`. `persist="cle"` garde l'image dans le navigateur (IndexedDB) :
+ * réenregistrée peu après chaque changement et quand la page est masquée, rouverte au chargement.
  */
 @customElement("sonic-paint")
 export class SonicPaint extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
@@ -113,6 +117,11 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   @property({ type: String, attribute: "in-data-provider" }) inDataProvider = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
   @property({ type: Number, attribute: "undo-levels" }) undoLevels = 20;
+  /**
+   * Clé d'enregistrement local (lettres, chiffres, `.`, `_`, `-`) : l'image est gardée dans le navigateur
+   * (IndexedDB) et rouverte au chargement. Vide : rien n'est enregistré.
+   */
+  @property({ type: String }) persist = "";
   @property({ type: Boolean }) readonly = false;
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
   /**
@@ -146,6 +155,12 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   private triggers = new Map<string, CounterTrigger>();
   private unsubs: (() => void)[] = [];
   private last: PaintState["last"] = null;
+  private stored: PaintState["stored"] = "off";
+  private storeTimer: number | null = null;
+  private storeDirty = false;
+  private restoring = false;
+  /** Faux tant que la relecture n'est pas terminée : le fond vierge du départ n'écrase pas l'image gardée. */
+  private storeReady = false;
   private error: string | null = null;
   private loadToken = 0;
   /** Trait en mode de fusion : image de la toile au début du trait, et calque du trait seul. */
@@ -222,6 +237,8 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.listen();
     window.addEventListener("keydown", this.onSpace);
     window.addEventListener("keyup", this.onSpace);
+    document.addEventListener("visibilitychange", this.onHidden);
+    window.addEventListener("pagehide", this.onHidden);
   }
 
   disconnectedCallback(): void {
@@ -235,6 +252,9 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     window.removeEventListener("pointercancel", this.onHeldUp, true);
     for (const u of this.unsubs) u();
     this.unsubs = [];
+    document.removeEventListener("visibilitychange", this.onHidden);
+    window.removeEventListener("pagehide", this.onHidden);
+    this.flushStore();
     if (this.last) URL.revokeObjectURL(this.last.url);
     super.disconnectedCallback();
   }
@@ -243,6 +263,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.fillBackground();
     if (this.navigable) this.setupDisplay();
     this.publish();
+    void this.restoreStored();
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
@@ -357,7 +378,76 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   private touch(): void {
     this.seq++;
     this.schedulePresent();
+    this.scheduleStore();
     this.publish();
+  }
+
+  /* ------------------------------------------------------------ enregistrement local (persist) */
+
+  private onHidden = (): void => {
+    if (document.visibilityState === "hidden") this.flushStore();
+  };
+
+  /** Programme l'enregistrement de l'image (rien pendant la relecture, ni sans clé valide). */
+  private scheduleStore(): void {
+    if (this.restoring || !this.storeReady || !persistKey(this.persist)) return;
+    this.storeDirty = true;
+    if (this.storeTimer != null) clearTimeout(this.storeTimer);
+    this.storeTimer = window.setTimeout(() => this.flushStore(), 600);
+  }
+
+  private flushStore(): void {
+    if (this.storeTimer != null) clearTimeout(this.storeTimer);
+    this.storeTimer = null;
+    const key = persistKey(this.persist);
+    const img = this.image();
+    if (!this.storeDirty || !key || !img) return;
+    this.storeDirty = false;
+    const { w, h } = this.dims();
+    this.stored = "saving";
+    img.toBlob((blob) => {
+      if (!blob) { this.stored = "error"; this.publish(); return; }
+      writePaint({ key, blob, width: w, height: h, updated: Date.now() }).then(
+        () => { if (!this.storeDirty) { this.stored = "saved"; this.publish(); } },
+        () => { this.stored = "error"; this.publish(); },
+      );
+    }, "image/png");
+  }
+
+  /** Rouvre l'image enregistrée, sauf si l'on a déjà dessiné entre-temps. */
+  private async restoreStored(): Promise<void> {
+    const key = persistKey(this.persist);
+    if (!key) { this.storeReady = true; return; }
+    this.stored = "loading";
+    this.publish();
+    try {
+      const rec = await readPaint(key);
+      if (!rec) { this.stored = "saved"; this.publish(); return; }
+      const bmp = await createImageBitmap(rec.blob);
+      const ctx = this.ctx();
+      if (!ctx || this.strokes > 0 || this.drawing) { bmp.close(); this.stored = "saved"; this.publish(); return; }
+      const { w, h } = this.dims();
+      const k = Math.min(w / bmp.width, h / bmp.height);
+      const dw = bmp.width * k, dh = bmp.height * k;
+      this.restoring = true;
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = bmp.width !== w || bmp.height !== h;
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(bmp, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      ctx.restore();
+      bmp.close();
+      this.strokes = 1;
+      this.stored = "saved";
+      this.touch();
+    } catch {
+      this.stored = "error";
+      this.publish();
+    } finally {
+      this.restoring = false;
+      this.storeReady = true;
+    }
   }
 
   /* ------------------------------------------------------------ toile navigable : affichage */
@@ -961,7 +1051,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   getState(): PaintState {
     const { w, h } = this.dims();
     const b = this.brush();
-    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" || this.toolName() === "pick" ? this.toolName() : b.tool, color: b.color, picked: this.picked, size: b.size, last: this.last, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
+    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" || this.toolName() === "pick" ? this.toolName() : b.tool, color: b.color, picked: this.picked, size: b.size, last: this.last, stored: this.stored, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
   }
 
   private publish(): void {
