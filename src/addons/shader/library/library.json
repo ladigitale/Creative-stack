@@ -558,7 +558,7 @@
       "id": "niveaux",
       "kind": "shader",
       "file": "niveaux.glsl",
-      "version": 1,
+      "version": 2,
       "license": "MIT",
       "title": "Niveaux",
       "description": "Prépare une image en gris : luminosité, contraste, gamma et égalisation de l'éclairage (retire ombres et dégradés lents). Avant un tramage, une gravure laser (sonic-gcode source) ou une impression thermique.",
