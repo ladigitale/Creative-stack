@@ -97,6 +97,16 @@ function cleanFilters(value: unknown): BluetoothFilter[] | null {
  * Chromium seulement, en HTTPS ; ni iOS, ni Firefox, ni Safari. Dans une iframe : `allow="bluetooth"`.
  * Jamais de mise à jour de micrologiciel : les services DFU, HID et FIDO sont refusés.
  */
+/** Profils réunis sur un même sélecteur, au plus. */
+const MAX_PROFILES = 4;
+
+type PlanVariant = {
+  name: string | null;
+  profile: BluetoothProfile | null;
+  channels: Record<string, { service: string; characteristic: string }>;
+  notify: string[];
+};
+
 @customElement(tagName)
 export class SonicBluetooth extends DeviceElement<BluetoothState> implements SonicBytePipe {
   @property({ type: String }) profile = "";
@@ -127,6 +137,7 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryDelay = 1000;
   private forbidden: number[][] = [];
+  private activeProfile = "";
   private chunk = 20;
   private gap = 0;
 
@@ -172,6 +183,11 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
 
   get deviceName(): string {
     return this.state.device?.name ?? "";
+  }
+
+  /** Profil effectivement ouvert sur l'appareil connecté (utile quand `profile` en liste plusieurs). */
+  get pipeProfile(): string {
+    return this.state.connected ? this.activeProfile : "";
   }
 
   onBytes(cb: (data: Uint8Array, channel: string) => void): () => void {
@@ -220,11 +236,19 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
 
   // ─── Connexion ────────────────────────────────────────────────────────────────────────────────────────────────
   /** Filtres, services et canaux effectifs (profil puis attributs). `null` + message si la configuration est invalide. */
-  private plan(): { options: RequestOptions; channels: Record<string, { service: string; characteristic: string }>; notify: string[]; profile: BluetoothProfile | null } | string {
-    const profile = this.profile ? getProfile(this.profile) : null;
-    if (this.profile && !profile) return `profil inconnu : ${this.profile}`;
+  private plan(): { options: RequestOptions; variants: PlanVariant[] } | string {
+    // Plusieurs profils (« luck niimbot ») : filtres réunis ; à la connexion, le premier dont le service
+    // d'écriture existe sur l'appareil est retenu.
+    const names = this.profile.split(/[\s,]+/).filter(Boolean).slice(0, MAX_PROFILES);
+    const profiles: { name: string | null; profile: BluetoothProfile | null }[] = [];
+    for (const name of names) {
+      const profile = getProfile(name);
+      if (!profile) return `profil inconnu : ${name}`;
+      profiles.push({ name, profile });
+    }
+    if (!profiles.length) profiles.push({ name: null, profile: null });
 
-    const rawChannels: Record<string, string> = { ...(profile?.channels ?? {}) };
+    const extraChannels: Record<string, string> = {};
     if (this.channels.trim()) {
       let parsed: unknown;
       try {
@@ -235,19 +259,23 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "channels : objet attendu";
       for (const [alias, v] of Object.entries(parsed as Record<string, unknown>)) {
         if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,31}$/.test(alias) || typeof v !== "string") return `channels : alias ou valeur invalide (${alias})`;
-        rawChannels[alias] = v;
+        extraChannels[alias] = v;
       }
     }
-    const channels: Record<string, { service: string; characteristic: string }> = {};
-    for (const [alias, v] of Object.entries(rawChannels)) {
-      const parsed = parseChannel(v);
-      if (!parsed) return `canal invalide : ${alias} (forme service/caractéristique)`;
-      channels[alias] = parsed;
-    }
-
+    const variants: PlanVariant[] = [];
     let filters: BluetoothFilter[] = [];
-    for (const f of profile?.filters ?? []) {
-      filters.push({ ...f, ...(f.services ? { services: f.services.map((s) => expandUuid(s) as string) } : {}) });
+    for (const { name, profile } of profiles) {
+      const channels: Record<string, { service: string; characteristic: string }> = {};
+      for (const [alias, v] of Object.entries({ ...(profile?.channels ?? {}), ...extraChannels })) {
+        const parsed = parseChannel(v);
+        if (!parsed) return `canal invalide : ${alias} (forme service/caractéristique)`;
+        channels[alias] = parsed;
+      }
+      const notify = (this.notify.trim() ? this.notify.split(/\s+/) : profile?.notify ?? (channels.rx ? ["rx"] : [])).filter((a) => channels[a]);
+      variants.push({ name, profile, channels, notify });
+      for (const f of profile?.filters ?? []) {
+        filters.push({ ...f, ...(f.services ? { services: f.services.map((s) => expandUuid(s) as string) } : {}) });
+      }
     }
     if (this.filters.trim()) {
       let parsed: unknown;
@@ -261,7 +289,7 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
       filters = filters.concat(extra);
     }
 
-    const services = new Set<string>(Object.values(channels).map((c) => c.service));
+    const services = new Set<string>(variants.flatMap((v) => Object.values(v.channels).map((c) => c.service)));
     for (const s of this.services.split(/\s+/).filter(Boolean)) {
       const uuid = expandUuid(s);
       if (!uuid) return `service invalide : ${s}`;
@@ -277,8 +305,7 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
     else if (filters.length) options.filters = filters;
     else return "aucun filtre : donner profile, filters, ou accept-all";
 
-    const notify = (this.notify.trim() ? this.notify.split(/\s+/) : profile?.notify ?? (channels.rx ? ["rx"] : [])).filter((a) => channels[a]);
-    return { options, channels, notify, profile };
+    return { options, variants };
   }
 
   /** Ouvre le sélecteur du navigateur puis connecte. À appeler dans un geste. */
@@ -337,7 +364,12 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
           // Service déclaré mais absent de cet appareil : ignoré.
         }
       }
-      for (const [alias, target] of Object.entries(plan.channels)) {
+      // Profil retenu : le premier dont le service d'écriture (à défaut, un service quelconque) est présent.
+      const present = (v: PlanVariant, alias?: string): boolean =>
+        Object.entries(v.channels).some(([a, c]) => (!alias || a === alias) && cache.has(c.service));
+      const variant = plan.variants.find((v) => present(v, "tx")) ?? plan.variants.find((v) => present(v)) ?? plan.variants[0];
+      this.activeProfile = variant.name ?? "";
+      for (const [alias, target] of Object.entries(variant.channels)) {
         const service = cache.get(target.service);
         if (!service) continue;
         try {
@@ -347,16 +379,16 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
         }
       }
       if (this.device !== device || !this.isConnected) return false;
-      this.forbidden = plan.profile?.forbidden ?? [];
-      this.chunk = this.chunkSizeAttr > 0 ? this.chunkSizeAttr : plan.profile?.chunkSize ?? 20;
-      this.gap = this.gapMsAttr >= 0 ? this.gapMsAttr : plan.profile?.gapMs ?? 0;
+      this.forbidden = variant.profile?.forbidden ?? [];
+      this.chunk = this.chunkSizeAttr > 0 ? this.chunkSizeAttr : variant.profile?.chunkSize ?? 20;
+      this.gap = this.gapMsAttr >= 0 ? this.gapMsAttr : variant.profile?.gapMs ?? 0;
       this.retryDelay = 1000;
       this.patch({
-        status: "ready", error: this.chars.size || !Object.keys(plan.channels).length ? null : "aucun canal trouvé sur cet appareil",
-        active: true, connected: true, reconnecting: false,
+        status: "ready", error: this.chars.size || !Object.keys(variant.channels).length ? null : "aucun canal trouvé sur cet appareil",
+        active: true, connected: true, reconnecting: false, profile: variant.name,
         device: { id: device.id, name: (device.name ?? "").slice(0, MAX_NAME) }, services, channels: [...this.chars.keys()], values: {},
       });
-      for (const alias of plan.notify) await this.subscribe(alias);
+      for (const alias of variant.notify) await this.subscribe(alias);
       this.emit("sonic-bluetooth-connect", { device: this.state.device });
       return true;
     } catch (e) {
