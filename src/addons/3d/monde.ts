@@ -143,6 +143,9 @@ type Built = {
 const SHADOW_GEO = new THREE.CircleGeometry(1, 24).rotateX(-Math.PI / 2);
 let shadowMat: THREE.MeshBasicMaterial | null = null;
 
+/** Hauteur d'un objet saisi (mètres). */
+const LIFT = 0.06;
+
 export class Monde3d {
   readonly driver = new MondeDriver();
   readonly group = new THREE.Group();
@@ -189,6 +192,10 @@ export class Monde3d {
   private marks: THREE.LineSegments | null = null;
   private selection: THREE.LineSegments | null = null;
   private selName = "";
+  /** Geste en cours sur un objet : soulevé à la prise, posé avec un rebond au lâcher (voir `grab` / `release`). */
+  private fx: { name: string; phase: "up" | "down"; t0: number; from: number } | null = null;
+  /** Fantôme rouge : la place visée ne va pas (aucune place libre près du point). */
+  private ghost: THREE.Mesh | null = null;
 
   constructor() {
     this.group.name = "monde";
@@ -264,6 +271,79 @@ export class Monde3d {
   select(name: string): void {
     this.selName = name;
     this.drawSelection();
+  }
+
+  /** Prise d'un objet : il se soulève un peu (son ombre se détache du sol). */
+  grab(name: string, now = performance.now()): void {
+    this.fx = { name, phase: "up", t0: now, from: this.driver.instances.get(name)?.liftY ?? 0 };
+  }
+
+  /** Lâcher : l'objet se pose avec un petit rebond ; le fantôme rouge disparaît. */
+  release(name: string, now = performance.now()): void {
+    this.fx = { name, phase: "down", t0: now, from: this.driver.instances.get(name)?.liftY ?? 0 };
+    this.showGhost(null);
+  }
+
+  /** Hauteur de l'objet saisi à l'instant `now` (mètres) ; `null` : plus d'effet. */
+  private fxLift(now: number): number | null {
+    const f = this.fx;
+    if (!f) return null;
+    const t = now - f.t0;
+    if (f.phase === "up") return f.from + (LIFT - f.from) * Math.min(1, t / 140) * (2 - Math.min(1, t / 140));
+    const u = t / 320;
+    if (u >= 1) {
+      this.fx = null;
+      return 0;
+    }
+    // descente, puis un rebond d'un centimètre
+    return u < 0.45 ? f.from * Math.pow(1 - u / 0.45, 2) : 0.012 * Math.sin(Math.PI * ((u - 0.45) / 0.55));
+  }
+
+  /** Applique la hauteur du geste à l'objet saisi ; vrai si elle a changé. */
+  private applyFx(now: number): boolean {
+    const f = this.fx;
+    if (!f) return false;
+    const inst = this.driver.instances.get(f.name);
+    const lift = this.fxLift(now);
+    if (!inst || inst.carry || lift === null) return false;
+    if (inst.liftY === lift) return false;
+    inst.liftY = lift;
+    inst.driven = true;
+    return true;
+  }
+
+  /** Fantôme rouge sur l'enveloppe de l'objet (`null` : retiré). */
+  private showGhost(name: string | null): void {
+    const body = name && this.monde ? this.driver.bodies().find((b) => b.name === name) : undefined;
+    if (!body) {
+      if (this.ghost) this.ghost.visible = false;
+      return;
+    }
+    if (!this.ghost) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0xe5484d, transparent: true, opacity: 0.32, depthTest: false, depthWrite: false });
+      this.ghost = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      this.ghost.renderOrder = 12;
+      this.ghost.raycast = () => {};
+      this.group.add(this.ghost);
+    }
+    const e = envelopeOf(body);
+    const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(...e.ax[0]), new THREE.Vector3(...e.ax[1]), new THREE.Vector3(...e.ax[2]));
+    this.ghost.quaternion.setFromRotationMatrix(m);
+    const inst = this.driver.instances.get(name!);
+    this.ghost.position.set(e.c[0], e.c[1] + (inst && !inst.carry ? inst.liftY : 0), e.c[2]);
+    this.ghost.scale.set(e.h[0] * 2 + 0.01, e.h[1] * 2 + 0.01, e.h[2] * 2 + 0.01);
+    this.ghost.visible = true;
+  }
+
+  /** Point au-dessus de l'objet sélectionné (milieu du haut de son enveloppe, mètres), `null` sans sélection. */
+  selectionPoint(): [number, number, number] | null {
+    const name = this.selName;
+    const body = name && this.monde ? this.driver.bodies().find((b) => b.name === name) : undefined;
+    if (!body) return null;
+    const e = envelopeOf(body);
+    const up = Math.abs(e.ax[0][1]) * e.h[0] + Math.abs(e.ax[1][1]) * e.h[1] + Math.abs(e.ax[2][1]) * e.h[2];
+    const inst = this.driver.instances.get(name);
+    return [e.c[0], e.c[1] + up + (inst && !inst.carry ? inst.liftY : 0), e.c[2]];
   }
 
   private drawSelection(): void {
@@ -598,6 +678,11 @@ export class Monde3d {
     for (const n of this.built.keys()) if (n !== name) this.syncT(n);
     const res = this.driver.arrangeTo(name, x, z, now, 0, "inOut", { ...(ry === undefined ? {} : { ry }), ...(bord === undefined ? {} : { bord }) });
     if (!res) return null;
+    // le pilote repose l'objet : il reste soulevé tant qu'on le tient
+    this.applyFx(now);
+    const inst = this.driver.instances.get(name);
+    if (inst && this.fx?.name === name && !inst.carry) inst.liftY = this.fxLift(now) ?? 0;
+    this.showGhost(res.valid ? null : name);
     this.follow();
     this.refreshConflicts(true);
     return placedInfo(name, res, this.driver.bodies(), this.monde.unit);
@@ -645,7 +730,9 @@ export class Monde3d {
     const inst = this.driver.instances.get(name);
     const root = this.built.get(name)?.joints[0]?.parent;
     if (!inst || !root) return;
-    Object.assign(inst.t, { x: root.position.x, y: root.position.y, z: root.position.z, ry: root.rotation.y, sx: root.scale.x, sy: root.scale.y, sz: root.scale.z });
+    // la hauteur d'un geste (objet soulevé) n'est qu'affichée : la pose garde l'objet au sol
+    const lift = inst.driven && !inst.carry ? inst.liftY : 0;
+    Object.assign(inst.t, { x: root.position.x, y: root.position.y - lift, z: root.position.z, ry: root.rotation.y, sx: root.scale.x, sy: root.scale.y, sz: root.scale.z });
   }
 
   /**
@@ -710,6 +797,7 @@ export class Monde3d {
     if (!this.monde) return false;
     const busy = this.driver.step(now);
     let changed = busy;
+    if (this.applyFx(now)) changed = true;
     const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
     this.lastStep = now;
     if (this.follow()) changed = true;

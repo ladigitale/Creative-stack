@@ -137,6 +137,13 @@ export class Monde2d {
     this.drawSelection();
   }
 
+  /** Haut de la sélection dans le canvas (pixels de la scène), `null` sans sélection. */
+  selectionTop(): { x: number; y: number } | null {
+    if (!this.selection) return null;
+    const b = this.selection.getBounds();
+    return { x: b.x + b.width / 2, y: b.y };
+  }
+
   private drawSelection(): void {
     if (this.selection) {
       this.selection.destroy();

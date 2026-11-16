@@ -181,6 +181,7 @@ export class Sonic3d extends Sonic3dProps {
     this.lastDrawAt = now;
     postBind.syncFrame(this as never, time, timeDelta, this.frame);
     this.runtime.render();
+    this.placeAnchor();
     this.frameSeq++;
     this.trackMotion(time);
     outPublish.maybePublish(this as never, now, time);
@@ -269,12 +270,39 @@ export class Sonic3d extends Sonic3dProps {
   onPointerDown = (e: PointerEvent) => pointer.onDown(this as never, e);
   onPointerUp = (e: PointerEvent) => pointer.onUp(this as never, e);
   onDblClick = () => pointer.onDblClick(this as never);
+  onWheel = (e: WheelEvent) => pointer.onWheel(this as never, e);
+  onKeyDown = (e: KeyboardEvent) => pointer.onKeyDown(this as never, e);
   onPointerEnter = () => pointer.onEnter(this as never);
   onPointerLeave = () => pointer.onLeave(this as never);
+
+  /** Bulle de la sélection : le slot `selection` suit l'objet sélectionné à l'écran. */
+  private anchorEl: HTMLElement | null = null;
+  private anchorSig = "";
+  private placeAnchor() {
+    const el = (this.anchorEl ??= this.renderRoot.querySelector<HTMLElement>(".anchor"));
+    if (!el || !this.runtime) return;
+    const s = this.runtime.selectionScreen();
+    // la bulle reste dans le cadre (objet au bord de l'écran ou en partie dehors)
+    if (s) {
+      const w = this.clientWidth, h = this.clientHeight;
+      s.x = Math.max(Math.min(110, w / 2), Math.min(w - Math.min(110, w / 2), s.x));
+      s.y = Math.max(60, Math.min(h - 20, s.y));
+    }
+    const sig = s ? `${Math.round(s.x)},${Math.round(s.y)}` : "";
+    if (sig === this.anchorSig) return;
+    this.anchorSig = sig;
+    if (!s) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.style.transform = `translate(${Math.round(s.x)}px, ${Math.round(s.y)}px)`;
+  }
 
   render() {
     return html`
       <canvas part="canvas"></canvas>
+      <div class="anchor" part="selection-anchor" data-overlay hidden><div class="bubble"><slot name="selection"></slot></div></div>
       ${this.errorMessage
         ? html`<div class="err" part="error">${this.errorMessage}</div>`
         : null}

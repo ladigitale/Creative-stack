@@ -12,6 +12,7 @@ export type EnsureHost = {
   runtime: SceneRuntime | null;
   dprMax: number;
   camera: Sonic3dCameraMode;
+  eyeHeight: number;
   fov: number;
   exposure: number;
   fit: boolean;
@@ -58,6 +59,7 @@ async function ensureRuntime(host: EnsureHost) {
       minPolar: reload.degToRad(host.minPolar),
       maxPolar: reload.degToRad(host.maxPolar),
     });
+    host.runtime.setEyeHeight(host.eyeHeight);
     // ce que le monde signale après coup (modèle procgen mesuré, rangement) repasse par l'élément
     mondeBind.hook(host as never);
     host.runtime.setDamping(host.damping);

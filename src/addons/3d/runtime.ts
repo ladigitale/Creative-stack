@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import type { Sonic3dCameraMode } from "./constants";
+import { Sonic3dCameraMode } from "./constants";
+import { EYE_FOV, EyeNav } from "./eye";
 import { bootScene } from "./boot";
 import { ops, type OpsCtx } from "./ops";
 import type { SceneRuntimeOptions } from "./opts";
@@ -169,7 +170,9 @@ export class SceneRuntime {
     tune.stopMotion(this.asTuneCtx());
   }
   setOrbitLimits(opts: Parameters<typeof tune.setOrbitLimits>[1]) {
-    tune.setOrbitLimits(this.asTuneCtx(), opts);
+    // à hauteur d'yeux, les bornes d'orbite sont gardées pour la sortie, pas appliquées
+    if (this.isEye) this.limits = { ...this.limits, ...Object.fromEntries(Object.entries(opts).filter(([, v]) => v != null && Number.isFinite(v as number))) };
+    else tune.setOrbitLimits(this.asTuneCtx(), opts);
   }
   /** Point visé piloté par les données (`lookAt`) : la caméra glisse vers lui en gardant son cadrage. */
   private lookGoal: THREE.Vector3 | null = null;
@@ -204,8 +207,72 @@ export class SceneRuntime {
   }
 
   applyCameraMode(mode: Sonic3dCameraMode) {
+    const prev = this.mode;
     view.applyCameraMode(this.asViewCtx(), mode);
     tune.setDamping(this.asTuneCtx(), this.damping);
+    // champ plus large dans la pièce, celui de l'attribut dehors
+    this.perspCam.fov = mode === Sonic3dCameraMode.Eye ? Math.max(this.fov, EYE_FOV) : this.fov;
+    this.perspCam.updateProjectionMatrix();
+    // entrer dans la pièce, ou en ressortir pour la revoir en entier
+    if (mode === Sonic3dCameraMode.Eye && this._ready) this.eye.enter(this.eyeCtx());
+    else if (prev === Sonic3dCameraMode.Eye && mode !== prev && this._ready) this.fitToContent();
+  }
+
+  /**
+   * Position à l'écran (pixels CSS, depuis le coin haut gauche) du haut de l'objet sélectionné, `null` sans sélection
+   * ou s'il est derrière la caméra : de quoi poser une bulle au-dessus de lui (slot `selection` de sonic-3d).
+   */
+  selectionScreen(): { x: number; y: number } | null {
+    if (!this.mondeData) return null;
+    const p = this.monde.selectionPoint();
+    if (!p) return null;
+    const v = new THREE.Vector3(p[0], p[1], p[2]).project(this.activeCam);
+    if (v.z > 1 || v.z < -1) return null;
+    return { x: ((v.x + 1) / 2) * this.lastCssW, y: ((1 - v.y) / 2) * this.lastCssH };
+  }
+
+  /* ---------------------------------------------------------------- à hauteur d'yeux */
+
+  private eye = new EyeNav();
+  private eyeCtx = () => ({ activeCam: this.activeCam, controls: this.controls, contour: this.mondeData?.contour ?? null, entry: this.eyeEntry(), center: this.bbox.isEmpty() ? new THREE.Vector3() : this.bbox.getCenter(new THREE.Vector3()) });
+  /** Première porte du monde (mètres) : là où l'on entre dans la pièce. */
+  private eyeEntry(): { x: number; z: number; nx: number; nz: number } | null {
+    const m = this.mondeData;
+    if (!m) return null;
+    const name = Object.keys(m.openings).find((n) => /^porte/.test(n));
+    if (!name) return null;
+    const o = m.openings[name];
+    const e = m.edges.find((q) => q.bord === o.bord);
+    if (!e) return null;
+    const c = o.at * m.unit - e.L / 2;
+    return { x: e.m[0] + e.l[0] * c, z: e.m[1] + e.l[1] * c, nx: e.n[0], nz: e.n[1] };
+  }
+  /** Vrai en vue à hauteur d'yeux. */
+  get isEye(): boolean {
+    return this.mode === Sonic3dCameraMode.Eye;
+  }
+  /** Hauteur des yeux (m). */
+  setEyeHeight(h: number) {
+    if (Number.isFinite(h) && h > 0.3 && h < 3) this.eye.height = h;
+  }
+  /** Tap à hauteur d'yeux : va au point du sol visé (vrai si le sol est sous le pointeur). */
+  eyeGoAt(normX: number, normY: number): boolean {
+    if (!this.isEye) return false;
+    this.dragNdc.set(normX * 2 - 1, -(normY * 2 - 1));
+    this.raycaster.setFromCamera(this.dragNdc, this.activeCam);
+    const ray = this.raycaster.ray;
+    if (ray.direction.y > -1e-3) return false;
+    const t = -ray.origin.y / ray.direction.y;
+    this.eye.goTo(this.eyeCtx(), ray.origin.x + ray.direction.x * t, ray.origin.z + ray.direction.z * t);
+    return true;
+  }
+  /** Avance (`n` > 0) ou recule de `n` pas. */
+  eyeStep(n: number) {
+    if (this.isEye) this.eye.step(this.eyeCtx(), n);
+  }
+  /** Tourne le regard (radians, positif : à gauche). */
+  eyeTurn(rad: number) {
+    if (this.isEye) this.eye.turn(this.eyeCtx(), rad);
   }
   resize(cssW: number, cssH: number) {
     this.lastCssW = cssW;
@@ -269,6 +336,11 @@ export class SceneRuntime {
     return this.nodes.apply(sp, now, animate) || a;
   }
   fitToContent() {
+    // à hauteur d'yeux, « cadrer » veut dire se replacer dans la pièce
+    if (this.isEye) {
+      this.eye.enter(this.eyeCtx());
+      return;
+    }
     ops.fitToContent(this.asOpsCtx());
   }
 
@@ -298,6 +370,7 @@ export class SceneRuntime {
     this.nodes.step(now);
     if (this.mondeData) this.monde.follow();
     this.stepLook(now);
+    if (this.isEye) this.eye.tick(this.eyeCtx(), now);
     this.controls?.update();
     if (this.postFx.isEnabled) {
       this.postFx.render(this.scene, this.activeCam, this.postFrame);
@@ -338,6 +411,7 @@ export class SceneRuntime {
     if (!name) return "";
     this.dragPlaneY = this.monde.heightOf(name);
     if (this.controls) this.controls.enabled = false;
+    this.monde.grab(name);
     return name;
   }
 
@@ -369,6 +443,7 @@ export class SceneRuntime {
   /** Fin du glisser ; `moved` : l'objet a bougé (résultat publié, conflits recalculés). */
   dragEnd(name: string, moved: boolean) {
     if (this.controls) this.controls.enabled = true;
+    this.monde.release(name);
     if (!moved) return;
     this.monde.dropped(name);
     this.render();

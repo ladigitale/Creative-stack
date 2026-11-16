@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Sonic3dCameraMode } from "./constants";
 import { orbit, type OrbitLimits } from "./orbit";
+import { EYE_RADIUS } from "./eye";
 
 export type ViewCtx = {
   canvas: HTMLCanvasElement;
@@ -36,6 +37,19 @@ function applyCameraMode(ctx: ViewCtx, mode: Sonic3dCameraMode) {
     ctx.controls.screenSpacePanning = false;
     ctx.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
     ctx.controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
+  }
+  if (mode === Sonic3dCameraMode.Eye) {
+    // regarder autour : la caméra tourne sur une toute petite sphère autour du point regardé ; le glisser « tire »
+    // la vue (comme une photo panoramique), la molette et le pincement sont repris par EyeNav
+    const c = ctx.controls;
+    c.enablePan = false;
+    c.enableZoom = false;
+    c.rotateSpeed = -0.3;
+    c.minDistance = c.maxDistance = EYE_RADIUS;
+    c.minPolarAngle = 0.35;
+    c.maxPolarAngle = Math.PI - 0.5;
+    c.update();
+    return;
   }
   orbit.applyLimitsToControls(ctx.controls, ctx.limits);
   ctx.controls.update();

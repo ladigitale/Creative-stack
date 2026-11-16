@@ -24,6 +24,8 @@ export type PointerHost = {
   setPointerCapture?: (id: number) => void;
   releasePointerCapture?: (id: number) => void;
   tapStart: { x: number; y: number; t: number } | null;
+  /** Début d'un tap à hauteur d'yeux (sans `pick`). */
+  eyeTap?: { x: number; y: number; t: number } | null;
   runtime: SceneRuntime | null;
   lastHit: SceneHit | null;
   hovering: boolean;
@@ -64,7 +66,17 @@ function onMove(host: PointerHost, e: PointerEvent) {
   }
 }
 
+/** Évènement venu de la bulle de sélection (slot `selection`) : ni glisser, ni orbite, ni tap. */
+function fromOverlay(e: Event): boolean {
+  return typeof e.composedPath === "function" && e.composedPath().some((n) => n instanceof HTMLElement && n.hasAttribute("data-overlay"));
+}
+
 function onDown(host: PointerHost, e: PointerEvent) {
+  if (fromOverlay(e)) {
+    host.tapStart = null;
+    host.eyeTap = null;
+    return;
+  }
   const p = normPointer(host, e);
   host.pointerX = p.x;
   host.pointerY = p.y;
@@ -98,6 +110,7 @@ function onDown(host: PointerHost, e: PointerEvent) {
       }
     }
   }
+  if (host.runtime?.isEye && e.button === 0) host.eyeTap = { x: e.clientX, y: e.clientY, t: performance.now() };
   if (!host.pick || !host.runtime) return;
   if (e.button !== 0) return;
   host.tapStart = { x: e.clientX, y: e.clientY, t: performance.now() };
@@ -153,15 +166,20 @@ function onUp(host: PointerHost, e: PointerEvent) {
       return;
     }
   }
-  const start = host.tapStart;
+  if (fromOverlay(e)) return;
+  const start = host.tapStart ?? host.eyeTap ?? null;
   host.tapStart = null;
+  host.eyeTap = null;
   if (!start || e.button !== 0) return;
-  if (!host.pick || !host.target || !host.runtime?.ready) return;
+  if (!host.runtime?.ready) return;
   const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
   if (moved >= TAP_MAX_MOVE_PX || performance.now() - start.t >= TAP_MAX_MS) {
     return;
   }
   const p = normPointer(host, e);
+  // à hauteur d'yeux, un tap ailleurs que sur un objet déplaçable fait aller à ce point du sol
+  if (host.runtime.isEye && !host.runtime.worldInstanceAt(p.x, p.y)) host.runtime.eyeGoAt(p.x, p.y);
+  if (!host.pick || !host.target) return;
   // `pick-names` filtre le raycast : les nœuds décoratifs (table, reflets…) sont transparents au tap.
   const hit = host.runtime.pick(p.x, p.y, host.pickNames);
   const type = host.pickActionType || "pick";
@@ -173,6 +191,29 @@ function onUp(host: PointerHost, e: PointerEvent) {
   } else if (host.pickEmpty) {
     dispatch(host.target, { type, payload: { objectId: null } });
   }
+}
+
+/** À hauteur d'yeux : la molette avance et recule (au lieu de zoomer ou de faire défiler la page). */
+function onWheel(host: PointerHost, e: WheelEvent) {
+  if (fromOverlay(e)) return;
+  const rt = host.runtime;
+  if (!rt?.isEye || !e.deltaY) return;
+  e.preventDefault();
+  rt.eyeStep(e.deltaY < 0 ? 1 : -1);
+}
+
+/** À hauteur d'yeux : flèches (et Z Q S D, W A) pour avancer, reculer, tourner. */
+function onKeyDown(host: PointerHost, e: KeyboardEvent) {
+  if (fromOverlay(e)) return;
+  const rt = host.runtime;
+  if (!rt?.isEye || host.dragging || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "arrowup" || k === "z" || k === "w") rt.eyeStep(1);
+  else if (k === "arrowdown" || k === "s") rt.eyeStep(-1);
+  else if (k === "arrowleft" || k === "q" || k === "a") rt.eyeTurn(Math.PI / 8);
+  else if (k === "arrowright" || k === "d") rt.eyeTurn(-Math.PI / 8);
+  else return;
+  e.preventDefault();
 }
 
 function onDblClick(host: PointerHost) {
@@ -193,6 +234,8 @@ function onLeave(host: PointerHost) {
 }
 
 export const pointer = {
+  onWheel,
+  onKeyDown,
   onMove,
   onDown,
   onUp,

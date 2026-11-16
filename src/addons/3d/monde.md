@@ -264,6 +264,15 @@ appui et se déplacer lui-même (pas sur un mur : il y reste du décor).
   vide : rien ne se déplace.
 - **Cap gardé** (`keep-heading`) : l'objet glissé ne se tourne pas tout seul dos au mur ; il garde son cap (il ne se
   colle à un mur que s'il lui tourne déjà le dos, à 45° près) ; R, Q / E, la molette ou `$mondeTurn` le tournent.
+- **Retour du geste** : l'objet saisi se soulève de 6 cm (son ombre se détache du sol), se repose au lâcher avec un
+  petit rebond ; un fantôme rouge l'enveloppe tant qu'aucune place libre n'existe près du point visé. Rien à écrire.
+- **Bulle de sélection** (slot `selection`, sonic-3d et sonic-2d) : un enfant `slot="selection"` est posé au-dessus de
+  l'objet sélectionné et le suit à l'écran (pendant le glisser et quand la vue tourne) ; ses clics ne déplacent ni
+  l'objet ni la vue. Typiquement : Tourner, Retirer, un `sonic-pop` de couleurs.
+- **À hauteur d'yeux** (`camera="yeux"`, ou `view-provider` = un DataProvider `{camera: "yeux"}` pour passer d'une vue
+  à l'autre sans remonter la scène) : on est dans la pièce, à `eye-height` (défaut 1,25 m) ; glisser = regarder
+  autour, tap sur le sol = y aller (en glissant, à 30 cm des murs), molette ou flèches / Z Q S D = avancer, reculer,
+  tourner. Sélection et glisser des objets marchent de la même façon. Revenir en `orbit` recadre toute la pièce.
 - **Portes et fenêtres** : celles écrites dans `ouvertures` du monde (voir *Espace*) se sélectionnent et se glissent
   comme les objets, mais le long des murs : en 3D sur le mur visé par le pointeur (vu de l'intérieur), sur le plan
   sur le mur le plus proche ; pas de 5 cm, jamais à cheval sur un angle ni sur une autre ouverture. Au lâcher le

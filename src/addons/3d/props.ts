@@ -49,6 +49,10 @@ export class Sonic3dProps extends LitElement {
   @property({ type: Boolean, attribute: "keep-heading" }) keepHeading = false;
   @property({ reflect: true })
   camera: Sonic3dCameraMode = Sonic3dCameraMode.Orbit;
+  /** DataProvider de réglages de vue en direct : `{camera, eyeHeight}` (voir view-provider.ts). */
+  @property({ type: String, attribute: "view-provider" }) viewProvider = "";
+  /** Hauteur des yeux en vue `camera="yeux"` (mètres, défaut 1,25). */
+  @property({ type: Number, attribute: "eye-height" }) eyeHeight = 1.25;
   @property({ type: Number }) fov = DEFAULT_FOV;
   @property({ type: Number }) exposure = DEFAULT_EXPOSURE;
   @property({ type: Number, attribute: "min-distance" })

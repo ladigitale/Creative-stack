@@ -12,7 +12,7 @@
   "components": [
     {
       "name": "sonic-3d",
-      "description": "Scène 3D glTF/GLB pilotable par données : glb (base64, sans fetch), nodes (surcharges de nœuds via le DP), target (taps → sonic-store). Détail : règle « 3d » du catalogue ; sinon 3d.md ; clé monde : monde complet en primitives articulées et animées (monde.md), même JSON et mêmes nodes en 2D et 3D ; modèles gen (générateurs procgen : personnages et animaux skinnés, bâtiments, arbres, objets) au style procgen.",
+      "description": "Scène 3D glTF/GLB pilotable par données : glb (base64, sans fetch), nodes (surcharges de nœuds via le DP), target (taps → sonic-store). Détail : règle « 3d » du catalogue ; sinon 3d.md ; clé monde : monde complet en primitives articulées et animées (monde.md), même JSON et mêmes nodes en 2D et 3D ; modèles gen (générateurs procgen : personnages et animaux skinnés, bâtiments, arbres, objets) au style procgen. Slot selection : contenu posé au-dessus de l'objet sélectionné d'un monde, qui le suit à l'écran (bulle d'actions) ; ses clics ne déplacent ni l'objet ni la vue.",
       "props": {
         "src": {
           "type": "url"
@@ -87,7 +87,7 @@
         },
         "camera": {
           "type": "string",
-          "description": "orbit (défaut), perspective ou ortho"
+          "description": "orbit (défaut), perspective, ortho, map, ou yeux : à hauteur d'yeux dans la pièce d'un monde (glisser = regarder autour, tap sur le sol = y aller, molette / flèches = avancer, reculer, tourner)"
         },
         "min-distance": {
           "type": "number",
@@ -116,6 +116,14 @@
         "monde": {
           "type": "string",
           "description": "Monde en primitives ou modèles gen procgen (JSON : modèles articulés, clips, palette, textures, style, placement ; voir monde.md) ; aussi clé DP monde. Instances pilotées par nodes (x y z rx ry rz, clip, clipSpeed, clipT, roles) Prefabs paramétrés : params déclarés sur un modèle, expressions \"= …\" dans ses pièces, sous-modèles use, emplacements slots, valeurs par placement (params, slots). Pose : on \"instance@surface\" ou \"sol\", stack, spacing, avoid ; nodes.<instance>.on pour changer d’appui. Espace : clé espace {contour, hauteur, bords (murs, clôtures, ouvertures), zones, plafond} = pièce ou parcelle dont les murs, le plafond et les zones sont des appuis. Catalogue de mobilier par nom, sans écrire le modèle (lit, bureau, table, etagere, armoire, commode, tapis, coussin, rideau, lampadaire, lampe, suspension, applique, cadre, plante, bac, potager, cabane, barbecue, borne)."
+        },
+        "view-provider": {
+          "type": "string",
+          "description": "DataProvider de réglages de vue en direct {camera, eyeHeight} : camera y remplace l'attribut (passer de orbit à yeux depuis un bouton radio sans remonter la scène)"
+        },
+        "eye-height": {
+          "type": "number",
+          "description": "Hauteur des yeux en camera=\"yeux\" (mètres, défaut 1.25)"
         }
       }
     }

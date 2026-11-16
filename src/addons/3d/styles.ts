@@ -25,6 +25,30 @@ export const sonic3dStyles = css`
     height: 100%;
     display: block;
   }
+  /* bulle de la sélection : posée au-dessus de l'objet, centrée, au-dessus du canvas */
+  .anchor {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 2;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    color: var(--sonic-3d-overlay-color, #1f2328);
+    font: var(--sonic-3d-overlay-font, 14px/1.4 system-ui, sans-serif);
+    cursor: auto;
+  }
+  .anchor[hidden] {
+    display: none;
+  }
+  .bubble {
+    position: absolute;
+    left: 0;
+    bottom: 10px;
+    transform: translateX(-50%);
+    pointer-events: auto;
+    white-space: nowrap;
+  }
   .err {
     position: absolute;
     inset: 0;

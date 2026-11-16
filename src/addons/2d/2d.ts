@@ -60,6 +60,26 @@ export class Sonic2d extends LitElement {
       width: 100%;
       height: 100%;
     }
+    .anchor {
+      position: absolute;
+      left: 0;
+      top: 0;
+      z-index: 2;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+    }
+    .anchor[hidden] {
+      display: none;
+    }
+    .bubble {
+      position: absolute;
+      left: 0;
+      bottom: 10px;
+      transform: translateX(-50%);
+      pointer-events: auto;
+      white-space: nowrap;
+    }
     .msg {
       position: absolute;
       inset: 0;
@@ -182,7 +202,22 @@ export class Sonic2d extends LitElement {
   }
 
   render() {
-    return html`<canvas part="canvas"></canvas>${this.status === "error" ? html`<div class="msg">${this.error}</div>` : null}`;
+    return html`<canvas part="canvas"></canvas><div class="anchor" part="selection-anchor" data-overlay hidden><div class="bubble"><slot name="selection"></slot></div></div>${this.status === "error" ? html`<div class="msg">${this.error}</div>` : null}`;
+  }
+
+  /** Bulle de la sélection : le slot `selection` suit l'objet sélectionné (comme sonic-3d). */
+  private placeAnchor(): void {
+    const el = this.renderRoot.querySelector<HTMLElement>(".anchor");
+    const top = this.mondeR?.selectionTop() ?? null;
+    if (!el) return;
+    if (!top || !this.canvas) {
+      el.hidden = true;
+      return;
+    }
+    // pixels de la scène → pixels CSS de l'élément (le canvas peut être réduit par la mise en page)
+    const k = this.canvas.clientWidth / (this.width || 1);
+    el.hidden = false;
+    el.style.transform = `translate(${Math.round(top.x * k + this.canvas.offsetLeft)}px, ${Math.round(top.y * k + this.canvas.offsetTop)}px)`;
   }
 
   /** Contrat `SonicFrameSource` : `sonic-shader channel0="#id"` lit la scène (sprites, calques, caméra) comme texture. Incrémenté après chaque rendu. */
@@ -653,6 +688,7 @@ export class Sonic2d extends LitElement {
     if (this.dirty || busy) {
       this.dirty = false;
       scene.render();
+      this.placeAnchor();
       this.frameSeq++;
     }
   }
@@ -710,6 +746,11 @@ export class Sonic2d extends LitElement {
   }
 
   private onDown = (e: PointerEvent) => {
+    // la bulle de sélection (slot `selection`) n'est pas la scène
+    if (e.composedPath().some((n) => n instanceof HTMLElement && n.hasAttribute("data-overlay"))) {
+      this.tap = null;
+      return;
+    }
     if (e.button !== 0) return;
     this.tap = { x: e.clientX, y: e.clientY, t: performance.now() };
     const r = this.mondeR, scene = this.scene;
@@ -753,6 +794,7 @@ export class Sonic2d extends LitElement {
   }
 
   private onUp = (e: PointerEvent) => {
+    if (!this.dragging && e.composedPath().some((n) => n instanceof HTMLElement && n.hasAttribute("data-overlay"))) return;
     const drag = this.dragging;
     if (drag && e.pointerId === drag.id) {
       this.dragging = null;
