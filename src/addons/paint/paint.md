@@ -98,3 +98,13 @@ Comportement standard des applications de dessin, pour les stylets (Apple Pencil
 La pression vient du stylet (`pressure`), les points intermédiaires d'un geste rapide sont tous lus (`getCoalescedEvents`), et le survol du stylet alimente le curseur-pinceau (orienté comme la pointe).
 
 Les mêmes réglages peuvent venir en direct du DP du pinceau (`brush-from`) : `pressureCurve`, `pressureMin`, `simulatePressure` (prioritaires sur les attributs, enregistrables avec les préférences).
+
+## Export vers un store
+
+`target="jeu" export-action="poster" export-size="480" export-type="jpeg" export-for="accrocher"` : un clic sur
+l'élément `#accrocher` (ou la commande `control.export`) compose la toile sur les sources de `stamp-from` telles qu'elles
+apparaissent dessous (un `sonic-2d` de fond, par exemple), la réduit à 480 px au plus grand côté et l'envoie au store
+`jeu` : `{type: "poster", payload: {image: "data:image/jpeg;base64,…", width, height}}`. L'état publie
+`exported {width, height, size, n}`. Toile `background="transparent"` posée sur le fond : on dessine par-dessus une
+composition sans l'abîmer.
+

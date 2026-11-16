@@ -33,10 +33,19 @@ export function mondeAdd(monde: unknown, entry: unknown, at?: unknown): unknown 
   const d = new MondeDriver();
   d.setMonde(m, 0);
   d.step(0);
+  // décoration murale ajoutée sans hauteur (cadre, poster) : accrochée vers 1,2 m plutôt qu'au ras du sol
+  const base = String(entry.model).split("~")[0];
+  const pf = Object.prototype.hasOwnProperty.call(m.prefabs, base) ? m.prefabs[base] : null;
+  const inst = d.instances.get(name);
+  const hasY = Array.isArray(entry.at) && entry.at.length >= 3;
+  if (inst && pf?.pose === "mur" && pf.famille === "decoration" && !hasY && inst.t.y < 0.05) inst.t.y = WALL_DECO_Y;
   const res = d.arrangeTo(name, x, z, 0);
   if (!res) return next;
   return mondePlace(next, placedInfo(name, res, d.bodies(), m.unit));
 }
+
+/** Hauteur (m) du bas d'une décoration murale ajoutée sans hauteur. */
+export const WALL_DECO_Y = 1.2;
 
 /**
  * `$mondeTurn($monde, nom, degrés?, src?)` : tourne l'objet sur place (quart de tour par défaut) puis le range comme

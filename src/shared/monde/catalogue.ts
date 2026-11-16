@@ -136,11 +136,21 @@ const tapis: Obj = {
   famille: "tapis",
   pose: "sol",
   tags: ["chambre", "salon"],
-  params: { forme: pick("rectangle", "rond"), largeur: len(1.6, 0.5, 4, 0.1), longueur: len(1.1, 0.5, 4, 0.1), teinte: col("#3d6b8c"), motif: pick("uni", "tricot", "rayures", "pois", "damier") },
+  params: {
+    forme: pick("rectangle", "rond"),
+    largeur: len(1.6, 0.5, 4, 0.1),
+    longueur: len(1.1, 0.5, 4, 0.1),
+    teinte: col("#3d6b8c"),
+    motif: pick("uni", "tricot", "rayures", "pois", "damier", "chevron", "ecailles", "hachures", "carrelage", "brique", "nuages", "camouflage", "fourrure"),
+    // seconde couleur et dessin du motif (pas de motif sans contraste : `uni` garde un léger grain)
+    teinte2: col("#f1eee8"),
+    echelle: { default: 6, min: 1, max: 24, step: 1 },
+    angle: { default: 0, min: 0, max: 165, step: 15 },
+  },
   vars: { tex: "= motif == 'uni' ? 'tissu' : motif" },
   parts: [
-    { name: "tapis", if: "= forme == 'rectangle'", box: ["= largeur", 0.012, "= longueur", 0.004], at: [0, 0.006, 0], color: "= teinte", tex: "= tex" },
-    { name: "rond", if: "= forme == 'rond'", cylinder: ["= largeur / 2", 0.012], at: [0, 0.006, 0], color: "= teinte", tex: "= tex" },
+    { name: "tapis", if: "= forme == 'rectangle'", box: ["= largeur", 0.012, "= longueur", 0.004], at: [0, 0.006, 0], color: "= teinte", tex: { kind: "= tex", color2: "= teinte2", scale: "= echelle", angle: "= angle", contrast: "= motif == 'uni' ? 0.3 : 0.85" } },
+    { name: "rond", if: "= forme == 'rond'", cylinder: ["= largeur / 2", 0.012], at: [0, 0.006, 0], color: "= teinte", tex: { kind: "= tex", color2: "= teinte2", scale: "= echelle", angle: "= angle", contrast: "= motif == 'uni' ? 0.3 : 0.85" } },
   ],
 };
 
@@ -241,6 +251,22 @@ const cadre: Obj = {
   ],
 };
 
+/**
+ * Poster au mur : une image du monde (`monde.images`, nommée par `image`) sur un carton, avec ou sans baguette.
+ * Sans image (ou image inconnue) : carton uni de la couleur `fond`.
+ */
+const poster: Obj = {
+  famille: "decoration",
+  pose: "mur",
+  tags: ["chambre", "salon"],
+  params: { largeur: len(0.5, 0.15, 1.5, 0.05), hauteur: len(0.7, 0.15, 1.5, 0.05), image: { type: "texte", default: "" }, baguette: pick("aucune", "noire", "bois", "blanche"), fond: col("#f1eee8") },
+  vars: { bc: "= baguette == 'noire' ? '#1f1f22' : baguette == 'bois' ? '#b98a56' : '#f4f1ea'" },
+  parts: [
+    { name: "baguette", if: "= baguette != 'aucune'", box: ["= largeur + 0.03", "= hauteur + 0.03", 0.016], at: [0, "= hauteur / 2", 0.008], color: "= bc" },
+    { name: "affiche", box: ["= largeur", "= hauteur", 0.004], at: [0, "= hauteur / 2", "= baguette != 'aucune' ? 0.018 : 0.002"], color: "= fond", image: "= image" },
+  ],
+};
+
 const plante: Obj = {
   famille: "plante",
   souple: true,
@@ -327,5 +353,5 @@ const borne: Obj = {
 
 /** Catalogue : nom du modèle → prefab. */
 export const CATALOGUE: Record<string, Obj> = Object.fromEntries(
-  Object.entries({ lit, bureau, table, etagere, armoire, commode, tapis, coussin, rideau, lampadaire, lampe, suspension, applique, cadre, plante, bac, potager, cabane, barbecue, borne }).map(([k, v]) => [k, { unite: "m", ...v }]),
+  Object.entries({ lit, bureau, table, etagere, armoire, commode, tapis, coussin, rideau, lampadaire, lampe, suspension, applique, cadre, poster, plante, bac, potager, cabane, barbecue, borne }).map(([k, v]) => [k, { unite: "m", ...v }]),
 );

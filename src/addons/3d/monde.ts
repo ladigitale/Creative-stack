@@ -52,6 +52,9 @@ function ramp(): THREE.DataTexture {
   return toonRamp;
 }
 
+/** Images du monde décodées, gardées d'un monde à l'autre (un monde relu ne recharge pas ses posters). */
+const IMAGES = new Map<string, THREE.Texture>();
+
 /** Matières partagées par (aspect, couleur, éclat, texture, instanciée). */
 class Materials {
   private map = new Map<string, THREE.Material>();
@@ -115,9 +118,51 @@ class Materials {
   }
   private owned = new Set<THREE.Material>();
 
+  /** Images du monde (URL `data:`) chargées une fois ; `onLoad` : redessiner quand une image arrive. */
+  private imageMats = new Map<string, THREE.Material>();
+  onLoad: (() => void) | null = null;
+
+  /**
+   * Matière d'une image posée sur la face avant d'une pièce de `w` × `h` mètres (UV en mètres, centrés : l'image
+   * couvre exactement la face). Blanche le temps du chargement.
+   */
+  image(url: string, w: number, h: number): THREE.Material {
+    const key = `${w.toFixed(3)}|${h.toFixed(3)}|${url.length}|${url.slice(-48)}|${url}`;
+    let m = this.imageMats.get(key);
+    if (m) return m;
+    let base = IMAGES.get(url);
+    if (!base) {
+      const onLoad = this.onLoad;
+      base = new THREE.TextureLoader().load(url, () => onLoad?.());
+      base.colorSpace = THREE.SRGBColorSpace;
+      base.anisotropy = 4;
+      IMAGES.set(url, base);
+      // quelques images à la fois (posters) : les plus anciennes sont oubliées
+      if (IMAGES.size > 24) {
+        const [old, t] = IMAGES.entries().next().value as [string, THREE.Texture];
+        IMAGES.delete(old);
+        t.dispose();
+      }
+    }
+    const t = base.clone();
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.repeat.set(1 / Math.max(1e-3, w), 1 / Math.max(1e-3, h));
+    t.offset.set(0.5, 0.5);
+    // la copie partage l'image : prête quand elle l'est
+    t.needsUpdate = true;
+    m = new THREE.MeshStandardMaterial({ color: 0xffffff, map: t, roughness: 0.85, metalness: 0 });
+    this.imageMats.set(key, m);
+    return m;
+  }
+
   dispose() {
     for (const m of this.owned) m.dispose();
     this.owned.clear();
+    for (const m of this.imageMats.values()) {
+      (m as THREE.MeshStandardMaterial).map?.dispose();
+      m.dispose();
+    }
+    this.imageMats.clear();
     for (const t of this.texs.values()) t.dispose();
     this.map.clear();
     this.texs.clear();
@@ -220,6 +265,7 @@ export class Monde3d {
     }
     this.mats.dispose();
     this.mats = new Materials(m.look);
+    this.mats.onLoad = () => this.onAsync?.();
     // les géométries encore utilisées sont reprises, les autres libérées après reconstruction
     this.oldBuffers = this.buffers;
     this.buffers = new Map();
@@ -399,7 +445,13 @@ export class Monde3d {
       const tex = partTex(m, p);
       const key = `${p.color || "@" + p.role}|${p.glow}|${tex ? texKey(tex, "") + tex.scale + "/" + tex.angle : ""}`;
       matKey.push(key);
-      if (g) {
+      const img = p.image && Object.prototype.hasOwnProperty.call(m.images, p.image) ? m.images[p.image] : "";
+      if (g && img) {
+        // image du monde : matière à part (pas recolorée par les rôles)
+        const mesh = new THREE.Mesh(this.bufferOf(g), this.mats.image(img, p.shape?.a[0] ?? 1, p.shape?.a[1] ?? 1));
+        j.add(mesh);
+        meshes.push(mesh);
+      } else if (g) {
         let e = mats.get(key);
         if (!e) mats.set(key, (e = { m: this.mats.create(partColor(model, p, inst.roles, m.palette), p.glow, tex), part: i }));
         const mesh = new THREE.Mesh(this.bufferOf(g), e.m);

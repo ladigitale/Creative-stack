@@ -551,8 +551,8 @@ export class Sonic2d extends LitElement {
       const layers: Layer[] = m.layers.map((l) => ({ name: l.name, parallax: Math.max(0, l.parallax), sortY: l.ysort }));
       scene.setLayers(layers);
     }
-    scene.attachExtra(r.sky, m.layers[0]?.name ?? "monde");
     r.sky.zIndex = -1e9;
+    scene.attachExtra(r.sky, m.layers[0]?.name ?? "monde");
     try {
       r.set(m, performance.now());
     } catch (err) {
