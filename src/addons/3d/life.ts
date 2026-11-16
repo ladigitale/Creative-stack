@@ -15,6 +15,8 @@ export type LifeHost = {
   inView: boolean;
   runtime: SceneRuntime | null;
   camera: string;
+  eyeHeight: number;
+  viewProvider: string;
   fov: number;
   exposure: number;
   dprMax: number;

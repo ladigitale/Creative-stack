@@ -28,10 +28,12 @@ function parseCameraMode(
     s === Sonic3dCameraMode.Perspective ||
     s === Sonic3dCameraMode.Ortho ||
     s === Sonic3dCameraMode.Orbit ||
-    s === Sonic3dCameraMode.Map
+    s === Sonic3dCameraMode.Map ||
+    s === Sonic3dCameraMode.Eye
   ) {
     return s;
   }
+  if (s === "eye" || s === "eyes" || s === "first-person") return Sonic3dCameraMode.Eye;
   return Sonic3dCameraMode.Orbit;
 }
 

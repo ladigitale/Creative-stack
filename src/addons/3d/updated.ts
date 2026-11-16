@@ -1,3 +1,4 @@
+import { viewProvider } from "./view-provider";
 import { ensure } from "./ensure";
 import type { LifeHost } from "./life";
 import { life } from "./life";
@@ -23,6 +24,10 @@ function applyCameraProps(
     host.runtime.applyCameraMode(parse.cameraMode(host.camera));
   }
   if (changed.has("camera") || changed.has("gestures")) ensure.syncGestures(host as never);
+  if (changed.has("eyeHeight")) host.runtime.setEyeHeight(host.eyeHeight);
+  if (changed.has("viewProvider") && changed.get("viewProvider") !== undefined) viewProvider.bind(host as never);
+  // à hauteur d'yeux, le clavier sert à se déplacer : l'élément doit pouvoir prendre le focus
+  if (changed.has("camera") && parse.cameraMode(host.camera) === "yeux" && !(host as unknown as HTMLElement).hasAttribute("tabindex")) (host as unknown as HTMLElement).setAttribute("tabindex", "0");
   if (changed.has("fov")) host.runtime.setFov(host.fov);
   if (changed.has("exposure")) host.runtime.setExposure(host.exposure);
   if (changed.has("dprMax")) {

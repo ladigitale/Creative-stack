@@ -5,6 +5,11 @@ export const Sonic3dCameraMode = {
   Ortho: "ortho",
   /** Vue de carte : un doigt / clic gauche fait glisser sur le sol, pincement / molette zoome, pas de rotation. */
   Map: "map",
+  /**
+   * À hauteur d'yeux, dans la pièce d'un monde : glisser = regarder autour, tap sur le sol = y aller, molette /
+   * flèches = avancer, reculer, tourner (voir eye.ts).
+   */
+  Eye: "yeux",
 } as const;
 export type Sonic3dCameraMode =
   (typeof Sonic3dCameraMode)[keyof typeof Sonic3dCameraMode];
