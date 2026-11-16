@@ -19,13 +19,13 @@ void mainImage(out vec4 o, in vec2 f) {
       float rad = 0.04 * float(r);
       for (int i = 0; i < 12; i++) {
         float a = float(i) * 0.5235988 + float(r) * 0.3;
-        bg += lum(texture(iChannel0, clamp(uv + vec2(cos(a), sin(a)) * rad * px, 0.0, 1.0)).rgb);
+        bg += lum(textureLod(iChannel0, clamp(uv + vec2(cos(a), sin(a)) * rad * px, 0.0, 1.0), 0.0).rgb);
         n += 1.0;
       }
     }
     bg /= n;
-    float flat = clamp(v / max(bg, 0.03) * 0.78, 0.0, 1.0);
-    v = mix(v, flat, k);
+    float aplani = clamp(v / max(bg, 0.03) * 0.78, 0.0, 1.0);
+    v = mix(v, aplani, k);
   }
   float c = clamp(uParam1, -1.0, 1.0);
   float factor = c >= 0.0 ? 1.0 + c * 3.0 : 1.0 + c;
