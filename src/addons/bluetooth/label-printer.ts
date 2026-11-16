@@ -2,7 +2,7 @@ import { css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { DeviceElement, type CommandArg, type CommandMap, type DeviceBaseState } from "../../shared/device/base";
 import { listenDp } from "../../shared/audio/dp";
-import { isBytePipe, type SonicBytePipe } from "../../shared/bluetooth/pipe";
+import { isBytePipe, type SonicBytePipe } from "../../shared/pipe/pipe";
 import { isFrameSource, type SonicFrameSource } from "../../shared/mediaRef";
 import { centerInWidth, coverage, dither, DITHER_MODES, fitRect, packBitmap, rotateBitmap, toGray, type Bitmap, type DitherMode } from "../../shared/raster1bit";
 import { createProtocol, DEFAULT_MODELS, modelFromName, modelFromReply, PROTOCOLS, type PrinterModel, type ProtocolId } from "./printer/models";

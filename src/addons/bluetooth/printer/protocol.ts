@@ -1,6 +1,6 @@
-import type { SonicBytePipe } from "../../../shared/bluetooth/pipe";
-import { concatBytes } from "../../../shared/bluetooth/bytes";
-import { sleep } from "../../../shared/bluetooth/queue";
+import type { SonicBytePipe } from "../../../shared/pipe/pipe";
+import { concatBytes } from "../../../shared/pipe/bytes";
+import { sleep } from "../../../shared/pipe/queue";
 
 export type PaperType = "gap" | "black-mark" | "continuous";
 

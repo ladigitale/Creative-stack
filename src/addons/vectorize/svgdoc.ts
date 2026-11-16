@@ -27,7 +27,29 @@ import {
  */
 
 export type SvgLayer = { color: string; opacity: number; d: string; area: number };
-export type SvgImport = { width: number; height: number; paths: SvgLayer[]; skipped: Record<string, number>; truncated: boolean };
+export type SvgImport = {
+  width: number; height: number; paths: SvgLayer[]; skipped: Record<string, number>; truncated: boolean;
+  /** Taille réelle annoncée par `width` / `height` (mm, cm, in, pt, pc, px à 96 par pouce) ; `null` sans unité exploitable. */
+  physical?: { widthMm: number | null; heightMm: number | null };
+};
+
+/**
+ * Forme telle que dessinée, avant tout changement en surface pleine : ses lignes (repère du `viewBox`,
+ * transformations appliquées), sa couleur de remplissage et sa couleur de contour. Pour les usages qui suivent
+ * le trait lui-même (découpe laser, traceur) plutôt que sa surface.
+ */
+export type SvgRawShape = { lines: { ring: Ring; closed: boolean }[]; fill: string | null; stroke: string | null; strokeWidth: number };
+
+const UNIT_MM: Record<string, number> = { mm: 1, cm: 10, in: 25.4, pt: 25.4 / 72, pc: 25.4 / 6, px: 25.4 / 96, q: 0.25, "": 25.4 / 96 };
+
+/** `"210mm"`, `"8.5in"`, `"400"` (px) → millimètres ; `null` pour `%`, `em` ou une valeur absente. */
+export function lengthMm(raw: string | null | undefined): number | null {
+  const m = /^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*([a-z]*)\s*$/i.exec(raw ?? "");
+  if (!m) return null;
+  const unit = UNIT_MM[m[2].toLowerCase()];
+  const v = Number(m[1]);
+  return unit !== undefined && v > 0 ? v * unit : null;
+}
 
 export const MAX_SVG_CHARS = 5_000_000;
 export const MAX_SVG_ELEMENTS = 20_000;
@@ -262,6 +284,10 @@ export type ParseSvgOptions = {
   tol?: number;
   /** Analyseur XML (tests) ; défaut `DOMParser`. */
   parse?: (text: string) => Document;
+  /** Finesse d'aplatissement quand `tol` est absent : grand côté / `precision` (défaut 500). */
+  precision?: number;
+  /** Reçoit chaque forme telle que dessinée (lignes, remplissage, contour), dans l'ordre du document. */
+  raw?: (shape: SvgRawShape) => void;
 };
 
 export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgImport {
@@ -277,9 +303,10 @@ export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgI
   const vb = nums(root.getAttribute("viewBox") ?? "");
   const vbox = vb.length === 4 && vb[2] > 0 && vb[3] > 0 ? { x: vb[0], y: vb[1], w: vb[2], h: vb[3] } : null;
   const sizeW = attr(root, "width", NaN), sizeH = attr(root, "height", NaN);
+  const physical = { widthMm: lengthMm(root.getAttribute("width")), heightMm: lengthMm(root.getAttribute("height")) };
   const base: M = vbox ? [1, 0, 0, 1, -vbox.x, -vbox.y] : I;
   const span = vbox ? Math.max(vbox.w, vbox.h) : Math.max(sizeW || 0, sizeH || 0) || 1000;
-  const tol = opts.tol && opts.tol > 0 ? opts.tol : span / 500;
+  const tol = opts.tol && opts.tol > 0 ? opts.tol : span / (opts.precision && opts.precision > 0 ? opts.precision : 500);
 
   const byId = new Map<string, Element>();
   const rules: Rule[] = [];
@@ -396,6 +423,7 @@ export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgI
     // Contour, changé en forme pleine.
     const stroke = paint(st.stroke, st);
     const sw = parseFloat(st["stroke-width"] ?? "1") * k;
+    opts.raw?.({ lines, fill: fill ? fill[0] : null, stroke: stroke && sw > 0 ? stroke[0] : null, strokeWidth: stroke && sw > 0 ? sw : 0 });
     if (stroke && sw > 0) {
       const so = parseFloat(st["stroke-opacity"] ?? "1");
       const opacity = a * stroke[1] * (Number.isFinite(so) ? Math.max(0, Math.min(1, so)) : 1);
@@ -410,7 +438,7 @@ export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgI
   };
 
   for (const c of Array.from(root.children)) walk(c, {}, base, 1, 1, 0);
-  if (!layers.length) return { width: vbox?.w ?? (sizeW || 0), height: vbox?.h ?? (sizeH || 0), paths: [], skipped, truncated };
+  if (!layers.length) return { width: vbox?.w ?? (sizeW || 0), height: vbox?.h ?? (sizeH || 0), paths: [], skipped, truncated, physical };
 
   let width = vbox?.w ?? sizeW, height = vbox?.h ?? sizeH;
   let shift: Pt = [0, 0];
@@ -427,5 +455,5 @@ export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgI
     const shape = moved(l.shape);
     return { color: l.color, opacity: Math.round(l.opacity * 1000) / 1000, d: ringsToPath(shape.flat()), area: Math.round(multiArea(shape) * 100) / 100 };
   }).filter((p) => p.d);
-  return { width, height, paths, skipped, truncated };
+  return { width, height, paths, skipped, truncated, physical };
 }

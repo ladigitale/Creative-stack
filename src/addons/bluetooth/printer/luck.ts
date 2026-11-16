@@ -1,4 +1,4 @@
-import { indexOfBytes } from "../../../shared/bluetooth/bytes";
+import { indexOfBytes } from "../../../shared/pipe/bytes";
 import { UNKNOWN_STATUS, type PaperType, type PrintJob, type PrinterInfo, type PrinterLink, type PrinterProtocol, type PrinterStatus } from "./protocol";
 
 /**

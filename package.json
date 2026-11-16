@@ -41,6 +41,8 @@
     "./markdown": "./src/addons/markdown/index.ts",
     "./map": "./src/addons/map/index.ts",
     "./bluetooth": "./src/addons/bluetooth/index.ts",
+    "./serial": "./src/addons/serial/index.ts",
+    "./grbl": "./src/addons/grbl/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",
     "./shared/*": "./src/shared/*.ts",

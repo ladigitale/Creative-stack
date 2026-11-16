@@ -1,9 +1,9 @@
 import { customElement, property } from "lit/decorators.js";
 import { DeviceElement, policyAllows, type CommandArg, type CommandMap, type DeviceBaseState } from "../../shared/device/base";
-import { indexOfBytes, payloadBytes, startsWith, toHex, utf8OrUndefined } from "../../shared/bluetooth/bytes";
-import type { PipeWriteOptions, SonicBytePipe } from "../../shared/bluetooth/pipe";
+import { indexOfBytes, payloadBytes, startsWith, toHex, utf8OrUndefined } from "../../shared/pipe/bytes";
+import type { PipeWriteOptions, SonicBytePipe } from "../../shared/pipe/pipe";
 import { getProfile, type BluetoothFilter, type BluetoothProfile } from "../../shared/bluetooth/profiles";
-import { chunks, OpQueue, sleep } from "../../shared/bluetooth/queue";
+import { chunks, OpQueue, sleep } from "../../shared/pipe/queue";
 import { expandUuid, isBlockedService, parseChannel } from "../../shared/bluetooth/uuid";
 
 const tagName = "sonic-bluetooth";
