@@ -16,3 +16,7 @@ export {
   TOOLPATH_DEFAULTS, MAX_GCODE_LINES, svgToGcode, rasterToGcode, readSvgShapes, planVector, emitPasses, hatch, orderPaths, hexColor, cleanOp,
   type LaserOp, type LaserMode, type ToolpathSettings, type ToolpathResult, type RasterSettings, type ToolPath, type ToolPass,
 } from "./toolpath";
+export { SonicLaserPattern, type PatternState } from "./pattern";
+export { PATTERNS, getPattern, patternParams, heartPath, starPath, roundRect, gridColor, type PatternDef, type ParamSpec, type Pattern } from "./patterns";
+export { LINE_STYLES, photoBurns, burnsToGcode, type LineStyle, type Burn, type PhotoTrace } from "./photo";
+export { colorsOf, type FoundColor } from "./toolpath";

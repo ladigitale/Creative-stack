@@ -442,7 +442,7 @@ describe("sonic-gcode", () => {
     const { set } = await import("@supersoniks/concorde/core/utils/PublisherProxy");
     set("svgA", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10Z" fill="none" stroke="#000"/></svg>');
     document.body.insertAdjacentHTML("beforeend", '<sonic-gcode id="prog2" svg-from="svgA"></sonic-gcode>');
-    const el = document.getElementById("prog2") as SonicGcode;
+    const el = document.getElementById("prog2") as unknown as SonicGcode;
     await el.updateComplete;
     expect(await el.run("build")).toBe(true);
     expect(el.getGcode()).not.toBeNull();

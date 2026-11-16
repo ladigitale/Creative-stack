@@ -553,6 +553,54 @@
           "default": 4.6
         }
       ]
+    },
+    {
+      "id": "niveaux",
+      "kind": "shader",
+      "file": "niveaux.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Niveaux",
+      "description": "Prépare une image en gris : luminosité, contraste, gamma et égalisation de l'éclairage (retire ombres et dégradés lents). Avant un tramage, une gravure laser (sonic-gcode source) ou une impression thermique.",
+      "tags": [
+        "photo",
+        "préparation",
+        "laser",
+        "impression"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Luminosité",
+          "min": -1,
+          "max": 1,
+          "default": 0
+        },
+        {
+          "name": "uParam1",
+          "label": "Contraste",
+          "min": -1,
+          "max": 1,
+          "default": 0
+        },
+        {
+          "name": "uParam2",
+          "label": "Gamma (1 neutre)",
+          "min": 0.2,
+          "max": 3,
+          "default": 1
+        },
+        {
+          "name": "uParam3",
+          "label": "Éclairage local",
+          "min": 0,
+          "max": 1,
+          "default": 0
+        }
+      ]
     }
   ]
 }

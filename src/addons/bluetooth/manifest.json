@@ -39,7 +39,7 @@
         "label-mm": { "type": "string", "description": "longueur x largeur en mm, ex. 30x12" },
         "orientation": { "type": "string", "description": "landscape (défaut) ou portrait" },
         "fit": { "type": "string", "description": "contain (défaut), cover ou stretch" },
-        "dither": { "type": "string", "description": "threshold (défaut : texte, traits), floyd (photo), atkinson, bayer" },
+        "dither": { "type": "string", "description": "threshold (défaut : texte, traits), floyd (photo), atkinson, jarvis, stucki, burkes, sierra, sierra-lite, bayer, random, adaptive (seuil local)" },
         "threshold": { "type": "number", "description": "0..255 (128) : plus haut = plus noir" },
         "density": { "type": "number", "description": "0 clair, 1 normal, 2 foncé" },
         "paper": { "type": "string", "description": "gap (étiquettes, défaut), black-mark ou continuous" },
