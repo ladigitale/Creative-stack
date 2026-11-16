@@ -63,7 +63,25 @@ const MAX_KERF_POINTS = 4000;
 
 export type ToolPath = { pts: Pt[]; closed: boolean };
 export type ToolPass = { op: LaserOp; kind: "line" | "fill"; paths: ToolPath[] };
-export type ToolpathResult = { lines: string[]; issues: string[]; error: string | null; sizeMm: { w: number; h: number } | null; skipped: Record<string, number> };
+/** Couleur rencontrée dans le dessin : nombre de formes remplies et de traits de cette couleur. */
+export type FoundColor = { color: string; fill: number; stroke: number };
+
+export type ToolpathResult = {
+  lines: string[]; issues: string[]; error: string | null; sizeMm: { w: number; h: number } | null; skipped: Record<string, number>;
+  /** Couleurs du dessin (blanc compris), des plus présentes aux moins présentes. */
+  colors: FoundColor[];
+};
+
+/** Couleurs d'un dessin, avec le nombre de surfaces et de traits de chacune. */
+export function colorsOf(doc: SvgShapes, max = 32): FoundColor[] {
+  const map = new Map<string, FoundColor>();
+  const at = (c: string) => map.get(c) ?? (map.set(c, { color: c, fill: 0, stroke: 0 }), map.get(c) as FoundColor);
+  for (const sh of doc.shapes) {
+    if (sh.fill) at(sh.fill).fill++;
+    if (sh.stroke) at(sh.stroke).stroke++;
+  }
+  return [...map.values()].sort((a, b) => b.fill + b.stroke - (a.fill + a.stroke)).slice(0, max);
+}
 
 const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
 
@@ -245,6 +263,8 @@ export function emitPasses(passes: ToolPass[], s: ToolpathSettings): string[] | 
   if (!pen) out.push("M4S0");
   const dwell = `G4P${num(clamp(s.penDwellS, 0, 5))}`;
   for (const pass of passes) {
+    // Commentaire lu par l'aperçu (couleur de l'opération) ; retiré avant l'envoi à la machine.
+    if (pass.op.color) out.push(`;op ${pass.op.color}`);
     const power = `S${num(Math.round((clamp(pass.op.power, 0, 100) / 100) * s.maxS))}`;
     const feed = `F${num(pass.op.speed)}`;
     for (let rep = 0; rep < pass.op.passes; rep++) {
@@ -270,13 +290,17 @@ export function svgToGcode(text: string, s: ToolpathSettings): ToolpathResult {
   try {
     doc = readSvgShapes(text);
   } catch (e) {
-    return { lines: [], issues: [], error: e instanceof Error ? e.message : "SVG illisible", sizeMm: null, skipped: {} };
+    return { lines: [], issues: [], error: e instanceof Error ? e.message : "SVG illisible", sizeMm: null, skipped: {}, colors: [] };
   }
+  const colors = colorsOf(doc);
   const plan = planVector(doc, s);
-  if (!plan.passes.length) return { lines: [], issues: plan.issues, error: "aucune forme à tracer dans ce dessin", sizeMm: null, skipped: doc.skipped };
+  if (!plan.passes.length) {
+    const error = colors.some((c) => c.color !== "#ffffff") ? "aucune couleur du dessin n'est attribuée à une opération" : "aucune forme à tracer dans ce dessin";
+    return { lines: [], issues: plan.issues, error, sizeMm: null, skipped: doc.skipped, colors };
+  }
   const lines = emitPasses(plan.passes, s);
-  if (!lines) return { lines: [], issues: plan.issues, error: `programme trop long (${MAX_GCODE_LINES} lignes au plus) : augmenter interval ou simplifier le dessin`, sizeMm: plan.sizeMm, skipped: doc.skipped };
-  return { lines, issues: plan.issues, error: null, sizeMm: plan.sizeMm, skipped: doc.skipped };
+  if (!lines) return { lines: [], issues: plan.issues, error: `programme trop long (${MAX_GCODE_LINES} lignes au plus) : augmenter interval ou simplifier le dessin`, sizeMm: plan.sizeMm, skipped: doc.skipped, colors };
+  return { lines, issues: plan.issues, error: null, sizeMm: plan.sizeMm, skipped: doc.skipped, colors };
 }
 
 // ─── Image : balayage ────────────────────────────────────────────────────────────────────────────────────────────
@@ -285,7 +309,7 @@ export type RasterSettings = {
   widthMm: number;
   xMm: number;
   yMm: number;
-  /** `gray` : puissance proportionnelle au gris ; sinon tramage 1 bit. */
+  /** `gray` : puissance proportionnelle au gris ; sinon tramage 1 bit (`DITHER_MODES` de shared/raster1bit). */
   dither: DitherMode | "gray";
   threshold: number;
   power: number;

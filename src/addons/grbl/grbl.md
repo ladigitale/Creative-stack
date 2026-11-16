@@ -5,6 +5,7 @@ Addon `@supersoniks/creative-stack/grbl` : du dessin à la machine, par DataProv
 | Composant | Rôle |
 |---|---|
 | `sonic-gcode` | Préparation : dessin (SVG ou image) → programme G-code, aperçu, durée, emprise |
+| `sonic-laser-pattern` | Modèles paramétriques : boîte à encoches, engrenages, puzzle, tampon, porte-clés, pendentif, dessous de verre, règle, grille d'essais |
 | `sonic-grbl` | Pilote : machine GRBL derrière un `sonic-serial` (état, déplacements, cadrage, envoi, pause, arrêt) |
 
 Machines visées : graveurs et découpeuses laser à diode sous GRBL 1.1 (Atomstack, Ortur, Sculpfun, Longer, TwoTrees…), traceurs à stylo. **Non validé sur matériel par ce dépôt** : le protocole suit la documentation de GRBL et les tests passent sur une machine simulée.
@@ -55,7 +56,8 @@ Entrées :
 | `x-mm`, `y-mm` | Position du coin bas gauche par rapport à l'origine de travail |
 | `frame` | `content` (défaut : le cadre est l'emprise des formes) ou `document` (la page du SVG) |
 | `max-s` | Valeur S de pleine puissance : celle de la machine (`laserState.maxS`, souvent 1000) |
-| `dither`, `threshold`, `min-power` | Image : `floyd` (défaut), `atkinson`, `bayer`, `threshold`, ou `gray` (puissance selon le gris) |
+| `dither`, `threshold`, `min-power` | Image : rendu (voir « Photo ») |
+| `line-spacing`, `levels` | Écart des traits, paliers des lignes de niveau |
 | `tool` | `laser` ou `pen` (traits seulement, stylo baissé par `M3 S…`, levé par `M5`) |
 | `auto` | Reconstruit le programme à chaque changement de source ou de réglage |
 | `show-preview` | Affiche les parcours ; le composant est alors aussi une source d'images |
@@ -64,7 +66,42 @@ Ordre d'exécution : les hachures d'abord, puis les traits ; les couleurs sans r
 
 Commandes : `build` (défaut de `for`), `download` (enregistre le fichier `.gcode`, utilisable dans un autre logiciel), `clear`.
 
-État : `{ status, error, ready, seq, kind, lines, bbox {x, y, w, h}, sizeMm {w, h}, estimateS, burnMm, travelMm, issues, skipped, settings }`. `estimateS` ignore les accélérations : la durée réelle est un peu plus longue.
+État : `{ status, error, ready, seq, kind, colors, lines, bbox {x, y, w, h}, sizeMm {w, h}, estimateS, burnMm, travelMm, issues, skipped, settings }`.
+
+### SVG quelconque : attribuer ses couleurs
+
+Seules les couleurs nommées dans `ops` brûlent quand `mode="skip"` ; les autres suivent `mode`. `colors` liste les couleurs du dessin avec leur nombre de surfaces (`fill`) et de traits (`stroke`), même quand aucune n'est encore attribuée (`error` le dit) : une interface les affiche, l'utilisateur choisit une opération par couleur, et `ops` est reconstruit à partir de ce choix (une `sonic-jsonata` sur `progState.colors` et le store des choix). Les feuilles `<style>` simples (`.classe`, `#id`, balise) sont lues ; textes et images incrustées sont ignorés (`skipped`).
+
+### Photo
+
+`sonic-gcode` ne retouche pas l'image : la préparation se fait dans la source, avec les composants qui existent déjà. Une chaîne typique :
+
+```json
+{ "tagName": "sonic-still", "attributes": { "id": "photo", "in-data-provider": "fichierImg", "drop": true } }
+{ "tagName": "sonic-shader", "attributes": { "id": "niveaux", "channel0": "#photo", "image": "@file:niveaux.glsl", "dataProvider": "niv" } }
+{ "tagName": "sonic-shader", "attributes": { "id": "effet", "channel0": "#niveaux", "image": "@file:pile-effets.glsl", "dataProvider": "fx" } }
+{ "tagName": "sonic-gcode", "attributes": { "id": "prog", "source": "#effet", "input": "image", "dither": "jarvis", "width-mm": 80 } }
+```
+
+- `niveaux` (bibliothèque shader) : luminosité, contraste, gamma, éclairage local (retire ombres et dégradés lents, utile avant un seuil).
+- `pile-effets` : encre (contours), contour, crayonné, peinture, aplats, hachures, points, trame, négatif… ; `sobel` : contours seuls ; `halftone` : trame de points à angle réglable.
+- En aplats vectoriels plutôt qu'en balayage : `sonic-vectorize` sur la photo, puis `svg-from` sur son fichier SVG (`<id>State.file`) et une opération par couleur (voir ci-dessus).
+
+| `dither` | Rendu |
+|---|---|
+| `gray` | Balayage, puissance selon le gris (`min-power` pour le gris le plus clair) |
+| `floyd`, `atkinson`, `jarvis`, `stucki`, `burkes`, `sierra`, `sierra-lite` | Diffusion d'erreur (shared/raster1bit, comme l'imprimante d'étiquettes) |
+| `bayer` | Trame ordonnée |
+| `random` | Bruit |
+| `threshold` | Seuil simple (`threshold`) |
+| `adaptive` | Seuil local : garde le détail dans les zones sombres et claires |
+| `hatch` | Hachures croisées : 4 couches de plus en plus sombres, à 45°, −45°, 0° et 90° |
+| `waves` | Ondes : une ligne par rangée, amplitude selon le sombre |
+| `spiral` | Spirale depuis le centre, puissance selon le sombre |
+| `isolines` | Lignes de niveau (`levels` paliers), comme une carte topographique |
+| `stipple` | Pointillisme : points d'autant plus serrés que la zone est sombre |
+
+Les rendus en traits (`hatch`, `waves`, `spiral`, `isolines`, `stipple`) utilisent `line-spacing` (mm) ; les autres `interval` (une ligne de balayage par `interval` mm). `estimateS` ignore les accélérations : la durée réelle est un peu plus longue.
 
 ## `sonic-grbl`
 
@@ -124,3 +161,30 @@ Ces valeurs sont des points de départ, pas des mesures : faire une grille d'ess
 - Arcs (`G2` / `G3`) d'un programme importé : envoyés tels quels, mais l'emprise et la durée n'en comptent que les extrémités.
 - Textes et images incrustés dans un SVG : ignorés (comptés dans `skipped`). Convertir les textes en chemins avant.
 - Pas de surcourse en gravure d'image : les bords d'une image très contrastée peuvent être un peu plus foncés.
+
+## `sonic-laser-pattern`
+
+Modèles paramétriques, sans JS : le SVG (millimètres réels, noir = gravure, bleu = marquage, rouge = découpe) est publié dans l'état et lu par `sonic-gcode svg-from="<id>State"`.
+
+```json
+{ "tagName": "sonic-laser-pattern", "attributes": { "id": "modele", "pattern": "boite", "control": "modeleCtl" } }
+{ "tagName": "sonic-gcode", "attributes": { "id": "prog", "svg-from": "modeleState", "auto": true, "ops": "…" } }
+```
+
+`control` = `{ pattern: "boite", params: { largeur: 80, epaisseur: 3 } }` ; l'état publie `specs` (libellé, bornes, pas, unité de chaque paramètre) pour construire le formulaire, et `catalog` (les modèles). La grille d'essais publie aussi `ops` : une opération par case (puissance × vitesse), à passer telle quelle à `sonic-gcode`.
+
+| Modèle | Paramètres |
+|---|---|
+| `grille` | `puissances`, `pmin`, `pmax`, `vitesses`, `vmin`, `vmax`, `case`, `decoupe` |
+| `boite` | `largeur`, `profondeur`, `hauteur`, `epaisseur`, `creneau`, `couvercle`, `motif` |
+| `engrenages` | `dents1`, `dents2`, `module`, `axe`, `rayons` |
+| `puzzle` | `colonnes`, `lignes`, `piece`, `coins`, `graine`, `motif` |
+| `tampon` | `taille`, `forme` (0 étoile, 1 cœur, 2 fleur), `branches`, `anneau`, `miroir` |
+| `porte-cles` | `largeur`, `hauteur`, `rayon`, `trou`, `bordure`, `motif` |
+| `pendentif` | `diametre`, `trou`, `bordure`, `motif` |
+| `dessous` | `diametre`, `anneaux`, `motif` |
+| `regle` | `longueur` (cm), `largeur` |
+
+`motif` : 0 aucun, 1 cœur, 2 étoile, 3 fleur, 4 rosace.
+
+Pour des illustrations plus riches (personnages, arbres, bâtiments, blasons…), `sonic-procgen` en rendu vectoriel publie son SVG (`control.exportSvg`, état `svg`) : même branchement sur `svg-from`, et une opération par couleur.

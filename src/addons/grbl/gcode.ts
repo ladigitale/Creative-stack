@@ -8,7 +8,11 @@ import { DITHER_MODES, toGray, type DitherMode } from "../../shared/raster1bit";
 import { svgRefOf, svgTextOf } from "../vectorize";
 import { analyzeGcode, type GcodeStats } from "./codec";
 import type { SonicGcodeSource } from "./machines";
-import { cleanOp, rasterToGcode, svgToGcode, TOOLPATH_DEFAULTS, type LaserMode, type LaserOp, type ToolpathSettings } from "./toolpath";
+import { cleanOp, rasterToGcode, svgToGcode, TOOLPATH_DEFAULTS, MAX_GCODE_LINES, type FoundColor, type LaserMode, type LaserOp, type ToolpathSettings } from "./toolpath";
+import { burnsToGcode, LINE_STYLES, photoBurns, type LineStyle } from "./photo";
+
+const IMAGE_RENDERS = [...DITHER_MODES, "gray", ...LINE_STYLES] as const;
+type ImageRender = DitherMode | "gray" | LineStyle;
 
 const tagName = "sonic-gcode";
 
@@ -33,9 +37,13 @@ export type GcodeSettings = {
   yMm: number;
   frame: "content" | "document";
   maxS: number;
-  dither: DitherMode | "gray";
+  dither: ImageRender;
   threshold: number;
   minPower: number;
+  /** Écart entre traits des rendus en traits (hachures, ondes, spirale, pointillisme), en mm. */
+  lineSpacing: number;
+  /** Paliers des lignes de niveau. */
+  levels: number;
 };
 
 export type GcodeState = DeviceBaseState & {
@@ -55,6 +63,8 @@ export type GcodeState = DeviceBaseState & {
   issues: string[];
   /** Éléments du SVG non pris en charge (textes, images…), par balise. */
   skipped: Record<string, number>;
+  /** Couleurs du dessin vectoriel : `[{color, fill, stroke}]` (nombre de surfaces et de traits). */
+  colors: FoundColor[];
   settings: GcodeSettings;
 };
 
@@ -98,8 +108,15 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
   @property({ type: String }) frame = "content";
   /** Valeur S de pleine puissance : celle de la machine (`$30`, `grblState.maxS`). */
   @property({ type: Number, attribute: "max-s" }) maxS = 1000;
-  /** Image : `floyd` (défaut), `atkinson`, `bayer`, `threshold`, ou `gray` (puissance selon le gris). */
+  /**
+   * Image : rendu. Tramages (shared/raster1bit) `floyd` (défaut), `atkinson`, `jarvis`, `stucki`, `burkes`, `sierra`,
+   * `sierra-lite`, `bayer`, `random`, `threshold`, `adaptive` (seuil local) ; `gray` (puissance selon le gris) ;
+   * traits `hatch`, `waves`, `spiral`, `isolines`, `stipple`. La préparation (niveaux, contours, effets) se fait
+   * dans la source : un sonic-shader de la bibliothèque (niveaux, pile-effets, sobel, halftone…) donné en `source`.
+   */
   @property({ type: String }) dither = "floyd";
+  @property({ type: Number, attribute: "line-spacing" }) lineSpacing = 0.5;
+  @property({ type: Number }) levels = 8;
   @property({ type: Number }) threshold = 128;
   @property({ type: Number, attribute: "min-power" }) minPower = 0;
   /** Reconstruit le programme dès que la source ou un réglage change. */
@@ -142,7 +159,7 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
   private initial(): GcodeState {
     return {
       status: "idle", error: null, supported: true, allowed: "unknown", active: false,
-      ready: false, seq: 0, kind: null, lines: 0, bbox: null, sizeMm: null, estimateS: 0, burnMm: 0, travelMm: 0, issues: [], skipped: {},
+      ready: false, seq: 0, kind: null, lines: 0, bbox: null, sizeMm: null, estimateS: 0, burnMm: 0, travelMm: 0, issues: [], skipped: {}, colors: [],
       settings: this.settings([]),
     };
   }
@@ -204,7 +221,7 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
         this.unsubSvg = listenDp(this.svgFrom, read);
       }
     }
-    const keys = ["tool", "input", "mode", "power", "speed", "passes", "interval", "kerf", "ops", "widthMm", "heightMm", "xMm", "yMm", "frame", "maxS", "dither", "threshold", "minPower", "source"];
+    const keys = ["tool", "input", "mode", "power", "speed", "passes", "interval", "kerf", "ops", "widthMm", "heightMm", "xMm", "yMm", "frame", "maxS", "dither", "threshold", "minPower", "source", "lineSpacing", "levels"];
     if (["source", "input", "tool"].some((k) => changed.has(k) && changed.get(k) !== undefined)) this.dropProgram();
     if (keys.some((k) => changed.has(k))) {
       this.dirty = true;
@@ -216,7 +233,7 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
     if (!v || typeof v !== "object") return;
     const c = v as Record<string, unknown>;
     const next: Record<string, unknown> = {};
-    for (const k of ["tool", "input", "mode", "power", "speed", "passes", "interval", "kerf", "ops", "widthMm", "heightMm", "xMm", "yMm", "frame", "maxS", "dither", "threshold", "minPower"]) {
+    for (const k of ["tool", "input", "mode", "power", "speed", "passes", "interval", "kerf", "ops", "widthMm", "heightMm", "xMm", "yMm", "frame", "maxS", "dither", "threshold", "minPower", "lineSpacing", "levels"]) {
       if (c[k] !== undefined && c[k] !== null && c[k] !== "") next[k] = c[k];
     }
     if (JSON.stringify(next) !== JSON.stringify(this.live)) {
@@ -279,9 +296,11 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
       yMm: n("yMm", this.yMm, -2000, 2000, 0),
       frame: pick("frame", this.frame, ["content", "document"] as const, "content"),
       maxS: n("maxS", this.maxS, 1, 100000, 1000),
-      dither: pick("dither", this.dither, [...DITHER_MODES, "gray"] as const, "floyd"),
+      dither: pick("dither", this.dither, IMAGE_RENDERS, "floyd"),
       threshold: n("threshold", this.threshold, 0, 255, 128),
       minPower: n("minPower", this.minPower, 0, 100, 0),
+      lineSpacing: n("lineSpacing", this.lineSpacing, 0.1, 10, 0.5),
+      levels: Math.round(n("levels", this.levels, 2, 16, 8)),
     };
   }
 
@@ -364,7 +383,8 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
       kind = "vector";
       const res = svgToGcode(svg, tp);
       issues.push(...res.issues);
-      if (res.error) return this.giveUp(res.error, issues, quiet);
+      this.patch({ colors: res.colors }, false);
+      if (res.error) return this.giveUp(res.error, issues, quiet && !res.colors.length);
       lines = res.lines;
       sizeMm = res.sizeMm;
       skipped = res.skipped;
@@ -372,13 +392,17 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
       if (ignored.length) issues.push(`éléments du SVG ignorés : ${ignored.join(", ")}`);
     } else {
       kind = "image";
+      if (this.state.colors.length) this.patch({ colors: [] }, false);
       if (s.input === "vector") return this.giveUp("aucun SVG : source sans dessin vectoriel, ou svg-from vide", issues, quiet);
       if (s.tool === "pen") return this.giveUp("une image ne se trace pas au stylo : la vectoriser d'abord (sonic-vectorize)", issues, quiet);
       const canvas = isFrameSource(src) ? src.getFrameCanvas() : null;
       if (!canvas || !canvas.width || !canvas.height) return this.giveUp(this.source ? "source introuvable ou image pas encore prête" : "aucune source : source=\"#id\" ou svg-from", issues, quiet);
       const widthMm = s.widthMm > 0 ? s.widthMm : s.heightMm > 0 ? (s.heightMm * canvas.width) / canvas.height : 50;
       if (!(s.widthMm > 0 || s.heightMm > 0)) issues.push("taille non donnée : 50 mm de large (width-mm)");
-      const cols = Math.max(1, Math.round(widthMm / s.interval));
+      const lineStyle = (LINE_STYLES as readonly string[]).includes(s.dither);
+      // Les rendus en traits échantillonnent l'image au plus fin de leur pas, sans dépasser 1 600 points de large.
+      const res = lineStyle ? Math.max(s.interval, Math.min(s.lineSpacing / 3, widthMm / 1600)) : s.interval;
+      const cols = Math.max(1, Math.round(widthMm / res));
       const rows = Math.max(1, Math.round((cols * canvas.height) / canvas.width));
       if (cols * rows > MAX_RASTER_PIXELS) return this.giveUp("image trop fine pour cette taille : augmenter interval ou réduire width-mm", issues, quiet);
       let gray: Float32Array;
@@ -395,9 +419,16 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
       } catch (e) {
         return this.giveUp(e instanceof Error && e.name === "SecurityError" ? "image non lisible (CORS)" : "lecture de l'image impossible", issues, quiet);
       }
-      lines = rasterToGcode(gray, cols, rows, { widthMm, xMm: s.xMm, yMm: s.yMm, dither: s.dither, threshold: s.threshold, power: s.power, minPower: s.minPower, speed: s.speed, maxS: s.maxS, returnHome: true });
+      const heightMm = rows * (widthMm / cols);
+      const fullS = Math.round((s.power / 100) * s.maxS);
+      lines = lineStyle
+        ? burnsToGcode(
+            photoBurns(gray, cols, rows, { style: s.dither as LineStyle, widthMm, heightMm, spacing: s.lineSpacing, step: Math.max(res, 0.05), s: fullS, minS: Math.round((s.minPower / 100) * s.maxS), levels: s.levels, seed: 7 }),
+            { xMm: s.xMm, yMm: s.yMm, speed: s.speed, returnHome: true, maxLines: MAX_GCODE_LINES },
+          )
+        : rasterToGcode(gray, cols, rows, { widthMm, xMm: s.xMm, yMm: s.yMm, dither: s.dither as DitherMode | "gray", threshold: s.threshold, power: s.power, minPower: s.minPower, speed: s.speed, maxS: s.maxS, returnHome: true });
       if (lines && !lines.length) return this.giveUp("image entièrement blanche : rien à graver", issues, quiet);
-      sizeMm = { w: Math.round(widthMm * 100) / 100, h: Math.round(rows * (widthMm / cols) * 100) / 100 };
+      sizeMm = { w: Math.round(widthMm * 100) / 100, h: Math.round(heightMm * 100) / 100 };
     }
     if (!lines) return this.giveUp("programme trop long : augmenter interval ou réduire la taille", issues, quiet);
 
@@ -457,9 +488,22 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
     const Y = (y: number): number => canvas.height - pad - (y - b.y) * scale;
     const re = /([GXYSM])([+-]?(?:\d+\.?\d*|\.\d+))/g;
     let x = 0, y = 0, motion = 0, power = 0, on = false;
-    // Un tracé par niveau de puissance (4 niveaux) : peu d'appels à stroke().
-    const levels: Path2D[] | null = typeof Path2D !== "undefined" ? [new Path2D(), new Path2D(), new Path2D(), new Path2D()] : null;
+    // Un tracé par couleur d'opération (`;op #rrggbb`) et par niveau de puissance : peu d'appels à stroke().
+    let color = "#141414";
+    const paths = new Map<string, Path2D>();
+    const pathFor = (level: number): Path2D | null => {
+      if (typeof Path2D === "undefined") return null;
+      const k = `${color}|${level}`;
+      let p = paths.get(k);
+      if (!p) paths.set(k, (p = new Path2D()));
+      return p;
+    };
     for (const line of lines) {
+      if (line.startsWith(";op ")) {
+        const c = line.slice(4).trim();
+        if (/^#[0-9a-f]{6}$/i.test(c)) color = c.toLowerCase() === "#ffffff" ? "#141414" : c;
+        continue;
+      }
       let nx = x, ny = y, moved = false;
       re.lastIndex = 0;
       for (let m = re.exec(line); m; m = re.exec(line)) {
@@ -471,18 +515,21 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
         else { ny = v; moved = true; }
       }
       if (!moved) continue;
-      if (levels && motion !== 0 && on && power > 0) {
-        const p = levels[Math.min(3, Math.floor((power / maxS) * 4))];
-        p.moveTo(X(x), Y(y));
-        p.lineTo(X(nx), Y(ny));
+      if (motion !== 0 && on && power > 0) {
+        const p = pathFor(Math.min(3, Math.floor((power / maxS) * 4)));
+        p?.moveTo(X(x), Y(y));
+        p?.lineTo(X(nx), Y(ny));
       }
       x = nx;
       y = ny;
     }
-    levels?.forEach((p, i) => {
-      ctx.strokeStyle = `rgba(20, 20, 20, ${0.3 + i * 0.23})`;
+    for (const [k, p] of paths) {
+      const [c, level] = k.split("|");
+      ctx.globalAlpha = 0.35 + Number(level) * 0.21;
+      ctx.strokeStyle = c;
       ctx.stroke(p);
-    });
+    }
+    ctx.globalAlpha = 1;
     this.frameSeq++;
     this.requestUpdate();
   }
