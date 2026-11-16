@@ -101,6 +101,12 @@ export class Sonic2d extends LitElement {
    * Au lâcher, `target` reçoit `{type: "place", payload}` et la sortie publie `placed`.
    */
   @property({ type: String }) drag = "";
+  /**
+   * Avec `drag` : seule l'instance sélectionnée se déplace (clé `selection` du DataProvider, contour bleu) ; un tap
+   * sélectionne (action `pick` avec `instance`).
+   */
+  @property({ type: Boolean, attribute: "drag-selected" }) dragSelected = false;
+  private selectedName = "";
 
   private m2: Monde2dRenderer | null = null;
   private m2Ref: unknown = undefined;
@@ -403,6 +409,7 @@ export class Sonic2d extends LitElement {
     const animate = !reducedMotion() && document.visibilityState !== "hidden";
     const now = performance.now();
     if (data.monde !== undefined) this.syncMonde(data.monde);
+    this.syncSelection(data.selection);
     if (data.monde2d !== undefined) this.syncMonde2d(data.monde2d);
     if (data.nodes !== undefined) {
       let nodes: unknown = data.nodes;
@@ -417,6 +424,16 @@ export class Sonic2d extends LitElement {
   };
 
   /** Monde : lecture (attribut ou DP), reconstruction si le JSON a changé (modèles inchangés réutilisés). */
+  /** Clé `selection` : instance sélectionnée (contour ; seule déplaçable avec `drag-selected`). */
+  private syncSelection(raw: unknown): void {
+    const v = raw != null && typeof raw === "object" ? (raw as { valueOf: () => unknown }).valueOf() : raw;
+    const name = typeof v === "string" ? v : "";
+    if (name === this.selectedName) return;
+    this.selectedName = name;
+    this.mondeR?.select(name);
+    this.invalidate();
+  }
+
   private syncMonde(dp: unknown): void {
     const r = this.mondeR;
     if (!r) return;
@@ -430,7 +447,7 @@ export class Sonic2d extends LitElement {
         bad = true;
       }
     }
-    if (src === this.mondeRef) return;
+    // pas de court-circuit sur la référence : une écriture imbriquée modifie l'objet en place
     this.mondeRef = src;
     const sig = src ? String(hash32(JSON.stringify(src))) : "";
     if (sig === this.mondeSig) return;
@@ -697,7 +714,9 @@ export class Sonic2d extends LitElement {
     if (!this.drag || !r?.instanceCount || !scene?.isReady || this.dragging) return;
     const [sx, sy] = this.scenePoint(e);
     const [lx, ly] = scene.layerPoint(this.mondeLayer || "monde", sx, sy);
-    const name = r.grab(lx, ly, this.drag);
+    let name = r.grab(lx, ly, this.drag);
+    // drag-selected : l'objet sous le doigt doit être le sélectionné
+    if (this.dragSelected && (!this.selectedName || name !== this.selectedName)) name = "";
     if (!name) return;
     const state = { name, id: e.pointerId, sx, sy, ry: undefined as number | undefined, last: null as PlacedInfo | null, stop: () => {} };
     state.stop = listenTurn(this, (d) => {

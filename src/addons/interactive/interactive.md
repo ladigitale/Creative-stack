@@ -174,6 +174,12 @@ $action.type = 'pinch' ? $merge([$state, {'zoom': $clamp($state.zoom * $action.p
 : $state
 ```
 
+## Local persistence
+
+`persist="<key>"` on `sonic-store` keeps the state in the browser (`localStorage`): it is restored at startup when a save exists under that key (and has the same shape as `initial`), and saved 300 ms after each publication. `@reset` always goes back to `initial` (and saves it). A full or refused storage is ignored: the state stays in memory. In Artefacts, declare `data.persist` in the document rather than writing the key yourself.
+
+`history-skip="select,hover"`: these action types are not recorded in the undo history (`@undo` skips over them), e.g. selecting an object in an editor.
+
 ## World editing helpers
 
 `$mondePlace(monde, placed)`, `$mondeAdd(monde, entry, [x, z]?)`, `$mondeRemove(monde, name, src?)`, `$mondeParams(monde, name, params, src?)` and `$mondeTurn(monde, name, degrees?, src?)` edit the JSON of a `monde` (sonic-3d / sonic-2d world format): keep a dragged pose, add an object at the nearest free spot, remove an object and what stands on it. See `../3d/monde.md`, « Édition ». `$mondeAdd` and `$mondeTurn` read the whole world (lazy-loaded, 15–60 ms): give the store `budget-ms="200"`.

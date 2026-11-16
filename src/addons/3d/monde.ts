@@ -21,6 +21,7 @@ import { STRIDE } from "../../shared/monde/pose";
 import { measureGen, turnY } from "../../shared/monde/supports";
 import type { Obb } from "../../shared/monde/collide";
 import { placedInfo, type PlacedInfo } from "../../shared/monde/arrange";
+import { envelopeOf } from "../../shared/monde/walk";
 import type { NodesSpec } from "./nodes";
 import { aliasBone, genMotion } from "../../shared/monde/gen";
 import type { GenActor, GenKit } from "../procgen/index";
@@ -185,6 +186,8 @@ export class Monde3d {
   onConflicts: ((c: Conflict[]) => void) | null = null;
   /** Boîtes des objets en conflit (`collisions: "montrer"`). */
   private marks: THREE.LineSegments | null = null;
+  private selection: THREE.LineSegments | null = null;
+  private selName = "";
 
   constructor() {
     this.group.name = "monde";
@@ -220,17 +223,22 @@ export class Monde3d {
     for (const b of this.oldBuffers.values()) b.dispose();
     this.oldBuffers.clear();
     this.drawMarks(m.marks);
+    this.drawSelection();
   }
 
   /** Arêtes rouges des boîtes en conflit, toujours visibles (dessinées par-dessus la scène). */
   private drawMarks(boxes: Obb[]) {
-    if (this.marks) {
-      this.group.remove(this.marks);
-      this.marks.geometry.dispose();
-      (this.marks.material as THREE.Material).dispose();
-      this.marks = null;
+    this.marks = this.outline(this.marks, boxes, 0xff2d2d, 10);
+  }
+
+  /** Arêtes de boîtes orientées, par-dessus la scène, insensibles au pointeur (remplace `prev`). */
+  private outline(prev: THREE.LineSegments | null, boxes: Obb[], color: number, order: number): THREE.LineSegments | null {
+    if (prev) {
+      this.group.remove(prev);
+      prev.geometry.dispose();
+      (prev.material as THREE.Material).dispose();
     }
-    if (!boxes.length) return;
+    if (!boxes.length) return null;
     const pos: number[] = [];
     const EDGES = [0, 1, 1, 3, 3, 2, 2, 0, 4, 5, 5, 7, 7, 6, 6, 4, 0, 4, 1, 5, 2, 6, 3, 7];
     for (const b of boxes) {
@@ -242,12 +250,29 @@ export class Monde3d {
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    this.marks = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xff2d2d, depthTest: false, transparent: true }));
-    this.marks.name = "";
-    this.marks.renderOrder = 10;
+    const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
+    line.name = "";
+    line.renderOrder = order;
     // repère visuel seulement : ni pick ni glisser
-    this.marks.raycast = () => {};
-    this.group.add(this.marks);
+    line.raycast = () => {};
+    this.group.add(line);
+    return line;
+  }
+
+  /** Instance sélectionnée (contour bleu ; vide : aucune), voir l'attribut `drag-selected`. */
+  select(name: string): void {
+    this.selName = name;
+    this.drawSelection();
+  }
+
+  private drawSelection(): void {
+    const name = this.selName;
+    const body = name && this.monde ? this.driver.bodies().find((b) => b.name === name) : undefined;
+    if (body) {
+      const e = envelopeOf(body);
+      // un peu plus large que l'objet : le contour ne se confond pas avec ses arêtes
+      this.selection = this.outline(this.selection, [{ ...e, h: [e.h[0] + 0.02, e.h[1] + 0.02, e.h[2] + 0.02] }], 0x2f7bf6, 11);
+    } else this.selection = this.outline(this.selection, [], 0, 0);
   }
 
   /** Ciel et brume du monde ; ceux de la scène sont rendus quand le monde n'en donne plus. */
@@ -587,6 +612,7 @@ export class Monde3d {
   /** Conflits sur les positions courantes : arêtes rouges redessinées ; `live` (pendant un glisser) : sans publication. */
   refreshConflicts(live = false): void {
     for (const n of this.built.keys()) this.syncT(n);
+    this.drawSelection();
     const r = this.driver.collisions();
     if (!r) return;
     this.drawMarks(r.marks);

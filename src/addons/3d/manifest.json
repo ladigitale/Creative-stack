@@ -45,6 +45,10 @@
           "type": "string",
           "description": "Glisser les instances d'un monde : regex des noms déplaçables (.* : toutes). L'instance suit le pointeur, rangée en direct (appui, aimantation aux murs et aux voisins, collisions) ; R / Maj+R (quart de tour), Q / E ou la molette le tournent pendant le geste ; au lâcher target reçoit {type:\"place\", payload:{objectId,x,y,z,ry,valid,hits,snaps,place}} et la clé de sortie placed est publiée"
         },
+        "drag-selected": {
+          "type": "boolean",
+          "description": "Avec drag : seule l'instance sélectionnée (clé selection du DataProvider, contour bleu) se déplace ; un tap sélectionne (action pick avec instance), un glisser ailleurs fait tourner la vue"
+        },
         "fov": {
           "type": "number"
         },

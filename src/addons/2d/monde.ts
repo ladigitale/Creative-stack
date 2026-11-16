@@ -11,6 +11,7 @@ import { m4, m4Compose, type M4, type V3 } from "../../shared/monde/math";
 import { isColor, partColor, partTex, type Conflict, type Model, type Monde, type Part, type Placement } from "../../shared/monde/format";
 import { placedInfo, type PlacedInfo } from "../../shared/monde/arrange";
 import type { Obb } from "../../shared/monde/collide";
+import { envelopeOf } from "../../shared/monde/walk";
 import { MondeDriver, type InstanceState } from "../../shared/monde/driver";
 import { forward, STRIDE } from "../../shared/monde/pose";
 import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/textures";
@@ -105,6 +106,8 @@ export class Monde2d {
   /** Conflits recalculés après un rangement. */
   onConflicts: ((c: Conflict[]) => void) | null = null;
   private marks: Graphics | null = null;
+  private selection: Graphics | null = null;
+  private selName = "";
 
   constructor(private invalidate: () => void) {
     this.container.sortableChildren = true;
@@ -124,19 +127,43 @@ export class Monde2d {
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.step(now, true);
     this.drawMarks(m.marks);
+    this.drawSelection();
     this.invalidate();
+  }
+
+  /** Instance sélectionnée (contour bleu ; vide : aucune). */
+  select(name: string): void {
+    this.selName = name;
+    this.drawSelection();
+  }
+
+  private drawSelection(): void {
+    if (this.selection) {
+      this.selection.destroy();
+      this.selection = null;
+    }
+    const body = this.selName && this.monde ? this.driver.bodies().find((b) => b.name === this.selName) : undefined;
+    if (!body) return;
+    const e = envelopeOf(body);
+    this.selection = this.outline([{ ...e, h: [e.h[0] + 0.02, e.h[1] + 0.02, e.h[2] + 0.02] }], "#2f7bf6", 2.5, 1e9 + 1);
   }
 
   /** Contours rouges (projetés) des boîtes en conflit, par-dessus la scène. */
   private drawMarks(boxes: Obb[]) {
-    const m = this.monde;
     if (this.marks) {
       this.marks.destroy();
       this.marks = null;
+    this.selection = null;
     }
-    if (!m || !boxes.length) return;
+    this.marks = this.outline(boxes, "#ff2d2d", 1.5, 1e9);
+  }
+
+  /** Contours projetés de boîtes orientées, ajoutés à la scène (null : rien à dessiner). */
+  private outline(boxes: Obb[], color: string, width: number, z: number): Graphics | null {
+    const m = this.monde;
+    if (!m || !boxes.length) return null;
     const g = new Graphics();
-    g.zIndex = 1e9;
+    g.zIndex = z;
     const { unit, origin } = m.view2d;
     const P = this.proj;
     for (const b of boxes) {
@@ -147,10 +174,10 @@ export class Monde2d {
         pts.push(origin[0] + (P.px[0] * c[0] + P.px[1] * c[1] + P.px[2] * c[2]) * unit, origin[1] + (P.py[0] * c[0] + P.py[1] * c[1] + P.py[2] * c[2]) * unit);
       }
       const h = hull2(pts);
-      if (h.length >= 6) g.poly(h, true).stroke({ color: "#ff2d2d", width: 1.5, alpha: 0.9 });
+      if (h.length >= 6) g.poly(h, true).stroke({ color, width, alpha: 0.9 });
     }
-    this.marks = g;
     this.container.addChild(g);
+    return g;
   }
 
   /** Instance déplaçable sous un point du calque (vide : aucune) ; `names` : regex des noms permis. */
@@ -187,6 +214,7 @@ export class Monde2d {
 
   /** Conflits sur les positions courantes ; `live` (pendant un glisser) : arêtes seulement. */
   refreshConflicts(live = false): void {
+    this.drawSelection();
     const r = this.driver.collisions();
     if (!r) return;
     this.drawMarks(r.marks);

@@ -21,6 +21,8 @@ export type MondeHost = {
   lastNodesJson: string;
   raf: number;
   mondeRemeasure?: ReturnType<typeof setTimeout> | 0;
+  /** Instance sélectionnée (clé `selection`). */
+  selectedName?: string;
   formPublisher: { get?: () => Record<string, unknown> } | null;
   outPublisher: unknown;
   bindOutPublisher: () => void;
@@ -55,6 +57,7 @@ function publish(host: MondeHost, m: Monde) {
 /** Branche sur le runtime courant ce que le monde signale après coup (appelé à chaque création de runtime). */
 function hook(host: MondeHost) {
   if (!host.runtime) return;
+  host.runtime.monde.select(host.selectedName ?? "");
   // résultat d'un rangement demandé par nodes.<instance>.move : publié dans la sortie (clé `placed`)
   host.runtime.monde.onPlaced = (info) => {
     const out = host.outDataProvider?.trim();
@@ -113,7 +116,8 @@ function hook(host: MondeHost) {
 /** À appeler à chaque mutation du DP et quand l'attribut `monde` change. */
 function sync(host: MondeHost, data: Record<string, unknown>) {
   const src = sourceOf(host, data);
-  if (src === host.mondeRef && host.mondeParsed) return;
+  // pas de court-circuit sur la référence : une écriture imbriquée (`<dp>.monde.espace`) modifie l'objet en place,
+  // seule la signature dit si le monde a changé
   host.mondeRef = src;
   // la vue 2D ne change rien à la scène 3D : pas de reconstruction pour elle
   const sig = src ? String(hash32(JSON.stringify(src, (k, v) => (k === "view2d" ? undefined : v)))) : "";
@@ -139,4 +143,16 @@ function sync(host: MondeHost, data: Record<string, unknown>) {
   }
 }
 
-export const mondeBind = { sync, hook } as const;
+/** Clé `selection` du DataProvider : instance sélectionnée (contour, seule déplaçable avec `drag-selected`). */
+function select(host: MondeHost, data: Record<string, unknown>) {
+  const raw = data.selection;
+  // valeur brute ou proxy Concorde d'une chaîne
+  const v = raw != null && typeof raw === "object" ? (raw as { valueOf: () => unknown }).valueOf() : raw;
+  const name = typeof v === "string" ? v : "";
+  if (name === host.selectedName) return;
+  host.selectedName = name;
+  host.runtime?.monde.select(name);
+  host.runtime?.render();
+}
+
+export const mondeBind = { sync, hook, select } as const;

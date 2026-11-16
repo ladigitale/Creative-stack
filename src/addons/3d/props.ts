@@ -39,6 +39,12 @@ export class Sonic3dProps extends LitElement {
    * rangée à chaque instant (appui, aimantation, collisions) ; au lâcher, `target` reçoit `{type: "place", payload}`.
    */
   @property({ type: String }) drag = "";
+  /**
+   * Avec `drag` : seule l'instance sélectionnée se déplace (clé `selection` du DataProvider, contour bleu). Un tap
+   * sélectionne (action `pick` avec `instance`), un glisser sur l'objet sélectionné le déplace, ailleurs il fait
+   * tourner la vue.
+   */
+  @property({ type: Boolean, attribute: "drag-selected" }) dragSelected = false;
   @property({ reflect: true })
   camera: Sonic3dCameraMode = Sonic3dCameraMode.Orbit;
   @property({ type: Number }) fov = DEFAULT_FOV;
