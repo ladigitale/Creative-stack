@@ -254,5 +254,9 @@ describe("sonic-procgen : édition au doigt (vue simulée)", () => {
     const f = events.find((e) => e.type === "placeFree")!.detail;
     expect(f).toMatchObject({ id: "n1", valid: true });
     expect(Math.hypot(Number(f.x) - 8, Number(f.z) - 8)).toBeGreaterThan(0.1);
+    // l'objet déjà présent dans la recette ne se gêne pas lui-même
+    (el as unknown as { answerPlace: (r: unknown) => void }).answerPlace({ id: "n2", gen: "rock", at: [8, 8], ignore: "rochers" });
+    const g = events.filter((e) => e.type === "placeFree")[1].detail;
+    expect([g.x, g.z]).toEqual([8, 8]);
   });
 });

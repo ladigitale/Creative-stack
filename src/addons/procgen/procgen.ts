@@ -695,7 +695,7 @@ export class SonicProcgen extends HTMLElement {
 
   /**
    * Place libre pour un nouvel objet (`placeRequest` du DataProvider) : `{id, gen, params, at: [x, z], size: [w, d],
-   * yaw (°), onWater}` → `state-out.free` et action `placeFree` `{id, x, y, z, yaw, valid, hits, snaps}`.
+   * yaw (°), onWater, ignore}` → `state-out.free` et action `placeFree` `{id, x, y, z, yaw, valid, hits, snaps}`.
    */
   private answerPlace(req: Json) {
     const m = this.model;
@@ -727,7 +727,10 @@ export class SonicProcgen extends HTMLElement {
     const vw = this.view?.getView() as { cx?: number | null; cz?: number | null } | undefined;
     const at = Array.isArray(req.at) ? req.at : [vw?.cx ?? 0, vw?.cz ?? 0];
     const yaw = num(req.yaw, 0) / DEGS;
-    const res = arrangeAt(placeCtx(m), moverFor("_new", fp.generator, fp.hx, fp.hz, yaw, { onWater: !!req.onWater, onPath: !!req.onPath }), num(at[0], 0), num(at[1], 0));
+    // `ignore` : ids ou calques à ne pas compter (le nouvel objet déjà ajouté à la scène, par exemple)
+    const ign = (Array.isArray(req.ignore) ? req.ignore : req.ignore !== undefined ? [req.ignore] : []).map(String);
+    const skip = new Set(m.objects.filter((o) => ign.includes(o.id) || ign.includes(o.layer)).map((o) => o.id));
+    const res = arrangeAt(placeCtx(m, skip), moverFor("_new", fp.generator, fp.hx, fp.hz, yaw, { onWater: !!req.onWater, onPath: !!req.onPath }), num(at[0], 0), num(at[1], 0));
     this.freeOut = { id: req.id ?? null, x: res.x, y: res.y, z: res.z, yaw: Math.round(res.yaw * DEGS * 10) / 10, valid: res.valid, hits: res.hits, snaps: res.snaps };
     this.emit({ type: "placeFree", payload: this.freeOut as Json });
     this.queueOut(true);
