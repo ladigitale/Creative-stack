@@ -26,7 +26,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `edit` | `{id: "maisons.3", params: {floors: 4}}` ou `{layer: "maisons", params: {...}}` : modifie sans réécrire la recette |
 | `hidden` | Ids cachés (objet ramassé, personnage parti) |
 | `anchors` | Ancres à suivre à l'écran : `["heros@head.top", "maisons.2@door"]` |
-| `placeRequest` | Place libre pour un nouvel objet : `{id, gen, params, at: [x, z], size: [w, d], yaw (°), onWater, onPath}` (voir Édition au doigt) ; calculée une fois par valeur |
+| `placeRequest` | Place libre pour un nouvel objet : `{id, gen, params, at: [x, z], size: [w, d], yaw (°), onWater, onPath, ignore}` (voir Édition au doigt) ; calculée une fois par valeur |
 | `kick` | Coup donné à un ballon sans acteur : `{ball: "ballons.0", power, dir (°, 0 = +z), loft, n}` ou `{ball, vx, vy, vz}` (m/s, norme bornée à 40), ou une liste de 16 au plus ; joué quand la valeur change (pas au chargement) : pour retirer le même coup, incrémenter `n` |
 
 ## Clés écrites dans `state-out` (défaut `<dataProvider>State`)
@@ -92,7 +92,7 @@ Les mêmes gestes que le format monde de `sonic-3d` (voir `3d/monde.md`, Éditio
 - **Ce qui se glisse** : les objets d'une couche placée par points (`place: {at: […]}`) — `index` est alors le rang du point dans `at` — et les acteurs de `recipe.actors`. Un objet d'une couche semée (`grid`, `poisson`, `along`, `ring`…) ne se glisse pas : son placement ne se réécrit pas point par point. Le geste tourne alors la vue et `dragRefused` (`placement`) le signale (un éditeur peut proposer de détacher l'objet en un calque `at`). Ballons exclus. Rendu 3D seulement : en rendu vectoriel, sélection et gestes de vue marchent, pas le glisser.
 - **Cap** : jamais tourné automatiquement (`keep-heading` est accepté pour la parité avec `sonic-3d`) ; pendant le geste, R (quart de tour, Maj+R dans l'autre sens), Q / E ou la molette (15°). `place.yaw` (degrés) est à recopier : un point `at` sans `yaw` reçoit sinon un cap tiré au hasard.
 - **Persistance** : le glisser déplace l'objet à l'écran sans recomposer ; c'est au store de recopier `x`, `z` (et `yaw`) dans le point `at[index]` de la couche `layer` (ou `actors.<id>.at`). Sinon la prochaine recomposition le remet à sa place.
-- **Nouvel objet sans collision** : écrire `placeRequest = {id: "n12", gen: "seat.parkbench", params, at: [x, z]}` (sans `at` : centre de la vue ; `size: [w, d]` en mètres au lieu de mesurer le générateur) ; le composant répond une fois par valeur dans `state-out.free` et par l'action `placeFree` `{id, x, y, z, yaw, valid, hits, snaps}` : le réducteur ajoute alors l'objet à ce point.
+- **Nouvel objet sans collision** : écrire `placeRequest = {id: "n12", gen: "seat.parkbench", params, at: [x, z]}` (sans `at` : centre de la vue ; `size: [w, d]` en mètres au lieu de mesurer le générateur ; `ignore` : id ou calque, ou liste, à ne pas compter comme obstacle — l'objet lui-même s'il est déjà dans la recette) ; le composant répond une fois par valeur dans `state-out.free` et par l'action `placeFree` `{id, x, y, z, yaw, valid, hits, snaps}` : le réducteur ajoute alors l'objet à ce point.
 - Coût : rien par image hors geste ; une recherche de rangement par image pendant le glisser (emprises 2D, contexte préparé au début du geste) ; publication de `state-out` 15 fois par seconde pendant un geste, 5 sinon.
 
 ## Recette
