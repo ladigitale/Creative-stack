@@ -197,6 +197,7 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
           if (JSON.stringify(next) !== JSON.stringify(this.svgInput)) {
             this.svgInput = next;
             this.dirty = true;
+            this.dropProgram();
           }
         };
         read(plain(get(this.svgFrom)));
@@ -204,6 +205,7 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
       }
     }
     const keys = ["tool", "input", "mode", "power", "speed", "passes", "interval", "kerf", "ops", "widthMm", "heightMm", "xMm", "yMm", "frame", "maxS", "dither", "threshold", "minPower", "source"];
+    if (["source", "input", "tool"].some((k) => changed.has(k) && changed.get(k) !== undefined)) this.dropProgram();
     if (keys.some((k) => changed.has(k))) {
       this.dirty = true;
       this.patch({ settings: this.settings([]) });
@@ -298,10 +300,26 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
   }
 
   private giveUp(error: string, issues: string[], quiet: boolean): boolean {
+    // Plus de programme valable : on n'en garde jamais un ancien, qui ne correspond plus à la source ni aux
+    // réglages (une machine pourrait le lancer à la place de ce qui est affiché).
+    const had = !!this.program;
+    this.dropProgram();
     // En mode auto, une source pas encore prête n'est pas une erreur à afficher.
-    if (quiet && !this.program) this.patch({ status: "idle", issues });
-    else this.patch({ status: "error", error, issues, ready: !!this.program });
+    if (quiet && !had) this.patch({ status: "idle", error: null, issues });
+    else this.patch({ status: quiet ? "idle" : "error", error: quiet ? null : error, issues });
     return false;
+  }
+
+  /** Retire le programme courant (état `ready` faux, aperçu vidé). */
+  private dropProgram(): void {
+    if (!this.program) return;
+    this.program = null;
+    this.gcodeSeq++;
+    if (this.previewCanvas) {
+      this.previewCanvas.getContext("2d")?.clearRect(0, 0, this.previewCanvas.width, this.previewCanvas.height);
+      this.frameSeq++;
+    }
+    this.patch({ ready: false, active: false, seq: this.gcodeSeq, kind: null, lines: 0, bbox: null, sizeMm: null, estimateS: 0, burnMm: 0, travelMm: 0 });
   }
 
   /** Construit le programme depuis la source. */
