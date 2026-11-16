@@ -20,6 +20,7 @@ import { walk, type Walked, type WalkMode } from "./walk";
 import { clipState, samplePose, setClip, STRIDE, type ClipState } from "./pose";
 import { boundsOf, DEFAULT_BOUNDS, localOn, surfaceOf, turnY } from "./supports";
 import { arrange, type Arranged, type ArrangeOptions, type Body } from "./arrange";
+import { slideOpening } from "./opening";
 
 /** Canaux de transformation d'une instance. */
 const CH = ["x", "y", "z", "rx", "ry", "rz", "sx", "sy", "sz", "opacity"] as const;
@@ -194,15 +195,25 @@ export class MondeDriver {
     return { patch: { ...p, x: walked.x, z: walked.z }, walked };
   }
 
-  /** Vrai si l'instance peut être rangée ailleurs : ni élément de l'espace (murs, sols, plafond), ni ouverture. */
+  /**
+   * Vrai si l'instance peut être rangée ailleurs : ni élément de l'espace (murs, sols, plafond), ni ouverture, sauf
+   * celles de `monde.ouvertures`, qui glissent le long des murs.
+   */
   movable(name: string): boolean {
     const inst = this.instances.get(name);
     if (!inst || !this.monde) return false;
+    if (this.isOpening(name)) return true;
     const model = inst.placement.model;
     if (model.startsWith("espace:")) return false;
     const base = model.split("~")[0];
     const p = Object.prototype.hasOwnProperty.call(this.monde.prefabs, base) ? this.monde.prefabs[base] : null;
     return p?.famille !== "ouverture";
+  }
+
+  /** Ouverture qui glisse le long des murs (écrite dans `monde.ouvertures`). */
+  isOpening(name: string): boolean {
+    const o = this.monde && Object.prototype.hasOwnProperty.call(this.monde.openings, name) ? this.monde.openings[name] : null;
+    return !!o && o.index >= 0;
   }
 
   bodies(): Body[] {
@@ -227,6 +238,22 @@ export class MondeDriver {
     return out;
   }
 
+  /** Ouverture glissée au point (x, z) : le long du mur, tout de suite ; pose inchangée s'il n'y a pas de place. */
+  private slideOpeningTo(name: string, x: number, z: number, bord?: number, grid?: number): Arranged | null {
+    const inst = this.instances.get(name)!;
+    const s = slideOpening(this.monde!, name, x, z, bord, grid);
+    if (!s) return inst.placed ?? null;
+    const res: Arranged = { at: [s.x, inst.t.y, s.z], ry: s.ry, carry: null, valid: true, hits: [], snaps: ["mur"], ouverture: s.ouverture };
+    inst.placed = res;
+    inst.driven = true;
+    inst.carry = null;
+    inst.tween = null;
+    Object.assign(inst.t, { x: s.x, z: s.z, ry: s.ry });
+    inst.transformDirty = true;
+    this.chain();
+    return res;
+  }
+
   /**
    * Range `name` au point visé (x, z) et applique la pose trouvée. `ms` > 0 : trajet animé. Rend le résultat
    * (aussi gardé dans `placed`), ou `null` si l'instance est inconnue.
@@ -234,6 +261,7 @@ export class MondeDriver {
   arrangeTo(name: string, x: number, z: number, now: number, ms = 0, curve: NodeCurve = "inOut", opt: ArrangeOptions = {}): Arranged | null {
     const inst = this.instances.get(name);
     if (!inst || !this.monde || !this.movable(name)) return null;
+    if (this.isOpening(name)) return this.slideOpeningTo(name, x, z, opt.bord, opt.grid);
     const res = arrange(this.bodies(), name, x, z, { contour: this.monde.contour, ...opt });
     if (!res) return null;
     inst.placed = res;

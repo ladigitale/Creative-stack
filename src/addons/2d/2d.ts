@@ -106,6 +106,8 @@ export class Sonic2d extends LitElement {
    * sélectionne (action `pick` avec `instance`).
    */
   @property({ type: Boolean, attribute: "drag-selected" }) dragSelected = false;
+  /** Avec `drag` : l'objet garde son cap (pas de rotation automatique dos au mur) ; R, Q / E ou la molette le tournent. */
+  @property({ type: Boolean, attribute: "keep-heading" }) keepHeading = false;
   private selectedName = "";
 
   private m2: Monde2dRenderer | null = null;
@@ -718,7 +720,7 @@ export class Sonic2d extends LitElement {
     // drag-selected : l'objet sous le doigt doit être le sélectionné
     if (this.dragSelected && (!this.selectedName || name !== this.selectedName)) name = "";
     if (!name) return;
-    const state = { name, id: e.pointerId, sx, sy, ry: undefined as number | undefined, last: null as PlacedInfo | null, stop: () => {} };
+    const state = { name, id: e.pointerId, sx, sy, ry: (this.keepHeading ? r.driver.instances.get(name)?.t.ry : undefined) as number | undefined, last: null as PlacedInfo | null, stop: () => {} };
     state.stop = listenTurn(this, (d) => {
       const t = this.mondeR?.driver.instances.get(name)?.t;
       state.ry = wrapAngle((state.ry ?? t?.ry ?? 0) + d);
@@ -796,10 +798,11 @@ export class Sonic2d extends LitElement {
     }
     if (this.mondeR?.instanceCount) {
       const [lx, ly] = scene.layerPoint(this.mondeLayer || "monde", sx, sy);
-      const mh = this.mondeR.pick(lx, ly);
+      const drv = this.mondeR.driver;
+      // un objet déplaçable d'abord (une porte est dessinée dans l'épaisseur de son mur, sous lui)
+      const mh = this.mondeR.pick(lx, ly, (n) => drv.movable(n) && (!re || re.test(n))) ?? this.mondeR.pick(lx, ly);
       if (mh && (!re || re.test(mh.instance))) {
         // objet déplaçable du monde : `instance` et rang de son entrée (comme en 3D)
-        const drv = this.mondeR.driver;
         const world = drv.movable(mh.instance) ? { instance: mh.instance, src: drv.instances.get(mh.instance)?.placement.src ?? -1 } : {};
         dispatch(this.target, { type, payload: { objectId: mh.instance, part: mh.part, x: r2(lx), y: r2(ly), ...world } });
         return;

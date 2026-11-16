@@ -21,6 +21,7 @@ import { STRIDE } from "../../shared/monde/pose";
 import { measureGen, turnY } from "../../shared/monde/supports";
 import type { Obb } from "../../shared/monde/collide";
 import { placedInfo, type PlacedInfo } from "../../shared/monde/arrange";
+import { edgeUnderRay } from "../../shared/monde/opening";
 import { envelopeOf } from "../../shared/monde/walk";
 import type { NodesSpec } from "./nodes";
 import { aliasBone, genMotion } from "../../shared/monde/gen";
@@ -592,14 +593,19 @@ export class Monde3d {
   }
 
   /** Glisser : range l'instance au point visé, tout de suite (voir arrange.ts). */
-  dragTo(name: string, x: number, z: number, now: number, ry?: number): PlacedInfo | null {
+  dragTo(name: string, x: number, z: number, now: number, ry?: number, bord?: number): PlacedInfo | null {
     if (!this.monde) return null;
     for (const n of this.built.keys()) if (n !== name) this.syncT(n);
-    const res = this.driver.arrangeTo(name, x, z, now, 0, "inOut", ry === undefined ? {} : { ry });
+    const res = this.driver.arrangeTo(name, x, z, now, 0, "inOut", { ...(ry === undefined ? {} : { ry }), ...(bord === undefined ? {} : { bord }) });
     if (!res) return null;
     this.follow();
     this.refreshConflicts(true);
     return placedInfo(name, res, this.driver.bodies(), this.monde.unit);
+  }
+
+  /** Ouverture qui glisse le long des murs : mur visé par le rayon (mètres), `null` si aucun. */
+  openingRay(name: string, o: [number, number, number], d: [number, number, number]): { x: number; z: number; bord: number } | null {
+    return this.monde && this.driver.isOpening(name) ? edgeUnderRay(this.monde.edges, o, d) : null;
   }
 
   /** Fin d'un glisser : le résultat est publié (comme pour `nodes.<instance>.move`) et les conflits aussi. */
