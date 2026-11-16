@@ -206,7 +206,11 @@ export class Scene2D {
     stage.sortableChildren = true;
     // Sprites dont le calque a disparu : calque par défaut.
     for (const e of this.entries.values()) this.attach(e);
-    for (const x of this.extras) this.layerOf(x.layer).container.addChild(x.c);
+    for (const x of this.extras) {
+      const p = this.layerOf(x.layer).container;
+      if (x.c.zIndex < 0) p.addChildAt(x.c, 0);
+      else p.addChild(x.c);
+    }
     this.applyCamera();
   }
 
@@ -217,7 +221,14 @@ export class Scene2D {
     const i = this.extras.findIndex((x) => x.c === c);
     if (i >= 0) this.extras.splice(i, 1);
     this.extras.push({ c, layer });
-    if (this.ready) this.layerOf(layer).container.addChild(c);
+    if (this.ready) {
+      // déjà en place : on ne le déplace pas (un fond réattaché passerait devant les pièces) ; zIndex < 0 : dessous
+      const parent = this.layerOf(layer).container;
+      if (c.parent !== parent) {
+        if (c.zIndex < 0) parent.addChildAt(c, 0);
+        else parent.addChild(c);
+      }
+    }
     this.opts.invalidate();
   }
 

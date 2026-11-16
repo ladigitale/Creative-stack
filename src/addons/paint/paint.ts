@@ -12,6 +12,7 @@ import { ViewSync } from "../../shared/view-sync";
 import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
 import { PalmGuard, VelocityPressure, pressureCurve, readPen, sanitizeTouchMode } from "../../shared/pen";
 import { persistKey, readPaint, writePaint } from "./persist";
+import { dispatch } from "../interactive";
 
 /** Zoom de la vue d'une toile navigable (pixels d'écran par pixel de toile). */
 const NAV_MIN_ZOOM = 0.01;
@@ -22,6 +23,8 @@ const MAX_PIXELS = 16_000_000;
 
 export type PaintState = {
   status: "ready" | "error";
+  /** Dernier export (commande `export`) : taille de l'image et de son URL `data:`, compteur. */
+  exported: { width: number; height: number; size: number; n: number } | null;
   error: string | null;
   width: number;
   height: number;
@@ -122,6 +125,17 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
    * (IndexedDB) et rouverte au chargement. Vide : rien n'est enregistré.
    */
   @property({ type: String }) persist = "";
+  /**
+   * Export en image (commande `export` de `control`, ou clic sur un élément de `export-for`) : la toile posée sur
+   * les sources de `stamp-from` (fond composé dessous), réduite à `export-size` px au plus grand côté, envoyée en
+   * URL `data:` au store `target` : `{type: export-action, payload: {image, width, height}}`.
+   */
+  @property({ type: String }) target = "";
+  @property({ type: String, attribute: "export-action" }) exportAction = "export";
+  @property({ type: Number, attribute: "export-size" }) exportSize = 512;
+  /** `jpeg` (défaut, léger), `webp` ou `png`. */
+  @property({ type: String, attribute: "export-type" }) exportType = "jpeg";
+  @property({ type: String, attribute: "export-for" }) exportFor = "";
   @property({ type: Boolean }) readonly = false;
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
   /**
@@ -303,12 +317,23 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
         if (!v || typeof v !== "object") return;
         const c = v as Record<string, unknown>;
         if ("stamp" in c && this.trigger("stamp").feed(c.stamp)) this.stampSources();
+        if ("export" in c && this.trigger("export").feed(c.export)) this.exportImage();
         for (const cmd of ["undo", "redo", "clear", "save", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten"] as const) {
           if (cmd in c && this.trigger(cmd).feed(c[cmd])) this[cmd]();
         }
       }));
     }
     if (this.inDataProvider) this.unsubs.push(listenDp(this.inDataProvider, (v) => void this.loadBase(v)));
+    if (this.exportFor) {
+      // clic sur un bouton de la page (résolu au clic : il peut être rendu après la toile)
+      const onClick = (e: Event) => {
+        const ids = this.exportFor.split(",").map((x) => x.trim()).filter(Boolean);
+        if (e.composedPath().some((n) => n instanceof Element && ids.includes(n.id))) this.exportImage();
+      };
+      const root = this.getRootNode() as Document | ShadowRoot;
+      root.addEventListener("click", onClick, true);
+      this.unsubs.push(() => root.removeEventListener("click", onClick, true));
+    }
     this.sync = this.viewSync ? new ViewSync(this.viewSync) : null;
     if (this.sync) {
       this.unsubs.push(this.sync.listen((v) => {
@@ -1037,6 +1062,52 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.fillBackground();
   }
 
+  /** Image exportée (fond de `stamp-from` + toile) envoyée au store `target` ; voir `target`. */
+  exportImage(): void {
+    const img = this.image();
+    const c = this.canvasEl;
+    if (!img || !c) return;
+    const { w, h } = this.dims();
+    const k = Math.min(1, Math.max(32, Math.min(4096, this.exportSize || 512)) / Math.max(w, h));
+    const ow = Math.max(1, Math.round(w * k)), oh = Math.max(1, Math.round(h * k));
+    const out = document.createElement("canvas");
+    out.width = ow;
+    out.height = oh;
+    const g = out.getContext("2d");
+    if (!g) return;
+    const type = this.exportType === "png" ? "image/png" : this.exportType === "webp" ? "image/webp" : "image/jpeg";
+    if (type !== "image/png") {
+      g.fillStyle = "#ffffff";
+      g.fillRect(0, 0, ow, oh);
+    }
+    // fond : les sources de `stamp-from` telles qu'elles apparaissent sous la toile
+    const cr = c.getBoundingClientRect();
+    if (this.stampFrom && cr.width > 0 && cr.height > 0 && !this.navigable) {
+      const root = this.getRootNode() as Document | ShadowRoot;
+      for (const sel of this.stampFrom.split(",").map((x) => x.trim()).filter(Boolean)) {
+        let el: Element | null = null;
+        try { el = root.querySelector(sel) ?? document.querySelector(sel); } catch { el = null; }
+        if (!el || el === this || !isFrameSource(el)) continue;
+        const src = el.getFrameCanvas();
+        if (!src) continue;
+        const r = src.isConnected ? src.getBoundingClientRect() : el.getBoundingClientRect();
+        if (!(r.width > 0 && r.height > 0)) continue;
+        const sx = ow / cr.width, sy = oh / cr.height;
+        try { g.drawImage(src, (r.left - cr.left) * sx, (r.top - cr.top) * sy, r.width * sx, r.height * sy); } catch { /* source illisible */ }
+      }
+    }
+    g.imageSmoothingQuality = "high";
+    g.drawImage(img, 0, 0, ow, oh);
+    let url = "";
+    try { url = out.toDataURL(type, 0.86); } catch { return; }
+    // navigateur sans encodeur webp : il rend du png
+    this.exported = { width: ow, height: oh, size: url.length, n: (this.exported?.n ?? 0) + 1 };
+    if (this.target) dispatch(this.target, { type: this.exportAction || "export", payload: { image: url, width: ow, height: oh } });
+    this.dispatchEvent(new CustomEvent("paint-export", { detail: { image: url, width: ow, height: oh }, bubbles: true, composed: true }));
+    this.publish();
+  }
+  private exported: { width: number; height: number; size: number; n: number } | null = null;
+
   /** Enregistre l'image courante en PNG (URL `blob:`) dans `last`. */
   save(): void {
     this.image()?.toBlob((blob) => {
@@ -1051,7 +1122,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   getState(): PaintState {
     const { w, h } = this.dims();
     const b = this.brush();
-    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" || this.toolName() === "pick" ? this.toolName() : b.tool, color: b.color, picked: this.picked, size: b.size, last: this.last, stored: this.stored, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
+    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" || this.toolName() === "pick" ? this.toolName() : b.tool, color: b.color, picked: this.picked, size: b.size, last: this.last, stored: this.stored, exported: this.exported, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
   }
 
   private publish(): void {

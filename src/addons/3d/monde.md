@@ -348,6 +348,10 @@ parcelle avec ses clôtures et ses zones. Elle produit des instances nommées or
   du mur vu de l'intérieur** au milieu de l'ouverture. Le mur est découpé autour ; la menuiserie est un prefab posé
   dans son épaisseur : `fenetre`, `porte`, `portail` de base (paramètres `largeur`, `hauteur`, `cadre`, `teinte`), ou
   un modèle du monde du même nom ou désigné par `model` (il reçoit `largeur` et `hauteur` s'il les déclare).
+- **`images` du monde** : `{"affiche1": "data:image/jpeg;base64,…"}` (png, jpeg ou webp en URL `data:`, 12 au
+  plus, 600 Ko chacune ; jamais d'URL réseau). Une pièce les affiche par `image: "affiche1"` sur sa face avant (+z), à sa
+  taille. Prefab **`poster`** (pose au mur) : `params.image` (nom), `largeur`, `hauteur`, `baguette` (aucune, noire,
+  bois, blanche), `fond`. En 2D, la pièce garde sa couleur.
 - **`ouvertures` du monde** (à côté d'`espace`, pas dedans) : `[{type, bord, at, …}]`, les mêmes champs plus le rang
   du `bord`. Ce sont celles qu'on fait glisser d'un mur à l'autre ; utile aussi quand `espace` est calculé ailleurs
   (un `sonic-jsonata` qui l'écrit d'après un formulaire) et les ouvertures éditées par le réducteur. Leurs noms
@@ -406,7 +410,7 @@ Vingt prefabs sont disponibles par leur nom, sans les écrire dans `models` : un
 | `etagere` | etagere | mur | pose mur / sol ; largeur 0.3–2.4 m (0.8) ; niveaux 3 / 1 / 2 / 4 / 5 / 6 ; ecart 0.2–0.5 m (0.32) ; profondeur 0.22 / 0.15 / 0.3 / 0.4 ; structure (matière, chene) ; fond non |
 | `armoire` | rangement | sol | largeur 0.5–3 m (1) ; hauteur 1.2–2.6 m (2) ; profondeur 0.6 / 0.45 / 0.65 ; portes battantes / coulissantes ; structure (matière, bois-blanc) ; facade (couleur) |
 | `commode` | rangement | sol | largeur 0.4–1.8 m (0.8) ; hauteur 0.4–1.3 m (0.8) ; profondeur 0.45 / 0.35 / 0.55 ; tiroirs 3 / 1 / 2 / 4 / 5 ; structure (matière, chene) ; facade (couleur) |
-| `tapis` | tapis | sol | forme rectangle / rond ; largeur 0.5–4 m (1.6) ; longueur 0.5–4 m (1.1) ; teinte (couleur) ; motif uni / tricot / rayures / pois / damier |
+| `tapis` | tapis | sol | forme rectangle / rond ; largeur 0.5–4 m (1.6) ; longueur 0.5–4 m (1.1) ; teinte (couleur) ; motif uni / tricot / rayures / pois / damier / chevron / ecailles / hachures / carrelage / brique / nuages / camouflage / fourrure ; teinte2 (couleur du motif) ; echelle 1–24 (motifs par m) ; angle 0–165° |
 | `coussin` | coussin | dessus | forme carre / rond ; taille 0.3–0.8 m (0.45) ; teinte (couleur) |
 | `rideau` | rideau | mur | largeur 0.6–4 m (1.6) ; hauteur 1–3 m (2.2) ; ouverture 0.5 / 0 / 0.25 / 0.75 / 1 ; teinte (couleur) ; tringle (matière, metal-noir) |
 | `lampadaire` | luminaire | sol | hauteur 1.1–1.9 m (1.5) ; abat cone / cylindre / boule ; teinte (couleur) ; structure (matière, laiton) ; allume oui |
@@ -414,6 +418,7 @@ Vingt prefabs sont disponibles par leur nom, sans les écrire dans `models` : un
 | `suspension` | luminaire | plafond | longueur 0.2–1.6 m (0.6) ; abat cone / cylindre / boule ; teinte (couleur) ; structure (matière, laiton) ; allume oui |
 | `applique` | luminaire | mur | teinte (couleur) ; structure (matière, laiton) ; allume oui |
 | `cadre` | decoration | mur | largeur 0.15–2 m (0.5) ; hauteur 0.15–2 m (0.4) ; cadre (couleur) ; image (couleur) ; miroir non |
+| `poster` | decoration | mur | largeur 0.15–1.5 m (0.5) ; hauteur 0.15–1.5 m (0.7) ; image (nom dans `monde.images`) ; baguette aucune / noire / bois / blanche ; fond (couleur sans image) |
 | `plante` | plante | sol | forme buisson / palmier / cactus ; taille 0.2–2.2 m (0.8) ; pot (couleur) ; feuillage (couleur) |
 | `bac` | jardin | sol | largeur 0.4–3 m (1.2) ; profondeur 0.3–1.5 m (0.4) ; hauteur 0.2–0.9 m (0.4) ; structure (matière, pin) |
 | `potager` | jardin | sol | largeur 0.6–3 m (1.2) ; longueur 0.6–4 m (1.2) ; rangs 4 / 2 / 3 / 5 / 6 ; structure (matière, pin) ; pousse (couleur) |

@@ -178,6 +178,11 @@ export type MondeIn = {
    * se glissent d'un mur à l'autre (drag), `$mondePlace` recopie leur `bord` et leur `at`.
    */
   ouvertures?: unknown[];
+  /**
+   * Images du monde, par nom : `{"poster1": "data:image/jpeg;base64,…"}` (png, jpeg ou webp, 12 au plus, 600 Ko
+   * chacune) ; une pièce les affiche par `image: "poster1"` (prefab `poster` : `params.image`).
+   */
+  images?: Record<string, unknown>;
   /** Unité des longueurs écrites (pièces, placements, clips) : `m` (défaut), `cm` ou `mm`. `nodes` reste en mètres. */
   unite?: string;
   /** Nuancier de matières : `{chene: {color: "#b98a56", tex: "bois"}}`, lu par `matiere` des pièces. */
@@ -231,6 +236,8 @@ export type Part = {
   hidden: boolean;
   glow: number;
   tex: TexSpec | null;
+  /** Image du monde (`monde.images`) posée sur la face avant (+z) de la pièce, à sa taille ; vide : aucune. */
+  image: string;
   /** Nom de surface d'appui (vide : aucune), face qui reçoit et origine de `at`. */
   surface: string;
   face: Face;
@@ -330,6 +337,8 @@ export type Monde = {
   /** Bords de l'espace où une ouverture peut glisser, et ouvertures posées par nom (voir espace.ts). */
   edges: EspaceEdge[];
   openings: Record<string, EspaceOpening>;
+  /** Images valides de `images` (URL `data:`), par nom. */
+  images: Record<string, string>;
   unit: number;
   issues: Issue[];
 };
@@ -550,6 +559,7 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
       hidden: p.hidden === true,
       glow: clampN(num(p.glow, 0), 0, 1),
       tex: readTex(p.tex, (message) => issues.push({ path: `${path2}.tex`, message })),
+      image: typeof (p as { image?: unknown }).image === "string" ? ((p as { image: string }).image).slice(0, 64) : "",
       ...readSurface(p.surface),
     });
     const at = vec3(p.at, [0, 0, 0]);
@@ -1073,9 +1083,34 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     contour: esp.contour,
     edges: esp.edges,
     openings: esp.openings,
+    images: readImages(raw0.images, issues),
     unit,
     issues,
   };
+}
+
+/** `images` : URL `data:` d'images (png, jpeg, webp) ; jamais d'URL réseau. */
+const IMAGE_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+function readImages(v: unknown, issues: Issue[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+  let n = 0;
+  for (const [k, d] of Object.entries(v as Record<string, unknown>)) {
+    if (!/^[A-Za-z][\w-]{0,63}$/.test(k)) {
+      issues.push({ path: `images.${k}`, message: "nom d'image : lettres, chiffres, - et _" });
+      continue;
+    }
+    if (typeof d !== "string" || d.length > 820_000 || !IMAGE_RE.test(d)) {
+      issues.push({ path: `images.${k}`, message: "image attendue : data:image/png|jpeg|webp;base64,… (600 Ko au plus)" });
+      continue;
+    }
+    if (++n > 12) {
+      issues.push({ path: `images.${k}`, message: "plus de 12 images : ignorée" });
+      continue;
+    }
+    out[k] = d;
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ prefabs : ce qui est propre au format 3D */
