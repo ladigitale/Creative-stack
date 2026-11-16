@@ -21,7 +21,20 @@ import { MAX_BONES, POST_FRAGMENT, POST_VERTEX } from "./shaders";
 import { type Governor, governDpr, keepFrame, newGovernor } from "./steady";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest"; payload: Record<string, unknown> };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree"; payload: Record<string, unknown> };
+
+/** Objet saisi : de quoi le déplacer sans recomposer (matrice d'instance, sommets de sa tuile, ou acteur). */
+type DragRT = {
+  o: ObjectInfo;
+  pos0: V3;
+  yaw0: number;
+  anchors0: Record<string, V3>;
+  seatYaw0?: Record<string, number>;
+  inst?: { im: THREE.InstancedMesh; i: number; m0: THREE.Matrix4 };
+  tiles?: { mesh: THREE.Mesh; a: number; b: number; pos0: Float32Array; nrm0: Float32Array }[];
+  actor?: ActorRT;
+  cur: { x: number; y: number; z: number; yaw: number };
+};
 
 type ActorRT = {
   model: ActorModel;
@@ -110,6 +123,8 @@ export class ProcgenView {
   onEvent: (e: GameEvent) => void = () => {};
   onFrame: () => void = () => {};
   private disposed = false;
+  private drag: DragRT | null = null;
+  private settle: { d: DragRT; from: number; to: number; t0: number } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -219,6 +234,8 @@ export class ProcgenView {
   }
 
   private clearScene() {
+    this.drag = null;
+    this.settle = null;
     for (const o of [...this.scene.children]) {
       this.scene.remove(o);
       const m = o as THREE.Mesh;
@@ -488,6 +505,167 @@ export class ProcgenView {
     }
     a.path = p.slice(1);
     a.goal = { x, z, target };
+  }
+
+  /* ---------------- édition au doigt ---------------- */
+
+  /** Point du plan horizontal `y` sous le pointeur (mètres), `null` si le rayon ne le coupe pas devant la caméra. */
+  groundPoint(clientX: number, clientY: number, y: number): [number, number] | null {
+    const r = this.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - r.left) / Math.max(1, r.width)) * 2 - 1, -((clientY - r.top) / Math.max(1, r.height)) * 2 + 1);
+    const o = new THREE.Vector3(ndc.x, ndc.y, -1).unproject(this.camera);
+    const e = new THREE.Vector3(ndc.x, ndc.y, 1).unproject(this.camera);
+    const d = e.sub(o);
+    if (Math.abs(d.y) < 1e-9) return null;
+    const t = (y - o.y) / d.y;
+    if (!(t > 0)) return null;
+    return [o.x + d.x * t, o.z + d.z * t];
+  }
+
+  /** Saisit un objet (instancié, fusionné dans sa tuile, ou acteur) ; faux si l'objet ne se déplace pas ainsi. */
+  dragBegin(objectId: string): boolean {
+    this.finishSettle();
+    const o = this.model?.objects.find((x) => x.id === objectId);
+    if (!o || o.generator === "ball") return false;
+    const d: DragRT = { o, pos0: [...o.pos], yaw0: o.yaw, anchors0: Object.fromEntries(Object.entries(o.anchors).map(([k, v]) => [k, [...v] as V3])), ...(o.seatYaw ? { seatYaw0: { ...o.seatYaw } } : {}), cur: { x: o.pos[0], y: o.pos[1], z: o.pos[2], yaw: o.yaw } };
+    if (o.mode === "actor") {
+      const a = this.actors.get(o.id);
+      if (!a) return false;
+      d.actor = a;
+      d.pos0 = [...a.pos];
+      d.yaw0 = a.yaw;
+      d.cur = { x: a.pos[0], y: a.pos[1], z: a.pos[2], yaw: a.yaw };
+    } else if (o.mode === "instance") {
+      for (const [im, objs] of this.instanceObjs) {
+        const i = objs.indexOf(o.obj);
+        if (i < 0) continue;
+        const m0 = new THREE.Matrix4();
+        im.getMatrixAt(i, m0);
+        d.inst = { im, i, m0 };
+        break;
+      }
+      if (!d.inst) return false;
+    } else {
+      d.tiles = [];
+      for (const ob of this.pickables) {
+        const mesh = ob as THREE.Mesh;
+        if ((mesh as unknown as THREE.InstancedMesh).isInstancedMesh) continue;
+        const attr = mesh.geometry?.getAttribute("aObj");
+        if (!attr) continue;
+        const ids = attr.array as ArrayLike<number>;
+        let a = -1, b = -1;
+        for (let k = 0; k < ids.length; k++) if (Math.abs(ids[k] - o.obj) < 0.5) (a < 0 && (a = k), (b = k));
+        if (a < 0) continue;
+        const pos = mesh.geometry.getAttribute("position").array as Float32Array, nrm = mesh.geometry.getAttribute("normal").array as Float32Array;
+        d.tiles.push({ mesh, a, b: b + 1, pos0: pos.slice(a * 3, (b + 1) * 3), nrm0: nrm.slice(a * 3, (b + 1) * 3) });
+        mesh.frustumCulled = false;
+      }
+      if (!d.tiles.length) return false;
+    }
+    this.drag = d;
+    this.shared.uIdBase.value = o.obj;
+    this.shared.uHighlight.value = 1;
+    return true;
+  }
+
+  /** Pose courante de l'objet saisi (position de sa base, cap en radians) ; `invalid` : fantôme rouge. */
+  dragTo(x: number, y: number, z: number, yaw: number, invalid = false) {
+    const d = this.drag;
+    if (!d) return;
+    this.applyPose(d, x, y, z, yaw);
+    this.shared.uHighlight.value = invalid ? 2 : 1;
+    this.dirty = this.shadowDirty = true;
+    this.kick();
+  }
+
+  /** Lâcher : `to` = pose finale (l'objet y retombe avec un petit rebond) ; `null` = retour à la place de départ. */
+  dragEnd(to: { x: number; y: number; z: number; yaw: number } | null) {
+    const d = this.drag;
+    if (!d) return;
+    this.drag = null;
+    const fin = to ?? { x: d.pos0[0], y: d.pos0[1], z: d.pos0[2], yaw: d.yaw0 };
+    this.applyPose(d, fin.x, d.cur.y, fin.z, fin.yaw);
+    this.settle = { d, from: d.cur.y, to: fin.y, t0: performance.now() };
+    this.select(this.selectedObj > 0 ? this.objectsByObj.get(this.selectedObj)?.id ?? null : null);
+    this.dirty = this.shadowDirty = true;
+    this.kick();
+  }
+
+  private stepSettle(now: number) {
+    const s = this.settle!;
+    const u = (now - s.t0) / 200;
+    const y = u >= 1 ? s.to : s.to + (s.from - s.to) * (1 - u) * (1 - u) - Math.sin(Math.PI * u) * Math.min(0.015, Math.abs(s.from - s.to) * 0.25);
+    this.applyPose(s.d, s.d.cur.x, y, s.d.cur.z, s.d.cur.yaw);
+    this.dirty = this.shadowDirty = true;
+    if (u >= 1) this.finishSettle();
+  }
+
+  private finishSettle() {
+    const s = this.settle;
+    if (!s) return;
+    this.settle = null;
+    this.applyPose(s.d, s.d.cur.x, s.to, s.d.cur.z, s.d.cur.yaw);
+    for (const t of s.d.tiles ?? []) {
+      t.mesh.geometry.computeBoundingSphere();
+      t.mesh.geometry.computeBoundingBox();
+      t.mesh.frustumCulled = true;
+    }
+    s.d.inst?.im.computeBoundingSphere();
+  }
+
+  /** Place l'objet saisi : (x, y, z) = position de sa base, `yaw` = cap ; ancres et infos suivent. */
+  private applyPose(d: DragRT, x: number, y: number, z: number, yaw: number) {
+    d.cur = { x, y, z, yaw };
+    const da = yaw - d.yaw0;
+    const c = Math.cos(da), s = Math.sin(da);
+    const [px, py, pz] = d.pos0;
+    const move = (vx: number, vy: number, vz: number): V3 => {
+      const lx = vx - px, lz = vz - pz;
+      return [x + lx * c + lz * s, y + (vy - py), z - lx * s + lz * c];
+    };
+    if (d.actor) {
+      const a = d.actor;
+      a.pos = [x, y, z];
+      a.yaw = yaw;
+      a.path = null;
+      a.goal = null;
+      a.speed = 0;
+      this.poseActor(a, 0);
+    } else if (d.inst) {
+      const D = new THREE.Matrix4().makeTranslation(x, y, z).multiply(new THREE.Matrix4().makeRotationY(da)).multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
+      d.inst.im.setMatrixAt(d.inst.i, D.multiply(d.inst.m0));
+      d.inst.im.instanceMatrix.needsUpdate = true;
+    } else
+      for (const t of d.tiles ?? []) {
+        const pa = t.mesh.geometry.getAttribute("position") as THREE.BufferAttribute, na = t.mesh.geometry.getAttribute("normal") as THREE.BufferAttribute;
+        const P = pa.array as Float32Array, N = na.array as Float32Array;
+        for (let k = 0; k < t.pos0.length; k += 3) {
+          const q = move(t.pos0[k], t.pos0[k + 1], t.pos0[k + 2]);
+          P[t.a * 3 + k] = q[0];
+          P[t.a * 3 + k + 1] = q[1];
+          P[t.a * 3 + k + 2] = q[2];
+          const nx = t.nrm0[k], nz = t.nrm0[k + 2];
+          N[t.a * 3 + k] = nx * c + nz * s;
+          N[t.a * 3 + k + 1] = t.nrm0[k + 1];
+          N[t.a * 3 + k + 2] = -nx * s + nz * c;
+        }
+        pa.clearUpdateRanges?.();
+        pa.addUpdateRange?.(t.a * 3, t.pos0.length);
+        pa.needsUpdate = true;
+        na.clearUpdateRanges?.();
+        na.addUpdateRange?.(t.a * 3, t.nrm0.length);
+        na.needsUpdate = true;
+      }
+    const o = d.o;
+    o.pos = [x, y, z];
+    o.yaw = yaw;
+    for (const [k, v] of Object.entries(d.anchors0)) o.anchors[k] = move(v[0], v[1], v[2]);
+    if (d.seatYaw0) for (const [k, v] of Object.entries(d.seatYaw0)) o.seatYaw![k] = v + da;
+  }
+
+  /** Objet saisi (id) ou `null`. */
+  get dragging(): string | null {
+    return this.drag?.o.id ?? null;
   }
 
   /* ---------------- sélection ---------------- */
@@ -793,10 +971,11 @@ export class ProcgenView {
     if (this.disposed) return;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
+    if (this.settle) this.stepSettle(now);
     const anim = this.animated;
     if (anim) {
       this.time += dt * this.speed;
-      for (const a of this.actors.values()) this.updateActor(a, dt * this.speed);
+      for (const a of this.actors.values()) if (a !== this.drag?.actor && a !== this.settle?.d.actor) this.updateActor(a, dt * this.speed);
       if (this.actors.size) this.shadowDirty = true;
       if (this.balls) this.stepBalls(dt * this.speed);
     }

@@ -26,6 +26,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `edit` | `{id: "maisons.3", params: {floors: 4}}` ou `{layer: "maisons", params: {...}}` : modifie sans réécrire la recette |
 | `hidden` | Ids cachés (objet ramassé, personnage parti) |
 | `anchors` | Ancres à suivre à l'écran : `["heros@head.top", "maisons.2@door"]` |
+| `placeRequest` | Place libre pour un nouvel objet : `{id, gen, params, at: [x, z], size: [w, d], yaw (°), onWater, onPath}` (voir Édition au doigt) ; calculée une fois par valeur |
 | `kick` | Coup donné à un ballon sans acteur : `{ball: "ballons.0", power, dir (°, 0 = +z), loft, n}` ou `{ball, vx, vy, vz}` (m/s, norme bornée à 40), ou une liste de 16 au plus ; joué quand la valeur change (pas au chargement) : pour retirer le même coup, incrémenter `n` |
 
 ## Clés écrites dans `state-out` (défaut `<dataProvider>State`)
@@ -35,8 +36,10 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | Clé | Contenu |
 |---|---|
 | `status` | `{phase: idle\|composing\|ready\|error, progress, error, ms, objects, actors, triangles, drawCalls, fps, scale, issues}` |
-| `selection` | `{id, generator, layer, params, x, y, z}` de l'objet touché |
-| `ids` | Liste des objets placés `{id, generator, layer}` : ce qui existe et peut être visé |
+| `selection` | `{id, generator, layer, params, x, y, z, yaw (°), w, d, h (m), place, index, movable}` de l'objet touché ; suit l'objet pendant un glisser |
+| `ids` | Liste des objets placés `{id, generator, layer, x, z, yaw (°), w, d (emprise, m), place}` : ce qui existe et peut être visé (400 au plus) |
+| `drag` | Pendant un glisser : `{objectId, x, y, z, yaw, valid}` ; `null` sinon |
+| `free` | Réponse à `placeRequest` : `{id, x, y, z, yaw, valid, hits, snaps}` |
 | `actors` | Position, cap, vitesse, action de chaque acteur (5 fois par seconde au plus) |
 | `anchors` / `nodes` | Positions écran des ancres demandées ; `nodes` est au format de `sonic-stage` (bulles de dialogue en HTML par-dessus la scène) |
 | `view` | Vue courante (après pan / zoom de l'utilisateur) |
@@ -58,6 +61,10 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `kick` | `{actor, ball, power}` ; `{actor: null, ball}` pour la clé `kick` |
 | `hit` | `{ball, actor}` : un acteur a heurté un ballon (dribble) |
 | `rest` | `{ball, x, z}` : le ballon s'est arrêté |
+| `place` | Au lâcher d'un glisser (une seule fois) : `{objectId, instance, layer, index, place, x, y, z, yaw (°), ry (rad), valid: true, snaps, from: {x, z}}` (voir Édition au doigt) |
+| `dragstart` | `{objectId, instance, layer, index, x, z}` : un glisser commence (rien d'autre n'est envoyé pendant le geste) |
+| `dragRefused` | `{objectId, layer, index, place, reason: placement\|occupied, hits}` : objet d'une couche semée, ou aucune place libre au lâcher (l'objet revient à sa place) |
+| `placeFree` | Réponse à `placeRequest` (comme `state-out.free`) |
 | `actionEnd` | `{actor, action}` (après `wave`, `cheer`, `jump`, `bow`, `point`, `kick`, ou au bout de `duration`) |
 
 Intentions d'acteur (`actors.<id>`), écrites par le reducer, **jamais à chaque image** (le composant interpole) :
@@ -70,6 +77,23 @@ Intentions d'acteur (`actors.<id>`), écrites par le reducer, **jamais à chaque
 - `{action}` : `idle`, `walk`, `run`, `wave`, `point`, `cheer`, `talk`, `carry`, `sit`, `jump`, `think`, `bow`, `hammer` (frapper), `sweep` (balayer, ratisser), `dig` (bêcher), `kick` (geste de jambe), `drink` (boire : gobelet ou, cible basse, penché, mains en coupe ; animal : tête baissée, lapées), `eat` (manger : bouchées ; animal : broute, mâche, picore), `sleep` (dormir : personnage assoupi assis ou par terre, animal couché, oiseau tête rentrée ; yeux fermés) ; `duration` (s) : l'action s'arrête et publie `actionEnd` ; `{mood}` : `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy` ; `{facing}` (°).
 
 Exemple de reducer (voir `examples/village-vivant.sdui.json`) : sur `pick`, écrire `actors.heros = {x, z}` ; sur `arrive`, passer à la suite du dialogue.
+
+## Édition au doigt
+
+Les mêmes gestes que le format monde de `sonic-3d` (voir `3d/monde.md`, Édition) :
+
+```json
+{ "tagName": "sonic-procgen", "attributes": { "dataProvider": "scene", "target": "atelier", "action-prefix": "pg_", "drag": ".*", "drag-selected": true, "keep-heading": true } }
+```
+
+- **Vue** : un doigt sur le vide = orbite (perspective) ou déplacement (vues de profil, iso) ; **deux doigts = pincer pour zoomer et glisser pour déplacer la vue**, ensemble ; molette = zoom ; clic droit = déplacer ; double-clic (souris) = revenir à la vue de la scène.
+- **Sélection** : un tap (moins de 6 px et 400 ms, un seul doigt) envoie `pick` puis `select` avec `objectId` (= `instance`) ; toucher une partie d'un bâtiment sélectionne le bâtiment entier, toucher le sol ou le vide désélectionne (`objectId: null`). L'objet sélectionné est surligné.
+- **Glisser** (`drag` = regex des ids ou des calques, `".*"` : tous) : avec `drag-selected`, seul l'objet sélectionné se glisse, et seulement s'il est le premier sous le doigt ; ailleurs le geste tourne la vue. Pendant le geste, le composant range l'objet à chaque image **sans rien envoyer au store** : posé sur le relief (sur l'eau pour une couche `onWater`), dos contre un bâtiment, un mur ou une clôture à moins de 30 cm, bords alignés sur un voisin parallèle à moins de 8 cm, sinon grille de 5 cm ; s'il gêne (emprises des objets composés, tronçons de clôture et garde-corps, chaussée et rivière hors `onPath`, eau, bords de la scène), il glisse vers la place libre la plus proche. Il est soulevé de quelques centimètres et retombe au lâcher ; il devient rouge tant qu'aucune place libre n'existe. Au lâcher : **une** action `place` (le store en fait une entrée d'historique) ; sans place libre, l'objet revient à sa place et `dragRefused` (`occupied`) est envoyé.
+- **Ce qui se glisse** : les objets d'une couche placée par points (`place: {at: […]}`) — `index` est alors le rang du point dans `at` — et les acteurs de `recipe.actors`. Un objet d'une couche semée (`grid`, `poisson`, `along`, `ring`…) ne se glisse pas : son placement ne se réécrit pas point par point. Le geste tourne alors la vue et `dragRefused` (`placement`) le signale (un éditeur peut proposer de détacher l'objet en un calque `at`). Ballons exclus. Rendu 3D seulement : en rendu vectoriel, sélection et gestes de vue marchent, pas le glisser.
+- **Cap** : jamais tourné automatiquement (`keep-heading` est accepté pour la parité avec `sonic-3d`) ; pendant le geste, R (quart de tour, Maj+R dans l'autre sens), Q / E ou la molette (15°). `place.yaw` (degrés) est à recopier : un point `at` sans `yaw` reçoit sinon un cap tiré au hasard.
+- **Persistance** : le glisser déplace l'objet à l'écran sans recomposer ; c'est au store de recopier `x`, `z` (et `yaw`) dans le point `at[index]` de la couche `layer` (ou `actors.<id>.at`). Sinon la prochaine recomposition le remet à sa place.
+- **Nouvel objet sans collision** : écrire `placeRequest = {id: "n12", gen: "seat.parkbench", params, at: [x, z]}` (sans `at` : centre de la vue ; `size: [w, d]` en mètres au lieu de mesurer le générateur) ; le composant répond une fois par valeur dans `state-out.free` et par l'action `placeFree` `{id, x, y, z, yaw, valid, hits, snaps}` : le réducteur ajoute alors l'objet à ce point.
+- Coût : rien par image hors geste ; une recherche de rangement par image pendant le glisser (emprises 2D, contexte préparé au début du geste) ; publication de `state-out` 15 fois par seconde pendant un geste, 5 sinon.
 
 ## Recette
 
