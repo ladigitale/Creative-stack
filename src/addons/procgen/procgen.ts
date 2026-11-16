@@ -25,6 +25,26 @@ function isVectorStyle(s: unknown): boolean {
   return !!s && typeof s === "object" && typeof (s as Record<string, unknown>).vector === "string";
 }
 import { suggest } from "./core/schema";
+import { composeScene } from "./scene/compose";
+import { type Arranged, type Mover, type PlaceCtx, arrangeAt, moverFor, moverOf, placeCtx } from "./edit/arrange";
+import { Gesture, type GestureCmd } from "./edit/gesture";
+import { listenTurn, wrapAngle } from "../../shared/monde/turn-keys";
+
+/** Placements qu'un glisser sait réécrire : un point `at` de couche, ou un acteur de `recipe.actors`. */
+const DRAGGABLE = new Set(["at", "actor"]);
+const nextFrame = (f: () => void): number => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(f) : (setTimeout(f, 16) as unknown as number));
+const cancelFrame = (h: number) => (typeof cancelAnimationFrame === "function" ? cancelAnimationFrame(h) : clearTimeout(h));
+const R2 = (v: number) => Math.round(v * 100) / 100;
+const DEGS = 180 / Math.PI;
+
+/** `name` passe la regex `re` (regex invalide : égalité stricte). */
+function matches(re: string, name: string): boolean {
+  try {
+    return new RegExp(re).test(name);
+  } catch {
+    return re === name;
+  }
+}
 
 const tagName = "sonic-procgen";
 
@@ -43,7 +63,7 @@ const MAX_VIEWS = 2;
 
 export class SonicProcgen extends HTMLElement {
   static get observedAttributes() {
-    return ["dataprovider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target", "render", "gestures"];
+    return ["dataprovider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target", "render", "gestures", "drag", "drag-selected", "keep-heading"];
   }
   private root: ShadowRoot;
   private canvas: HTMLCanvasElement;
@@ -71,9 +91,21 @@ export class SonicProcgen extends HTMLElement {
   private io: IntersectionObserver | null = null;
   private outTimer = 0;
   private lastOut = "";
-  private pointer: { x: number; y: number; t: number; moved: number; button: number; id: number } | null = null;
-  private pinch: { d: number } | null = null;
-  private touches = new Map<number, { x: number; y: number }>();
+  private gesture = new Gesture();
+  /** Objet sélectionné (tap ou clé `select`). */
+  private selectedId: string | null = null;
+  /** Objet sous le doigt au début du geste (saisi au-delà de 4 px) ou refusé. */
+  private grab: { id: string; ok: boolean } | null = null;
+  private dragging: {
+    id: string; mover: Mover; ctx: PlaceCtx; off: [number, number]; planeY: number; lift: number; from: [number, number];
+    last: Arranged | null; px: number; py: number; raf: number; stopTurn: () => void; outT: number;
+  } | null = null;
+  private pointerType = "mouse";
+  private placeKey = "";
+  private freeOut: unknown = null;
+  private measures = new Map<string, { generator: string; hx: number; hz: number }>();
+  private idsCache: { model: SceneModel | null; v: number; list: unknown[] } = { model: null, v: -1, list: [] };
+  private idsVersion = 0;
   private composeMs = 0;
   private composing = false;
   private progress = 0;
@@ -107,6 +139,14 @@ export class SonicProcgen extends HTMLElement {
   get actionPrefix(): string {
     return this.getAttribute("action-prefix") ?? "";
   }
+  /** Motif (regex) des ids ou calques déplaçables au doigt ; vide : aucun. */
+  get dragPattern(): string {
+    return this.getAttribute("drag") ?? "";
+  }
+  get dragSelected(): boolean {
+    const v = this.getAttribute("drag-selected");
+    return v !== null && v !== "false";
+  }
   /** Vue de rendu (tests, atelier). */
   get procgenView(): AnyView | null {
     return this.view;
@@ -138,6 +178,7 @@ export class SonicProcgen extends HTMLElement {
     this.stage.addEventListener("pointercancel", this.onCancel);
     this.stage.addEventListener("wheel", this.onWheel, { passive: false });
     this.stage.addEventListener("contextmenu", this.onContext);
+    this.stage.addEventListener("dblclick", this.onDblClick);
     this.bind();
   }
 
@@ -151,6 +192,8 @@ export class SonicProcgen extends HTMLElement {
     this.stage.removeEventListener("pointercancel", this.onCancel);
     this.stage.removeEventListener("wheel", this.onWheel);
     this.stage.removeEventListener("contextmenu", this.onContext);
+    this.stage.removeEventListener("dblclick", this.onDblClick);
+    this.endDrag(false);
     this.dropView();
     clearTimeout(this.outTimer);
   }
@@ -336,7 +379,7 @@ export class SonicProcgen extends HTMLElement {
       this.miscKey = mk;
       if (d.anim && typeof d.anim === "object") this.view.setAnim(d.anim as Json);
       if (d.actors && typeof d.actors === "object") this.view.setActors(d.actors as Record<string, ActorIntent>);
-      if (d.select !== undefined) this.writeSelection(this.view.select(d.select ? String(d.select) : null)?.id ?? null);
+      if (d.select !== undefined) this.writeSelection((this.selectedId = this.view.select(d.select ? String(d.select) : null)?.id ?? null));
       this.view.setHidden(Array.isArray(d.hidden) ? d.hidden.map(String) : []);
       this.anchorList = Array.isArray(d.anchors) ? d.anchors.map(String) : [];
     }
@@ -355,6 +398,14 @@ export class SonicProcgen extends HTMLElement {
           v = [Math.sin(a) * pw, pw * (k.loft === undefined ? 0.15 : n(k.loft)), Math.cos(a) * pw];
         }
         if (!this.view.kickBall(k.ball, v)) { if (!this.issues.some((x) => (x as { path?: string; got?: unknown }).path === "kick.ball" && (x as { got?: unknown }).got === k.ball)) this.issues = [...this.issues, { path: "kick.ball", code: "unknown", message: `ballon inconnu : ${k.ball}`, got: k.ball }]; }
+      }
+    }
+    // place libre demandée (nouvel objet) : calculée une fois par valeur de `placeRequest`
+    if (d.placeRequest && typeof d.placeRequest === "object" && !this.composing) {
+      const pk = JSON.stringify(d.placeRequest);
+      if (pk !== this.placeKey) {
+        this.placeKey = pk;
+        this.answerPlace(d.placeRequest as Json);
       }
     }
     // export SVG à la demande (mode vectoriel) : changer `exportSvg` (compteur) publie `svg` dans state-out
@@ -377,10 +428,34 @@ export class SonicProcgen extends HTMLElement {
   private queueOut(now = false) {
     if (this.outTimer && !now) return;
     clearTimeout(this.outTimer);
+    // pendant un geste (glisser, vue) : 15 fois par seconde, pour que la bulle d'actions suive ; sinon 5
     this.outTimer = window.setTimeout(() => {
       this.outTimer = 0;
       this.writeOut();
-    }, now ? 0 : 200);
+    }, now ? 0 : this.gesture.active || this.dragging ? 66 : 200);
+  }
+
+  /** Liste légère des objets (id, calque, position, cap, emprise), recalculée seulement quand la scène change. */
+  private idsList(): unknown[] {
+    const m = this.model;
+    if (this.idsCache.model === m && this.idsCache.v === this.idsVersion) return this.idsCache.list;
+    const list = m
+      ? m.objects.slice(0, 400).map((o) => ({ id: o.id, generator: o.generator, layer: o.layer, x: R2(o.pos[0]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), ...(o.place ? { place: o.place } : {}), ...(o.affords ? { affords: o.affords } : {}) }))
+      : [];
+    this.idsCache = { model: m, v: this.idsVersion, list };
+    return list;
+  }
+
+  /** L'objet se glisse-t-il au doigt (motif `drag`, placement réécrivable, rendu 3D) ? */
+  private movable(o: { id: string; layer: string; place?: string; generator: string }): boolean {
+    const re = this.dragPattern;
+    return !!re && (matches(re, o.id) || matches(re, o.layer)) && DRAGGABLE.has(o.place ?? "") && o.generator !== "ball";
+  }
+
+  private selectionOut(id: string | null) {
+    const o = id ? this.model?.objects.find((x) => x.id === id) : null;
+    if (!o) return null;
+    return { id: o.id, generator: o.generator, layer: o.layer, params: o.params, x: R2(o.pos[0]), y: R2(o.pos[1]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), h: R2(o.height), ...(o.place ? { place: o.place, index: o.index ?? 0 } : {}), movable: this.mode === "3d" && this.movable(o), ...(o.affords ? { affords: o.affords } : {}), ...(o.physics ? { physics: o.physics } : {}), ...(Object.keys(o.anchors).some((k) => k.startsWith("sit.")) ? { seats: Object.keys(o.anchors).filter((k) => k.startsWith("sit.")) } : {}) };
   }
 
   private writeOut() {
@@ -417,7 +492,10 @@ export class SonicProcgen extends HTMLElement {
       nodes,
       svg: this.svgOut,
       balls: this.view?.ballState() ?? {},
-      ids: m ? m.objects.map((o) => ({ id: o.id, generator: o.generator, layer: o.layer, ...(o.affords ? { affords: o.affords } : {}) })).slice(0, 400) : [],
+      ids: this.idsList(),
+      ...(this.selectedId ? { selection: this.selectionOut(this.selectedId) } : {}),
+      drag: this.dragging?.last ? { objectId: this.dragging.id, x: this.dragging.last.x, y: this.dragging.last.y, z: this.dragging.last.z, yaw: Math.round(this.dragging.last.yaw * DEGS), valid: this.dragging.last.valid } : null,
+      free: this.freeOut,
     };
     const sig = JSON.stringify(next);
     if (sig !== this.lastOut) {
@@ -428,10 +506,10 @@ export class SonicProcgen extends HTMLElement {
 
   private writeSelection(id: string | null) {
     const out = this.stateOut;
-    const o = id ? this.model?.objects.find((x) => x.id === id) : null;
+    const o = id ? this.model?.objects.find((x) => x.id === id) ?? null : null;
     if (out) {
       const prev = (PublisherManager.get(out) as unknown as Publisher).get() as Json | null;
-      set(out, { ...(prev && typeof prev === "object" ? prev : {}), selection: o ? { id: o.id, generator: o.generator, layer: o.layer, params: o.params, x: o.pos[0], y: o.pos[1], z: o.pos[2], ...(o.affords ? { affords: o.affords } : {}), ...(o.physics ? { physics: o.physics } : {}), ...(Object.keys(o.anchors).some((k) => k.startsWith("sit.")) ? { seats: Object.keys(o.anchors).filter((k) => k.startsWith("sit.")) } : {}) } : null });
+      set(out, { ...(prev && typeof prev === "object" ? prev : {}), selection: o ? this.selectionOut(o.id) : null });
     }
     return o;
   }
@@ -457,59 +535,211 @@ export class SonicProcgen extends HTMLElement {
   private onContext = (ev: Event) => {
     if (this.interactive) ev.preventDefault();
   };
+
+  /** Au début d'un appui : l'objet sous le doigt se saisira-t-il (au-delà de 4 px) ? */
+  private canDrag(clientX: number, clientY: number): "drag" | "refuse" | null {
+    this.grab = null;
+    const v = this.view;
+    if (!this.dragPattern || !(v instanceof ProcgenView) || !this.model || this.composing) return null;
+    if (this.dragSelected && !this.selectedId) return null;
+    // l'objet doit être le premier sous le doigt (pas un autre devant lui)
+    const id = v.pick(clientX, clientY)?.objectId ?? null;
+    if (!id || (this.dragSelected && id !== this.selectedId)) return null;
+    const o = this.model.objects.find((x) => x.id === id);
+    if (!o || !(matches(this.dragPattern, o.id) || matches(this.dragPattern, o.layer))) return null;
+    const ok = this.movable(o);
+    this.grab = { id, ok };
+    return ok ? "drag" : "refuse";
+  }
+
   private onDown = (ev: PointerEvent) => {
     if (!this.interactive || !this.view) return;
-    this.canvas.setPointerCapture?.(ev.pointerId);
-    this.touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (this.touches.size === 2) {
-      const [a, b] = [...this.touches.values()];
-      this.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) };
+    this.pointerType = ev.pointerType || "mouse";
+    try {
+      this.canvas.setPointerCapture?.(ev.pointerId);
+    } catch {
+      /* pointeur déjà relâché */
     }
-    this.pointer = { x: ev.clientX, y: ev.clientY, t: performance.now(), moved: 0, button: ev.button, id: ev.pointerId };
+    this.run(this.gesture.down(ev.pointerId, ev.clientX, ev.clientY, ev.button, performance.now(), () => this.canDrag(ev.clientX, ev.clientY)), ev);
   };
   private onMove = (ev: PointerEvent) => {
-    if (!this.pointer || !this.view) return;
-    const prev = this.touches.get(ev.pointerId);
-    this.touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (this.touches.size === 2 && this.pinch) {
-      const [a, b] = [...this.touches.values()];
-      const d = Math.hypot(a.x - b.x, a.y - b.y);
-      this.view.interact("zoom", (this.pinch.d - d) * 3);
-      this.pinch.d = d;
-      this.pointer.moved += 10;
-      return;
-    }
-    if (!prev || ev.pointerId !== this.pointer.id) return;
-    const dx = ev.clientX - prev.x, dy = ev.clientY - prev.y;
-    this.pointer.moved += Math.abs(dx) + Math.abs(dy);
-    if (this.pointer.moved < 4) return;
-    const mode = this.view.cameraMode;
-    const rotate = (mode === "perspective" || mode === "follow" || (mode === "iso" && ev.shiftKey)) && this.pointer.button === 0 && !ev.shiftKey === (mode !== "iso");
-    this.view.interact(rotate ? "rotate" : "pan", dx, dy);
-    this.queueOut();
+    if (!this.view || !this.gesture.active) return;
+    this.run(this.gesture.move(ev.pointerId, ev.clientX, ev.clientY, ev.shiftKey), ev);
   };
   private onUp = (ev: PointerEvent) => {
-    this.touches.delete(ev.pointerId);
-    if (this.touches.size < 2) this.pinch = null;
-    const p = this.pointer;
-    if (!p || ev.pointerId !== p.id) return;
-    this.pointer = null;
-    if (p.moved < 6 && performance.now() - p.t < 450 && this.view) {
-      const hit = this.view.pick(ev.clientX, ev.clientY);
-      if (!hit) return;
-      this.emit({ type: "pick", payload: hit });
-      const id = hit.objectId;
-      this.view.select(id);
-      const o = this.writeSelection(id);
-      this.emit({ type: "select", payload: { objectId: id, generator: o?.generator ?? null, layer: o?.layer ?? null, params: o?.params ?? null } });
-    }
+    this.run(this.gesture.up(ev.pointerId, ev.clientX, ev.clientY, performance.now()), ev);
   };
   private onCancel = (ev: PointerEvent) => {
-    // geste repris par le navigateur (défilement) : ni tap ni sélection
-    this.touches.delete(ev.pointerId);
-    if (this.touches.size < 2) this.pinch = null;
-    if (this.pointer?.id === ev.pointerId) this.pointer = null;
+    // geste repris par le navigateur (défilement) : ni tap ni pose
+    this.run(this.gesture.cancel(ev.pointerId), ev);
   };
+
+  private run(cmds: GestureCmd[], ev: PointerEvent) {
+    const v = this.view;
+    if (!v) return;
+    for (const c of cmds) {
+      switch (c.kind) {
+        case "orbit": {
+          const mode = v.cameraMode;
+          const rotate = (mode === "perspective" || mode === "follow" || (mode === "iso" && c.shift)) && c.button === 0 && !c.shift === (mode !== "iso");
+          v.interact(rotate ? "rotate" : "pan", c.dx, c.dy);
+          break;
+        }
+        case "pan":
+          v.interact("pan", c.dx, c.dy);
+          break;
+        case "zoom":
+          v.interact("zoom", c.amount);
+          break;
+        case "dragStart":
+          if (this.grab?.ok) this.startDrag(this.grab.id, c.x, c.y);
+          break;
+        case "drag":
+          if (this.dragging) {
+            this.dragging.px = c.x;
+            this.dragging.py = c.y;
+            if (!this.dragging.raf) this.dragging.raf = nextFrame(() => this.dragFrame());
+          }
+          break;
+        case "dragEnd":
+          this.endDrag(true);
+          break;
+        case "dragCancel":
+          this.endDrag(false);
+          break;
+        case "refused": {
+          const o = this.grab ? this.model?.objects.find((x) => x.id === this.grab!.id) : null;
+          if (o) this.emit({ type: "dragRefused", payload: { objectId: o.id, layer: o.layer, index: o.index ?? 0, place: o.place ?? null, reason: "placement" } });
+          break;
+        }
+        case "tap":
+          this.tap(c.x, c.y);
+          break;
+      }
+    }
+    if (cmds.length) this.queueOut();
+    void ev;
+  }
+
+  private tap(clientX: number, clientY: number) {
+    const v = this.view;
+    if (!v) return;
+    const hit = v.pick(clientX, clientY);
+    if (!hit) return;
+    this.emit({ type: "pick", payload: hit });
+    const id = hit.objectId;
+    v.select(id);
+    this.selectedId = id;
+    const o = this.writeSelection(id);
+    this.emit({ type: "select", payload: { objectId: id, instance: id, generator: o?.generator ?? null, layer: o?.layer ?? null, params: o?.params ?? null, index: o?.index ?? null, place: o?.place ?? null, x: o ? R2(o.pos[0]) : null, z: o ? R2(o.pos[2]) : null, yaw: o ? Math.round(o.yaw * DEGS) : null, movable: !!o && this.mode === "3d" && this.movable(o) } });
+  }
+
+  private startDrag(id: string, clientX: number, clientY: number) {
+    const v = this.view;
+    const m = this.model;
+    if (!(v instanceof ProcgenView) || !m) return;
+    const o = m.objects.find((x) => x.id === id);
+    if (!o || !v.dragBegin(id)) return;
+    const gp = v.groundPoint(clientX, clientY, o.pos[1]);
+    const mover = moverOf(o);
+    const st = {
+      id, mover, ctx: placeCtx(m, new Set([id])), off: (gp ? [o.pos[0] - gp[0], o.pos[2] - gp[1]] : [0, 0]) as [number, number], planeY: o.pos[1],
+      lift: Math.min(0.3, Math.max(0.06, o.height * 0.03)), from: [o.pos[0], o.pos[2]] as [number, number], last: null as Arranged | null, px: clientX, py: clientY, raf: 0, stopTurn: () => {}, outT: 0,
+    };
+    this.dragging = st;
+    // R (quart de tour), Q / E, molette (15°) : seule rotation possible, jamais automatique
+    st.stopTurn = listenTurn(this, (d) => {
+      st.mover = { ...st.mover, yaw: wrapAngle(st.mover.yaw + d) };
+      this.dragFrame();
+    });
+    this.emit({ type: "dragstart", payload: { objectId: id, instance: id, layer: o.layer, index: o.index ?? 0, x: R2(o.pos[0]), z: R2(o.pos[2]) } });
+  }
+
+  /** Une pose par image au plus : rangement, puis l'objet suit (soulevé, rouge sans place libre). */
+  private dragFrame() {
+    const st = this.dragging;
+    const v = this.view;
+    if (!st || !(v instanceof ProcgenView)) return;
+    if (st.raf) cancelFrame(st.raf);
+    st.raf = 0;
+    const gp = v.groundPoint(st.px, st.py, st.planeY);
+    if (!gp) return;
+    const res = arrangeAt(st.ctx, st.mover, gp[0] + st.off[0], gp[1] + st.off[1]);
+    st.last = res;
+    v.dragTo(res.x, res.y + st.lift, res.z, res.yaw, !res.valid);
+    this.queueOut();
+  }
+
+  /** Lâcher : une seule action `place` (pose valide) ; sinon retour à la place de départ et `dragRefused`. */
+  private endDrag(commit: boolean) {
+    const st = this.dragging;
+    if (!st) return;
+    if (st.raf && commit) this.dragFrame();
+    if (st.raf) cancelFrame(st.raf);
+    st.stopTurn();
+    this.dragging = null;
+    const v = this.view;
+    const res = st.last;
+    const ok = commit && !!res && res.valid;
+    if (v instanceof ProcgenView) v.dragEnd(ok ? { x: res!.x, y: res!.y, z: res!.z, yaw: res!.yaw } : null);
+    this.idsVersion++;
+    const o = this.model?.objects.find((x) => x.id === st.id);
+    if (ok && o) {
+      this.emit({ type: "place", payload: { objectId: st.id, instance: st.id, layer: o.layer, index: o.index ?? 0, place: o.place ?? null, x: res!.x, y: res!.y, z: res!.z, yaw: Math.round(res!.yaw * DEGS * 10) / 10, ry: Math.round(res!.yaw * 1e4) / 1e4, valid: true, snaps: res!.snaps, from: { x: R2(st.from[0]), z: R2(st.from[1]) } } });
+    } else if (commit && res && o) {
+      this.emit({ type: "dragRefused", payload: { objectId: st.id, layer: o.layer, index: o.index ?? 0, place: o.place ?? null, reason: "occupied", hits: res.hits } });
+    }
+    if (this.selectedId) this.writeSelection(this.selectedId);
+    this.queueOut(true);
+  }
+
+  /**
+   * Place libre pour un nouvel objet (`placeRequest` du DataProvider) : `{id, gen, params, at: [x, z], size: [w, d],
+   * yaw (°), onWater}` → `state-out.free` et action `placeFree` `{id, x, y, z, yaw, valid, hits, snaps}`.
+   */
+  private answerPlace(req: Json) {
+    const m = this.model;
+    if (!m) return;
+    const num = (x: unknown, d: number) => (typeof x === "number" && Number.isFinite(x) ? x : d);
+    let fp: { generator: string; hx: number; hz: number } | null = null;
+    const size = Array.isArray(req.size) ? req.size : null;
+    const gen = typeof req.gen === "string" ? req.gen : "";
+    if (size) fp = { generator: gen.split(".")[0] || "prop", hx: Math.max(0.05, num(size[0], 1) / 2), hz: Math.max(0.05, num(size[1], num(size[0], 1)) / 2) };
+    else if (gen) {
+      const key = JSON.stringify([gen, req.params ?? {}]);
+      fp = this.measures.get(key) ?? null;
+      if (!fp) {
+        try {
+          // emprise mesurée sur une scène d'un seul objet (mêmes règles d'échelle que la composition)
+          const one = composeScene({ recipe: { size: [400, 400], ground: false, layers: [{ id: "m", gen, params: (req.params as Json) ?? {}, place: { at: [[0, 0]] } }] }, seed: 1 });
+          const o = one.objects[0];
+          if (o) {
+            fp = { generator: o.generator, hx: o.footprint.hx, hz: o.footprint.hz };
+            if (this.measures.size > 32) this.measures.clear();
+            this.measures.set(key, fp);
+          }
+        } catch {
+          fp = null;
+        }
+      }
+    }
+    if (!fp) fp = { generator: "prop", hx: 0.5, hz: 0.5 };
+    const vw = this.view?.getView() as { cx?: number | null; cz?: number | null } | undefined;
+    const at = Array.isArray(req.at) ? req.at : [vw?.cx ?? 0, vw?.cz ?? 0];
+    const yaw = num(req.yaw, 0) / DEGS;
+    const res = arrangeAt(placeCtx(m), moverFor("_new", fp.generator, fp.hx, fp.hz, yaw, { onWater: !!req.onWater, onPath: !!req.onPath }), num(at[0], 0), num(at[1], 0));
+    this.freeOut = { id: req.id ?? null, x: res.x, y: res.y, z: res.z, yaw: Math.round(res.yaw * DEGS * 10) / 10, valid: res.valid, hits: res.hits, snaps: res.snaps };
+    this.emit({ type: "placeFree", payload: this.freeOut as Json });
+    this.queueOut(true);
+  }
+
+  private onDblClick = () => {
+    // double-clic (souris) : recentrer sur la vue de la scène ; un double tap au doigt reste deux taps
+    if (!this.interactive || !this.view || !this.model || this.pointerType === "touch") return;
+    this.view.setView(this.model.view ?? {}, true);
+    this.queueOut();
+  };
+
   private onWheel = (ev: WheelEvent) => {
     if (!this.interactive || !this.view || wheelToPage(this.coop, ev)) return;
     ev.preventDefault();

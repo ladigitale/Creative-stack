@@ -90,6 +90,15 @@ export type ObjectInfo = {
   physics?: Record<string, unknown>;
   /** Cap monde (radians) de chaque place `sit.N` : on s'y assied face à cette direction. */
   seatYaw?: Record<string, number>;
+  /** Placement de la couche (`at`, `grid`, `poisson`, `along`…, `actor` pour `recipe.actors`) et rang dans la couche. */
+  place?: string;
+  index?: number;
+  /** Options de la couche utiles au rangement (édition au doigt). */
+  onWater?: boolean;
+  onPath?: boolean;
+  walkable?: boolean;
+  /** Emprises qui gênent vraiment (tronçons de clôture, garde-corps d'un ouvrage) : `[x, z, hx, hz, yaw]` monde. */
+  blockers?: [number, number, number, number, number][];
 };
 
 export type InstanceGroup = { key: string; mesh: Mesh; matrices: M4[]; objs: number[]; flex: boolean };
@@ -364,9 +373,12 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     const segs = asset.extra?.segments as [number, number, number, number, number][] | undefined;
     if (segs) {
       // clôtures le long d'un tracé : chaque tronçon bloque sa bande, de petits disques jalonnent le tracé
+      const me = objects[objects.length - 1];
+      me.blockers = [];
       for (const [ax, az, bx, bz, hw] of segs) {
         const [wx0, , wz0] = m4Point(T, [ax, 0, az]), [wx1, , wz1] = m4Point(T, [bx, 0, bz]);
         const L = Math.hypot(wx1 - wx0, wz1 - wz0);
+        if (me.blockers.length < 400 && L > 1e-3) me.blockers.push([(wx0 + wx1) / 2, (wz0 + wz1) / 2, Math.max(0.05, hw * scale), L / 2, Math.atan2(wx1 - wx0, wz1 - wz0)]);
         if (!layer?.walkable) nav.blockBox((wx0 + wx1) / 2, (wz0 + wz1) / 2, L / 2, hw * scale, Math.atan2(wz0 - wz1, wx1 - wx0), 0.15);
         for (let s = 0; s <= L; s += 1) placedCircles.push({ x: wx0 + ((wx1 - wx0) * s) / Math.max(L, 1e-6), z: wz0 + ((wz1 - wz0) * s) / Math.max(L, 1e-6), r: Math.max(0.15, hw * scale) });
       }
@@ -374,6 +386,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       // ouvrages : seuls les garde-corps, piliers et piles bloquent ; le tablier est praticable (rouvert après l'eau)
       placedCircles.push({ x, z, r: Math.max(0.15, fp.r * 0.6 * scale) });
       const blk = (asset.extra!.blockers as [number, number, number, number][]).map(([bx, bz, bhx, bhz]) => [x + (bx * c + bz * s) * scale, z + (-bx * s + bz * c) * scale, bhx * scale, bhz * scale] as [number, number, number, number]);
+      objects[objects.length - 1].blockers = blk.slice(0, 64).map(([bx, bz, bhx, bhz]) => [bx, bz, bhx, bhz, yaw]);
       const walks = (Array.isArray(asset.extra?.walk) ? (asset.extra!.walk as { hw: number; profile: [number, number][] }[]) : []).filter((w) => w.profile.length >= 2);
       for (const w of walks) decks.push({ x, z, y, yaw, scale, hw: w.hw, profile: w.profile });
       structNav.push({ yaw, blk: layer?.walkable ? [] : blk, walks: walks.length ? walks.map((w) => ({ x, z, yaw, scale, hw: w.hw, z0: w.profile[0][0], z1: w.profile[w.profile.length - 1][0] })) : [] });
@@ -480,6 +493,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       else yaw = num(yw, `${lp}.yaw`, irng, 0, vars) * DEG;
       if (layer.target && ACTOR_GENS.has(built.generator)) startAt = targetPlace(String(layer.target), built.asset, n, `${lp}.target`, layer.action);
       placeObject(layer, id, built.asset, built.key, built.generator, { ...(resolveGeneratorId(layer.gen).preset ?? {}), ...raw }, pos.x, pos.z, yaw, scale, irng, layer.behavior, layer.action);
+      const placed = objects[objects.length - 1];
+      if (placed?.id === id) Object.assign(placed, { place: placeKind(place), index: n, ...(layer.onWater ? { onWater: true } : {}), ...(layer.onPath ? { onPath: true } : {}), ...(layer.walkable ? { walkable: true } : {}) });
       n++;
     }
     if (n < count && !("at" in place) && count > 0) issues.add({ path: `${lp}.count`, code: "info", message: `${n} placés sur ${count} demandés (place libre insuffisante)`, got: count, used: n });
@@ -496,6 +511,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     const facing = typeof a.facing === "number" ? a.facing * DEG : 0;
     if (a.target) startAt = targetPlace(String(a.target), built.asset, 0, `actors.${aid}.target`, a.action);
     placeObject(null, aid, built.asset, built.key, built.generator, raw, Number(at[0]) || 0, Number(at[1]) || 0, facing, 1, arng, a.behavior, a.action);
+    const placedA = objects[objects.length - 1];
+    if (placedA?.id === aid) placedA.place = "actor";
   }
 
   /* ---------- zones ---------- */
@@ -645,6 +662,12 @@ export function deckHeight(decks: Deck[], x: number, z: number, ground: number):
 export function groundHeight(model: Pick<SceneModel, "terrain" | "decks">, x: number, z: number, fallback = 0): number {
   const g = model.terrain ? model.terrain.height(x, z) : fallback;
   return model.decks?.length ? deckHeight(model.decks, x, z, g) : g;
+}
+
+/** Nom du mode de placement d'une couche (`at`, `grid`, `poisson`…). */
+export function placeKind(place: Placement): string {
+  for (const k of ["at", "grid", "poisson", "along", "cluster", "ring", "edges", "across"]) if (k in place) return k;
+  return "poisson";
 }
 
 function placements(place: Placement, count: number, rng: Rng, size: [number, number], paths: PathSpec[], objects: ObjectInfo[], issues: Issues, lp: string): Pos[] {

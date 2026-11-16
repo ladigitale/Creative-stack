@@ -10,6 +10,7 @@
  */
 import { clearanceBox, EPS, hull, penetration, placeBoxes, SOFT, type Obb } from "./collide";
 import type { Model } from "./format";
+import { searchFree } from "../free-place";
 import { boundsOf, DEFAULT_BOUNDS, inPolygon, localOn, surfaceOf, turnY, type Surface } from "./supports";
 
 type V3 = [number, number, number];
@@ -341,21 +342,14 @@ export function arrange(bodies: Body[], name: string, x: number, z: number, opt:
   };
   let hits = hitsAt(pose);
   if (hits.length && opt.resolve !== false) {
-    const sources = [slide, ...fallbacks];
-    search: for (let i = 0; i < sources.length; i++)
-      for (let d = 0.05; d <= 1.5 + 1e-9; d += 0.05)
-        for (let dir = 0; dir < 16; dir++) {
-          const cand = sources[i](d, dir);
-          if (!cand) continue;
-          if (!hitsAt(cand).length) {
-            pose = cand;
-            hits = [];
-            // replié au sol loin du mur visé : ni « mur » ni alignements
-            if (i > 0 && !cand.carry && floorFallback) snaps.length = 0;
-            snaps.push("deplace");
-            break search;
-          }
-        }
+    const found = searchFree([slide, ...fallbacks], (cand) => !hitsAt(cand).length, { step: 0.05, max: 1.5, dirs: 16 });
+    if (found) {
+      pose = found.pose;
+      hits = [];
+      // replié au sol loin du mur visé : ni « mur » ni alignements
+      if (found.index > 0 && !found.pose.carry && floorFallback) snaps.length = 0;
+      snaps.push("deplace");
+    }
   }
   return { at: pose.at, ry: pose.ry, carry: pose.carry, valid: hits.length === 0, hits, snaps };
 }

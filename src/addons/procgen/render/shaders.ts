@@ -308,7 +308,7 @@ void main() {
   float fh = exp(-max(vPosW.y - uGroundY, 0.0) * (1.0 + 3.0 / max(uFogHeight, 0.05)) * 0.15) * uFog * uFogHeight * 0.5;
   float fogK = clamp(fd + fh * fd * 2.0, 0.0, 0.92);
   lit = mix(lit, uFogColor, fogK);
-  if (uHighlight > 0.5 && abs(vObj - uIdBase) < 0.5) lit = mix(lit, vec3(1.0, 0.85, 0.45), 0.25);
+  if (uHighlight > 0.5 && abs(vObj - uIdBase) < 0.5) lit = uHighlight > 1.5 ? mix(lit, vec3(1.0, 0.18, 0.12), 0.6) : mix(lit, vec3(1.0, 0.85, 0.45), 0.25);
   outColor = vec4(lit, 1.0);
   vec3 nv = normalize(mat3(viewMatrix) * N);
   outData = vec4(nv.xy * 0.5 + 0.5, vViewZ / uFar, fract(vObj * 0.0731 + 0.1));
