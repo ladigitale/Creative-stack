@@ -49,6 +49,10 @@
           "type": "boolean",
           "description": "Avec drag : seule l'instance sélectionnée (clé selection du DataProvider, contour bleu) se déplace ; un tap sélectionne (action pick avec instance), un glisser ailleurs fait tourner la vue"
         },
+        "keep-heading": {
+          "type": "boolean",
+          "description": "Avec drag : l'objet glissé garde son cap (pas de rotation automatique dos au mur) ; R, Q / E ou la molette le tournent."
+        },
         "fov": {
           "type": "number"
         },

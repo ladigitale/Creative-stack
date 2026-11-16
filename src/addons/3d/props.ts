@@ -45,6 +45,8 @@ export class Sonic3dProps extends LitElement {
    * tourner la vue.
    */
   @property({ type: Boolean, attribute: "drag-selected" }) dragSelected = false;
+  /** Avec `drag` : l'objet garde son cap (pas de rotation automatique dos au mur) ; R, Q / E ou la molette le tournent. */
+  @property({ type: Boolean, attribute: "keep-heading" }) keepHeading = false;
   @property({ reflect: true })
   camera: Sonic3dCameraMode = Sonic3dCameraMode.Orbit;
   @property({ type: Number }) fov = DEFAULT_FOV;

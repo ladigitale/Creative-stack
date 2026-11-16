@@ -11,7 +11,7 @@ import { readTex, type TexSpec } from "./textures";
 import { GEN_ACTIONS, GEN_IDS, genVariants, GEN_ROLES, genPreset, isGenId, type GenRig } from "./gen";
 import { expandPrefabs, type Matiere, type PrefabFormat, type PrefabInfo } from "./prefab";
 import { boundsOf, DEFAULT_BOUNDS, inPolygon, localOn, surfaceNames, surfaceOf, turnY, type Box3, type Face, type From, type Surface } from "./supports";
-import { expandEspace } from "./espace";
+import { expandEspace, type EspaceEdge, type EspaceOpening } from "./espace";
 import { CATALOGUE } from "./catalogue";
 import { findAll, type Obb } from "./collide";
 
@@ -173,6 +173,11 @@ export type MondeIn = {
   collisions?: boolean | "montrer";
   /** Pièce ou parcelle : contour, bords (murs, clôtures) percés d'ouvertures, zones de sol, plafond (voir espace.ts). */
   espace?: unknown;
+  /**
+   * Ouvertures de l'espace écrites à part, chacune avec son `bord` (`[{type: "porte", bord: 3, at: 105}]`) : celles-ci
+   * se glissent d'un mur à l'autre (drag), `$mondePlace` recopie leur `bord` et leur `at`.
+   */
+  ouvertures?: unknown[];
   /** Unité des longueurs écrites (pièces, placements, clips) : `m` (défaut), `cm` ou `mm`. `nodes` reste en mètres. */
   unite?: string;
   /** Nuancier de matières : `{chene: {color: "#b98a56", tex: "bois"}}`, lu par `matiere` des pièces. */
@@ -322,6 +327,9 @@ export type Monde = {
   collide: "non" | "oui" | "montrer";
   /** Contour de l'`espace` en mètres (`null` sans espace) et facteur de l'unité du document vers le mètre. */
   contour: number[][] | null;
+  /** Bords de l'espace où une ouverture peut glisser, et ouvertures posées par nom (voir espace.ts). */
+  edges: EspaceEdge[];
+  openings: Record<string, EspaceOpening>;
   unit: number;
   issues: Issue[];
 };
@@ -1063,6 +1071,8 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     marks,
     collide,
     contour: esp.contour,
+    edges: esp.edges,
+    openings: esp.openings,
     unit,
     issues,
   };

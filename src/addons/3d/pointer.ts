@@ -17,6 +17,7 @@ export type PointerHost = {
   pickEmpty: boolean;
   drag?: string;
   dragSelected?: boolean;
+  keepHeading?: boolean;
   /** Instance sélectionnée (clé `selection` du DataProvider). */
   selectedName?: string;
   dragging?: { name: string; last: unknown; id: number; x: number; y: number; cx: number; cy: number; ry: number | undefined; stop: () => void } | null;
@@ -78,7 +79,7 @@ function onDown(host: PointerHost, e: PointerEvent) {
       name = "";
     }
     if (name) {
-      const drag = { name, last: null as unknown, id: e.pointerId, x: p.x, y: p.y, cx: e.clientX, cy: e.clientY, ry: undefined as number | undefined, stop: () => {} };
+      const drag = { name, last: null as unknown, id: e.pointerId, x: p.x, y: p.y, cx: e.clientX, cy: e.clientY, ry: (host.keepHeading ? host.runtime.headingOf(name) : undefined) as number | undefined, stop: () => {} };
       // R, Q / E, molette : tourner l'objet saisi
       drag.stop = listenTurn(host as unknown as HTMLElement, (d) => {
         const rt = host.runtime;

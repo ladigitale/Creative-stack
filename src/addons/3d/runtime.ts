@@ -346,6 +346,13 @@ export class SceneRuntime {
     this.dragNdc.set(normX * 2 - 1, -(normY * 2 - 1));
     this.raycaster.setFromCamera(this.dragNdc, this.activeCam);
     const ray = this.raycaster.ray;
+    // une porte ou une fenêtre glisse sur le mur visé
+    const wall = this.monde.openingRay(name, [ray.origin.x, ray.origin.y, ray.origin.z], [ray.direction.x, ray.direction.y, ray.direction.z]);
+    if (wall) {
+      const res = this.monde.dragTo(name, wall.x, wall.z, performance.now(), undefined, wall.bord);
+      this.render();
+      return res;
+    }
     if (Math.abs(ray.direction.y) < 1e-4) return null;
     const t = (this.dragPlaneY - ray.origin.y) / ray.direction.y;
     if (t <= 0) return null;

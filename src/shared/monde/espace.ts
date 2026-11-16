@@ -58,21 +58,37 @@ export const REVETEMENTS: Record<string, { color: string; tex?: unknown }> = {
 const CLOTURES = ["drystone", "coping", "fence", "picket", "hedge", "railing", "bamboo"];
 const ALIAS_CLOTURE: Record<string, string> = { haie: "hedge", cloture: "fence", palissade: "picket", muret: "coping", "pierre-seche": "drystone", grille: "railing", bambou: "bamboo" };
 
-type Opening = { x0: number; x1: number; y0: number; y1: number; raw: Obj; model: string; path: string };
+type Opening = { x0: number; x1: number; y0: number; y1: number; raw: Obj; model: string; path: string; index: number };
+
+/**
+ * Bord de l'espace où une ouverture peut glisser (mètres) : milieu `m`, direction `l` de ses `at` croissants, normale
+ * `n` vers l'intérieur, longueur `L`, `inset` : retrait des menuiseries dans l'épaisseur (négatif : vers l'extérieur).
+ */
+export type EspaceEdge = { bord: number; m: [number, number]; l: [number, number]; n: [number, number]; L: number; inset: number; yaw: number; height: number };
+
+/**
+ * Ouverture posée (mètres sauf `at`, unité du document) : `index` dans `monde.ouvertures` (-1 : écrite dans
+ * `espace.bords`, fixe), `bord`, `at` (milieu, depuis le début du bord), largeur `w`.
+ */
+export type EspaceOpening = { index: number; bord: number; at: number; w: number; reversed: boolean };
+
+export type EspaceOut<T> = { src: T; contour: number[][] | null; edges: EspaceEdge[]; openings: Record<string, EspaceOpening> };
 
 /**
  * Transforme `espace` en modèles et placements. `unit` : facteur de l'unité du document vers le mètre (0,01 pour des
  * centimètres). Ne lève jamais ; sans `espace`, rend l'entrée telle quelle. `contour` : le contour en mètres.
  */
-export function expandEspace<T extends { espace?: unknown; models?: unknown; place?: unknown }>(src: T, issues: EspaceIssue[], unit: number): { src: T; contour: number[][] | null } {
+export function expandEspace<T extends { espace?: unknown; models?: unknown; place?: unknown; ouvertures?: unknown }>(src: T, issues: EspaceIssue[], unit: number): EspaceOut<T> {
   const e = src.espace;
-  if (!isObj(e)) return { src, contour: null };
+  const edges: EspaceEdge[] = [];
+  const openingsOut: Record<string, EspaceOpening> = {};
+  if (!isObj(e)) return { src, contour: null, edges, openings: openingsOut };
   /** Longueur donnée en mètres, dans l'unité du document. */
   const U = (m: number) => m / unit;
   const pts = (Array.isArray(e.contour) ? e.contour : []).filter((q): q is number[] => Array.isArray(q) && q.length >= 2 && fin(q[0]) && fin(q[1])).map((q) => [q[0], q[1]]);
   if (pts.length < 3) {
     issues.push({ path: "espace.contour", message: "au moins 3 points [x, z]" });
-    return { src, contour: null };
+    return { src, contour: null, edges, openings: openingsOut };
   }
   if (pts.length > 60) {
     issues.push({ path: "espace.contour", message: "plus de 60 points : la suite est ignorée" });
@@ -130,6 +146,16 @@ export function expandEspace<T extends { espace?: unknown; models?: unknown; pla
   const counters: Record<string, number> = {};
   const builtin = builtinOpenings(U);
   const n = pts.length;
+  // ouvertures posées à part (`monde.ouvertures`, chacune avec son `bord`) : celles qu'on fait glisser d'un mur à l'autre
+  const loose = (Array.isArray(src.ouvertures) ? src.ouvertures : []).slice(0, 24);
+  // noms fixés dans l'ordre de la liste (pas des bords) : une porte glissée sur un autre mur garde le sien
+  const looseNames = loose.map((o, k) => {
+    if (!isObj(o) || !fin(o.bord) || !Number.isInteger(o.bord) || o.bord < 0 || o.bord >= n) issues.push({ path: `ouvertures.${k}.bord`, message: `rang de bord attendu (0 à ${n - 1})` });
+    if (!isObj(o)) return "";
+    const model = typeof o.model === "string" ? o.model : typeof o.type === "string" ? o.type : "";
+    const c = (counters[model] = (counters[model] ?? -1) + 1);
+    return unique(typeof o.name === "string" && o.name ? o.name : `${model}${c}`);
+  });
   for (let i = 0; i < n; i++) {
     const a = pts[i], b = pts[(i + 1) % n];
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -151,11 +177,16 @@ export function expandEspace<T extends { espace?: unknown; models?: unknown; pla
     const toWorld = (x: number, z: number): [number, number] => [mx + x * lx + z * nx, mz + x * lz + z * nz];
     const H = fin(spec.hauteur) && spec.hauteur > 0 ? spec.hauteur : height || U(type === "mur" ? 2.5 : 1.2);
     const T = fin(spec.epaisseur) && spec.epaisseur > 0 ? spec.epaisseur : U(0.1);
+    if (type === "mur" || CLOTURES.includes(type))
+      edges.push({ bord: i, m: [mx * unit, mz * unit], l: [lx, lz], n: [nx, nz], L: L * unit, inset: type === "mur" ? (-T / 2) * unit : 0, yaw, height: H * unit });
 
     // ouvertures, de gauche à droite
     const openings: Opening[] = [];
-    (Array.isArray(spec.ouvertures) ? spec.ouvertures : []).filter(isObj).slice(0, 12).forEach((o, j) => {
-      const op = `${path}.ouvertures.${j}`;
+    const listed = [
+      ...(Array.isArray(spec.ouvertures) ? spec.ouvertures : []).filter(isObj).slice(0, 12).map((o, j) => ({ o, op: `${path}.ouvertures.${j}`, index: -1 })),
+      ...loose.map((o, k) => ({ o, op: `ouvertures.${k}`, index: k })).filter((x): x is { o: Obj; op: string; index: number } => isObj(x.o) && x.o.bord === i),
+    ];
+    listed.forEach(({ o, op, index }) => {
       const kind = typeof o.type === "string" ? o.type : "";
       const model = typeof o.model === "string" ? o.model : kind;
       const def = isObj(userModels[model]) ? (userModels[model] as Obj) : has(builtin, model) ? builtin[model] : null;
@@ -175,7 +206,7 @@ export function expandEspace<T extends { espace?: unknown; models?: unknown; pla
         issues.push({ path: op, message: "ouverture qui en chevauche une autre : ignorée" });
         return;
       }
-      openings.push({ x0, x1, y0: Math.min(sill, H), y1: Math.min(sill + h, H), raw: o, model, path: op });
+      openings.push({ x0, x1, y0: Math.min(sill, H), y1: Math.min(sill + h, H), raw: o, model, path: op, index });
     });
     openings.sort((p, q) => p.x0 - q.x0);
 
@@ -240,8 +271,8 @@ export function expandEspace<T extends { espace?: unknown; models?: unknown; pla
       const dp = isObj(def.params) ? def.params : {};
       if (has(dp, "largeur") && params.largeur === undefined) params.largeur = o.x1 - o.x0;
       if (has(dp, "hauteur") && params.hauteur === undefined) params.hauteur = o.y1 - o.y0;
-      const k = (counters[o.model] = (counters[o.model] ?? -1) + 1);
-      const name = unique(typeof o.raw.name === "string" && o.raw.name ? o.raw.name : `${o.model}${k}`);
+      const name = o.index >= 0 && looseNames[o.index] ? looseNames[o.index] : unique(typeof o.raw.name === "string" && o.raw.name ? o.raw.name : `${o.model}${(counters[o.model] = (counters[o.model] ?? -1) + 1)}`);
+      openingsOut[name] = { index: o.index, bord: i, at: cx + L / 2, w: o.x1 - o.x0, reversed: o.raw.sens === "inverse" };
       place.push({ model: o.model, name, shadow: false, at: [wx, o.y0, wz], rot: [0, yaw * DEG + (o.raw.sens === "inverse" ? 180 : 0), 0], ...(Object.keys(params).length ? { params } : {}), ...(isObj(o.raw.slots) ? { slots: o.raw.slots } : {}) });
     }
   }
@@ -256,7 +287,7 @@ export function expandEspace<T extends { espace?: unknown; models?: unknown; pla
 
   const { espace: _e, ...rest } = src;
   // les modèles et placements écrits passent après : ils peuvent s'appuyer sur les murs, et un modèle écrit l'emporte
-  return { src: { ...(rest as T), models: { ...models, ...userModels }, place: [...place, ...(Array.isArray(src.place) ? src.place : [])] }, contour: pts.map(([x, z]) => [x * unit, z * unit]) };
+  return { src: { ...(rest as T), models: { ...models, ...userModels }, place: [...place, ...(Array.isArray(src.place) ? src.place : [])] }, contour: pts.map(([x, z]) => [x * unit, z * unit]), edges, openings: openingsOut };
 }
 
 function polygonArea(p: number[][]): number {

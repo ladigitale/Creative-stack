@@ -262,6 +262,13 @@ appui et se déplacer lui-même (pas sur un mur : il y reste du décor).
   dans la clé `selection` du DataProvider) ; l'objet sélectionné est entouré de bleu ; seul lui se glisse, et
   seulement s'il est le premier sous le doigt ; un glisser partout ailleurs fait tourner (3D) la vue. `selection`
   vide : rien ne se déplace.
+- **Cap gardé** (`keep-heading`) : l'objet glissé ne se tourne pas tout seul dos au mur ; il garde son cap (il ne se
+  colle à un mur que s'il lui tourne déjà le dos, à 45° près) ; R, Q / E, la molette ou `$mondeTurn` le tournent.
+- **Portes et fenêtres** : celles écrites dans `ouvertures` du monde (voir *Espace*) se sélectionnent et se glissent
+  comme les objets, mais le long des murs : en 3D sur le mur visé par le pointeur (vu de l'intérieur), sur le plan
+  sur le mur le plus proche ; pas de 5 cm, jamais à cheval sur un angle ni sur une autre ouverture. Au lâcher le
+  `payload` porte `ouverture: {index, bord, at}` (et `place` vide) : `$mondePlace` le recopie dans
+  `monde.ouvertures[index]`, le mur est alors redécoupé. Pendant le geste, le trou du mur reste à l'ancienne place.
 - **Résultat** (clé de sortie `placed`, et `payload` de l'action `place`) :
   `{objectId, x, y, z, ry, valid, hits, snaps, place}` — position en mètres, cap en radians, `hits` = ce qui gêne
   encore, `snaps` parmi `mur`, `aligne-x`, `aligne-z`, `grille`, `deplace`, et **`place`** = l'entrée `place` à
@@ -332,6 +339,10 @@ parcelle avec ses clôtures et ses zones. Elle produit des instances nommées or
   du mur vu de l'intérieur** au milieu de l'ouverture. Le mur est découpé autour ; la menuiserie est un prefab posé
   dans son épaisseur : `fenetre`, `porte`, `portail` de base (paramètres `largeur`, `hauteur`, `cadre`, `teinte`), ou
   un modèle du monde du même nom ou désigné par `model` (il reçoit `largeur` et `hauteur` s'il les déclare).
+- **`ouvertures` du monde** (à côté d'`espace`, pas dedans) : `[{type, bord, at, …}]`, les mêmes champs plus le rang
+  du `bord`. Ce sont celles qu'on fait glisser d'un mur à l'autre ; utile aussi quand `espace` est calculé ailleurs
+  (un `sonic-jsonata` qui l'écrit d'après un formulaire) et les ouvertures éditées par le réducteur. Leurs noms
+  suivent l'ordre de la liste (`porte0`, `fenetre0`…) : ils ne changent pas quand une porte change de mur.
 - **`zones`** : `{nom, contour, revetement, couleur, tex, layers}`. Sans `contour` la zone couvre tout l'espace.
   Revêtements : `parquet`, `chevron`, `moquette`, `carrelage`, `beton`, `lino`, `gazon`, `dalles`, `terrasse`,
   `gravier`, `paillis`, `terre`, `sable`, `eau`. `layers` sème des modèles dans le contour de la zone :

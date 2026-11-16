@@ -34,6 +34,22 @@ describe("rangement : aimantation et place libre", () => {
     expect(r2.at[2]).toBeCloseTo(1.5);
   });
 
+  it("cap imposé (keep-heading) : pas de rotation, et un point visé derrière un mur ramène l'objet dans la pièce", () => {
+    const d = drive(piece([{ model: "commode", name: "c", at: [200, 0, 150] }]));
+    // cap tourné vers +x (pas dos au mur du fond), visé 60 cm derrière ce mur
+    const r = d.arrangeTo("c", 2.0, 3.7, 1, 0, "inOut", { ry: Math.PI / 2 })!;
+    expect(r.ry).toBeCloseTo(Math.PI / 2);
+    expect(r.snaps).not.toContain("mur");
+    expect(r.snaps).toContain("dedans");
+    expect(r.at[2]).toBeLessThan(3.1);
+    expect(r.valid).toBe(true);
+    // loin derrière un angle : ramené dans l'angle
+    const r2 = d.arrangeTo("c", 5.5, 4.5, 2, 0, "inOut", { ry: Math.PI / 2 })!;
+    expect(r2.at[0]).toBeLessThan(4.2);
+    expect(r2.at[2]).toBeLessThan(3.1);
+    expect(r2.valid).toBe(true);
+  });
+
   it("s'aligne sur le bord d'un voisin proche", () => {
     const d = drive(piece([{ model: "table", name: "a", at: [150, 0, 150], params: { largeur: 120, profondeur: 80 } }, { model: "table", name: "b", at: [300, 0, 250], params: { largeur: 120, profondeur: 80 } }]));
     // b visée à 3 cm de l'alignement des bords gauches (x = 0,9) : ramenée dessus
@@ -42,7 +58,7 @@ describe("rangement : aimantation et place libre", () => {
     expect(r.at[0]).toBeCloseTo(1.5);
   });
 
-  it("lâché sur un meuble, un objet glisse à la place libre la plus proche ; sans place, la pose est invalide", () => {
+  it("lâché sur un meuble, un objet glisse à la place libre la plus proche ; visé dehors, il reste dans la pièce", () => {
     const d = drive(piece([{ model: "armoire", name: "armoire", against: "mur2", at: 200, params: { largeur: 150 } }, { model: "commode", name: "c", at: [100, 0, 100] }]));
     const a = d.instances.get("armoire")!.t;
     const r = d.arrangeTo("c", a.x, a.z - 0.4, 1)!;
@@ -51,9 +67,11 @@ describe("rangement : aimantation et place libre", () => {
     // hors de l'armoire maintenant
     const m2 = d.bodies();
     expect(m2.find((b) => b.name === "c")!.at).toEqual(r.at);
+    // visé loin dehors : ramené dans la pièce, à l'angle le plus proche
     const far = d.arrangeTo("c", 12, 12, 2)!;
-    expect(far.valid).toBe(false);
-    expect(far.hits).toContain("espace");
+    expect(far.snaps).toContain("dedans");
+    expect(far.at[0]).toBeLessThan(4.2);
+    expect(far.at[2]).toBeLessThan(3.1);
   });
 
   it("ne se pose pas dans le passage de la porte", () => {

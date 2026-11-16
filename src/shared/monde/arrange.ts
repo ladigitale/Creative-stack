@@ -44,6 +44,8 @@ export type Arranged = {
   hits: string[];
   /** Aimantations appliquées : `mur`, `aligne-x`, `aligne-z`, `grille`, `deplace` (poussé vers une place libre). */
   snaps: string[];
+  /** Ouverture glissée le long des murs (opening.ts) : sa place dans `monde.ouvertures`. */
+  ouverture?: { index: number; bord: number; at: number };
 };
 
 export type ArrangeOptions = {
@@ -61,6 +63,8 @@ export type ArrangeOptions = {
    * cap y tourne déjà le dos (à 45° près). Sans `ry` : cap actuel, et le mur proche l'oriente vers la pièce.
    */
   ry?: number;
+  /** Ouverture : bord visé (rayon qui touche ce mur), sinon le plus proche du point. */
+  bord?: number;
 };
 
 const flat = (b: Body) => {
@@ -69,6 +73,52 @@ const flat = (b: Body) => {
 };
 const isFloor = (b: Body) => b.base.startsWith("espace:zone_");
 const isCeiling = (b: Body) => b.base === "espace:plafond";
+
+/**
+ * Ramène le point (px, pz) pour que l'emprise `box` (posée en ce point) reste du côté intérieur de chaque bord du
+ * contour (mètres). Exact pour un contour convexe ; pour un autre, un bon rapprochement.
+ */
+function keepInside(contour: number[][], px: number, pz: number, box: { lo: number[]; hi: number[] }): [number, number] {
+  const n = contour.length;
+  // demi-emprises autour du point
+  const ex = [box.lo[0] - px, box.hi[0] - px], ez = [box.lo[2] - pz, box.hi[2] - pz];
+  const reach = Math.hypot(Math.max(-ex[0], ex[1]), Math.max(-ez[0], ez[1]));
+  const closest = (a: number[], b: number[], x: number, z: number) => {
+    const dx = b[0] - a[0], dz = b[1] - a[1];
+    const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1)));
+    return [a[0] + dx * t, a[1] + dz * t];
+  };
+  // hors du contour : d'abord sur son bord le plus proche
+  if (!inPolygon(px, pz, contour)) {
+    let best: number[] = [px, pz], bd = Infinity;
+    for (let i = 0; i < n; i++) {
+      const q = closest(contour[i], contour[(i + 1) % n], px, pz);
+      const d = Math.hypot(q[0] - px, q[1] - pz);
+      if (d < bd) [bd, best] = [d, q];
+    }
+    [px, pz] = best;
+  }
+  // puis chaque bord proche repousse l'emprise vers l'intérieur
+  for (let pass = 0; pass < 3; pass++)
+    for (let i = 0; i < n; i++) {
+      const a = contour[i], b = contour[(i + 1) % n];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L < 1e-9) continue;
+      const q = closest(a, b, px, pz);
+      if (Math.hypot(q[0] - px, q[1] - pz) > reach + 0.01) continue;
+      let nx = -(b[1] - a[1]) / L, nz = (b[0] - a[0]) / L;
+      const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2;
+      if (!inPolygon(mx + nx * 1e-3, mz + nz * 1e-3, contour)) [nx, nz] = [-nx, -nz];
+      let need = 0;
+      for (const dx of ex) for (const dz of ez) need = Math.max(need, -(dx * nx + dz * nz));
+      const d = (px - a[0]) * nx + (pz - a[1]) * nz;
+      if (d < need - 1e-9) {
+        px += nx * (need - d);
+        pz += nz * (need - d);
+      }
+    }
+  return [px, pz];
+}
 
 /** Range `name` au point visé (x, z). `null` si l'instance est inconnue. */
 export function arrange(bodies: Body[], name: string, x: number, z: number, opt: ArrangeOptions = {}): Arranged | null {
@@ -246,6 +296,13 @@ export function arrange(bodies: Body[], name: string, x: number, z: number, opt:
         px = shift[0] ? px + shift[0] : round(px);
         pz = shift[1] ? pz + shift[1] : round(pz);
         if (grid > 0 && !shift[0] && !shift[1]) snaps.push("grille");
+        // au sol libre : l'objet reste dans la pièce (un point visé derrière un mur le ramène contre lui)
+        if (opt.contour && opt.contour.length >= 3) {
+          const [qx, qz] = keepInside(opt.contour, px, pz, hull(placeBoxes(me.model, [px, y, pz], [me.rot[0], ry, me.rot[2]], sc)));
+          if (qx !== px || qz !== pz) snaps.push("dedans");
+          px = qx;
+          pz = qz;
+        }
         pose = free(px, pz, ry);
         slide = (d, dir) => free(px + Math.cos((dir * Math.PI) / 8) * d, pz + Math.sin((dir * Math.PI) / 8) * d, ry);
       }
@@ -318,11 +375,15 @@ export type PlacedInfo = {
   place: Record<string, unknown>;
   /** Rang de son entrée dans `monde.place` (-1 : inconnu) : voir `$mondePlace`. */
   src: number;
+  /** Ouverture glissée : `{index, bord, at}` à recopier dans `monde.ouvertures[index]` (`place` est alors vide). */
+  ouverture?: { index: number; bord: number; at: number };
 };
 
 export function placedInfo(name: string, res: Arranged, bodies: Body[], unit: number): PlacedInfo {
   const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
   const me = bodies.find((b) => b.name === name);
+  if (res.ouverture)
+    return { objectId: name, x: r4(res.at[0]), y: r4(res.at[1]), z: r4(res.at[2]), ry: r4(res.ry), valid: res.valid, hits: res.hits, snaps: res.snaps, place: {}, src: me?.src ?? -1, ouverture: { ...res.ouverture } };
   const sup = res.carry ? bodies.find((b) => b.name === res.carry!.support) : undefined;
   let place: Record<string, unknown>;
   const s = sup ? surfaceOf(sup.model, "top") : null;

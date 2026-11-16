@@ -29,6 +29,7 @@ function entryOf(place: unknown[], name: string, src: unknown): number {
  * nom dans son entrée. Monde rendu tel quel si l'objet est introuvable ou vient d'une entrée à plusieurs copies.
  */
 export function mondePlace(monde: unknown, placed: unknown): unknown {
+  if (isObj(monde) && isObj(placed) && isObj(placed.ouverture)) return openingPlace(monde, placed.ouverture);
   if (!isObj(monde) || !isObj(placed) || !Array.isArray(monde.place)) return monde;
   const name = typeof placed.objectId === "string" ? placed.objectId : "";
   const keys = placed.place;
@@ -47,6 +48,17 @@ export function mondePlace(monde: unknown, placed: unknown): unknown {
   const place = monde.place.slice();
   place[i] = next;
   return { ...monde, place };
+}
+
+/** Ouverture glissée (`placed.ouverture = {index, bord, at}`) : son `bord` et son `at` dans `monde.ouvertures`. */
+function openingPlace(monde: Obj, o: Obj): unknown {
+  const list = monde.ouvertures;
+  const i = o.index;
+  if (!Array.isArray(list) || typeof i !== "number" || !Number.isInteger(i) || i < 0 || i >= list.length || !isObj(list[i])) return monde;
+  if (typeof o.bord !== "number" || typeof o.at !== "number" || !Number.isFinite(o.at)) return monde;
+  const ouvertures = list.slice();
+  ouvertures[i] = { ...(list[i] as Obj), bord: o.bord, at: o.at };
+  return { ...monde, ouvertures };
 }
 
 /** Appui nommé d'une entrée (`on` ou `against`, sans `@surface`), vide sinon. */
