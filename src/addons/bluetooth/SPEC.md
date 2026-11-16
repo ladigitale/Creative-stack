@@ -285,7 +285,9 @@ Chaque phase se termine comme les autres addons : catalogue, validateur Tadaaa, 
 
 ---
 
-## 9. Plus tard : `sonic-serial`
+## 9. `sonic-serial` (livré, addon `serial`)
+
+Le socle (`SonicBytePipe`, file, octets, faux canal) est passé dans `src/shared/pipe/`. `sonic-serial` et le pilote GRBL (`sonic-grbl`, addon `grbl`) sont livrés ; restent à brancher ici les imprimantes en USB.
 
 Même contrat `SonicBytePipe` au-dessus de Web Serial (ordinateur seulement) : imprimantes ESC/POS et Niimbot en USB, appareils Bluetooth classique SPP exposés en port série, machines GRBL (graveurs laser, traceurs à stylo). Les codecs des phases B à D s'y branchent sans changement.
 

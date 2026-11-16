@@ -16,7 +16,7 @@ export {
 export { PROTOCOLS, createProtocol, modelFromName, type PrinterModel } from "./printer/models";
 export { PrinterLink, type PrinterProtocol, type PrintJob, type PrinterInfo, type PrinterStatus, type PaperType } from "./printer/protocol";
 export { PROFILES, getProfile, type BluetoothProfile, type BluetoothFilter } from "../../shared/bluetooth/profiles";
-export { isBytePipe, type SonicBytePipe, type PipeWriteOptions } from "../../shared/bluetooth/pipe";
-export { FakePipe } from "../../shared/bluetooth/fake-pipe";
-export { toHex, fromHex } from "../../shared/bluetooth/bytes";
+export { isBytePipe, type SonicBytePipe, type PipeWriteOptions } from "../../shared/pipe/pipe";
+export { FakePipe } from "../../shared/pipe/fake-pipe";
+export { toHex, fromHex } from "../../shared/pipe/bytes";
 export { expandUuid } from "../../shared/bluetooth/uuid";

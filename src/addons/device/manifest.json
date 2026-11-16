@@ -225,7 +225,7 @@
     },
     {
       "name": "sonic-capabilities",
-      "description": "Ce que l'environnement autorise, en un DataProvider, sans ouvrir de demande de permission : pour fullscreen, pointerLock, wakeLock, gamepad, midi, orientation, clipboard, share, vibrate, camera, microphone, audio, screen, bluetooth → {supported, allowed (Permissions Policy), permission}, plus embedded (iframe) et secureContext. À lire pour dégrader proprement. control {refresh:n} relit. État <id>State {status:\"ready\", embedded, secureContext, fullscreen:{…}, …}",
+      "description": "Ce que l'environnement autorise, en un DataProvider, sans ouvrir de demande de permission : pour fullscreen, pointerLock, wakeLock, gamepad, midi, orientation, clipboard, share, vibrate, camera, microphone, audio, screen, bluetooth, serial → {supported, allowed (Permissions Policy), permission}, plus embedded (iframe) et secureContext. À lire pour dégrader proprement. control {refresh:n} relit. État <id>State {status:\"ready\", embedded, secureContext, fullscreen:{…}, …}",
       "props": {
         "control": {
           "type": "string",

@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "serial",
+  "label": "Port série",
+  "description": "Appareils branchés en USB derrière un pont série (Web Serial) pilotés par DataProvider, sans JS : connexion sur geste, octets et lignes de texte lus et écrits, profils nommés (CH340, CP210x, FTDI, Arduino, ESP32, GRBL). Transport des pilotes de machines (sonic-grbl : graveurs laser, traceurs). Chromium en HTTPS seulement (ordinateur, Android récent ; ni iOS, ni Firefox, ni Safari).",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "serial.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-serial",
+      "description": "Un port série choisi par l'utilisateur (sélecteur du navigateur, geste obligatoire : for=\"idBouton\" ; un port déjà autorisé pour le site est rouvert sans sélecteur). profile = ch340 (graveurs laser Atomstack, Ortur, Sculpfun ; clones Arduino), cp210x, ftdi, arduino, esp32, grbl (tous les ponts courants) ; sans profil : filters, ou accept-all. Commandes control {connect:n | {n, pick:true}, disconnect:n, toggle:n, write:{n, hex|bytes|text}, line:{n, text} (ajoute la fin de ligne), signals:{n, dtr, rts}, forget:n}. État <id>State {status, error, supported, allowed, active, connected, port{vendorId, productId, name}, profile, baud, rx{bytes, lines} (lines utilisable comme trigger), lastLine (dernière ligne de texte reçue), last{hex, at}, tx{queued, sent, n}, reconnecting}. Événements sonic-serial-connect, sonic-serial-disconnect, sonic-serial-line {text}. Écritures commandées de 4096 octets au plus. Sert de transport aux pilotes (sonic-grbl transport=\"#id\"). Dans une iframe : allow=\"serial\"",
+      "props": {
+        "profile": { "type": "string", "description": "profil nommé : filtres du sélecteur et débit (ch340, cp210x, ftdi, arduino, esp32, grbl)" },
+        "filters": { "type": "string", "description": "JSON [{usbVendorId, usbProductId}] (hexadécimal en chaîne, ex. \"1a86\", ou nombre), ajouté aux filtres du profil" },
+        "baud": { "type": "number", "description": "débit en bauds (défaut du profil, sinon 115200)" },
+        "data-bits": { "type": "number", "description": "7 ou 8 (8)" },
+        "stop-bits": { "type": "number", "description": "1 ou 2 (1)" },
+        "parity": { "type": "string", "description": "none (défaut), even, odd" },
+        "flow-control": { "type": "string", "description": "none (défaut) ou hardware" },
+        "eol": { "type": "string", "description": "fin de ligne de la commande line : lf (défaut), crlf, cr" },
+        "auto-reconnect": { "type": "boolean", "description": "réouverture du même port quand il est rebranché, sans sélecteur" },
+        "accept-all": { "type": "boolean", "description": "sélecteur sans filtre : tous les ports de la machine" },
+        "control": { "type": "string", "description": "DP de pilotage : compteurs {commande: n} ou {commande: {n, …arguments}}" },
+        "out-data-provider": { "type": "string", "description": "DP d'état (défaut <id>State)" },
+        "for": { "type": "string", "description": "ids dont le clic lance connect, dans le geste" },
+        "rate": { "type": "number", "description": "publications par seconde au plus (30)" }
+      }
+    }
+  ]
+}

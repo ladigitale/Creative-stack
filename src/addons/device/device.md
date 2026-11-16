@@ -14,7 +14,7 @@ Addon `@supersoniks/creative-stack/device` : les API « appareil » du navigateu
 | `sonic-page-state` | Visibilité, focus, connexion, taille, préférences | — |
 | `sonic-capabilities` | Ce que la page autorise, en un DataProvider | `refresh` |
 
-Les manettes (`sonic-controller`, addon `controller`), le MIDI (`sonic-midi`, addon `audio`) et le Bluetooth (`sonic-bluetooth`, addon `bluetooth`, `allow="bluetooth"` dans une iframe) ont leur addon.
+Les manettes (`sonic-controller`, addon `controller`), le MIDI (`sonic-midi`, addon `audio`), le Bluetooth (`sonic-bluetooth`, addon `bluetooth`, `allow="bluetooth"` dans une iframe) et le port série (`sonic-serial`, addon `serial`, `allow="serial"`) ont leur addon.
 
 ## Conventions communes
 

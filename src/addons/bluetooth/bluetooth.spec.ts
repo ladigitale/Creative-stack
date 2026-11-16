@@ -5,9 +5,9 @@ import { FakePipe, fromHex, toHex, expandUuid, getProfile, labelPixels, parseLab
 import type { SonicBluetooth } from "./bluetooth";
 import type { SonicLabelPrinter } from "./label-printer";
 import { centerInWidth, coverage, dither, fitRect, packBitmap, rotateBitmap, toGray, type Bitmap } from "../../shared/raster1bit";
-import { chunks, OpQueue } from "../../shared/bluetooth/queue";
+import { chunks, OpQueue } from "../../shared/pipe/queue";
 import { isBlockedService, parseChannel } from "../../shared/bluetooth/uuid";
-import { indexOfBytes, payloadBytes } from "../../shared/bluetooth/bytes";
+import { indexOfBytes, payloadBytes } from "../../shared/pipe/bytes";
 
 type Restore = () => void;
 let restores: Restore[] = [];

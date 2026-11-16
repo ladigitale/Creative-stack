@@ -1,0 +1,62 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "grbl",
+  "label": "Laser et traceur (GRBL)",
+  "description": "Gravure et découpe laser, traceur à stylo : sonic-gcode change un dessin (SVG de sonic-sketch ou d'un fichier, image) en programme G-code avec réglages par couleur, aperçu et durée ; sonic-grbl pilote une machine GRBL (Atomstack, Ortur, Sculpfun…) derrière un sonic-serial : état en direct, déplacements manuels, cadrage, envoi en flux, pause, arrêt. Garde-fous laser : geste obligatoire, M4 imposé, arrêt à la fermeture de la page. Chromium en HTTPS (Web Serial).",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "grbl.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-grbl",
+      "description": "Machine GRBL 1.1 derrière un sonic-serial (transport=\"#id\", profil ch340 ou grbl). Lit version et réglages à la connexion. Commandes control {run:n | {n, gcode} (programme de source=\"#id\" d'un sonic-gcode, ou texte G-code), hold:n, resume:n, stop:n (pause, attente de l'arrêt, remise à zéro : position gardée), frame:n | {n, power (0..5 %), feed} (tour de l'emprise du programme, faisceau éteint par défaut), jog:{n, x, y, feed} (relatif, mm), goto:{n, x, y, feed} (point de travail), jogCancel:n, setOrigin:n (l'origine de travail devient la position courante), clearOrigin:n, home:n (si la machine a des fins de course), unlock:n (après une alarme), reset:n, refresh:n, send:{n, line} (console ; écriture de réglages $n= refusée sans allow-settings)}. for=\"idBouton\" lance run. État <id>State {status, error, active, connected, firmware, machine, machineState (Idle|Run|Hold|Jog|Alarm|Door|Check|Home|Sleep|unknown), alarm{code, message}, pos{x,y,z} (travail), mpos{x,y,z}, feed, power (S en cours), area{x,y} mm, maxS ($30), laserMode ($32), homing ($22), settings{\"30\":1000…}, job{kind job|frame, lines, sent, acked, progress 0..1, running, paused, elapsedS, estimateS, bbox{x,y,w,h}}, jobs (compteur), issues[], console[] (dernières lignes échangées)}. Événements sonic-grbl-ready, sonic-grbl-start, sonic-grbl-done, sonic-grbl-stop, sonic-grbl-error {line, message}. Sécurité : run et le cadrage faisceau allumé exigent un geste ; en tool=laser, M3 est remplacé par M4 et une machine en $32=0 est refusée ; max-power plafonne S ; la tâche est arrêtée à la fermeture de la page. Non validé sur matériel",
+      "props": {
+        "transport": { "type": "string", "description": "#id du sonic-serial" },
+        "source": { "type": "string", "description": "#id du sonic-gcode (ou de tout élément getGcode())" },
+        "machine": { "type": "string", "description": "auto (zone de travail et pleine puissance lues sur la machine) ou atomstack-a5-pro (410 x 400 mm, sans fin de course)" },
+        "tool": { "type": "string", "description": "laser (défaut) ou pen (traceur : M3 gardé, pas de contrôle du mode laser)" },
+        "max-power": { "type": "number", "description": "plafond de puissance en % (100 : aucun) ; les S au-dessus sont ramenés au plafond" },
+        "allow-settings": { "type": "boolean", "description": "autorise send à écrire un réglage ($n=valeur)" },
+        "poll-ms": { "type": "number", "description": "période de lecture de l'état en ms (250)" },
+        "control": { "type": "string", "description": "DP de pilotage : compteurs {commande: n} ou {commande: {n, …arguments}}" },
+        "out-data-provider": { "type": "string", "description": "DP d'état (défaut <id>State)" },
+        "for": { "type": "string", "description": "ids dont le clic lance run, dans le geste" },
+        "rate": { "type": "number", "description": "publications par seconde au plus (30)" }
+      }
+    },
+    {
+      "name": "sonic-gcode",
+      "description": "Dessin → programme G-code. source=\"#id\" : un sonic-sketch (son SVG : surfaces hachurées, traits suivis) ou une source d'images (sonic-still, sonic-paint… : gravure par balayage) ; svg-from : DP d'un fichier SVG (ref-provider de sonic-file-open) ou du SVG en texte. Réglages par défaut power (%), speed (mm/min), passes, mode (auto : trait pour un contour, hachures pour un remplissage | line : suit le trait ou le contour | fill | skip), interval (mm entre deux lignes), kerf (mm, compensation du trait de coupe sur les contours fermés) ; par couleur : ops=[{color:\"#ff0000\", mode:\"line\", power:90, speed:300, passes:2}], exécutées dans l'ordre (hachures d'abord, découpe en dernier ; intérieurs avant extérieurs). Le blanc ne brûle pas. Taille width-mm / height-mm (proportions gardées ; sans elles : taille réelle du SVG, 50 mm pour une image), position x-mm / y-mm, origine en bas à gauche. Image : dither floyd | atkinson | bayer | threshold | gray (puissance selon le gris, min-power). tool=pen : traits seulement, stylo baissé par M3. Commandes control {build:n, download:n (fichier .gcode), clear:n} et les réglages en direct {power, speed, passes, mode, interval, kerf, ops, widthMm, heightMm, xMm, yMm, frame, maxS, dither, threshold, minPower, input, tool} ; auto reconstruit à chaque changement. État <id>State {status, error, ready, seq (compteur), kind vector|image, lines, bbox{x,y,w,h} mm, sizeMm{w,h}, estimateS, burnMm, travelMm, issues[], skipped{}, settings}. show-preview dessine les parcours (c'est aussi une source d'images #id). Lu par sonic-grbl source=\"#id\"",
+      "props": {
+        "source": { "type": "string", "description": "#id d'un sonic-sketch ou d'une source d'images" },
+        "svg-from": { "type": "string", "description": "DP d'un SonicMediaRef de fichier SVG, ou du SVG en texte" },
+        "input": { "type": "string", "description": "auto (SVG si disponible, sinon image), vector ou image" },
+        "tool": { "type": "string", "description": "laser (défaut) ou pen" },
+        "mode": { "type": "string", "description": "auto, line, fill ou skip pour les couleurs sans réglage propre" },
+        "power": { "type": "number", "description": "puissance en % (20)" },
+        "speed": { "type": "number", "description": "vitesse en mm/min (1500)" },
+        "passes": { "type": "number", "description": "nombre de passes (1)" },
+        "interval": { "type": "number", "description": "écart entre deux lignes de hachure ou de balayage, en mm (0.1)" },
+        "kerf": { "type": "number", "description": "décalage des contours fermés en mm, positif vers l'extérieur" },
+        "ops": { "type": "string", "description": "JSON [{color, mode, power, speed, passes, interval, kerf}] : réglages par couleur, dans l'ordre d'exécution" },
+        "width-mm": { "type": "number", "description": "largeur voulue en mm (0 : taille réelle)" },
+        "height-mm": { "type": "number", "description": "hauteur voulue en mm" },
+        "x-mm": { "type": "number", "description": "position du coin bas gauche, en mm" },
+        "y-mm": { "type": "number", "description": "position du coin bas gauche, en mm" },
+        "frame": { "type": "string", "description": "content (défaut : cadre = emprise des formes) ou document (page du SVG)" },
+        "max-s": { "type": "number", "description": "valeur S de pleine puissance : grblState.maxS (1000)" },
+        "dither": { "type": "string", "description": "image : floyd (défaut), atkinson, bayer, threshold, gray" },
+        "threshold": { "type": "number", "description": "0..255 (128)" },
+        "min-power": { "type": "number", "description": "mode gray : puissance du gris le plus clair, en %" },
+        "auto": { "type": "boolean", "description": "reconstruit le programme dès que la source ou un réglage change" },
+        "show-preview": { "type": "boolean", "description": "affiche l'aperçu des parcours" },
+        "file-name": { "type": "string", "description": "nom du fichier enregistré par download (tache.gcode)" },
+        "control": { "type": "string", "description": "DP : compteurs de commandes et réglages en direct" },
+        "out-data-provider": { "type": "string", "description": "DP d'état (défaut <id>State)" },
+        "for": { "type": "string", "description": "ids dont le clic lance build" }
+      }
+    }
+  ]
+}
