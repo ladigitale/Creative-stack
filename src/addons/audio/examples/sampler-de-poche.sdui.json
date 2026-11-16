@@ -180,6 +180,7 @@
          "attributes": {
           "target": "poche",
           "type": "hit",
+          "trigger": "pointerdown",
           "payload": "\"A\""
          },
          "nodes": [
@@ -264,6 +265,7 @@
          "attributes": {
           "target": "poche",
           "type": "hit",
+          "trigger": "pointerdown",
           "payload": "\"B\""
          },
          "nodes": [
@@ -348,6 +350,7 @@
          "attributes": {
           "target": "poche",
           "type": "hit",
+          "trigger": "pointerdown",
           "payload": "\"C\""
          },
          "nodes": [
@@ -432,6 +435,7 @@
          "attributes": {
           "target": "poche",
           "type": "hit",
+          "trigger": "pointerdown",
           "payload": "\"D\""
          },
          "nodes": [

@@ -161,7 +161,7 @@
     },
     {
       "name": "sonic-action",
-      "description": "Clic / hold -> action ; trigger = nom d'un évènement d'un enfant direct (écouté en capture, même s'il ne remonte pas) : trigger=\"hide\" autour d'un sonic-modal garde un store au courant de sa fermeture (croix, fond, Échap)",
+      "description": "Clic -> action (trigger=\"pointerdown\" ou hold-repeat : dès l'appui, jeux et croix directionnelles) ; trigger = nom d'un évènement d'un enfant direct (écouté en capture, même s'il ne remonte pas) : trigger=\"hide\" autour d'un sonic-modal garde un store au courant de sa fermeture (croix, fond, Échap)",
       "props": {
         "target": {
           "type": "string"
@@ -178,11 +178,11 @@
         "trigger": {
           "type": "string",
           "values": [
-            "pointerdown",
-            "click"
+            "click",
+            "pointerdown"
           ],
-          "default": "pointerdown",
-          "description": "pointerdown : jeux et manettes tactiles ; click : interfaces (comme un bouton Concorde)"
+          "default": "click",
+          "description": "click (défaut) : comme un bouton Concorde, ne part pas quand un doigt fait défiler la page ; pointerdown : dès l'appui, pour les jeux et manettes tactiles (implicite avec hold-repeat)"
         }
       }
     },
