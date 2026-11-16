@@ -63,6 +63,23 @@ export class SonicStore extends LitElement {
   @property({ type: Number })
   history = 0;
 
+  /**
+   * Clé de sauvegarde locale (navigateur) : l’état est repris au démarrage s’il a été sauvegardé sous cette clé,
+   * puis enregistré après chaque publication. `@reset` revient toujours à `initial` (et l’enregistre).
+   */
+  @property({ type: String })
+  persist = "";
+
+  /** Types d’action qui n’entrent pas dans l’historique d’annulation (séparés par des virgules : `select,hover`). */
+  @property({ type: String, attribute: "history-skip" })
+  historySkip = "";
+
+  private skipsHistory(type: string): boolean {
+    return !!this.historySkip && this.historySkip.split(",").some((t) => t.trim() === type);
+  }
+
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+
   private state: unknown = null;
   private queue: SonicActionMessage[] = [];
   private evals = 0;
@@ -77,6 +94,11 @@ export class SonicStore extends LitElement {
   }
 
   disconnectedCallback(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+      this.save();
+    }
     if (this.id) unregisterStore(this.id);
     super.disconnectedCallback();
   }
@@ -107,7 +129,7 @@ export class SonicStore extends LitElement {
   private bootstrap(): void {
     if (!this.id) return;
     this.compileReducer();
-    this.state = this.clone(this.initial);
+    this.state = this.restore() ?? this.clone(this.initial);
     this.historyStack = [];
     this.lastError = null;
     this.publish();
@@ -229,7 +251,7 @@ export class SonicStore extends LitElement {
         this.fail(`état trop gros (max ${this.maxStateBytes} octets)`);
         return;
       }
-      if (this.history > 0) {
+      if (this.history > 0 && !this.skipsHistory(action.type)) {
         this.historyStack.push(this.clone(this.state));
         if (this.historyStack.length > this.history) this.historyStack.shift();
       }
@@ -262,6 +284,44 @@ export class SonicStore extends LitElement {
         ? { ...(this.state as object), lastError: this.lastError }
         : { value: this.state, lastError: this.lastError };
     set(id, payload as never);
+    this.scheduleSave();
+  }
+
+  /** État sauvegardé sous `persist`, s’il existe et a la même forme que `initial` (objet / tableau). */
+  private restore(): unknown {
+    const key = this.persist.trim();
+    if (!key) return undefined;
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return undefined;
+      const saved = JSON.parse(raw) as unknown;
+      const kind = (v: unknown) => (Array.isArray(v) ? "array" : v === null ? "null" : typeof v);
+      return kind(saved) === kind(this.initial) ? saved : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private scheduleSave(): void {
+    if (!this.persist.trim()) return;
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.save();
+    }, 300);
+  }
+
+  private save(): void {
+    const key = this.persist.trim();
+    if (!key) return;
+    try {
+      this.syncFromProvider();
+      const raw = JSON.stringify(this.state);
+      // même plafond que l’état lui-même
+      if (raw.length <= this.maxStateBytes) localStorage.setItem(key, raw);
+    } catch {
+      /* stockage plein, refusé ou indisponible : l’état reste en mémoire */
+    }
   }
 
   private fail(message: string): void {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MondeDriver } from "./driver";
 import { readMonde } from "./format";
+import { envelopeOf } from "./walk";
 
 const piece = (place: unknown[]) =>
   readMonde({
@@ -62,5 +63,18 @@ describe("déplacements en jeu qui respectent les obstacles", () => {
     expect(d.guard("p", { x: 1.0, z: 1.5, collide: true })!.walked.blocked).toBe(false);
     expect(d.guard("p", { x: 1.0, z: 1.5 })).toBeNull();
     expect(d.guard("p", { ry: 1, collide: true })).toBeNull();
+  });
+
+  it("boîte d'emprise orientée d'un objet (contour de sélection)", () => {
+    const d = drive([{ model: "commode", name: "c", at: [200, 0, 150], rot: [0, 90, 0], params: { largeur: 80 } }]);
+    const b = d.bodies().find((x) => x.name === "c")!;
+    const e = envelopeOf(b);
+    // l'origine de la commode est sur son dos : le centre est devant, d'une demi-profondeur
+    expect(e.c[0]).toBeGreaterThan(2.0);
+    expect(e.c[0]).toBeLessThan(2.4);
+    expect(e.c[2]).toBeCloseTo(1.5, 1);
+    // tournée d'un quart de tour : son axe x (largeur) suit z
+    expect(Math.abs(e.ax[0][2])).toBeCloseTo(1, 3);
+    expect(e.h[0] * 2).toBeCloseTo(0.8, 1);
   });
 });

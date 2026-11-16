@@ -257,6 +257,11 @@ appui et se déplacer lui-même (pas sur un mur : il y reste du décor).
   face : l'axe horizontal de l'écran seulement. **Tourner** pendant le geste : R (quart de tour, Maj+R dans l'autre
   sens), Q / E ou la molette (15°). Au lâcher, `target` reçoit `{type: "place", payload}` et l'élément émet
   l'évènement `place`.
+- **Sélection d'abord** (`drag-selected`, recommandé pour un éditeur) : sélection, déplacement et navigation
+  deviennent trois gestes distincts. Un tap sur un objet le sélectionne (action `pick` avec `instance`, à recopier
+  dans la clé `selection` du DataProvider) ; l'objet sélectionné est entouré de bleu ; seul lui se glisse, et
+  seulement s'il est le premier sous le doigt ; un glisser partout ailleurs fait tourner (3D) la vue. `selection`
+  vide : rien ne se déplace.
 - **Résultat** (clé de sortie `placed`, et `payload` de l'action `place`) :
   `{objectId, x, y, z, ry, valid, hits, snaps, place}` — position en mètres, cap en radians, `hits` = ce qui gêne
   encore, `snaps` parmi `mur`, `aligne-x`, `aligne-z`, `grille`, `deplace`, et **`place`** = l'entrée `place` à

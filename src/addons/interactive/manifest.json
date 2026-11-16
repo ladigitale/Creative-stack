@@ -26,6 +26,14 @@
         },
         "history": {
           "type": "number"
+        },
+        "history-skip": {
+          "type": "string",
+          "description": "Types d'action hors de l'historique d'annulation, séparés par des virgules (ex. select)"
+        },
+        "persist": {
+          "type": "string",
+          "description": "Clé de sauvegarde locale (navigateur) : état repris au démarrage, enregistré après chaque action ; @reset revient à initial"
         }
       }
     },

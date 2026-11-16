@@ -91,6 +91,7 @@ function applyFormParams(host: FormBindHost, data: Record<string, unknown>) {
   formFields.applyScalars(host, data);
   const needReload = formFields.applyAsset(host, data);
   mondeBind.sync(host as never, data);
+  mondeBind.select(host as never, data);
 
   if (!host.runtime) {
     if (needReload) void reload.run(host as never);

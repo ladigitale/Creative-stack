@@ -16,6 +16,9 @@ export type PointerHost = {
   pickNames: string;
   pickEmpty: boolean;
   drag?: string;
+  dragSelected?: boolean;
+  /** Instance sélectionnée (clé `selection` du DataProvider). */
+  selectedName?: string;
   dragging?: { name: string; last: unknown; id: number; x: number; y: number; cx: number; cy: number; ry: number | undefined; stop: () => void } | null;
   setPointerCapture?: (id: number) => void;
   releasePointerCapture?: (id: number) => void;
@@ -64,8 +67,16 @@ function onDown(host: PointerHost, e: PointerEvent) {
   const p = normPointer(host, e);
   host.pointerX = p.x;
   host.pointerY = p.y;
-  if (host.drag && host.runtime?.ready && e.button === 0) {
-    const name = host.runtime.dragStart(p.x, p.y, host.drag);
+  if (host.drag && host.runtime?.ready && e.button === 0 && (!host.dragSelected || host.selectedName)) {
+    // drag-selected : seul l'objet sélectionné se saisit (et il doit aussi passer le filtre `drag`)
+    const only = host.dragSelected ? `^${(host.selectedName ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$` : host.drag;
+    // l'objet sous le doigt doit être le sélectionné lui-même (pas un autre meuble devant lui)
+    const front = host.dragSelected ? host.runtime.worldInstanceAt(p.x, p.y) : "";
+    let name = !host.dragSelected || front === host.selectedName ? host.runtime.dragStart(p.x, p.y, only) : "";
+    if (name && host.dragSelected && !matches(host.drag, name)) {
+      host.runtime.dragEnd(name, false);
+      name = "";
+    }
     if (name) {
       const drag = { name, last: null as unknown, id: e.pointerId, x: p.x, y: p.y, cx: e.clientX, cy: e.clientY, ry: undefined as number | undefined, stop: () => {} };
       // R, Q / E, molette : tourner l'objet saisi
@@ -105,6 +116,15 @@ function onDown(host: PointerHost, e: PointerEvent) {
  * Tap (déplacement < 6 px, durée < 400 ms) → action vers `target`.
  * Un drag d'orbite n'envoie rien.
  */
+/** `name` passe la regex `re` (regex invalide : non). */
+function matches(re: string, name: string): boolean {
+  try {
+    return new RegExp(re).test(name);
+  } catch {
+    return false;
+  }
+}
+
 /** Tap sur un `monde` : l'objet déplaçable touché (`instance`) et le rang de son entrée (`src`). */
 function worldOf(host: PointerHost, x: number, y: number): { instance?: string; src?: number } {
   const rt = host.runtime;

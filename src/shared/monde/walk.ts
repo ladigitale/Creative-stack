@@ -35,6 +35,15 @@ const isFloor = (b: Body) => b.base.startsWith("espace:zone_") || b.base === "es
 function boxesAt(b: Body, x: number, z: number): Obb[] {
   const boxes = placeBoxes(b.model, [x, b.at[1], z], b.rot, b.scale);
   if (boxes.length) return boxes;
+  return [envelopeAt(b, x, z)];
+}
+
+/** Boîte d'emprise orientée d'un objet (celle de son modèle, à sa place) : contour de sélection, repli des collisions. */
+export function envelopeOf(b: Body): Obb {
+  return envelopeAt(b, b.at[0], b.at[2]);
+}
+
+function envelopeAt(b: Body, x: number, z: number): Obb {
   const bb = boundsOf(b.model) ?? DEFAULT_BOUNDS;
   const m = m4();
   m4Compose(m, x, b.at[1], z, b.rot[0], b.rot[1], b.rot[2], b.scale[0], b.scale[1], b.scale[2]);
@@ -46,7 +55,7 @@ function boxesAt(b: Body, x: number, z: number): Obb[] {
     return [v[0] / l, v[1] / l, v[2] / l];
   }) as Obb["ax"];
   const w = [0, 1, 2].map((r) => m[12 + r] + m[r] * c[0] + m[4 + r] * c[1] + m[8 + r] * c[2]);
-  return [{ c: [w[0], w[1], w[2]], ax, h: [h[0], h[1], h[2]] }];
+  return { c: [w[0], w[1], w[2]], ax, h: [h[0], h[1], h[2]] };
 }
 
 /** Parcourt le trajet de `name` vers (x, z) en évitant les obstacles. `null` si l'instance est inconnue. */
