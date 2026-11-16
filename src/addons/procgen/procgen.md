@@ -152,6 +152,8 @@ Jetons (tous facultatifs, par-dessus `preset`) : `palette` (`gouache`, `brume`, 
 
 Rôles de couleur : `ground grass path road stone wall trim roof wood bark leaf leaf2 flower water metal glass lamp cloth1 cloth2 cloth3 leather skin hair eye eyeWhite mouth accent ink paper snow fire`. La peau, les yeux et la bouche gardent la couleur du personnage quel que soit le thème.
 
+Ciel (`sky`) : dégradé de l'horizon vers le haut, calé sur la direction de visée horizontale de la caméra (`render/horizon.ts`) : en orbite, l'horizon garde la même hauteur quel que soit le `yaw` (ligne de fuite du sol en perspective, point au sol dans l'axe de visée en vues orthographiques).
+
 ## Fluidité
 
 La composition se fait par tranches (la page reste fluide ; `status.phase = composing`, `status.progress`). Bâtiments fusionnés par tuile, objets répétés instanciés, personnages en un seul maillage chacun. Rendu à la demande, densité de pixels adaptée à la charge, arrêt hors écran, `prefers-reduced-motion` respecté (animation en pause). Une scène de village (≈ 230 objets, 6 personnages) tient en une cinquantaine d'appels de dessin.

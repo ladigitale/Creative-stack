@@ -16,6 +16,7 @@ import { type StyleTokens, resolveColors } from "../style/style";
 import { ROLES } from "../style/roles";
 import { type CameraMode, DEFAULT_VIEW, type ViewState, applyView, parseView } from "./camera";
 import { type MaterialPair, type Shared, makeMaterials, sharedUniforms, toGeometry } from "./materials";
+import { horizonScreenY } from "./horizon";
 import { MAX_BONES, POST_FRAGMENT, POST_VERTEX } from "./shaders";
 import { type Governor, governDpr, keepFrame, newGovernor } from "./steady";
 
@@ -934,11 +935,9 @@ export class ProcgenView {
     this.renderer.clear(true, true, true);
     this.renderer.render(this.scene, this.camera);
     this.lastInfo = { calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles };
-    // horizon : position écran d'un point lointain à hauteur de la cible
+    // horizon : calé sur la direction de visée horizontale (même hauteur quel que soit le yaw)
     const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
-    const far = new THREE.Vector3(this.view.cx, 0, this.view.cz - this.extent * 4);
-    const hp = far.project(this.camera);
-    pu.uHorizonY.value = clamp(hp.y * 0.5 + 0.5, -0.5, 0.95);
+    pu.uHorizonY.value = horizonScreenY(cam, tgt, this.extent);
     pu.uTime.value = this.time;
     this.renderer.setRenderTarget(null);
     this.renderer.clear(true, true, true);
