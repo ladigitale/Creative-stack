@@ -438,6 +438,29 @@ describe("sonic-gcode", () => {
     expect(laser.getState().jobs).toBe(1);
   });
 
+  it("ne garde jamais un ancien programme quand la source change ou que la construction échoue", async () => {
+    const { set } = await import("@supersoniks/concorde/core/utils/PublisherProxy");
+    set("svgA", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10Z" fill="none" stroke="#000"/></svg>');
+    document.body.insertAdjacentHTML("beforeend", '<sonic-gcode id="prog2" svg-from="svgA"></sonic-gcode>');
+    const el = document.getElementById("prog2") as SonicGcode;
+    await el.updateComplete;
+    expect(await el.run("build")).toBe(true);
+    expect(el.getGcode()).not.toBeNull();
+    // Le fichier disparaît : plus de programme, même avant toute reconstruction.
+    set("svgA", null);
+    expect(el.getGcode()).toBeNull();
+    expect(el.getState().ready).toBe(false);
+    set("svgA", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10Z" fill="none" stroke="#000"/></svg>');
+    expect(await el.run("build")).toBe(true);
+    // Nouvelle source sans image : l'ancien programme est retiré.
+    el.source = "#absente";
+    el.input = "image";
+    await el.updateComplete;
+    expect(el.getGcode()).toBeNull();
+    expect(await el.run("build")).toBe(false);
+    expect(el.getState()).toMatchObject({ ready: false, lines: 0 });
+  });
+
   it("dit quand il n'y a rien à tracer", async () => {
     document.body.insertAdjacentHTML("beforeend", '<sonic-gcode id="vide"></sonic-gcode>');
     const el = document.querySelector("sonic-gcode") as SonicGcode;
