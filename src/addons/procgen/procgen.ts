@@ -45,8 +45,6 @@ export function setProcgenTileRunner(f: (() => TileRunner | null) | null) {
   tileRunnerFactory = f;
 }
 
-/** Placements qu'un glisser sait réécrire : un point `at` de couche, ou un acteur de `recipe.actors`. */
-const DRAGGABLE = new Set(["at", "actor"]);
 const nextFrame = (f: () => void): number => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(f) : (setTimeout(f, 16) as unknown as number));
 const cancelFrame = (h: number) => (typeof cancelAnimationFrame === "function" ? cancelAnimationFrame(h) : clearTimeout(h));
 const R2 = (v: number) => Math.round(v * 100) / 100;
@@ -616,14 +614,17 @@ export class SonicProcgen extends HTMLElement {
     return list;
   }
 
-  /** L'objet se glisse-t-il au doigt (motif `drag`, placement réécrivable, rendu 3D) ? */
+  /**
+   * L'objet se glisse-t-il au doigt (motif `drag`, rendu 3D) ? Tout objet de couche (point `at` réécrit, calque
+   * réparti : `layers[i].moves[index]`), tout acteur de `recipe.actors` ; pas les ballons (corps de jeu).
+   */
   private movable(o: { id: string; layer: string; place?: string; generator: string }): boolean {
     const re = this.dragPattern;
     if (!re || !(matches(re, o.id) || matches(re, o.layer))) return false;
     // corps dynamique (moteur chargé) : se saisit quel que soit son placement, ballons compris
     if (this.isBody(o.id)) return true;
     // monde infini : tout objet d'une tuile se glisse (la pose est persistée par tuile : `tiles`)
-    return (DRAGGABLE.has(o.place ?? "") || (!!this.infSpec && !!o.place)) && o.generator !== "ball";
+    return !!o.place && o.generator !== "ball";
   }
 
   private isBody(id: string): boolean {

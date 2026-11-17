@@ -83,4 +83,57 @@ describe("composition", () => {
     expect(cat.map((g) => g.id).sort()).toEqual(Object.keys(GENERATORS).sort());
     for (const g of cat) for (const [, p] of Object.entries(g.params)) expect((p as { doc: string }).doc.length).toBeGreaterThan(2);
   });
+
+  describe("retouches d'un calque réparti (moves, remove)", () => {
+    const pos = (m: ReturnType<typeof composeScene>) => Object.fromEntries(m.objects.map((o) => [o.id, { pos: o.pos, yaw: o.yaw, index: o.index }]));
+
+    it("moves : l'objet d'index i est replacé (relief, emprise, cap), les autres n'ont pas bougé", { timeout: 60000 }, () => {
+      const base = composeScene({ recipe: small, seed: 5 });
+      const arbres = small.layers![1];
+      const moved = composeScene({ recipe: { ...small, layers: [small.layers![0], { ...arbres, moves: { "2": { x: -15, z: 8, yaw: 90 } } }, small.layers![2]] }, seed: 5 });
+      const a = pos(base), b = pos(moved);
+      expect(Object.keys(b)).toEqual(Object.keys(a));
+      const o = moved.objects.find((x) => x.id === "arbres.2")!;
+      expect([o.pos[0], o.pos[2]]).toEqual([-15, 8]);
+      expect(o.yaw).toBeCloseTo(Math.PI / 2, 9);
+      expect(o.index).toBe(2);
+      expect(o.moved).toBe(true);
+      expect(o.pos[1]).toBeCloseTo(moved.terrain!.height(-15, 8) - 0.02, 6);
+      expect(o.params).toEqual(base.objects.find((x) => x.id === "arbres.2")!.params);
+      for (const id of Object.keys(a)) if (id !== "arbres.2") expect(b[id]).toEqual(a[id]);
+      expect(moved.nav!.free(-15, 8)).toBe(false);
+      // sans cap : le cap tiré est gardé
+      const keep = composeScene({ recipe: { ...small, layers: [small.layers![0], { ...arbres, moves: { "2": { x: -15, z: 8 } } }, small.layers![2]] }, seed: 5 });
+      expect(keep.objects.find((x) => x.id === "arbres.2")!.yaw).toBe(a["arbres.2"].yaw);
+    });
+
+    it("remove : objets retirés, les autres gardent leur index et leur place", { timeout: 60000 }, () => {
+      const base = composeScene({ recipe: small, seed: 5 });
+      const removed = composeScene({ recipe: { ...small, layers: [{ ...small.layers![0], remove: [1] }, { ...small.layers![1], remove: [0, 3] }, small.layers![2]] }, seed: 5 });
+      const a = pos(base), b = pos(removed);
+      for (const id of ["maisons.1", "arbres.0", "arbres.3"]) {
+        expect(a[id]).toBeDefined();
+        expect(b[id]).toBeUndefined();
+      }
+      expect(Object.keys(b)).toEqual(Object.keys(a).filter((id) => !["maisons.1", "arbres.0", "arbres.3"].includes(id)));
+      for (const id of Object.keys(b)) expect(b[id]).toEqual(a[id]);
+    });
+
+    it("rendu vectoriel : mêmes retouches (même composition)", { timeout: 60000 }, async () => {
+      const { composeVector } = await import("../vector/compose");
+      const r: Recipe = { ...small, layers: [small.layers![0], { ...small.layers![1], moves: { "1": { x: 12, z: -8 } }, remove: [0] }, small.layers![2]] };
+      const v = composeVector({ recipe: r, seed: 5 });
+      const o = v.objects.find((x) => x.id === "arbres.1")!;
+      expect([o.pos[0], o.pos[2]]).toEqual([12, -8]);
+      expect(v.objects.some((x) => x.id === "arbres.0")).toBe(false);
+    });
+
+    it("entrées invalides signalées, sans effet", () => {
+      const m = composeScene({ recipe: { ...small, layers: [small.layers![0], { ...small.layers![1], moves: { a: { x: 1, z: 2 }, "1": { x: "?" } } as never, remove: ["x"] as never }] }, seed: 5 });
+      const paths = m.issues.map((i) => i.path);
+      expect(paths).toContain("layers[1].moves.a");
+      expect(paths).toContain("layers[1].moves.1");
+      expect(paths).toContain("layers[1].remove");
+    });
+  });
 });

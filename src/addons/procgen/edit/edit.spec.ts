@@ -230,7 +230,7 @@ describe("sonic-procgen : édition au doigt (vue simulée)", () => {
     expect((view.dragEnd as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({ x: 4, z: 3 });
   });
 
-  it("drag-selected : un objet non sélectionné ne se glisse pas (orbite) ; calque semé : dragRefused", () => {
+  it("drag-selected : un objet non sélectionné ne se glisse pas (orbite) ; calque réparti : place, plus de dragRefused", () => {
     const { el, view, under, events, ptr } = setup({ drag: ".*", "drag-selected": "" });
     under.id = "banc.0";
     ptr("onDown", 1, 0, 0);
@@ -241,11 +241,56 @@ describe("sonic-procgen : édition au doigt (vue simulée)", () => {
     under.id = "rochers.0";
     ptr("onDown", 1, 0, 0);
     ptr("onUp", 1, 0, 0);
+    expect(events.find((e) => e.type === "select")?.detail).toMatchObject({ objectId: "rochers.0", place: "grid", index: 0, movable: true });
+    ptr("onDown", 1, 0, 0);
+    ptr("onMove", 1, 30, 0);
+    ptr("onMove", 1, 40, -30);
+    ptr("onUp", 1, 40, -30);
+    expect(events.some((e) => e.type === "dragRefused")).toBe(false);
+    expect(events.find((e) => e.type === "place")?.detail).toMatchObject({ objectId: "rochers.0", layer: "rochers", index: 0, place: "grid", valid: true });
+    void el;
+  });
+
+  it("calque réparti (poisson) : glisser → place {objectId, layer, index, place, x, z, yaw} ; moves recopié : recomposé à la même place, rien à rejouer", () => {
+    const seeded: Recipe = { size: [30, 30], ground: false, layers: [{ id: "pierres", gen: "rock", count: 4, place: { poisson: [-12, -12, 12, 12], minDist: 4 } }] };
+    const { el, view, under, events, ptr } = setup({ drag: ".*" });
+    const host = el as unknown as Record<string, unknown> & { replayMoves: (t: number) => void; moved: Map<string, unknown> };
+    const m0 = composeScene({ recipe: seeded, seed: 3 });
+    host.model = m0;
+    const o = m0.objects.find((x) => x.id === "pierres.2")!;
+    under.id = o.id;
+    // le doigt saisit l'objet à sa place (groundPoint = écran / 10) puis l'emmène en (-13 + 1, -13 + 1) → coin libre
+    ptr("onDown", 1, o.pos[0] * 10, o.pos[2] * 10);
+    ptr("onMove", 1, o.pos[0] * 10 + 20, o.pos[2] * 10);
+    ptr("onMove", 1, -120, 130);
+    ptr("onUp", 1, -120, 130);
+    expect(events.some((e) => e.type === "dragRefused")).toBe(false);
+    const p = events.find((e) => e.type === "place")!.detail;
+    expect(p).toMatchObject({ objectId: "pierres.2", layer: "pierres", index: 2, place: "poisson", valid: true });
+    expect(typeof p.x).toBe("number");
+    expect(typeof p.yaw).toBe("number");
+    // l'appli recopie layers[0].moves[index] ; la recomposition garde l'objet là, les autres ne bougent pas
+    const layer = { ...seeded.layers![0], moves: { [String(p.index)]: { x: p.x as number, z: p.z as number, yaw: p.yaw as number } } };
+    const m1 = composeScene({ recipe: { ...seeded, layers: [layer] }, seed: 3 });
+    const o1 = m1.objects.find((x) => x.id === "pierres.2")!;
+    expect(o1.pos[0]).toBeCloseTo(p.x as number, 6);
+    expect(o1.pos[2]).toBeCloseTo(p.z as number, 6);
+    for (const a of m0.objects) if (a.id !== "pierres.2") expect(m1.objects.find((b) => b.id === a.id)!.pos).toEqual(a.pos);
+    (view.dragBegin as ReturnType<typeof vi.fn>).mockClear();
+    host.model = m1;
+    host.replayMoves(-1);
+    expect(view.dragBegin).not.toHaveBeenCalled();
+  });
+
+  it("ballon : ne se glisse pas, dragRefused (placement)", () => {
+    const { el, under, events, ptr } = setup({ drag: ".*" });
+    const host = el as unknown as Record<string, unknown>;
+    host.model = composeScene({ recipe: { size: [30, 30], ground: false, layers: [{ id: "ballons", gen: "ball.soccer", count: 1, place: { poisson: true } }] }, seed: 1 });
+    under.id = "ballons.0";
     ptr("onDown", 1, 0, 0);
     ptr("onMove", 1, 30, 0);
     ptr("onUp", 1, 30, 0);
-    expect(events.find((e) => e.type === "dragRefused")?.detail).toMatchObject({ objectId: "rochers.0", reason: "placement", place: "grid" });
-    void el;
+    expect(events.find((e) => e.type === "dragRefused")?.detail).toMatchObject({ objectId: "ballons.0", reason: "placement", place: "poisson" });
   });
 
   it("recomposition en cours : l'objet sélectionné se glisse quand même (pas d'orbite), le modèle arrivé pendant le geste est adopté au lâcher", () => {
