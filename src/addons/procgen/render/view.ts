@@ -6,6 +6,8 @@
  * `post` facultative (`poststack.ts`, dans l'ordre donné), absente quand `post` est vide : l'image de base va alors
  * directement à l'écran.
  * Rendu à la demande : aucune image tant que rien ne bouge ; densité de pixels adaptée à la charge.
+ * Rendu soigné (`photo`, `render/photo.ts`) : scène immobile → image tracée ou accumulée à la place de la couleur de
+ * la scène dans l'image de base, affinée image après image puis plus rien ; le premier geste rend la main.
  */
 import { encodeRoleFinishes } from "../style/finishes";
 import { HeightBank, RoleFinTable } from "./finish-maps";
@@ -28,6 +30,8 @@ import { type Governor, governDpr, keepFrame, newGovernor } from "./steady";
 import { PostStack } from "./poststack";
 import { MeadowLayer } from "./meadows";
 import { SOFT_BUDGET, SoftLayer, type SoftRT, yawMatrix } from "./soft";
+import { type PostFx, MAX_POST, normalizeFx } from "./post";
+import { type ProcgenPhotoSpec, type ProcgenPhotoState, type ProxyLights, ProcgenPhoto, halton, pickEngine, rasterFrames } from "./photo";
 import { SNAP_MARGIN, gridOffset, marginTransform, snapApplicable } from "./pixelsnap";
 import type { OrthoFrame, SnapRequest } from "./camera";
 import { Issues } from "../core/schema";
@@ -183,6 +187,15 @@ export class ProcgenView {
   private focusDist = 1;
   /** Rendu pixel accroché au monde : texels visibles et marge (null sinon). */
   private snapReq: SnapRequest | null = null;
+  /** Rendu soigné : réglages, moteur, dernier geste ou changement, réveil programmé, pile `post` en cours. */
+  private photo: ProcgenPhoto | null = null;
+  private lastTouch = 0;
+  private photoTimer = 0;
+  private photoPost = false;
+  /** Version du contenu (objets, poses, style) : le rendu soigné garde sa copie traçable tant qu'elle ne change pas. */
+  private contentVersion = 0;
+  /** Fin de rendu soigné publiée (`state-out.photo`). */
+  onPhoto: (s: ProcgenPhotoState) => void = () => {};
   private frame: OrthoFrame = { a: 0, b: 0, half: 0, rx: 0, ry: 0 };
   /** Tissus et mèches simulés (capes, jupes, cheveux, drapeaux, linge) ; matrices d'attache des objets. */
   private softs: SoftLayer | null = null;
@@ -218,6 +231,7 @@ export class ProcgenView {
         tColor: { value: null }, tData: { value: null }, uTexel: { value: new THREE.Vector2() }, uOutline: { value: 1.5 }, uOutlineStrength: { value: 0.8 }, uInk: { value: new THREE.Color() },
         uSkyTop: { value: new THREE.Color() }, uSkyHorizon: { value: new THREE.Color() }, uSkyOn: { value: 1 }, uHorizonY: { value: 0.35 }, uGrain: { value: 0 }, uPaper: { value: 0 }, uVignette: { value: 0 },
         uTime: { value: 0 }, uPixel: { value: 0 }, uResolution: { value: new THREE.Vector2() }, uUvXf: { value: new THREE.Vector4(1, 1, 0, 0) },
+        tPhoto: { value: null }, uPhotoMix: { value: 0 }, uPhotoFog: { value: 0 }, uFogColor: { value: new THREE.Color() }, uFogK: { value: new THREE.Vector4() },
       },
     });
     this.post = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat);
@@ -294,7 +308,8 @@ export class ProcgenView {
     if (first) this.view = parseView(model.view, { ...DEFAULT_VIEW, cy: 0 });
     if (this.style) this.setStyle(this.style);
     this.dirty = this.shadowDirty = true;
-    this.kick();
+    this.contentVersion++;
+    this.touch();
   }
 
   /** Tissus des objets (repère de l'objet) et des acteurs (portés par leurs os), posés dans leur drapé de repos. */
@@ -386,7 +401,10 @@ export class ProcgenView {
     const cam = this.camera;
     cam.updateMatrixWorld();
     this.frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
-    if (L.update(dt, this.frustum, this.pxPerM, this.softShown)) this.dirty = this.shadowDirty = true;
+    if (L.update(dt, this.frustum, this.pxPerM, this.softShown)) {
+      this.dirty = this.shadowDirty = true;
+      this.contentVersion++;
+    }
   }
 
   private addActor(a: ActorModel) {
@@ -517,6 +535,7 @@ export class ProcgenView {
     this.shared.uLamps.value = s.lamps;
     this.shared.uRim.value = s.rim;
     this.shared.uDetail.value = s.detail;
+    this.shared.uEnv.value = s.environment === "studio" ? 1 : s.environment === "aucun" ? -1 : 0;
     (this.shared.uRoleMat.value as Float32Array).set(encodeRoleFinishes(s.finishes));
     if (Object.keys(s.finishes).length || this.finTable) {
       this.finBank ??= new HeightBank(this.shared.uHeights, this.mobile ? 128 : 256);
@@ -537,10 +556,12 @@ export class ProcgenView {
     pu.uVignette.value = s.vignette;
     // style pixel : obtenu par la cible de rendu basse résolution (voir applySize), pas par le post-traitement
     pu.uPixel.value = 0;
-    this.stack.set(s.post, s.postQuality === "low" || (s.postQuality === "auto" && this.mobile));
+    this.photoPost = false;
+    this.stack.set(s.post, this.postLow);
     this.dirty = this.shadowDirty = true;
+    this.contentVersion++;
     this.resize();
-    this.kick();
+    this.touch();
   }
 
   /** `reset` : repart de la vue par défaut (et du cadrage de la scène) au lieu de fusionner avec la vue courante. */
@@ -549,7 +570,7 @@ export class ProcgenView {
     this.view = parseView(v, reset ? { ...DEFAULT_VIEW, cy: 0 } : this.view);
     this.followId = this.view.camera === "follow" ? String((v as Record<string, unknown>)?.actor ?? this.followId ?? [...this.actors.keys()][0] ?? "") : null;
     this.dirty = true;
-    this.kick();
+    this.touch();
   }
   getView(): ViewState {
     return { ...this.view };
@@ -581,7 +602,7 @@ export class ProcgenView {
       v.cz -= right.z * dx * scale - up.z * dy * scale;
     }
     this.dirty = true;
-    this.kick();
+    this.touch();
   }
 
   setAnim(a: { play?: boolean; speed?: number; time?: number }) {
@@ -589,7 +610,7 @@ export class ProcgenView {
     if (Number.isFinite(a.speed)) this.speed = clamp(Number(a.speed), 0, 4);
     if (Number.isFinite(a.time)) this.time = Number(a.time);
     this.dirty = true;
-    this.kick();
+    this.touch();
   }
 
   setHidden(ids: string[]) {
@@ -602,7 +623,8 @@ export class ProcgenView {
     if (this.rigid) this.syncRigidHidden();
     if (this.softs) for (const rt of this.softs.items) rt.mesh.visible = this.softShown(rt);
     this.dirty = this.shadowDirty = true;
-    this.kick();
+    this.contentVersion++;
+    this.touch();
   }
 
   select(objectId: string | null) {
@@ -611,7 +633,7 @@ export class ProcgenView {
     this.shared.uIdBase.value = this.selectedObj;
     this.shared.uHighlight.value = this.selectedObj > 0 ? 1 : 0;
     this.dirty = true;
-    this.kick();
+    this.touch();
     return o ?? null;
   }
 
@@ -688,7 +710,7 @@ export class ProcgenView {
       }
       if (Number.isFinite(it.facing) && !a.goal && !a.drive) a.yaw = (Number(it.facing) * Math.PI) / 180;
     }
-    this.kick();
+    this.touch();
   }
 
   /** Tir : l'acteur se tourne vers le ballon, lance le geste, le ballon part dans cette direction. */
@@ -720,7 +742,7 @@ export class ProcgenView {
     const ok = this.kickAny(id, v);
     if (ok) {
       this.onEvent({ type: "kick", payload: { actor: null, ball: id } });
-      this.kick();
+      this.touch();
     }
     return ok;
   }
@@ -935,7 +957,10 @@ export class ProcgenView {
       if (s) touched.add(s.im);
     }
     for (const im of touched) im.computeBoundingSphere();
-    if (touched.size) this.dirty = this.shadowDirty = true;
+    if (touched.size) {
+      this.dirty = this.shadowDirty = true;
+      this.contentVersion++;
+    }
     for (const c of w.takeContacts()) this.onEvent({ type: "contact", payload: c });
     for (const e of w.takeEvents()) {
       if (e.type === "rest") this.physVersion++;
@@ -1046,7 +1071,8 @@ export class ProcgenView {
     this.applyPose(d, x, y, z, yaw);
     this.shared.uHighlight.value = invalid ? 2 : 1;
     this.dirty = this.shadowDirty = true;
-    this.kick();
+    this.contentVersion++;
+    this.touch();
   }
 
   /** Lâcher : `to` = pose finale (l'objet y retombe avec un petit rebond) ; `null` = retour à la place de départ. */
@@ -1077,7 +1103,8 @@ export class ProcgenView {
     this.settle = { d, from: d.cur.y, to: fin.y, t0: performance.now() };
     this.select(this.selectedObj > 0 ? this.objectsByObj.get(this.selectedObj)?.id ?? null : null);
     this.dirty = this.shadowDirty = true;
-    this.kick();
+    this.contentVersion++;
+    this.touch();
   }
 
   private stepSettle(now: number) {
@@ -1086,6 +1113,7 @@ export class ProcgenView {
     const y = u >= 1 ? s.to : s.to + (s.from - s.to) * (1 - u) * (1 - u) - Math.sin(Math.PI * u) * Math.min(0.015, Math.abs(s.from - s.to) * 0.25);
     this.applyPose(s.d, s.d.cur.x, y, s.d.cur.z, s.d.cur.yaw);
     this.dirty = this.shadowDirty = true;
+    this.contentVersion++;
     if (u >= 1) this.finishSettle();
   }
 
@@ -1418,6 +1446,139 @@ export class ProcgenView {
     if (v) this.kick();
   }
 
+  /* ---------------- rendu soigné ---------------- */
+
+  private get postLow() {
+    const q = this.style?.postQuality ?? "auto";
+    return q === "low" || (q === "auto" && this.mobile);
+  }
+
+  /** Réglages du rendu soigné (`null` : désactivé, aucun coût). */
+  setPhoto(spec: ProcgenPhotoSpec | null) {
+    if (!spec && !this.photo) return;
+    if (!this.photo) {
+      this.photo = new ProcgenPhoto(this.renderer);
+      this.photo.onState = (st) => this.onPhoto(st);
+      this.photo.onReady = () => this.kick();
+    }
+    const before = JSON.stringify(this.photo.spec);
+    this.photo.configure(spec);
+    if (JSON.stringify(spec) !== before) this.touch();
+    if (!spec) {
+      this.photo.dispose();
+      this.photo = null;
+      this.onPhoto({ etat: "arret", echantillons: 0, total: 0, moteur: "", progression: 0 });
+    }
+  }
+
+  /**
+   * Un geste, un changement de vue, de scène ou de style : retour au temps réel, et le rendu soigné attendra de
+   * nouveau `attente` ms d'immobilité.
+   */
+  touch() {
+    this.lastTouch = performance.now();
+    if (this.photo?.active) {
+      this.photo.stop();
+      (this.post.material as THREE.ShaderMaterial).uniforms.uPhotoMix.value = 0;
+      if (this.photoPost && this.style) this.stack.set(this.style.post, this.postLow);
+      this.photoPost = false;
+      this.dirty = this.shadowDirty = true;
+    }
+    this.kick();
+  }
+
+  /** Le rendu soigné est-il de mise maintenant (scène immobile, ou figée par `render: "photo"`) ? */
+  private photoWanted(now: number): boolean {
+    const sp = this.photo?.spec;
+    if (!sp || !this.model || !this.visible || this.drag || this.settle) return false;
+    if (now - this.lastTouch < sp.attente) return false;
+    return sp.force || !this.moving;
+  }
+
+  /** La scène elle-même bouge-t-elle (acteurs, ballons, végétation au vent, eau) ? Le grain animé ne compte pas. */
+  private get moving(): boolean {
+    if (!this.model || !this.play) return false;
+    return this.actors.size > 0 || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water;
+  }
+
+  /** Réveil à la fin de l'attente (la boucle est arrêtée quand rien ne bouge). */
+  private armPhotoTimer(now: number) {
+    const sp = this.photo?.spec;
+    if (!sp || this.photo!.active || this.photoTimer) return;
+    const wait = Math.max(16, sp.attente - (now - this.lastTouch) + 5);
+    this.photoTimer = window.setTimeout(() => {
+      this.photoTimer = 0;
+      this.kick();
+    }, wait);
+  }
+
+  /** Lumières de la copie traçable, lues dans les uniformes courants. */
+  private proxyLights(): ProxyLights {
+    const sh = this.shared;
+    const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
+    const P = sh.uLightPos.value as THREE.Vector4[], C = sh.uLightCol.value as THREE.Vector4[];
+    const points: ProxyLights["points"] = [];
+    for (let i = 0; i < (sh.uLightCount.value as number); i++) {
+      const night = this.style?.night ?? 0;
+      // feux toujours, lampes la nuit seulement (de jour leur apport est noyé)
+      if (C[i].w < 0.5 && night < 0.3) continue;
+      points.push({ pos: [P[i].x, P[i].y, P[i].z], radius: P[i].w, color: [C[i].x, C[i].y, C[i].z] });
+    }
+    return {
+      sunDir: (sh.uSunDir.value as THREE.Vector3).clone(),
+      sun: (sh.uSun.value as THREE.Color).clone(),
+      ambSky: (sh.uAmbSky.value as THREE.Color).clone(),
+      ambGround: (sh.uAmbGround.value as THREE.Color).clone(),
+      horizon: (pu.uSkyHorizon.value as THREE.Color).clone(),
+      environment: this.style?.environment ?? "exterieur",
+      night: this.style?.night ?? 0,
+      lamps: this.style?.lamps ?? 0.6,
+      points,
+    };
+  }
+
+  /** Une image du rendu soigné ; vrai tant qu'il reste à calculer. */
+  private photoFrame(now: number): boolean {
+    const ph = this.photo!;
+    const sp = ph.spec!;
+    const s = this.style;
+    if (!ph.active) {
+      const engine = pickEngine(sp, { mobile: this.mobile, shading: s?.shading ?? "toon", pixel: s?.pixel ?? 0 });
+      ph.prepare(engine);
+      if (!ph.ready(engine)) return false; // le module arrive : onReady relance la boucle
+      // pleine densité de pixels pour l'image soignée (ordinateur)
+      const max = Math.min(this.maxDpr, (typeof window !== "undefined" && window.devicePixelRatio) || 1);
+      if (!this.mobile && this.dpr < max) this.dpr = max;
+      this.render();
+      ph.start(engine, this.scene, this.camera, this.proxyLights(), this.contentVersion);
+      // filtre peinture : Kuwahara anisotrope (pré-tramé) en tête de la pile, sur l'image soignée seulement
+      if (sp.filtre === "peinture" && s) {
+        const k = normalizeFx({ fx: "kuwahara-aniso", radius: Math.max(2, sp.touche), dither: sp.tramage, levels: Math.max(2, Math.min(32, sp.niveaux)), pattern: "bruit-bleu" }, "photo.filtre");
+        this.stack.set([k as PostFx, ...s.post].slice(0, MAX_POST), this.postLow);
+        this.photoPost = true;
+      }
+    }
+    const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
+    if (ph.engine === "rayons") {
+      const r = ph.traceStep(now);
+      pu.tPhoto.value = r.tex;
+      pu.uPhotoMix.value = r.mix;
+      pu.uPhotoFog.value = 1;
+      (pu.uFogColor.value as THREE.Color).copy(this.shared.uFogColor.value as THREE.Color);
+      (pu.uFogK.value as THREE.Vector4).set(this.shared.uFar.value, this.shared.uFogNear.value, this.shared.uFogRange.value, this.shared.uFog.value);
+      this.present();
+      return !r.done;
+    }
+    const total = rasterFrames(sp, this.mobile);
+    if (ph.frames >= total) {
+      // déjà fini (réveil sans changement) : l'image accumulée est seulement remontrée
+      this.present();
+      return false;
+    }
+    this.render(ph.frames);
+    return !ph.rasterProgress(total);
+  }
+
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
     return this.actors.size > 0 || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
@@ -1453,7 +1614,10 @@ export class ProcgenView {
       im.instanceMatrix.needsUpdate = true;
       im.computeBoundingSphere();
     }
-    if (touched.size) this.dirty = this.shadowDirty = true;
+    if (touched.size) {
+      this.dirty = this.shadowDirty = true;
+      this.contentVersion++;
+    }
   }
 
   kick() {
@@ -1469,11 +1633,23 @@ export class ProcgenView {
     const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000));
     this.last = now;
     if (this.settle) this.stepSettle(now);
+    // rendu soigné : l'animation est figée, chaque image affine le résultat ; plus rien une fois fini
+    if (this.photo?.spec && this.photoWanted(now)) {
+      const more = this.photoFrame(now);
+      this.dirty = false;
+      this.onFrame();
+      if (more && this.visible) this.raf = requestAnimationFrame(this.loop);
+      else this.running = false;
+      return;
+    }
     const anim = this.animated;
     if (anim) {
       this.time += dt * this.speed;
       for (const a of this.actors.values()) if (a !== this.drag?.actor && a !== this.settle?.d.actor) this.updateActor(a, dt * this.speed);
-      if (this.actors.size) this.shadowDirty = true;
+      if (this.actors.size) {
+        this.shadowDirty = true;
+        this.contentVersion++;
+      }
       if (this.balls) this.stepBalls(dt * this.speed);
       if (this.rigid) this.stepRigid(dt * this.speed, now);
       this.stepFx(dt * this.speed);
@@ -1487,7 +1663,10 @@ export class ProcgenView {
       this.onFrame();
     }
     if ((anim || this.dirty) && this.visible) this.raf = requestAnimationFrame(this.loop);
-    else this.running = false;
+    else {
+      this.running = false;
+      if (this.photo?.spec && this.visible) this.armPhotoTimer(now);
+    }
   };
 
   private governor(ms: number, dt: number, now: number) {
@@ -1511,7 +1690,7 @@ export class ProcgenView {
    */
   resize(_force = false) {
     this.dirty = true;
-    this.kick();
+    this.touch();
   }
 
   /** Ajuste canevas et cible de rendu aux dimensions voulues ; rien si elles n'ont pas changé. */
@@ -1618,7 +1797,8 @@ export class ProcgenView {
     this.shadowDirty = false;
   }
 
-  render() {
+  /** `jitter` : rang d'une image accumulée du rendu soigné (sous-pixel décalé, soleil décalé dans un cône). */
+  render(jitter?: number) {
     if (!this.model) return;
     this.applySize();
     const w = this.canvas.clientWidth || 1, h = this.canvas.clientHeight || 1;
@@ -1649,6 +1829,21 @@ export class ProcgenView {
     this.renderer.info.reset();
     this.updateLights(tgt);
     if (this.meadows.active) this.meadows.advance(this.model.wind, this.model.windDir ?? 1.17, this.meadowPushers(tgt));
+    const sun = this.shared.uSunDir.value as THREE.Vector3;
+    const sun0 = jitter !== undefined ? sun.clone() : null;
+    if (jitter !== undefined) {
+      // ombres douces : soleil décalé dans un cône de 2,5° (carte d'ombre refaite) ; anticrénelage : sous-pixel décalé
+      if (jitter > 0) {
+        const a = halton(jitter, 2) * Math.PI * 2, r = Math.sqrt(halton(jitter, 3) + 0.5) * 0.044;
+        const t1 = new THREE.Vector3(0, 1, 0).cross(sun).normalize(), t2 = sun.clone().cross(t1).normalize();
+        sun.addScaledVector(t1, Math.cos(a) * r).addScaledVector(t2, Math.sin(a) * r).normalize();
+        this.shadowDirty = true;
+        if (!this.snapReq) {
+          const rt = this.rt!;
+          cam.projectionMatrix.premultiply(new THREE.Matrix4().makeTranslation((halton(jitter, 2) * 2) / rt.width, (halton(jitter, 3) * 2) / rt.height, 0));
+        }
+      }
+    }
     if (this.style?.shadows !== false && this.shadowDirty) this.shadowPass();
     for (const d of this.fxMeshes) d.mat.uniforms.uViewH.value = this.rt!.height;
     this.renderer.setRenderTarget(this.rt);
@@ -1656,6 +1851,17 @@ export class ProcgenView {
     this.renderer.clear(true, true, true);
     this.renderer.render(this.scene, this.camera);
     this.lastInfo = { calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles };
+    const pu1 = (this.post.material as THREE.ShaderMaterial).uniforms;
+    if (sun0) {
+      sun.copy(sun0);
+      cam.updateProjectionMatrix();
+      // image accumulée : la moyenne remplace la couleur de la scène (la brume y est déjà)
+      pu1.tPhoto.value = this.photo!.accumulate(this.rt!.textures[0], this.rt!.width, this.rt!.height);
+      pu1.uPhotoMix.value = 1;
+      pu1.uPhotoFog.value = 0;
+      // la carte d'ombre du soleil réel sera refaite au retour au temps réel
+      this.shadowDirty = true;
+    } else if (!this.photo?.active) pu1.uPhotoMix.value = 0;
     if (this.snapReq) {
       // caméra réelle (sans arrondi ni marge) pour la sélection, les ancres et les gestes
       this.camera = applyView(this.view, w / h, this.extent, this.ortho, this.persp, target);
@@ -1665,6 +1871,14 @@ export class ProcgenView {
     const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
     pu.uHorizonY.value = horizonScreenY(cam, tgt, this.extent);
     pu.uTime.value = this.time;
+    this.present();
+  }
+
+  /** Image de base (ciel, contours, papier, vignette, sRGB ; image soignée s'il y en a une) puis pile `post` ou écran. */
+  private present() {
+    const w = this.canvas.clientWidth || 1, h = this.canvas.clientHeight || 1;
+    const cam = this.camera as THREE.PerspectiveCamera | THREE.OrthographicCamera;
+    const xf = this.snapReq ? marginTransform(this.snapReq.rw, this.snapReq.rh, this.snapReq.m, this.frame.rx, this.frame.ry) : [1, 1, 0, 0];
     if (this.stack.active) {
       // pile d'effets : image de base dans une cible, puis passes jusqu'à l'écran
       const bw = this.canvas.width, bh = this.canvas.height;
@@ -1688,7 +1902,7 @@ export class ProcgenView {
 
   private lastInfo = { calls: 0, triangles: 0 };
   stats() {
-    return { drawCalls: this.lastInfo.calls, triangles: this.lastInfo.triangles, fps: this.fps, scale: this.dpr, ...(this.softs ? { soft: this.softs.stats() } : {}), ...(this.stack.active ? { postPasses: this.stack.passes } : {}), ...(this.stack.failed ? { postError: this.stack.error } : {}) };
+    return { drawCalls: this.lastInfo.calls, triangles: this.lastInfo.triangles, fps: this.fps, scale: this.dpr, ...(this.softs ? { soft: this.softs.stats() } : {}), ...(this.stack.active ? { postPasses: this.stack.passes } : {}), ...(this.stack.failed ? { postError: this.stack.error } : {}), ...(this.photo?.active ? { photoMs: this.photo.buildMs } : {}) };
   }
 
   actorState(id: string) {
@@ -1713,6 +1927,8 @@ export class ProcgenView {
     this.rt?.dispose();
     this.shadowRT.dispose();
     this.stack.dispose();
+    this.photo?.dispose();
+    clearTimeout(this.photoTimer);
     this.renderer.dispose();
   }
 }

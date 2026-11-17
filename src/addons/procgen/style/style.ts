@@ -9,7 +9,8 @@ import { Issues, suggest } from "../core/schema";
 import { type LCH, type RGB, hexToOklch, hexToRgb, mixLch, oklchToRgb, toLinear } from "./color";
 import { ROLES, type Role } from "./roles";
 import { readRoleFinishes, type RoleFinishes } from "./finishes";
-import { POST_QUALITIES, type PostFx, type PostQuality, resolvePost } from "../render/post";
+import { MAX_POST, POST_QUALITIES, type PostFx, type PostQuality, resolvePost } from "../render/post";
+import { METEO_PRESETS, ambianceStyle } from "./ambiance";
 
 export const BASE_ROLES: Record<Role, string> = {
   ground: "#8b7a5f", grass: "#7b8752", path: "#b39b74", road: "#6c6865", stone: "#9a9387", wall: "#ded2bb", trim: "#c4ad8a", roof: "#9c5640",
@@ -95,13 +96,30 @@ export type StyleTokens = {
   pixelSnap: boolean;
   /** Qualité de la pile : `auto` (basse sur mobile), `low` (passes lourdes à demi-résolution), `high`. */
   postQuality: PostQuality;
+  /** Ciel écrit (horizon, haut ; `""` : celui de la palette), couleur du soleil, couleur du ciel ambiant. */
+  skyHorizon: string;
+  skyTop: string;
+  sunColor: string;
+  ambientColor: string;
+  /** Force de la lumière ambiante (1 = celle de la palette). */
+  ambient: number;
+  /** Reflets des finis : `exterieur` (ciel et sol, défaut), `studio` (pièce claire, boîtes à lumière), `aucun`. */
+  environment: "exterieur" | "studio" | "aucun";
+  /** Météo : préréglages de particules (pluie, neige, brume…), posés par une ambiance ; dessinés si procgen rend des particules. */
+  meteo: string[];
+  /** Nom de l'ambiance appliquée (`""` : aucune). */
+  ambiance: string;
 };
+
+const COLOR_TOKENS = ["skyHorizon", "skyTop", "sunColor", "ambientColor"] as const;
+export const ENVIRONMENTS = ["exterieur", "studio", "aucun"] as const;
 
 export const DEFAULT_STYLE: StyleTokens = {
   palette: "gouache", hue: 0, chroma: 1, contrast: 1, shading: "toon", bands: 3, bandSoftness: 0.08, brush: 0.35, outline: 1.6, outlineStrength: 0.75,
   lightAzimuth: 35, lightElevation: 48, lightIntensity: 1, shadows: true, shadowStrength: 0.75, ao: 0.8, texture: 0.6, fog: 0.5, fogHeight: 0.3,
   night: 0, lamps: 0.6, rim: 0.25, grain: 0.15, paper: 0, vignette: 0.25, pixel: 0, saturation: 1, roles: {}, finishes: {}, sky: true, detail: 1,
   post: [], postQuality: "auto", pixelSnap: true,
+  skyHorizon: "", skyTop: "", sunColor: "", ambientColor: "", ambient: 1, environment: "exterieur", meteo: [], ambiance: "",
 };
 
 export const STYLE_PRESETS: Record<string, Partial<StyleTokens>> = {
@@ -124,8 +142,27 @@ export const STYLE_PRESETS: Record<string, Partial<StyleTokens>> = {
   aquarelle: { shading: "soft", outline: 0.8, outlineStrength: 0.35, brush: 0.6, paper: 0.7, grain: 0.1, chroma: 0.8, texture: 0.9 },
 };
 
-/** Résout un style : nom de préréglage, ou jetons (avec `preset` facultatif comme base). */
+/**
+ * Résout un style : nom de préréglage, ou jetons (avec `preset` et `ambiance` facultatifs comme bases). Une ambiance
+ * (`style/ambiance.ts`) donne la première couche ; le préréglage écrit puis les jetons écrits la complètent ; sa pile
+ * `post` (étalonnage) passe avant celle écrite.
+ */
 export function resolveStyle(input: unknown, issues?: Issues): StyleTokens {
+  if (input && typeof input === "object" && !Array.isArray(input) && (input as Record<string, unknown>).ambiance !== undefined) {
+    const { ambiance, ...rest } = input as Record<string, unknown>;
+    const amb = ambianceStyle(ambiance, (message) => issues?.add({ path: "style.ambiance", code: "unknown", message }));
+    if (amb) {
+      const base = resolveStyle(amb.style, issues);
+      base.ambiance = amb.name;
+      base.meteo = amb.meteo;
+      return applyTokens(base, rest, issues, true);
+    }
+    return resolveStyle(rest, issues);
+  }
+  return applyTokens({ ...DEFAULT_STYLE, roles: {}, finishes: {}, post: [], meteo: [] }, input, issues, false);
+}
+
+function applyTokens(start: StyleTokens, input: unknown, issues: Issues | undefined, layered: boolean): StyleTokens {
   let base: Partial<StyleTokens> = {};
   let over: Record<string, unknown> = {};
   if (typeof input === "string" && input) {
@@ -140,8 +177,9 @@ export function resolveStyle(input: unknown, issues?: Issues): StyleTokens {
       delete over.preset;
     }
   }
-  const s: StyleTokens = { ...DEFAULT_STYLE, ...base, roles: { ...(base.roles ?? {}) }, finishes: { ...(base.finishes ?? {}) }, post: base.post ?? [] };
+  const s: StyleTokens = { ...start, ...base, roles: { ...start.roles, ...(base.roles ?? {}) }, finishes: { ...start.finishes, ...(base.finishes ?? {}) }, post: [...start.post, ...(base.post ?? [])], meteo: [...start.meteo] };
   for (const [k, v] of Object.entries(over)) {
+    if (k === "ambiance" && !layered) continue;
     if (!(k in DEFAULT_STYLE) && k !== "matieres") {
       issues?.add({ path: `style.${k}`, code: "unknown", message: `jeton de style « ${k} » inconnu`, didYouMean: suggest(k, Object.keys(DEFAULT_STYLE)) });
       continue;
@@ -154,7 +192,24 @@ export function resolveStyle(input: unknown, issues?: Issues): StyleTokens {
       if (o.snap !== undefined) s.pixelSnap = o.snap !== false && o.snap !== "false";
       for (const kk of Object.keys(o)) if (kk !== "size" && kk !== "snap") issues?.add({ path: `style.pixel.${kk}`, code: "unknown", message: `clé « ${kk} » inconnue`, hint: "size, snap" });
     } else if (k === "post") {
-      s.post = resolvePost(v, issues);
+      // sur une ambiance : la pile écrite suit l'étalonnage de l'ambiance
+      const mine = resolvePost(v, issues);
+      if (layered && start.post.length) {
+        if (start.post.length + mine.length > MAX_POST) issues?.add({ path: "style.post", code: "limit", message: `${MAX_POST} effets au plus, étalonnage de l'ambiance (${start.post.length}) compris`, got: start.post.length + mine.length, used: MAX_POST });
+        s.post = [...start.post, ...mine].slice(0, MAX_POST);
+      } else s.post = mine;
+    } else if ((COLOR_TOKENS as readonly string[]).includes(k)) {
+      if (v === "" || v === null) (s as Record<string, unknown>)[k] = "";
+      else if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)) (s as Record<string, unknown>)[k] = v.toLowerCase();
+      else if (typeof v === "string" && /^#[0-9a-f]{3}$/i.test(v)) (s as Record<string, unknown>)[k] = "#" + v.slice(1).split("").map((c) => c + c).join("").toLowerCase();
+      else issues?.add({ path: `style.${k}`, code: "type", message: "couleur attendue (#rrggbb)", got: v });
+    } else if (k === "environment") {
+      if ((ENVIRONMENTS as readonly string[]).includes(String(v))) s.environment = v as StyleTokens["environment"];
+      else issues?.add({ path: "style.environment", code: "unknown", message: `environnement « ${String(v)} » inconnu`, hint: ENVIRONMENTS.join(", ") });
+    } else if (k === "meteo") {
+      const list = v === false || v === null || v === "" ? [] : (Array.isArray(v) ? v : [v]).map(String);
+      s.meteo = list.filter((x) => (METEO_PRESETS as readonly string[]).includes(x)).slice(0, 2);
+      for (const x of list) if (!s.meteo.includes(x)) issues?.add({ path: "style.meteo", code: "unknown", message: `météo « ${x} » inconnue`, hint: METEO_PRESETS.join(", "), didYouMean: suggest(x, METEO_PRESETS) });
     } else if (k === "postQuality") {
       if ((POST_QUALITIES as readonly string[]).includes(String(v))) s.postQuality = v as PostQuality;
       else issues?.add({ path: "style.postQuality", code: "unknown", message: `qualité « ${String(v)} » inconnue`, hint: POST_QUALITIES.join(", ") });
@@ -179,6 +234,7 @@ export function resolveStyle(input: unknown, issues?: Issues): StyleTokens {
   }
   s.bands = Math.max(2, Math.min(4, Math.round(s.bands)));
   s.pixel = Math.max(0, Math.min(12, Math.round(s.pixel)));
+  s.ambient = Math.max(0, Math.min(4, s.ambient));
   return s;
 }
 
@@ -218,7 +274,19 @@ export function resolveColors(s: StyleTokens, objectColors?: Partial<Record<Role
     roles.set(rgb, i * 3);
   });
   const lin = (h: string): RGB => toLinear(oklchToRgb(transform(hexToOklch(h), s, pal)));
-  return { roles, skyTop: lin(pal.skyTop), skyHorizon: lin(pal.skyHorizon), sun: lin(pal.sun), ambientSky: lin(pal.ambientSky), ambientGround: lin(pal.ambientGround) };
+  const k = s.ambient;
+  const sc = (c: RGB): RGB => [c[0] * k, c[1] * k, c[2] * k];
+  // ciel ambiant écrit : teinte la lumière venue d'en haut ; le sol renvoie un peu de sa couleur
+  const ambSky = s.ambientColor ? lin(s.ambientColor) : lin(pal.ambientSky);
+  const ambGround = s.ambientColor ? mixRgb(lin(pal.ambientGround), ambSky, 0.35) : lin(pal.ambientGround);
+  return {
+    roles,
+    skyTop: lin(s.skyTop || (s.skyHorizon ? s.skyHorizon : pal.skyTop)),
+    skyHorizon: lin(s.skyHorizon || pal.skyHorizon),
+    sun: lin(s.sunColor || pal.sun),
+    ambientSky: sc(ambSky),
+    ambientGround: sc(ambGround),
+  };
 }
 
 /**
@@ -239,5 +307,7 @@ export function grassShift(s: StyleTokens): RGB {
   const cur = toLinear(oklchToRgb(hexToOklch(s.roles.grass ?? pal.roles?.grass ?? BASE_ROLES.grass)));
   return [0, 1, 2].map((i) => Math.max(0.35, Math.min(2.6, cur[i] / Math.max(1e-4, ref[i])))) as RGB;
 }
+
+const mixRgb = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 export { hexToRgb };

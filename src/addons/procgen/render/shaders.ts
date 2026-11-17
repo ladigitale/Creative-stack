@@ -223,6 +223,7 @@ uniform float uHighlight;
 uniform float uGroundY;
 uniform float uWaterY;
 uniform float uDetail;
+uniform float uEnv;
 uniform vec4 uLightPos[12];
 uniform vec4 uLightCol[12];
 uniform float uLightCount;
@@ -466,6 +467,9 @@ void main() {
     if (uShading > 0.5 && uShading < 1.5) sunSpec = step(0.5, sunSpec * rough) * 2.0;
     vec3 R = reflect(-V, N);
     vec3 env = mix(uAmbGround * 0.8, uAmbSky * 1.35 + uSun * 0.15, smoothstep(-0.25, 0.35, R.y));
+    // studio : pièce claire et neutre, deux boîtes à lumière (bandes nettes dans les reflets)
+    if (uEnv > 0.5) env = mix(vec3(0.22), vec3(0.95), smoothstep(-0.3, 0.5, R.y)) + vec3(2.2) * smoothstep(0.93, 0.97, abs(R.x)) * step(0.0, R.y);
+    else if (uEnv < -0.5) env = mix(uAmbGround, uAmbSky, 0.5) * 0.6;
     env = mix(env, mix(uAmbGround, uAmbSky, 0.5), rough);
     vec3 Fe = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - nv, 5.0);
     lit *= 1.0 - metal * 0.85;
@@ -560,6 +564,12 @@ uniform float uPixel;
 uniform vec2 uResolution;
 // écran → cible de rendu (marge et reste sous-texel du rendu pixel accroché au monde ; identité sinon)
 uniform vec4 uUvXf;
+// rendu soigné (render/photo.ts) : image tracée ou accumulée, poids du fondu ; brume reposée sur l'image tracée
+uniform sampler2D tPhoto;
+uniform float uPhotoMix;
+uniform float uPhotoFog;
+uniform vec3 uFogColor;
+uniform vec4 uFogK;
 ${COMMON}
 
 vec4 dataAt(vec2 uv) { return texture(tData, uv); }
@@ -570,6 +580,15 @@ void main() {
   vec4 c = texture(tColor, uv);
   vec4 d = dataAt(uv);
   bool bg = d.z <= 0.0 || d.z >= 0.999;
+  if (uPhotoMix > 0.0 && !bg) {
+    vec3 p = texture(tPhoto, uv).rgb;
+    if (uPhotoFog > 0.5) {
+      // uFogK = (far, début, étendue, densité) : la brume de profondeur de la scène (sans la part en hauteur)
+      float fz = clamp((d.z * uFogK.x - uFogK.y) / max(uFogK.z, 1.0), 0.0, 3.0);
+      p = mix(p, uFogColor, clamp(1.0 - exp(-pow(fz * uFogK.w * 1.6, 1.6)), 0.0, 0.92));
+    }
+    c.rgb = mix(c.rgb, p, uPhotoMix);
+  }
   vec3 col;
   if (bg) {
     float t = clamp((vUv.y - uHorizonY) / max(1.0 - uHorizonY, 0.1), 0.0, 1.0);
