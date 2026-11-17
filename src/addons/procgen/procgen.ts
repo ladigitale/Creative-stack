@@ -367,8 +367,12 @@ export class SonicProcgen extends HTMLElement {
     if (sk !== this.styleKey) {
       this.styleKey = sk;
       const si = new Issues();
-      if (this.view instanceof VectorView) this.view.setStyle(styleIn);
-      else this.view.setStyle(resolveStyle(styleIn, si));
+      if (this.view instanceof VectorView) {
+        this.view.setStyle(styleIn);
+        // la pile `post` est propre au rendu 3D (passes GPU) : ignorée en vectoriel, signalée
+        if (styleIn && typeof styleIn === "object" && (styleIn as Json).post !== undefined && (styleIn as Json).post !== null && !(Array.isArray((styleIn as Json).post) && !((styleIn as Json).post as unknown[]).length))
+          si.add({ path: "style.post", code: "info", message: "post-traitement ignoré en rendu vectoriel (render: vector) : effets GPU du rendu 3D seulement" });
+      } else this.view.setStyle(resolveStyle(styleIn, si));
       this.issues = [...this.issues.filter((i) => !String((i as { path: string }).path).startsWith("style")), ...si.list];
     }
     const vs = syncView(this.viewSync, this.model.view, this.getAttribute("camera"), d.view);
@@ -475,7 +479,8 @@ export class SonicProcgen extends HTMLElement {
       drawCalls: st?.drawCalls ?? 0,
       fps: st?.fps ?? 0,
       scale: st?.scale ?? 1,
-      issues: this.issues.slice(0, 40),
+      ...(st && "postPasses" in st ? { postPasses: st.postPasses } : {}),
+      issues: (st && "postError" in st && st.postError ? [{ path: "style.post", code: "info", message: `post-traitement désactivé : shader refusé par le pilote (${String(st.postError).slice(0, 160)})` }, ...this.issues] : this.issues).slice(0, 40),
     };
     const actors: Record<string, unknown> = {};
     for (const id of this.view?.actorIds() ?? []) actors[id] = this.view!.actorState(id);

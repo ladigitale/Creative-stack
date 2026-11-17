@@ -172,11 +172,137 @@ Ancres : personnages `head.top`, `head.center`, `hand.r.grip`, `hand.l.grip`, `b
 
 ## Styles
 
-Jetons (tous facultatifs, par-dessus `preset`) : `palette` (`gouache`, `brume`, `automne`, `printemps`, `desert`, `neige`, `crepuscule`, `nuit`, `neon`, `papier`, `abysses`), `hue` (°), `chroma`, `contrast`, `shading` (`flat|toon|soft|lit`), `bands` (2–4), `bandSoftness`, `brush`, `outline` (px), `outlineStrength`, `lightAzimuth`, `lightElevation`, `lightIntensity`, `shadows`, `shadowStrength`, `ao`, `texture`, `fog`, `fogHeight`, `night`, `lamps`, `rim`, `grain`, `paper`, `vignette`, `pixel` (taille du pixel), `saturation`, `sky`, `detail` (relief de surface et usure des arêtes, 0 = lisse), `roles` (`{"wall": "#e8d8c0"}`).
+Jetons (tous facultatifs, par-dessus `preset`) : `palette` (`gouache`, `brume`, `automne`, `printemps`, `desert`, `neige`, `crepuscule`, `nuit`, `neon`, `papier`, `abysses`), `hue` (°), `chroma`, `contrast`, `shading` (`flat|toon|soft|lit`), `bands` (2–4), `bandSoftness`, `brush`, `outline` (px), `outlineStrength`, `lightAzimuth`, `lightElevation`, `lightIntensity`, `shadows`, `shadowStrength`, `ao`, `texture`, `fog`, `fogHeight`, `night`, `lamps`, `rim`, `grain`, `paper`, `vignette`, `pixel` (taille du pixel, ou `{size, snap}`), `pixelSnap` (pixels accrochés au monde en vue orthographique, vrai par défaut), `post` (pile de post-traitement, voir Post-traitement), `postQuality` (`auto|low|high`), `saturation`, `sky`, `detail` (relief de surface et usure des arêtes, 0 = lisse), `roles` (`{"wall": "#e8d8c0"}`).
 
 Rôles de couleur : `ground grass path road stone wall trim roof wood bark leaf leaf2 flower water metal glass lamp cloth1 cloth2 cloth3 leather skin hair eye eyeWhite mouth accent ink paper snow fire`. La peau, les yeux et la bouche gardent la couleur du personnage quel que soit le thème.
 
 Ciel (`sky`) : dégradé de l'horizon vers le haut, calé sur la direction de visée horizontale de la caméra (`render/horizon.ts`) : en orbite, l'horizon garde la même hauteur quel que soit le `yaw` (ligne de fuite du sol en perspective, point au sol dans l'axe de visée en vues orthographiques).
+
+## Post-traitement
+
+Jeton de style `post` : une **pile d'effets** paramétriques, cumulables, appliqués dans l'ordre donné sur l'image finie (rendu 3D). Vide ou absent : aucune passe de plus, aucun coût.
+
+```json
+"style": { "preset": "gouache", "post": "riso" }
+"style": { "post": [{ "preset": "huile", "mix": 0.8 }, { "fx": "miniature", "focus": 1 }, { "fx": "grain", "amount": 0.3, "mask": "objects" }] }
+"style": { "post": [{ "fx": "kuwahara-aniso", "radius": 6, "dither": 0.8, "levels": 6, "pattern": "bruit-bleu" }, { "fx": "bichromie", "ink": "#1d3557", "ink2": "#e76f51", "mask": "far" }] }
+```
+
+- **Forme** : nom de préréglage (`"riso"`), objet `{preset, …surcharges}`, ou liste. Dans une liste, une chaîne est un préréglage s'il en existe un de ce nom, sinon un effet ; `{fx: "…"}` désigne toujours l'effet seul. Les surcharges d'un préréglage (`mix`, `mask`, réglages) s'appliquent à chacun de ses effets qui les connaît. **8 effets au plus** après développement des préréglages (au-delà : coupés, signalés).
+- **Chaque effet** : `fx` (identifiant), réglages propres (bornés : une valeur hors bornes est ramenée et signalée `clamped`, un réglage inconnu signalé `unknown` avec suggestion), `mix` (0..1, intensité, 1 par défaut) et `mask` facultatif :
+  - `"near"` / `"far"` : plus près / plus loin que le point visé ; `{from, to, soft, invert}` : plage de profondeur en multiples de la distance du point visé (`{from: 1.5}` = au-delà de 1,5 fois cette distance, `{to: 0.8}` = en deçà, les deux = entre ; `soft` : fondu, 0,15) ;
+  - `"objects"` (la scène) / `"sky"` (le fond) ; `invert: true` inverse.
+- **Couleurs** : `#rrggbb` (ou `#rgb`) ; encres Riso par nom (`rose`, `bleu`, `jaune`, `vert`, `rouge`, `orange`, `violet`, `noir`, `turquoise`, `marine`) ; palettes nommées (`gameboy`, `pico8`, `cga`, `mac`, `zx`, `nord`, `pastel`, `terre`, `ocean`, `braise`, `coucher`, `menthe`, `encre`, `pop`, `nuit`) pour `palette.colors` et `degrade.stops`.
+- **Ordre** : scène (lumière, brume du style) → image de base (ciel, contours, papier, grain et vignette du style, conversion sRGB) → pile `post` dans l'ordre de la liste → écran. Les effets travaillent en sRGB affiché ; ceux qui lisent la géométrie (masques, `miniature`, `brume`, `thermique`, `neon`, plomb du `vitrail`) lisent la profondeur, les normales et l'identifiant d'objet de la scène.
+- **Tailles** en px CSS (même aspect quelle que soit la densité de l'écran) ; flous en fraction du petit côté.
+- **Qualité** : jeton `postQuality` = `auto` (défaut : basse sur mobile), `low` (Kuwahara anisotrope et isotrope calculés à demi-résolution), `high`. La densité de pixels reste régulée par la charge (comme sans `post`).
+- **Coût** : les effets « ponctuels » (couleur seule : encres, palettes, trames, grain, vignette…) sont fusionnés dans la passe qui précède ; un effet de voisinage ou qui déplace l'image ouvre une passe. Passes annexes : tenseur de structure lissé (3 passes, `kuwahara-aniso`), image floutée au quart de la résolution (3 passes, `bloom`, `halo`, `miniature`). Cibles réutilisées d'une image à l'autre ; shaders mis en cache par suite d'effets : **changer un réglage ne recompile rien**, changer la liste compose (ou retrouve) les shaders. Mesures relatives (Chrome, WebGL logiciel, village 960 × 600, coût de la pile rapporté au rendu de la scène) : 8 effets ponctuels fusionnés en une passe ≈ 3 %, `riso`, `gameboy`, `argentique`, `miniature`, `vitrail` 1 à 3 %, `aquarelle` ≈ 4 %, `neon` ≈ 11 %, `huile` et `kuwahara-aniso` de loin les plus lourds (fenêtre de 300 à 400 échantillons × 8 secteurs par pixel : du même ordre que la scène elle-même, ou plus) ; en qualité basse, `kuwahara-aniso` coûte environ 4 fois moins. Sur un vrai GPU, tout cela tient en quelques millisecondes ; sur mobile, réserver `kuwahara-aniso` / `huile` à des scènes calmes (rendu à la demande). `status.postPasses` donne le nombre de passes plein écran.
+- **Animation** : `grain` animé, `glitch` (`speed`), `crt` (`flicker`) et `fuite` (`speed`) imposent un rendu continu ; sinon rendu à la demande comme d'habitude.
+- **Pixel** : l'ancien jeton `pixel` (taille du pixel, rendu de la scène en basse résolution) marche toujours ; l'effet `{fx: "pixel"}` pixellise l'image finie (après les contours, compatible avec toute la pile).
+- **Pixels accrochés au monde** (caméras orthographiques `iso`, `top`, `side`, `front`, `oblique`) : avec le jeton `pixel`, la translation de la caméra est arrondie à la grille des texels de la cible basse résolution (axes droite / haut de la vue), la cible est agrandie de 2 texels de chaque côté, puis l'image est affichée décalée du reste sous-texel : pendant un déplacement, les pixels de la scène restent fixes par rapport au monde (ni scintillement ni « nage ») et la vue suit la position réelle au pixel écran près. Les effets de grille de la pile (`pixel`, `1bit`, tramage de `palette`, `trichromie`, pré-tramage de `kuwahara-aniso`, `points`, `cmjn`, `riso`, `lignes`, `hachures`, `lino`, `pointillisme`, `vitrail`, grains et papiers) ont leurs grilles accrochées au monde de la même façon (origine décalée de la position de la caméra). Rotation ou zoom : la grille est recalculée. Les objets qui bougent (acteurs, objet glissé) ne sont pas arrondis : ils passent d'un texel à l'autre. Perspective (`perspective`, `follow`) : pas d'accrochage (la parallaxe déplace chaque point différemment), grilles fixées à l'écran. Désactiver : `pixel: {size: 4, snap: false}` ou `pixelSnap: false`.
+- **Rendu vectoriel** (`render: "vector"`) : `post` est ignoré (passes GPU du rendu 3D seulement), signalé par une `issue` `info` ; la vue vectorielle n'a pas de mode pixel.
+- **Robustesse** : un shader refusé par le pilote désactive la pile (l'image de base s'affiche) et le signale dans `status.issues`.
+- **Kuwahara anisotrope sur GPU** : même algorithme que le prétraitement CPU de `sketch` (Kyprianidis, Kang, Döllner 2009 : tenseur de structure de Sobel lissé → orientation et anisotropie, fenêtre elliptique orientée, secteurs à poids polynomiaux, pondération 1 / (1 + σ^q)). Différences : le tenseur est calculé sur l'image non tramée (orientation plus propre), et le pré-tramage est **ordonné** (Bayer 8 × 8 ou bruit bleu procédural, appliqué à chaque échantillon du filtre) au lieu de Floyd–Steinberg, séquentiel donc impossible en un passage GPU ; le bruit bleu évite les stries que la trame de Bayer laisse dans les dégradés étirés.
+
+### Effets
+
+Identifiants courts (`fx`), nom français, réglages : défaut et bornes. ⚙ : passe coûteuse ou passe annexe.
+
+**Peinture**
+
+| `fx` | Effet | Réglages (défaut, bornes) |
+|---|---|---|
+| `kuwahara-aniso` | **Kuwahara anisotrope** ⚙ — Peinture aux aplats étirés le long des formes (Kyprianidis, Kang, Döllner 2009) : tenseur de structure lissé, fenêtre elliptique orientée, secteurs pondérés. Pré-tramage ordonné facultatif (la trame fondue par le filtre donne des transitions douces). | `radius` rayon (px) (5 ; 2–12) ; `sectors` secteurs (4 ou 8) (8 ; 4–8) ; `sharpness` netteté q (8 ; 1–16) ; `alpha` étirement (petit = plus étiré) (1 ; 0.3–4) ; `dither` force du pré-tramage (0 = aucun) (0 ; 0–1) ; `levels` niveaux par canal du pré-tramage (8 ; 2–32) ; `pattern` motif du pré-tramage (bayer\|bruit-bleu) ; `cell` taille de la cellule de trame (px) (1 ; 1–4) |
+| `kuwahara` | **Kuwahara** ⚙ — Kuwahara isotrope (4 quadrants, garde la moyenne du plus homogène) : petites plages de couleur aux bords francs. | `radius` rayon (px) (4 ; 2–10) |
+| `huile` | **Huile (empâtement)** — Empâtement en relief éclairé : la luminance devient une hauteur de pâte, striée de coups de brosse dans le sens des formes, éclairée en rasant. | `relief` hauteur de pâte (0.8 ; 0–2) ; `size` échelle du relief (px) (2 ; 1–6) ; `light` direction de la lumière (°) (135 ; 0–360) ; `brush` stries de brosse (0.45 ; 0–1) ; `shine` brillant du vernis (0.35 ; 0–1) |
+| `aquarelle` | **Aquarelle** — Lavis transparents : diffusion, bords foncés où le pigment s'accumule, granulation dans le grain du papier, contours qui ondulent. | `bleed` diffusion (0.45 ; 0–1) ; `edges` bords foncés (0.6 ; 0–1) ; `granulation` granulation (0.5 ; 0–1) ; `paper` papier (0.6 ; 0–1) ; `scale` échelle (px) (1.5 ; 0.5–4) ; `wobble` ondulation (0.5 ; 0–1) |
+
+**Encres et impression**
+
+| `fx` | Effet | Réglages (défaut, bornes) |
+|---|---|---|
+| `bichromie` | **Bichromie** — Deux encres sur papier : l'encre sombre dans les ombres, la seconde dans les demi-tons, en surimpression. | `ink` encre sombre (#1d3557) ; `ink2` seconde encre (#e76f51) ; `paper` papier (#f4ede0) ; `contrast` contraste (1.2 ; 0.3–3) ; `balance` équilibre (− sombre, + clair) (0 ; -0.5–0.5) |
+| `trichromie` | **Trichromie** — Trois encres : séparation par projection de chaque couleur sur les encres (modèle soustractif), recombinées en surimpression ; `levels` postérise chaque plaque (tramage ordonné). | `inks` encres (2 ou 3) (2 à 3) ; `paper` papier (#f5efe3) ; `levels` niveaux par plaque (0 = continu) (0 ; 0–8) ; `dither` tramage des plaques (0.7 ; 0–1) ; `pattern` motif (bayer\|bruit-bleu) |
+| `riso` | **Risographie** — 2 ou 3 encres Riso (noms : rose, bleu, jaune, vert, rouge, orange, violet, noir, turquoise, marine, ou hexadécimal) décalées de registre, grain stochastique ou trame de points, surimpression, densité d'encre irrégulière. | `inks` encres (2 à 3) ; `paper` papier (#f7f2e8) ; `misregister` décalage de registre (px) (1.5 ; 0–8) ; `grain` grain (0.7 ; 0–1) ; `dot` trame de points (px, 0 = grain) (0 ; 0–12) ; `seed` graine du registre (1 ; 0–99) |
+| `cmjn` | **Demi-teinte CMJN** — Quadrichromie tramée : cyan 15°, magenta 75°, jaune 0°, noir 45° (plus `angle`), points ronds proportionnels à l'encre, génération du noir réglable. | `size` pas de trame (px) (6 ; 3–20) ; `angle` rotation des trames (°) (0 ; -45–45) ; `gcr` génération du noir (0.5 ; 0–1) ; `paper` papier (#fbf8f1) |
+| `degrade` | **Carte de dégradé** — La luminance parcourt un dégradé de 2 à 8 couleurs (mélange en OKLab) ; palette nommée ou liste. | `stops` couleurs, de l'ombre à la lumière (2 à 8) ; `contrast` contraste (1 ; 0.3–3) ; `offset` décalage (0 ; -0.5–0.5) |
+| `palette` | **Postérisation par palette** — Chaque pixel prend la couleur la plus proche (OKLab) d'une palette nommée (gameboy, pico8, cga, mac, zx, nord, pastel, terre, ocean, braise…) ou libre (16 couleurs au plus), avec tramage ordonné entre les deux plus proches ; `match: luminance` range la palette de la plus sombre à la plus claire et y projette la luminance (palettes monochromes : gameboy). | `colors` palette (2 à 16) ; `match` correspondance (couleur\|luminance) ; `dither` tramage (0.6 ; 0–1) ; `pattern` motif (bayer\|bruit-bleu) ; `cell` taille de la cellule de trame (px) (1 ; 1–8) |
+| `cyanotype` | **Cyanotype** — Tirage au ferro-prussiate : bleu de Prusse profond, blancs de papier, léger voile. | `contrast` contraste (1.15 ; 0.3–3) ; `tone` chaleur du papier (0.5 ; 0–1) ; `depth` profondeur du bleu (0.6 ; 0–1) |
+| `sepia` | **Sépia** — Virage sépia : bruns chauds, noirs relevés, hautes lumières crème. | `tone` chaleur (0.6 ; 0–1) ; `contrast` contraste (1.05 ; 0.3–3) ; `fade` noirs relevés (0.15 ; 0–0.6) |
+
+**Trames et gravure**
+
+| `fx` | Effet | Réglages (défaut, bornes) |
+|---|---|---|
+| `points` | **Trame de points** — Similigravure : points ronds dont la taille suit l'ombre, sur une grille tournée ; `color` garde la couleur de l'image (points Ben-Day). | `size` pas (px) (6 ; 3–24) ; `angle` angle (°) (45 ; -90–90) ; `color` points de la couleur de l'image (false) ; `ink` encre (#1a1a1f) ; `paper` papier (#f5f1e8) |
+| `lignes` | **Trame de lignes** — Lignes parallèles dont l'épaisseur suit l'ombre (gravure en taille-douce), légèrement ondulées. | `size` pas (px) (5 ; 2–20) ; `angle` angle (°) (30 ; -90–90) ; `wobble` ondulation (0.3 ; 0–1) ; `ink` encre (#1d1b22) ; `paper` papier (#f3eddf) |
+| `hachures` | **Hachures croisées** — Hachures superposées par paliers de luminance (1 à 4 directions), trait vibré. | `size` pas (px) (5 ; 2–16) ; `angle` angle de la première passe (°) (40 ; -90–90) ; `layers` directions (4 ; 1–4) ; `wobble` vibration du trait (0.4 ; 0–1) ; `ink` encre (#2b2118) ; `paper` papier (#efe6d2) |
+| `1bit` | **Tramage ordonné 1 bit** — Deux couleurs seulement, tramage ordonné (Bayer 8×8) ou bruit bleu procédural. | `ink` encre (#1b1b1b) ; `paper` papier (#f2f0e6) ; `pattern` motif (bayer\|bruit-bleu) ; `cell` taille de la cellule (px) (1 ; 1–6) ; `contrast` contraste (1.1 ; 0.3–3) ; `bias` seuil (− plus clair) (0 ; -0.5–0.5) |
+| `lino` | **Linogravure** — Encre pleine dans les ombres, papier dans les lumières, gouges blanches dans les demi-tons qui suivent les formes (orientation du gradient), bords mâchés. | `threshold` seuil (0.5 ; 0.1–0.9) ; `size` pas des gouges (px) (5 ; 2–14) ; `angle` angle des gouges sans forme (°) (20 ; -90–90) ; `rough` bords irréguliers (0.5 ; 0–1) ; `ink` encre (#16131a) ; `paper` papier (#efe7d6) |
+| `pointillisme` | **Pointillisme** — Touches rondes juxtaposées, couleurs vibrées (petits écarts de teinte), papier entre les points. | `size` taille des touches (px) (5 ; 2–16) ; `jitter` vibration des couleurs (0.6 ; 0–1) ; `saturation` saturation (1.25 ; 0.5–2) ; `paper` papier (#f4eee2) |
+| `vitrail` | **Vitrail** — Mosaïque de Voronoï : chaque verre prend la couleur de son centre, lumière qui traverse, plomb entre les verres. | `size` taille des verres (px) (22 ; 6–80) ; `lead` épaisseur du plomb (0.12 ; 0–0.4) ; `glow` lumière traversante (0.5 ; 0–1) ; `lead_color` couleur du plomb (#1c1a1f) |
+
+**Lumière et optique**
+
+| `fx` | Effet | Réglages (défaut, bornes) |
+|---|---|---|
+| `bloom` | **Bloom doux** ⚙ — Les hautes lumières débordent en un halo doux (seuil à genou, flou séparable à basse résolution). | `intensity` intensité (0.8 ; 0–3) ; `threshold` seuil (0.65 ; 0–1) ; `radius` rayon (1 ; 0.2–3) ; `tint` teinte (#fff2e0) |
+| `halo` | **Halo (effet Orton)** ⚙ — Toute l'image floutée en écran par-dessus elle-même : lumière diffuse, rêveuse. | `intensity` intensité (0.45 ; 0–1.5) ; `radius` rayon (1.2 ; 0.2–3) ; `tint` teinte (#ffe9d6) |
+| `aberration` | **Aberration chromatique** — Rouge et bleu décalés, du centre vers les bords (radial) ou en travers. | `amount` décalage (px) (2 ; 0–20) ; `radial` radial (sinon horizontal) (true) |
+| `miniature` | **Effet miniature** ⚙ — Bascule-décentrement : net à la distance du point visé, flou devant et derrière (profondeur réelle de la scène), couleurs vives : la scène devient une maquette. | `focus` distance nette (1 = point visé) (1 ; 0.3–3) ; `range` profondeur de champ (0.25 ; 0.02–2) ; `blur` flou (1 ; 0–1) ; `radius` rayon du flou (1 ; 0.3–3) ; `saturation` saturation (1.25 ; 0.5–2) |
+| `brume` | **Brume colorée** — Brume de profondeur teintée, posée sur l'image finie (en plus de la brume du style). | `color` couleur (#c9b7e8) ; `start` début (1 = point visé) (0.8 ; 0–3) ; `density` densité (0.8 ; 0–3) ; `sky` sur le ciel (0.7 ; 0–1) |
+| `grain` | **Grain argentique** — Grain de film, plus marqué dans les demi-tons, chromatique ou non, animé ou figé. | `amount` quantité (0.4 ; 0–1) ; `size` taille (px) (1.5 ; 1–4) ; `chroma` grain coloré (0.3 ; 0–1) ; `animated` grain animé (false) |
+| `vignette` | **Vignette** — Assombrit (ou colore) les bords du cadre. | `amount` force (0.5 ; 0–1) ; `roundness` rondeur (0.7 ; 0–1) ; `softness` douceur (0.6 ; 0.05–1) ; `color` couleur (#0d0b10) |
+| `fuite` | **Fuite de lumière** — Voile chaud entré par un bord de la pellicule, en lueur d'écran. | `amount` force (0.5 ; 0–1) ; `angle` bord d'entrée (°) (35 ; 0–360) ; `color` couleur (#ff7a3d) ; `color2` seconde couleur (#ffd27a) ; `speed` dérive animée (0 ; 0–2) |
+
+**Excentriques**
+
+| `fx` | Effet | Réglages (défaut, bornes) |
+|---|---|---|
+| `neon` | **Néon des contours** — Les arêtes de la géométrie (profondeur, normales, objets) et de l'image deviennent des tubes de néon lumineux sur fond assombri. | `color` couleur (#ff3fd2) ; `color2` couleur des plis (#38e8ff) ; `width` épaisseur (px) (1.5 ; 0.5–4) ; `glow` lueur (0.8 ; 0–2) ; `dark` fond éteint (0.85 ; 0–1) ; `image` couleur de l'image dans les tubes (0.3 ; 0–1) |
+| `thermique` | **Caméra thermique** — Palette « fer chaud » ; les objets proches sont plus chauds, le ciel froid. | `contrast` contraste (1.8 ; 0.3–4) ; `depth` chaleur des objets proches (0.4 ; 0–1) |
+| `glitch` | **Glitch** — Bandes décalées, canaux RVB séparés, blocs corrompus ; figé (graine) ou animé (`speed`). | `amount` quantité (0.35 ; 0–1) ; `bands` bandes (24 ; 4–80) ; `shift` décalage RVB (px) (6 ; 0–40) ; `speed` animation (0 ; 0–3) ; `seed` graine (3 ; 0–99) |
+| `crt` | **Écran cathodique** — Courbure du verre, lignes de balayage, grille de luminophores RVB, bavure lumineuse, coins sombres. | `curvature` courbure (0.35 ; 0–1) ; `scanlines` balayage (0.5 ; 0–1) ; `grille` grille RVB (0.35 ; 0–1) ; `bleed` bavure (0.4 ; 0–1) ; `flicker` scintillement (0 ; 0–1) |
+| `decoupe` | **Papier découpé** — Postérisation en couches de papier superposées, chaque couche portant son ombre sur la suivante. | `layers` couches (5 ; 2–10) ; `shadow` ombre (px) (4 ; 0–16) ; `angle` direction de l'ombre (°) (135 ; 0–360) ; `texture` fibres du papier (0.5 ; 0–1) ; `saturation` saturation (1.1 ; 0.3–2) |
+| `kaleido` | **Kaléidoscope** — Symétrie en miroirs autour du centre. | `segments` branches (6 ; 2–16) ; `rotation` rotation (°) (0 ; 0–360) ; `zoom` zoom (1 ; 0.3–3) ; `x` centre x (0.5 ; 0–1) ; `y` centre y (0.5 ; 0–1) |
+
+**Base**
+
+| `fx` | Effet | Réglages (défaut, bornes) |
+|---|---|---|
+| `pixel` | **Pixels** — Gros pixels (après le rendu, contrairement au jeton `pixel` qui rend la scène en basse résolution). | `size` taille (px) (4 ; 2–32) |
+| `couleur` | **Réglages de couleur** — Exposition, contraste, saturation, rotation de teinte, température, gamma. | `exposure` exposition (IL) (0 ; -2–2) ; `contrast` contraste (1 ; 0.3–3) ; `saturation` saturation (1 ; 0–3) ; `hue` teinte (°) (0 ; -180–180) ; `temperature` température (− froid, + chaud) (0 ; -1–1) ; `gamma` gamma (1 ; 0.3–3) |
+
+### Préréglages
+
+| Préréglage | Pile |
+|---|---|
+| `riso` | Risographie deux encres rose et bleu, registre décalé, grain (couleur → riso) |
+| `riso-3` | Risographie trois encres (rose, jaune, bleu) (riso) |
+| `trame-aniso` | Kuwahara anisotrope avec pré-tramage (l'effet de l'outil de vectorisation) (kuwahara-aniso) |
+| `huile` | Peinture à l'huile : aplats orientés puis empâtement éclairé (kuwahara-aniso → huile → vignette) |
+| `aquarelle` | Aquarelle : aplats doux, lavis, bords foncés, papier (kuwahara → aquarelle) |
+| `gravure` | Gravure en taille-douce : hachures croisées brun-noir sur papier crème (couleur → hachures → vignette) |
+| `lino` | Linogravure noir et crème, gouges dans les demi-tons (lino) |
+| `bd-tramee` | Bande dessinée imprimée : couleurs vives en points Ben-Day (couleur → points) |
+| `pop` | Quadrichromie CMJN à gros points (couleur → cmjn) |
+| `miniature` | Effet maquette : flou de profondeur de champ et couleurs vives (miniature → couleur) |
+| `cyanotype` | Cyanotype sur papier, grain et vignette (cyanotype → grain → vignette) |
+| `sepia` | Vieille photographie sépia (sepia → grain → vignette) |
+| `vitrail` | Vitrail de verres colorés sertis de plomb, lumière diffuse (couleur → vitrail → bloom) |
+| `1bit` | Écran 1 bit des premiers Macintosh (noir et blanc tramé) (couleur → 1bit) |
+| `gameboy` | Console de poche : gros pixels, 4 verts tramés (couleur → pixel → palette) |
+| `pico8` | Console fantaisie : pixels et palette de 16 couleurs (pixel → palette) |
+| `neon` | Contours en tubes de néon sur fond nocturne (neon → bloom) |
+| `vhs` | Cassette vidéo sur écran cathodique : glitch léger, aberration, balayage (glitch → aberration → crt) |
+| `argentique` | Pellicule couleur : tons chauds, halo, grain, vignette, fuite de lumière (couleur → halo → fuite → grain → vignette) |
+| `thermique` | Caméra thermique (thermique) |
+| `bichromie` | Bichromie bleu nuit et corail sur papier, grain (bichromie → grain) |
+| `trichromie` | Trichromie bleu, rose, jaune, plaques tramées (trichromie) |
+| `pointillisme` | Pointillisme à la Seurat (pointillisme) |
+| `decoupe` | Papier découpé en couches avec ombres portées (decoupe) |
+| `coucher` | Carte de dégradé coucher de soleil, halo (degrade → halo) |
+
 
 ## Fluidité
 

@@ -347,19 +347,21 @@ uniform float uVignette;
 uniform float uTime;
 uniform float uPixel;
 uniform vec2 uResolution;
+// écran → cible de rendu (marge et reste sous-texel du rendu pixel accroché au monde ; identité sinon)
+uniform vec4 uUvXf;
 ${COMMON}
 
 vec4 dataAt(vec2 uv) { return texture(tData, uv); }
 
 void main() {
-  vec2 uv = vUv;
+  vec2 uv = vUv * uUvXf.xy + uUvXf.zw;
   if (uPixel > 0.5) uv = (floor(uv * uResolution / uPixel) + 0.5) * uPixel / uResolution;
   vec4 c = texture(tColor, uv);
   vec4 d = dataAt(uv);
   bool bg = d.z <= 0.0 || d.z >= 0.999;
   vec3 col;
   if (bg) {
-    float t = clamp((uv.y - uHorizonY) / max(1.0 - uHorizonY, 0.1), 0.0, 1.0);
+    float t = clamp((vUv.y - uHorizonY) / max(1.0 - uHorizonY, 0.1), 0.0, 1.0);
     col = uSkyOn > 0.5 ? mix(uSkyHorizon, uSkyTop, pow(t, 0.7)) : uSkyHorizon;
   } else col = c.rgb;
   // contours : silhouette (profondeur, identifiant) plus épaisse que les plis (normales)
