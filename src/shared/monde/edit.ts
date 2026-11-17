@@ -61,6 +61,38 @@ function openingPlace(monde: Obj, o: Obj): unknown {
   return { ...monde, ouvertures };
 }
 
+/**
+ * Rang dans `monde.ouvertures` de l'ouverture nommée `name` : son `name`, sinon `<type|model><n>` dans l'ordre de la
+ * liste (les noms que leur donne l'espace) ; -1 si aucune.
+ */
+export function openingIndex(monde: unknown, name: string): number {
+  if (!isObj(monde) || !Array.isArray(monde.ouvertures)) return -1;
+  const counters: Record<string, number> = {};
+  return monde.ouvertures.findIndex((o) => {
+    if (!isObj(o)) return false;
+    const model = typeof o.model === "string" ? o.model : typeof o.type === "string" ? o.type : "";
+    const c = (counters[model] = (counters[model] ?? -1) + 1);
+    return (typeof o.name === "string" && o.name ? o.name : `${model}${c}`) === name;
+  });
+}
+
+/** Réglages d'une ouverture glissable (porte, fenêtre) : dans ses `params`, sauf sa taille (le mur est percé d'après elle). */
+function openingParams(monde: Obj, name: string, params: Obj): unknown {
+  const i = openingIndex(monde, name);
+  if (i < 0) return monde;
+  const list = monde.ouvertures as unknown[];
+  const o = list[i] as Obj;
+  const ps: Obj = { ...(isObj(o.params) ? o.params : {}) };
+  for (const [k, v] of Object.entries(params)) {
+    if (k === "largeur" || k === "hauteur") continue;
+    if (v === null) delete ps[k];
+    else if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") ps[k] = v;
+  }
+  const ouvertures = list.slice();
+  ouvertures[i] = { ...o, params: ps };
+  return { ...monde, ouvertures };
+}
+
 /** Appui nommé d'une entrée (`on` ou `against`, sans `@surface`), vide sinon. */
 function supportOf(e: Obj): string {
   const v = typeof e.on === "string" && e.on !== "sol" ? e.on : typeof e.against === "string" ? e.against : "";
@@ -104,9 +136,10 @@ export function freeName(monde: unknown, base: string): string {
  * `params` ; valeur `null` : paramètre retiré, retour au défaut). `src` retrouve un objet nommé d'office.
  */
 export function mondeParams(monde: unknown, name: unknown, params: unknown, src?: unknown): unknown {
-  if (!isObj(monde) || !Array.isArray(monde.place) || typeof name !== "string" || !name || !isObj(params)) return monde;
-  const i = entryOf(monde.place, name, src);
-  if (i < 0) return monde;
+  if (!isObj(monde) || typeof name !== "string" || !name || !isObj(params)) return monde;
+  const i = Array.isArray(monde.place) ? entryOf(monde.place, name, src) : -1;
+  if (i < 0) return openingParams(monde, name, params);
+  if (!Array.isArray(monde.place)) return monde;
   const e = monde.place[i] as Obj;
   const next: Obj = { ...e, params: { ...(isObj(e.params) ? e.params : {}) } };
   if (!next.name && !MANY.some((k) => e[k] !== undefined)) next.name = name;

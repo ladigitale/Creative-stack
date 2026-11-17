@@ -321,11 +321,35 @@ function builtinOpenings(U: (m: number) => number): Record<string, Obj> {
     porte: {
       famille: "ouverture",
       pose: "mur",
-      params: { largeur: { default: U(0.83), min: U(0.5), max: U(3) }, hauteur: { default: U(2.04), min: U(1), max: U(4) }, cadre: { default: "#f8fafc" }, teinte: { default: "#e8e2d6" } },
+      params: {
+        largeur: { default: U(0.83), min: U(0.5), max: U(3) },
+        hauteur: { default: U(2.04), min: U(1), max: U(4) },
+        cadre: { default: "#f8fafc" },
+        teinte: { default: "#e8e2d6" },
+        // côté des gonds vu de la pièce, sens d'ouverture (vers la pièce ou vers l'extérieur), battant entrouvert (°)
+        charniere: { default: "gauche", options: ["gauche", "droite"] },
+        ouvre: { default: "dedans", options: ["dedans", "dehors"] },
+        angle: { default: 0, options: [0, 20, 45, 90], unit: "°" },
+      },
+      vars: {
+        hs: "= charniere == 'droite' ? 1 : -1",
+        sz: "= ouvre == 'dehors' ? -1 : 1",
+        W: "= largeur - " + 2 * f,
+        hx: "= hs * (largeur / 2 - " + f + ")",
+        ux: "= -hs * cos(angle)",
+        uz: "= sz * sin(angle)",
+        // normale du battant, côté pièce quand il est fermé
+        nx: "= sin(hs * sz * angle)",
+        nz: "= cos(hs * sz * angle)",
+      },
       parts: [
         ...frame(false),
-        { name: "battant", box: ["= largeur - " + 2 * f, "= hauteur - " + f, U(0.04)], at: [0, "= (hauteur - " + f + ") / 2", 0], color: "= teinte" },
-        { name: "poignee", sphere: U(0.03), at: ["= largeur / 2 - " + U(0.12), U(1), U(0.05)], matiere: "laiton" },
+        { name: "battant", box: ["= W", "= hauteur - " + f, U(0.04)], at: ["= hx + ux * W / 2", "= (hauteur - " + f + ") / 2", "= uz * W / 2"], rot: [0, "= hs * sz * angle", 0], color: "= teinte" },
+        { name: "poignee", sphere: U(0.03), at: ["= hx + ux * (W - " + U(0.09) + ") + nx * " + U(0.05), U(1), "= uz * (W - " + U(0.09) + ") + nz * " + U(0.05)], matiere: "laiton" },
+        { name: "poigneeDos", sphere: U(0.03), at: ["= hx + ux * (W - " + U(0.09) + ") - nx * " + U(0.05), U(1), "= uz * (W - " + U(0.09) + ") - nz * " + U(0.05)], matiere: "laiton" },
+        // gonds du côté où la porte s'ouvre : ils disent le sens même porte fermée
+        { name: "gond", cylinder: [U(0.012), U(0.1)], at: ["= hx", U(0.3), "= sz * " + U(0.025)], matiere: "laiton" },
+        { name: "gondHaut", cylinder: [U(0.012), U(0.1)], at: ["= hx", "= hauteur - " + U(0.3), "= sz * " + U(0.025)], matiere: "laiton" },
       ],
     },
     portail: {

@@ -38,7 +38,11 @@ export function mondeAdd(monde: unknown, entry: unknown, at?: unknown): unknown 
   const pf = Object.prototype.hasOwnProperty.call(m.prefabs, base) ? m.prefabs[base] : null;
   const inst = d.instances.get(name);
   const hasY = Array.isArray(entry.at) && entry.at.length >= 3;
-  if (inst && pf?.pose === "mur" && pf.famille === "decoration" && !hasY && inst.t.y < 0.05) inst.t.y = WALL_DECO_Y;
+  // applique : vers 1,7 m
+  if (inst && pf?.pose === "mur" && !hasY && inst.t.y < 0.05) {
+    if (pf.famille === "decoration") inst.t.y = WALL_DECO_Y;
+    else if (pf.famille === "luminaire") inst.t.y = WALL_LAMP_Y;
+  }
   const res = d.arrangeTo(name, x, z, 0);
   if (!res) return next;
   return mondePlace(next, placedInfo(name, res, d.bodies(), m.unit));
@@ -46,6 +50,8 @@ export function mondeAdd(monde: unknown, entry: unknown, at?: unknown): unknown 
 
 /** Hauteur (m) du bas d'une décoration murale ajoutée sans hauteur. */
 export const WALL_DECO_Y = 1.2;
+/** Hauteur (m) du bas d'une applique ajoutée sans hauteur. */
+export const WALL_LAMP_Y = 1.7;
 
 /**
  * `$mondeTurn($monde, nom, degrés?, src?)` : tourne l'objet sur place (quart de tour par défaut) puis le range comme

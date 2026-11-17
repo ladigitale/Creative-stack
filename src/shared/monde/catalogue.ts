@@ -174,9 +174,11 @@ const rideau: Obj = {
   params: { largeur: len(1.6, 0.6, 4, 0.1), hauteur: len(2.2, 1, 3, 0.1), ouverture: pick(0.5, 0, 0.25, 0.75, 1), teinte: col("#d9d0c1"), tringle: mat("metal-noir") },
   vars: { w: "= max(0.14, (largeur / 2) * (1 - ouverture * 0.8))" },
   parts: [
-    { name: "tringle", cylinder: [0.012, "= largeur + 0.12"], at: [0, "= hauteur", 0.07], rot: [0, 0, 90], matiere: "= tringle" },
-    { name: "embout", sphere: 0.022, at: ["= largeur / 2 + 0.06", "= hauteur", 0.07], mirror: "x", matiere: "= tringle" },
-    { name: "pan", box: ["= w", "= hauteur - 0.03", 0.05, 0.02], at: ["= largeur / 2 - w / 2", "= (hauteur - 0.03) / 2", 0.07], mirror: "x", color: "= teinte", tex: { kind: "rayures", scale: 16, contrast: 0.22 }, finish: "tissu", souple: { type: "tissu", attache: "haut", rigidite: 0.45, vent: 0.12 } },
+    // tringle à 14 cm du mur : les pans passent devant l'appui et le cadre d'une fenêtre
+    { name: "support", box: [0.02, 0.03, 0.14], at: ["= largeur / 2 + 0.02", "= hauteur", 0.07], mirror: "x", matiere: "= tringle" },
+    { name: "tringle", cylinder: [0.012, "= largeur + 0.12"], at: [0, "= hauteur", 0.14], rot: [0, 0, 90], matiere: "= tringle" },
+    { name: "embout", sphere: 0.022, at: ["= largeur / 2 + 0.06", "= hauteur", 0.14], mirror: "x", matiere: "= tringle" },
+    { name: "pan", box: ["= w", "= hauteur - 0.03", 0.05, 0.02], at: ["= largeur / 2 - w / 2", "= (hauteur - 0.03) / 2", 0.14], mirror: "x", color: "= teinte", tex: { kind: "rayures", scale: 16, contrast: 0.22 }, finish: "tissu", souple: { type: "tissu", attache: "haut", rigidite: 0.45, vent: 0.12 } },
   ],
 };
 

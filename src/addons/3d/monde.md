@@ -373,14 +373,17 @@ parcelle avec ses clôtures et ses zones. Elle produit des instances nommées or
   `pierre-seche`, `grille`, `bambou`. `hauteur`, `epaisseur`, `couleur` ou `matiere`, `tex`, `ouvertures`.
 - **`ouvertures`** : `{type | model, at, largeur, hauteur, allege, params, name}`. `at` = distance du **coin gauche
   du mur vu de l'intérieur** au milieu de l'ouverture. Le mur est découpé autour ; la menuiserie est un prefab posé
-  dans son épaisseur : `fenetre`, `porte`, `portail` de base (paramètres `largeur`, `hauteur`, `cadre`, `teinte`), ou
+  dans son épaisseur : `fenetre`, `porte`, `portail` de base (paramètres `largeur`, `hauteur`, `cadre`, `teinte` ; pour la
+  porte, `charniere` `gauche` | `droite` (côté des gonds vu de la pièce), `ouvre` `dedans` | `dehors` et `angle` 0, 20,
+  45 ou 90 (battant entrouvert ; les gonds sont du côté où elle s'ouvre)), ou
   un modèle du monde du même nom ou désigné par `model` (il reçoit `largeur` et `hauteur` s'il les déclare).
 - **`images` du monde** : `{"affiche1": "data:image/jpeg;base64,…"}` (png, jpeg ou webp en URL `data:`, 12 au
   plus, 600 Ko chacune ; jamais d'URL réseau). Une pièce les affiche par `image: "affiche1"` sur sa face avant (+z), à sa
   taille. Prefab **`poster`** (pose au mur) : `params.image` (nom), `largeur`, `hauteur`, `baguette` (aucune, noire,
   bois, blanche), `fond`. En 2D, la pièce garde sa couleur.
 - **`ouvertures` du monde** (à côté d'`espace`, pas dedans) : `[{type, bord, at, …}]`, les mêmes champs plus le rang
-  du `bord`. Ce sont celles qu'on fait glisser d'un mur à l'autre ; utile aussi quand `espace` est calculé ailleurs
+  du `bord`. Ce sont celles qu'on fait glisser d'un mur à l'autre (et que `$mondeParams` règle par leur nom, hors
+  `largeur` et `hauteur`) ; utile aussi quand `espace` est calculé ailleurs
   (un `sonic-jsonata` qui l'écrit d'après un formulaire) et les ouvertures éditées par le réducteur. Leurs noms
   suivent l'ordre de la liste (`porte0`, `fenetre0`…) : ils ne changent pas quand une porte change de mur.
 - **`zones`** : `{nom, contour, revetement, couleur, tex, layers}`. Sans `contour` la zone couvre tout l'espace.

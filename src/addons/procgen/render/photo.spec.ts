@@ -15,7 +15,7 @@ describe("rendu soigné (procgen)", () => {
     const bad: string[] = [];
     const b = readProcgenPhoto({ filtre: "peinture", moteur: "laser", foo: 1 }, false, (p) => bad.push(p))!;
     expect(b.filtre).toBe("peinture");
-    expect(b.echantillons).toBe(4);
+    expect(b.echantillons).toBe(6);
     expect(bad).toEqual(["photo.moteur", "photo.foo"]);
   });
 
