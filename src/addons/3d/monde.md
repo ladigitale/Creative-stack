@@ -32,6 +32,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `environnement` | Reflets : `studio`, `exterieur`, `aucun` (voir Finis) |
 | `ambiance` | Direction artistique d'un mot (rendu, ciel, palette, style `gen`, lumière, étalonnage), voir Ambiances |
 | `lumiere`, `etalonnage` | Lumière et étalonnage de l'image (voir Ambiances) |
+| `herbes` | Herbes hautes, blé, roseaux, prairies fleuries, gazon (3D), voir Herbes et champs |
 | `physique` | Physique 3D : corps rigides, liaisons, forces (voir Physique 3D) |
 | `photo` | Rendu photo en lancer de rayons quand la vue s'arrête (3D) : `true` ou `{echantillons, rebonds, attente}` (voir Rendu photo) |
 | `shadows` | Ombres au sol des instances (défaut `true`) |
@@ -695,6 +696,34 @@ Calculé une fois par rendu, sans image à charger.
 
 En style `toon`, seuls l'opacité et la transparence du verre comptent. En 2D, le verre et l'opacité rendent la
 silhouette transparente ; le métal, le vernis et le verre ont un reflet franc ; un fini mat n'en a pas.
+
+## Herbes et champs (3D)
+
+`herbes` sème des brins instanciés (un appel de dessin par champ) : le vent (`vent` du monde, sinon une brise) les
+fait onduler par rafales, et ils se couchent au passage des instances nommées. Le sol reste libre sous le décor posé
+(maisons, murs, meubles).
+
+```json
+"herbes": [
+  { "type": "ble", "zone": [-8, -2, 8, 8] },
+  { "type": "herbe", "zone": [[-12, -10], [12, -10], [0, -2]], "hauteur": [0.4, 0.9] },
+  { "type": "fleurs", "zone": [-12, 8, 12, 12], "fleurs": ["#f2d64b", "#e86a6a"] }
+]
+```
+
+| Clé | Rôle |
+|---|---|
+| `type` | `herbe`, `ble` (épis), `roseau` (massettes), `fleurs` (corolles), `gazon` (ras et dense) |
+| `zone` | Rectangle `[x0, z0, x1, z1]` ou polygone `[[x, z], …]` (mètres) |
+| `densite` | Brins par m² (herbe 220, blé 260, gazon 600) |
+| `hauteur` | `[mini, maxi]` (m) ou une valeur |
+| `pied`, `pointe` | Couleurs au pied et à la pointe (dégradé) |
+| `fleurs` | Couleurs des corolles (`fleurs`) |
+| `largeur`, `souplesse` | Largeur d'un brin (m) ; réaction au vent (0 à 2) |
+| `plie`, `degage` | `false` : ne se couche pas ; pousse aussi sous le décor |
+
+Budget de brins pour tout le monde selon `detail` : 20 000 (`low`), 60 000 (`mid`), 160 000 (`high`) ; au-delà, la
+densité de chaque champ baisse au prorata. Pas d'herbes en 2D ni dans le monde `infini` (utiliser un calque).
 
 ## Ambiances : direction artistique
 

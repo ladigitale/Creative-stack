@@ -5,6 +5,7 @@
  * Ce fichier ne fait que lire et normaliser (aucune géométrie, aucun rendu) : il transforme le JSON écrit par
  * un agent en structures plates et sûres (bornes, valeurs par défaut, problèmes signalés sans jamais lever).
  */
+import { readHerbes, type HerbeField } from "./herbes";
 import { readAmbiance, readGrade, readLumiere, GRADE0, type Grade, type Lumiere } from "./ambiance";
 import { readBody, readPhysics, type BodySpec, type PhysicsSpec } from "./physique";
 import { DEG, Rand, hash32 } from "./math";
@@ -246,6 +247,8 @@ export type MondeIn = {
    * lumière et étalonnage (voir ambiance.ts). Ce que le monde écrit l'emporte.
    */
   ambiance?: unknown;
+  /** Herbes hautes, blé, roseaux, prairies fleuries (3D) : `[{type, zone, densite, hauteur, pied, pointe, …}]`. */
+  herbes?: unknown;
   /** Lumière : `{intensite, couleur, hauteur, azimut, ambiante, couleurAmbiante}`. */
   lumiere?: unknown;
   /** Étalonnage de l'image : `{saturation, contraste, teinte, noirEtBlanc, grain, vignette, pixel, silhouette, contours, halo…}`. */
@@ -452,6 +455,8 @@ export type Monde = {
   photo: PhotoSpec | null;
   /** Physique 3D, `null` : aucune. */
   physics: PhysicsSpec | null;
+  /** Champs de brins instanciés (3D). */
+  herbes: HerbeField[];
   /** Ambiance appliquée (nom), vide : aucune. */
   ambiance: string;
   /** Lumière réglée par l'ambiance ou `lumiere`, null : celle de la scène. */
@@ -1252,6 +1257,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     look,
     environnement: envIn === "studio" || envIn === "exterieur" || envIn === "aucun" ? envIn : (amb?.environnement ?? (reflects(models) ? "studio" : "aucun")),
     ambiance: amb?.name ?? "",
+    herbes: readHerbes((src as MondeIn).herbes ?? raw0.herbes, issues),
     lumiere: amb || lumIn ? readLumiere(lumIn, amb?.lumiere ?? {}) : null,
     grade: grade && JSON.stringify(grade) !== JSON.stringify(GRADE0) ? grade : null,
     photo: readPhoto((src as MondeIn).photo),
