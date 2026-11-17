@@ -229,10 +229,11 @@ function earcut(poly: number[][]): number[] {
   return out;
 }
 
-function extrude(b: Builder, pts: number[][], depth: number) {
+/** `face` : 0 tout le volume ; 1 ou -1 la seule face avant (+z) ou arrière (-z), visible d'un côté (plafond vu de dessous). */
+function extrude(b: Builder, pts: number[][], depth: number, face = 0) {
   const tris = earcut(pts);
   const h = depth / 2;
-  for (const z of [h, -h]) {
+  for (const z of face > 0 ? [h] : face < 0 ? [-h] : [h, -h]) {
     const base = b.pos.length / 3;
     for (const [x, y] of pts) b.v(x, y, z, 0, 0, z > 0 ? 1 : -1, x, y);
     for (let i = 0; i < tris.length; i += 3) {
@@ -240,6 +241,7 @@ function extrude(b: Builder, pts: number[][], depth: number) {
       else b.tri(base + tris[i], base + tris[i + 2], base + tris[i + 1]);
     }
   }
+  if (face) return;
   // flancs : orientation déduite de la triangulation (sens du polygone)
   let area = 0;
   for (let i = 0; i < pts.length; i++) {
@@ -350,7 +352,7 @@ function build(s: Shape, seg: number): Builder {
       revolve(b, s.pts as [number, number][], seg, Math.PI * 2, true, true);
       break;
     case "extrude":
-      extrude(b, s.pts, a[0]);
+      extrude(b, s.pts, a[0], a[1] ?? 0);
       break;
     case "tube":
       tube(b, s.pts, a[0], a[1], seg);

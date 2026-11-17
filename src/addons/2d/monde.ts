@@ -684,6 +684,7 @@ export class Monde2d {
         const pts = this.pointsOf(p, m.detail);
         if (!pts) continue;
         localDir(wi, this.proj.dir, this.dir);
+        if (backFacing(p, this.dir)) continue;
         const [u, v] = basisOf(this.dir);
         const hull = silhouette(pts, u, v);
         affineOf(wi, u, v, this.proj, unit, origin[0], origin[1], this.aff);
@@ -835,6 +836,11 @@ export class Monde2d {
         pv.g.visible = visible;
         if (!visible) continue;
         localDir(w, this.proj.dir, this.dir);
+        // face seule (plafond vu de dessous) tournée vers l'autre côté : pas dessinée
+        if (backFacing(p, this.dir)) {
+          pv.g.visible = false;
+          continue;
+        }
         const bucket = bucketOf(this.dir);
         const color = pv.over.color ?? partColor(inst.model, p, inst.roles, m.palette);
         if (bucket !== pv.bucket || color !== pv.color) {
@@ -981,4 +987,10 @@ function radiusOf(model: Model): number {
     r = Math.max(r, Math.min(3, Math.hypot(w[i * 16 + 12], w[i * 16 + 14]) + Math.min(p.shape.a[0] ?? 0.1, 1) * 0.6));
   });
   return r * 0.85;
+}
+
+/** Extrusion réduite à une face (`face` avant / arrière) vue de dos : `dir` est la direction de vue dans le repère de la pièce. */
+function backFacing(p: { shape?: { kind: string; a: number[] } | null }, dir: ArrayLike<number>): boolean {
+  const f = p.shape?.kind === "extrude" ? (p.shape.a[1] ?? 0) : 0;
+  return f !== 0 && f * dir[2] > 0;
 }

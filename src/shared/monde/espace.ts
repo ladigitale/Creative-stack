@@ -110,9 +110,9 @@ export function expandEspace<T extends { espace?: unknown; models?: unknown; pla
 
   /* ---------------------------------------------------------------- zones de sol */
 
-  const slab = (contour: number[][], y: number, look: { color: string; tex?: unknown }, surface: Obj): Obj => ({
+  const slab = (contour: number[][], y: number, look: { color: string; tex?: unknown }, surface: Obj, face?: "avant"): Obj => ({
     // extrusion du contour (x, z) couchée à plat : son épaisseur est verticale, sa texture court sur le sol
-    parts: [{ name: "dalle", extrude: { pts: contour, depth: U(0.02) }, rot: [90, 0, 0], at: [0, y, 0], color: look.color, ...(look.tex !== undefined ? { tex: look.tex } : {}), surface }],
+    parts: [{ name: "dalle", extrude: { pts: contour, depth: U(0.02), ...(face ? { face } : {}) }, rot: [90, 0, 0], at: [0, y, 0], color: look.color, ...(look.tex !== undefined ? { tex: look.tex } : {}), surface }],
   });
   const zones = (Array.isArray(e.zones) ? e.zones : []).filter(isObj).slice(0, 24);
   if (!zones.some((z) => !Array.isArray(z.contour))) zones.unshift({ nom: "plancher", couleur: "#d9d2c5" });
@@ -281,7 +281,7 @@ export function expandEspace<T extends { espace?: unknown; models?: unknown; pla
 
   if (e.plafond && height) {
     const c = isObj(e.plafond) ? e.plafond : {};
-    models["espace:plafond"] = slab(pts, height + U(0.01), { color: isHex(c.couleur) ? c.couleur : "#fbfaf7" }, { name: "top", face: "-y", from: "origine" });
+    models["espace:plafond"] = slab(pts, height + U(0.01), { color: isHex(c.couleur) ? c.couleur : "#fbfaf7" }, { name: "top", face: "-y", from: "origine" }, solid ? undefined : "avant");
     place.push({ model: "espace:plafond", name: unique("plafond"), shadow: false });
   }
 
