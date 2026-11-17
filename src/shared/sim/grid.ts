@@ -15,7 +15,24 @@ export type Aabb = {
 const key = (i: number, j: number) => i * 73856093 ^ j * 19349663;
 
 /** Boîtes indexées par cellule (une boîte couvre toutes les cellules de son emprise). */
-export class BoxGrid {
+/** Ce que les simulations interrogent : boîtes dont l'emprise touche un rectangle xz. */
+export interface BoxQuery {
+  query(x0: number, z0: number, x1: number, z1: number, fn: (b: Aabb, id: number) => void): void;
+}
+
+/** Deux grilles vues comme une seule (identifiants de la seconde décalés d'un million). */
+export class GridPair implements BoxQuery {
+  constructor(
+    readonly a: BoxGrid,
+    readonly b: BoxGrid,
+  ) {}
+  query(x0: number, z0: number, x1: number, z1: number, fn: (b: Aabb, id: number) => void) {
+    this.a.query(x0, z0, x1, z1, fn);
+    this.b.query(x0, z0, x1, z1, (box, id) => fn(box, id + 1_000_000));
+  }
+}
+
+export class BoxGrid implements BoxQuery {
   readonly cell: number;
   private cells = new Map<number, number[]>();
   boxes: Aabb[] = [];

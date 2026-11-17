@@ -6,7 +6,8 @@
 import type { Monde } from "../monde/format";
 import { placeBoxes, hull } from "../monde/collide";
 import type { MondeDriver } from "../monde/driver";
-import { BoxGrid, type Aabb } from "./grid";
+import { BoxGrid, GridPair, type Aabb } from "./grid";
+import { groundOf } from "./infini-shapes";
 import { Emitter, readOrder, type EmitterSpec, type Hit, type SimWorld } from "./emitter";
 
 export type EmitStats = Record<string, { alive: number; emitted: number; dropped: number; expired: number; ms: number; near?: { id: number; x: number; y: number; z: number; d: number }[] }>;
@@ -24,6 +25,12 @@ export class EmitterSet {
   /** Simulations du monde courant, dans l'ordre de `monde.emitters`. */
   sims: Emitter[] = [];
   private grid = new BoxGrid(2);
+  /** Peuplement du monde infini proche : refait seulement quand les tuiles proches changent. */
+  private fixed = new BoxGrid(2);
+  private fixedSig = "";
+  private pair = new GridPair(this.grid, this.fixed);
+  /** Hauteur du sol (relief du monde infini). */
+  ground: (x: number, z: number) => number = () => 0;
   private staticBoxes: Aabb[] = [];
   private needsBoxes = false;
   private orders = new Map<string, { n: number; clear: number; kill: number }>();
@@ -42,6 +49,9 @@ export class EmitterSet {
   /** Monte les émetteurs d'un monde ; ceux dont la définition n'a pas changé gardent leurs copies. */
   set(m: Monde, driver: MondeDriver) {
     this.unit = m.unit;
+    this.ground = groundOf(m);
+    this.fixedSig = "";
+    this.fixed.clear();
     const next = new Map<string, Slot>();
     for (const spec of m.emitters) {
       const sig = sigOf(spec);
@@ -104,9 +114,9 @@ export class EmitterSet {
 
   world(driver: MondeDriver): SimWorld {
     return {
-      boxes: this.grid,
+      boxes: this.pair,
       emitter: (id) => this.slots.get(id)?.sim ?? null,
-      ground: () => 0,
+      ground: (x, z) => this.ground(x, z),
       pose: (name) => {
         if (this.poseOf) return this.poseOf(name);
         const inst = driver.instances.get(name);
@@ -128,6 +138,14 @@ export class EmitterSet {
       const h = hull(boxes);
       this.grid.add({ name: inst.name, tags: tagsOf(m, inst.name, inst.model.name), lo: h.lo, hi: h.hi });
     }
+  }
+
+  /** Boîtes du peuplement infini proche (`sig` : clés des tuiles ; rien n'est refait si elle ne change pas). */
+  setFixed(sig: string, boxes: Aabb[]) {
+    if (sig === this.fixedSig) return;
+    this.fixedSig = sig;
+    this.fixed.clear();
+    for (const b of boxes) this.fixed.add(b);
   }
 
   /** Avance toutes les simulations de `dt` secondes ; vrai si une copie a bougé. */
