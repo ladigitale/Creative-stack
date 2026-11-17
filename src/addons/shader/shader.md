@@ -68,6 +68,21 @@ Exemple de câblage :
   </template>
 </sonic-code>
 
+## Couleurs du thème (`colors`)
+
+Un shader peut suivre le thème de la page au lieu de couleurs écrites en dur : `colors` liste des jetons du design system (ou des couleurs), lus là où le shader est posé, et rendus en `uColor0`…`uColor7` (`vec4`, RGBA 0..1, sRGB). Ils sont relus au plus deux fois par seconde : changer de thème (Affiche → Nuit…) met le shader à jour sans le recompiler.
+
+```json
+{ "tagName": "sonic-shader", "attributes": {
+  "colors": "--sc-base-50 --sc-base-content --sc-accent --sc-deco-2",
+  "image": "void mainImage(out vec4 o, vec2 f){ vec2 uv = f / iResolution.xy; o = vec4(mix(uColor0.rgb, uColor3.rgb, uv.y), 1.0); }"
+} }
+```
+
+- Jetons utiles : `--sc-base` / `--sc-base-50` (fonds), `--sc-base-content` (encre), `--sc-primary`, `--sc-accent`, `--sc-deco-1`…`--sc-deco-4` (aplats décoratifs des thèmes d'Artefacts).
+- Un jeton absent donne la couleur héritée du texte ; sans attribut, `uColorN` vaut `(0, 0, 0, 0)`.
+- Les valeurs sont en sRGB, comme dans la page : à mélanger directement, sans conversion.
+
 ## Rollover / roll-out (`hover-param`)
 
 Au survol, le composant anime un `uParamN` de `0` → `1` (et l’inverse au leave), avec easing `hover-speed`. Le shader lit ce param pour mixer l’effet on/off (zoom, aberration, ripple…). `play-on-hover` n’anime que pendant le hover / la transition.
@@ -172,6 +187,7 @@ Repli auto en `rgba8` si `EXT_color_buffer_float` est absent (`console.warn` une
 | `hoverParam` / `hover-param` | `ShaderHoverParam` | Slot `uParamN` on/off rollover |
 | `hoverSpeed` / `hover-speed` | `number` | Easing hover (1/s, défaut `10`) |
 | `param0`…`param3` | `number` | → `uParam0`…`uParam3` |
+| `colors` | `string` | Jetons CSS (`--sc-accent`) ou couleurs (`#ff0080`), séparés par des espaces, 8 au plus → `uColor0`…`uColor7` (`vec4` RGBA 0..1, sRGB). Relus quand le thème change |
 | `dataProvider` | `string` | Publisher entrée (`param0`…) + sortie par défaut |
 | `params` | `string` | DP de réglages en direct (voir « État et pilotage par DataProvider ») |
 | `outDataProvider` / `out-data-provider` | `string` | Publisher de sortie (défaut = `dataProvider`) |
