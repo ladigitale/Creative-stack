@@ -113,7 +113,7 @@ function archBand(kind: WinKind, w: number, h: number, fr: number): [number, num
 export const building = defineGenerator({
   id: "building",
   label: "Bâtiment",
-  doc: "Maison ou édifice par grammaire de découpe : corps, ailes, appentis, tourelles, porches, perrons ; fenêtres (rectangulaires, plein cintre, segmentaires, à meneaux, ogives, œils-de-bœuf), volets pleins ou persiennes, petits bois, jardinières, balcons en ferronnerie, corniches à modillons, gouttières ; toits à deux pans (coyaux), pignon sur rue, croupe, mansarde, monopente, terrasse, pavillon. Matériaux : enduit, pierre appareillée, brique, bardage, colombages ; tuile, ardoise, chaume, zinc, lauze. Styles : bourg, colombages, vapeur, moderne, neon, chaumiere, pierre, ferme, chalet, mediterraneen, japonais, chateau, tour, moulin, chapelle, phare, boutique. Chaque graine donne une maison distincte.",
+  doc: "Maison ou édifice par grammaire de découpe : corps, ailes, appentis, tourelles, porches, perrons ; fenêtres (rectangulaires, plein cintre, segmentaires, à meneaux, ogives, œils-de-bœuf), volets pleins ou persiennes, petits bois, jardinières, balcons en ferronnerie, corniches à modillons, gouttières ; toits à deux pans (coyaux), pignon sur rue, croupe, mansarde, monopente, terrasse, pavillon. Matériaux : enduit, pierre appareillée, brique, bardage, colombages ; tuile, ardoise, chaume, zinc, lauze. Styles : bourg, colombages, vapeur, moderne, neon, chaumiere, pierre, ferme, chalet, mediterraneen, japonais, chateau, tour, moulin, chapelle, phare, boutique. Chaque graine donne une maison distincte. Ancres : door, roof, `chimney.N` (sortie de chaque conduit : fumée des cheminées).",
   tags: ["ville", "village", "rue", "architecture", "maison", "monument"],
   schema: {
     style: { type: "enum", default: "bourg", options: STYLES, doc: "Style" },
@@ -147,6 +147,7 @@ export const building = defineGenerator({
     };
     let roofTop = 0;
     let door: V3 = [0, 0, 0];
+    const chimneyTops: V3[] = [];
 
     /* ---------- édifices singuliers ---------- */
     if (st === "moulin" || st === "phare" || st === "tour") {
@@ -402,11 +403,13 @@ export const building = defineGenerator({
       const nCh = p.chimneys >= 0 ? p.chimneys : roofKind === "flat" || st === "japonais" ? 0 : st === "chateau" ? rng.int(2, 3) : rng.int(0, 2);
       const cr = rng.fork("chimney");
       for (let i = 0; i < nCh; i++) {
+        // ancre `chimney.N` : sortie du conduit (fumée)
         const x = nCh === 1 ? cr.range(-W / 2 + 0.8, W / 2 - 0.8) : mix(-W / 2 + 0.7, W / 2 - 0.7, i / Math.max(1, nCh - 1));
         const z = ridgeAlongZ ? cr.range(-D / 2 + 1, D / 2 - 1) : cr.range(-D * 0.15, D * 0.12);
         if (st === "vapeur") {
           add(cylinder(0.25, 0.22, rt - top + 2.6, ROLE.metal, 10), [x, top, z]);
           add(cylinder(0.32, 0.32, 0.2, ROLE.metal, 10), [x, rt + 2.4, z]);
+          chimneyTops.push([x, rt + 2.65, z]);
           continue;
         }
         const h = rt - top + cr.range(0.4, 0.9) - (roofKind === "flat" || roofKind === "mansard" ? 0 : Math.tan(look.pitch) * Math.max(0, (ridgeAlongZ ? Math.abs(x) : Math.abs(z)) - 0.5));
@@ -414,6 +417,7 @@ export const building = defineGenerator({
         const role = look.finish === "brique" || cr.chance(0.3) ? ROLE.roof : look.finish === "pierre" ? ROLE.stone : look.wall;
         B(cw, h / 2, cd, role, [x, top + h / 2, z]);
         B(cw + 0.06, 0.05, cd + 0.06, look.trim, [x, top + h + 0.03, z]);
+        chimneyTops.push([x, top + h + 0.12, z]);
         if (cr.chance(0.6)) for (let k = 0; k < cr.int(1, 3); k++) add(cylinder(0.08, 0.07, 0.3, ROLE.roof, 6), [x, top + h + 0.08, z - cd + 0.2 + k * 0.28]);
       }
       // ---- gouttières et descentes
@@ -938,7 +942,11 @@ export const building = defineGenerator({
     return {
       generator: "building",
       mesh,
-      anchors: { door: { pos: [door[0] - cx, 0, door[2] - cz], rot: [0, 0, 0, 1], scale: 1 }, roof: { pos: [-cx, roofTop, -cz], rot: [0, 0, 0, 1], scale: hx } },
+      anchors: {
+        door: { pos: [door[0] - cx, 0, door[2] - cz], rot: [0, 0, 0, 1], scale: 1 },
+        roof: { pos: [-cx, roofTop, -cz], rot: [0, 0, 0, 1], scale: hx },
+        ...Object.fromEntries(chimneyTops.map((q, i) => [`chimney.${i}`, { pos: [q[0] - cx, q[1], q[2] - cz] as V3, rot: [0, 0, 0, 1] as Q, scale: 1 }])),
+      },
       footprint: { hx, hz, r: Math.hypot(hx, hz) },
       height: clamp(roofTop + 1, 0, 200),
       extra: { width: hx * 2, depth: hz * 2, style: st },
