@@ -48,6 +48,10 @@ export function sharedUniforms(): Shared {
     uLightCol: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) },
     uLightCount: { value: 0 },
     uRoleMat: { value: new Float32Array(ROLES.length * 4) },
+    // finis texturés (voir finish-maps.ts) : rien tant que uFinOn = 0
+    uRoleFin: { value: null },
+    uHeights: { value: null },
+    uFinOn: { value: 0 },
   };
 }
 
@@ -60,6 +64,9 @@ export function makeMaterials(shared: Shared, roles: { value: Float32Array }, sk
     uRoles: roles,
     // finis par rôle : ceux du style (commun) sauf objet qui porte les siens
     uRoleMat: shared.uRoleMat ?? { value: new Float32Array(ROLES.length * 4) },
+    uRoleFin: shared.uRoleFin ?? { value: null },
+    uHeights: shared.uHeights ?? { value: null },
+    uFinOn: shared.uFinOn ?? { value: 0 },
     uSkinned: { value: skinned ? 1 : 0 },
     uDQ: { value: skinned ? Array.from({ length: MAX_BONES * 2 }, (_, i) => new THREE.Vector4(0, 0, 0, i % 2 ? 0 : 1)) : [] },
     uBlink: { value: 0 },

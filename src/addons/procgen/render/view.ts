@@ -8,6 +8,7 @@
  * Rendu à la demande : aucune image tant que rien ne bouge ; densité de pixels adaptée à la charge.
  */
 import { encodeRoleFinishes } from "../style/finishes";
+import { HeightBank, RoleFinTable } from "./finish-maps";
 import * as THREE from "three";
 import { BallWorld } from "../scene/balls";
 import { loadRapier, type BodyPose, type RigidState } from "../../../shared/sim/rigid-core";
@@ -98,6 +99,9 @@ export class ProcgenView {
   private persp = new THREE.PerspectiveCamera();
   private camera: THREE.Camera = this.ortho;
   private shared: Shared = sharedUniforms();
+  /** Finis texturés : banque de hauteurs des motifs et table par rôle (vides tant qu'aucun fini ne s'en sert). */
+  private finBank: HeightBank | null = null;
+  private finTable: RoleFinTable | null = null;
   private roles = { value: new Float32Array(ROLES.length * 3) };
   private staticMats: MaterialPair;
   private model: SceneModel | null = null;
@@ -443,6 +447,11 @@ export class ProcgenView {
     this.shared.uRim.value = s.rim;
     this.shared.uDetail.value = s.detail;
     (this.shared.uRoleMat.value as Float32Array).set(encodeRoleFinishes(s.finishes));
+    if (Object.keys(s.finishes).length || this.finTable) {
+      this.finBank ??= new HeightBank(this.shared.uHeights, this.mobile ? 128 : 256);
+      this.finTable ??= new RoleFinTable(this.shared.uRoleFin, this.shared.uFinOn);
+      this.finTable.set(this.finBank, s.postQuality === "low" || (s.postQuality === "auto" && this.mobile) ? 1 : 2, s.finishes);
+    }
     this.shared.uShadowStrength.value = s.shadows ? s.shadowStrength : 0;
     const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
     pu.uOutline.value = s.outline;
@@ -1616,6 +1625,8 @@ export class ProcgenView {
   }
 
   dispose() {
+    this.finBank?.dispose();
+    this.finTable?.dispose();
     this.disposed = true;
     this.rigidTok++;
     cancelAnimationFrame(this.raf);

@@ -54,6 +54,7 @@ out float vAO;
 out vec3 vNormalW;
 out vec3 vPosW;
 out vec3 vPosL;
+out vec3 vNormL;
 out float vViewZ;
 out vec4 vShadow;
 flat out float vVar;
@@ -136,7 +137,12 @@ void main() {
   }
   #endif
   vPosW = wp.xyz;
-  vPosL = p;
+  // repère des motifs des finis texturés : pose de repos (le motif suit le corps), décalé par instance
+  vPosL = position;
+  vNormL = normal;
+  #ifdef USE_INSTANCING
+  vPosL += vVar * 17.0;
+  #endif
   vNormalW = normalize(mat3(M) * n);
   #ifdef BLADE
   // brins : normale tirée vers le haut (la prairie s'éclaire comme une masse, sans scintiller)
@@ -171,6 +177,7 @@ in float vAO;
 in vec3 vNormalW;
 in vec3 vPosW;
 in vec3 vPosL;
+in vec3 vNormL;
 in float vViewZ;
 in vec4 vShadow;
 flat in float vVar;
@@ -219,7 +226,15 @@ uniform float uDetail;
 uniform vec4 uLightPos[12];
 uniform vec4 uLightCol[12];
 uniform float uLightCount;
+// finis texturés : table par rôle (rangée 0 relief, profondeur, usure, occlusion ; rangée 1 couche + 1, répétitions
+// par mètre, verre, ior), banque de hauteurs des motifs, interrupteur (0 aucun, 1 qualité basse, 2 haute)
+uniform highp sampler2D uRoleFin;
+uniform highp sampler2DArray uHeights;
+uniform float uFinOn;
 ${COMMON}
+
+vec2 axisUv(vec3 p, int a) { return a == 0 ? p.zy : a == 1 ? p.xz : p.xy; }
+float finH(vec2 uv, vec2 gx, vec2 gy, float layer) { return textureGrad(uHeights, vec3(uv, layer), gx, gy).r; }
 
 const vec2 POISSON[12] = vec2[](vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621), vec2(0.962, -0.195), vec2(0.473, -0.480),
   vec2(0.519, 0.767), vec2(0.185, -0.893), vec2(0.507, 0.064), vec2(0.896, 0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598));
@@ -308,6 +323,89 @@ void main() {
     vec3 g = vec3(fbm3(q + vec3(0.05, 0.0, 0.0)) - n0, fbm3(q + vec3(0.0, 0.05, 0.0)) - n0, fbm3(q + vec3(0.0, 0.0, 0.05)) - n0) / 0.05;
     N = normalize(N - (g - N * dot(g, N)) * bumpK * 0.12);
   }
+  // finis texturés (cartes tirées d'un motif du format monde) : relief, parallaxe, usure, occlusion des creux ; eau
+  float finAO = 1.0, finWear = 0.0;
+  vec4 fin2 = vec4(0.0);
+  #ifndef BLADE
+  if (uFinOn > 0.5) {
+    vec3 dpx = dFdx(vPosW), dpy = dFdy(vPosW);
+    vec3 dlx = dFdx(vPosL), dly = dFdy(vPosL);
+    vec4 fin1 = texelFetch(uRoleFin, ivec2(role, 0), 0);
+    fin2 = texelFetch(uRoleFin, ivec2(role, 1), 0);
+    vec3 Vw = normalize(cameraPosition - vPosW);
+    if (fin2.x > 0.5) {
+      float layer = fin2.x - 1.0;
+      vec3 an = abs(normalize(vNormL));
+      vec3 p = vPosL * fin2.y, gx = dlx * fin2.y, gy = dly * fin2.y;
+      int dom = an.x > an.y && an.x > an.z ? 0 : an.y > an.z ? 1 : 2;
+      vec3 w = pow(an, vec3(4.0));
+      w /= w.x + w.y + w.z;
+      // empreinte du pixel dans le motif (tuiles) : au loin, ni parallaxe ni fondu (invisibles, coûteux)
+      vec2 fux = axisUv(gx, dom), fuy = axisUv(gy, dom);
+      float foot = max(length(fux), length(fuy));
+      bool blend = uFinOn > 1.5 && max(w.x, max(w.y, w.z)) < 0.92 && foot < 0.1;
+      float h = 0.0, dhx = 0.0, dhy = 0.0;
+      if (blend) {
+        // trois projections fondues (qualité haute : surfaces courbes)
+        for (int a = 0; a < 3; a++) {
+          if (w[a] < 0.02) continue;
+          vec2 uv = axisUv(p, a), ux = axisUv(gx, a), uy = axisUv(gy, a);
+          float h0 = finH(uv, ux, uy, layer);
+          h += w[a] * h0;
+          dhx += w[a] * (finH(uv + ux, ux, uy, layer) - h0);
+          dhy += w[a] * (finH(uv + uy, ux, uy, layer) - h0);
+        }
+      } else {
+        vec2 uv = axisUv(p, dom), ux = axisUv(gx, dom), uy = axisUv(gy, dom);
+        float pk = fin1.y * (1.0 - smoothstep(0.015, 0.03, foot));
+        if (pk > 0.0) {
+          // parallaxe par couches (repère tangent tiré des dérivées écran, comme les finis de sonic-3d)
+          vec3 Ng = normalize(cross(dpx, dpy));
+          if (dot(Ng, Vw) < 0.0) Ng = -Ng;
+          vec3 d2p = cross(dpy, Ng), d1p = cross(Ng, dpx);
+          vec3 T = d2p * ux.x + d1p * uy.x, B = d2p * ux.y + d1p * uy.y;
+          float inv = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-24));
+          vec3 vt = normalize(vec3(dot(Vw, T * inv), dot(Vw, B * inv), dot(Vw, Ng)));
+          int steps = uFinOn > 1.5 ? 14 : 6;
+          float lay = 1.0 / float(steps);
+          vec2 dUV = vt.xy / max(vt.z, 0.25) * pk * 0.08 * lay;
+          vec2 cur = uv;
+          float dAt = 1.0 - finH(cur, ux, uy, layer), d = 0.0;
+          for (int i = 0; i < 14; i++) {
+            if (i >= steps || d >= dAt) break;
+            cur -= dUV;
+            dAt = 1.0 - finH(cur, ux, uy, layer);
+            d += lay;
+          }
+          vec2 prev = cur + dUV;
+          float after = dAt - d, before = (1.0 - finH(prev, ux, uy, layer)) - d + lay;
+          uv = mix(cur, prev, clamp(after / (after - before + 1e-5), 0.0, 1.0));
+        }
+        h = finH(uv, ux, uy, layer);
+        dhx = finH(uv + ux, ux, uy, layer) - h;
+        dhy = finH(uv + uy, ux, uy, layer) - h;
+      }
+      if (fin1.x > 0.0) {
+        // relief : bosses de hauteur proportionnelle à la taille du motif (dérivées écran, sans repère tangent)
+        float amp = fin1.x * 0.05 / max(fin2.y, 0.05);
+        vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+        float det = dot(dpx, r1);
+        vec3 grad = sign(det) * (dhx * amp * r1 + dhy * amp * r2);
+        N = normalize(abs(det) * N - grad);
+      }
+      finAO = mix(1.0, 0.25 + 0.75 * pow(h, 0.6), fin1.w);
+      finWear = fin1.z * h;
+      base *= mix(1.0, finAO, 0.45);
+    }
+    if (fin2.z > 0.0 && fin2.w < 1.4) {
+      // eau : rides qui défilent (gradient d'un bruit)
+      vec3 q = vec3(vPosW.x * 2.3 + uTime * 0.35, uTime * 0.25, vPosW.z * 2.3 - uTime * 0.2);
+      float n0 = vnoise(q);
+      vec2 g = vec2(vnoise(q + vec3(0.07, 0.0, 0.0)) - n0, vnoise(q + vec3(0.0, 0.0, 0.07)) - n0) / 0.07;
+      N = normalize(N - vec3(g.x, 0.0, g.y) * 0.12 * fin2.z);
+    }
+  }
+  #endif
   // arêtes vives (courbure écran) : légère usure claire sur les saillants, lecture des volumes à petite échelle
   vec3 dn = fwidth(vNormalW);
   float edgeWear = clamp((dn.x + dn.y + dn.z) * 2.2, 0.0, 1.0) * uDetail;
@@ -328,7 +426,7 @@ void main() {
   }
   float shadow = mix(1.0, sh, uShadowStrength);
   if (uShading > 0.5 && uShading < 1.5) shadow = 1.0; // déjà dans les bandes
-  float ao = role == 13 ? 1.0 : mix(1.0, vAO, uAOStrength);
+  float ao = (role == 13 ? 1.0 : mix(1.0, vAO, uAOStrength)) * finAO;
   // contact au sol : assombrit le pied des objets
   float contact = 1.0 - (1.0 - smoothstep(0.0, 0.35, vPosW.y - uGroundY)) * 0.18 * uAOStrength * step(0.2, abs(N.y - 1.0));
   vec3 amb = mix(uAmbGround, uAmbSky, N.y * 0.5 + 0.5);
@@ -355,7 +453,7 @@ void main() {
   // fini du rôle : reflet du soleil (GGX), reflet du ciel selon la rugosité, métal qui teinte ses reflets, tissu, vernis
   vec4 rm = uRoleMat[role];
   if (rm.x > 0.5) {
-    float rough = clamp(rm.x - 1.0, 0.03, 1.0);
+    float rough = clamp((rm.x - 1.0) * (1.0 - finWear), 0.03, 1.0);
     float metal = rm.y;
     vec3 Hs = normalize(uSunDir + V);
     float nh = max(dot(N, Hs), 0.0), nv = max(dot(N, V), 0.0);
@@ -379,6 +477,22 @@ void main() {
       float Fc = 0.04 + 0.96 * pow(1.0 - nv, 5.0);
       lit += (uSun * Dc * 0.25 * max(ndl, 0.0) * shadow + env * Fc) * rm.w * 0.6;
     }
+  }
+  // verre, eau (fini du format) : rendu opaque, fond assombri teinté vu au travers, reflet de Fresnel du ciel et du soleil
+  if (fin2.z > 0.0) {
+    float nv = max(dot(N, V), 0.0);
+    float f0 = pow((fin2.w - 1.0) / (fin2.w + 1.0), 2.0);
+    float fr = f0 + (1.0 - f0) * pow(1.0 - nv, 5.0);
+    vec3 R = reflect(-V, N);
+    vec3 env = mix(uAmbGround * 0.7, mix(uFogColor, uAmbSky * 1.3, smoothstep(0.05, 0.7, R.y)), smoothstep(-0.2, 0.15, R.y));
+    vec3 behind = base * mix(uAmbGround, uFogColor, 0.5) * 0.6 * ao;
+    float rough = rm.x > 0.5 ? clamp(rm.x - 1.0, 0.02, 1.0) : 0.05;
+    vec3 Hs = normalize(uSunDir + V);
+    float nh = max(dot(N, Hs), 0.0);
+    float a2 = pow(rough * rough, 2.0);
+    float spec = min(a2 / (3.14159 * pow(nh * nh * (a2 - 1.0) + 1.0, 2.0)) * 0.25 * max(ndl, 0.0), 40.0);
+    vec3 glassCol = mix(behind, env, clamp(fr + 0.08, 0.0, 1.0)) + uSun * spec * fr * mix(1.0, sh, uShadowStrength);
+    lit = mix(lit, glassCol, fin2.z);
   }
   // émissifs : lampes, feu, fenêtres allumées la nuit
   float emiss = 0.0;
