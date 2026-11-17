@@ -31,8 +31,9 @@ import { EmitterLayer, type EmitPart, type EmitStats } from "./emitters3d";
 import { ParticleLayer } from "./particles3d";
 import { InfiniLayer } from "./infini3d";
 import { TexAdapt } from "./tex-adapt";
+import { HerbesLayer } from "./herbes3d";
 import { loadRapier, RigidWorld, type ContactEvent, type RigidPose, type RigidState } from "../../shared/sim/rigid";
-import { GameProbe, type QueryResult } from "../../shared/sim/queries";
+import { decorShapes, GameProbe, type QueryResult } from "../../shared/sim/queries";
 import type { Hit } from "../../shared/sim/emitter";
 
 type ProcgenMod = ProcgenApi;
@@ -371,6 +372,8 @@ export class Monde3d {
   readonly particles = new ParticleLayer();
   /** Monde infini : tuiles chargées autour de l'instance suivie. */
   readonly infini = new InfiniLayer();
+  /** Herbes hautes, blé, roseaux (brins instanciés, vent dans le shader). */
+  readonly herbes = new HerbesLayer();
   /** Textures procédurales affinées quand on s'en approche. */
   readonly texAdapt = new TexAdapt();
   /** Requêtes (rayon, sphère, boîte) et capteurs. */
@@ -566,6 +569,10 @@ export class Monde3d {
     this.probe.set(m);
     this.infini.mount(m, (model) => this.emitParts(model, {}));
     this.group.add(this.infini.group);
+    // herbes : le sol reste libre sous le décor posé (pas sous les sols plats)
+    const feet = m.herbes.length ? decorShapes(m).filter((sh) => sh.lo[1] < 0.3 && sh.hi[1] - sh.lo[1] > 0.15).map((sh) => ({ lo: [sh.lo[0], sh.lo[2]] as [number, number], hi: [sh.hi[0], sh.hi[2]] as [number, number] })) : [];
+    this.herbes.mount(m, feet);
+    this.group.add(this.herbes.group);
     this.particles.trailed = new Set(m.emitters.map((e) => e.trail).filter((t) => t));
     for (const e of m.emitters) {
       if (e.trail && !this.particles.get(e.trail)) m.issues.push({ path: `emitters.${e.id}.trail`, message: `système de particules inconnu « ${e.trail} »` });
@@ -1187,6 +1194,14 @@ export class Monde3d {
     this.lastStep = now;
     if (this.follow()) changed = true;
     if (this.stepRigid(dt, now)) changed = true;
+    if (this.herbes.active) {
+      const push: { x: number; z: number; r: number }[] = [];
+      for (const inst of this.driver.instances.values()) {
+        if (push.length >= 8) break;
+        if (inst.visible) push.push({ x: inst.t.x, z: inst.t.z, r: 0.7 * Math.max(inst.t.sx, inst.t.sz) });
+      }
+      if (this.herbes.advance(now / 1000, push)) changed = true;
+    }
     if (this.emitters.advance(dt, this.driver)) changed = true;
     for (const sim of this.emitters.sims) if (sim.spec.trail) this.particles.trail(sim.spec.trail, sim, dt);
     if (this.particles.advance(dt)) changed = true;
@@ -1318,6 +1333,7 @@ export class Monde3d {
   }
 
   dispose() {
+    this.herbes.dispose();
     this.rigidTok++;
     this.rigid?.dispose();
     this.rigid = null;
