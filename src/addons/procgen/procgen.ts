@@ -110,6 +110,10 @@ export class SonicProcgen extends HTMLElement {
   private composing = false;
   private progress = 0;
   private pending: { cancelled: boolean } | null = null;
+  /** Modèle composé arrivé pendant un glisser : adopté au lâcher (la scène ne change pas sous le doigt). */
+  private deferred: (() => void) | null = null;
+  /** Poses posées au doigt (id → pose, instant) : rejouées sur un modèle dont la composition a commencé avant la pose. */
+  private moved = new Map<string, { x: number; y: number; z: number; yaw: number; t: number }>();
   private anchorList: string[] = [];
 
   constructor() {
@@ -341,16 +345,24 @@ export class SonicProcgen extends HTMLElement {
       composeSceneAsync({ recipe: r, seed: seed as string, params, edits }, { signal, onProgress: (done, total) => ((this.progress = total ? done / total : 0), this.queueOut()) })
         .then((model) => {
           if (!model || signal.cancelled) return;
-          this.pending = null;
-          this.composing = false;
-          this.model = model;
-          this.composeMs = Math.round(performance.now() - t0);
-          this.issues = [...issues.list, ...model.issues];
-          this.error = "";
-          this.view?.setModel(model);
-          this.styleKey = "";
-          this.miscKey = "";
-          this.onData();
+          const adopt = () => {
+            if (signal.cancelled) return;
+            this.pending = null;
+            this.composing = false;
+            this.model = model;
+            this.composeMs = Math.round(performance.now() - t0);
+            this.issues = [...issues.list, ...model.issues];
+            this.error = "";
+            this.view?.setModel(model);
+            this.replayMoves(t0);
+            if (this.selectedId) this.view?.select(this.selectedId);
+            this.styleKey = "";
+            this.miscKey = "";
+            this.onData();
+          };
+          // pendant un glisser, l'ancien modèle reste affiché jusqu'au lâcher
+          if (this.dragging) this.deferred = adopt;
+          else adopt();
         })
         .catch((e) => {
           this.composing = false;
@@ -545,7 +557,8 @@ export class SonicProcgen extends HTMLElement {
   private canDrag(clientX: number, clientY: number): "drag" | "refuse" | null {
     this.grab = null;
     const v = this.view;
-    if (!this.dragPattern || !(v instanceof ProcgenView) || !this.model || this.composing) return null;
+    // pendant une recomposition, le modèle affiché (l'ancien) reste saisissable : le geste ne part pas en orbite
+    if (!this.dragPattern || !(v instanceof ProcgenView) || !this.model) return null;
     if (this.dragSelected && !this.selectedId) return null;
     // l'objet doit être le premier sous le doigt (pas un autre devant lui)
     const id = v.pick(clientX, clientY)?.objectId ?? null;
@@ -689,13 +702,37 @@ export class SonicProcgen extends HTMLElement {
     if (v instanceof ProcgenView) v.dragEnd(ok ? { x: res!.x, y: res!.y, z: res!.z, yaw: res!.yaw } : null);
     this.idsVersion++;
     const o = this.model?.objects.find((x) => x.id === st.id);
+    if (ok && o) this.moved.set(st.id, { x: res!.x, y: res!.y, z: res!.z, yaw: res!.yaw, t: performance.now() });
     if (ok && o) {
       this.emit({ type: "place", payload: { objectId: st.id, instance: st.id, layer: o.layer, index: o.index ?? 0, place: o.place ?? null, x: res!.x, y: res!.y, z: res!.z, yaw: Math.round(res!.yaw * DEGS * 10) / 10, ry: Math.round(res!.yaw * 1e4) / 1e4, valid: true, snaps: res!.snaps, from: { x: R2(st.from[0]), z: R2(st.from[1]) } } });
     } else if (commit && res && o) {
       this.emit({ type: "dragRefused", payload: { objectId: st.id, layer: o.layer, index: o.index ?? 0, place: o.place ?? null, reason: "occupied", hits: res.hits } });
     }
     if (this.selectedId) this.writeSelection(this.selectedId);
+    const adopt = this.deferred;
+    this.deferred = null;
+    adopt?.();
     this.queueOut(true);
+  }
+
+  /**
+   * Poses faites au doigt après le début de la composition du modèle `since` : rejouées sur ce modèle (il ne les
+   * connaît pas encore) ; une pose antérieure est oubliée (la recette du store l'a reprise, ou l'a refusée).
+   */
+  private replayMoves(since: number) {
+    const v = this.view;
+    for (const [id, mv] of this.moved) {
+      if (mv.t <= since) {
+        this.moved.delete(id);
+        continue;
+      }
+      const o = this.model?.objects.find((x) => x.id === id);
+      if (!o || !(v instanceof ProcgenView)) continue;
+      if (Math.hypot(o.pos[0] - mv.x, o.pos[2] - mv.z) < 0.005 && Math.abs(o.yaw - mv.yaw) < 1e-3) continue;
+      if (!v.dragBegin(id)) continue;
+      v.dragTo(mv.x, mv.y, mv.z, mv.yaw, false);
+      v.dragEnd({ x: mv.x, y: mv.y, z: mv.z, yaw: mv.yaw });
+    }
   }
 
   /**
