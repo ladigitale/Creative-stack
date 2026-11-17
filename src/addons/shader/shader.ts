@@ -1033,10 +1033,10 @@ export class SonicShader extends LitElement {
   /** Params GPU : remplace le slot `hover-param` par `hoverMix`. */
   private effectiveParams(): [number, number, number, number] {
     const params: [number, number, number, number] = [
-      this.param0,
-      this.param1,
-      this.param2,
-      this.param3,
+      this.live.param0 ?? this.param0,
+      this.live.param1 ?? this.param1,
+      this.live.param2 ?? this.param2,
+      this.live.param3 ?? this.param3,
     ];
     const slot = parseHoverParam(this.hoverParam);
     if (slot !== null) params[slot] = this.hoverMix;

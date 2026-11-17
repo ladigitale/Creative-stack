@@ -66,6 +66,11 @@ export type ShaderLiveParams = Partial<Record<ShaderSourceKey, string>> & {
   hoverSpeed?: number;
   dprMax?: number;
   bufferFormat?: ShaderBufferFormat;
+  /** `uParam0…3` venus d'un second DP (par ex. le pointeur quand `dataProvider` suit le défilement). */
+  param0?: number;
+  param1?: number;
+  param2?: number;
+  param3?: number;
 };
 
 /** Booléen tolérant : `true/false`, `1/0`, `"true"/"false"`. Sinon `undefined`. */
@@ -78,7 +83,7 @@ export function flag(v: unknown): boolean | undefined {
 }
 
 /**
- * Lit le DP `params` : `{ play, playOnHover, mouse, mouseMode, mouseSpeed, hoverSpeed, dprMax,
+ * Lit le DP `params` : `{ play, playOnHover, mouse, mouseMode, mouseSpeed, hoverSpeed, dprMax, param0…3,
  * image, bufferA…bufferD, common, bufferFormat }`. Les valeurs sont bornées ; les valeurs invalides
  * sont ignorées (l'attribut reste en vigueur) et listées dans `invalid`.
  */
@@ -104,6 +109,12 @@ export function readShaderParams(v: unknown): { live: ShaderLiveParams; invalid:
     const n = num(p[k], ranges[k][0], ranges[k][1]);
     if (n === undefined) invalid.push(k);
     else live[k] = n;
+  }
+  for (const k of ["param0", "param1", "param2", "param3"] as const) {
+    if (!has(k)) continue;
+    const n = typeof p[k] === "number" ? (p[k] as number) : typeof p[k] === "string" && p[k] !== "" ? Number(p[k]) : NaN;
+    if (Number.isFinite(n)) live[k] = n;
+    else invalid.push(k);
   }
   if (has("bufferFormat")) {
     const raw = String(p.bufferFormat).trim().toLowerCase();

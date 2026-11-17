@@ -132,6 +132,12 @@ describe("ShaderToyRuntime.setSources : erreurs de toutes les passes", () => {
 });
 
 describe("readShaderParams", () => {
+  it("lit param0…3 (nombres ou chaînes numériques)", () => {
+    const { live, invalid } = readShaderParams({ param2: 0.4, param3: "0.7", param1: "x" });
+    expect(live).toMatchObject({ param2: 0.4, param3: 0.7 });
+    expect(invalid).toEqual(["param1"]);
+  });
+
   it("borne, accepte les booléens tolérants, refuse l'invalide", () => {
     const { live, invalid } = readShaderParams({
       play: 0,

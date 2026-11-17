@@ -240,6 +240,7 @@ Les champs `time`, `frame`, `mouseX/Y`, `hovering`, `sample*` gardent leur publi
 | `dprMax` | 0.25..4 | redimensionne le canvas |
 | `image`, `bufferA`…`bufferD`, `common` | chaîne GLSL (200 000 caractères au plus) ; `image` vide = l'attribut reste en vigueur, un buffer ou `common` vide retire la passe | **recompile** ; une rafale (saisie clavier) est regroupée sur ~120 ms ; l'erreur éventuelle arrive dans `status` / `errors` et le rendu précédent s'arrête, comme avec l'attribut |
 | `bufferFormat` | `rgba8` \| `rgba16f` \| `rgba32f` | recompile |
+| `param0`…`param3` | nombre | remplace l'uniforme `uParamN` venu de l'attribut ou du `dataProvider` ; pratique pour mêler deux sources (défilement sur `dataProvider`, pointeur sur `params`) |
 
 Le `dataProvider` historique (`param0…3`, canaux, `mouseSpeed`, `hoverSpeed`, `extract*`, `rois`) fonctionne comme avant ; `params` ne le remplace pas (priorité : attributs < `dataProvider` < `params`).
 
