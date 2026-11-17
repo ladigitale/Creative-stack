@@ -172,4 +172,17 @@ describe("PhysicsWorld", () => {
     const s = w.bodyState("box")!;
     expect(Math.hypot(s.x - 395, s.y - 305)).toBeLessThan(15);
   });
+  it("repos : settled une fois tout endormi ; changer la gravité réveille les corps", () => {
+    const w = world();
+    w.upsert(body({ name: "a", shape: "box", w: 40, h: 40, x: 400, y: 500 }));
+    w.upsert(body({ name: "sol", type: "static", shape: "box", w: 800, h: 20, x: 400, y: 590 }));
+    expect(w.settled).toBe(false);
+    run(w, 4);
+    expect(w.settled).toBe(true);
+    const y = w.bodyState("a")!.y;
+    w.setGravity([0, -9.8]);
+    expect(w.settled).toBe(false);
+    run(w, 1);
+    expect(w.bodyState("a")!.y).toBeLessThan(y - 50);
+  });
 });

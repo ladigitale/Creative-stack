@@ -127,6 +127,8 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
   private last = 0;
   private acc = 0;
   private lastPublish = 0;
+  /** Le monde dort et sa dernière image est dessinée et publiée : plus rien à faire jusqu'au réveil. */
+  private idleShown = false;
   private seq = 0;
   private consumers = new Set<object>();
   private resetTrigger = new CounterTrigger();
@@ -180,6 +182,7 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
     if (!this.sim) return;
+    this.idleShown = false;
     if (["width", "height", "scale"].some((k) => changed.has(k) && changed.get(k) !== undefined)) {
       this.build();
       return;
@@ -241,6 +244,7 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
   }
 
   private build(): void {
+    this.idleShown = false;
     this.sim = new PhysicsWorld({
       width: Math.max(10, this.width),
       height: Math.max(10, this.height),
@@ -277,6 +281,7 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
 
   /** Corps et joints déclarés en enfants. */
   private resync(): void {
+    this.idleShown = false;
     const sim = this.sim;
     if (!sim) return;
     const errors: string[] = [];
@@ -346,6 +351,7 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
             else specs.push(spec);
           });
           this.listSpecs = specs;
+          this.idleShown = false;
           if (this.sim) this.listOwned = this.sim.syncSet(this.listOwned, specs);
           if (errors.length) this.specErrors = [...new Set([...this.specErrors, ...errors])];
           this.publishState(true);
@@ -353,12 +359,18 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
       );
     }
     if (this.input) {
-      this.unsubs.push(listenDp(this.input, (v) => (this.latestInput = v && typeof v === "object" ? (v as Record<string, Drive>) : null)));
+      this.unsubs.push(
+        listenDp(this.input, (v) => {
+          this.latestInput = v && typeof v === "object" ? (v as Record<string, Drive>) : null;
+          this.idleShown = false;
+        }),
+      );
     }
     if (this.control) {
       this.unsubs.push(
         listenDp(this.control, (v) => {
           if (!v || typeof v !== "object") return;
+          this.idleShown = false;
           const c = plain<Record<string, unknown>>(v);
           if (typeof c.running === "boolean") this.running = c.running;
           if (Array.isArray(c.gravity) && c.gravity.length >= 2) this.sim?.setGravity([Number(c.gravity[0]) || 0, Number(c.gravity[1]) || 0]);
@@ -386,8 +398,13 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
       }
       if (n === 5) this.acc = 0;
     }
+    // Au repos, une seule image (dessin + publication), puis rien jusqu'au réveil : ni canvas
+    // redessiné ni état republié à chaque image pour des corps immobiles.
+    const settled = !!this.sim && this.sim.settled;
+    if (settled && this.idleShown) return;
     this.draw();
-    this.publishState(false);
+    this.publishState(settled);
+    this.idleShown = settled;
   };
 
   private stepOnce(): void {
@@ -501,7 +518,8 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
 
   private publishState(force: boolean): void {
     const now = performance.now();
-    if (!force && now - this.lastPublish < 1000 / Math.max(1, Math.min(60, this.rate))) return;
+    // 1 ms de tolérance : à 60 publications/s, une image arrivée à 16,6 ms ne doit pas être sautée.
+    if (!force && now - this.lastPublish < 1000 / Math.max(1, Math.min(60, this.rate)) - 1) return;
     this.lastPublish = now;
     const out = (this.outDataProvider || (this.id ? `${this.id}State` : "")).trim();
     if (out) set(out, this.getState());
@@ -540,6 +558,7 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
   }
 
   private onDown = (e: PointerEvent): void => {
+    this.idleShown = false;
     if (!this.sim) return;
     const [x, y] = this.toWorld(e);
     const body = this.sim.bodyAt(x, y);
@@ -562,6 +581,7 @@ export class SonicPhysics extends LitElement implements SonicFrameSource, SonicF
   };
 
   private onUp = (e: PointerEvent): void => {
+    this.idleShown = false;
     if (this.pointerId !== e.pointerId) return;
     this.pointerId = null;
     this.sim?.endDrag();
