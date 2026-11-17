@@ -30,6 +30,7 @@ import { loadProcgen, type ProcgenApi } from "../../shared/procgen-loader";
 import { EmitterLayer, type EmitPart, type EmitStats } from "./emitters3d";
 import { ParticleLayer } from "./particles3d";
 import { InfiniLayer } from "./infini3d";
+import { TexAdapt } from "./tex-adapt";
 import { GameProbe, type QueryResult } from "../../shared/sim/queries";
 import type { Hit } from "../../shared/sim/emitter";
 
@@ -152,6 +153,7 @@ class Materials {
       tx.center.set(0.5, 0.5);
       tx.rotation = (t.angle * Math.PI) / 180;
       tx.userData.neutral = base === "#ffffff";
+      TexAdapt.tag(tx, t, base);
       tx.needsUpdate = true;
       this.texs.set(key, tx);
     }
@@ -368,6 +370,8 @@ export class Monde3d {
   readonly particles = new ParticleLayer();
   /** Monde infini : tuiles chargées autour de l'instance suivie. */
   readonly infini = new InfiniLayer();
+  /** Textures procédurales affinées quand on s'en approche. */
+  readonly texAdapt = new TexAdapt();
   /** Requêtes (rayon, sphère, boîte) et capteurs. */
   readonly probe = new GameProbe();
   onQueries: ((r: Record<string, QueryResult>) => void) | null = null;
@@ -469,6 +473,8 @@ export class Monde3d {
     this.clear(true);
     this.token++;
     this.monde = m;
+    this.texAdapt.max = m.detail === 0 ? 256 : m.detail === 2 ? 1024 : 512;
+    this.texAdapt.onUpdate = () => this.onAsync?.();
     if (this.kit) {
       this.kit.setStyle(m.style, m.look, m.traits);
       this.kit.setFog(m.brume);
@@ -644,6 +650,14 @@ export class Monde3d {
     scene.environment = envMap(renderer!, kind, m!.ciel || "#bcd3e8");
     // les lumières de la scène restent la source principale : l'environnement donne surtout les reflets
     scene.environmentIntensity = 0.7;
+  }
+
+  /** Environnement du rendu photo : scène procédurale de la sorte choisie et intensité (lumière ambiante comprise). */
+  photoEnv(m: Monde | null): { kind: "studio" | "exterieur" | "aucun"; scene: THREE.Scene | null; intensity: number } {
+    const kind = m?.environnement ?? "aucun";
+    if (kind === "studio") return { kind, scene: studioScene(), intensity: 1.6 };
+    if (kind === "exterieur") return { kind, scene: outdoorScene(m?.ciel || "#bcd3e8"), intensity: 1.3 };
+    return { kind, scene: null, intensity: 0.6 };
   }
 
   /** Ciel et brume du monde ; ceux de la scène sont rendus quand le monde n'en donne plus. */
@@ -1224,6 +1238,7 @@ export class Monde3d {
   }
 
   dispose() {
+    this.texAdapt.dispose();
     this.clear();
     this.token++;
     this.jobs = [];

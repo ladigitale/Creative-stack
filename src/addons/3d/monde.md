@@ -28,7 +28,9 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `textures` | Texture par rôle : `{"maillot": "rayures", "sol": {"kind": "herbe", "scale": 2}}` |
 | `texture` | Texture de toutes les pièces sans texture propre (`"grain"` = aspect gouache) |
 | `look` | `doux` (mat, défaut), `toon` (aplats), `brillant` |
-| `detail` | Finesse des maillages : `low`, `mid`, `high` |
+| `detail` | Finesse des maillages : `low`, `mid`, `high` (et plafond de la texture adaptative : 256, 512, 1024 px) |
+| `environnement` | Reflets : `studio`, `exterieur`, `aucun` (voir Finis) |
+| `photo` | Rendu photo en lancer de rayons quand la vue s'arrête (3D) : `true` ou `{echantillons, rebonds, attente}` (voir Rendu photo) |
 | `shadows` | Ombres au sol des instances (défaut `true`) |
 | `outline` | Contour des silhouettes 2D en px (défaut 1, 0 = aucun) |
 | `view2d` | Vue 2D : `{"view": "top" \| "side" \| "front" \| "iso", "unit": 48 (px par m), "origin": [x, y] (position écran de l'origine)}` |
@@ -651,6 +653,11 @@ metal pierre hachures tricot nuages camouflage` (noms anglais acceptés). Forme 
 pièce > `textures.<rôle>` > `texture` du monde. Styles rapides : `"texture": "grain"` (gouache), `"hachures"` (BD),
 `"look": "toon"` (aplats).
 
+**Texture adaptative** (3D) : une texture commence à 128 px de côté puis est recalculée plus finement (256, 512,
+jusqu'à 1024 avec `detail: "high"`) quand une pièce qui la porte est vue de près, pour garder au moins un texel par
+pixel. Le calcul se fait par tranches hors du rendu ; une texture affinée le reste. Filtrage anisotrope pour les sols
+vus en biais. Rien à écrire : c'est automatique.
+
 ## Finis : métal, verre, vernis, tissu
 
 `finish` sur une pièce (ou dans une matière de `materiaux`) donne une matière physique : un nom de fini prêt, ou un
@@ -684,6 +691,21 @@ Calculé une fois par rendu, sans image à charger.
 
 En style `toon`, seuls l'opacité et la transparence du verre comptent. En 2D, le verre et l'opacité rendent la
 silhouette transparente ; le métal, le vernis et le verre ont un reflet franc ; un fini mat n'en a pas.
+
+## Rendu photo (lancer de rayons)
+
+`"photo": true` (ou `{"echantillons": 200, "rebonds": 5, "attente": 600}`) : quand la vue et la scène ne bougent plus
+depuis `attente` ms, l'image est recalculée en lancer de rayons progressif. Reflets entre objets, ombres douces,
+lumière indirecte, verre qui réfracte : physiquement justes, l'image s'affine pendant quelques secondes (bruit au
+début) jusqu'à `echantillons`. Tout mouvement (orbite, glisser, animation, changement du monde) rend la main au rendu
+temps réel ; le calcul reprend à la pause suivante. Le moteur (environ 450 Ko) n'est chargé que si un monde le demande.
+
+- La sortie `photo` donne l'avancement : `{etat: "attente" | "calcul" | "fini" | "indisponible", echantillons, total, raison}`.
+- L'éclairage vient des lumières de la scène et de l'`environnement` (`aucun` : ciel blanc uniforme).
+- Particules, contours, brume et style `toon` n'ont pas d'équivalent physique : `photo` est ignoré en `toon`, les
+  particules et traits disparaissent de l'image calculée.
+- Coûteux en GPU : à réserver aux vues qu'on contemple (pièce aménagée, objet présenté, nuancier), avec un
+  bouton qui active `photo` plutôt qu'en permanence sur mobile. Au-delà de 2,5 millions de triangles, `indisponible`.
 
 ## Performance
 

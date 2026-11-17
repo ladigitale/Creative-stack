@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFinish, readMonde, FINIS } from "./format";
+import { readFinish, readMonde, readPhoto, FINIS } from "./format";
 
 describe("finis des matières", () => {
   it("fini prêt, valeurs changées, erreurs signalées", () => {
@@ -32,5 +32,16 @@ describe("finis des matières", () => {
     const p = m.models.get(m.place[0].model)!.parts.find((x) => x.name === "glace")!;
     expect(p.finish!.metal).toBe(1);
     expect(p.finish!.rough).toBe(0);
+  });
+});
+
+describe("rendu photo", () => {
+  it("lit les réglages et les borne", () => {
+    expect(readPhoto(undefined)).toBeNull();
+    expect(readPhoto(false)).toBeNull();
+    expect(readPhoto(true)).toEqual({ echantillons: 200, rebonds: 5, attente: 600 });
+    expect(readPhoto({ echantillons: 99999, rebonds: 0, attente: -5 })).toEqual({ echantillons: 4000, rebonds: 1, attente: 0 });
+    expect(readMonde({ photo: { rebonds: 3 } }).photo).toEqual({ echantillons: 200, rebonds: 3, attente: 600 });
+    expect(readMonde({}).photo).toBeNull();
   });
 });

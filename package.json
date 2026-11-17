@@ -94,7 +94,9 @@
     "markdown-it": "15.0.3",
     "markdown-it-footnote": "4.0.0",
     "planck": "1.4.2",
-    "polygon-clipping": "0.15.7"
+    "polygon-clipping": "0.15.7",
+    "three-gpu-pathtracer": "0.0.24",
+    "three-mesh-bvh": "0.9.8"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.0",
