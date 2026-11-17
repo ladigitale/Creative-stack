@@ -30,6 +30,8 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `look` | `doux` (mat, défaut), `toon` (aplats), `brillant` |
 | `detail` | Finesse des maillages : `low`, `mid`, `high` (et plafond de la texture adaptative : 256, 512, 1024 px) |
 | `environnement` | Reflets : `studio`, `exterieur`, `aucun` (voir Finis) |
+| `ambiance` | Direction artistique d'un mot (rendu, ciel, palette, style `gen`, lumière, étalonnage), voir Ambiances |
+| `lumiere`, `etalonnage` | Lumière et étalonnage de l'image (voir Ambiances) |
 | `physique` | Physique 3D : corps rigides, liaisons, forces (voir Physique 3D) |
 | `photo` | Rendu photo en lancer de rayons quand la vue s'arrête (3D) : `true` ou `{echantillons, rebonds, attente}` (voir Rendu photo) |
 | `shadows` | Ombres au sol des instances (défaut `true`) |
@@ -693,6 +695,51 @@ Calculé une fois par rendu, sans image à charger.
 
 En style `toon`, seuls l'opacité et la transparence du verre comptent. En 2D, le verre et l'opacité rendent la
 silhouette transparente ; le métal, le vernis et le verre ont un reflet franc ; un fini mat n'en a pas.
+
+## Ambiances : direction artistique
+
+`"ambiance": "cartoon"` donne d'un mot un univers complet : rendu (`look`, fini par défaut, reflets), ciel et brume,
+palette des rôles, style des modèles `gen`, lumière et étalonnage de l'image. Tout ce que le monde écrit lui-même
+(`ciel`, `look`, `palette`, `style`…) l'emporte ; `lumiere` et `etalonnage` complètent ceux de l'ambiance valeur par
+valeur. `{"base": "noir", "etalonnage": {"grain": 0.3}}` part d'une ambiance et en change des valeurs.
+
+| Ambiance | Pour |
+|---|---|
+| `realiste` | Rendu physique sobre, ciel clair, légère brume |
+| `militaire` | Jeu de tir réaliste : couleurs désaturées kaki et sable, contraste, grain, vignette |
+| `cartoon` | Couleurs vives, aplats, contours noirs, ciel bleu (course de karts, plateformes) |
+| `jouet` | Plastique brillant, studio lumineux (jouets, figurines) |
+| `cyber` | Nuit néon : arêtes lumineuses cyan, halo, aberration, lignes de balayage |
+| `alien` | Monde extraterrestre bioluminescent, brume violette, halo |
+| `silhouette` | Aplats noirs sur ciel lumineux, grain et vignette (plateformes en ombres chinoises) |
+| `noir` | Film noir : noir et blanc contrasté, lumière rasante, grain |
+| `voxel` | Monde en pixels nets, couleurs franches, aplats (associer à une caméra iso ou de côté) |
+| `retro` | Console des années 90 : gros pixels, niveaux, lignes |
+| `horreur` | Désaturé verdâtre, brume, vignette lourde, grain |
+| `western` | Sépia chaud, soleil bas |
+| `pastel`, `onirique` | Doux et clair ; rêveur avec halo et brume colorée |
+
+Alias acceptés : `fps`, `cyberpunk`, `neon`, `extraterrestre`, `contre-jour`, `polar`, `pixel`, `far-west`, `reve`…
+Une ambiance s'inspire d'un genre : elle ne reprend ni les personnages ni les éléments d'une œuvre.
+
+**`lumiere`** : `{intensite (soleil), couleur, hauteur (°), azimut (°), ambiante, couleurAmbiante}` (lumières par défaut de
+`sonic-3d`).
+
+**`etalonnage`** (3D ; en 2D : couleurs, silhouettes et grain seulement) :
+
+| Clé | Effet |
+|---|---|
+| `saturation`, `contraste`, `luminosite` | 1 = neutre |
+| `teinte` | Couleur multipliée (`"#e6e0c8"`) |
+| `noirEtBlanc`, `sepia` | 0 à 1 |
+| `grain`, `vignette` | 0 à 1 |
+| `pixel`, `niveaux` | Taille des pixels (px) ; niveaux par couleur (postérisation) |
+| `silhouette` | Objets en aplat sombre, fondus vers le ciel au loin (avec `brume`) |
+| `contours`, `couleurContours` | Traits aux ruptures de profondeur (0 à 1) |
+| `halo`, `seuilHalo` | Lueur autour des zones claires (fenêtres, néons, `glow`) |
+| `aberration`, `lignes` | Franges colorées vers les bords ; lignes de balayage |
+
+Un post-traitement écrit (`post`) passe avant : l'étalonnage est alors ignoré.
 
 ## Physique 3D (corps rigides)
 

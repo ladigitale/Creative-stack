@@ -5,7 +5,8 @@
  * silhouette n'est redessinée que si la pièce tourne assez pour changer de profil. Les décors sans nom sont
  * dessinés une fois (un `Graphics` par copie, pièces triées par profondeur).
  */
-import { BufferImageSource, Container, FillPattern, Graphics, GraphicsContext, Matrix, Texture } from "pixi.js";
+import { BufferImageSource, ColorMatrixFilter, Container, FillPattern, Graphics, GraphicsContext, Matrix, NoiseFilter, Texture } from "pixi.js";
+import type { Grade } from "../../shared/monde/ambiance";
 import { geometryOf } from "../../shared/monde/geometry";
 import { m4, m4Compose, type M4, type V3 } from "../../shared/monde/math";
 import { isColor, partColor, partTex, type Conflict, type Finish, type Model, type Monde, type Part, type Placement } from "../../shared/monde/format";
@@ -199,6 +200,32 @@ export class Monde2d {
 
   get emitting(): boolean {
     return this.emitters.active || this.particles.active;
+  }
+
+  /**
+   * Étalonnage en 2D : couleurs (saturation, contraste, luminosité, noir et blanc, sépia, teinte), silhouettes en
+   * aplat sombre sur le ciel, grain. Pixels, contours, halo et vignette sont réservés à la 3D.
+   */
+  private applyGrade(g: Grade | null) {
+    if (!g) {
+      this.container.filters = [];
+      return;
+    }
+    const cm = new ColorMatrixFilter();
+    if (g.silhouette > 0.5) {
+      cm.matrix = [0, 0, 0, 0, 0.03, 0, 0, 0, 0, 0.03, 0, 0, 0, 0, 0.035, 0, 0, 0, 1, 0];
+    } else {
+      // desaturate remplace la matrice : en premier, les réglages suivants se multiplient
+      if (g.bw > 0.5) cm.desaturate();
+      else if (g.saturation !== 1) cm.saturate(g.saturation - 1, true);
+      if (g.sepia > 0.3) cm.sepia(true);
+      if (g.contrast !== 1) cm.contrast(g.contrast - 1, true);
+      if (g.brightness !== 1) cm.brightness(g.brightness, true);
+      if (g.tint) cm.tint(parseInt(g.tint.slice(1), 16), true);
+    }
+    const filters: (ColorMatrixFilter | NoiseFilter)[] = [cm];
+    if (g.grain > 0) filters.push(new NoiseFilter({ noise: Math.min(0.5, g.grain * 0.6) }));
+    this.container.filters = filters;
   }
 
   /** Ordres `forces.<instance>` (physique). */
@@ -469,6 +496,7 @@ export class Monde2d {
     this.proj = projOf(m.view2d.view);
     this.driver.setMonde(m, now);
     this.mountRigid(m);
+    this.applyGrade(m.grade);
     this.buildStatics(m);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.mountEmitters(m);

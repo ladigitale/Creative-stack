@@ -19,6 +19,8 @@ import type { Sonic3dAsset, Sonic3dOutput } from "./types";
 import { view, type ViewCtx } from "./view";
 import { Monde3d } from "./monde";
 import { PhotoMode } from "./photo";
+import { GradePass } from "./grade-pass";
+import type { Lumiere } from "../../shared/monde/ambiance";
 import type { PlacedInfo } from "../../shared/monde/arrange";
 import { load as loadOps } from "./load";
 import type { Monde } from "../../shared/monde/format";
@@ -51,6 +53,9 @@ export class SceneRuntime {
   private mondeData: Monde | null = null;
   /** Rendu photo (lancer de rayons à l'arrêt), réglé par `monde.photo`. */
   readonly photo: PhotoMode;
+  /** Étalonnage du monde (ambiance, `etalonnage`). */
+  private grade = new GradePass();
+  private lightsSaved: { i: number; c: THREE.Color; p: THREE.Vector3 }[] | null = null;
   private loadToken = 0;
   private blobUrl: string | null = null;
   private dprMax: number;
@@ -310,6 +315,8 @@ export class SceneRuntime {
       this.monde.group.removeFromParent();
       this.monde.applySky(this.scene, null);
       this.photo.configure(null);
+      this.grade.set(null, "", 0);
+      this.applyLumiere(null);
     } else this.mountMonde(m, fit);
     this.nodes.attach(this.content);
     return true;
@@ -328,11 +335,40 @@ export class SceneRuntime {
     this.monde.applySky(this.scene, m, this.renderer);
     // le style toon n'a pas d'équivalent physique : pas de photo
     this.photo.configure(m.look === "toon" ? null : m.photo);
+    this.grade.set(m.grade, m.ciel, m.brume);
+    this.applyLumiere(m.lumiere);
     this.photo.invalidate();
     if (first && fit && this.fitEnabled) {
       loadOps.updateBBox(this as never);
       this.fitToContent();
     } else loadOps.updateBBox(this as never);
+  }
+
+  /** Lumière du monde (ambiance, `lumiere`) sur l'éclairage par défaut [ambiante, principale, appoint] ; null : rendue. */
+  private applyLumiere(l: Lumiere | null) {
+    const [amb, key, fill] = this.lights as [THREE.AmbientLight, THREE.DirectionalLight, THREE.DirectionalLight];
+    if (!amb || !key) return;
+    if (!l) {
+      if (this.lightsSaved) {
+        this.lights.forEach((li, i) => {
+          const s = this.lightsSaved![i];
+          if (!s) return;
+          li.intensity = s.i;
+          li.color.copy(s.c);
+          li.position.copy(s.p);
+        });
+        this.lightsSaved = null;
+      }
+      return;
+    }
+    this.lightsSaved ??= this.lights.map((li) => ({ i: li.intensity, c: li.color.clone(), p: li.position.clone() }));
+    amb.intensity = l.ambiante;
+    amb.color.set(l.couleurAmbiante);
+    key.intensity = l.intensite;
+    key.color.set(l.couleur);
+    const h = THREE.MathUtils.degToRad(l.hauteur), a = THREE.MathUtils.degToRad(l.azimut);
+    key.position.set(Math.cos(h) * Math.sin(a) * 8, Math.sin(h) * 8, Math.cos(h) * Math.cos(a) * 8);
+    if (fill) fill.intensity = l.intensite * 0.25;
   }
 
   /** Applique `nodes` ; true si la scène a changé (un seul render à la charge de l'appelant). */
@@ -386,6 +422,10 @@ export class SceneRuntime {
     this.raster();
   }
   private raster = () => {
+    if (this.grade.enabled && !this.postFx.isEnabled) {
+      this.grade.render(this.renderer, this.scene, this.activeCam, performance.now() / 1000);
+      return;
+    }
     if (this.postFx.isEnabled) {
       this.postFx.render(this.scene, this.activeCam, this.postFrame);
     } else {
@@ -490,6 +530,7 @@ export class SceneRuntime {
     this.monde.dispose();
     this.postFx.dispose();
     this.photo.dispose();
+    this.grade.dispose();
     ops.dispose(this.asOpsCtx(), loseContext);
   }
 
