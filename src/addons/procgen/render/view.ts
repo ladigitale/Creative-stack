@@ -7,6 +7,7 @@
  * directement à l'écran.
  * Rendu à la demande : aucune image tant que rien ne bouge ; densité de pixels adaptée à la charge.
  */
+import { encodeRoleFinishes } from "../style/finishes";
 import * as THREE from "three";
 import { BallWorld } from "../scene/balls";
 import { type M4, type V3, clamp, m4Point, sub } from "../core/math";
@@ -290,6 +291,7 @@ export class ProcgenView {
     this.shared.uLamps.value = s.lamps;
     this.shared.uRim.value = s.rim;
     this.shared.uDetail.value = s.detail;
+    (this.shared.uRoleMat.value as Float32Array).set(encodeRoleFinishes(s.finishes));
     this.shared.uShadowStrength.value = s.shadows ? s.shadowStrength : 0;
     const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
     pu.uOutline.value = s.outline;

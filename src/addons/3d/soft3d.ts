@@ -39,6 +39,27 @@ function spheresOf(joint: number, c: V3, h: V3, out: Collider[]) {
 
 const RING = 6;
 
+/** Rayons du corps d'un personnage gen par os (m, à l'échelle 1) : la cape glisse sur le dos, la jupe sur les hanches. */
+const BODY: [RegExp, number, number][] = [
+  [/^(torse|dos)$/, 0.17, 0.08],
+  [/^bassin$/, 0.16, 0.04],
+  [/^tete$/, 0.12, 0.1],
+  [/^cou$/, 0.06, 0.03],
+  [/^cuisse[LR]$/, 0.085, -0.15],
+  [/^mollet[LR]$/, 0.06, -0.15],
+  [/^bras[LR]$/, 0.06, -0.1],
+];
+
+/** Sphères de collision d'un corps gen, portées par ses os (centre décalé le long de l'os). */
+export function genBodyColliders(model: Model): Collider[] {
+  const out: Collider[] = [];
+  model.parts.forEach((p, i) => {
+    if (p.accessory) return;
+    for (const [re, r, dy] of BODY) if (re.test(p.name)) out.push({ joint: i, c: [0, dy, 0], r });
+  });
+  return out;
+}
+
 export function buildSoft(model: Model, part: number, detail: number, material: THREE.Material): SoftView | null {
   const p = model.parts[part];
   if (!p.soft) return null;

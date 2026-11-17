@@ -646,6 +646,29 @@ tout de suite, le maillage apparaît quand il est prêt). Pas de rendu dans la p
              { "model": "joueur", "name": "p0", "roles": { "maillot": "#e11d48" } } ] }
 ```
 
+### Finis et accessoires des modèles `gen`
+
+Un modèle `gen` reçoit les mêmes matières que les pièces écrites :
+
+- **`finish` par rôle** : `{"maillot": "velours", "cuir": "cuir", "metal": "chrome"}` (rôles du format ou de procgen),
+  ou un seul nom de fini pour tous les habits (`"finish": "laque"`). Rugosité, métal, reflet de tissu et vernis
+  s'appliquent dans le rendu procgen (style compris : un reflet franc en `toon`) ; verre et opacité n'y ont pas
+  d'équivalent.
+- **Accessoires** : `parts` d'un modèle gen ajoute des pièces portées par un os (`parent` : `tete`, `torse`, `bassin`,
+  `main` avec `mirror: "x"`, `pied`…), à `at` / `rot` de la tête de l'os. Forme, `tex`, `finish`, `souple`
+  (cape, jupe, écharpe : repoussées par le corps), `cheveux` (sur une pièce `hidden: true` posée sur la tête, la
+  coiffure procgen à `"hair": "none"`). Elles suivent la pose et l'animation du personnage. 3D seulement.
+
+```json
+"chevalier": { "gen": "character", "params": { "hair": "none", "bag": "none" },
+  "finish": { "maillot": "velours", "metal": "chrome" },
+  "parts": [
+    { "name": "cape", "parent": "torse", "box": [0.5, 0.85, 0.02], "at": [0, 0.05, -0.16], "color": "#a61e4d", "souple": { "type": "tissu", "rigidite": 0.3 } },
+    { "name": "crane", "parent": "tete", "sphere": 0.105, "at": [0, 0.11, 0], "hidden": true, "cheveux": { "coupe": "longs", "couleur": "#3b2414" } },
+    { "name": "couronne", "parent": "tete", "cylinder": [0.09, 0.06], "at": [0, 0.21, 0], "color": "#e8b923", "finish": "metal" }
+  ] }
+```
+
 ## Préréglages (`preset`)
 
 | Nom | Contenu | `params` |
@@ -751,8 +774,8 @@ seul maillage de rubans : elles tombent, suivent la tête, ondulent au vent et r
 | `epaisseur`, `ondulation`, `raideur` | Largeur d'une mèche (m), ondulation (0 à 1), tenue près de la racine (0 à 1) |
 | `couleur`, `vent` | Couleur (défaut : celle de la pièce, assombrie) ; prise au vent |
 
-En 2D, une pièce souple est dessinée rigide et les chevelures ne sont pas dessinées. Les modèles `gen` (personnages
-procgen) gardent leurs propres cheveux et vêtements.
+En 2D, une pièce souple est dessinée rigide et les chevelures ne sont pas dessinées. Sur un personnage `gen`, voir
+« Finis et accessoires des modèles gen ».
 
 ## Herbes et champs (3D)
 

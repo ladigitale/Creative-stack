@@ -319,7 +319,7 @@ describe("monde : modèles gen (procgen)", () => {
     expect(m.issues.some((i) => i.path.endsWith("aileron"))).toBe(true);
   });
 
-  it("animaux, oiseaux, décor ; générateur inconnu et pièces ignorées signalés", () => {
+  it("animaux, oiseaux, décor ; générateur inconnu signalé, pièces écrites gardées en accessoires", () => {
     const m = readMonde({
       models: { c: { gen: "animal.dog" }, o: { gen: "animal", params: { species: "duck" } }, a: { gen: "tree" }, x: { gen: "dragon" }, y: { gen: "rock", parts: [{ name: "a", box: [1, 1, 1] }] } },
     });
@@ -330,7 +330,7 @@ describe("monde : modèles gen (procgen)", () => {
     expect(m.models.get("a")!.parts).toEqual([]);
     expect(m.models.get("x")!.gen).toBeNull();
     expect(m.issues.some((i) => i.path === "models.x.gen")).toBe(true);
-    expect(m.issues.some((i) => i.path === "models.y.parts")).toBe(true);
+    expect(m.models.get("y")!.parts.find((p) => p.name === "a")?.accessory).toBe(true);
   });
 
   it("os ↔ pièces", async () => {

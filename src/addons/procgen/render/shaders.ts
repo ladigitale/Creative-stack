@@ -130,6 +130,8 @@ in vec4 vShadow;
 flat in float vVar;
 in float vBlend;
 uniform vec3 uRoles[${ROLES.length}];
+// fini par rôle : x = rugosité + 1 (0 : aucun fini, éclairage du style), y = métal, z = reflet de tissu, w = vernis
+uniform vec4 uRoleMat[${ROLES.length}];
 uniform vec3 uSunDir;
 uniform vec3 uSun;
 uniform vec3 uAmbSky;
@@ -287,6 +289,34 @@ void main() {
   vec3 V = normalize(cameraPosition - vPosW);
   float rim = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 3.0) * uRim;
   lit += uAmbSky * rim * 0.35 * ao;
+  // fini du rôle : reflet du soleil (GGX), reflet du ciel selon la rugosité, métal qui teinte ses reflets, tissu, vernis
+  vec4 rm = uRoleMat[role];
+  if (rm.x > 0.5) {
+    float rough = clamp(rm.x - 1.0, 0.03, 1.0);
+    float metal = rm.y;
+    vec3 Hs = normalize(uSunDir + V);
+    float nh = max(dot(N, Hs), 0.0), nv = max(dot(N, V), 0.0);
+    float a2 = pow(rough * rough, 2.0);
+    float Dg = a2 / (3.14159 * pow(nh * nh * (a2 - 1.0) + 1.0, 2.0));
+    vec3 F0 = mix(vec3(0.04), base, metal);
+    vec3 Fs = F0 + (1.0 - F0) * pow(1.0 - max(dot(V, Hs), 0.0), 5.0);
+    float sunSpec = Dg * 0.25 * max(ndl, 0.0);
+    // style à bandes : reflet franc plutôt que dégradé
+    if (uShading > 0.5 && uShading < 1.5) sunSpec = step(0.5, sunSpec * rough) * 2.0;
+    vec3 R = reflect(-V, N);
+    vec3 env = mix(uAmbGround * 0.8, uAmbSky * 1.35 + uSun * 0.15, smoothstep(-0.25, 0.35, R.y));
+    env = mix(env, mix(uAmbGround, uAmbSky, 0.5), rough);
+    vec3 Fe = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - nv, 5.0);
+    lit *= 1.0 - metal * 0.85;
+    lit += uSun * Fs * sunSpec * shadow + env * Fe * (1.0 - rough * 0.7) * ao;
+    lit += base * uAmbSky * rm.z * pow(1.0 - nv, 2.0) * 0.5 * ao;
+    if (rm.w > 0.0) {
+      float ac = 0.0064;
+      float Dc = ac / (3.14159 * pow(nh * nh * (ac - 1.0) + 1.0, 2.0));
+      float Fc = 0.04 + 0.96 * pow(1.0 - nv, 5.0);
+      lit += (uSun * Dc * 0.25 * max(ndl, 0.0) * shadow + env * Fc) * rm.w * 0.6;
+    }
+  }
   // émissifs : lampes, feu, fenêtres allumées la nuit
   float emiss = 0.0;
   if (role == 16 || role == 30) emiss = 0.55 + uNight * uLamps * 1.4;

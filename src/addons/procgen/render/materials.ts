@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import type { Mesh } from "../geom/mesh";
 import { DEPTH_FRAGMENT, FRAGMENT, MAX_BONES, VERTEX } from "./shaders";
+import { ROLES } from "../style/roles";
 
 export type Shared = Record<string, THREE.IUniform>;
 
@@ -44,6 +45,7 @@ export function sharedUniforms(): Shared {
     uLightPos: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) },
     uLightCol: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) },
     uLightCount: { value: 0 },
+    uRoleMat: { value: new Float32Array(ROLES.length * 4) },
   };
 }
 
@@ -54,6 +56,8 @@ export function makeMaterials(shared: Shared, roles: { value: Float32Array }, sk
   const uniforms: Record<string, THREE.IUniform> = {
     ...shared,
     uRoles: roles,
+    // finis par rôle : ceux du style (commun) sauf objet qui porte les siens
+    uRoleMat: shared.uRoleMat ?? { value: new Float32Array(ROLES.length * 4) },
     uSkinned: { value: skinned ? 1 : 0 },
     uDQ: { value: skinned ? Array.from({ length: MAX_BONES * 2 }, (_, i) => new THREE.Vector4(0, 0, 0, i % 2 ? 0 : 1)) : [] },
     uBlink: { value: 0 },
