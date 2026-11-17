@@ -156,6 +156,8 @@ export class Monde2d {
   private rigidTok = 0;
   private lastPhysState = 0;
   private pendingForces: unknown = null;
+  /** Premier état de `forces` reçu depuis la (re)construction : ses compteurs sont mémorisés, pas joués. */
+  private firstForces: unknown = null;
   onContacts: ((c: ContactEvent[]) => void) | null = null;
   onRest: ((bodies: Record<string, RigidPose>) => void) | null = null;
   onPhysics: ((s: RigidState | { status: "loading" | "error"; error?: string }) => void) | null = null;
@@ -231,7 +233,11 @@ export class Monde2d {
   /** Ordres `forces.<instance>` (physique). */
   applyForces(spec: unknown): boolean {
     this.pendingForces = spec;
-    if (!this.rigid) return false;
+    if (!this.rigid) {
+      // moteur encore en chargement : le premier état sert de référence, les ordres suivants seront joués
+      this.firstForces ??= spec;
+      return false;
+    }
     this.rigid.applyOrders(spec);
     this.invalidate();
     return true;
@@ -242,13 +248,19 @@ export class Monde2d {
     this.rigid = null;
     const tok = ++this.rigidTok;
     if (!m.physics) return;
+    // état des ordres connu à la (re)construction : référence des compteurs
+    this.firstForces = this.pendingForces;
     this.onPhysics?.({ status: "loading" });
     loadRapier().then(
       (R) => {
         if (tok !== this.rigidTok || this.monde !== m) return;
         try {
           this.rigid = new RigidWorld(R, m, this.driver);
-          if (this.pendingForces) this.rigid.applyOrders(this.pendingForces);
+          // référence (premier état reçu ou état courant), puis ordres arrivés pendant le chargement
+          const first = this.firstForces ?? this.pendingForces;
+          if (first) this.rigid.applyOrders(first);
+          if (this.pendingForces && this.pendingForces !== first) this.rigid.applyOrders(this.pendingForces);
+          this.firstForces = null;
           this.invalidate();
         } catch (e) {
           this.onPhysics?.({ status: "error", error: e instanceof Error ? e.message : String(e) });

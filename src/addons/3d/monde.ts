@@ -388,6 +388,8 @@ export class Monde3d {
   onRest: ((bodies: Record<string, RigidPose>) => void) | null = null;
   onPhysics: ((s: RigidState | { status: "loading" | "error"; error?: string }) => void) | null = null;
   private pendingForces: unknown = null;
+  /** Premier état de `forces` reçu depuis la (re)construction : ses compteurs sont mémorisés, pas joués. */
+  private firstForces: unknown = null;
   /** Touches de l'image, regroupées (émetteurs). */
   onHits: ((hits: Hit[]) => void) | null = null;
   onExpire: ((e: { emitter: string; count: number }) => void) | null = null;
@@ -462,6 +464,8 @@ export class Monde3d {
     this.rigid = null;
     const tok = ++this.rigidTok;
     if (!m.physics) return;
+    // état des ordres connu à la (re)construction : référence des compteurs
+    this.firstForces = this.pendingForces;
     this.onPhysics?.({ status: "loading" });
     loadRapier().then(
       (R) => {
@@ -469,7 +473,11 @@ export class Monde3d {
         try {
           this.rigid = new RigidWorld(R, m, this.driver);
           for (const msg of this.rigid.issues) m.issues.push({ path: "physique", message: msg });
-          if (this.pendingForces) this.rigid.applyOrders(this.pendingForces);
+          // référence (premier état reçu ou état courant), puis ordres arrivés pendant le chargement
+          const first = this.firstForces ?? this.pendingForces;
+          if (first) this.rigid.applyOrders(first);
+          if (this.pendingForces && this.pendingForces !== first) this.rigid.applyOrders(this.pendingForces);
+          this.firstForces = null;
           this.lastStep = 0;
           this.onAsync?.();
         } catch (e) {
@@ -483,7 +491,11 @@ export class Monde3d {
   /** Ordres `forces.<instance>` du DataProvider (vitesse, force, impulsion, téléportation). */
   applyForces(spec: unknown): boolean {
     this.pendingForces = spec;
-    if (!this.rigid) return false;
+    if (!this.rigid) {
+      // moteur encore en chargement : le premier état sert de référence, les ordres suivants seront joués
+      this.firstForces ??= spec;
+      return false;
+    }
     this.rigid.applyOrders(spec);
     return true;
   }
