@@ -28,8 +28,11 @@ export type BodySpec = {
   lockRot: [boolean, boolean, boolean];
   /** Déplacements bloqués par axe (jeu de plateformes en tranche : `["z"]`). */
   lockPos: [boolean, boolean, boolean];
-  /** Forme : `auto` (pièces : boîtes, sphères, cylindres), `boite` (englobante), `sphere`, `capsule`. */
-  shape: "auto" | "boite" | "sphere" | "capsule";
+  /**
+   * Forme : `auto` (pièces : boîtes, sphères, cylindres), `boite` (englobante), `sphere`, `capsule`, `cylindre` ;
+   * `enveloppe` : enveloppe convexe du maillage (scènes procgen ; ailleurs comme `auto`).
+   */
+  shape: "auto" | "boite" | "sphere" | "capsule" | "cylindre" | "enveloppe";
   /** Vitesse de départ (m/s). */
   vel: V3;
   /** Le corps peut s'endormir au repos. */
@@ -116,14 +119,25 @@ const axes = (x: unknown): [boolean, boolean, boolean] => {
 export function readBody(v: unknown, path: string, issues: Issue[]): BodySpec | null {
   if (v === undefined || v === null || v === false) return null;
   const o: Record<string, unknown> = typeof v === "string" ? { type: v } : v === true ? { type: "dynamic" } : v && typeof v === "object" ? (v as Record<string, unknown>) : {};
-  const t = String(o.type ?? o.kind ?? "dynamic").toLowerCase();
+  const t = String(o.type ?? o.kind ?? o.body ?? o.corps ?? "dynamic").toLowerCase();
   const kind = BODY_KINDS[t];
   if (!kind) {
     issues.push({ path, message: `corps « ${t} » inconnu (dynamique, statique, cinematique)` });
     return null;
   }
   const shapeIn = String(o.forme ?? o.shape ?? "auto").toLowerCase();
-  const shape = shapeIn === "boite" || shapeIn === "box" ? "boite" : shapeIn === "sphere" || shapeIn === "ball" ? "sphere" : shapeIn === "capsule" ? "capsule" : "auto";
+  const shape =
+    shapeIn === "boite" || shapeIn === "box"
+      ? "boite"
+      : shapeIn === "sphere" || shapeIn === "ball"
+        ? "sphere"
+        : shapeIn === "capsule"
+          ? "capsule"
+          : shapeIn === "cylindre" || shapeIn === "cylinder"
+            ? "cylindre"
+            : shapeIn === "enveloppe" || shapeIn === "hull"
+              ? "enveloppe"
+              : "auto";
   return {
     kind,
     mass: num(o.masse ?? o.mass, 0, 0, 1e6),

@@ -10,7 +10,7 @@ import { PublisherManager } from "@supersoniks/concorde/utils";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch, listStoreIds } from "../interactive";
 import { Issues } from "./core/schema";
-import { type Recipe, type SceneModel, composeSceneAsync } from "./scene/compose";
+import { type Recipe, type SceneModel, composeSceneAsync, groundHeight } from "./scene/compose";
 import { SCENES } from "./scene/library";
 import { resolveStyle } from "./style/style";
 import { type ActorIntent, type GameEvent, ProcgenView } from "./render/view";
@@ -83,6 +83,8 @@ export class SonicProcgen extends HTMLElement {
   private viewSync: ViewSync = { key: "", modelKey: "" };
   private miscKey = "";
   private kickKey: string | null = null;
+  private forcesKey = "";
+  private queriesKey = "";
   private issues: unknown[] = [];
   private error = "";
   /** Erreur de rendu (contexte WebGL) : durable, indépendante de la composition. */
@@ -99,6 +101,8 @@ export class SonicProcgen extends HTMLElement {
   private dragging: {
     id: string; mover: Mover; ctx: PlaceCtx; off: [number, number]; planeY: number; lift: number; from: [number, number];
     last: Arranged | null; px: number; py: number; raf: number; stopTurn: () => void; outT: number;
+    /** Corps dynamique : suit le doigt sans rangement, retombe au lâcher. */
+    body?: boolean;
   } | null = null;
   private pointerType = "mouse";
   private placeKey = "";
@@ -240,7 +244,7 @@ export class SonicProcgen extends HTMLElement {
     this.styleKey = this.miscKey = "";
     this.viewSync = { key: "", modelKey: "" };
     if (!v) return null;
-    v.onEvent = (e) => this.emit(e);
+    v.onEvent = (e: GameEvent) => this.emit(e);
     v.onFrame = () => this.queueOut();
     v.maxDpr = Math.min(mode === "vector" ? 3 : 2, window.devicePixelRatio || 1);
     v.dpr = mode === "vector" ? v.maxDpr : Math.min(1.5, v.maxDpr);
@@ -416,6 +420,21 @@ export class SonicProcgen extends HTMLElement {
         if (!this.view.kickBall(k.ball, v)) { if (!this.issues.some((x) => (x as { path?: string; got?: unknown }).path === "kick.ball" && (x as { got?: unknown }).got === k.ball)) this.issues = [...this.issues, { path: "kick.ball", code: "unknown", message: `ballon inconnu : ${k.ball}`, got: k.ball }]; }
       }
     }
+    // physique : ordres `forces` (compteurs) et requêtes `queries` (rayon, sphère, boîte)
+    if (this.view instanceof ProcgenView) {
+      const fk = JSON.stringify(d.forces ?? null);
+      if (fk !== this.forcesKey) {
+        this.forcesKey = fk;
+        if (d.forces && typeof d.forces === "object") this.view.applyForces(d.forces);
+      }
+      const qk = JSON.stringify(d.queries ?? null);
+      if (qk !== this.queriesKey) {
+        this.queriesKey = qk;
+        this.view.applyQueries(d.queries);
+      }
+    } else if (this.model?.physics && !this.issues.some((x) => (x as { path?: string }).path === "physics")) {
+      this.issues = [...this.issues, { path: "physics", code: "info", message: "physique 3D en rendu 3D seulement : en rendu vectoriel, les ballons gardent leur simulation simple" }];
+    }
     // place libre demandée (nouvel objet) : calculée une fois par valeur de `placeRequest`
     if (d.placeRequest && typeof d.placeRequest === "object" && !this.composing) {
       const pk = JSON.stringify(d.placeRequest);
@@ -454,18 +473,26 @@ export class SonicProcgen extends HTMLElement {
   /** Liste légère des objets (id, calque, position, cap, emprise), recalculée seulement quand la scène change. */
   private idsList(): unknown[] {
     const m = this.model;
-    if (this.idsCache.model === m && this.idsCache.v === this.idsVersion) return this.idsCache.list;
+    const ver = this.idsVersion + (this.view instanceof ProcgenView ? this.view.physVersion * 1e6 : 0);
+    if (this.idsCache.model === m && this.idsCache.v === ver) return this.idsCache.list;
     const list = m
       ? m.objects.slice(0, 400).map((o) => ({ id: o.id, generator: o.generator, layer: o.layer, x: R2(o.pos[0]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), ...(o.place ? { place: o.place } : {}), ...(o.affords ? { affords: o.affords } : {}) }))
       : [];
-    this.idsCache = { model: m, v: this.idsVersion, list };
+    this.idsCache = { model: m, v: ver, list };
     return list;
   }
 
   /** L'objet se glisse-t-il au doigt (motif `drag`, placement réécrivable, rendu 3D) ? */
   private movable(o: { id: string; layer: string; place?: string; generator: string }): boolean {
     const re = this.dragPattern;
-    return !!re && (matches(re, o.id) || matches(re, o.layer)) && DRAGGABLE.has(o.place ?? "") && o.generator !== "ball";
+    if (!re || !(matches(re, o.id) || matches(re, o.layer))) return false;
+    // corps dynamique (moteur chargé) : se saisit quel que soit son placement, ballons compris
+    if (this.isBody(o.id)) return true;
+    return DRAGGABLE.has(o.place ?? "") && o.generator !== "ball";
+  }
+
+  private isBody(id: string): boolean {
+    return this.view instanceof ProcgenView && !!this.view.rigid?.isDynamic(id);
   }
 
   private selectionOut(id: string | null) {
@@ -510,6 +537,7 @@ export class SonicProcgen extends HTMLElement {
       nodes,
       svg: this.svgOut,
       balls: this.view?.ballState() ?? {},
+      ...(this.view instanceof ProcgenView && this.model?.physics ? { physics: this.view.physOut, queries: this.view.queryOut } : {}),
       ids: this.idsList(),
       ...(this.selectedId ? { selection: this.selectionOut(this.selectedId) } : {}),
       drag: this.dragging?.last ? { objectId: this.dragging.id, x: this.dragging.last.x, y: this.dragging.last.y, z: this.dragging.last.z, yaw: Math.round(this.dragging.last.yaw * DEGS), valid: this.dragging.last.valid } : null,
@@ -545,7 +573,7 @@ export class SonicProcgen extends HTMLElement {
     }
     this.dispatchEvent(new CustomEvent(`procgen-${e.type}`, { detail: e.payload, bubbles: true, composed: true }));
     // positions des ballons republiées quand un coup part ou qu'un ballon s'arrête
-    if (e.type === "kick" || e.type === "rest") this.queueOut();
+    if (e.type === "kick" || e.type === "rest" || e.type === "settle" || e.type === "drop") this.queueOut();
   }
 
   /* ---------------- interactions ---------------- */
@@ -661,8 +689,11 @@ export class SonicProcgen extends HTMLElement {
     if (!o || !v.dragBegin(id)) return;
     const gp = v.groundPoint(clientX, clientY, o.pos[1]);
     const mover = moverOf(o);
+    const body = this.isBody(id);
+    // les corps dynamiques ne gênent pas un rangement : ils sont poussés
+    const skip = new Set([id, ...(v.rigid?.dynamicIds ?? [])]);
     const st = {
-      id, mover, ctx: placeCtx(m, new Set([id])), off: (gp ? [o.pos[0] - gp[0], o.pos[2] - gp[1]] : [0, 0]) as [number, number], planeY: o.pos[1],
+      body, id, mover, ctx: placeCtx(m, skip), off: (gp ? [o.pos[0] - gp[0], o.pos[2] - gp[1]] : [0, 0]) as [number, number], planeY: o.pos[1],
       lift: Math.min(0.3, Math.max(0.06, o.height * 0.03)), from: [o.pos[0], o.pos[2]] as [number, number], last: null as Arranged | null, px: clientX, py: clientY, raf: 0, stopTurn: () => {}, outT: 0,
     };
     this.dragging = st;
@@ -683,6 +714,15 @@ export class SonicProcgen extends HTMLElement {
     st.raf = 0;
     const gp = v.groundPoint(st.px, st.py, st.planeY);
     if (!gp) return;
+    if (st.body) {
+      // corps saisi : soulevé au-dessus du sol sous le doigt, sans rangement (la physique écarte ce qu'il touche)
+      const x = gp[0] + st.off[0], z = gp[1] + st.off[1];
+      const y = groundHeight(this.model!, x, z, st.planeY) + 0.25;
+      st.last = { x: R2(x), y: R2(y), z: R2(z), yaw: st.mover.yaw, valid: true, hits: [], snaps: [] } as unknown as Arranged;
+      v.dragTo(x, y, z, st.mover.yaw);
+      this.queueOut();
+      return;
+    }
     const res = arrangeAt(st.ctx, st.mover, gp[0] + st.off[0], gp[1] + st.off[1]);
     st.last = res;
     v.dragTo(res.x, res.y + st.lift, res.z, res.yaw, !res.valid);
@@ -700,6 +740,18 @@ export class SonicProcgen extends HTMLElement {
     const v = this.view;
     const res = st.last;
     const ok = commit && !!res && res.valid;
+    if (st.body) {
+      // corps lâché : il reprend la physique ; la pose finale arrive par `rest` / `settle` et `state-out.physics`
+      if (v instanceof ProcgenView) v.dragEnd(null);
+      if (res) this.emit({ type: "drop", payload: { objectId: st.id, x: res.x, y: res.y, z: res.z } });
+      this.idsVersion++;
+      if (this.selectedId) this.writeSelection(this.selectedId);
+      const adopt0 = this.deferred;
+      this.deferred = null;
+      adopt0?.();
+      this.queueOut(true);
+      return;
+    }
     if (v instanceof ProcgenView) v.dragEnd(ok ? { x: res!.x, y: res!.y, z: res!.z, yaw: res!.yaw } : null);
     this.idsVersion++;
     const o = this.model?.objects.find((x) => x.id === st.id);

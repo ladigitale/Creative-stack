@@ -48,10 +48,11 @@ export class BallWorld {
   /** Ballons cachés (`hidden`) : hors simulation, sans événement. */
   hidden = new Set<string>();
 
-  constructor(model: SceneModel) {
+  /** `skip` : ballons laissés à un autre moteur (physique 3D Rapier quand la scène a `physics`). */
+  constructor(model: SceneModel, skip?: (o: ObjectInfo) => boolean) {
     this.half = [model.size[0] / 2, model.size[1] / 2];
     this.zones = model.zones ?? [];
-    for (const o of model.objects) if (o.generator === "ball" && o.mode !== "actor") this.add(o);
+    for (const o of model.objects) if (o.generator === "ball" && o.mode !== "actor" && !skip?.(o)) this.add(o);
     // zones où un ballon se trouve déjà au départ : pas d'`enter` au premier coup
     for (const b of this.bodies) this.inZone.set(b.id, new Set(this.zones.filter((zn) => this.inside(zn, b.pos)).map((zn) => zn.id)));
   }
