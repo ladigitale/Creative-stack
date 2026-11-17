@@ -23,6 +23,12 @@ export type GroundSpec = {
   /** Position du trait de côte (−1 … 1 sur l'axe du bord) et profondeur atteinte. */
   coastAt?: number;
   coastDepth?: number;
+  /**
+   * Monde infini : la scène est une tuile dont le centre est en `origin` (m, repère du monde). Le relief est calculé en
+   * coordonnées du monde (deux tuiles voisines se raccordent sans couture), sans côte ni socle de diorama ; `step`
+   * fixe le pas du maillage (m).
+   */
+  world?: { origin: [number, number]; step: number };
 };
 
 const SURF: Record<GroundSpec["surface"], number> = { grass: ROLE.grass, sand: ROLE.path, snow: ROLE.snow, dirt: ROLE.ground, paved: ROLE.road, seabed: ROLE.ground };
@@ -51,7 +57,8 @@ export class Terrain {
   readonly res: [number, number];
   private heights: Float32Array;
 
-  constructor(spec: GroundSpec, paths: PathSpec[]) {
+  /** `heights` : grille déjà calculée (tuile composée dans un worker), reprise telle quelle. */
+  constructor(spec: GroundSpec, paths: PathSpec[], heights?: Float32Array) {
     this.spec = spec;
     this.paths = paths;
     // hauteur de chaque route : terrain brut lissé le long du tracé
@@ -62,9 +69,13 @@ export class Terrain {
       return sm;
     });
     const [w, d] = spec.size;
-    const step = clamp(Math.max(w, d) / 150, 0.4, 2);
+    const step = spec.world ? clamp(spec.world.step, 0.25, 8) : clamp(Math.max(w, d) / 150, 0.4, 2);
     this.res = [Math.max(8, Math.round(w / step)), Math.max(8, Math.round(d / step))];
     this.heights = new Float32Array((this.res[0] + 1) * (this.res[1] + 1));
+    if (heights && heights.length === this.heights.length) {
+      this.heights = heights;
+      return;
+    }
     for (let j = 0; j <= this.res[1]; j++)
       for (let i = 0; i <= this.res[0]; i++) {
         const x = (i / this.res[0] - 0.5) * w, z = (j / this.res[1] - 0.5) * d;
@@ -72,10 +83,16 @@ export class Terrain {
       }
   }
 
-  /** Relief brut (sans routes). */
+  /** Grille des hauteurs (transport vers le fil principal). */
+  get heightData(): Float32Array {
+    return this.heights;
+  }
+
+  /** Relief brut (sans routes), (x, z) dans le repère de la scène. */
   raw(x: number, z: number): number {
     const s = this.spec;
     if (s.relief <= 0 && s.mountains <= 0) return 0;
+    if (s.world) return worldRelief(s, x + s.world.origin[0], z + s.world.origin[1]);
     const f = 1 / Math.max(4, s.scale);
     const o = s.seed * 13.7;
     let h = s.relief * warped2(x * f + o, z * f - o, 0.9, 4);
@@ -90,6 +107,13 @@ export class Terrain {
       h += s.mountains * ridge2(x * f * 0.6 + o, z * f * 0.6, 5) ** 1.6 * mix(0.25, 1, edge) * 2.2;
     }
     return h;
+  }
+
+  /** Le point appartient-il à la scène (tuile : bord haut exclu, chaque tronçon est dessiné par une seule tuile) ? */
+  owns(x: number, z: number): boolean {
+    if (!this.spec.world) return true;
+    const [w, d] = this.spec.size;
+    return x >= -w / 2 && x < w / 2 && z >= -d / 2 && z < d / 2;
   }
 
   private compute(x: number, z: number): number {
@@ -109,9 +133,10 @@ export class Terrain {
     return h;
   }
 
-  /** Hauteur interpolée du sol. */
+  /** Hauteur interpolée du sol (tuile d'un monde infini : calculée exactement hors de la grille). */
   height(x: number, z: number): number {
     const [w, d] = this.spec.size;
+    if (this.spec.world && (Math.abs(x) > w / 2 || Math.abs(z) > d / 2)) return this.compute(x, z);
     const fx = clamp((x / w + 0.5) * this.res[0], 0, this.res[0] - 1e-6);
     const fz = clamp((z / d + 0.5) * this.res[1], 0, this.res[1] - 1e-6);
     const i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j;
@@ -164,6 +189,10 @@ export class Terrain {
         const a = j * (nx + 1) + i;
         m.quad(a, a + nx + 1, a + nx + 2, a + 1);
       }
+    if (this.spec.world) {
+      m.blend = blend;
+      return m;
+    }
     // socle : flancs descendus sous le relief (lecture « diorama » en vue iso, pas de bord flottant)
     const bottom = Math.min(...this.heights) - Math.max(1.5, Math.max(w, d) * 0.03);
     const edge = (idx: number[], out: [number, number]) => {
@@ -216,6 +245,7 @@ export class Terrain {
         }
         const stride = sideWalls ? 6 : 2;
         for (let k = 0; k < n - 1; k++) {
+          if (!this.owns((pts[k][0] + pts[k + 1][0]) / 2, (pts[k][1] + pts[k + 1][1]) / 2)) continue;
           const a = k * stride, b = (k + 1) * stride;
           m.quad(a, a + 1, b + 1, b);
           if (sideWalls) {
@@ -255,6 +285,7 @@ export class Terrain {
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     for (let k = 0; k < pts.length - 1; k++) {
       const a = pts[k], b = pts[k + 1];
+      if (!this.owns((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)) continue;
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
       const t: [number, number] = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
       const n: [number, number] = [-t[1], t[0]];
@@ -296,7 +327,7 @@ export class Terrain {
     const wl = this.spec.water;
     if (wl === null) return null;
     const [w, d] = this.spec.size;
-    const n = 60;
+    const n = this.spec.world ? Math.max(4, Math.round(Math.max(w, d) / 4)) : 60;
     const m = new Mesh();
     let any = false;
     for (let j = 0; j <= n; j++)
@@ -311,6 +342,7 @@ export class Terrain {
         const a = j * (n + 1) + i;
         m.quad(a, a + n + 1, a + n + 2, a + 1);
       }
+    if (this.spec.world) return any ? m : null;
     // flancs du diorama côté eau
     const bottom = Math.min(...this.heights) - Math.max(1.5, Math.max(w, d) * 0.03);
     const side = (pts: [number, number][], nrm: V3) => {
@@ -331,6 +363,21 @@ export class Terrain {
     side(zs.map((z) => [-w / 2 * 0.999, z] as [number, number]), [-1, 0, 0]);
     return any ? m : null;
   }
+}
+
+/**
+ * Relief du monde infini en (x, z) du monde : même fBm que les scènes finies, montagnes modulées par un champ lent
+ * (pas de bord de scène vers lequel monter).
+ */
+export function worldRelief(s: Pick<GroundSpec, "relief" | "scale" | "mountains" | "seed">, x: number, z: number): number {
+  const f = 1 / Math.max(4, s.scale);
+  const o = s.seed * 13.7;
+  let h = s.relief * warped2(x * f + o, z * f - o, 0.9, 4);
+  if (s.mountains > 0) {
+    const edge = smoothstep(-0.2, 0.6, warped2(x * f * 0.15 - o, z * f * 0.15 + o, 0.5, 2));
+    h += s.mountains * ridge2(x * f * 0.6 + o, z * f * 0.6, 5) ** 1.6 * mix(0.25, 1, edge) * 2.2;
+  }
+  return h;
 }
 
 /** Rééchantillonne une polyligne à pas régulier. */

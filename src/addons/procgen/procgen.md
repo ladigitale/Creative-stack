@@ -12,7 +12,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 
 | Clé | Rôle |
 |---|---|
-| `scene` | Scène de la bibliothèque : `village`, `rue`, `port`, `foret`, `bivouac`, `personnages`, `marche`, `montagne`, `vapeur`, `neon`, `blasons`, `jardin`, `ferme`, `bord-de-mer`, `aire-de-jeux`, `place-medievale`, `jardin-japonais`, `riviere` (pont de pierre et passerelle, ponton, mare, abreuvoir, train, animaux qui boivent, mangent, dorment), `prairie` (blé, prairie fleurie, herbes hautes, roseaux autour d'une mare, au vent ; promeneurs et moutons qui couchent les herbes) |
+| `scene` | Scène de la bibliothèque : `campagne` (monde infini : routes, bois, fermes, un randonneur suivi), `village`, `rue`, `port`, `foret`, `bivouac`, `personnages`, `marche`, `montagne`, `vapeur`, `neon`, `blasons`, `jardin`, `ferme`, `bord-de-mer`, `aire-de-jeux`, `place-medievale`, `jardin-japonais`, `riviere` (pont de pierre et passerelle, ponton, mare, abreuvoir, train, animaux qui boivent, mangent, dorment), `prairie` (blé, prairie fleurie, herbes hautes, roseaux autour d'une mare, au vent ; promeneurs et moutons qui couchent les herbes) |
 | `render` | `3d` (défaut), `vector` (illustration vectorielle 2D, voir plus bas) ou `photo` (3D, rendu soigné à l'arrêt qui fige l'animation, voir Rendu soigné) |
 | `ambiance` | Direction artistique d'un mot (voir Ambiances) : `realiste`, `militaire`, `cartoon`, `jouet`, `cyber`, `alien`, `silhouette`, `noir`, `voxel`, `retro`, `horreur`, `western`, `pastel`, `tableau`, `onirique`, ou `{base, …surcharges}` ; aussi attribut `ambiance`, clé `ambiance` de la recette ou jeton de style |
 | `photo` | Rendu soigné quand la scène est immobile : `true` ou `{moteur, echantillons, rebonds, attente, filtre, tramage, niveaux, touche, echelle}` (voir Rendu soigné) ; aussi attribut `photo` |
@@ -33,6 +33,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `queries` | Physique 3D : requêtes `{<id>: {n, ray: {from, dir, max}} \| {n, sphere: {at, r}} \| {n, box: {lo, hi}}, mask, ignore, live}` |
 | `weather` | Météo prioritaire sur celle de la recette (voir Particules) : `"rain"` ou `{kind, intensity}` ; sans recomposition |
 | `fx` | Salves : `{<système>: {n, at, scale, color, count}}`, une salve à chaque hausse de `n` (ex. `{"campfires-sparks": {n: 3}}`) |
+| `tiles` | Monde infini : retouches persistées par tuile `{"cx,cz": {remove, move, add}}` (voir Monde infini) ; recopier `place.payload.tiles` |
 | `kick` | Coup donné à un ballon sans acteur : `{ball: "ballons.0", power, dir (°, 0 = +z), loft, n}` ou `{ball, vx, vy, vz}` (m/s, norme bornée à 40), ou une liste de 16 au plus ; joué quand la valeur change (pas au chargement) : pour retirer le même coup, incrémenter `n` |
 
 ## Clés écrites dans `state-out` (défaut `<dataProvider>State`)
@@ -51,6 +52,8 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `view` | Vue courante (après pan / zoom de l'utilisateur) |
 | `physics` | Physique 3D (si la recette la demande) : `{status: loading\|ready\|error, time, count, awake, bodies: {<id>: {x, y, z, rx, ry, rz (°), vx, vy, vz, awake}}}`, 10 fois par seconde au plus tant que ça bouge, rien au repos |
 | `queries` | Réponses aux requêtes : `{<id>: {n, hit, objectId, tags, x, y, z, normal, dist}}` (rayon) ou `{n, hit, objectId, all}` (sphère, boîte) |
+| `infinite` | Monde infini : `{center, tile: [cx, cz], radius, loaded, pending, ms, lastTileMs, avgTileMs, uploadMs, uploadMaxMs, pumpMaxMs, edits, persist, worker, mounted, gpu: {tris, calls}}` |
+| `tiles` | Monde infini : retouches persistées (copie du composant, bornée par `persist`) |
 | `balls` | `{<id>: {x, y, z, moving}}` des ballons visibles (200 au plus), republié pendant le mouvement (5 fois par seconde au plus), au coup et à l'arrêt |
 | `photo` | Rendu soigné : `{etat: arret\|attente\|calcul\|fini\|indisponible, moteur: rayons\|raster, echantillons, total, progression (0…1), raison}` ; `null` sans `photo` ; `status.photoMs` : coût du démarrage (copie traçable et BVH, ms) |
 | `ambiance` | `{name, meteo}` de l'ambiance appliquée (`meteo` : préréglages de particules demandés), `null` sans ambiance |
@@ -242,6 +245,52 @@ Herbes hautes, champs de blé, roseaux, prairies fleuries et gazon en **brins in
 - **Densité** : `meadowDetail` (clé de recette) `0`, `1`, `2` ou `auto` (défaut : 0 sur mobile — écran tactile ou petit —, 1 sinon) fixe le plafond de brins de toute la scène (20 000, 60 000, 160 000), partagé entre les champs au prorata ; un champ qui dépasse sa part est semé moins dense, uniformément.
 - **Coût** : rien sans `meadows`. Avec : un appel de dessin par champ (maillage instancié, 12 à 24 triangles par brin), vent et ploiement dans le shader de sommet (le CPU ne pousse que l'horloge, le vent et 8 positions par image), pas d'ombre portée par les brins (passe d'ombre sans eux), pas de sélection (les touchers traversent la prairie). Semis à la composition : une grille du sol semable et des emprises par case, quelques dizaines de ms. Une prairie au vent impose un rendu continu (comme les feuillages souples ; `anim.play: false` le suspend).
 - **Rendu vectoriel** : les prairies sont ignorées (une `issue` `info` le signale) ; pour un équivalent dessiné, semer des touffes `grass` / `flowers` ou des `plant.tallgrass` / `plant.reeds`, qui ont leur dessin vectoriel.
+
+## Monde infini
+
+Une recette avec `infinite` n'a pas de bords : sol, routes et couches sont composés **par tuiles** carrées autour d'un point suivi, chargées devant lui et relâchées derrière. Même graine → même monde, quel que soit le chemin parcouru.
+
+```json
+{
+  "infinite": { "tile": 32, "radius": 2, "follow": "heros", "seed": "campagne",
+    "roads": [{ "id": "routes", "kind": "road", "width": 3.6, "spacing": 112, "density": 0.75 },
+              { "id": "chemins", "kind": "path", "width": 1.6, "spacing": 48, "density": 0.45, "wiggle": 0.35 }],
+    "persist": 400 },
+  "ground": { "relief": 2.2, "scale": 38 },
+  "layers": [
+    { "id": "arbres", "gen": "tree", "place": { "scatter": { "cell": 7, "density": "= clamp(noise(x / 70, z / 70) * 1.6, 0, 0.9)" } } },
+    { "id": "herbes", "gen": "grass", "walkable": true, "place": { "scatter": { "cell": 3, "density": 0.45 } } },
+    { "id": "bornes", "gen": "prop.milestone", "place": { "along": "routes", "side": "left", "spacing": 40 } },
+    { "id": "puits", "gen": "prop.well", "place": { "at": [[6, 5]] } }
+  ],
+  "actors": { "heros": { "at": [0, 0] } },
+  "view": { "camera": "follow", "actor": "heros" }
+}
+```
+
+Scène de bibliothèque : `scene: "campagne"`.
+
+| `infinite.` | Rôle |
+|---|---|
+| `tile` | Côté d'une tuile (m, 8 à 128, défaut 32) |
+| `radius` | Rayon de chargement en tuiles (1 à 4, défaut 2) ; réduit d'une tuile en qualité basse |
+| `follow` | Id d'acteur de `recipe.actors` autour duquel charger, ou `camera` (centre de la vue : `view.cx`, `view.cz`) |
+| `seed` | Graine du monde (défaut : `seed` de la scène) |
+| `roads` | Réseau(x) de routes du monde (4 au plus) : `{id, kind: road\|street\|path\|river\|plaza, width, sidewalk, spacing (m entre carrefours), density (part des tronçons tracés), wiggle (sinuosité 0 à 0,45)}` ; tronçons `<id>.<i>_<j>_<h\|v>` |
+| `persist` | Retouches persistées au plus, tout le monde confondu (défaut 400, `{total}` accepté) |
+| `budget` | Composition sur le fil principal par image (ms, défaut 4 ; 2,5 sur mobile) |
+| `quality` | `auto` (défaut : rayon réduit sur mobile ou quand la densité de pixels a dû baisser), `low`, `high` |
+| `step` | Pas du maillage de sol (m, défaut 1) |
+
+- **Sol** : relief en coordonnées du monde (même `ground.relief`, `scale`, `mountains`, `water` qu'une scène finie ; ni côte ni socle) : deux tuiles voisines se raccordent sans couture. Au-delà des tuiles chargées, un sol lointain grossier (relief brut) s'étend sous le brouillard : jamais de bord du monde ni de trou pendant qu'une tuile se compose.
+- **Routes** : un nœud par cellule de `spacing` m (à désordre), une route entre nœuds voisins selon `density` ; chaque tronçon a les mêmes points vus de toutes les tuiles (chaussée raccordée), dessiné par la tuile qui contient chaque bout. `paths` de la recette (coordonnées du monde) s'y ajoutent.
+- **Couches** : `place.scatter` `{cell, density, jitter}` sème sur une grille du monde (un candidat par cellule, graine par cellule, `density` nombre ou expression avec `x`, `z`, `h`) : sans couture ni chevauchement entre tuiles. `along: "routes"` suit tous les tronçons du réseau. `at`, `grid`, `cluster`, `ring` sont ancrés au monde (seuls les points de la tuile y sont posés, `at` garde son rang : `puits.0`). `poisson` et `edges` tirent `count` objets **par tuile**. Personnages et animaux : dans `recipe.actors` seulement (les couches d'acteurs sont ignorées, signalé).
+- **Ids** : `<couche>.<cx>_<cz>_<rang>` (stables : revenir sur une tuile redonne les mêmes objets), `<couche>.<rang>` pour `at`.
+- **Collisions** : les acteurs marchent sur le relief et les tabliers des tuiles, leur navigation passe par les grilles des tuiles chargées (chemin recousu sur 160 m au plus ; au-delà, ligne droite) ; `{vx, vz}` s'arrête contre un obstacle (`blocked`) ; le glisser range l'objet contre le peuplement de toutes les tuiles chargées.
+- **Édition au doigt** : tout objet d'une tuile se glisse (avec `drag`), d'une tuile à l'autre. Au lâcher, `place` porte en plus `tile` (`"cx,cz"` d'arrivée), `tiles` (toutes les retouches, déjà bornées) et `persist: {count, total, dropped}` : **le reducer recopie `payload.tiles` dans la clé `tiles`** (rien d'autre à calculer). Le composant garde aussi sa copie (publiée dans `state-out.tiles`) : une tuile relâchée puis rechargée garde la pose même sans store. `placeFree` porte `tile` : pour un nouvel objet, ajouter `{id, gen, params, x, z, yaw}` à `tiles."cx,cz".add`.
+- **Retouches** (`tiles."cx,cz"`) : `remove` (ids), `move` (`{id: {x, z, yaw (°)}}`), `add` (`[{id, layer, gen, params, x, z, yaw, scale}]`), `t` (instant). Un objet déplacé dans une autre tuile y est ajouté et retiré de la sienne. Le total est borné par `persist` : au-delà, les tuiles **les plus éloignées** du point suivi sont oubliées d'abord (à distance égale, la plus ancienne), la tuile qu'on vient de retoucher jamais : le total se répartit sur les tuiles proches.
+- **Fluidité** : les tuiles se composent les plus proches d'abord, deux en file au plus ; sur le fil principal, par tranches (une étape par objet neuf, `budget` ms par image) ; dans un **worker** si l'application en fournit un (voir CSP). Une tuile au plus est envoyée à la carte graphique par image ; une tuile retouchée reste affichée jusqu'à l'arrivée de la nouvelle. Les objets répétés de toutes les tuiles partagent un maillage instancié par asset (un appel de dessin par asset) ; herbes, fleurs, plantes et petits objets ne sont dessinés que sur les tuiles voisines (plus les buissons en qualité basse) ; ombres et brouillard suivent le point suivi.
+- Limites : rendu 3D seulement (en rendu vectoriel, la recette est composée comme une scène finie, signalé) ; les ballons semés dans les tuiles sont du décor immobile ; `zones` et `target` d'acteur au départ visent des coordonnées ou les objets de `recipe.actors`, pas ceux des tuiles (un acteur peut ensuite marcher vers un objet chargé : `{target: "puits.0"}`).
 
 ## Générateurs
 
@@ -523,4 +572,15 @@ La vue de l'utilisateur (orbite, pan, zoom) est conservée à la recomposition :
 
 ## CSP
 
-Pas d'`eval`, pas de `new Function`, pas de worker. Les recettes et expressions sont analysées par procgen lui-même.
+Pas d'`eval`, pas de `new Function`, pas d'URL de script. Les recettes et expressions sont analysées par procgen lui-même.
+
+Monde infini hors du fil principal : l'application construit le worker avec son propre bundler et le confie à procgen (sinon, composition par tranches sur le fil principal ; repli automatique si le worker échoue) :
+
+```ts
+// procgen-tiles.worker.ts
+import { serveTileWorker } from "@supersoniks/creative-stack/procgen/tile-worker";
+serveTileWorker(self);
+// au chargement de l'addon
+import { setProcgenTileRunner, WorkerTileRunner } from "@supersoniks/creative-stack/procgen";
+setProcgenTileRunner(() => new WorkerTileRunner(new Worker(new URL("./procgen-tiles.worker.ts", import.meta.url), { type: "module" })));
+```

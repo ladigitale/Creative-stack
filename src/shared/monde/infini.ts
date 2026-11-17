@@ -11,8 +11,9 @@
  *
  * Sans dépendance au rendu : `sonic-3d` et `sonic-2d` dessinent les tuiles chargées.
  */
-import { Rng, hash32 } from "../rng";
+import { Rng } from "../rng";
 import { evaluate } from "../expr";
+import { cellCandidates, ringTiles, tileTooFar } from "./tiles";
 
 export type InfiniLayer = {
   /** Modèles tirés au hasard pour chaque copie. */
@@ -163,27 +164,17 @@ export function generateTile(s: InfiniSpec, cx: number, cz: number, edit?: TileE
   const key = `${cx},${cz}`;
   const items: TileItem[] = [];
   s.layers.forEach((L, li) => {
-    const c = L.cell;
-    const i0 = Math.floor(x0 / c), i1 = Math.ceil((x0 + T) / c);
-    const j0 = s.axes === "x" ? 0 : Math.floor(z0 / c), j1 = s.axes === "x" ? 1 : Math.ceil((z0 + T) / c);
     let rank = 0;
-    for (let i = i0; i < i1; i++)
-      for (let j = j0; j < j1; j++) {
-        if (items.length >= s.perTile) return;
-        // une graine par cellule du monde : la même quelle que soit la tuile qui la génère
-        const r = new Rng(hash32(`${s.seed}/${li}/${i}/${j}`));
-        const x = (i + 0.5 + (r.next() - 0.5) * L.jitter) * c;
-        const z = s.axes === "x" ? z0 + (r.next() - 0.5) * L.jitter * c : (j + 0.5 + (r.next() - 0.5) * L.jitter) * c;
-        // la cellule appartient à la tuile qui contient son candidat
-        if (x < x0 || x >= x0 + T || (s.axes !== "x" && (z < z0 || z >= z0 + T))) continue;
-        const h = heightAt(s, x, z);
-        const biome = biomeAt(s, x, z).name;
-        if (L.biomes.length && !L.biomes.includes(biome)) continue;
-        const d = typeof L.density === "number" ? L.density : field(L.density, x, z, { h, biome }, r);
-        if (r.next() >= d) continue;
-        const model = L.models.length > 1 ? L.models[Math.floor(r.next() * L.models.length) % L.models.length] : L.models[0];
-        items.push({ id: `t.${cx}.${cz}.${li}.${rank++}`, layer: li, model, x, y: h, z, ry: (r.next() * L.turn * Math.PI) / 180, s: L.scale[0] + (L.scale[1] - L.scale[0]) * r.next() });
-      }
+    for (const { x, z, rng: r } of cellCandidates(s.seed, li, L.cell, L.jitter, x0, z0, T, s.axes)) {
+      if (items.length >= s.perTile) return;
+      const h = heightAt(s, x, z);
+      const biome = biomeAt(s, x, z).name;
+      if (L.biomes.length && !L.biomes.includes(biome)) continue;
+      const d = typeof L.density === "number" ? L.density : field(L.density, x, z, { h, biome }, r);
+      if (r.next() >= d) continue;
+      const model = L.models.length > 1 ? L.models[Math.floor(r.next() * L.models.length) % L.models.length] : L.models[0];
+      items.push({ id: `t.${cx}.${cz}.${li}.${rank++}`, layer: li, model, x, y: h, z, ry: (r.next() * L.turn * Math.PI) / 180, s: L.scale[0] + (L.scale[1] - L.scale[0]) * r.next() });
+    }
   });
   if (edit) {
     if (edit.remove?.length) {
@@ -253,24 +244,18 @@ export class TileManager {
       this.onEnter?.({ cx: ccx, cz: ccz, biome: biomeAt(s, (ccx + 0.5) * T, (ccz + 0.5) * T).name });
     }
     const R = s.radius;
-    const want: { cx: number; cz: number; d: number }[] = [];
-    for (let dx = -R; dx <= R; dx++)
-      for (let dz = s.axes === "x" ? 0 : -R; dz <= (s.axes === "x" ? 0 : R); dz++) {
-        const d = Math.hypot(dx, dz);
-        if (d <= R + 0.5) want.push({ cx: ccx + dx, cz: ccz + dz, d });
-      }
-    want.sort((a, b) => a.d - b.d);
+    const want = ringTiles(ccx, ccz, R, s.axes);
     let changed = this.changed;
     this.changed = false;
     // relâche
-    for (const [k, t] of this.tiles) if (Math.hypot(t.cx - ccx, t.cz - ccz) > R + 1.5) {
+    for (const [k, t] of this.tiles) if (tileTooFar(t.cx, t.cz, ccx, ccz, R)) {
       this.tiles.delete(k);
       changed = true;
     }
     // charge, les plus proches d'abord, dans le budget
     let left = 0;
     for (const w of want) {
-      const k = `${w.cx},${w.cz}`;
+      const k = w.key;
       if (this.tiles.has(k)) continue;
       const now = typeof performance !== "undefined" ? performance.now() : 0;
       if (now - t0 > budgetMs && this.tiles.size > 0) {

@@ -3,7 +3,9 @@
  * objets, blasons) rendu en 2D ou en 3D selon la caméra et le style, piloté par DataProvider.
  * Opt-in : `@supersoniks/creative-stack/procgen` (peer : three).
  */
-export { SonicProcgen } from "./procgen";
+export { SonicProcgen, setProcgenTileRunner } from "./procgen";
+export { WorkerTileRunner } from "./scene/tile-worker";
+export { TileWorld, MainThreadRunner, readInfinite, worldRoads, recordMove, type InfiniteSpec, type TileRunner } from "./scene/infinite";
 export { ProcgenView, type ActorIntent, type GameEvent } from "./render/view";
 export { composeScene, type Recipe, type SceneModel, type LayerSpec, type Placement } from "./scene/compose";
 export { SCENES } from "./scene/library";

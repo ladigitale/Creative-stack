@@ -6,8 +6,8 @@ export class NavGrid {
   readonly cell: number;
   readonly nx: number;
   readonly nz: number;
-  readonly ox: number;
-  readonly oz: number;
+  ox: number;
+  oz: number;
   readonly blocked: Uint8Array;
 
   constructor(w: number, d: number, cell = 0.5) {
@@ -17,6 +17,12 @@ export class NavGrid {
     this.ox = -w / 2;
     this.oz = -d / 2;
     this.blocked = new Uint8Array(this.nx * this.nz);
+  }
+  /** Déplace la grille (tuile d'un monde infini composée en repère local puis posée dans le monde). */
+  shift(dx: number, dz: number): this {
+    this.ox += dx;
+    this.oz += dz;
+    return this;
   }
   toCell(x: number, z: number): [number, number] {
     return [Math.floor((x - this.ox) / this.cell), Math.floor((z - this.oz) / this.cell)];

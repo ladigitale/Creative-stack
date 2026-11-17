@@ -22,6 +22,7 @@ import { NavGrid } from "./nav";
 import { type Meadow, meadowBudget, meadowKeep, readMeadows, sowMeadows } from "./meadows";
 import { type GroundSpec, type PathKind, type PathSpec, Terrain, distToPath, pointAt } from "./terrain";
 import { type BodySpec, type PhysicsSpec, readBody, readPhysics } from "../../../shared/monde/physique";
+import { cellCandidates, tileKey } from "../../../shared/monde/tiles";
 
 export type Placement =
   /** Point `at` : `y` (m au-dessus du sol) et `physics` (corps de cet objet) servent à la physique. */
@@ -33,7 +34,12 @@ export type Placement =
   | { ring: [number, number]; radius: number; jitter?: number }
   | { edges: "buildings" | "paths" | "all"; offset?: number }
   /** En travers d'une route ou d'une rivière (ponts) : `distance` = position le long du tracé (m, défaut : milieu), `spacing` entre plusieurs. */
-  | { across: string; distance?: number; spacing?: number };
+  | { across: string; distance?: number; spacing?: number }
+  /**
+   * Semis sur une grille du monde à désordre : un candidat par cellule de `cell` m, gardé selon `density` (nombre ou
+   * expression avec `x`, `z`, `h`), désordre `jitter` (0 à 1). Sans couture entre les tuiles d'un monde infini.
+   */
+  | { scatter: { cell?: number; density?: number | string; jitter?: number } };
 
 export type LayerSpec = {
   id: string;
@@ -90,6 +96,8 @@ export type Recipe = {
   weather?: unknown;
   fx?: unknown;
   particles?: unknown;
+  /** Monde infini : `{tile, radius, follow, seed, roads, persist, budget, quality, step}` (voir infinite.ts). */
+  infinite?: Record<string, unknown> | false;
 };
 
 export type ObjectInfo = {
@@ -182,6 +190,34 @@ export const MAX_SOFT_OBJECTS = 48;
 const TILE = 24;
 const MAX_ITEMS = 1500;
 
+/** Retouches persistées d'une tuile de monde infini (`tiles."cx,cz"`). */
+export type TileEdit = {
+  remove?: string[];
+  move?: Record<string, { x: number; z: number; yaw?: number }>;
+  add?: { id?: string; layer?: string; gen: string; params?: Record<string, unknown>; x: number; z: number; yaw?: number; scale?: number }[];
+  t?: number;
+};
+
+/** Tuile d'un monde infini : composée en repère local (centre en `origin`), posée dans le monde à la fin. */
+export type TileInput = {
+  cx: number;
+  cz: number;
+  size: number;
+  /** Centre de la tuile (m, repère du monde). */
+  origin: [number, number];
+  /** Graine du monde (semis par cellule). */
+  seed: string;
+  /** Pas du maillage de sol (m). */
+  step: number;
+  /** Routes du monde qui touchent la tuile (repère du monde). */
+  paths: PathSpec[];
+  /** Assets partagés entre tuiles (mêmes paramètres = même maillage, instancié dans tout le monde). */
+  assetCache?: Map<string, Asset>;
+  /** Premier identifiant d'objet de la tuile (sélection, surlignage). */
+  objBase: number;
+  edits?: TileEdit;
+};
+
 export type ComposeInput = {
   recipe: Recipe;
   seed?: string | number;
@@ -191,6 +227,8 @@ export type ComposeInput = {
   /** Écran tactile ou petit : prairies moins denses en `meadowDetail: "auto"`. */
   mobile?: boolean;
   assetBuilder?: (generator: string, params: Record<string, unknown>, ctx: import("../gen/types").GenContext) => Asset | null;
+  /** Monde infini : compose une tuile (sans acteurs ni zones). */
+  tile?: TileInput;
 };
 
 /** Composition synchrone (tests, outils). */
@@ -222,7 +260,7 @@ export async function composeSceneAsync(input: ComposeInput, opts: { budgetMs?: 
   }
 }
 
-function* composeSteps(input: ComposeInput): Generator<[number, number] | undefined, SceneModel> {
+export function* composeSteps(input: ComposeInput): Generator<[number, number] | undefined, SceneModel> {
   const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
   const issues = new Issues();
   const recipe = input.recipe ?? {};
@@ -265,16 +303,20 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
   /** Corps de l'objet en cours de placement (couche, point `at`), hauteur de départ au-dessus du sol. */
   let bodyNext: BodySpec | undefined;
   let liftNext = 0;
+  const tile = input.tile ?? null;
+  const [ox, oz] = tile ? tile.origin : [0, 0];
   const sizeR = recipe.size ?? [40, 30];
-  const size: [number, number] = [clamp(num(sizeR[0], "size[0]", root, 40), 4, 400), clamp(num(sizeR[1], "size[1]", root, 30), 4, 400)];
+  const size: [number, number] = tile ? [tile.size, tile.size] : [clamp(num(sizeR[0], "size[0]", root, 40), 4, 400), clamp(num(sizeR[1], "size[1]", root, 30), 4, 400)];
   // routes
-  const paths: PathSpec[] = (recipe.paths ?? []).map((p, i) => ({
+  const paths0: PathSpec[] = (recipe.paths ?? []).map((p, i) => ({
     id: p.id ?? `path${i}`,
     points: (R(p.points, `paths[${i}].points`, root) as [number, number][]).filter((q) => Array.isArray(q)).map((q) => [Number(q[0]) || 0, Number(q[1]) || 0] as [number, number]),
     width: num(p.width, `paths[${i}].width`, root, 4),
     kind: (["street", "road", "path", "river", "plaza"] as const).includes(p.kind as PathKind) ? (p.kind as PathKind) : "street",
     sidewalk: num(p.sidewalk, `paths[${i}].sidewalk`, root, p.kind === "street" || !p.kind ? 1.8 : 0),
   }));
+  // tuile : routes de la recette et du réseau du monde, ramenées au repère de la tuile
+  const paths: PathSpec[] = tile ? [...paths0, ...tile.paths].map((p) => ({ ...p, points: p.points.map(([x, z]) => [x - ox, z - oz] as [number, number]) })) : paths0;
   // sol
   let terrain: Terrain | null = null;
   if (recipe.ground !== false) {
@@ -290,12 +332,14 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
         water,
         surface: (["grass", "sand", "snow", "dirt", "paved", "seabed"] as const).includes(surf as GroundSpec["surface"]) ? (surf as GroundSpec["surface"]) : "grass",
         seed: (root.fork("ground").next() * 1000) | 0,
-        coast: (["north", "south", "east", "west"] as const).includes(g.coast as "north") ? (g.coast as GroundSpec["coast"]) : null,
+        coast: !tile && (["north", "south", "east", "west"] as const).includes(g.coast as "north") ? (g.coast as GroundSpec["coast"]) : null,
+        ...(tile ? { world: { origin: [ox, oz] as [number, number], step: tile.step } } : {}),
         coastAt: num(g.coastAt, "ground.coastAt", root, 0.2),
         coastDepth: num(g.coastDepth, "ground.coastDepth", root, 3),
       },
       paths,
     );
+    if (tile) yield undefined;
   }
   const H = (x: number, z: number) => (terrain ? terrain.height(x, z) : 0);
   const waterLevel = terrain?.spec.water ?? null;
@@ -305,7 +349,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
   const tiles = new Map<string, Mesh>();
   const softs: SoftItem[] = [];
   const groups = new Map<string, InstanceGroup>();
-  const assetCache = new Map<string, Asset>();
+  const assetCache = tile?.assetCache ?? new Map<string, Asset>();
   const placedCircles: { x: number; z: number; r: number }[] = [];
   const nav = new NavGrid(size[0], size[1], 0.5);
   const decks: Deck[] = [];
@@ -353,7 +397,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
   let total = 0;
 
   const free = (x: number, z: number, r: number, onPath: boolean, spacing: number, onWater = false) => {
-    if (Math.abs(x) > size[0] / 2 - r * 0.3 || Math.abs(z) > size[1] / 2 - r * 0.3) return false;
+    // tuile : le centre est dans la tuile par construction ; l'emprise peut déborder sur la voisine
+    if (!tile && (Math.abs(x) > size[0] / 2 - r * 0.3 || Math.abs(z) > size[1] / 2 - r * 0.3)) return false;
     for (const c of placedCircles) if (Math.hypot(c.x - x, c.z - z) < (c.r + r) * spacing * 0.92) return false;
     if (!onPath && terrain) {
       const pi = terrain.pathInfo(x, z);
@@ -366,7 +411,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     return true;
   };
 
-  const buildAsset = (genId: string, params: Record<string, unknown>, path: string, rng: Rng): { asset: Asset; key: string; generator: string; resolved: Record<string, unknown>; extraScale: number } | null => {
+  const buildAsset = (genId: string, params: Record<string, unknown>, path: string, rng: Rng): { asset: Asset; key: string; generator: string; resolved: Record<string, unknown>; extraScale: number; fresh: boolean } | null => {
     const { gen, preset } = resolveGeneratorId(genId);
     if (!gen) {
       issues.add({ path, code: "unknown", message: `générateur « ${genId} » inconnu`, didYouMean: suggest(genId, Object.keys(GENERATORS)), hint: Object.keys(GENERATORS).join(", ") });
@@ -388,6 +433,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     }
     const key = `${gen.id}|${JSON.stringify(resolved)}`;
     let asset = ACTOR_GENS.has(gen.id) ? undefined : assetCache.get(key);
+    const fresh = !asset;
     if (!asset) {
       try {
         asset = input.assetBuilder?.(gen.id, resolved, { rng, issues, path }) ?? gen.build(resolved as never, { rng, issues, path });
@@ -397,7 +443,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       }
       if (!ACTOR_GENS.has(gen.id)) assetCache.set(key, asset);
     }
-    return { asset, key, generator: gen.id, resolved, extraScale };
+    return { asset, key, generator: gen.id, resolved, extraScale, fresh };
   };
 
   /**
@@ -433,7 +479,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     // ouvrages : posés au plus bas de leurs appuis (les berges d'un pont), pas au fond du lit
     const rest = Array.isArray(asset.extra?.rest) ? (asset.extra!.rest as [number, number][]) : null;
     let y = rest && rest.length ? Math.min(...rest.map(([lx, lz]) => H(x + (lx * c + lz * s) * scale, z + (-lx * s + lz * c) * scale))) - 0.02 : layer?.onWater && waterLevel !== null ? waterLevel - 0.15 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - 0.02;
-    const obj = objects.length + 1;
+    const obj = (tile?.objBase ?? 0) + objects.length + 1;
     const body = bodyNext;
     bodyNext = undefined;
     // corps dynamique lâché d'en haut (`y` d'un point `at`)
@@ -527,6 +573,14 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     }
   };
 
+  // tuile : place libre au départ des acteurs (le semis ne pousse pas sur eux)
+  if (tile)
+    for (const a of Object.values(recipe.actors ?? {})) {
+      const at = Array.isArray(a?.at) ? a.at : [0, 0];
+      const x = Number(at[0]) - ox, z = Number(at[1]) - oz;
+      if (Number.isFinite(x) && Number.isFinite(z) && Math.abs(x) < size[0] && Math.abs(z) < size[1]) placedCircles.push({ x, z, r: 1.5 });
+    }
+
   /* ---------- couches ---------- */
   const layerIds = new Set<string>();
   const layersIn = recipe.layers ?? [];
@@ -543,19 +597,46 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     layerIds.add(lid);
     const lrng = root.fork(lid);
     const place = layer.place ?? { poisson: true };
+    // tuile : seuls les acteurs de `recipe.actors` s'animent (personnages et animaux des couches : pas de semis)
+    if (tile && ACTOR_GENS.has(resolveGeneratorId(layer.gen).gen?.id ?? "")) {
+      issues.add({ path: `${lp}.gen`, code: "info", message: "monde infini : personnages et animaux dans recipe.actors seulement (couche ignorée)" });
+      continue;
+    }
     const asked = Math.round(clamp(num(layer.count, `${lp}.count`, lrng, 1), 0, 400));
-    const positions = placements(place, asked, lrng.fork("place"), size, paths, objects, issues, lp);
-    const count = "at" in place || "grid" in place ? Math.min(positions.length, layer.count === undefined ? positions.length : asked) : asked;
+    let positions: Pos[];
+    let count: number;
+    if (tile) {
+      positions = tilePlacements(place, lid, asked, lrng, tile, size, paths, objects, issues, lp, (v, x, z) => clamp(num(v, `${lp}.place.scatter.density`, lrng, 1, { x: x + ox, z: z + oz, h: H(x, z) }), 0, 1));
+      // tuile : `count` borne la tuile (semis, fléchettes, bords) ; les placements ancrés au monde gardent ce qui y tombe
+      count = layer.count === undefined || "at" in place || "grid" in place ? positions.length : Math.min(positions.length, asked);
+      if ("poisson" in place || "edges" in place) count = asked;
+    } else {
+      positions = "scatter" in place ? scatterPositions(place.scatter, lid, String(seed), -size[0] / 2, -size[1] / 2, Math.max(size[0], size[1]), size, (v, x, z) => clamp(num(v, `${lp}.place.scatter.density`, lrng, 1, { x, z, h: H(x, z) }), 0, 1)) : placements(place, asked, lrng.fork("place"), size, paths, objects, issues, lp);
+      count = "at" in place || "grid" in place || ("scatter" in place && layer.count === undefined) ? Math.min(positions.length, layer.count === undefined ? positions.length : asked) : asked;
+    }
     const spacing = layer.spacing ?? 1;
     let n = 0;
+    const tk = tile ? `${tile.cx}_${tile.cz}` : "";
     for (let i = 0; i < positions.length && n < count; i++) {
       if (objects.length >= MAX_ITEMS) {
         issues.add({ path: lp, code: "limit", message: `limite de ${MAX_ITEMS} objets atteinte` });
         break;
       }
       const pos = positions[i];
-      const id = `${lid}.${n}`;
-      const irng = lrng.fork(n);
+      // ids stables : rang dans `at` (comme une scène finie), sinon tuile et rang dans la tuile
+      const id = pos.idx !== undefined ? `${lid}.${pos.idx}` : tile ? `${lid}.${tk}_${n}` : `${lid}.${n}`;
+      const irng = pos.idx !== undefined ? lrng.fork(pos.idx) : tile ? lrng.fork(`${tk}_${n}`) : lrng.fork(n);
+      // retouches persistées : objet retiré (le rang reste pris : les suivants gardent leur id), déplacé
+      if (tile?.edits?.remove?.includes(id)) {
+        n++;
+        continue;
+      }
+      const moved = tile?.edits?.move?.[id];
+      if (moved && Number.isFinite(moved.x) && Number.isFinite(moved.z)) {
+        pos.x = moved.x - ox;
+        pos.z = moved.z - oz;
+        if (Number.isFinite(moved.yaw)) pos.yaw = (moved.yaw as number) * DEG;
+      }
       const vars = { i: n, n: count, t: count > 1 ? n / (count - 1) : 0, x: pos.x, z: pos.z };
       const edits = input.edits?.[id] ?? input.edits?.[lid];
       const raw = { ...(R(layer.params ?? {}, `${lp}.params`, irng, vars, 0) as Record<string, unknown>), ...(edits ?? {}) };
@@ -564,7 +645,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       if (ACTOR_GENS.has(resolveGeneratorId(layer.gen).gen?.id ?? "") && (raw.detail === undefined || raw.detail === "auto")) raw.detail = "crowd";
       const built = buildAsset(layer.gen, raw, id, irng);
       if (!built) break;
-      if (ACTOR_GENS.has(built.generator) || built.generator === "building") yield undefined;
+      if (ACTOR_GENS.has(built.generator) || built.generator === "building" || (tile && built.fresh)) yield undefined;
       const scale = clamp(num(layer.scale, `${lp}.scale`, irng, 1, vars), 0.05, 20) * built.extraScale;
       const r = built.asset.footprint.r * scale;
       const along = "along" in place && place.side !== "center";
@@ -576,7 +657,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       }
       const across = "across" in place;
       const rr = Math.max(0.2, built.generator === "building" ? Math.min(built.asset.footprint.hx, built.asset.footprint.hz) * scale * 0.95 : r * 0.6);
-      if (!("at" in place) && !across && !free(pos.x, pos.z, rr, !!layer.onPath || along || !!layer.onWater, spacing, !!layer.onWater)) continue;
+      if (!("at" in place) && !across && !moved && !free(pos.x, pos.z, rr, !!layer.onPath || along || !!layer.onWater, spacing, !!layer.onWater)) continue;
       let yaw = pos.yaw ?? 0;
       // cap explicite d'un point `at` respecté ; sinon : bâtiments face au chemin, tracés sans rotation, le reste au hasard
       const yw = layer.yaw ?? (built.generator === "building" || across || ("at" in place && pos.yaw !== undefined) ? "path" : built.asset.extra?.segments || built.generator === "structure" || built.generator === "water" ? 0 : "random");
@@ -599,14 +680,30 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       }
       placeObject(layer, id, built.asset, built.key, built.generator, { ...(resolveGeneratorId(layer.gen).preset ?? {}), ...raw }, pos.x, pos.z, yaw, scale, irng, layer.behavior, layer.action);
       const placed = objects[objects.length - 1];
-      if (placed?.id === id) Object.assign(placed, { place: placeKind(place), index: n, ...(layer.onWater ? { onWater: true } : {}), ...(layer.onPath ? { onPath: true } : {}), ...(layer.walkable ? { walkable: true } : {}) });
+      if (placed?.id === id) Object.assign(placed, { place: placeKind(place), index: pos.idx ?? n, ...(layer.onWater ? { onWater: true } : {}), ...(layer.onPath ? { onPath: true } : {}), ...(layer.walkable ? { walkable: true } : {}) });
       n++;
     }
-    if (n < count && !("at" in place) && count > 0) issues.add({ path: `${lp}.count`, code: "info", message: `${n} placés sur ${count} demandés (place libre insuffisante)`, got: count, used: n });
+    if (n < count && !("at" in place) && !tile && count > 0) issues.add({ path: `${lp}.count`, code: "info", message: `${n} placés sur ${count} demandés (place libre insuffisante)`, got: count, used: n });
+  }
+
+  /* ---------- tuile : objets ajoutés par le joueur ---------- */
+  if (tile) for (const [k, a] of (tile.edits?.add ?? []).slice(0, 200).entries()) {
+    if (!a || typeof a.gen !== "string" || !Number.isFinite(a.x) || !Number.isFinite(a.z)) continue;
+    const id = typeof a.id === "string" && a.id ? a.id : `ajout.${tile.cx}_${tile.cz}_${k}`;
+    if (tile.edits?.remove?.includes(id)) continue;
+    const arng = root.fork(`ajout/${id}`);
+    const raw = (a.params && typeof a.params === "object" ? a.params : {}) as Record<string, unknown>;
+    const built = buildAsset(a.gen, raw, `tiles.${tileKey(tile.cx, tile.cz)}.add[${k}]`, arng);
+    if (!built || ACTOR_GENS.has(built.generator)) continue;
+    const lid = typeof a.layer === "string" && a.layer ? a.layer : "ajouts";
+    const scale = clamp(Number.isFinite(a.scale) ? Number(a.scale) : 1, 0.05, 20) * built.extraScale;
+    placeObject({ id: lid, gen: a.gen }, id, built.asset, built.key, built.generator, { ...(resolveGeneratorId(a.gen).preset ?? {}), ...raw }, a.x - ox, a.z - oz, (Number(a.yaw) || 0) * DEG, scale, arng);
+    const placed = objects[objects.length - 1];
+    if (placed?.id === id) Object.assign(placed, { place: "add", index: k });
   }
 
   /* ---------- acteurs ---------- */
-  for (const [aid, a] of Object.entries(recipe.actors ?? {})) {
+  if (!tile) for (const [aid, a] of Object.entries(recipe.actors ?? {})) {
     yield undefined;
     const arng = root.fork(`actor/${aid}`);
     const raw = { ...(R(a.params ?? {}, `actors.${aid}.params`, arng) as Record<string, unknown>), ...(input.edits?.[aid] ?? {}) };
@@ -622,7 +719,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
 
   /* ---------- zones ---------- */
   const zones: Zone[] = [];
-  for (const [zi, z] of (recipe.zones ?? []).entries()) {
+  for (const [zi, z] of (tile ? [] : recipe.zones ?? []).entries()) {
     if (z.box) {
       const [x0, z0, x1, z1] = z.box.map(Number);
       zones.push({ id: z.id ?? `zone${zi}`, x: (x0 + x1) / 2, z: (z0 + z1) / 2, r: 0, box: [Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1)] });
@@ -647,9 +744,13 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
   /* ---------- sol, eau, routes, AO entre objets ---------- */
   let ground: Mesh | null = null, roads: Mesh | null = null, water: Mesh | null = null;
   if (terrain) {
+    // tuile : une étape par passe (le budget par image du monde infini reste tenu)
+    if (tile) yield undefined;
     ground = terrain.mesh();
+    if (tile) yield undefined;
     contactAO(ground, objects);
     roads = terrain.roadMeshes();
+    if (tile) yield undefined;
     if (!roads.vertexCount) roads = null;
     water = terrain.waterMesh();
     // eau et pentes fortes : non navigables
@@ -683,7 +784,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
 
   /* ---------- prairies (brins instanciés, rendu 3D) ---------- */
   let meadows: Meadow[] = [];
-  if (recipe.meadows !== undefined && recipe.meadows !== null && recipe.meadows !== false) {
+  if (tile && recipe.meadows) issues.add({ path: "meadows", code: "info", message: "prairies : pas encore dans les tuiles du monde infini (ignorées)" });
+  if (!tile && recipe.meadows !== undefined && recipe.meadows !== null && recipe.meadows !== false) {
     yield undefined;
     const mr = root.fork("meadows");
     const { fields, custom } = readMeadows(R(recipe.meadows, "meadows", mr, {}, []), size, zones, issues);
@@ -702,12 +804,32 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     }
   }
 
+  // tuile : objets, ancres, obstacles, tabliers et instances posés dans le monde ; sol, routes et bâtiments fusionnés
+  // restent en repère local (la vue les place), la grille de navigation est décalée
+  if (tile) {
+    const sh = (p: V3): V3 => [p[0] + ox, p[1], p[2] + oz];
+    for (const o of objects) {
+      o.pos = sh(o.pos);
+      for (const k of Object.keys(o.anchors)) o.anchors[k] = sh(o.anchors[k]);
+      if (o.blockers) o.blockers = o.blockers.map(([x, z, hx, hz, yw]) => [x + ox, z + oz, hx, hz, yw]);
+    }
+    for (const d of decks) {
+      d.x += ox;
+      d.z += oz;
+    }
+    for (const g of groups.values())
+      for (const m of g.matrices) {
+        m[12] += ox;
+        m[14] += oz;
+      }
+    nav.shift(ox, oz);
+  }
   const minY = terrain ? Math.min(...objects.map((o) => o.pos[1]), 0) - 1 : 0;
   const maxY = Math.max(2, ...objects.map((o) => o.pos[1] + o.height));
   const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
   return {
     size,
-    bounds: { min: [-size[0] / 2, minY, -size[1] / 2], max: [size[0] / 2, maxY, size[1] / 2] },
+    bounds: { min: [ox - size[0] / 2, minY, oz - size[1] / 2], max: [ox + size[0] / 2, maxY, oz + size[1] / 2] },
     terrain,
     ground,
     roads,
@@ -746,7 +868,60 @@ function facePath(x: number, z: number, paths: PathSpec[]): number {
   return best ? Math.atan2(best.px - x, best.pz - z) : 0;
 }
 
-type Pos = { x: number; z: number; yaw?: number; /** Largeur franchie (placement `across`). */ span?: number; /** Hauteur au-dessus du sol (m) et corps d'un point `at`. */ y?: number; physics?: unknown };
+type Pos = { x: number; z: number; yaw?: number; /** Largeur franchie (placement `across`). */ span?: number; /** Hauteur au-dessus du sol (m) et corps d'un point `at`. */ y?: number; physics?: unknown; /** Rang du point dans `at` (monde infini). */ idx?: number };
+
+/** Semis `scatter` dans le carré (x0, z0, côté) du monde, gardé dans `size` (scène finie) ; positions du monde. */
+function scatterPositions(sc: { cell?: number; density?: number | string; jitter?: number }, lid: string, seed: string, x0: number, z0: number, side: number, size: [number, number] | null, density: (v: number | string, x: number, z: number) => number): Pos[] {
+  const out: Pos[] = [];
+  const cell = clamp(Number(sc?.cell) || 4, 0.3, 200);
+  const jitter = clamp(Number.isFinite(Number(sc?.jitter)) ? Number(sc.jitter) : 0.8, 0, 1);
+  const d = sc?.density ?? 0.6;
+  for (const c of cellCandidates(seed, lid, cell, jitter, x0, z0, side)) {
+    if (size && (Math.abs(c.x) > size[0] / 2 || Math.abs(c.z) > size[1] / 2)) continue;
+    const p = typeof d === "number" ? clamp(d, 0, 1) : density(d, c.x, c.z);
+    if (c.rng.next() < p) out.push({ x: c.x, z: c.z });
+    if (out.length > 2000) break;
+  }
+  return out;
+}
+
+/**
+ * Placements d'une couche dans une tuile (repère local) : semis par cellule du monde, points `at` qui tombent dans la
+ * tuile (avec leur rang), placements ancrés au monde (grille, grappe, anneau, le long d'une route) gardés s'ils y
+ * tombent, fléchettes et bords tirés dans la tuile.
+ */
+function tilePlacements(place: Placement, lid: string, count: number, lrng: Rng, tile: TileInput, size: [number, number], paths: PathSpec[], objects: ObjectInfo[], issues: Issues, lp: string, density: (v: number | string, x: number, z: number) => number): Pos[] {
+  const [ox, oz] = tile.origin;
+  const h = tile.size / 2;
+  const inside = (p: Pos) => p.x >= -h && p.x < h && p.z >= -h && p.z < h;
+  if ("scatter" in place) {
+    return scatterPositions(place.scatter, lid, tile.seed, ox - h, oz - h, tile.size, null, (v, x, z) => density(v, x - ox, z - oz)).map((p) => ({ x: p.x - ox, z: p.z - oz }));
+  }
+  if ("at" in place) {
+    const out: Pos[] = [];
+    (place.at ?? []).forEach((a, idx) => {
+      let p: Pos | null = null;
+      if (Array.isArray(a)) p = { x: (Number(a[0]) || 0) - ox, z: (Number(a[1]) || 0) - oz, idx };
+      else if (a && typeof a === "object") p = { x: (Number(a.x) || 0) - ox, z: (Number(a.z) || 0) - oz, yaw: a.yaw !== undefined ? Number(a.yaw) * DEG : undefined, idx };
+      if (p && inside(p)) out.push(p);
+    });
+    return out;
+  }
+  const rng = lrng.fork(`place/${tile.cx}_${tile.cz}`);
+  let local: Placement = place;
+  if ("grid" in place) local = { ...place, origin: [(place.origin?.[0] ?? 0) - ox, (place.origin?.[1] ?? 0) - oz] };
+  else if ("cluster" in place) local = { ...place, cluster: [place.cluster[0] - ox, place.cluster[1] - oz] };
+  else if ("ring" in place) local = { ...place, ring: [place.ring[0] - ox, place.ring[1] - oz] };
+  else if ("poisson" in place && Array.isArray(place.poisson)) local = { ...place, poisson: [place.poisson[0] - ox, place.poisson[1] - oz, place.poisson[2] - ox, place.poisson[3] - oz] };
+  // le long d'un réseau du monde (`along: "routes"`) : chaque tronçon `routes.<…>` qui touche la tuile
+  if ("along" in place && !paths.some((p) => p.id === place.along)) {
+    const net = paths.filter((p) => p.id.startsWith(place.along + "."));
+    if (net.length) return net.flatMap((p) => placements({ ...place, along: p.id }, count, lrng.fork(`place/${p.id}`), size, [p], objects, issues, lp)).filter(inside);
+  }
+  // ancrés au monde : même tirage dans toutes les tuiles (rng de la couche), puis filtre
+  const anchored = "grid" in place || "cluster" in place || "ring" in place || "along" in place || "across" in place;
+  return placements(local, count, anchored ? lrng.fork("place") : rng, size, paths, objects, issues, lp).filter(inside);
+}
 
 /**
  * Distance (selon l'avant) du pied de l'acteur à sa bouche quand il boit ou mange à une cible de hauteur `reachY` :
@@ -797,7 +972,7 @@ export function groundHeight(model: Pick<SceneModel, "terrain" | "decks">, x: nu
 
 /** Nom du mode de placement d'une couche (`at`, `grid`, `poisson`…). */
 export function placeKind(place: Placement): string {
-  for (const k of ["at", "grid", "poisson", "along", "cluster", "ring", "edges", "across"]) if (k in place) return k;
+  for (const k of ["at", "grid", "poisson", "along", "cluster", "ring", "edges", "across", "scatter"]) if (k in place) return k;
   return "poisson";
 }
 

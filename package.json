@@ -25,6 +25,7 @@
     "./p2p": "./src/addons/p2p/index.ts",
     "./stage": "./src/addons/stage/index.ts",
     "./procgen": "./src/addons/procgen/index.ts",
+    "./procgen/tile-worker": "./src/addons/procgen/scene/tile-worker.ts",
     "./tape": "./src/addons/tape/index.ts",
     "./plot": "./src/addons/plot/index.ts",
     "./vector": "./src/addons/vector/index.ts",
