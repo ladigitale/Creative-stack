@@ -652,8 +652,9 @@ Un modèle `gen` reçoit les mêmes matières que les pièces écrites :
 
 - **`finish` par rôle** : `{"maillot": "velours", "cuir": "cuir", "metal": "chrome"}` (rôles du format ou de procgen),
   ou un seul nom de fini pour tous les habits (`"finish": "laque"`). Rugosité, métal, reflet de tissu et vernis
-  s'appliquent dans le rendu procgen (style compris : un reflet franc en `toon`) ; verre et opacité n'y ont pas
-  d'équivalent.
+  s'appliquent dans le rendu procgen (style compris : un reflet franc en `toon`), ainsi que les finis texturés
+  (`relief`, `profondeur`, `usure`, `occlusion`, motif par défaut du rôle : tissu, grain du cuir…) ; verre et eau
+  y sont un reflet de Fresnel opaque ; l'opacité n'y a pas d'équivalent.
 - **Accessoires** : `parts` d'un modèle gen ajoute des pièces portées par un os (`parent` : `tete`, `torse`, `bassin`,
   `main` avec `mirror: "x"`, `pied`…), à `at` / `rot` de la tête de l'os. Forme, `tex`, `finish`, `souple`
   (cape, jupe, écharpe : repoussées par le corps), `cheveux` (sur une pièce `hidden: true` posée sur la tête, la

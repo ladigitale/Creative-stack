@@ -11,6 +11,7 @@
  * - `GenKit.instanced` : copies de décor d'un même modèle en un seul appel de dessin.
  */
 import { encodeRoleFinishes, type RoleFinishes } from "./style/finishes";
+import { HeightBank, RoleFinTable, isMobileScreen } from "./render/finish-maps";
 import * as THREE from "three";
 import { genRole } from "../../shared/monde/gen";
 import { type Q, type V3, qEuler, qMul } from "./core/math";
@@ -79,6 +80,16 @@ export class GenKit {
   private traits = 1;
   /** Acteurs qui portent leurs propres finis (recalculés quand le style change). */
   readonly finishOwners = new Set<GenActor>();
+  /** Finis texturés : banque de hauteurs commune, table du style (créées au premier fini). */
+  private finBank: HeightBank | null = null;
+  private finTable: RoleFinTable | null = null;
+  /** Qualité des finis texturés : 1 basse (mobile), 2 haute. */
+  readonly finQuality: 1 | 2 = isMobileScreen() ? 1 : 2;
+
+  /** Banque de hauteurs des motifs (partagée par le style et les finis propres des acteurs). */
+  heightBank(): HeightBank {
+    return (this.finBank ??= new HeightBank(this.shared.uHeights, this.finQuality === 1 ? 128 : 256));
+  }
 
   constructor(
     style: unknown,
@@ -130,6 +141,10 @@ export class GenKit {
     u.uRim.value = s.rim;
     u.uDetail.value = s.detail;
     (u.uRoleMat.value as Float32Array).set(encodeRoleFinishes(s.finishes));
+    if (Object.keys(s.finishes).length || this.finTable) {
+      this.finTable ??= new RoleFinTable(u.uRoleFin, u.uFinOn);
+      this.finTable.set(this.heightBank(), this.finQuality, s.finishes);
+    }
     for (const a of this.finishOwners) a.refreshFinishes();
     u.uShadowStrength.value = s.shadows ? s.shadowStrength : 0;
     u.uShadowOn.value = 0;
@@ -302,6 +317,8 @@ export class GenKit {
   }
 
   dispose() {
+    this.finBank?.dispose();
+    this.finTable?.dispose();
     for (const e of this.geos.values()) e.g.dispose();
     this.geos.clear();
     this.cache.clear();
@@ -377,6 +394,7 @@ export class GenActor {
   }
 
   private ownFinishes: RoleFinishes | null = null;
+  private ownFin: RoleFinTable | null = null;
   private boneW: ArrayLike<number>[] | null = null;
 
   /** Matrice (colonnes, repère de l'acteur) d'un os procgen dans la pose courante ; `null` si l'os n'existe pas. */
@@ -399,9 +417,18 @@ export class GenActor {
     if (this.ownFinishes) {
       this.kit.finishOwners.add(this);
       if (this.mats.uniforms.uRoleMat === this.kit.shared.uRoleMat) this.mats.uniforms.uRoleMat = { value: new Float32Array((this.kit.shared.uRoleMat.value as Float32Array).length) };
+      if (!this.ownFin) {
+        this.mats.uniforms.uRoleFin = { value: null };
+        this.mats.uniforms.uFinOn = { value: 0 };
+        this.ownFin = new RoleFinTable(this.mats.uniforms.uRoleFin, this.mats.uniforms.uFinOn);
+      }
     } else {
       this.kit.finishOwners.delete(this);
       this.mats.uniforms.uRoleMat = this.kit.shared.uRoleMat;
+      this.mats.uniforms.uRoleFin = this.kit.shared.uRoleFin;
+      this.mats.uniforms.uFinOn = this.kit.shared.uFinOn;
+      this.ownFin?.dispose();
+      this.ownFin = null;
     }
     this.refreshFinishes();
   }
@@ -409,6 +436,7 @@ export class GenActor {
   refreshFinishes() {
     if (!this.ownFinishes) return;
     (this.mats.uniforms.uRoleMat.value as Float32Array).set(encodeRoleFinishes(this.kit.style.finishes, this.ownFinishes));
+    this.ownFin?.set(this.kit.heightBank(), this.kit.finQuality, this.kit.style.finishes, this.ownFinishes);
   }
 
   setGlow(amount: number, color: string | undefined) {
@@ -482,6 +510,7 @@ export class GenActor {
 
   dispose() {
     this.kit.finishOwners.delete(this);
+    this.ownFin?.dispose();
     this.mats.color.dispose();
     this.mats.outline.dispose();
     this.object.removeFromParent();
