@@ -15,7 +15,8 @@ import { Rng } from "../core/rng";
 import { type Issue, Issues, resolveParams, suggest } from "../core/schema";
 import { Mesh } from "../geom/mesh";
 import { GENERATORS, resolveGeneratorId } from "../gen/index";
-import type { Asset } from "../gen/types";
+import type { Asset, SoftPiece } from "../gen/types";
+import { scalePiece } from "../gen/soft";
 import { ACTIONS, type Action } from "../rig/locomotion";
 import { NavGrid } from "./nav";
 import { type Meadow, meadowBudget, meadowKeep, readMeadows, sowMeadows } from "./meadows";
@@ -116,6 +117,9 @@ export type ObjectInfo = {
   body?: BodySpec;
 };
 
+/** Tissus d'un objet de décor (drapeau, linge, rideau) : simulés par le rendu 3D, attachés au repère de l'objet. */
+export type SoftItem = { obj: number; id: string; matrix: M4; pieces: SoftPiece[] };
+
 export type InstanceGroup = { key: string; mesh: Mesh; matrices: M4[]; objs: number[]; flex: boolean };
 export type ActorModel = {
   id: string; layer: string | null; asset: Asset; params: Record<string, unknown>; pos: V3; yaw: number; behavior: "idle" | "wander" | "patrol"; action: Action; speed: number; obj: number; seed: number;
@@ -155,16 +159,20 @@ export type SceneModel = {
   physics: PhysicsSpec | null;
   /** Réglages propres aux scènes : flottaison (`water`, défaut oui), bords de scène (`walls`, défaut oui). */
   physicsScene?: { water: boolean; walls: boolean };
+  /** Tissus des objets (plafonnés à `MAX_SOFT_OBJECTS` ; au-delà, drapé figé fusionné au décor). */
+  softs: SoftItem[];
   stats: { ms: number; triangles: number; objects: number; instances: number; actors: number };
 };
 
 /** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
 const ACTOR_GENS = new Set(["character", "animal"]);
-const INSTANCEABLE = new Set(["tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water"]);
+const INSTANCEABLE = new Set(["textile", "tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water"]);
 /** Tailles fines (pas d'arrondi au quart de mètre). */
 const FINE = new Set(["ball", "seat", "structure", "water"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
-const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 }, tool: { name: "scale", ref: 1 }, container: { name: "scale", ref: 1 }, street: { name: "scale", ref: 1 }, pet: { name: "scale", ref: 1 } };
+const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 }, tool: { name: "scale", ref: 1 }, container: { name: "scale", ref: 1 }, street: { name: "scale", ref: 1 }, pet: { name: "scale", ref: 1 }, textile: { name: "scale", ref: 1 } };
+/** Objets à tissus simulés au plus par scène (le rendu en anime encore moins à la fois, selon l'écran). */
+export const MAX_SOFT_OBJECTS = 48;
 const TILE = 24;
 const MAX_ITEMS = 1500;
 
@@ -289,6 +297,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
   const objects: ObjectInfo[] = [];
   const actors: ActorModel[] = [];
   const tiles = new Map<string, Mesh>();
+  const softs: SoftItem[] = [];
   const groups = new Map<string, InstanceGroup>();
   const assetCache = new Map<string, Asset>();
   const placedCircles: { x: number; z: number; r: number }[] = [];
@@ -482,6 +491,17 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       return;
     }
     total += asset.mesh.triangleCount;
+    if (asset.soft?.length) {
+      if (softs.length < MAX_SOFT_OBJECTS) softs.push({ obj, id, matrix: m4Compose([x, y, z], qAxis([0, 1, 0], yaw), 1), pieces: asset.soft.map((p) => scalePiece(p, scale)) });
+      else if (asset.softFrozen?.vertexCount) {
+        // plafond atteint : drapé de repos fusionné au décor de la tuile
+        const tk = `${Math.floor(x / TILE)},${Math.floor(z / TILE)}`;
+        let t = tiles.get(tk);
+        if (!t) tiles.set(tk, (t = new Mesh()));
+        t.append(asset.softFrozen, T, { obj });
+        total += asset.softFrozen.triangleCount;
+      }
+    }
     if (mode === "instance") {
       let g = groups.get(key);
       if (!g) {
@@ -702,6 +722,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     meadows,
     physics,
     ...(physics ? { physicsScene } : {}),
+    softs,
     stats: { ms: Math.round(t1 - t0), triangles: total, objects: objects.length, instances: [...groups.values()].reduce((s, g) => s + g.matrices.length, 0), actors: actors.length },
   };
 }

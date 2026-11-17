@@ -26,6 +26,7 @@ import { MAX_BONES, POST_FRAGMENT, POST_VERTEX } from "./shaders";
 import { type Governor, governDpr, keepFrame, newGovernor } from "./steady";
 import { PostStack } from "./poststack";
 import { MeadowLayer } from "./meadows";
+import { SOFT_BUDGET, SoftLayer, type SoftRT, yawMatrix } from "./soft";
 import { SNAP_MARGIN, gridOffset, marginTransform, snapApplicable } from "./pixelsnap";
 import type { OrthoFrame, SnapRequest } from "./camera";
 
@@ -168,6 +169,10 @@ export class ProcgenView {
   /** Rendu pixel accroché au monde : texels visibles et marge (null sinon). */
   private snapReq: SnapRequest | null = null;
   private frame: OrthoFrame = { a: 0, b: 0, half: 0, rx: 0, ry: 0 };
+  /** Tissus et mèches simulés (capes, jupes, cheveux, drapeaux, linge) ; matrices d'attache des objets. */
+  private softs: SoftLayer | null = null;
+  private softObjM = new Map<number, Float64Array>();
+  private frustum = new THREE.Frustum();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -266,10 +271,103 @@ export class ProcgenView {
     if (this.meadows.active) this.scene.add(this.meadows.group);
     for (const a of model.actors) this.addActor(a);
     this.mountRigid(model);
+    this.buildSofts(model);
     if (first) this.view = parseView(model.view, { ...DEFAULT_VIEW, cy: 0 });
     if (this.style) this.setStyle(this.style);
     this.dirty = this.shadowDirty = true;
     this.kick();
+  }
+
+  /** Tissus des objets (repère de l'objet) et des acteurs (portés par leurs os), posés dans leur drapé de repos. */
+  private buildSofts(model: SceneModel) {
+    this.softObjM.clear();
+    const hasActorSoft = model.actors.some((a) => a.asset.soft?.length);
+    if (!model.softs?.length && !hasActorSoft) {
+      this.softs = null;
+      return;
+    }
+    const layer = new SoftLayer(this.scene, (rt, bone, out) => this.softAttach(rt, bone, out), this.mobile ? SOFT_BUDGET.mobile : SOFT_BUDGET.desktop);
+    this.softs = layer;
+    layer.setWind(this.windVector());
+    for (const it of model.softs ?? []) {
+      this.softObjM.set(it.obj, Float64Array.from(it.matrix));
+      for (const p of it.pieces) {
+        const rt = layer.add(p, this.staticMats, { actor: null, obj: it.obj });
+        if (rt) layer.settle(rt);
+      }
+    }
+    for (const a of this.actors.values()) {
+      const pieces = a.model.asset.soft;
+      if (!pieces?.length) continue;
+      // matière non skinnée qui partage les couleurs de l'acteur
+      const mats = makeMaterials(this.shared, a.mats.uniforms.uRoles as { value: Float32Array }, false);
+      for (const p of pieces) {
+        const rt = layer.add(p, mats, { actor: a.model.id, obj: a.model.obj });
+        if (rt) layer.settle(rt, 60);
+      }
+    }
+  }
+
+  /** Matrice monde d'attache d'une pièce : os de l'acteur (pose courante) ou repère de l'objet. */
+  private softAttach(rt: SoftRT, bone: string | undefined, out: Float64Array): boolean {
+    if (rt.actor === null) {
+      const m = this.softObjM.get(rt.obj);
+      if (!m) return false;
+      out.set(m);
+      return true;
+    }
+    const a = this.actors.get(rt.actor);
+    if (!a) return false;
+    const am = a.mesh.matrix.elements;
+    const S = a.mesh.userData.skin as M4[] | undefined;
+    const i = bone ? a.model.asset.skeleton?.index[bone] : undefined;
+    if (!S || i === undefined) {
+      out.set(am);
+      return true;
+    }
+    const b = S[i];
+    for (let c = 0; c < 4; c++)
+      for (let r = 0; r < 4; r++) out[c * 4 + r] = am[r] * b[c * 4] + am[4 + r] * b[c * 4 + 1] + am[8 + r] * b[c * 4 + 2] + am[12 + r] * b[c * 4 + 3];
+    return true;
+  }
+
+  /** Vent de la recette en m/s : direction `windDir` (0 = vers +z, 90° = vers +x), force `wind`. */
+  private windVector(): V3 {
+    const m = this.model;
+    const w = Math.max(0, m?.wind ?? 1) * 1.6;
+    const d = m?.windDir ?? (67 * Math.PI) / 180;
+    return [Math.sin(d) * w, 0, Math.cos(d) * w];
+  }
+
+  private softShown = (rt: SoftRT): boolean => {
+    if (rt.actor !== null) {
+      const a = this.actors.get(rt.actor);
+      return !!a && a.mesh.visible && !this.hiddenIds.has(rt.actor);
+    }
+    const o = this.objectsByObj.get(rt.obj);
+    return !o || !this.hiddenIds.has(o.id);
+  };
+
+  /** Pixels par mètre à une position (taille à l'écran d'une pièce). */
+  private pxPerM = (p: THREE.Vector3): number => {
+    const h = this.canvas.clientHeight || 1;
+    const cam = this.camera as THREE.PerspectiveCamera | THREE.OrthographicCamera;
+    if ((cam as THREE.PerspectiveCamera).isPerspectiveCamera) {
+      const pc = cam as THREE.PerspectiveCamera;
+      const d = Math.max(0.1, pc.position.distanceTo(p));
+      return h / (2 * Math.tan((pc.fov * Math.PI) / 360) * d);
+    }
+    const oc = cam as THREE.OrthographicCamera;
+    return (h * oc.zoom) / Math.max(1e-3, oc.top - oc.bottom);
+  };
+
+  private stepSofts(dt: number) {
+    const L = this.softs;
+    if (!L) return;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    if (L.update(dt, this.frustum, this.pxPerM, this.softShown)) this.dirty = this.shadowDirty = true;
   }
 
   private addActor(a: ActorModel) {
@@ -295,6 +393,8 @@ export class ProcgenView {
   private clearScene() {
     this.meadows.clear();
     this.drag = null;
+    this.softs = null;
+    this.softObjM.clear();
     this.settle = null;
     for (const o of [...this.scene.children]) {
       this.scene.remove(o);
@@ -420,6 +520,7 @@ export class ProcgenView {
       this.ballsDirty = true;
     }
     if (this.rigid) this.syncRigidHidden();
+    if (this.softs) for (const rt of this.softs.items) rt.mesh.visible = this.softShown(rt);
     this.dirty = this.shadowDirty = true;
     this.kick();
   }
@@ -969,6 +1070,8 @@ export class ProcgenView {
         na.needsUpdate = true;
       }
     const o = d.o;
+    const sm = d.actor ? undefined : this.softObjM.get(o.obj);
+    if (sm) yawMatrix(x, y, z, yaw, sm);
     o.pos = [x, y, z];
     o.yaw = yaw;
     for (const [k, v] of Object.entries(d.anchors0)) o.anchors[k] = move(v[0], v[1], v[2]);
@@ -1216,6 +1319,7 @@ export class ProcgenView {
     const W = sk.world(pose);
     a.mesh.userData.world = W;
     const S = sk.skinMatrices(W);
+    a.mesh.userData.skin = S;
     const arr = a.mats.uniforms.uDQ.value as THREE.Vector4[];
     for (let i = 0; i < Math.min(S.length, MAX_BONES); i++) {
       const [r, d] = dualQuat(S[i]);
@@ -1236,7 +1340,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || !!this.balls?.moving || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || !!this.balls?.moving || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -1281,7 +1385,8 @@ export class ProcgenView {
 
   private loop = (now: number) => {
     if (this.disposed) return;
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+    // horodatage d'image parfois antérieur au réveil (première image) : jamais de pas négatif
+    const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000));
     this.last = now;
     if (this.settle) this.stepSettle(now);
     const anim = this.animated;
@@ -1291,7 +1396,8 @@ export class ProcgenView {
       if (this.actors.size) this.shadowDirty = true;
       if (this.balls) this.stepBalls(dt * this.speed);
       if (this.rigid) this.stepRigid(dt * this.speed, now);
-    }
+      this.stepSofts(dt * this.speed);
+    } else if (this.dirty && this.softs) this.stepSofts(0);
     if (anim || this.dirty) {
       const t0 = performance.now();
       this.render();
@@ -1435,6 +1541,10 @@ export class ProcgenView {
     const w = this.canvas.clientWidth || 1, h = this.canvas.clientHeight || 1;
     this.shared.uTime.value = this.time;
     this.shared.uWind.value = this.model.wind;
+    // balancement des feuillages dans la direction du vent ; 67° (défaut) : direction historique (1, 0,4) exacte
+    const wd = this.model.windDir ?? (67 * Math.PI) / 180;
+    const legacy = Math.abs(wd - (67 * Math.PI) / 180) < 1e-9;
+    (this.shared.uWindDir.value as THREE.Vector2).set(legacy ? 1 : Math.sin(wd) * 1.077, legacy ? 0.4 : Math.cos(wd) * 1.077);
     let target: THREE.Vector3 | undefined;
     if (this.view.camera === "follow" && this.followId && this.actors.has(this.followId)) {
       const a = this.actors.get(this.followId)!;
@@ -1494,7 +1604,7 @@ export class ProcgenView {
 
   private lastInfo = { calls: 0, triangles: 0 };
   stats() {
-    return { drawCalls: this.lastInfo.calls, triangles: this.lastInfo.triangles, fps: this.fps, scale: this.dpr, ...(this.stack.active ? { postPasses: this.stack.passes } : {}), ...(this.stack.failed ? { postError: this.stack.error } : {}) };
+    return { drawCalls: this.lastInfo.calls, triangles: this.lastInfo.triangles, fps: this.fps, scale: this.dpr, ...(this.softs ? { soft: this.softs.stats() } : {}), ...(this.stack.active ? { postPasses: this.stack.passes } : {}), ...(this.stack.failed ? { postError: this.stack.error } : {}) };
   }
 
   actorState(id: string) {

@@ -175,8 +175,16 @@ export class GenKit {
       const resolved = resolveParams(gen.schema, input, { rng, vars: {} }, issues, "params") as Record<string, unknown>;
       const vs = gen.schema.variant as { max?: number } | undefined;
       if (vs && resolved.variant === -1) resolved.variant = rng.int(0, vs.max ?? 3);
+      // tissus simulés de procgen : pas encore animés ici, rendus rigides (cape de `bag`, jupes et cheveux du champ)
+      if (gen.id === "character" && (resolved.soft !== "none" || resolved.cape !== "none")) {
+        if (resolved.cape !== "none" && (resolved.bag === "auto" || resolved.bag === "none")) resolved.bag = "cape";
+        resolved.soft = resolved.cape = "none";
+        issues.add({ path: "params.soft", code: "info", message: "tissus simulés (soft, cape) rendus rigides dans sonic-3d : utiliser les accessoires souple / cheveux du modèle gen" });
+      }
       try {
-        out = { asset: gen.build(resolved as never, { rng, issues, path: "params" }), issues: [] };
+        const built = gen.build(resolved as never, { rng, issues, path: "params" });
+        // textiles : drapé de repos figé ajouté au maillage
+        out = { asset: built.softFrozen?.vertexCount && !built.skeleton ? { ...built, mesh: built.mesh.clone().append(built.softFrozen), soft: undefined } : built, issues: [] };
       } catch (e) {
         out = { asset: null, issues: [{ path: "gen", message: `échec du générateur : ${(e as Error).message}` }] };
       }

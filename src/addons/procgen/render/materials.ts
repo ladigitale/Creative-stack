@@ -32,6 +32,8 @@ export function sharedUniforms(): Shared {
     uRim: { value: 0.25 },
     uTime: { value: 0 },
     uWind: { value: 1 },
+    // direction du balancement au vent (xz) ; (1, 0,4) : direction historique
+    uWindDir: { value: new THREE.Vector2(1, 0.4) },
     uShadowOn: { value: 0 },
     uShadowStrength: { value: 0.75 },
     uShadowMap: { value: null },

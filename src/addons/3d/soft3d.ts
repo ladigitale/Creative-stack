@@ -3,6 +3,7 @@ import type { Model } from "../../shared/monde/format";
 import { geometryOf } from "../../shared/monde/geometry";
 import { SoftSim, type V3 } from "../../shared/sim/soft";
 import { HairSim } from "../../shared/sim/hair";
+import { hairTopology, softTopology, writeHairPositions, writeSoftPositions } from "../../shared/sim/soft-mesh";
 
 /**
  * Pièces souples dans sonic-3d : un maillage déformable par pièce (grille pour un tissu, tube pour une chaîne),
@@ -37,8 +38,6 @@ function spheresOf(joint: number, c: V3, h: V3, out: Collider[]) {
   }
 }
 
-const RING = 6;
-
 /** Rayons du corps d'un personnage gen par os (m, à l'échelle 1) : la cape glisse sur le dos, la jupe sur les hanches. */
 const BODY: [RegExp, number, number][] = [
   [/^(torse|dos)$/, 0.17, 0.08],
@@ -67,49 +66,10 @@ export function buildSoft(model: Model, part: number, detail: number, material: 
   if (!g) return null;
   const sim = new SoftSim(p.soft, bounds(g));
   const geo = new THREE.BufferGeometry();
-  if (p.soft.kind === "jupe") {
-    const { cols, rows } = sim;
-    const uv: number[] = [], idx: number[] = [];
-    for (let r = 0; r < rows; r++)
-      for (let c = 0; c < cols; c++) {
-        uv.push(c / cols, 1 - r / (rows - 1));
-        if (r + 1 < rows) {
-          const a = r * cols + c, b = r * cols + ((c + 1) % cols);
-          idx.push(a, a + cols, b, b, a + cols, b + cols);
-        }
-      }
-    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(sim.n * 3), 3));
-    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-    geo.setIndex(idx);
-  } else if (p.soft.kind === "tissu") {
-    const { cols, rows } = sim;
-    const uv: number[] = [], idx: number[] = [];
-    for (let r = 0; r < rows; r++)
-      for (let c = 0; c < cols; c++) {
-        uv.push(c / (cols - 1), 1 - r / (rows - 1));
-        if (r + 1 < rows && c + 1 < cols) {
-          const a = r * cols + c;
-          idx.push(a, a + cols, a + 1, a + 1, a + cols, a + cols + 1);
-        }
-      }
-    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(sim.n * 3), 3));
-    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-    geo.setIndex(idx);
-  } else {
-    const n = sim.n;
-    const uv: number[] = [], idx: number[] = [];
-    for (let i = 0; i < n; i++)
-      for (let k = 0; k < RING; k++) {
-        uv.push(k / RING, i / (n - 1));
-        if (i + 1 < n) {
-          const a = i * RING + k, b = i * RING + ((k + 1) % RING);
-          idx.push(a, a + RING, b, b, a + RING, b + RING);
-        }
-      }
-    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * RING * 3), 3));
-    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-    geo.setIndex(idx);
-  }
+  const topo = softTopology(sim);
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(topo.verts * 3), 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(topo.uv, 2));
+  geo.setIndex(topo.idx);
   // matière de l'instance (recolorée avec elle) ; un tissu se voit des deux côtés
   material.side = THREE.DoubleSide;
   const mesh = new THREE.Mesh(geo, material);
@@ -152,51 +112,7 @@ export function stepSoft(sv: SoftView, joints: THREE.Object3D[], dt: number, gra
   const moved = sv.sim.step(dt, j.matrixWorld.elements, gravity, wind, sv.colliders.length ? sv.spheres : null);
   if (!moved) return false;
   const pos = sv.mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
-  const out = pos.array as Float32Array;
-  const p = sv.sim.pos;
-  if (sv.sim.spec.kind !== "chaine") out.set(p);
-  else {
-    // tube : un anneau autour de chaque point, orienté selon la chaîne (repère transporté)
-    const n = sv.sim.n;
-    let ux = 1, uy = 0, uz = 0;
-    for (let i = 0; i < n; i++) {
-      const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
-      let tx = p[b * 3] - p[a * 3], ty = p[b * 3 + 1] - p[a * 3 + 1], tz = p[b * 3 + 2] - p[a * 3 + 2];
-      const tl = Math.hypot(tx, ty, tz) || 1;
-      tx /= tl;
-      ty /= tl;
-      tz /= tl;
-      // u ⟂ t (Gram-Schmidt sur le précédent), w = t × u
-      const d = ux * tx + uy * ty + uz * tz;
-      ux -= d * tx;
-      uy -= d * ty;
-      uz -= d * tz;
-      let ul = Math.hypot(ux, uy, uz);
-      if (ul < 1e-4) {
-        ux = Math.abs(tx) < 0.9 ? 1 : 0;
-        uy = Math.abs(tx) < 0.9 ? 0 : 1;
-        uz = 0;
-        const d2 = ux * tx + uy * ty;
-        ux -= d2 * tx;
-        uy -= d2 * ty;
-        uz -= d2 * tz;
-        ul = Math.hypot(ux, uy, uz) || 1;
-      }
-      ux /= ul;
-      uy /= ul;
-      uz /= ul;
-      const wx = ty * uz - tz * uy, wy = tz * ux - tx * uz, wz = tx * uy - ty * ux;
-      // effilé vers le bout libre
-      const r = sv.sim.radius * (1 - 0.6 * (i / Math.max(1, n - 1)));
-      for (let q = 0; q < RING; q++) {
-        const ang = (q / RING) * Math.PI * 2, c = Math.cos(ang) * r, s = Math.sin(ang) * r;
-        const o = (i * RING + q) * 3;
-        out[o] = p[i * 3] + ux * c + wx * s;
-        out[o + 1] = p[i * 3 + 1] + uy * c + wy * s;
-        out[o + 2] = p[i * 3 + 2] + uz * c + wz * s;
-      }
-    }
-  }
+  writeSoftPositions(sv.sim, pos.array as Float32Array);
   pos.needsUpdate = true;
   sv.mesh.geometry.computeVertexNormals();
   return true;
@@ -224,20 +140,11 @@ export function buildHair(model: Model, part: number, detail: number, material: 
   if (!g) return null;
   const b = bounds(g);
   const sim = new HairSim(p.hair, b.c, Math.max(b.h[0], b.h[1], b.h[2]));
-  const per = sim.per, n = sim.strands;
-  const uv: number[] = [], idx: number[] = [];
-  for (let s = 0; s < n; s++)
-    for (let k = 0; k < per; k++) {
-      uv.push(0, k / (per - 1), 1, k / (per - 1));
-      if (k + 1 < per) {
-        const a = (s * per + k) * 2;
-        idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-      }
-    }
+  const topo = hairTopology(sim);
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * per * 2 * 3), 3));
-  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-  geo.setIndex(idx);
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(topo.verts * 3), 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(topo.uv, 2));
+  geo.setIndex(topo.idx);
   const mat = (material as THREE.MeshStandardMaterial).clone();
   mat.side = THREE.DoubleSide;
   mat.map = null;
@@ -256,33 +163,10 @@ export function stepHair(hv: HairView, joints: THREE.Object3D[], dt: number, gra
   hv.mesh.visible = isShown(j);
   if (!hv.sim.step(dt, j.matrixWorld.elements, gravity, wind)) return false;
   const pos = hv.mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
-  const out = pos.array as Float32Array;
-  const p = hv.sim.pos, per = hv.sim.per, w0 = hv.sim.spec.width;
   // centre de la tête (côté des rubans : perpendiculaire à la mèche et au rayon)
   j.updateWorldMatrix(true, false);
-  const hx = j.matrixWorld.elements[12], hy = j.matrixWorld.elements[13], hz = j.matrixWorld.elements[14];
-  for (let s = 0; s < hv.sim.strands; s++)
-    for (let k = 0; k < per; k++) {
-      const i = s * per + k;
-      const a = s * per + Math.max(0, k - 1), b = s * per + Math.min(per - 1, k + 1);
-      const tx = p[b * 3] - p[a * 3], ty = p[b * 3 + 1] - p[a * 3 + 1], tz = p[b * 3 + 2] - p[a * 3 + 2];
-      const rx = p[i * 3] - hx, ry = p[i * 3 + 1] - hy, rz = p[i * 3 + 2] - hz;
-      let sx = ty * rz - tz * ry, sy = tz * rx - tx * rz, sz = tx * ry - ty * rx;
-      const sl = Math.hypot(sx, sy, sz) || 1;
-      const w = (w0 / 2) * (1 - 0.45 * (k / (per - 1)));
-      const wav = hv.sim.waveAt(s, k);
-      sx = (sx / sl) * w;
-      sy = (sy / sl) * w;
-      sz = (sz / sl) * w;
-      const o = i * 6;
-      const cx = p[i * 3] + (sx / Math.max(w, 1e-6)) * wav, cy = p[i * 3 + 1] + (sy / Math.max(w, 1e-6)) * wav, cz = p[i * 3 + 2] + (sz / Math.max(w, 1e-6)) * wav;
-      out[o] = cx - sx;
-      out[o + 1] = cy - sy;
-      out[o + 2] = cz - sz;
-      out[o + 3] = cx + sx;
-      out[o + 4] = cy + sy;
-      out[o + 5] = cz + sz;
-    }
+  const e = j.matrixWorld.elements;
+  writeHairPositions(hv.sim, e[12], e[13], e[14], pos.array as Float32Array);
   pos.needsUpdate = true;
   hv.mesh.geometry.computeVertexNormals();
   return true;

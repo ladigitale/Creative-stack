@@ -17,10 +17,11 @@ import { vehicle } from "./vehicles";
 import { wall } from "./wall";
 import { structure } from "./structure";
 import { water } from "./water";
+import { textile } from "./textile";
 import type { Generator } from "./types";
 
 export const GENERATORS: Record<string, Generator> = Object.fromEntries(
-  [character, animal, tree, bush, grass, flowers, rock, plant, building, prop, vehicle, wall, emblem, ball, seat, assembly, tool, container, street, pet, structure, water].map((g) => [g.id, g as unknown as Generator]),
+  [character, animal, tree, bush, grass, flowers, rock, plant, building, prop, vehicle, wall, emblem, ball, seat, assembly, tool, container, street, pet, structure, water, textile].map((g) => [g.id, g as unknown as Generator]),
 );
 
 export function resolveGeneratorId(id: string): { gen: Generator | undefined; preset: Record<string, unknown> } {
@@ -39,4 +40,4 @@ export function generatorCatalog() {
   return Object.values(GENERATORS).map((g) => ({ id: g.id, label: g.label, doc: g.doc, tags: g.tags, params: describeSchema(g.schema) }));
 }
 
-export { animal, building, character, tree, bush, grass, flowers, rock, plant, prop, vehicle, wall, emblem, ball, seat, assembly, tool, container, street, pet, structure, water };
+export { animal, building, character, tree, bush, grass, flowers, rock, plant, prop, vehicle, wall, emblem, ball, seat, assembly, tool, container, street, pet, structure, water, textile };

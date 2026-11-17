@@ -759,6 +759,8 @@ pas les autres pièces du modèle (approchées par des sphères) ni le sol.
 | `rigidite` | 0 soie, 1 cuir épais (0,5) |
 | `poids`, `amorti`, `vent` | Gravité (1), freinage (0,08), prise au vent (1) |
 | `collision`, `segments` | `false` : traverse le corps ; finesse (8 tissu, 10 chaîne) |
+| `evasement` | Jupe : rayon du bord libre / rayon du bord attaché (1 : tube droit ; 1,6 : évasée ; 0,5 : manche à air) |
+| `cintrage`, `plis` | Tissu : bords latéraux avancés de `cintrage` m (cape qui épouse le dos) ; plis en accordéon de `plis` m (rideau froncé) |
 
 **Chevelures** : `cheveux` sur une pièce (la tête, souvent une sphère) y plante des mèches simulées, dessinées en un
 seul maillage de rubans : elles tombent, suivent la tête, ondulent au vent et restent hors du crâne.

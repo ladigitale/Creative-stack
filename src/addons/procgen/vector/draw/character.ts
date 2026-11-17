@@ -79,6 +79,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   const hair = HAIR_BASE[hair0] ?? hair0;
   const headShapeK = String(p.headShape ?? "oval");
   const hat = String(p.hat ?? "none"), bag = String(p.bag ?? "none"), item = String(p.item ?? "none");
+  const capeP = String(p.cape ?? "none");
   const archName = String(p.archetype ?? "stylized");
   const toony = archName === "chibi" || archName === "cartoon";
   /** Personnage animal : fiche résolue (gen/character/animal.ts), mêmes oreilles, museau et queue qu'en 3D. */
@@ -1220,12 +1221,17 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         },
       };
     }
-    if (bag === "cape") {
+    if (bag === "cape" && capeP === "none") return capePart(false);
+    return null;
+  };
+  /** Cape (sac `cape` ou paramètre `cape`) : forme figée, plus ou moins longue. */
+  const capePart = (long: boolean): { key: number; draw: () => void } => {
+    {
       const back = madd(chestC, fwd, -chestR * 1.1);
       return {
         key: depth(back) - 0.01,
         draw: () => {
-          const kneeY = J("shin.l")[1];
+          const kneeY = long ? J("foot.l")[1] + H * 0.06 : J("shin.l")[1];
           const flow = -0.06 * H - c.speed * 0.09 * H;
           const tl = madd(madd(J("upperarm.l"), fwd, -chestR * 0.6), up, H * 0.01), tr = madd(madd(J("upperarm.r"), fwd, -chestR * 0.6), up, H * 0.01);
           const bl = madd(madd([tl[0], kneeY, tl[2]] as V3, lft, shoulderHalf * 0.45), fwd, flow), br = madd(madd([tr[0], kneeY, tr[2]] as V3, lft, -shoulderHalf * 0.45), fwd, flow);
@@ -1241,7 +1247,6 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         },
       };
     }
-    return null;
   };
   const bagFront = () => {
     if (bag === "backpack" && facing > 0.35) {
@@ -1437,6 +1442,10 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   for (const a of arms) parts.push({ key: a.far ? chestKey - 0.2 - (a.side === "r" ? 0 : 1e-3) : chestKey + 0.1 + (a.key - chestKey) * 0.01, draw: armDraw(a) });
   const bp = bagPart();
   if (bp) parts.push({ key: bp.key < chestKey ? Math.min(bp.key, minLeg - 2) : chestKey + 0.05, draw: bp.draw });
+  if (capeP === "short" || capeP === "long") {
+    const cp = capePart(capeP === "long");
+    parts.push({ key: cp.key < chestKey ? Math.min(cp.key, minLeg - 2) - 0.5 : chestKey + 0.06, draw: cp.draw });
+  }
   const headKey = chestKey + 0.5;
   const hb = hairBack();
   if (hair0 === "pigtails" || hair0 === "braids") {

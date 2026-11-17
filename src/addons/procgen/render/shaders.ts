@@ -46,6 +46,7 @@ uniform vec4 uDQ[${MAX_BONES * 2}];
 uniform float uBlink;
 uniform float uTime;
 uniform float uWind;
+uniform vec2 uWindDir;
 uniform mat4 uShadowMatrix;
 flat out float vRole;
 flat out float vObj;
@@ -130,7 +131,7 @@ void main() {
   if (aFlex > 0.0) {
     float ph = dot(wp.xz, vec2(0.35, 0.27)) + vVar * 6.28;
     float sw = sin(uTime * 1.7 + ph) * 0.6 + sin(uTime * 2.9 + ph * 1.7) * 0.25;
-    wp.xz += vec2(sw, sw * 0.4) * aFlex * uWind * 0.06;
+    wp.xz += sw * uWindDir * aFlex * uWind * 0.06;
     wp.y += sin(uTime * 2.3 + ph) * aFlex * uWind * 0.01;
   }
   #endif

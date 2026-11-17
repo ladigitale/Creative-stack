@@ -11,6 +11,8 @@ import type { Blend, FieldPrim } from "../../geom/implicit";
 import { HUMANOID_BLENDS } from "../../rig/humanoid";
 import { ROLE } from "../../style/roles";
 import { type Kit, type Pattern, PrimSet, inflate } from "./kit";
+import type { SoftPiece } from "../types";
+import { capePiece, scarfPiece, skirtPiece, softCloth } from "./soft";
 
 /** Pièce rigide posée sur la surface après polygonisation (bouton, boucle, poche). */
 export type Decal = { at: V3; dir: V3; kind: "button" | "buckle" | "pocket" | "flap"; role: number; size: number; up?: V3 };
@@ -25,6 +27,8 @@ export type BodyField = {
   backZ: number;
   /** Rôles couverts par un motif. */
   patterned: boolean;
+  /** Pièces en tissu simulé (`soft`, `cape`). */
+  soft: SoftPiece[];
 };
 
 export function buildBodyField(k: Kit): BodyField {
@@ -45,6 +49,29 @@ export function buildBodyField(k: Kit): BodyField {
     const b: V3 = [0, hemY - over, -H * 0.014];
     const t = (hemY - topY) / (b[1] - topY);
     return { kind: "capsule", a: [0, topY, topZ], b, ra, rb: ra + (rb - ra) / Math.max(0.3, t), role, tag: 0, ...extra, clip: [...((extra as { clip?: FieldPrim["clip"] }).clip ?? []), { n: [0, -1, 0], d: -hemY }] } as FieldPrim;
+  };
+  const soft: SoftPiece[] = [];
+  const clothSoft = softCloth(k);
+  /**
+   * Jupe souple : empiècement rigide de la taille aux hanches (champ du corps), tube simulé dessous (bassin). Rend la
+   * primitive rigide à poser à la place de `skirt(…)`.
+   */
+  /** Volumes des jupes et robes (sphères sur le bassin) : une cape tombe par-dessus au lieu de les traverser. */
+  const skirtCols: NonNullable<SoftPiece["colliders"]> = [];
+  const noteSkirt = (topY: number, topZ: number, hemY: number, ra: number, rb: number) => {
+    for (const t of [0.12, 0.45, 0.8]) {
+      const r = mix(ra, rb, t) * 1.04 + thick;
+      skirtCols.push({ bone: "pelvis", c: [0, mix(topY, hemY, t) + r * 0.3, topZ], r });
+    }
+  };
+  const withSkirts = (p: SoftPiece): SoftPiece => (skirtCols.length ? { ...p, colliders: [...(p.colliders ?? []), ...skirtCols] } : p);
+  const drapeSkirt = (topY: number, topZ: number, hemY: number, ra: number, rb: number, role: number): FieldPrim => {
+    const yokeY = topY - Math.min(H * 0.085, (topY - hemY) * 0.3);
+    const t = (topY - yokeY) / Math.max(1e-3, topY - hemY);
+    const ry = ra + (rb - ra) * t;
+    // haut du tube glissé sous l'empiècement (pas de jour à la couture)
+    soft.push(skirtPiece(k, yokeY + H * 0.012, topZ, hemY, ry * 0.97, rb, role));
+    return skirt(topY, topZ, yokeY, ra, ry, role);
   };
   // trapèze → épaule : fin côté cou (le cou reste dégagé), plein à l'épaule
   const clav = (s: string, extra: number): FieldPrim => ({ kind: "capsule", a: add(at(`clavicle.${s}`, 0.42), [0, -H * 0.006, 0]), b: at(`clavicle.${s}`, 1), ra: rad(`clavicle.${s}`, 0.4) * 0.62 * bw + extra, rb: rad(`clavicle.${s}`, 1) * bw + extra, role: S, tag: 0 });
@@ -189,11 +216,14 @@ export function buildBodyField(k: Kit): BodyField {
       // pans tombants (poids mêlés bassin + cuisses)
       const bottomY = top === "robe" ? P.ankleY + H * 0.03 : top === "coat" ? knee - H * 0.01 : P.crotchY - H * 0.07;
       const flare = top === "robe" ? 2.05 : top === "coat" ? 1.75 : 1.55;
-      put("pelvis", skirt(P.hipY + H * 0.03, -H * 0.005, bottomY, P.hipHalf * 1.32 * bw + thick, P.hipHalf * flare * bw + thick, C1), "pelvis", { drape: true, pattern: top === "tunic" ? pat : null });
+      const mk = clothSoft && top !== "tunic" ? drapeSkirt : skirt;
+      noteSkirt(P.hipY + H * 0.03, -H * 0.005, bottomY, P.hipHalf * 1.32 * bw + thick, P.hipHalf * flare * bw + thick);
+      put("pelvis", mk(P.hipY + H * 0.03, -H * 0.005, bottomY, P.hipHalf * 1.32 * bw + thick, P.hipHalf * flare * bw + thick, C1), "pelvis", { drape: true, pattern: top === "tunic" ? pat : null });
     }
     if (top === "dress") {
       const waist = at("spine", 0.2);
-      put("pelvis", skirt(waist[1], waist[2], P.ankleY + H * (0.05 + v.range(0, 0.12)), rad("spine", 0.2) * bw + thick * 1.2, P.hipHalf * 1.95 * bw + thick, C1), "pelvis", { drape: true, pattern: look.pattern === "stripes" || look.pattern === "checks" ? pat : null });
+      noteSkirt(waist[1], waist[2], P.ankleY, rad("spine", 0.2) * bw + thick * 1.2, P.hipHalf * 1.95 * bw + thick);
+      put("pelvis", (clothSoft ? drapeSkirt : skirt)(waist[1], waist[2], P.ankleY + H * (0.05 + v.range(0, 0.12)), rad("spine", 0.2) * bw + thick * 1.2, P.hipHalf * 1.95 * bw + thick, C1), "pelvis", { drape: true, pattern: look.pattern === "stripes" || look.pattern === "checks" ? pat : null });
     }
     if (top === "shirt" || top === "coat" || top === "robe") {
       // patte de boutonnage (une ligne de boutons)
@@ -299,7 +329,8 @@ export function buildBodyField(k: Kit): BodyField {
     }
     if (bottom === "skirt" || bottom === "longskirt") {
       const endY = bottom === "longskirt" ? P.ankleY + H * 0.05 : knee + H * 0.03;
-      put("pelvis", skirt(P.hipY + H * 0.02, -H * 0.006, endY, P.hipHalf * 1.3 * bw + thick * 0.7, P.hipHalf * (bottom === "longskirt" ? 1.85 : 1.65) * bw + thick, C2), "pelvis", { drape: true });
+      noteSkirt(P.hipY + H * 0.02, -H * 0.006, endY, P.hipHalf * 1.3 * bw + thick * 0.7, P.hipHalf * (bottom === "longskirt" ? 1.85 : 1.65) * bw + thick);
+      put("pelvis", (clothSoft ? drapeSkirt : skirt)(P.hipY + H * 0.02, -H * 0.006, endY, P.hipHalf * 1.3 * bw + thick * 0.7, P.hipHalf * (bottom === "longskirt" ? 1.85 : 1.65) * bw + thick, C2), "pelvis", { drape: true });
     }
     if (bottom === "overalls") {
       // bavette + bretelles
@@ -398,14 +429,31 @@ export function buildBodyField(k: Kit): BodyField {
       break;
     case "cape": {
       const top0 = P.shoulderY + H * 0.01;
+      if (look.cape === "none" && clothSoft) {
+        soft.push(withSkirts(capePiece(k, "short", backZ)));
+        put("bag", { kind: "ellipsoid", c: add(neckBase, [0, -H * 0.008, 0]), r: [neckR * 1.6 + thick * 1.6, H * 0.016, neckR * 1.5 + thick * 1.6], role: C3, tag: 0 }, "neck");
+        break;
+      }
+      if (look.cape !== "none") break;
       put("bag", { kind: "capsule", a: [0, top0 - H * 0.02, backZ - H * 0.005], b: [0, P.crotchY - H * 0.1, backZ - H * 0.06], ra: P.shoulderHalf * 0.95, rb: P.shoulderHalf * 1.25, role: C3, tag: 0, clip: [{ n: [0, 0, 1], d: backZ + H * 0.012 }] }, "chest");
       put("bag", { kind: "ellipsoid", c: add(neckBase, [0, -H * 0.008, 0]), r: [neckR * 1.6 + thick * 1.6, H * 0.016, neckR * 1.5 + thick * 1.6], role: C3, tag: 0 }, "neck");
       break;
     }
     case "scarf":
       put("bag", { kind: "ellipsoid", c: at("neck", 0.15), r: [neckR * 1.9, H * 0.024, neckR * 1.9], role: C3, tag: 0 }, "neck");
+      if (clothSoft) {
+        const a = add(at("neck", 0), [P.headW * 0.12, 0, neckR * 1.6]);
+        soft.push(scarfPiece(k, a, at("chest", 0.3)[1] - H * 0.05, chestC[2] + chestR[2] + thick * 2.5));
+        break;
+      }
       put("bag", { kind: "capsule", a: add(at("neck", 0), [P.headW * 0.12, 0, neckR * 1.6]), b: add(at("chest", 0.3), [P.headW * 0.2, 0, chestR[2] + thick * 2.2]), ra: H * 0.02, rb: H * 0.02, role: C3, tag: 0 }, "chest", { pattern: look.pattern === "stripes" ? { fn: (p) => Math.sin((2 * Math.PI * p[1]) / (per * 0.8)), alt: C1 } : null });
       break;
+  }
+
+  /* ---------- cape (paramètre `cape`) ---------- */
+  if (look.cape === "short" || look.cape === "long") {
+    soft.push(withSkirts(capePiece(k, look.cape, backZ)));
+    put("bag", { kind: "ellipsoid", c: add(neckBase, [0, -H * 0.008, 0]), r: [neckR * 1.6 + thick * 1.6, H * 0.016, neckR * 1.5 + thick * 1.6], role: C3, tag: 0 }, "neck");
   }
 
   /* ---------- soudures ---------- */
@@ -438,5 +486,5 @@ export function buildBodyField(k: Kit): BodyField {
         if (set.prims[a].role !== set.prims[b].role || set.group[a] === "over" || set.group[b] === "over" || set.group[a] === "belt" || set.group[b] === "belt") continue;
         blends.push({ a, b, k: H * 0.01 });
       }
-  return { set, blends, decals, hipC, chestC, chestR, backZ, patterned: look.pattern !== "plain" };
+  return { set, blends, decals, hipC, chestC, chestR, backZ, patterned: look.pattern !== "plain", soft };
 }

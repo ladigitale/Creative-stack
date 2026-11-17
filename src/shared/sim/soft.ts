@@ -23,6 +23,12 @@ export type SoftSpec = {
   collide: boolean;
   /** Finesse (segments sur la longueur). */
   segments: number;
+  /** Jupe : rayon du bord libre / rayon du bord attaché (1 : tube droit ; 1,6 : jupe évasée ; 0,5 : manche à air). */
+  flare?: number;
+  /** Tissu : cintrage de repos (m) ; les bords latéraux avancent de `curl` dans l'épaisseur (cape qui épouse le dos). */
+  curl?: number;
+  /** Tissu : plis de repos (m) en accordéon dans l'épaisseur (rideau froncé). */
+  pleats?: number;
 };
 
 const PINS = ["haut", "bas", "gauche", "droite", "avant", "arriere"] as const;
@@ -50,6 +56,9 @@ export function readSoft(v: unknown, issue: (m: string) => void): SoftSpec | nul
     wind: n(o.vent ?? o.wind, 1, 0, 3),
     collide: o.collision !== false && o.collide !== false,
     segments: Math.round(n(o.segments, kind === "chaine" ? 10 : 8, 2, 24)),
+    ...(kind === "jupe" && (o.evasement ?? o.flare) !== undefined ? { flare: n(o.evasement ?? o.flare, 1, 0.2, 3) } : {}),
+    ...(kind === "tissu" && (o.cintrage ?? o.curl) !== undefined ? { curl: n(o.cintrage ?? o.curl, 0, -1, 1) } : {}),
+    ...(kind === "tissu" && (o.plis ?? o.pleats) !== undefined ? { pleats: n(o.plis ?? o.pleats, 0, 0, 0.2) } : {}),
   };
 }
 
@@ -97,10 +106,12 @@ export class SoftSim {
       for (let r = 0; r < rows; r++)
         for (let c = 0; c < cols; c++) {
           const a = (c / cols) * Math.PI * 2;
+          // évasement : le rayon passe de celui du bord attaché à `flare` fois celui-ci au bord libre
+          const k = 1 + ((spec.flare ?? 1) - 1) * (r / (rows - 1));
           const p: V3 = [box.c[0], box.c[1], box.c[2]];
           p[axis] = box.c[axis] + sign * box.h[axis] * (1 - (2 * r) / (rows - 1));
-          p[others[0]] = box.c[others[0]] + Math.cos(a) * box.h[others[0]];
-          p[others[1]] = box.c[others[1]] + Math.sin(a) * box.h[others[1]];
+          p[others[0]] = box.c[others[0]] + Math.cos(a) * box.h[others[0]] * k;
+          p[others[1]] = box.c[others[1]] + Math.sin(a) * box.h[others[1]] * k;
           pts.push(...p);
           pinned.push(r === 0 ? 1 : 0);
         }
@@ -119,7 +130,7 @@ export class SoftSim {
       const others = [0, 1, 2].filter((a) => a !== axis);
       const across = box.h[others[0]] >= box.h[others[1]] ? others[0] : others[1];
       const rows = spec.segments + 1;
-      const cols = Math.max(2, Math.min(16, Math.round((spec.segments * box.h[across]) / Math.max(1e-3, box.h[axis])) + 1));
+      const cols = Math.max(spec.curl ? 7 : spec.pleats ? 9 : 2, Math.min(16, Math.round((spec.segments * box.h[across]) / Math.max(1e-3, box.h[axis])) + 1));
       this.cols = cols;
       this.rows = rows;
       this.radius = 0;
@@ -128,6 +139,13 @@ export class SoftSim {
           const p: V3 = [box.c[0], box.c[1], box.c[2]];
           p[axis] = box.c[axis] + sign * box.h[axis] * (1 - (2 * r) / (rows - 1));
           p[across] = box.c[across] - box.h[across] + (2 * box.h[across] * c) / (cols - 1);
+          if (spec.pleats) p[3 - axis - across] += spec.pleats * (c % 2 ? 1 : -1);
+          if (spec.curl) {
+            // cintrage : la troisième direction (épaisseur) avance aux bords, en parabole
+            const thin = 3 - axis - across;
+            const u = (2 * c) / (cols - 1) - 1;
+            p[thin] += spec.curl * u * u;
+          }
           pts.push(...p);
           pinned.push(r === 0 ? 1 : 0);
         }
@@ -180,6 +198,20 @@ export class SoftSim {
     out[o] = m[0] * x + m[4] * y + m[8] * z + m[12];
     out[o + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
     out[o + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+  }
+
+  /**
+   * Déplace tout l'état d'un bloc (matrice 4×4 en colonnes) : une pièce figée un moment (hors écran, au loin) reprend
+   * là où son attache est allée, sans élan parasite.
+   */
+  transformAll(t: ArrayLike<number>) {
+    for (const a of [this.pos, this.prev])
+      for (let i = 0; i < a.length; i += 3) {
+        const x = a[i], y = a[i + 1], z = a[i + 2];
+        a[i] = t[0] * x + t[4] * y + t[8] * z + t[12];
+        a[i + 1] = t[1] * x + t[5] * y + t[9] * z + t[13];
+        a[i + 2] = t[2] * x + t[6] * y + t[10] * z + t[14];
+      }
   }
 
   /** Remet tous les points à leur place de repos (téléportation, premier affichage). */

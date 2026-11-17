@@ -8,6 +8,32 @@ import type { Issues, Resolved, Schema } from "../core/schema";
 import type { Mesh } from "../geom/mesh";
 import type { Skeleton } from "../rig/skeleton";
 import type { Role } from "../style/roles";
+import type { HairSpec } from "../../../shared/sim/hair";
+import type { SoftSpec } from "../../../shared/sim/soft";
+
+/**
+ * Pièce souple d'un asset (cape, jupe, écharpe, drapeau, linge, rideau) ou chevelure en mèches : simulée par le rendu
+ * 3D (`render/soft.ts`, moteur commun `shared/sim`), figée ailleurs (`softFrozen`, vectoriel).
+ * Coordonnées : repère de l'objet au repos (personnage : pose de repos, avant = +z).
+ */
+export type SoftPiece = {
+  /** Nom lisible (cape, jupe, cheveux, drapeau…). */
+  label: string;
+  /** Os porteur (personnages) ; absent : repère fixe de l'objet. */
+  bone?: string;
+  /** Rôle de couleur (indice). */
+  role: number;
+  /** Tissu, jupe ou chaîne : boîte de repos (centre, demi-côtés). */
+  cloth?: SoftSpec;
+  box?: { c: V3; h: V3 };
+  /** Fanion : pointe au bout libre (0 à 1). */
+  taper?: number;
+  /** Chevelure : coupe et crâne (centre, rayon) dans le repère de l'os. */
+  hair?: HairSpec;
+  head?: { c: V3; r: number };
+  /** Sphères qui repoussent la pièce (corps, mât), portées par un os ou fixes. */
+  colliders?: { bone?: string; c: V3; r: number }[];
+};
 
 export type Anchor = {
   /** Os porteur (personnages) ; absent : repère fixe de l'objet. */
@@ -33,6 +59,10 @@ export type Asset = {
   colors?: Partial<Record<Role, string>>;
   /** Morph de clignement présent (personnages). */
   blink?: boolean;
+  /** Pièces souples simulées en 3D (absentes du maillage `mesh`). */
+  soft?: SoftPiece[];
+  /** Les mêmes, figées dans leur drapé de repos (repère de l'objet) : repli quand le plafond de tissus est atteint. */
+  softFrozen?: Mesh;
   /** Données propres au générateur (ex. points de porte d'un bâtiment). */
   extra?: Record<string, unknown>;
 };

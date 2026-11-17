@@ -62,6 +62,8 @@ export const characterSchema = {
   shoes: { type: "enum", default: "auto", options: auto(SHOES), doc: "Chaussures (tallboots : bottes hautes)" },
   hat: { type: "enum", default: "auto", options: auto(HATS), doc: "Couvre-chef (flowers : couronne de fleurs ; hood : capuche)" },
   bag: { type: "enum", default: "auto", options: auto(BAGS), doc: "Sac, cape, écharpe ou bourse" },
+  cape: { type: "enum", default: "none", options: ["none", "short", "long"], doc: "Cape en tissu simulé (3D : flotte au vent, suit les mouvements ; vectoriel : forme figée) ; short : aux cuisses, long : aux chevilles" },
+  soft: { type: "enum", default: "none", options: ["none", "cloth", "hair", "all"], doc: "Passe en simulation 3D : cloth = cape de bag, écharpe, jupes, robes et pans de manteau ; hair = cheveux long, ponytail, lowtail en mèches ; all = les deux (none : aspect inchangé)" },
   item: { type: "enum", default: "auto", options: auto(ITEMS), doc: "Objet tenu (main droite, prise refermée)" },
   mood: { type: "enum", default: "neutral", options: MOODS, doc: "Expression du visage (et posture d'animation)" },
   outfit: { type: "string", default: "auto", doc: `Garde-robe : ${Object.keys(OUTFITS).join(", ")} ou auto` },
@@ -90,6 +92,6 @@ export const character = defineGenerator({
       cache.set(key, built);
       if (cache.size > 48) cache.delete(cache.keys().next().value as string);
     }
-    return { generator: "character", mesh: built.mesh, skeleton: built.skeleton, anchors: built.anchors, footprint: built.footprint, height: built.height, colors, blink: true, extra: { look } };
+    return { generator: "character", mesh: built.mesh, skeleton: built.skeleton, anchors: built.anchors, footprint: built.footprint, height: built.height, colors, blink: true, ...(built.soft.length ? { soft: built.soft } : {}), extra: { look } };
   },
 });
