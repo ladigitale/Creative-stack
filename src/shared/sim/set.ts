@@ -121,7 +121,7 @@ export class EmitterSet {
     for (const b of this.staticBoxes) this.grid.add(b);
     const m = driver.monde;
     for (const inst of driver.instances.values()) {
-      if (!inst.visible) continue;
+      if (!inst.visible || inst.placement.sensor) continue;
       const t = inst.t;
       const boxes = placeBoxes(inst.model, [t.x, t.y, t.z], [t.rx, t.ry, t.rz], [t.sx, t.sy, t.sz]);
       if (!boxes.length) continue;

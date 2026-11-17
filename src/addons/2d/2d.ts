@@ -148,6 +148,8 @@ export class Sonic2d extends LitElement {
   private emitOut: Record<string, unknown> | null = null;
   private lastEmitJson = "";
   private lastFxJson = "";
+  private lastQueriesJson = "";
+  private queriesOut: Record<string, unknown> | null = null;
   /** Conflits recalculés depuis la lecture du monde (après un rangement). */
   private liveConflicts: Conflict[] | null = null;
 
@@ -337,6 +339,15 @@ export class Sonic2d extends LitElement {
     this.mondeR.onExpire = (e) => {
       if (this.target) dispatch(this.target, { type: "expire", payload: e });
     };
+    this.mondeR.onQueries = (r) => {
+      this.queriesOut = { ...(this.queriesOut ?? {}), ...r };
+      this.publishOut();
+    };
+    this.mondeR.onSensor = (e) => {
+      const { type, ...payload } = e;
+      if (this.target) dispatch(this.target, { type, payload });
+      this.dispatchEvent(new CustomEvent(`monde-${type}`, { detail: payload, bubbles: true, composed: true }));
+    };
     this.mondeR.onEmitStats = (st) => {
       this.emitOut = st;
       this.publishOut();
@@ -484,6 +495,19 @@ export class Sonic2d extends LitElement {
       if (json && json !== this.lastEmitJson) {
         this.lastEmitJson = json;
         if (this.mondeR.applyEmit(JSON.parse(json))) this.mondeBusy = true;
+      }
+    }
+    if (data.queries !== undefined && this.mondeR) {
+      let json = "";
+      try {
+        json = JSON.stringify(data.queries);
+      } catch {
+        /* ignoré */
+      }
+      if (json && json !== this.lastQueriesJson) {
+        this.lastQueriesJson = json;
+        this.mondeR.applyQueries(JSON.parse(json));
+        this.mondeBusy = true;
       }
     }
     if (data.fx !== undefined && this.mondeR) {
@@ -765,6 +789,7 @@ export class Sonic2d extends LitElement {
       ...(this.contactOut ? { contact: this.contactOut } : {}),
       ...(this.hitsOut ? { hits: this.hitsOut } : {}),
       ...(this.emitOut ? { emitters: this.emitOut } : {}),
+      ...(this.queriesOut ? { queries: this.queriesOut } : {}),
       ...(this.m2Parsed ? { monde2dInfo: this.m2Info ?? (this.m2Info = monde2dSummary(this.m2Parsed)) } : {}),
     };
     const sig = JSON.stringify(next);

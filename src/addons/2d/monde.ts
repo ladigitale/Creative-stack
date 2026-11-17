@@ -20,6 +20,7 @@ import { shade } from "../../shared/monde/math";
 import { isNum, patchOf } from "../../shared/nodes";
 import { composeYP, EmitterSet, type EmitStats } from "../../shared/sim/set";
 import { ParticleSet } from "../../shared/sim/particle-set";
+import { GameProbe, type QueryResult } from "../../shared/sim/queries";
 import { accelOf, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../shared/sim/particles";
 import type { Emitter, Hit } from "../../shared/sim/emitter";
 import { m4Mul } from "../../shared/monde/math";
@@ -119,6 +120,10 @@ export class Monde2d {
   private emitWorld = new Float32Array(16);
   private lastStep = 0;
   private lastStats = 0;
+  /** Requêtes (rayon, sphère, boîte) et capteurs. */
+  readonly probe = new GameProbe();
+  onQueries: ((r: Record<string, QueryResult>) => void) | null = null;
+  onSensor: ((e: { type: "enter" | "leave"; sensor: string; instance: string; tags: string[] }) => void) | null = null;
   /** Touches regroupées par image, copies expirées, état 10 fois par seconde. */
   onHits: ((hits: Hit[]) => void) | null = null;
   onExpire: ((e: { emitter: string; count: number }) => void) | null = null;
@@ -159,6 +164,14 @@ export class Monde2d {
 
   get emitting(): boolean {
     return this.emitters.active || this.particles.active;
+  }
+
+  /** Requêtes `queries.<id>` du DataProvider. */
+  applyQueries(spec: unknown): boolean {
+    if (!this.monde) return false;
+    const r = this.probe.apply(spec, this.driver);
+    if (r) this.onQueries?.(r);
+    return !!r;
   }
 
   /** Ordres `fx.<id>` du DataProvider (salves de particules). */
@@ -321,6 +334,7 @@ export class Monde2d {
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.mountEmitters(m);
     this.mountParticles(m);
+    this.probe.set(m);
     this.step(now, true);
     this.drawMarks(m.marks);
     this.drawSelection();
@@ -557,6 +571,12 @@ export class Monde2d {
     let busy = this.driver.step(now);
     const { unit, origin } = m.view2d;
     const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
+    if (this.probe.busy) {
+      const r = this.probe.step(this.driver);
+      if (r.results) this.onQueries?.(r.results);
+      for (const e of r.events) this.onSensor?.(e);
+      busy = true;
+    }
     if (this.particleViews.length) {
       for (const sim of this.emitters.sims) if (sim.spec.trail) this.particles.trail(sim.spec.trail, sim, dt);
       this.particles.step(dt);

@@ -103,6 +103,7 @@ function applyFormParams(host: FormBindHost, data: Record<string, unknown>) {
   formFields.applyNodes(host, data);
   mondeBind.emit(host as never, data);
   mondeBind.fx(host as never, data);
+  mondeBind.queries(host as never, data);
   postBind.applyFormPost(host as never, data);
   if (needReload) void reload.run(host as never);
 }

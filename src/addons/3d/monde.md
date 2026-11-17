@@ -319,6 +319,23 @@ Quand quelque chose gêne, la sortie publie `contact = {objectId, x, z, hits, bl
 modèles touchés, `t` : horodatage, qui change à chaque contact). Pour un jeu, le store écrit la position voulue à
 chaque pas et lit `contact` pour réagir (son, rebond, ramasser un objet).
 
+### Formes de collision, requêtes, capteurs
+
+- `collider` sur un modèle remplace ses boîtes (une par pièce) : `"none"` (rien ne le touche), ou jusqu'à 8 formes
+  posées au sol dans son repère, `{"box": [l, h, p]}`, `{"sphere": r}`, `{"capsule": [r, h]}` (`at` pour décaler).
+  Elles valent pour les conflits, les trajets (`collide`), les émetteurs et les requêtes.
+- `tags` sur un placement (`["ennemi"]`) : visées par les masques (émetteurs, requêtes), avec le nom de l'instance, le
+  modèle, la famille et les étiquettes du prefab (`decor` pour le décor sans nom).
+- `sensor: true` sur un placement nommé : zone qui détecte sans bloquer (ni conflit, ni obstacle). Quand une
+  instance nommée y entre ou en sort, `target` reçoit `{type: "enter" | "leave", payload: {sensor, instance, tags}}`
+  (événements DOM `monde-enter` / `monde-leave`). Un capteur tient la scène animée (`play` en 3D).
+- Requêtes (clé `queries` du DataProvider) : `{"queries": {"vise": {"n": 4, "ray": {"from": [x, y, z], "dir": [dx, dy, dz], "max": 30}, "mask": ["ennemi"], "ignore": ["heros"]}}}`
+  (ou `"sphere": {"at", "r"}`, `"box": {"lo", "hi"}`). Une réponse à chaque hausse de `n`, ou à chaque image avec
+  `"live": true` (16 requêtes au plus) ; elle arrive dans la sortie `queries.<id>` = `{n, hit, instance, model, tags,
+  x, y, z, normal, dist}` (rayon : premier objet touché ; un rayon descendant s'arrête au sol, `mask` peut viser
+  `sol`) ; sphère et boîte ajoutent `all` (tout ce qui chevauche, 16 au plus). Sans `mask`, tout sauf les capteurs
+  (`"sensor"` dans le masque pour les voir).
+
 ## Espace : pièce ou parcelle
 
 La clé `espace` décrit un lieu par son contour : le sol, les murs percés de portes et de fenêtres, le plafond, ou une

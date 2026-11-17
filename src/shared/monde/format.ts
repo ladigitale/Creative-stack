@@ -112,6 +112,11 @@ export type ModelIn = {
   degagement?: number;
   /** Objet souple (plante, coussin, tissu) : il peut frôler ses voisins sans que ce soit signalé comme une collision. */
   souple?: boolean;
+  /**
+   * Forme de collision : `"auto"` (défaut : une boîte par pièce), `"none"` (rien ne le touche), ou des formes
+   * simples dans le repère du modèle, 8 au plus : `{box: [l, h, p], at?}`, `{sphere: r, at?}`, `{capsule: [r, h], at?}`.
+   */
+  collider?: unknown;
 };
 
 export type PlaceIn = {
@@ -164,6 +169,13 @@ export type PlaceIn = {
   against?: string;
   /** Modèle `gen` : graine propre à ce placement (autre tirage du même modèle). */
   genSeed?: string | number;
+  /** Étiquettes visées par les masques (émetteurs, requêtes, capteurs). */
+  tags?: string[];
+  /**
+   * Capteur : zone qui détecte sans bloquer (ni collision, ni conflit) ; `target` reçoit `enter` / `leave` quand une
+   * instance nommée y entre ou en sort.
+   */
+  sensor?: boolean;
 };
 
 export type MondeIn = {
@@ -283,6 +295,8 @@ export type Model = {
   gen: GenSpec | null;
   /** Problèmes de lecture du modèle (redonnés quand il est réutilisé tel quel). */
   issues: Issue[];
+  /** Forme de collision écrite (boîtes du modèle, en mètres) ; `"none"` : aucune ; absente : une boîte par pièce. */
+  collider?: Obb[] | "none";
 };
 
 export type GenSpec = { id: string; params: Record<string, unknown>; seed: string; rig: GenRig };
@@ -297,6 +311,10 @@ export type Placement = {
   roles: Record<string, string>;
   clip: string;
   hidden: boolean;
+  /** Étiquettes écrites sur le placement. */
+  tags?: string[];
+  /** Capteur (voir `PlaceIn.sensor`). */
+  sensor?: boolean;
   /**
    * Posé sur une instance nommée : position dans le repère de l'appui (unités du modèle d'appui) et cap propre.
    * Une instance nommée ainsi posée suit son appui quand il bouge.
@@ -779,6 +797,8 @@ function readPlacements(list: unknown, models: Map<string, Model>, prefabs: Reco
       clip: typeof p.clip === "string" ? p.clip : "",
       hidden: p.hidden === true,
       ...(p.shadow === false ? { noShadow: true } : {}),
+      ...(Array.isArray(p.tags) ? { tags: p.tags.filter((t): t is string => typeof t === "string" && t.length > 0 && t.length <= 40).slice(0, 8) } : {}),
+      ...(p.sensor === true ? { sensor: true } : {}),
     };
 
     // Appui : surface d'une instance nommée déjà placée, ou le sol
@@ -1052,6 +1072,8 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     }
     const own0 = issues.length;
     const model = readModel(name, m, palette, ownPal, issues);
+    const col = readCollider((m as ModelIn).collider, unit, `models.${name}.collider`, issues);
+    if (col) model.collider = col;
     model.sig = sig;
     model.issues = issues.slice(own0);
     models.set(name, model);
@@ -1115,6 +1137,40 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     unit,
     issues,
   };
+}
+
+/** Forme de collision écrite d'un modèle : boîtes dans son repère (une sphère ou une capsule comptent pour leur boîte). */
+function readCollider(v: unknown, u: number, path: string, issues: Issue[]): Obb[] | "none" | null {
+  if (v === undefined || v === "auto") return null;
+  if (v === "none") return "none";
+  const list = Array.isArray(v) ? v : [v];
+  const out: Obb[] = [];
+  const fin = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
+  for (const c of list.slice(0, 8)) {
+    if (!c || typeof c !== "object") continue;
+    const o = c as { box?: unknown; sphere?: unknown; capsule?: unknown; at?: unknown };
+    const at = Array.isArray(o.at) && o.at.length >= 3 && o.at.slice(0, 3).every(fin) ? (o.at.slice(0, 3) as number[]).map((x) => x * u) : null;
+    let h: [number, number, number] | null = null;
+    let c0: [number, number, number] = [0, 0, 0];
+    if (Array.isArray(o.box) && o.box.length >= 3 && o.box.slice(0, 3).every(fin)) {
+      h = [(o.box[0] * u) / 2, (o.box[1] * u) / 2, (o.box[2] * u) / 2];
+      c0 = [0, h[1], 0];
+    } else if (fin(o.sphere)) {
+      const r = o.sphere * u;
+      h = [r, r, r];
+      c0 = [0, r, 0];
+    } else if (Array.isArray(o.capsule) && fin(o.capsule[0]) && fin(o.capsule[1])) {
+      const r = o.capsule[0] * u, hh = (o.capsule[1] * u) / 2 + r;
+      h = [r, hh, r];
+      c0 = [0, hh, 0];
+    }
+    if (!h || h.some((x) => x <= 0)) {
+      issues.push({ path, message: 'forme attendue : {box: [l, h, p]}, {sphere: r} ou {capsule: [r, h]} (posée au sol, "at" pour la décaler)' });
+      continue;
+    }
+    out.push({ c: (at as [number, number, number] | null) ?? c0, ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h });
+  }
+  return out.length ? out : null;
 }
 
 type EmitPlace = PlaceIn & { emitter?: string; copies?: { model: string; roles?: Record<string, string> }[] };
