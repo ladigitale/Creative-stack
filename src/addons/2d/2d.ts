@@ -332,20 +332,20 @@ export class Sonic2d extends LitElement {
     };
     this.mondeR.onHits = (hits) => {
       const payload = { hits: hits.slice(0, 64), t: Date.now() };
-      if (this.target) dispatch(this.target, { type: "hit", payload });
+      if (this.target) { const target = this.target; setTimeout(() => dispatch(target, { type: "hit", payload }), 0); }
       this.dispatchEvent(new CustomEvent("monde-hit", { detail: payload, bubbles: true, composed: true }));
       this.hitsOut = payload;
       this.publishOut();
     };
     this.mondeR.onExpire = (e) => {
-      if (this.target) dispatch(this.target, { type: "expire", payload: e });
+      if (this.target) { const target = this.target; setTimeout(() => dispatch(target, { type: "expire", payload: e }), 0); }
     };
     this.mondeR.onInfiniState = (st) => {
       this.infiniOut = st;
       this.publishOut();
     };
     this.mondeR.infini.onEnter = (e) => {
-      if (this.target) dispatch(this.target, { type: "tileEnter", payload: e });
+      if (this.target) { const target = this.target; setTimeout(() => dispatch(target, { type: "tileEnter", payload: e }), 0); }
     };
     this.mondeR.onQueries = (r) => {
       this.queriesOut = { ...(this.queriesOut ?? {}), ...r };
@@ -353,7 +353,7 @@ export class Sonic2d extends LitElement {
     };
     this.mondeR.onSensor = (e) => {
       const { type, ...payload } = e;
-      if (this.target) dispatch(this.target, { type, payload });
+      if (this.target) { const target = this.target; setTimeout(() => dispatch(target, { type, payload }), 0); }
       this.dispatchEvent(new CustomEvent(`monde-${type}`, { detail: payload, bubbles: true, composed: true }));
     };
     this.mondeR.onEmitStats = (st) => {

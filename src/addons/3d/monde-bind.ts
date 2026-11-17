@@ -10,6 +10,12 @@ import { asset } from "./asset";
 import type { SceneRuntime } from "./runtime";
 import { dispatch } from "../interactive";
 
+/**
+ * Les événements du monde (touches, capteurs, tuiles) partent après l'image : le reducer du store ne mesure pas le
+ * temps de rendu et de génération de l'image comme le sien (budget-ms).
+ */
+const later = (fn: () => void) => setTimeout(fn, 0);
+
 export type MondeHost = {
   monde: string;
   glb: string;
@@ -102,18 +108,18 @@ function hook(host: MondeHost) {
   // émetteurs : touches regroupées par image vers `target` (et la sortie `hits`), état 10 fois par seconde
   host.runtime.monde.onHits = (hits) => {
     const payload = { hits: hits.slice(0, 64), t: Date.now() };
-    if (host.target) dispatch(host.target, { type: "hit", payload });
+    if (host.target) later(() => dispatch(host.target!, { type: "hit", payload }));
     host.dispatchEvent?.(new CustomEvent("monde-hit", { detail: payload, bubbles: true, composed: true }));
     outKey("hits", payload);
   };
   host.runtime.monde.onExpire = (e) => {
-    if (host.target) dispatch(host.target, { type: "expire", payload: e });
+    if (host.target) later(() => dispatch(host.target!, { type: "expire", payload: e }));
   };
   host.runtime.monde.onEmitStats = (stats) => outKey("emitters", stats);
   // requêtes : réponses rangées par identifiant dans la sortie `queries` ; capteurs : `enter` / `leave` vers target
   host.runtime.monde.infini.onState = (st) => outKey("infini", st);
   host.runtime.monde.infini.onEnter = (e) => {
-    if (host.target) dispatch(host.target, { type: "tileEnter", payload: e });
+    if (host.target) later(() => dispatch(host.target!, { type: "tileEnter", payload: e }));
   };
   host.runtime.monde.onQueries = (r) => {
     host.queriesOut = { ...(host.queriesOut ?? {}), ...r };
@@ -121,7 +127,7 @@ function hook(host: MondeHost) {
   };
   host.runtime.monde.onSensor = (e) => {
     const { type, ...payload } = e;
-    if (host.target) dispatch(host.target, { type, payload });
+    if (host.target) later(() => dispatch(host.target!, { type, payload }));
     host.dispatchEvent?.(new CustomEvent(`monde-${type}`, { detail: payload, bubbles: true, composed: true }));
   };
   // conflits recalculés après un rangement : le résumé publié suit la scène
