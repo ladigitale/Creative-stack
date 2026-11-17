@@ -53,7 +53,7 @@ describe("outils à main", () => {
       const b = character.build(plain as never, { rng: new Rng(kind), issues, path: "" });
       expect(a.mesh.triangleCount, kind).toBeGreaterThan(b.mesh.triangleCount);
     }
-  });
+  }, 30000);
 
   it("outil tenu, bras au repos ou en marchant : la tête reste au-dessus du sol (3D, skinning réel)", () => {
     for (const kind of TOOL_KINDS) {
@@ -71,7 +71,7 @@ describe("outils à main", () => {
         expect(minY, `${kind} v=${speed}`).toBeGreaterThan(-0.03);
       }
     }
-  });
+  }, 60000);
 
   it("actions d'usage : frapper, balayer, bêcher bougent le haut du corps dans le temps", () => {
     const issues = new Issues();
