@@ -150,6 +150,7 @@ export class Sonic2d extends LitElement {
   private lastFxJson = "";
   private lastQueriesJson = "";
   private queriesOut: Record<string, unknown> | null = null;
+  private infiniOut: Record<string, unknown> | null = null;
   /** Conflits recalculés depuis la lecture du monde (après un rangement). */
   private liveConflicts: Conflict[] | null = null;
 
@@ -339,6 +340,13 @@ export class Sonic2d extends LitElement {
     this.mondeR.onExpire = (e) => {
       if (this.target) dispatch(this.target, { type: "expire", payload: e });
     };
+    this.mondeR.onInfiniState = (st) => {
+      this.infiniOut = st;
+      this.publishOut();
+    };
+    this.mondeR.infini.onEnter = (e) => {
+      if (this.target) dispatch(this.target, { type: "tileEnter", payload: e });
+    };
     this.mondeR.onQueries = (r) => {
       this.queriesOut = { ...(this.queriesOut ?? {}), ...r };
       this.publishOut();
@@ -497,6 +505,7 @@ export class Sonic2d extends LitElement {
         if (this.mondeR.applyEmit(JSON.parse(json))) this.mondeBusy = true;
       }
     }
+    if (data.tiles !== undefined && this.mondeR) this.mondeR.applyTiles(JSON.parse(JSON.stringify(data.tiles)));
     if (data.queries !== undefined && this.mondeR) {
       let json = "";
       try {
@@ -790,6 +799,7 @@ export class Sonic2d extends LitElement {
       ...(this.hitsOut ? { hits: this.hitsOut } : {}),
       ...(this.emitOut ? { emitters: this.emitOut } : {}),
       ...(this.queriesOut ? { queries: this.queriesOut } : {}),
+      ...(this.infiniOut ? { infini: this.infiniOut } : {}),
       ...(this.m2Parsed ? { monde2dInfo: this.m2Info ?? (this.m2Info = monde2dSummary(this.m2Parsed)) } : {}),
     };
     const sig = JSON.stringify(next);

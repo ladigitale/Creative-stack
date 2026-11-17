@@ -16,6 +16,7 @@ import { CATALOGUE } from "./catalogue";
 import { findAll, type Obb } from "./collide";
 import { readEmitters, type EmitterSpec } from "../sim/emitter";
 import { readParticles, readVent, type ParticleSpec, type V3 as PV3 } from "../sim/particles";
+import { readInfini, type InfiniSpec } from "./infini";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -206,6 +207,8 @@ export type MondeIn = {
   particles?: Record<string, unknown>;
   /** Vent du monde (m/s), suivi par les particules qui y sont sensibles. */
   vent?: number[];
+  /** Monde infini : tuiles générées à la demande autour d'une instance (voir infini.ts). */
+  infini?: unknown;
   /** Unité des longueurs écrites (pièces, placements, clips) : `m` (défaut), `cm` ou `mm`. `nodes` reste en mètres. */
   unite?: string;
   /** Nuancier de matières : `{chene: {color: "#b98a56", tex: "bois"}}`, lu par `matiere` des pièces. */
@@ -373,6 +376,8 @@ export type Monde = {
   /** Systèmes de particules lus (en mètres) et vent. */
   particles: ParticleSpec[];
   vent: PV3;
+  /** Monde infini lu (en mètres), ou `null`. */
+  infini: InfiniSpec | null;
   unit: number;
   issues: Issue[];
 };
@@ -1044,9 +1049,12 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
   const emitters = readEmitters(raw0.emitters, unit, issues);
   // le modèle de chaque émetteur passe par la même lecture qu'un placement (prefab paramétré, variantes, modèle gen) :
   // placements cachés ajoutés en fin de liste, retirés après la résolution
-  const raw = emitters.length ? withEmitterPlaces(esp.src, emitters) : esp.src;
+  // modèles du monde infini : résolus de la même façon (un prefab du catalogue y devient un modèle du monde)
+  const infModels = infiniModels(raw0.infini);
+  const resolved = new Map<string, string>();
+  const raw = emitters.length || infModels.length ? withEmitterPlaces(esp.src, emitters, infModels) : esp.src;
   const expanded = expandPrefabs(raw, issues, prefabFormat(unit, readMatieres(raw.materiaux, issues)));
-  const src = emitters.length ? takeEmitterPlaces(genVariants(expanded.src, issues), emitters) : genVariants(expanded.src, issues);
+  const src = emitters.length || infModels.length ? takeEmitterPlaces(genVariants(expanded.src, issues), emitters, resolved) : genVariants(expanded.src, issues);
   const palette: Record<string, string> = { ...DEFAULT_PALETTE };
   const ownPal: Record<string, string> = {};
   if (src.palette && typeof src.palette === "object") {
@@ -1134,6 +1142,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     }),
     particles: readParticles(raw0.particles, unit, issues),
     vent: readVent(raw0.vent, unit),
+    infini: readInfini(raw0.infini, unit, (n) => models.has(n) && !models.get(n)!.gen, issues, (n) => resolved.get(n) ?? n),
     unit,
     issues,
   };
@@ -1173,11 +1182,24 @@ function readCollider(v: unknown, u: number, path: string, issues: Issue[]): Obb
   return out.length ? out : null;
 }
 
-type EmitPlace = PlaceIn & { emitter?: string; copies?: { model: string; roles?: Record<string, string> }[] };
+type EmitPlace = PlaceIn & { emitter?: string; infiniModel?: string; copies?: { model: string; roles?: Record<string, string> }[] };
 
-/** Un placement caché par émetteur (semis de quelques copies si ses paramètres sont tirés au hasard). */
-function withEmitterPlaces<T extends { place?: unknown }>(src: T, list: EmitterSpec[]): T {
+/** Noms des modèles des calques de `infini`. */
+function infiniModels(v: unknown): string[] {
+  if (!v || typeof v !== "object" || !Array.isArray((v as { layers?: unknown }).layers)) return [];
+  const out = new Set<string>();
+  for (const l of (v as { layers: unknown[] }).layers.slice(0, 12)) {
+    if (!l || typeof l !== "object") continue;
+    const o = l as { model?: unknown; models?: unknown };
+    for (const m of Array.isArray(o.models) ? o.models : [o.model]) if (typeof m === "string" && m) out.add(m);
+  }
+  return [...out].slice(0, 32);
+}
+
+/** Un placement caché par émetteur (semis de quelques copies si ses paramètres sont tirés au hasard) et par modèle du monde infini. */
+function withEmitterPlaces<T extends { place?: unknown }>(src: T, list: EmitterSpec[], inf: string[] = []): T {
   const place = Array.isArray(src.place) ? [...(src.place as unknown[])] : [];
+  for (const m of inf) place.push({ model: m, hidden: true, infiniModel: m } as EmitPlace);
   for (const e of list) {
     const p: EmitPlace = { model: e.model, hidden: true, emitter: e.id, seed: e.seed };
     if (e.params) {
@@ -1193,10 +1215,14 @@ function withEmitterPlaces<T extends { place?: unknown }>(src: T, list: EmitterS
 }
 
 /** Récupère les modèles résolus des placements d'émetteurs et les retire de la liste. */
-function takeEmitterPlaces<T extends { place?: unknown }>(src: T, list: EmitterSpec[]): T {
+function takeEmitterPlaces<T extends { place?: unknown }>(src: T, list: EmitterSpec[], resolved?: Map<string, string>): T {
   if (!Array.isArray(src.place)) return src;
   const byId = new Map(list.map((e) => [e.id, e]));
   const place = (src.place as EmitPlace[]).filter((p) => {
+    if (p && typeof p === "object" && typeof p.infiniModel === "string") {
+      resolved?.set(p.infiniModel, String(p.model));
+      return false;
+    }
     const e = p && typeof p === "object" && typeof p.emitter === "string" ? byId.get(p.emitter) : undefined;
     if (!e) return true;
     const roles = (r: unknown) => (r && typeof r === "object" ? (r as Record<string, string>) : {});
@@ -1385,6 +1411,7 @@ export function mondeSummary(m: Monde) {
     ...(m.conflicts.length ? { conflicts: m.conflicts.slice(0, 50) } : {}),
     ...(hasPrefabs ? { prefabs: m.prefabs } : {}),
     decor: m.place.filter((p) => !p.name).length,
+    ...(m.infini ? { infini: { tile: m.infini.tile, radius: m.infini.radius, layers: m.infini.layers.length, biomes: m.infini.biomes.map((b) => b.name) } } : {}),
     ...(m.particles.length ? { particles: m.particles.map((p) => ({ id: p.id, preset: p.preset, max: p.max })) } : {}),
     ...(m.emitters.length ? { emitters: m.emitters.map((e) => ({ id: e.id, model: e.model, behavior: e.behavior, max: e.max, variants: e.variants.length })) } : {}),
     issues: m.issues.slice(0, 50),

@@ -21,6 +21,7 @@ import { isNum, patchOf } from "../../shared/nodes";
 import { composeYP, EmitterSet, type EmitStats } from "../../shared/sim/set";
 import { ParticleSet } from "../../shared/sim/particle-set";
 import { GameProbe, type QueryResult } from "../../shared/sim/queries";
+import { biomeAt, TileManager, type Tile } from "../../shared/monde/infini";
 import { accelOf, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../shared/sim/particles";
 import type { Emitter, Hit } from "../../shared/sim/emitter";
 import { m4Mul } from "../../shared/monde/math";
@@ -120,6 +121,12 @@ export class Monde2d {
   private emitWorld = new Float32Array(16);
   private lastStep = 0;
   private lastStats = 0;
+  /** Monde infini : tuiles chargées autour de l'instance suivie (sol coloré par biome, peuplement en silhouettes). */
+  readonly infini = new TileManager();
+  private tileViews = new Map<string, { c: Container; items: EmitView[] }>();
+  private restOf = new Map<string, Float32Array>();
+  private lastInfiniState = 0;
+  onInfiniState: ((s: ReturnType<TileManager["state"]>) => void) | null = null;
   /** Requêtes (rayon, sphère, boîte) et capteurs. */
   readonly probe = new GameProbe();
   onQueries: ((r: Record<string, QueryResult>) => void) | null = null;
@@ -164,6 +171,71 @@ export class Monde2d {
 
   get emitting(): boolean {
     return this.emitters.active || this.particles.active;
+  }
+
+  /** Retouches du monde infini (`tiles."cx,cz"`). */
+  applyTiles(v: unknown): void {
+    this.infini.setEdits(v);
+    this.invalidate();
+  }
+
+  private rest(model: Model): Float32Array {
+    let r = this.restOf.get(model.name);
+    if (!r) {
+      const offs = new Float32Array(model.parts.length * STRIDE);
+      for (let i = 6; i < offs.length; i += STRIDE) offs[i] = 1;
+      r = new Float32Array(model.parts.length * 16);
+      forward(model, offs, m4(), r, m4());
+      this.restOf.set(model.name, r);
+    }
+    return r;
+  }
+
+  /** Tuiles chargées ↔ dessins : sol (carrés colorés par biome) et objets, créés à l'arrivée, détruits au départ. */
+  private syncTiles(m: Monde) {
+    const s = m.infini!;
+    for (const [k, v] of this.tileViews)
+      if (!this.infini.tiles.has(k)) {
+        for (const it of v.items) {
+          for (const g of it.parts) if (g) g.context = new GraphicsContext();
+          it.c.destroy({ children: true });
+        }
+        v.c.destroy({ children: true });
+        this.tileViews.delete(k);
+      }
+    const { unit, origin } = m.view2d;
+    const pr = this.proj;
+    const P = (x: number, y: number, z: number): [number, number] => [origin[0] + (pr.px[0] * x + pr.px[1] * y + pr.px[2] * z) * unit, origin[1] + (pr.py[0] * x + pr.py[1] * y + pr.py[2] * z) * unit];
+    for (const t of this.infini.tiles.values()) {
+      if (this.tileViews.has(t.key)) continue;
+      const c = new Container();
+      c.label = `infini~${t.key}`;
+      const ground = new Graphics();
+      const N = 6, T = s.tile, x0 = t.cx * T, z0 = t.cz * T;
+      for (let i = 0; i < N; i++)
+        for (let j = 0; j < N; j++) {
+          const xa = x0 + (i / N) * T, xb = x0 + ((i + 1) / N) * T, za = z0 + (j / N) * T, zb = z0 + ((j + 1) / N) * T;
+          const col = biomeAt(s, (xa + xb) / 2, (za + zb) / 2).color;
+          const pts = [P(xa, 0, za), P(xb, 0, za), P(xb, 0, zb), P(xa, 0, zb)].flat();
+          ground.poly(pts, true).fill({ color: col });
+        }
+      // le sol de la tuile reste sous tout ; ses objets sont triés par profondeur avec le reste du monde
+      const items: EmitView[] = [];
+      for (const it of t.items) {
+        const model = m.models.get(it.model);
+        if (!model) continue;
+        const v = new Container();
+        this.container.addChild(v);
+        const view: EmitView = { c: v, parts: model.parts.map((p) => (p.shape && !p.hidden ? v.addChild(new Graphics()) : null)), buckets: model.parts.map(() => -1), variant: 0 };
+        composeYP(this.root, it.x, it.y, it.z, it.ry, 0, it.s);
+        this.poseRigid(view, model, {}, this.rest(model), m, it.s);
+        items.push(view);
+      }
+      c.addChild(ground);
+      c.zIndex = -1e9;
+      this.container.addChild(c);
+      this.tileViews.set(t.key, { c, items });
+    }
   }
 
   /** Requêtes `queries.<id>` du DataProvider. */
@@ -279,46 +351,54 @@ export class Monde2d {
         }
         view.c.visible = true;
         composeYP(this.root, s.px[i], s.py[i], s.pz[i], s.heading(i), s.pitch(i), s.size[i]);
-        let zmax = -Infinity;
-        v.model.parts.forEach((p, k) => {
-          const g = view!.parts[k];
-          if (!g) return;
-          const w = this.emitWorld;
-          m4Mul(w, this.root, v.rest.subarray(k * 16, k * 16 + 16));
-          localDir(w, this.proj.dir, this.dir);
-          const bucket = bucketOf(this.dir);
-          const color = partColor(v.model, p, v.roles, m.palette);
-          const [u, vv] = basisOf(bucketDir(bucket));
-          if (bucket !== view!.buckets[k]) {
-            view!.buckets[k] = bucket;
-            let byBucket = this.hulls.get(p);
-            if (!byBucket) this.hulls.set(p, (byBucket = new Map()));
-            let hull = byBucket.get(bucket);
-            if (!hull) {
-              const pts = this.pointsOf(p, m.detail);
-              if (!pts) return;
-              hull = silhouette(pts, u, vv);
-              byBucket.set(bucket, hull);
-            }
-            const key = `${v.model.name}#${k}|${bucket}|${color}`;
-            let ctx = this.contexts.get(key);
-            if (!ctx) {
-              ctx = new GraphicsContext();
-              drawPart(ctx, hull, color, partTex(m, p), p.glow, m.outline, unit * (s.size[i] || 1), p.shape?.kind === "plane");
-              this.contexts.set(key, ctx);
-            }
-            g.context = ctx;
-          }
-          affineOf(w, u, vv, this.proj, unit, origin[0], origin[1], this.aff);
-          g.setFromMatrix(this.mat.set(this.aff[0], this.aff[1], this.aff[2], this.aff[3], this.aff[4], this.aff[5]));
-          const z = depthOf(this.proj, w[12], w[13], w[14]);
-          g.zIndex = zOf(z + k * 1e-5);
-          zmax = Math.max(zmax, z);
-        });
-        view.c.zIndex = zOf(zmax);
+        this.poseRigid(view, v.model, v.roles, v.rest, m, s.size[i] || 1);
       }
       for (let i = s.n; i < d.pool.length; i++) d.pool[i].c.visible = false;
     }
+  }
+
+  /**
+   * Pose une copie rigide (émise ou peuplant le monde infini) : `this.root` est sa matrice ; une silhouette par pièce,
+   * dessins partagés par modèle, pièce, direction et couleur.
+   */
+  private poseRigid(view: EmitView, model: Model, roles: Record<string, string>, rest: Float32Array, m: Monde, size: number) {
+    const { unit, origin } = m.view2d;
+    let zmax = -Infinity;
+    model.parts.forEach((p, k) => {
+      const g = view.parts[k];
+      if (!g) return;
+      const w = this.emitWorld;
+      m4Mul(w, this.root, rest.subarray(k * 16, k * 16 + 16));
+      localDir(w, this.proj.dir, this.dir);
+      const bucket = bucketOf(this.dir);
+      const color = partColor(model, p, roles, m.palette);
+      const [u, vv] = basisOf(bucketDir(bucket));
+      if (bucket !== view.buckets[k]) {
+        view.buckets[k] = bucket;
+        let byBucket = this.hulls.get(p);
+        if (!byBucket) this.hulls.set(p, (byBucket = new Map()));
+        let hull = byBucket.get(bucket);
+        if (!hull) {
+          const pts = this.pointsOf(p, m.detail);
+          if (!pts) return;
+          hull = silhouette(pts, u, vv);
+          byBucket.set(bucket, hull);
+        }
+        const key = `${model.name}#${k}|${bucket}|${color}`;
+        let ctx = this.contexts.get(key);
+        if (!ctx) {
+          ctx = new GraphicsContext();
+          drawPart(ctx, hull, color, partTex(m, p), p.glow, m.outline, unit * size, p.shape?.kind === "plane");
+          this.contexts.set(key, ctx);
+        }
+        g.context = ctx;
+      }
+      affineOf(w, u, vv, this.proj, unit, origin[0], origin[1], this.aff);
+      g.setFromMatrix(this.mat.set(this.aff[0], this.aff[1], this.aff[2], this.aff[3], this.aff[4], this.aff[5]));
+      const z = depthOf(this.proj, w[12], w[13], w[14]);
+      zmax = Math.max(zmax, z);
+    });
+    view.c.zIndex = zOf(zmax);
   }
 
   get issues() {
@@ -335,6 +415,7 @@ export class Monde2d {
     this.mountEmitters(m);
     this.mountParticles(m);
     this.probe.set(m);
+    this.infini.set(m.infini);
     this.step(now, true);
     this.drawMarks(m.marks);
     this.drawSelection();
@@ -571,6 +652,15 @@ export class Monde2d {
     let busy = this.driver.step(now);
     const { unit, origin } = m.view2d;
     const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
+    if (m.infini) {
+      const s = m.infini;
+      const f = s.follow ? this.driver.instances.get(s.follow) : null;
+      if (this.infini.update(f ? f.t.x : s.center[0], f ? f.t.z : s.center[1])) this.syncTiles(m);
+      if (this.onInfiniState && now - this.lastInfiniState > 250) {
+        this.lastInfiniState = now;
+        this.onInfiniState(this.infini.state());
+      }
+    }
     if (this.probe.busy) {
       const r = this.probe.step(this.driver);
       if (r.results) this.onQueries?.(r.results);
@@ -710,6 +800,7 @@ export class Monde2d {
     // contexte jetable (le partagé et EMPTY ne doivent pas être détruits avec la pièce)
     for (const b of this.built.values()) for (const pv of b.parts) if (pv) pv.g.context = new GraphicsContext();
     for (const d of this.emitDraw) for (const v of d.pool) for (const g of v.parts) if (g) g.context = new GraphicsContext();
+    for (const t of this.tileViews.values()) for (const v of t.items) for (const g of v.parts) if (g) g.context = new GraphicsContext();
     // pièces d'instances : contexte partagé détaché ci-dessus ; décor et ombres : leurs propres dessins
     for (const c of this.container.removeChildren()) c.destroy({ children: true, context: true });
     this.clearContexts();
@@ -719,6 +810,8 @@ export class Monde2d {
     this.marks = null;
     this.emitDraw = [];
     this.particleViews = [];
+    this.tileViews.clear();
+    this.restOf.clear();
   }
 
   destroy() {

@@ -29,6 +29,7 @@ import type { GenActor, GenKit } from "../procgen/index";
 import { loadProcgen, type ProcgenApi } from "../../shared/procgen-loader";
 import { EmitterLayer, type EmitPart, type EmitStats } from "./emitters3d";
 import { ParticleLayer } from "./particles3d";
+import { InfiniLayer } from "./infini3d";
 import { GameProbe, type QueryResult } from "../../shared/sim/queries";
 import type { Hit } from "../../shared/sim/emitter";
 
@@ -241,6 +242,8 @@ export class Monde3d {
   readonly emitters = new EmitterLayer();
   /** Particules (feu, fumée, étincelles…) : purement visuelles, mouvement calculé par le GPU. */
   readonly particles = new ParticleLayer();
+  /** Monde infini : tuiles chargées autour de l'instance suivie. */
+  readonly infini = new InfiniLayer();
   /** Requêtes (rayon, sphère, boîte) et capteurs. */
   readonly probe = new GameProbe();
   onQueries: ((r: Record<string, QueryResult>) => void) | null = null;
@@ -278,6 +281,7 @@ export class Monde3d {
       return { x: inst.t.x, y: inst.t.y, z: inst.t.z, ry: inst.t.ry };
     };
     this.particles.poseOf = this.emitters.poseOf;
+    this.infini.poseOf = this.emitters.poseOf;
   }
 
   /** Pièces dessinables d'un modèle émis : géométrie partagée, matière instanciée, matrice de repos, couleur. */
@@ -304,6 +308,11 @@ export class Monde3d {
     const r = this.probe.apply(spec, this.driver);
     if (r) this.onQueries?.(r);
     return !!r;
+  }
+
+  /** Retouches du monde infini (`tiles."cx,cz" = {remove, add}`). */
+  applyTiles(v: unknown): void {
+    this.infini.setEdits(v);
   }
 
   /** Ordres `fx.<id>` du DataProvider (salves de particules). */
@@ -353,6 +362,8 @@ export class Monde3d {
     this.group.add(this.emitters.group);
     this.particles.mount(m);
     this.probe.set(m);
+    this.infini.mount(m, (model) => this.emitParts(model, {}));
+    this.group.add(this.infini.group);
     this.particles.trailed = new Set(m.emitters.map((e) => e.trail).filter((t) => t));
     for (const e of m.emitters) {
       if (e.trail && !this.particles.get(e.trail)) m.issues.push({ path: `emitters.${e.id}.trail`, message: `système de particules inconnu « ${e.trail} »` });
@@ -943,6 +954,7 @@ export class Monde3d {
     if (this.emitters.advance(dt, this.driver)) changed = true;
     for (const sim of this.emitters.sims) if (sim.spec.trail) this.particles.trail(sim.spec.trail, sim, dt);
     if (this.particles.advance(dt)) changed = true;
+    if (this.monde.infini && this.infini.advance(now)) changed = true;
     if (this.probe.busy) {
       for (const n of this.built.keys()) this.syncT(n);
       const r = this.probe.step(this.driver);
@@ -1074,6 +1086,7 @@ export class Monde3d {
     this.kit?.dispose();
     this.emitters.dispose();
     this.particles.dispose();
+    this.infini.dispose();
   }
 }
 

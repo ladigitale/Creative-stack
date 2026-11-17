@@ -544,6 +544,46 @@ La scène doit tourner (`play` en 3D). En style `toon`, les grains ont un bord n
 
 ticules. Pas encore : les modèles `gen` (procgen) émis, le tap sur une copie.
 
+## Monde infini
+
+`infini` découpe le sol en tuiles carrées, générées à la demande autour d'une instance (`follow`) et relâchées
+derrière elle : un monde sans bord, le même à chaque passage (graine). Les instances nommées de `place` restent
+globales ; seuls les calques sont infinis.
+
+```json
+"brume": 0.25,
+"infini": {
+  "seed": "vallee", "tile": 24, "radius": 3, "follow": "heros",
+  "ground": { "relief": "= 1.5 * noise(x / 40, z / 40)", "color": "#7fae5a" },
+  "biomes": { "field": "= noise(x / 60, z / 60)", "list": [ { "to": -0.1, "name": "prairie", "color": "#9cc46a" }, { "to": 1, "name": "foret", "color": "#4f7f3f" } ] },
+  "layers": [
+    { "model": "sapin", "cell": 3.5, "density": "= biome == 'foret' ? 0.75 : 0.04" },
+    { "models": ["rocher", "souche"], "cell": 9, "density": 0.25, "scale": [0.6, 1.4] }
+  ]
+}
+```
+
+| Clé | Rôle |
+|---|---|
+| `tile`, `radius` | Côté d'une tuile (unité du document), rayon de chargement en tuiles (6 au plus) |
+| `follow`, `center` | Instance autour de laquelle charger ; à défaut, point `[x, z]` |
+| `axes` | `xz` (défaut) ou `x` : une seule rangée de tuiles (défilement horizontal en 2D) |
+| `ground` | `relief` (expression de la hauteur en mètres, `x` et `z` en mètres, `noise` de -1 à 1), `color` |
+| `biomes` | `field` (expression de -1 à 1) et `list` de biomes par seuil croissant `to`, avec `name` et `color` de sol |
+| `layers` | Peuplement : `model` ou `models` (tirés au hasard), `cell` (une copie au plus par cellule, écart garanti), `density` (0 à 1, nombre ou expression avec `x`, `z`, `h`, `biome`), `jitter`, `scale`, `turn`, `biomes` |
+| `perTile` | Copies au plus par tuile (600 au plus, 300 par défaut) |
+
+Les champs sont calculés en coordonnées du monde : deux tuiles voisines se raccordent sans couture. Un modèle de
+calque peut être un modèle du monde ou un prefab du catalogue (pas un modèle `gen`). En 3D, un appel de dessin par
+pièce de modèle quel que soit le nombre de tuiles ; `brume` (vers 20 / (radius × tile)) cache l'apparition des
+tuiles. En 2D, le sol est teinté par biome, les objets sont des silhouettes rangées en profondeur.
+
+**Retouches** (clé `tiles` du DataProvider) : `{"tiles": {"3,-2": {"remove": ["t.3.-2.0.12"], "add": [{"model": "feu", "x": 80, "z": -40}]}}}`,
+appliquées après la génération de la tuile (identifiants stables `t.<cx>.<cz>.<calque>.<rang>`). **Retours** : sortie
+`infini = {center, loaded, pending, ms}` ; `target` reçoit `{type: "tileEnter", payload: {cx, cz, biome}}` quand
+l'instance suivie change de tuile. Pas encore : collisions et émetteurs sur le peuplement infini, recentrage de
+l'origine au-delà de quelques kilomètres.
+
 ## Modèles `gen` : générateurs procgen (3D)
 
 `{"gen": "character", "params": {…}, "seed": 4}` confie la forme aux générateurs procgen : personnages humains en

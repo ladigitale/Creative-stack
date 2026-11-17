@@ -111,6 +111,10 @@ function hook(host: MondeHost) {
   };
   host.runtime.monde.onEmitStats = (stats) => outKey("emitters", stats);
   // requêtes : réponses rangées par identifiant dans la sortie `queries` ; capteurs : `enter` / `leave` vers target
+  host.runtime.monde.infini.onState = (st) => outKey("infini", st);
+  host.runtime.monde.infini.onEnter = (e) => {
+    if (host.target) dispatch(host.target, { type: "tileEnter", payload: e });
+  };
   host.runtime.monde.onQueries = (r) => {
     host.queriesOut = { ...(host.queriesOut ?? {}), ...r };
     outKey("queries", host.queriesOut);
@@ -240,4 +244,15 @@ function queries(host: MondeHost, data: Record<string, unknown>) {
   host.runtime.monde.applyQueries(JSON.parse(json));
 }
 
-export const mondeBind = { sync, hook, select, emit, fx, queries } as const;
+/** Clé `tiles` du DataProvider : retouches du monde infini par tuile (`{"3,-2": {remove: [ids], add: [...]}}`). */
+function tiles(host: MondeHost, data: Record<string, unknown>) {
+  if (!("tiles" in data) || !host.runtime?.ready) return;
+  try {
+    host.runtime.monde.applyTiles(JSON.parse(JSON.stringify(data.tiles)));
+    host.runtime.render();
+  } catch {
+    /* ignoré */
+  }
+}
+
+export const mondeBind = { sync, hook, select, emit, fx, queries, tiles } as const;
