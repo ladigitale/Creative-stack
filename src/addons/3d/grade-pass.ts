@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Grade } from "../../shared/monde/ambiance";
+import { ACES_GLSL, PaintFilter } from "./paint-filter";
 
 /**
  * Étalonnage de l'image du monde (ambiances) : la scène est rendue dans une cible HDR avec sa profondeur, puis une
@@ -15,6 +16,8 @@ void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
 
 const FRAG = /* glsl */ `
 #include <common>
+${ACES_GLSL}
+uniform float manualTone, exposure;
 #include <packing>
 varying vec2 vUv;
 uniform sampler2D tColor;
@@ -64,7 +67,11 @@ void main() {
   }
 
   gl_FragColor = vec4(hdr, 1.0);
+  // vers une cible intermédiaire (peinture, tramage), three n'applique pas son tone mapping : même courbe à la main
+  if (manualTone > 0.5) gl_FragColor.rgb = acesTone(gl_FragColor.rgb, exposure);
+  else {
   #include <tonemapping_fragment>
+  }
   vec3 c = gl_FragColor.rgb;
 
   if (outline > 0.0) {
@@ -129,6 +136,8 @@ export class GradePass {
   private grade: Grade | null = null;
   private w = 1;
   private h = 1;
+  private paint: PaintFilter | null = null;
+  private ldr: THREE.WebGLRenderTarget | null = null;
 
   constructor() {
     const depth = new THREE.DepthTexture(1, 1);
@@ -165,6 +174,8 @@ export class GradePass {
         aberration: { value: 0 },
         scanlines: { value: 0 },
         haze: { value: 0.05 },
+        manualTone: { value: 0 },
+        exposure: { value: 1 },
         tint: { value: new THREE.Color(1, 1, 1) },
         outlineColor: { value: new THREE.Color(0, 0, 0) },
         sky: { value: new THREE.Color(1, 1, 1) },
@@ -199,7 +210,8 @@ export class GradePass {
     u.grain.value = grade.grain;
     u.vignette.value = grade.vignette;
     u.pixel.value = grade.pixel;
-    u.posterize.value = grade.posterize;
+    // tramage : les niveaux sont posés par le tramage (une postérisation avant lui le rendrait sans effet)
+    u.posterize.value = grade.dither > 0 ? 0 : grade.posterize;
     u.silhouette.value = grade.silhouette;
     u.outline.value = grade.outline;
     u.bloom.value = grade.bloom;
@@ -252,11 +264,27 @@ export class GradePass {
     u.far.value = cam.far ?? 100;
     u.ortho.value = cam.isOrthographicCamera ? 1 : 0;
     u.time.value = time;
+    if (g.paint > 0 || g.dither > 0) {
+      // peinture ou tramage : image étalonnée dans une cible, puis filtre vers l'écran
+      if (!this.ldr) this.ldr = new THREE.WebGLRenderTarget(this.w, this.h, { type: THREE.HalfFloatType });
+      if (this.ldr.width !== this.w || this.ldr.height !== this.h) this.ldr.setSize(this.w, this.h);
+      u.manualTone.value = 1;
+      u.exposure.value = renderer.toneMappingExposure;
+      renderer.setRenderTarget(this.ldr);
+      renderer.render(this.scene, this.cam);
+      u.manualTone.value = 0;
+      this.paint ??= new PaintFilter();
+      renderer.setRenderTarget(prev);
+      this.paint.render(renderer, this.ldr.texture, { radius: g.paint, sharpness: 8, dither: g.dither, levels: g.posterize > 1 ? g.posterize : 6, hdr: false }, prev);
+      return;
+    }
     renderer.setRenderTarget(prev);
     renderer.render(this.scene, this.cam);
   }
 
   dispose() {
+    this.paint?.dispose();
+    this.ldr?.dispose();
     this.target.depthTexture?.dispose();
     this.target.dispose();
     this.bloomA.dispose();

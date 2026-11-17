@@ -42,5 +42,7 @@ describe("ambiances", () => {
     expect(m.lumiere).toBeNull();
     expect(m.ambiance).toBe("");
     expect(readMonde({ etalonnage: { pixel: 4 } }).grade?.pixel).toBe(4);
+    expect(readMonde({ etalonnage: { peinture: 6, tramage: true } }).grade).toMatchObject({ paint: 6, dither: 0.6 });
+    expect(readMonde({ ambiance: "peinture" }).ambiance).toBe("tableau");
   });
 });

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { PhotoSpec } from "../../shared/monde/format";
+import { PaintFilter } from "./paint-filter";
 
 /**
  * Rendu « photo » : quand la vue et la scène ne bougent plus depuis `attente` ms, l'image est recalculée en
@@ -120,13 +121,75 @@ export class PhotoMode {
     }
     const t = this.tracer!;
     const total = this.spec.echantillons;
+    const before = t.samples;
     t.pausePathTracing = t.samples >= total;
     t.renderSample();
     const done = t.samples >= total;
+    if (this.spec.filtre) this.drawFiltered(raster, t.samples !== before);
     this.setState({ etat: done ? "fini" : "calcul", echantillons: Math.min(total, Math.floor(t.samples)), total });
     // le fondu se termine même une fois le compte atteint
     if (!done || t.samples < total + 1) this.schedule();
     return true;
+  }
+
+  private paint: PaintFilter | null = null;
+  private denoise: { quad: THREE.Mesh; scene: THREE.Scene; cam: THREE.Camera; mat: THREE.ShaderMaterial } | null = null;
+  private painted: THREE.WebGLRenderTarget | null = null;
+  private copy: { quad: THREE.Mesh; scene: THREE.Scene; cam: THREE.Camera; mat: THREE.ShaderMaterial } | null = null;
+
+  /**
+   * Image filtrée : `peinture` (tramage puis Kuwahara anisotrope, recalculé seulement quand un échantillon arrive,
+   * recopié sinon) ; `lisse` (débruitage du traceur qui garde les arêtes). Avant le premier échantillon : temps réel.
+   */
+  private drawFiltered(raster: () => void, fresh: boolean) {
+    const t = this.tracer!;
+    const sp = this.spec!;
+    const r = this.renderer;
+    if (t.samples < 1) {
+      raster();
+      return;
+    }
+    const prev = r.getRenderTarget();
+    if (sp.filtre === "lisse") {
+      if (!this.denoise && this.mod) {
+        const mat = new this.mod.DenoiseMaterial() as unknown as THREE.ShaderMaterial;
+        // peu d'échantillons : bruit fort, seuil large (les arêtes nettes restent au-delà)
+        mat.uniforms.sigma.value = 5;
+        mat.uniforms.kSigma.value = 2;
+        mat.uniforms.threshold.value = 0.25;
+        this.denoise = fullscreen(mat);
+      }
+      const d = this.denoise!;
+      (d.mat.uniforms.map as THREE.IUniform).value = t.target.texture;
+      r.setRenderTarget(null);
+      r.render(d.scene, d.cam);
+      r.setRenderTarget(prev);
+      return;
+    }
+    this.paint ??= new PaintFilter();
+    const size = r.getDrawingBufferSize(new THREE.Vector2());
+    if (!this.painted || this.painted.width !== size.x || this.painted.height !== size.y) {
+      this.painted?.dispose();
+      this.painted = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType });
+      fresh = true;
+    }
+    if (fresh) this.paint.render(r, t.target.texture, { radius: sp.touche, sharpness: 8, dither: sp.tramage, levels: sp.niveaux, hdr: true }, this.painted);
+    if (!this.copy) {
+      this.copy = fullscreen(
+        new THREE.ShaderMaterial({
+          vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+          fragmentShader: "varying vec2 vUv; uniform sampler2D map; void main() { gl_FragColor = texture2D(map, vUv); \n#include <colorspace_fragment>\n }",
+          uniforms: { map: { value: null } },
+          depthTest: false,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      );
+    }
+    this.copy.mat.uniforms.map.value = this.painted.texture;
+    r.setRenderTarget(null);
+    r.render(this.copy.scene, this.copy.cam);
+    r.setRenderTarget(prev);
   }
 
   private schedule() {
@@ -150,7 +213,12 @@ export class PhotoMode {
       this.tracer = t;
     }
     const t = this.tracer;
-    t.bounces = this.spec!.rebonds;
+    const sp = this.spec!;
+    t.bounces = sp.rebonds;
+    // filtré : l'image reste dans la cible du traceur, le filtre la dessine (voir drawFiltered)
+    t.renderToCanvas = !sp.filtre;
+    t.renderScale = sp.echelle;
+    t.tiles.set(sp.filtre ? 1 : 2, sp.filtre ? 1 : 2);
     t.rasterizeSceneCallback = () => raster();
     this.disposeProxy();
     const built = this.buildProxy(scene, m);
@@ -306,6 +374,14 @@ export class PhotoMode {
   }
 
   dispose() {
+    this.paint?.dispose();
+    this.painted?.dispose();
+    this.denoise?.mat.dispose();
+    this.copy?.mat.dispose();
+    this.paint = null;
+    this.painted = null;
+    this.denoise = null;
+    this.copy = null;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.spec = null;
@@ -315,6 +391,18 @@ export class PhotoMode {
 }
 
 /* ------------------------------------------------------------------ utilitaires */
+
+function fullscreen(mat: THREE.ShaderMaterial) {
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+  quad.frustumCulled = false;
+  const scene = new THREE.Scene();
+  scene.add(quad);
+  // la matière du débruiteur projette avec projectionMatrix * modelViewMatrix : une caméra orthographique unité
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  cam.position.z = 0.5;
+  cam.updateMatrixWorld();
+  return { quad, scene, cam, mat };
+}
 
 /** Empreinte de la vue et du contenu visible : un changement relance l'attente. */
 export function signature(scene: THREE.Scene, camera: THREE.Camera): number {
