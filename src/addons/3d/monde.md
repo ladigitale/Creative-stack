@@ -32,6 +32,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `environnement` | Reflets : `studio`, `exterieur`, `aucun` (voir Finis) |
 | `ambiance` | Direction artistique d'un mot (rendu, ciel, palette, style `gen`, lumière, étalonnage), voir Ambiances |
 | `lumiere`, `etalonnage` | Lumière et étalonnage de l'image (voir Ambiances) |
+| `souple`, `cheveux` (sur une pièce) | Tissus et chaînes simulés, chevelures en mèches (voir Tissus souples et chevelures) |
 | `herbes` | Herbes hautes, blé, roseaux, prairies fleuries, gazon (3D), voir Herbes et champs |
 | `physique` | Physique 3D : corps rigides, liaisons, forces (voir Physique 3D) |
 | `photo` | Rendu photo en lancer de rayons quand la vue s'arrête (3D) : `true` ou `{echantillons, rebonds, attente}` (voir Rendu photo) |
@@ -702,6 +703,46 @@ Calculé une fois par rendu, sans image à charger.
 
 En style `toon`, seuls l'opacité et la transparence du verre comptent. En 2D, le verre et l'opacité rendent la
 silhouette transparente ; le métal, le vernis et le verre ont un reflet franc ; un fini mat n'en a pas.
+
+## Tissus souples et chevelures (3D)
+
+Une pièce peut devenir **souple** : `souple` en fait un tissu (cape, drapeau, rideau, banderole), une jupe (tube
+ouvert : jupe, robe, manche, manche à air) ou une chaîne
+(queue, écharpe, ruban, corde, oreille tombante) simulés à chaque image. Elle reste attachée par un bord à la pièce qui
+la porte, suit les mouvements de l'instance, retombe, ondule au `vent` du monde (une brise sans vent) et ne traverse
+pas les autres pièces du modèle (approchées par des sphères) ni le sol.
+
+```json
+{ "name": "cape", "box": [0.6, 0.95, 0.02], "at": [0, 0.95, -0.3], "color": "#c0392b", "souple": { "type": "tissu", "rigidite": 0.3 } },
+{ "name": "drapeau", "box": [1.2, 0.7, 0.01], "at": [0.62, 2.6, 0], "souple": { "type": "tissu", "attache": "gauche", "vent": 1.5 } },
+{ "name": "queue", "box": [0.04, 0.5, 0.04], "at": [0, 0.6, -0.4], "souple": "chaine" },
+{ "name": "jupe", "cylinder": [0.3, 0.5], "at": [0, 0.35, 0], "souple": { "type": "jupe", "rigidite": 0.4 } }
+```
+
+| Clé de `souple` | Rôle |
+|---|---|
+| `type` | `tissu` (grille sur les deux grandes dimensions de la pièce), `jupe` (anneaux autour de l'axe d'attache, rayons = demi-côtés de la pièce) ou `chaine` (le long de la plus grande) |
+| `attache` | Bord ou bout tenu : `haut` (défaut), `bas`, `gauche`, `droite`, `avant`, `arriere` |
+| `rigidite` | 0 soie, 1 cuir épais (0,5) |
+| `poids`, `amorti`, `vent` | Gravité (1), freinage (0,08), prise au vent (1) |
+| `collision`, `segments` | `false` : traverse le corps ; finesse (8 tissu, 10 chaîne) |
+
+**Chevelures** : `cheveux` sur une pièce (la tête, souvent une sphère) y plante des mèches simulées, dessinées en un
+seul maillage de rubans : elles tombent, suivent la tête, ondulent au vent et restent hors du crâne.
+
+```json
+{ "name": "tete", "sphere": 0.2, "at": [0, 1.55, 0], "role": "peau", "cheveux": { "coupe": "longs", "couleur": "#5a3520", "nombre": 120 } }
+```
+
+| Clé de `cheveux` | Rôle |
+|---|---|
+| `coupe` | `longs`, `courts`, `frange`, `queue` (touffe à l'arrière), `herisses` |
+| `nombre`, `longueur`, `variation` | Mèches (90), longueur (m), écart de longueur (0 à 1) |
+| `epaisseur`, `ondulation`, `raideur` | Largeur d'une mèche (m), ondulation (0 à 1), tenue près de la racine (0 à 1) |
+| `couleur`, `vent` | Couleur (défaut : celle de la pièce, assombrie) ; prise au vent |
+
+En 2D, une pièce souple est dessinée rigide et les chevelures ne sont pas dessinées. Les modèles `gen` (personnages
+procgen) gardent leurs propres cheveux et vêtements.
 
 ## Herbes et champs (3D)
 
