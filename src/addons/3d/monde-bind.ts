@@ -34,6 +34,7 @@ export type MondeHost = {
   dispatchEvent?: (e: Event) => boolean;
   /** Derniers ordres `emit` appliqués (idempotence). */
   lastEmitJson?: string;
+  lastFxJson?: string;
 };
 
 function sourceOf(host: MondeHost, data: Record<string, unknown>): unknown {
@@ -199,4 +200,18 @@ function emit(host: MondeHost, data: Record<string, unknown>) {
   if (host.runtime.monde.applyEmit(JSON.parse(json))) host.runtime.render();
 }
 
-export const mondeBind = { sync, hook, select, emit } as const;
+/** Clé `fx` du DataProvider : `{<système>: {n, at, scale, color, count}}`, une salve à chaque hausse de `n`. */
+function fx(host: MondeHost, data: Record<string, unknown>) {
+  if (!("fx" in data) || !host.runtime?.ready) return;
+  let json: string;
+  try {
+    json = JSON.stringify(data.fx);
+  } catch {
+    return;
+  }
+  if (!json || json === host.lastFxJson) return;
+  host.lastFxJson = json;
+  if (host.runtime.monde.applyParticles(JSON.parse(json))) host.runtime.render();
+}
+
+export const mondeBind = { sync, hook, select, emit, fx } as const;

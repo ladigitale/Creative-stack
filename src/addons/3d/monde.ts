@@ -28,6 +28,7 @@ import { aliasBone, genMotion } from "../../shared/monde/gen";
 import type { GenActor, GenKit } from "../procgen/index";
 import { loadProcgen, type ProcgenApi } from "../../shared/procgen-loader";
 import { EmitterLayer, type EmitPart, type EmitStats } from "./emitters3d";
+import { ParticleLayer } from "./particles3d";
 import type { Hit } from "../../shared/sim/emitter";
 
 type ProcgenMod = ProcgenApi;
@@ -237,6 +238,8 @@ export class Monde3d {
   onConflicts: ((c: Conflict[]) => void) | null = null;
   /** Émetteurs du monde (projectiles, nuées), simulés et dessinés en instances. */
   readonly emitters = new EmitterLayer();
+  /** Particules (feu, fumée, étincelles…) : purement visuelles, mouvement calculé par le GPU. */
+  readonly particles = new ParticleLayer();
   /** Touches de l'image, regroupées (émetteurs). */
   onHits: ((hits: Hit[]) => void) | null = null;
   onExpire: ((e: { emitter: string; count: number }) => void) | null = null;
@@ -254,7 +257,14 @@ export class Monde3d {
 
   constructor() {
     this.group.name = "monde";
-    this.emitters.onHits = (h) => this.onHits?.(h);
+    this.emitters.onHits = (h) => {
+      // impacts : salve du système `burst` de l'émetteur au point touché
+      for (const hit of h) {
+        const b = this.emitters.sims.find((e) => e.spec.id === hit.emitter)?.spec.burst;
+        if (b) this.particles.impact(b, hit);
+      }
+      this.onHits?.(h);
+    };
     this.emitters.onExpire = (e) => this.onExpire?.(e);
     this.emitters.poseOf = (name) => {
       const inst = this.driver.instances.get(name);
@@ -262,6 +272,7 @@ export class Monde3d {
       if (this.built.has(name)) this.syncT(name);
       return { x: inst.t.x, y: inst.t.y, z: inst.t.z, ry: inst.t.ry };
     };
+    this.particles.poseOf = this.emitters.poseOf;
   }
 
   /** Pièces dessinables d'un modèle émis : géométrie partagée, matière instanciée, matrice de repos, couleur. */
@@ -279,6 +290,17 @@ export class Monde3d {
       out.push({ geo: this.bufferOf(g), mat: this.mats.get(partColor(model, p, undefined, m.palette), p.glow, partTex(m, p), true), local: world.slice(i * 16, i * 16 + 16), color });
     });
     return out;
+  }
+
+  /** Ordres `fx.<id>` du DataProvider (salves de particules). */
+  applyParticles(spec: unknown): boolean {
+    if (!this.monde) return false;
+    return this.particles.applyOrders(spec);
+  }
+
+  /** Vrai tant que des copies ou des grains bougent (la scène doit continuer de s'animer). */
+  get simulating(): boolean {
+    return this.emitters.active || this.particles.active;
   }
 
   /** Ordres `emit.<id>` du DataProvider (salves, `clear`, `kill`). */
@@ -315,6 +337,13 @@ export class Monde3d {
     this.buildStatics(m);
     this.emitters.mount(m, (model, roles) => this.emitParts(model, roles), this.driver);
     this.group.add(this.emitters.group);
+    this.particles.mount(m);
+    this.particles.trailed = new Set(m.emitters.map((e) => e.trail).filter((t) => t));
+    for (const e of m.emitters) {
+      if (e.trail && !this.particles.get(e.trail)) m.issues.push({ path: `emitters.${e.id}.trail`, message: `système de particules inconnu « ${e.trail} »` });
+      if (e.burst && !this.particles.get(e.burst)) m.issues.push({ path: `emitters.${e.id}.burst`, message: `système de particules inconnu « ${e.burst} »` });
+    }
+    this.group.add(this.particles.group);
     for (const s of this.spare.values()) s.actor.dispose();
     this.spare.clear();
     for (const b of this.oldBuffers.values()) b.dispose();
@@ -897,6 +926,8 @@ export class Monde3d {
     this.lastStep = now;
     if (this.follow()) changed = true;
     if (this.emitters.advance(dt, this.driver)) changed = true;
+    for (const sim of this.emitters.sims) if (sim.spec.trail) this.particles.trail(sim.spec.trail, sim, dt);
+    if (this.particles.advance(dt)) changed = true;
     if (this.onEmitStats && this.monde.emitters.length && now - this.lastStats >= 100) {
       this.lastStats = now;
       this.onEmitStats(this.emitters.stats(this.driver));
@@ -1021,6 +1052,7 @@ export class Monde3d {
     this.mats.dispose();
     this.kit?.dispose();
     this.emitters.dispose();
+    this.particles.dispose();
   }
 }
 

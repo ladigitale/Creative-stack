@@ -147,6 +147,7 @@ export class Sonic2d extends LitElement {
   private hitsOut: Record<string, unknown> | null = null;
   private emitOut: Record<string, unknown> | null = null;
   private lastEmitJson = "";
+  private lastFxJson = "";
   /** Conflits recalculés depuis la lecture du monde (après un rangement). */
   private liveConflicts: Conflict[] | null = null;
 
@@ -483,6 +484,19 @@ export class Sonic2d extends LitElement {
       if (json && json !== this.lastEmitJson) {
         this.lastEmitJson = json;
         if (this.mondeR.applyEmit(JSON.parse(json))) this.mondeBusy = true;
+      }
+    }
+    if (data.fx !== undefined && this.mondeR) {
+      // salves de particules : une à chaque hausse de `n` (voir shared/sim/particle-set.ts)
+      let json = "";
+      try {
+        json = JSON.stringify(data.fx);
+      } catch {
+        /* ignoré */
+      }
+      if (json && json !== this.lastFxJson) {
+        this.lastFxJson = json;
+        if (this.mondeR.applyParticles(JSON.parse(json))) this.mondeBusy = true;
       }
     }
     if (data.rest !== undefined || data.bones !== undefined) scene.setSkeleton(data.rest, data.bones);
