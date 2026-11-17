@@ -15,7 +15,8 @@ import { forward, STRIDE } from "./pose";
 import { genMeasure, inPolygon } from "./supports";
 
 /** Boîte orientée : centre, trois axes unitaires, demi-dimensions le long de chacun. */
-export type Obb = { c: V3; ax: [V3, V3, V3]; h: V3 };
+/** Boîte orientée ; `round` : forme écrite ronde (la physique en fait une sphère ou une capsule). */
+export type Obb = { c: V3; ax: [V3, V3, V3]; h: V3; round?: "sphere" | "capsule" };
 
 /** Pénétration en dessous de laquelle deux boîtes sont seulement en contact (mètres). */
 export const EPS = 0.012;
@@ -39,29 +40,21 @@ function transform(b: Obb, m: M4): Obb {
   const h = ax.map((e) => Math.hypot(e[0], e[1], e[2])) as V3;
   // un axe aplati (plan, demi-dimension nulle) garde une direction : celle de l'axe d'origine tourné
   const unit = ax.map((e, i) => (h[i] > 1e-9 ? ([e[0] / h[i], e[1] / h[i], e[2] / h[i]] as V3) : normalize(apply(m, b.ax[i], false)))) as [V3, V3, V3];
-  return { c: apply(m, b.c, true), ax: unit, h };
+  return { c: apply(m, b.c, true), ax: unit, h, ...(b.round ? { round: b.round } : {}) };
 }
 function normalize(v: V3): V3 {
   const l = Math.hypot(v[0], v[1], v[2]) || 1;
   return [v[0] / l, v[1] / l, v[2] / l];
 }
 
-/** Boîtes d'un modèle au repos, dans son repère : une par pièce dessinée (une seule, englobante, au-delà de 40 pièces). */
-export function boxesOf(model: Model): Obb[] {
-  // forme de collision écrite : elle remplace celle des pièces
-  if (model.collider === "none") return [];
-  if (model.collider) return model.collider;
-  // modèle procgen : tranches mesurées par le rendu une fois le maillage généré (aucune avant)
-  if (model.gen)
-    return (genMeasure(model)?.slabs ?? []).map((s) => ({ c: [(s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, (s.min[2] + s.max[2]) / 2], ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h: [(s.max[0] - s.min[0]) / 2, (s.max[1] - s.min[1]) / 2, (s.max[2] - s.min[2]) / 2] }) as Obb);
-  const hit = cache.get(model);
-  if (hit) return hit;
+/** Boîte de chaque pièce dessinée au repos (repère du modèle), avec le rang de la pièce : formes fines de la physique. */
+export function partBoxesOf(model: Model): { box: Obb; part: number }[] {
   const n = model.parts.length;
   const offs = new Float32Array(n * STRIDE);
   for (let i = 6; i < offs.length; i += STRIDE) offs[i] = 1;
   const world = new Float32Array(n * 16);
   forward(model, offs, m4(), world, m4());
-  let out: Obb[] = [];
+  const out: { box: Obb; part: number }[] = [];
   for (let i = 0; i < n; i++) {
     const p = model.parts[i];
     const g = p.hidden ? null : geometryOf(p, 0);
@@ -74,8 +67,22 @@ export function boxesOf(model: Model): Obb[] {
         if (v > hi[a]) hi[a] = v;
       }
     const local: Obb = { c: [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2], ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h: [(hi[0] - lo[0]) / 2, (hi[1] - lo[1]) / 2, (hi[2] - lo[2]) / 2] };
-    out.push(transform(local, world.subarray(i * 16, i * 16 + 16)));
+    out.push({ box: transform(local, world.subarray(i * 16, i * 16 + 16)), part: i });
   }
+  return out;
+}
+
+/** Boîtes d'un modèle au repos, dans son repère : une par pièce dessinée (une seule, englobante, au-delà de 40 pièces). */
+export function boxesOf(model: Model): Obb[] {
+  // forme de collision écrite : elle remplace celle des pièces
+  if (model.collider === "none") return [];
+  if (model.collider) return model.collider;
+  // modèle procgen : tranches mesurées par le rendu une fois le maillage généré (aucune avant)
+  if (model.gen)
+    return (genMeasure(model)?.slabs ?? []).map((s) => ({ c: [(s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, (s.min[2] + s.max[2]) / 2], ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h: [(s.max[0] - s.min[0]) / 2, (s.max[1] - s.min[1]) / 2, (s.max[2] - s.min[2]) / 2] }) as Obb);
+  const hit = cache.get(model);
+  if (hit) return hit;
+  let out: Obb[] = partBoxesOf(model).map((b) => b.box);
   if (out.length > MAX_BOXES) {
     const lo: V3 = [Infinity, Infinity, Infinity], hi: V3 = [-Infinity, -Infinity, -Infinity];
     for (const b of out) {

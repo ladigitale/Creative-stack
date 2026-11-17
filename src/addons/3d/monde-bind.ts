@@ -42,6 +42,7 @@ export type MondeHost = {
   lastEmitJson?: string;
   lastFxJson?: string;
   lastQueriesJson?: string;
+  lastForcesJson?: string;
   queriesOut?: Record<string, unknown>;
 };
 
@@ -118,6 +119,17 @@ function hook(host: MondeHost) {
   host.runtime.monde.onEmitStats = (stats) => outKey("emitters", stats);
   // rendu photo : avancement (`attente`, `calcul`, `fini`, `indisponible`) dans la sortie `photo`
   host.runtime.photo.onState = (st) => outKey("photo", st);
+  // physique : état des corps (10 fois par seconde) dans la sortie `physique`, chocs et repos vers target
+  host.runtime.monde.onPhysics = (st) => outKey("physique", st);
+  host.runtime.monde.onContacts = (list) => {
+    for (const c of list.slice(0, 16)) {
+      if (host.target) later(() => dispatch(host.target!, { type: "contact", payload: c }));
+      host.dispatchEvent?.(new CustomEvent("monde-contact", { detail: c, bubbles: true, composed: true }));
+    }
+  };
+  host.runtime.monde.onRest = (bodies) => {
+    if (host.target) later(() => dispatch(host.target!, { type: "rest", payload: { bodies } }));
+  };
   // requêtes : réponses rangées par identifiant dans la sortie `queries` ; capteurs : `enter` / `leave` vers target
   host.runtime.monde.infini.onState = (st) => outKey("infini", st);
   host.runtime.monde.infini.onEnter = (e) => {
@@ -252,6 +264,20 @@ function queries(host: MondeHost, data: Record<string, unknown>) {
   host.runtime.monde.applyQueries(JSON.parse(json));
 }
 
+/** Clé `forces` du DataProvider : `{<instance>: {vx, fx, torque, spin, impulse: {n, …}, set: {n, …}, wake}}` (physique). */
+function forces(host: MondeHost, data: Record<string, unknown>) {
+  if (!("forces" in data) || !host.runtime?.ready) return;
+  let json: string;
+  try {
+    json = JSON.stringify(data.forces);
+  } catch {
+    return;
+  }
+  if (!json || json === host.lastForcesJson) return;
+  host.lastForcesJson = json;
+  if (host.runtime.monde.applyForces(JSON.parse(json))) host.runtime.render();
+}
+
 /** Clé `tiles` du DataProvider : retouches du monde infini par tuile (`{"3,-2": {remove: [ids], add: [...]}}`). */
 function tiles(host: MondeHost, data: Record<string, unknown>) {
   if (!("tiles" in data) || !host.runtime?.ready) return;
@@ -263,4 +289,4 @@ function tiles(host: MondeHost, data: Record<string, unknown>) {
   }
 }
 
-export const mondeBind = { sync, hook, select, emit, fx, queries, tiles } as const;
+export const mondeBind = { sync, hook, select, emit, fx, queries, tiles, forces } as const;

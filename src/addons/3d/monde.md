@@ -30,6 +30,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `look` | `doux` (mat, défaut), `toon` (aplats), `brillant` |
 | `detail` | Finesse des maillages : `low`, `mid`, `high` (et plafond de la texture adaptative : 256, 512, 1024 px) |
 | `environnement` | Reflets : `studio`, `exterieur`, `aucun` (voir Finis) |
+| `physique` | Physique 3D : corps rigides, liaisons, forces (voir Physique 3D) |
 | `photo` | Rendu photo en lancer de rayons quand la vue s'arrête (3D) : `true` ou `{echantillons, rebonds, attente}` (voir Rendu photo) |
 | `shadows` | Ombres au sol des instances (défaut `true`) |
 | `outline` | Contour des silhouettes 2D en px (défaut 1, 0 = aucun) |
@@ -490,6 +491,7 @@ partagées avec les instances). Le composant doit tourner (`play` en 3D).
 | `rate` | Naissances par seconde en continu (0 : seulement sur ordre) |
 | `mask`, `radius` | Ce qui est touché : nom d'instance, modèle, famille, étiquette de prefab, `decor`, `sol`, ou **nom d'un autre émetteur** (ses copies) ; rayon de contact |
 | `onHit`, `bounce`, `kills` | `die` (défaut), `bounce` (restitution `bounce`), `stick`, `pierce` ; `kills: false` : une copie touchée d'un autre émetteur n'est pas retirée |
+| `push` | Impulsion (N·s) donnée au corps physique touché, dans la direction du tir (voir Physique 3D) |
 | `flock` | Nuée au sol : `seek` / `flee` (instance, `fleeRadius`), `speed`, `separation`, `cohesion`, `align`, `radius` (voisinage), `wander`, `avoid` (étiquettes contournées, sinon `mask`), `bounds` `[x0, z0, x1, z1]` |
 | `spawn` | Semis initial `{count, area: [x0, z0, x1, z1]}` |
 | `scale` | Taille `[min, max]` par copie |
@@ -691,6 +693,77 @@ Calculé une fois par rendu, sans image à charger.
 
 En style `toon`, seuls l'opacité et la transparence du verre comptent. En 2D, le verre et l'opacité rendent la
 silhouette transparente ; le métal, le vernis et le verre ont un reflet franc ; un fini mat n'en a pas.
+
+## Physique 3D (corps rigides)
+
+`"physique": true` (ou `{…}`) active un moteur physique 3D (Rapier, chargé à la demande) commun à `sonic-3d` et
+`sonic-2d` (la 2D montre la même simulation en projection). Un placement **nommé** avec `corps` devient un corps
+rigide ; le décor sans nom (murs, sols, meubles, `espace`) et les instances nommées sans `corps` sont des obstacles
+(celles-ci suivent leur position : un personnage piloté par `nodes` pousse les caisses).
+
+```json
+{
+  "physique": { "gravite": [0, -9.81, 0], "liaisons": [{ "type": "corde", "a": "pendule", "at": [-3, 4.5, 2], "longueur": 3 }] },
+  "place": [
+    { "model": "caisse", "name": "c1", "at": [0, 2, 0], "corps": "dynamique" },
+    { "model": "boulet", "name": "boulet", "at": [0, 0, -4], "corps": { "type": "dynamique", "masse": 8, "rebond": 0.2, "ccd": true } },
+    { "model": "perso", "name": "joueur", "corps": { "type": "dynamique", "bloqueRotation": ["x", "z"] } }
+  ]
+}
+```
+
+**`physique`** : `gravite` ([0, -9.81, 0]), `sol` (sol infini à y = 0, défaut `true`), `contactMin` (impulsion minimale
+d'un choc signalé, N·s, 0,5), `frequence` (pas par seconde, 60), `pause` (corps endormis jusqu'au premier ordre ou
+choc), `liaisons`.
+
+**`corps`** : `"dynamique"` | `"statique"` | `"cinematique"` (suit sa position, pousse sans être poussé) ou un objet :
+
+| Clé | Rôle |
+|---|---|
+| `type` | `dynamique` (défaut), `statique`, `cinematique` |
+| `masse` | kg (sinon volume × `densite`, 500 kg/m³) |
+| `friction`, `rebond` | 0,6 ; 0,1 (0 à 1) |
+| `amorti`, `amortiRotation` | Freinage dans l'air et en rotation |
+| `gravite` | Échelle de gravité (0 : flotte, -1 : monte) |
+| `ccd` | Détection continue (projectile rapide qui ne doit pas traverser) |
+| `bloqueRotation`, `bloquePosition` | Axes bloqués : `["x", "z"]` garde un personnage debout ; `["z"]` = jeu en tranche |
+| `forme` | `auto` (pièces : boîtes, sphères, cylindres, capsules ; ou le `collider` du modèle), `boite`, `sphere`, `capsule` (englobantes) |
+| `vitesse` | Vitesse de départ [vx, vy, vz] (m/s) |
+| `sommeil` | `false` : ne s'endort jamais |
+
+**Liaisons** (`physique.liaisons`, 200 au plus) : `{type, a, b, at, axe, butees, moteur, longueur, raideur, amorti,
+choc}` ; `b` absent = accroché au monde au point `at` (repère du monde, défaut : position de `a`).
+
+| `type` | Effet |
+|---|---|
+| `charniere` | Porte, roue, levier : rotation autour de `axe`, `butees` en degrés, `moteur: {vitesse (°/s), force}` |
+| `rotule` | Pendule, chaîne |
+| `fixe` | Soude deux corps |
+| `glissiere` | Tiroir, piston : translation le long de `axe`, `butees` en mètres |
+| `ressort` | `longueur` au repos (défaut : distance de départ), `raideur`, `amorti` |
+| `corde` | Distance au plus `longueur` |
+
+**Piloter** : clé DP `forces` du `dataProvider` (même vocabulaire que `sonic-physics` en 2D) :
+
+```json
+{ "joueur": { "vx": 2 }, "fusee": { "fy": 300, "torque": [0, 5, 0] },
+  "boulet": { "set": { "n": 1, "x": 0, "y": 0.3, "z": -4 }, "impulse": { "n": 1, "toward": [0, 1, 4], "power": 120 } } }
+```
+
+- `vx` `vy` `vz` : vitesse imposée à chaque pas (axes donnés seulement) ; `fx` `fy` `fz` : force continue (N) ;
+  `torque` [x, y, z] ; `spin` [x, y, z] (°/s) ; `wake: true` réveille.
+- `impulse: {n, x, y, z}` ou `{n, toward: [x, y, z], power}` (N·s), `at` : point d'application (fait tourner) ;
+  `set: {n, x, y, z, rx, ry, rz (°), vx, vy, vz}` replace le corps. Compteurs : chaque hausse de `n` agit une fois
+  (la première lecture de la clé ne fait que mémoriser) ; dans un même ordre, `set` passe avant `impulse`.
+- Un émetteur avec `push` pousse les corps que ses projectiles touchent.
+- Glisser un corps dynamique (édition) : il suit le pointeur puis retombe.
+
+**Sorties** : `physique` = `{time, count, awake, bodies: {nom: {x, y, z, rx, ry, rz (°), vx, vy, vz, awake}}}` (10 fois
+par seconde tant que ça bouge) ; vers `target` : `contact` `{a, b, tagsA, tagsB, impulse, x, y, z}` au début d'un
+choc (`b` vide = décor ou sol), `rest` `{bodies}` quand tous les corps dynamiques se sont immobilisés.
+
+Limites : corps sur les placements nommés (400 au plus) ; le monde `infini` n'a pas de relief physique (sol plat) ;
+un changement du monde reconstruit la simulation à partir des positions courantes (vitesses remises à zéro).
 
 ## Rendu photo (lancer de rayons)
 

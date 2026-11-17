@@ -5,6 +5,7 @@
  * Ce fichier ne fait que lire et normaliser (aucune géométrie, aucun rendu) : il transforme le JSON écrit par
  * un agent en structures plates et sûres (bornes, valeurs par défaut, problèmes signalés sans jamais lever).
  */
+import { readBody, readPhysics, type BodySpec, type PhysicsSpec } from "./physique";
 import { DEG, Rand, hash32 } from "./math";
 import { PRESETS, type PresetOut } from "./presets";
 import { readTex, type TexSpec } from "./textures";
@@ -177,6 +178,9 @@ export type PlaceIn = {
    * instance nommée y entre ou en sort.
    */
   sensor?: boolean;
+  /** Corps rigide (physique 3D) : `"dynamique"`, `"statique"`, `"cinematique"` ou `{type, masse, friction, rebond, …}`. */
+  corps?: unknown;
+  body?: unknown;
 };
 
 export type MondeIn = {
@@ -229,6 +233,12 @@ export type MondeIn = {
    * temps réel. `true` ou `{echantillons (200), rebonds (5), attente (ms, 600)}`.
    */
   photo?: boolean | { echantillons?: number; rebonds?: number; attente?: number };
+  /**
+   * Physique 3D (Rapier, chargé à la demande) : `true` ou `{gravite, sol, contactMin, liaisons, pause}`. Les placements
+   * nommés avec `corps` tombent, roulent, se heurtent ; le décor et les autres instances sont des obstacles.
+   */
+  physique?: unknown;
+  physics?: unknown;
   /** Finesse des maillages : `low`, `mid` (défaut), `high`. */
   detail?: string;
   /** Vue 2D : `top`, `side`, `front`, `iso` ; `unit` px par mètre ; `origin` position écran de l'origine du monde. */
@@ -387,6 +397,8 @@ export type Placement = {
   tags?: string[];
   /** Capteur (voir `PlaceIn.sensor`). */
   sensor?: boolean;
+  /** Corps rigide (instances nommées, voir physique.ts). */
+  body?: BodySpec;
   /**
    * Posé sur une instance nommée : position dans le repère de l'appui (unités du modèle d'appui) et cap propre.
    * Une instance nommée ainsi posée suit son appui quand il bouge.
@@ -427,6 +439,8 @@ export type Monde = {
   environnement: "studio" | "exterieur" | "aucun";
   /** Rendu photo (lancer de rayons à l'arrêt), `null` : temps réel seulement. */
   photo: PhotoSpec | null;
+  /** Physique 3D, `null` : aucune. */
+  physics: PhysicsSpec | null;
   detail: number;
   view2d: View2d;
   shadows: boolean;
@@ -888,6 +902,11 @@ function readPlacements(list: unknown, models: Map<string, Model>, prefabs: Reco
       ...(Array.isArray(p.tags) ? { tags: p.tags.filter((t): t is string => typeof t === "string" && t.length > 0 && t.length <= 40).slice(0, 8) } : {}),
       ...(p.sensor === true ? { sensor: true } : {}),
     };
+    const body = readBody(p.corps ?? p.body, `${path}.corps`, issues);
+    if (body) {
+      if (typeof p.name === "string" && p.name) base.body = body;
+      else issues.push({ path: `${path}.corps`, message: "un corps physique demande un placement nommé (name)" });
+    }
 
     // Appui : surface d'une instance nommée déjà placée, ou le sol
     const onSol = p.on === "sol";
@@ -1207,6 +1226,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     look,
     environnement: envIn === "studio" || envIn === "exterieur" || envIn === "aucun" ? envIn : reflects(models) ? "studio" : "aucun",
     photo: readPhoto((src as MondeIn).photo),
+    physics: readPhysics((src as MondeIn).physique ?? (src as MondeIn).physics, issues),
     detail,
     view2d: { view, unit: clampN(num(v.unit, 48), 1, 2000), origin: [num(v.origin?.[0], 0), num(v.origin?.[1], 0)] },
     shadows: src.shadows !== false,
@@ -1253,6 +1273,7 @@ function readCollider(v: unknown, u: number, path: string, issues: Issue[]): Obb
     const at = Array.isArray(o.at) && o.at.length >= 3 && o.at.slice(0, 3).every(fin) ? (o.at.slice(0, 3) as number[]).map((x) => x * u) : null;
     let h: [number, number, number] | null = null;
     let c0: [number, number, number] = [0, 0, 0];
+    let round: "sphere" | "capsule" | undefined;
     if (Array.isArray(o.box) && o.box.length >= 3 && o.box.slice(0, 3).every(fin)) {
       h = [(o.box[0] * u) / 2, (o.box[1] * u) / 2, (o.box[2] * u) / 2];
       c0 = [0, h[1], 0];
@@ -1260,16 +1281,18 @@ function readCollider(v: unknown, u: number, path: string, issues: Issue[]): Obb
       const r = o.sphere * u;
       h = [r, r, r];
       c0 = [0, r, 0];
+      round = "sphere";
     } else if (Array.isArray(o.capsule) && fin(o.capsule[0]) && fin(o.capsule[1])) {
       const r = o.capsule[0] * u, hh = (o.capsule[1] * u) / 2 + r;
       h = [r, hh, r];
       c0 = [0, hh, 0];
+      round = "capsule";
     }
     if (!h || h.some((x) => x <= 0)) {
       issues.push({ path, message: 'forme attendue : {box: [l, h, p]}, {sphere: r} ou {capsule: [r, h]} (posée au sol, "at" pour la décaler)' });
       continue;
     }
-    out.push({ c: (at as [number, number, number] | null) ?? c0, ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h });
+    out.push({ c: (at as [number, number, number] | null) ?? c0, ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h, ...(round ? { round } : {}) });
   }
   return out.length ? out : null;
 }

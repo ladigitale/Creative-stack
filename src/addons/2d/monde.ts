@@ -20,6 +20,7 @@ import { shade } from "../../shared/monde/math";
 import { isNum, patchOf } from "../../shared/nodes";
 import { composeYP, EmitterSet, type EmitStats } from "../../shared/sim/set";
 import { ParticleSet } from "../../shared/sim/particle-set";
+import { loadRapier, RigidWorld, type ContactEvent, type RigidPose, type RigidState } from "../../shared/sim/rigid";
 import { GameProbe, type QueryResult } from "../../shared/sim/queries";
 import { biomeAt, TileManager, type Tile } from "../../shared/monde/infini";
 import { accelOf, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../shared/sim/particles";
@@ -149,6 +150,14 @@ export class Monde2d {
   readonly probe = new GameProbe();
   onQueries: ((r: Record<string, QueryResult>) => void) | null = null;
   onSensor: ((e: { type: "enter" | "leave"; sensor: string; instance: string; tags: string[] }) => void) | null = null;
+  /** Physique 3D (Rapier), même simulation qu'en 3D, vue en projection. */
+  rigid: RigidWorld | null = null;
+  private rigidTok = 0;
+  private lastPhysState = 0;
+  private pendingForces: unknown = null;
+  onContacts: ((c: ContactEvent[]) => void) | null = null;
+  onRest: ((bodies: Record<string, RigidPose>) => void) | null = null;
+  onPhysics: ((s: RigidState | { status: "loading" | "error"; error?: string }) => void) | null = null;
   /** Touches regroupées par image, copies expirées, état 10 fois par seconde. */
   onHits: ((hits: Hit[]) => void) | null = null;
   onExpire: ((e: { emitter: string; count: number }) => void) | null = null;
@@ -166,6 +175,7 @@ export class Monde2d {
     this.container.sortableChildren = true;
     this.container.label = "monde";
     this.emitters.onHits = (h) => {
+      this.rigid?.hits(h, (id) => this.emitters.sims.find((e) => e.spec.id === id)?.spec.push ?? 0);
       for (const hit of h) {
         const b = this.emitters.sims.find((e) => e.spec.id === hit.emitter)?.spec.burst;
         if (b) this.particles.impact(b, hit);
@@ -189,6 +199,36 @@ export class Monde2d {
 
   get emitting(): boolean {
     return this.emitters.active || this.particles.active;
+  }
+
+  /** Ordres `forces.<instance>` (physique). */
+  applyForces(spec: unknown): boolean {
+    this.pendingForces = spec;
+    if (!this.rigid) return false;
+    this.rigid.applyOrders(spec);
+    this.invalidate();
+    return true;
+  }
+
+  private mountRigid(m: Monde) {
+    this.rigid?.dispose();
+    this.rigid = null;
+    const tok = ++this.rigidTok;
+    if (!m.physics) return;
+    this.onPhysics?.({ status: "loading" });
+    loadRapier().then(
+      (R) => {
+        if (tok !== this.rigidTok || this.monde !== m) return;
+        try {
+          this.rigid = new RigidWorld(R, m, this.driver);
+          if (this.pendingForces) this.rigid.applyOrders(this.pendingForces);
+          this.invalidate();
+        } catch (e) {
+          this.onPhysics?.({ status: "error", error: e instanceof Error ? e.message : String(e) });
+        }
+      },
+      (e) => this.onPhysics?.({ status: "error", error: `moteur : ${e instanceof Error ? e.message : String(e)}` }),
+    );
   }
 
   /** Retouches du monde infini (`tiles."cx,cz"`). */
@@ -428,6 +468,7 @@ export class Monde2d {
     this.monde = m;
     this.proj = projOf(m.view2d.view);
     this.driver.setMonde(m, now);
+    this.mountRigid(m);
     this.buildStatics(m);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.mountEmitters(m);
@@ -679,6 +720,23 @@ export class Monde2d {
         this.onInfiniState(this.infini.state());
       }
     }
+    if (this.rigid) {
+      const w = this.rigid;
+      const moved = w.step(dt);
+      if (moved.length || w.active) busy = true;
+      if (w.contacts.length) {
+        this.onContacts?.(w.contacts);
+        w.contacts = [];
+      }
+      if (w.rested) {
+        this.onRest?.(w.rested);
+        w.rested = null;
+      }
+      if (this.onPhysics && (moved.length || !this.lastPhysState) && now - this.lastPhysState >= 100) {
+        this.lastPhysState = now;
+        this.onPhysics(w.state());
+      }
+    }
     if (this.probe.busy) {
       const r = this.probe.step(this.driver);
       if (r.results) this.onQueries?.(r.results);
@@ -815,6 +873,9 @@ export class Monde2d {
   }
 
   clear() {
+    this.rigidTok++;
+    this.rigid?.dispose();
+    this.rigid = null;
     // contexte jetable (le partagé et EMPTY ne doivent pas être détruits avec la pièce)
     for (const b of this.built.values()) for (const pv of b.parts) if (pv) pv.g.context = new GraphicsContext();
     for (const d of this.emitDraw) for (const v of d.pool) for (const g of v.parts) if (g) g.context = new GraphicsContext();
