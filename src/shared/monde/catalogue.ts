@@ -38,9 +38,9 @@ const lit: Obj = {
   parts: [
     { name: "sommier", box: ["= W", 0.12, "= L"], at: [0, "= H - 0.06", "= L / 2"], matiere: "= structure" },
     { name: "matelas", box: ["= largeur", 0.16, "= longueur", 0.03], at: [0, "= H + 0.08", "= L / 2"], color: "= drap" },
-    { name: "couette", box: ["= largeur + 0.02", 0.06, "= longueur * 0.62", 0.03], at: [0, "= H + 0.18", "= L - longueur * 0.31 - 0.03"], color: "= couette", tex: "tissu", surface: "top" },
-    { name: "oreiller", if: "= largeur < 1.3", box: ["= largeur * 0.72", 0.1, 0.36, 0.04], at: [0, "= H + 0.2", 0.26], color: "#ffffff" },
-    { name: "oreillers", if: "= largeur >= 1.3", box: ["= largeur * 0.42", 0.1, 0.36, 0.04], at: ["= largeur / 4", "= H + 0.2", 0.26], mirror: "x", color: "#ffffff" },
+    { name: "couette", box: ["= largeur + 0.02", 0.06, "= longueur * 0.62", 0.03], at: [0, "= H + 0.18", "= L - longueur * 0.31 - 0.03"], color: "= couette", tex: "tissu", finish: "tissu", surface: "top" },
+    { name: "oreiller", if: "= largeur < 1.3", box: ["= largeur * 0.72", 0.1, 0.36, 0.04], at: [0, "= H + 0.2", 0.26], color: "#ffffff", finish: "satine" },
+    { name: "oreillers", if: "= largeur >= 1.3", box: ["= largeur * 0.42", 0.1, 0.36, 0.04], at: ["= largeur / 4", "= H + 0.2", 0.26], mirror: "x", color: "#ffffff", finish: "satine" },
     { name: "piedTete", box: [0.07, "= haut ? H + 0.4 : H - 0.12", 0.07], at: ["= W / 2 - 0.035", "= (haut ? H + 0.4 : H - 0.12) / 2", 0.035], mirror: "x", matiere: "= structure" },
     { name: "piedPied", box: [0.07, "= haut ? H + 0.4 : H - 0.12", 0.07], at: ["= W / 2 - 0.035", "= (haut ? H + 0.4 : H - 0.12) / 2", "= L - 0.035"], mirror: "x", matiere: "= structure" },
     { name: "tete", if: "= tete and not haut", box: ["= W", 0.55, 0.04], at: [0, "= H + 0.2", 0.02], matiere: "= structure" },
@@ -51,7 +51,7 @@ const lit: Obj = {
     { name: "barreau", if: "= haut", box: [0.03, 0.03, 0.4], at: ["= W / 2 + 0.03", 0.3, "= L - 0.35"], repeat: { n: "= floor(H / 0.3)", at: [0, 0.3, 0] }, matiere: "= structure" },
     { name: "sommierBas", if: "= type == 'superpose'", box: ["= W", 0.12, "= L"], at: [0, 0.24, "= L / 2"], matiere: "= structure" },
     { name: "matelasBas", if: "= type == 'superpose'", box: ["= largeur", 0.16, "= longueur", 0.03], at: [0, 0.38, "= L / 2"], color: "= drap" },
-    { name: "couetteBas", if: "= type == 'superpose'", box: ["= largeur + 0.02", 0.06, "= longueur * 0.62", 0.03], at: [0, 0.48, "= L - longueur * 0.31 - 0.03"], color: "= couette", tex: "tissu" },
+    { name: "couetteBas", if: "= type == 'superpose'", box: ["= largeur + 0.02", 0.06, "= longueur * 0.62", 0.03], at: [0, 0.48, "= L - longueur * 0.31 - 0.03"], color: "= couette", tex: "tissu", finish: "tissu" },
   ],
 };
 
@@ -149,8 +149,8 @@ const tapis: Obj = {
   },
   vars: { tex: "= motif == 'uni' ? 'tissu' : motif" },
   parts: [
-    { name: "tapis", if: "= forme == 'rectangle'", box: ["= largeur", 0.012, "= longueur", 0.004], at: [0, 0.006, 0], color: "= teinte", tex: { kind: "= tex", color2: "= teinte2", scale: "= echelle", angle: "= angle", contrast: "= motif == 'uni' ? 0.3 : 0.85" } },
-    { name: "rond", if: "= forme == 'rond'", cylinder: ["= largeur / 2", 0.012], at: [0, 0.006, 0], color: "= teinte", tex: { kind: "= tex", color2: "= teinte2", scale: "= echelle", angle: "= angle", contrast: "= motif == 'uni' ? 0.3 : 0.85" } },
+    { name: "tapis", if: "= forme == 'rectangle'", box: ["= largeur", 0.012, "= longueur", 0.004], at: [0, 0.006, 0], color: "= teinte", tex: { kind: "= tex", color2: "= teinte2", scale: "= echelle", angle: "= angle", contrast: "= motif == 'uni' ? 0.3 : 0.85" }, finish: "tissu" },
+    { name: "rond", if: "= forme == 'rond'", cylinder: ["= largeur / 2", 0.012], at: [0, 0.006, 0], color: "= teinte", tex: { kind: "= tex", color2: "= teinte2", scale: "= echelle", angle: "= angle", contrast: "= motif == 'uni' ? 0.3 : 0.85" }, finish: "tissu" },
   ],
 };
 
@@ -161,8 +161,8 @@ const coussin: Obj = {
   tags: ["chambre", "salon"],
   params: { forme: pick("carre", "rond"), taille: len(0.45, 0.3, 0.8, 0.05), teinte: col("#e0a458") },
   parts: [
-    { name: "carre", if: "= forme == 'carre'", box: ["= taille", 0.14, "= taille", 0.06], at: [0, 0.07, 0], color: "= teinte", tex: "tissu" },
-    { name: "rond", if: "= forme == 'rond'", sphere: ["= taille / 2", 0.08, "= taille / 2"], at: [0, 0.08, 0], color: "= teinte", tex: "tissu" },
+    { name: "carre", if: "= forme == 'carre'", box: ["= taille", 0.14, "= taille", 0.06], at: [0, 0.07, 0], color: "= teinte", tex: "tissu", finish: "velours" },
+    { name: "rond", if: "= forme == 'rond'", sphere: ["= taille / 2", 0.08, "= taille / 2"], at: [0, 0.08, 0], color: "= teinte", tex: "tissu", finish: "velours" },
   ],
 };
 
@@ -176,7 +176,7 @@ const rideau: Obj = {
   parts: [
     { name: "tringle", cylinder: [0.012, "= largeur + 0.12"], at: [0, "= hauteur", 0.07], rot: [0, 0, 90], matiere: "= tringle" },
     { name: "embout", sphere: 0.022, at: ["= largeur / 2 + 0.06", "= hauteur", 0.07], mirror: "x", matiere: "= tringle" },
-    { name: "pan", box: ["= w", "= hauteur - 0.03", 0.05, 0.02], at: ["= largeur / 2 - w / 2", "= (hauteur - 0.03) / 2", 0.07], mirror: "x", color: "= teinte", tex: { kind: "rayures", scale: 16, contrast: 0.22 } },
+    { name: "pan", box: ["= w", "= hauteur - 0.03", 0.05, 0.02], at: ["= largeur / 2 - w / 2", "= (hauteur - 0.03) / 2", 0.07], mirror: "x", color: "= teinte", tex: { kind: "rayures", scale: 16, contrast: 0.22 }, finish: "tissu", souple: { type: "tissu", attache: "haut", rigidite: 0.45, vent: 0.12 } },
   ],
 };
 
