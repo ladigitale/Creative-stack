@@ -18,6 +18,7 @@
 | `hide-native` | Masque le curseur natif, **à la souris seulement** (jamais au tactile ni au stylet) |
 | `magnetic` | Sélecteur CSS des éléments attirés (100 au plus) |
 | `magnetic-strength`, `magnetic-radius`, `magnetic-max` | Part de l'écart au centre suivie (0..1, défaut 0,35), portée autour de l'élément en px (60), décalage maximal en px (14) |
+| `map` | Clés dérivées ajoutées à l'état, calculées à chaque image (mini-langage du `map` des trackers) : `param2=inside && !touch ? nx : -1; param3=ny` |
 | `out-data-provider` | Reçoit l'état |
 
 L'élément attiré reçoit `translate` et les variables CSS `--mx` / `--my` (décalage en px), utilisables pour décaler un contenu interne en parallaxe.

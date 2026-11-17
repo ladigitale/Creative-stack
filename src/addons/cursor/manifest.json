@@ -24,6 +24,7 @@
         "magnetic-strength": { "type": "number" },
         "magnetic-radius": { "type": "number" },
         "magnetic-max": { "type": "number" },
+        "map": { "type": "string" },
         "out-data-provider": { "type": "string" }
       }
     }
