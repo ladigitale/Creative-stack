@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignPath, compileMap, evalMap } from "./map-expr";
+import { assignPath, compileMap, evalMap, withMap } from "./map-expr";
 
 const data = { right: { x: 0.5, y: 0.2, present: 1 }, left: { present: 0, y: 0.25 }, n: 4 };
 const run = (src: string) => evalMap(compileMap(src), data);
@@ -54,5 +54,23 @@ describe("assignPath", () => {
     assignPath(o, "a.constructor.y", 3);
     expect(({} as Record<string, unknown>).x).toBeUndefined();
     expect(o).toEqual({ a: { b: { c: 1 } } });
+  });
+});
+
+describe("withMap", () => {
+  it("ajoute les clés dérivées, chemins indexés compris", () => {
+    const s = { velocity: -3000, sections: [{ pin: 0.42 }] };
+    const out = withMap(s, "param0=sections.0.pin; param1=min(abs(velocity)/2000, 1)");
+    expect(out).toMatchObject({ param0: 0.42, param1: 1, velocity: -3000 });
+    expect(s).not.toHaveProperty("param0");
+  });
+  it("lit les booléens comme 1 / 0", () => {
+    expect((withMap({ inside: true, touch: false, nx: 0.3 }, "p=inside && !touch ? nx : -1") as Record<string, unknown>).p).toBe(0.3);
+    expect((withMap({ inside: true, touch: true, nx: 0.3 }, "p=inside && !touch ? nx : -1") as Record<string, unknown>).p).toBe(-1);
+  });
+  it("rend l'état tel quel si map est vide ou invalide", () => {
+    const s = { a: 1 };
+    expect(withMap(s, "")).toBe(s);
+    expect(withMap(s, "x = (")).toBe(s);
   });
 });

@@ -1,6 +1,7 @@
 import { LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { withMap } from "../../shared/ml/map-expr";
 import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import { activeSection, clamp01, ema, round, sectionMetrics, smoothTo, type Rect } from "./core";
@@ -48,6 +49,8 @@ export class SonicScroll extends LitElement {
   @property({ type: Number }) smooth = 0.1;
   /** DataProvider de commandes : `{ to: "#id" | px, n: compteur }` fait défiler jusqu'à la cible. */
   @property({ type: String }) control = "";
+  /** Clés dérivées ajoutées à l'état publié, calculées à chaque image : `param0=sections.0.pin; param1=min(abs(velocity)/2000, 1)`. */
+  @property({ type: String }) map = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
   private state: ScrollState = { ...EMPTY };
@@ -230,6 +233,7 @@ export class SonicScroll extends LitElement {
       active: ai >= 0 ? { index: ai, id: ids[ai], progress: secs[ai].progress, pin: secs[ai].pin } : { index: -1, id: "", progress: 0, pin: 0 },
       sections: secs,
     };
+    if (this.map) this.state = withMap(this.state, this.map);
     if (this.outDataProvider) set(this.outDataProvider, this.state);
     this.dispatchEvent(new CustomEvent("scroll-state", { detail: this.state, bubbles: true, composed: true }));
     // Continue tant que la valeur lissée rattrape le défilement ou que la page bouge encore.

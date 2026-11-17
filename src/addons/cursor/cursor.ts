@@ -1,6 +1,7 @@
 import { LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { withMap } from "../../shared/ml/map-expr";
 import { ema, round, smoothTo } from "../scroll/core";
 import { hoverTarget, magneticOffset } from "./core";
 
@@ -55,6 +56,8 @@ export class SonicCursor extends LitElement {
   @property({ type: Number, attribute: "magnetic-strength" }) magneticStrength = 0.35;
   @property({ type: Number, attribute: "magnetic-radius" }) magneticRadius = 60;
   @property({ type: Number, attribute: "magnetic-max" }) magneticMax = 14;
+  /** Clés dérivées ajoutées à l'état publié, calculées à chaque image : `param0=sections.0.pin; param1=min(abs(velocity)/2000, 1)`. */
+  @property({ type: String }) map = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
   private state: CursorState = { ...EMPTY };
@@ -240,6 +243,7 @@ export class SonicCursor extends LitElement {
       ...this.state, x: round(this.tx, 1), y: round(this.ty, 1), nx: round(this.tx / w), ny: round(this.ty / h),
       smoothX: round(this.sx, 1), smoothY: round(this.sy, 1), vx: round(this.vx, 1), vy: round(this.vy, 1), speed: round(Math.hypot(this.vx, this.vy), 1), hover: this.hover,
     };
+    if (this.map) this.state = withMap(this.state, this.map);
     if (this.outDataProvider) set(this.outDataProvider, this.state);
     this.dispatchEvent(new CustomEvent("cursor-state", { detail: this.state, bubbles: true, composed: true }));
     if (this.sx !== this.tx || this.sy !== this.ty || this.vx !== 0 || this.vy !== 0 || moving) this.wake();

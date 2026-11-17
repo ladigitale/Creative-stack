@@ -15,6 +15,7 @@
 | `sections` | Sélecteur CSS des sections à suivre (`section`, `[data-etape]`) ; 100 au plus. Un élément sans `id` est nommé `section-1`, `section-2`… |
 | `smooth` | Inertie des valeurs lissées : 1 sans retard, 0,05 très doux (défaut 0,1). Sans effet si l'utilisateur demande moins d'animations (`prefers-reduced-motion`) |
 | `control` | DP de commande `{ to: "#id" \| px, n: compteur }` : fait défiler jusqu'à l'élément ou la position quand `n` augmente (animation douce, sauf `prefers-reduced-motion`) |
+| `map` | Clés dérivées ajoutées à l'état, recalculées **à chaque image** : `param0=sections.0.pin; param1=min(abs(velocity)/2000, 1)` (même mini-langage que le `map` des trackers : chemins pointés, `+ - * / %`, comparaisons, `?:`, `min max abs clamp mix pow sqrt floor round log2 sign`) |
 | `out-data-provider` | Reçoit l'état |
 
 ## État
@@ -35,6 +36,17 @@
 ## Recette : scène épinglée
 
 Une section `style="height:300vh"` avec `sections="section"`, contenant un `div` `position: sticky; top: 0; height: 100vh`. L'état `sections[0].pin` va de 0 à 1 pendant que la scène reste à l'écran ; on le lit via `active.pin` (la section active est celle de l'écran) ou en suivant son indice.
+
+## Animer image par image
+
+`sonic-jsonata` regroupe les changements (50 ms sans nouvelle valeur) : branché sur l'état du défilement, il ne répond qu'à l'arrêt. Pour un shader ou une scène qui suit le doigt, calculer les valeurs avec `map` et lire le DP directement :
+
+```json
+{ "tagName": "sonic-scroll", "attributes": { "sections": "#scene", "map": "param0=sections.0.pin; param1=min(abs(velocity)/2000, 1)", "out-data-provider": "defil" } }
+{ "tagName": "sonic-shader", "attributes": { "dataProvider": "defil", "image": "…" } }
+```
+
+Une `sonic-timeline` avec `time-source="defil.sections.0.pin"` suit aussi le défilement sans délai.
 
 ## Limites
 

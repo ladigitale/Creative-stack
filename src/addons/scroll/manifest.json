@@ -25,6 +25,9 @@
         "control": {
           "type": "string"
         },
+        "map": {
+          "type": "string"
+        },
         "out-data-provider": {
           "type": "string"
         }

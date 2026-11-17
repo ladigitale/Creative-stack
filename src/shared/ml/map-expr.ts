@@ -230,3 +230,25 @@ export function assignPath(obj: Record<string, unknown>, path: string, value: un
   }
   cur[parts[parts.length - 1]] = value;
 }
+
+const compiledCache = new Map<string, CompiledMap>();
+
+/**
+ * Ajoute à un état publié les clés dérivées d'un attribut `map` (compilé une fois, mis en cache).
+ * Rend l'état tel quel si `src` est vide ou invalide ; sinon une copie avec les clés écrites.
+ */
+export function withMap<T extends object>(state: T, src: string): T {
+  const s = src.trim();
+  if (!s) return state;
+  let c = compiledCache.get(s);
+  if (!c) {
+    c = compileMap(s);
+    if (compiledCache.size > 64) compiledCache.clear();
+    compiledCache.set(s, c);
+  }
+  if (!c.ok) return state;
+  const out = { ...(state as Record<string, unknown>) };
+  const vals = evalMap(c, state);
+  for (const [k, v] of Object.entries(vals)) assignPath(out, k, v);
+  return out as T;
+}
