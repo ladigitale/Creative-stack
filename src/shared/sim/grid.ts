@@ -10,6 +10,11 @@ export type Aabb = {
   tags: readonly string[];
   lo: [number, number, number];
   hi: [number, number, number];
+  /**
+   * Boîte tournée autour de y (facultatif) : centre, demi-côtés et cap ; `lo`/`hi` l'englobent (indexation, nuées),
+   * les tirs la touchent exactement (`sweepBox`).
+   */
+  obb?: { cx: number; cz: number; hx: number; hz: number; yaw: number };
 };
 
 const key = (i: number, j: number) => i * 73856093 ^ j * 19349663;
@@ -142,6 +147,18 @@ export function sweepBox(
   r: number,
   b: Aabb,
 ): { t: number; n: [number, number, number] } | null {
+  if (b.obb) {
+    // repère de la boîte : monde = (lx·c + lz·s, −lx·s + lz·c) autour du centre
+    const o = b.obb, c = Math.cos(o.yaw), s = Math.sin(o.yaw);
+    const loc = (p: readonly number[]) => {
+      const wx = p[0] - o.cx, wz = p[2] - o.cz;
+      return [wx * c - wz * s, p[1], wx * s + wz * c];
+    };
+    const h = sweepBox(loc(p0), loc(p1), r, { name: b.name, tags: b.tags, lo: [-o.hx, b.lo[1], -o.hz], hi: [o.hx, b.hi[1], o.hz] });
+    if (!h) return null;
+    const [nx, ny, nz] = h.n;
+    return { t: h.t, n: [nx * c + nz * s, ny, -nx * s + nz * c] };
+  }
   let t0 = 0, t1 = 1;
   let axis = -1, sign = 0;
   for (let a = 0; a < 3; a++) {

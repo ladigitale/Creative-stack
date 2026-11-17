@@ -99,6 +99,8 @@ export type Recipe = {
   particles?: unknown;
   /** Monde infini : `{tile, radius, follow, seed, roads, persist, budget, quality, step}` (voir infinite.ts). */
   infinite?: Record<string, unknown> | false;
+  /** Émetteurs (projectiles et nuées) : lus par le composant (voir scene/emitters.ts), pas par la composition. */
+  emitters?: Record<string, unknown>;
 };
 
 export type ObjectInfo = {

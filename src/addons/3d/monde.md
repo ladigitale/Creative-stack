@@ -498,7 +498,7 @@ partagées avec les instances). Le composant doit tourner (`play` en 3D).
 | `mask`, `radius` | Ce qui est touché : nom d'instance, modèle, famille, étiquette de prefab, `decor`, `sol`, ou **nom d'un autre émetteur** (ses copies) ; rayon de contact |
 | `onHit`, `bounce`, `kills` | `die` (défaut), `bounce` (restitution `bounce`), `stick`, `pierce` ; `kills: false` : une copie touchée d'un autre émetteur n'est pas retirée |
 | `push` | Impulsion (N·s) donnée au corps physique touché, dans la direction du tir (voir Physique 3D) |
-| `flock` | Nuée au sol : `seek` / `flee` (instance, `fleeRadius`), `speed`, `separation`, `cohesion`, `align`, `radius` (voisinage), `wander`, `avoid` (étiquettes contournées, sinon `mask`), `bounds` `[x0, z0, x1, z1]` |
+| `flock` | Nuée au sol : `seek` / `flee` (instance, `fleeRadius`), `speed`, `separation`, `cohesion`, `align`, `radius` (voisinage), `wander`, `avoid` (étiquettes contournées, sinon `mask`), `bounds` `[x0, z0, x1, z1]` ; `altitude` `[min, max]` : nuée en vol à cette hauteur au-dessus du sol (oiseaux) |
 | `spawn` | Semis initial `{count, area: [x0, z0, x1, z1]}` |
 | `scale` | Taille `[min, max]` par copie |
 | `events`, `publish`, `seed` | `["expire"]` : événement de fin de vie ; `publish: N` : les N copies les plus proches de la cible publiées ; graine |

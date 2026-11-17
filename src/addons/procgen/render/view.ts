@@ -15,6 +15,10 @@ import * as THREE from "three";
 import { BallWorld } from "../scene/balls";
 import { loadRapier, type BodyPose, type RigidState } from "../../../shared/sim/rigid-core";
 import { type LocalBounds, ProcgenRigid, meshBounds } from "../scene/rigid";
+import { ProcgenEmitterLayer, tagsOf } from "./emitters";
+import type { ProcgenEmitters } from "../scene/emitters";
+import type { Aabb } from "../../../shared/sim/grid";
+import type { Hit } from "../../../shared/sim/emitter";
 import { type M4, type V3, clamp, m4Point, sub } from "../core/math";
 import { type ActorModel, type ObjectInfo, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
@@ -43,7 +47,7 @@ import type { NavGrid } from "../scene/nav";
 import type { Terrain } from "../scene/terrain";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop"; payload: Record<string, unknown> };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit"; payload: Record<string, unknown> };
 /** État publié de la physique : chargement, erreur, ou corps (10 fois par seconde au plus tant que ça bouge). */
 export type PhysicsOut = ({ status: "loading" | "error"; error?: string } | ({ status: "ready" } & RigidState)) | null;
 
@@ -134,6 +138,9 @@ export class ProcgenView {
   /** Ballons dynamiques et leur emplacement dans les maillages instanciés. */
   balls: BallWorld | null = null;
   private ballSlots = new Map<number, { im: THREE.InstancedMesh; i: number; m0: M4 }>();
+  /** Émetteurs (projectiles et nuées), gardés d'une scène à l'autre. */
+  readonly emitters: ProcgenEmitterLayer;
+  private emitHits: (Hit & { t: number })[] = [];
   /** Physique 3D (Rapier, chargé à la demande quand la recette la demande). */
   rigid: ProcgenRigid | null = null;
   private rigidTok = 0;
@@ -187,6 +194,10 @@ export class ProcgenView {
   private settle: { d: DragRT; from: number; to: number; t0: number } | null = null;
   private stack: PostStack;
   private mobile = false;
+  /** Écran tactile ou petite fenêtre : ombres, post-traitement et émetteurs réduits. */
+  get isMobile() {
+    return this.mobile;
+  }
   /** Distance caméra → point visé (profondeur relative des masques et de l'effet miniature). */
   private focusDist = 1;
   /** Rendu pixel accroché au monde : texels visibles et marge (null sinon). */
@@ -246,6 +257,96 @@ export class ProcgenView {
     this.post.frustumCulled = false;
     this.postScene.add(this.post);
     this.stack = new PostStack(this.renderer);
+    this.emitters = new ProcgenEmitterLayer(this.shared, this.staticMats);
+    const em = this.emitters;
+    em.poseOf = (name) => this.poseOf(name);
+    em.dynamic = () => this.dynamicBoxes();
+    em.onHits = (hits) => this.onEmitHits(hits);
+    em.onExpire = (e) => this.onEvent({ type: "expire", payload: e });
+    em.onExit = (e) => this.onEvent({ type: "exit", payload: e });
+  }
+
+  /* ---------------- émetteurs ---------------- */
+
+  /** Monte les émetteurs lus (recette et DataProvider) ; ceux qui n'ont pas changé gardent leurs copies. */
+  setEmitters(built: ProcgenEmitters) {
+    if (built.key === this.emitters.key && this.emitters.count === built.specs.length) return;
+    this.emitters.mount(built);
+    if (this.style) this.emitters.setStyle(this.style);
+    // traînées : les systèmes de particules nommés dans `trail` ne naissent plus qu'au passage des copies
+    this.fx.trailed = new Set(built.specs.map((e) => e.trail).filter((t) => !!t));
+    this.dirty = true;
+    this.kick();
+  }
+
+  /** Ordres `emit.<id>` du DataProvider (salves, `clear`, `kill`). */
+  emitOrders(spec: unknown) {
+    if (this.emitters.orders(spec)) {
+      this.dirty = true;
+      this.kick();
+    }
+  }
+
+  emitState() {
+    return { emitters: this.emitters.count ? this.emitters.stats() : {}, impacts: this.emitHits.slice(-16) };
+  }
+
+  /** Position d'une instance nommée : acteur (position animée), ballon (position courante), objet. */
+  private poseOf(name: string): { x: number; y: number; z: number; ry: number } | null {
+    const a = this.actors.get(name);
+    if (a) return a.hidden ? null : { x: a.pos[0], y: a.pos[1], z: a.pos[2], ry: a.yaw };
+    const b = this.balls?.byId.get(name);
+    if (b) return { x: b.pos[0], y: b.pos[1], z: b.pos[2], ry: 0 };
+    if (this.hiddenIds.has(name)) return null;
+    const o = this.objectsById.get(name);
+    return o ? { x: o.pos[0], y: o.pos[1], z: o.pos[2], ry: o.yaw } : null;
+  }
+
+  /** Boîtes mobiles visées par les masques : acteurs (étiquettes : id, calque, `acteur`) et ballons. */
+  private dynamicBoxes(): Aabb[] {
+    const out: Aabb[] = [];
+    for (const a of this.actors.values()) {
+      if (a.hidden) continue;
+      const r = Math.max(0.15, a.model.asset.footprint.r * 0.6), h = a.model.asset.height;
+      out.push({ name: a.model.id, tags: [a.model.id, a.model.layer ?? "actors", a.model.asset.generator, "acteur", ...(a.model.asset.generator === "animal" ? ["animal"] : ["personnage"])], lo: [a.pos[0] - r, a.pos[1], a.pos[2] - r], hi: [a.pos[0] + r, a.pos[1] + h, a.pos[2] + r] });
+    }
+    // corps physiques mobiles (Rapier) : à leur pose courante
+    for (const o of this.model?.objects ?? []) {
+      if (!o.body || o.body.kind === "static" || this.hiddenIds.has(o.id)) continue;
+      const c = this.rigid?.center(o.id);
+      const r = Math.max(o.footprint.hx, o.footprint.hz, 0.05);
+      const pos = c ? c.pos : [o.pos[0], o.pos[1] + o.height / 2, o.pos[2]];
+      const hh = c ? Math.max(c.r, 0.05) : o.height / 2;
+      out.push({ name: o.id, tags: tagsOf(o), lo: [pos[0] - r, pos[1] - hh, pos[2] - r], hi: [pos[0] + r, pos[1] + hh, pos[2] + r] });
+    }
+    for (const b of this.balls?.bodies ?? []) {
+      if (this.balls!.hidden.has(b.id)) continue;
+      out.push({ name: b.id, tags: [b.id, "ball", "ballon"], lo: [b.pos[0] - b.r, b.pos[1] - b.r, b.pos[2] - b.r], hi: [b.pos[0] + b.r, b.pos[1] + b.r, b.pos[2] + b.r] });
+    }
+    return out;
+  }
+
+  /** Touches de l'image : un seul événement `impact` ; `push` pousse un ballon touché. */
+  private onEmitHits(hits: Hit[]) {
+    const t = Math.round(this.time * 1000) / 1000;
+    for (const h of hits) {
+      const sim = this.emitters.sim(h.emitter);
+      const push = sim?.spec.push ?? 0;
+      if (push > 0 && h.dir) {
+        // ballon ou corps physique touché : impulsion dans la direction du tir (vitesse = impulsion / masse)
+        const ball = this.balls?.byId.get(h.target);
+        const o = this.objectsById.get(h.target);
+        const mass = ball ? ball.mass : o?.body && o.body.kind !== "static" ? o.body.mass : 0;
+        if (mass > 0) {
+          const k = push / Math.max(0.01, mass);
+          if (this.kickAny(h.target, [h.dir[0] * k, Math.max(0.5, h.dir[1] * k + k * 0.15), h.dir[2] * k])) this.kick();
+        }
+      }
+      if (sim?.spec.burst) this.fx.impact(sim.spec.burst, [h.x, h.y, h.z]);
+      this.emitHits.push({ ...h, x: round(h.x), y: round(h.y), z: round(h.z), t });
+    }
+    if (this.emitHits.length > 16) this.emitHits.splice(0, this.emitHits.length - 16);
+    this.onEvent({ type: "impact", payload: { hits: hits.slice(0, 64).map((h) => ({ emitter: h.emitter, id: h.id, target: h.target, ...(h.copy !== undefined ? { copy: h.copy } : {}), tags: h.tags, x: round(h.x), y: round(h.y), z: round(h.z) })), t } });
   }
 
   /* ---------------- scène ---------------- */
@@ -315,6 +416,8 @@ export class ProcgenView {
     this.mountRigid(model);
     this.buildSofts(model);
     this.applyFx();
+    this.scene.add(this.emitters.group);
+    this.emitters.setModel(model);
     if (first) this.view = parseView(model.view, { ...DEFAULT_VIEW, cy: 0 });
     if (this.style) this.setStyle(this.style);
     this.dirty = this.shadowDirty = true;
@@ -667,6 +770,7 @@ export class ProcgenView {
     this.roles.value.set(c.roles);
     for (const a of this.actors.values()) a.mats.uniforms.uRoles.value.set(resolveColors(s, a.model.asset.colors).roles);
     this.meadows.setStyle(s);
+    this.emitters.setStyle(s);
     const D = Math.PI / 180;
     const az = s.lightAzimuth * D, el = clamp(s.lightElevation, 3, 89) * D;
     (this.shared.uSunDir.value as THREE.Vector3).set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).normalize();
@@ -1733,7 +1837,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || this.fx.active || !!this.balls?.moving || this.emitters.active || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -1809,6 +1913,11 @@ export class ProcgenView {
       if (this.rigid) this.stepRigid(dt * this.speed, now);
       this.stepFx(dt * this.speed);
       this.stepSofts(dt * this.speed);
+      if (this.emitters.count) {
+        this.emitters.syncInfinite(this.inf?.world ?? null);
+        this.emitters.advance(dt * this.speed, this.time);
+        for (const sim of this.emitters.sims) if (sim.spec.trail) this.fx.trail(sim.spec.trail, sim, dt * this.speed);
+      }
     } else if (this.dirty && this.softs) this.stepSofts(0);
     if (anim || this.dirty) {
       const t0 = performance.now();
@@ -1948,6 +2057,9 @@ export class ProcgenView {
     });
     this.shared.uShadowOn.value = 0;
     this.fxGroup.visible = false;
+    // les copies des émetteurs ne portent pas d'ombre : la carte n'est pas refaite pour elles
+    const emitVis = this.emitters.group.visible;
+    this.emitters.group.visible = false;
     this.renderer.setRenderTarget(this.shadowRT);
     this.renderer.setClearColor(0xffffff, 1);
     this.renderer.clear(true, true, true);
@@ -1955,6 +2067,7 @@ export class ProcgenView {
     for (const [mesh, mat] of swap) mesh.material = mat;
     this.meadows.group.visible = mv;
     this.fxGroup.visible = true;
+    this.emitters.group.visible = emitVis;
     this.shared.uShadowOn.value = this.style?.shadows === false ? 0 : 1;
     this.shadowDirty = false;
   }
@@ -2111,6 +2224,7 @@ export class ProcgenView {
     this.fxMeshes = [];
     this.fxQuad.dispose();
     this.fx.clear();
+    this.emitters.dispose();
     this.rt?.dispose();
     this.shadowRT.dispose();
     this.stack.dispose();

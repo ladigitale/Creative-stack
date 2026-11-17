@@ -12,6 +12,7 @@ import { dispatch, listStoreIds } from "../interactive";
 import { Issues } from "./core/schema";
 import { type Recipe, type SceneModel, composeSceneAsync, groundHeight } from "./scene/compose";
 import { SCENES } from "./scene/library";
+import { mergeEmitters, readProcgenEmitters } from "./scene/emitters";
 import { resolveStyle } from "./style/style";
 import { ambianceFx } from "./style/ambiance";
 import { readProcgenPhoto, type ProcgenPhotoState } from "./render/photo";
@@ -101,6 +102,9 @@ export class SonicProcgen extends HTMLElement {
   private kickKey: string | null = null;
   private forcesKey = "";
   private queriesKey = "";
+  /** Émetteurs lus (recette ⊕ `emitters` du DataProvider, graine, qualité) : relus seulement quand la clé change. */
+  private emitKey = "";
+  private emitIssues: unknown[] = [];
   private issues: unknown[] = [];
   private error = "";
   /** Erreur de rendu (contexte WebGL) : durable, indépendante de la composition. */
@@ -265,7 +269,7 @@ export class SonicProcgen extends HTMLElement {
     }
     const v = this.view;
     // nouvelle vue : style, vue et réglages seront appliqués au prochain modèle
-    this.styleKey = this.miscKey = "";
+    this.styleKey = this.miscKey = this.emitKey = "";
     this.viewSync = { key: "", modelKey: "" };
     if (!v) return null;
     v.onEvent = (e: GameEvent) => this.emit(e);
@@ -374,7 +378,7 @@ export class SonicProcgen extends HTMLElement {
         try {
           this.model = composeVector({ recipe: r, seed: seed as string, params, edits });
           this.composeMs = Math.round(performance.now() - t0);
-          this.issues = [...issues.list, ...this.model.issues];
+          this.issues = [...issues.list, ...this.model.issues, ...this.emitIssues];
           this.error = "";
           this.composing = false;
           this.view?.setModel(this.model);
@@ -399,7 +403,7 @@ export class SonicProcgen extends HTMLElement {
             this.composing = false;
             this.model = model;
             this.composeMs = Math.round(performance.now() - t0);
-            this.issues = [...issues.list, ...model.issues];
+            this.issues = [...issues.list, ...model.issues, ...this.emitIssues];
             this.error = "";
             this.view?.setModel(model);
             if (this.view instanceof ProcgenView) {
@@ -546,6 +550,8 @@ export class SonicProcgen extends HTMLElement {
     } else if (this.model?.physics && !this.issues.some((x) => (x as { path?: string }).path === "physics")) {
       this.issues = [...this.issues, { path: "physics", code: "info", message: "physique 3D en rendu 3D seulement : en rendu vectoriel, les ballons gardent leur simulation simple" }];
     }
+    // émetteurs : recette ⊕ `emitters` du DataProvider ; les copies en vol survivent aux relectures
+    this.syncEmitters(d, recipe ?? SCENES[sceneName] ?? null, seed);
     // place libre demandée (nouvel objet) : calculée une fois par valeur de `placeRequest`
     if (d.placeRequest && typeof d.placeRequest === "object" && !this.composing) {
       const pk = JSON.stringify(d.placeRequest);
@@ -563,6 +569,23 @@ export class SonicProcgen extends HTMLElement {
     }
     this.queueOut();
   };
+
+  private syncEmitters(d: Json, recipe: Recipe | null, seed: unknown) {
+    const merged = mergeEmitters((recipe as { emitters?: unknown } | null)?.emitters, d.emitters);
+    const mobile = this.view instanceof ProcgenView && this.view.isMobile;
+    const ek = JSON.stringify([merged ?? null, seed, mobile, this.mode]);
+    if (ek !== this.emitKey) {
+      this.emitKey = ek;
+      const prev = this.emitIssues;
+      if (this.view instanceof ProcgenView) {
+        const built = readProcgenEmitters(merged, { seed: seed as string, quality: mobile ? 0.5 : 1 });
+        this.view.setEmitters(built);
+        this.emitIssues = built.issues;
+      } else this.emitIssues = merged && Object.keys(merged).length ? [{ path: "emitters", code: "info", message: "émetteurs dessinés en rendu 3D seulement (render: vector les ignore)" }] : [];
+      this.issues = [...this.issues.filter((i) => !prev.includes(i)), ...this.emitIssues];
+    }
+    if (this.view instanceof ProcgenView && d.emit !== undefined) this.view.emitOrders(d.emit);
+  }
 
   private fail(msg: string) {
     this.error = msg;
@@ -659,6 +682,7 @@ export class SonicProcgen extends HTMLElement {
       svg: this.svgOut,
       balls: this.view?.ballState() ?? {},
       ...(this.view instanceof ProcgenView && this.model?.physics ? { physics: this.view.physOut, queries: this.view.queryOut } : {}),
+      ...(this.view instanceof ProcgenView ? this.view.emitState() : {}),
       ids: this.idsList(),
       ...(this.selectedId ? { selection: this.selectionOut(this.selectedId) } : {}),
       drag: this.dragging?.last ? { objectId: this.dragging.id, x: this.dragging.last.x, y: this.dragging.last.y, z: this.dragging.last.z, yaw: Math.round(this.dragging.last.yaw * DEGS), valid: this.dragging.last.valid } : null,
@@ -697,7 +721,7 @@ export class SonicProcgen extends HTMLElement {
     }
     this.dispatchEvent(new CustomEvent(`procgen-${e.type}`, { detail: e.payload, bubbles: true, composed: true }));
     // positions des ballons republiées quand un coup part ou qu'un ballon s'arrête
-    if (e.type === "kick" || e.type === "rest" || e.type === "settle" || e.type === "drop") this.queueOut();
+    if (e.type === "kick" || e.type === "rest" || e.type === "settle" || e.type === "drop" || e.type === "impact") this.queueOut();
   }
 
   /* ---------------- interactions ---------------- */
