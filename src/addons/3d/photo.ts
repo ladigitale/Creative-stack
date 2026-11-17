@@ -174,14 +174,24 @@ export class PhotoMode {
       r.setRenderTarget(prev);
       return;
     }
+    // peinture : une seule fois, sur l'image finale, à la résolution des rayons (l'écran l'agrandit) ;
+    // avant la dernière passe, le temps réel reste affiché
+    if (t.samples < sp.echantillons) {
+      raster();
+      return;
+    }
     this.paint ??= new PaintFilter();
-    const size = r.getDrawingBufferSize(new THREE.Vector2());
-    if (!this.painted || this.painted.width !== size.x || this.painted.height !== size.y) {
+    const w = t.target.width;
+    const h = t.target.height;
+    if (!this.painted || this.painted.width !== w || this.painted.height !== h) {
       this.painted?.dispose();
-      this.painted = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType });
+      this.painted = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
       fresh = true;
     }
-    if (fresh) this.paint.render(r, t.target.texture, { radius: sp.touche, sharpness: 8, dither: sp.tramage, levels: sp.niveaux, hdr: true }, this.painted);
+    if (fresh) {
+      // rayon en pixels de calcul : à résolution réduite, les touches s'élargissent à l'écran et absorbent le bruit
+      this.paint.render(r, t.target.texture, { radius: sp.touche, sharpness: 8, dither: sp.tramage, levels: sp.niveaux, hdr: true }, this.painted);
+    }
     if (!this.copy) {
       this.copy = fullscreen(
         new THREE.ShaderMaterial({
