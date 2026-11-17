@@ -10,6 +10,8 @@
 import { encodeRoleFinishes } from "../style/finishes";
 import * as THREE from "three";
 import { BallWorld } from "../scene/balls";
+import { loadRapier, type BodyPose, type RigidState } from "../../../shared/sim/rigid-core";
+import { type LocalBounds, ProcgenRigid, meshBounds } from "../scene/rigid";
 import { type M4, type V3, clamp, m4Point, sub } from "../core/math";
 import { type ActorModel, type ObjectInfo, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
@@ -28,7 +30,9 @@ import { SNAP_MARGIN, gridOffset, marginTransform, snapApplicable } from "./pixe
 import type { OrthoFrame, SnapRequest } from "./camera";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree"; payload: Record<string, unknown> };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop"; payload: Record<string, unknown> };
+/** État publié de la physique : chargement, erreur, ou corps (10 fois par seconde au plus tant que ça bouge). */
+export type PhysicsOut = ({ status: "loading" | "error"; error?: string } | ({ status: "ready" } & RigidState)) | null;
 
 /** Objet saisi : de quoi le déplacer sans recomposer (matrice d'instance, sommets de sa tuile, ou acteur). */
 type DragRT = {
@@ -40,6 +44,10 @@ type DragRT = {
   inst?: { im: THREE.InstancedMesh; i: number; m0: THREE.Matrix4 };
   tiles?: { mesh: THREE.Mesh; a: number; b: number; pos0: Float32Array; nrm0: Float32Array }[];
   actor?: ActorRT;
+  /** Corps dynamique saisi : il suit le doigt (cinématique), décalage pied → origine du corps, rotation gardée. */
+  body?: { off: V3; q: BodyPose["q"]; trail: { x: number; y: number; z: number; t: number }[] };
+  /** Obstacle du moteur physique saisi (figé, rendu cinématique pendant le geste). */
+  obstacle?: boolean;
   cur: { x: number; y: number; z: number; yaw: number };
 };
 
@@ -110,6 +118,25 @@ export class ProcgenView {
   /** Ballons dynamiques et leur emplacement dans les maillages instanciés. */
   balls: BallWorld | null = null;
   private ballSlots = new Map<number, { im: THREE.InstancedMesh; i: number; m0: M4 }>();
+  /** Physique 3D (Rapier, chargé à la demande quand la recette la demande). */
+  rigid: ProcgenRigid | null = null;
+  private rigidTok = 0;
+  private rigidSlots = new Map<string, { im: THREE.InstancedMesh; i: number; scale: number; pos: ArrayLike<number> }>();
+  private objectsById = new Map<string, ObjectInfo>();
+  /** Poses des corps reprises d'une composition à l'autre (même objet au même départ). */
+  private carry = new Map<string, { key: string; pose: BodyPose }>();
+  private spawnKey = new Map<string, string>();
+  private pendingKicks: [string, [number, number, number]][] = [];
+  private pendingForces: unknown = null;
+  private firstForces: unknown = null;
+  private querySpec: Record<string, unknown> = {};
+  private queryN = new Map<string, number>();
+  /** Réponses aux requêtes (`queries.<id>`). */
+  queryOut: Record<string, unknown> = {};
+  physOut: PhysicsOut = null;
+  private lastPhys = 0;
+  /** Augmente quand des corps s'arrêtent (liste des objets à republier). */
+  physVersion = 0;
   private dirty = true;
   private shadowDirty = true;
   private time = 0;
@@ -181,6 +208,7 @@ export class ProcgenView {
   setModel(model: SceneModel) {
     // ancien modèle remplacé dans la même tâche : aucune image vide entre les deux
     const first = !this.model;
+    this.keepPoses();
     this.clearScene();
     this.model = model;
     const b = model.bounds;
@@ -191,7 +219,11 @@ export class ProcgenView {
     this.shared.uGroundY.value = 0;
     this.shared.uWaterY.value = model.terrain?.spec.water ?? -1000;
     this.shared.uFar.value = this.extent * 6;
-    for (const o of model.objects) this.objectsByObj.set(o.obj, o);
+    for (const o of model.objects) {
+      this.objectsByObj.set(o.obj, o);
+      this.objectsById.set(o.id, o);
+    }
+    this.spawnKey = new Map(model.physics ? model.objects.filter((o) => o.body && o.body.kind !== "static").map((o) => [o.id, JSON.stringify([o.generator, o.params, o.pos.map((v) => Math.round(v * 100)), Math.round(o.yaw * 100)])]) : []);
     const addStatic = (m: import("../geom/mesh").Mesh | null, pick = true) => {
       if (!m || !m.vertexCount) return;
       const mesh = new THREE.Mesh(toGeometry(m), this.staticMats.color);
@@ -204,7 +236,8 @@ export class ProcgenView {
     addStatic(model.roads);
     addStatic(model.water);
     for (const t of model.tiles) addStatic(t);
-    const bw = new BallWorld(model);
+    // avec la physique, les ballons qui ont un corps passent par Rapier
+    const bw = new BallWorld(model, model.physics ? (o) => !!o.body && o.body.kind !== "static" : undefined);
     this.balls = bw.count ? bw : null;
     this.ballSlots.clear();
     this.ballAwake.clear();
@@ -223,10 +256,16 @@ export class ProcgenView {
       this.pickables.push(im);
       this.instanceObjs.set(im, g.objs);
       if (this.balls) g.objs.forEach((o, i) => this.balls!.byObj.has(o) && this.ballSlots.set(o, { im, i, m0: g.matrices[i] }));
+      if (model.physics)
+        g.objs.forEach((ob, i) => {
+          const o = this.objectsByObj.get(ob);
+          if (o?.body && o.body.kind !== "static") this.rigidSlots.set(o.id, { im, i, scale: o.scale, pos: g.mesh.pos });
+        });
     }
     this.meadows.mount(model.meadows ?? [], this.shared, this.roles);
     if (this.meadows.active) this.scene.add(this.meadows.group);
     for (const a of model.actors) this.addActor(a);
+    this.mountRigid(model);
     if (first) this.view = parseView(model.view, { ...DEFAULT_VIEW, cy: 0 });
     if (this.style) this.setStyle(this.style);
     this.dirty = this.shadowDirty = true;
@@ -266,6 +305,11 @@ export class ProcgenView {
     }
     this.actors.clear();
     this.objectsByObj.clear();
+    this.objectsById.clear();
+    this.rigidSlots.clear();
+    this.rigid?.dispose();
+    this.rigid = null;
+    this.rigidTok++;
     this.pickables = [];
     this.instanceObjs.clear();
   }
@@ -375,6 +419,7 @@ export class ProcgenView {
       this.balls.hidden = new Set(ids.filter((id) => this.balls!.byId.has(id)));
       this.ballsDirty = true;
     }
+    if (this.rigid) this.syncRigidHidden();
     this.dirty = this.shadowDirty = true;
     this.kick();
   }
@@ -399,7 +444,7 @@ export class ProcgenView {
       a.lastIntent = sig;
       if (it.mood) a.mood = String(it.mood);
       const toSeat = typeof it.target === "string" && /\.sit\.\d+$/.test(it.target);
-      const toBall = typeof it.target === "string" && !!this.balls?.byId.get(it.target);
+      const toBall = typeof it.target === "string" && !!this.ballAt(it.target);
       // boire, manger, dormir vers une cible : l'action commence à l'arrivée
       const atTarget = typeof it.target === "string" && !toBall && (it.action === "drink" || it.action === "eat" || it.action === "sleep");
       a.actionDur = Number.isFinite(it.duration) && Number(it.duration) > 0 ? Number(it.duration) : undefined;
@@ -426,7 +471,7 @@ export class ProcgenView {
         let seat: { x: number; y: number; z: number; yaw: number } | undefined;
         let kick: { ball: string; power: number; loft: number } | undefined;
         let then: { action: Action; spot: V3 } | undefined;
-        const ball = typeof it.target === "string" ? this.balls?.byId.get(it.target) : undefined;
+        const ball = typeof it.target === "string" ? this.ballAt(it.target) : null;
         if (ball) {
           // derrière le ballon, sur la ligne acteur → ballon ; le coup part à l'arrivée
           const dx = ball.pos[0] - a.pos[0], dz = ball.pos[2] - a.pos[2], d = Math.hypot(dx, dz) || 1;
@@ -467,7 +512,7 @@ export class ProcgenView {
 
   /** Tir : l'acteur se tourne vers le ballon, lance le geste, le ballon part dans cette direction. */
   private doKick(a: ActorRT, k: { ball: string; power: number; loft: number; tries?: number }) {
-    const b = this.balls?.byId.get(k.ball);
+    const b = this.ballAt(k.ball);
     if (!b) return;
     const dx = b.pos[0] - a.pos[0], dz = b.pos[2] - a.pos[2], d = Math.hypot(dx, dz) || 1;
     // le ballon a roulé entre-temps : l'acteur le rattrape (3 essais), sinon `blocked`
@@ -485,13 +530,13 @@ export class ProcgenView {
     a.yaw = Math.atan2(dx, dz);
     a.action = "kick";
     a.actionTime = 0;
-    this.balls!.kick(b.id, [(dx / d) * k.power, k.power * k.loft, (dz / d) * k.power]);
+    this.kickAny(b.id, [(dx / d) * k.power, k.power * k.loft, (dz / d) * k.power]);
     this.onEvent({ type: "kick", payload: { actor: a.model.id, ball: b.id, power: k.power } });
   }
 
   /** Coup donné à un ballon sans acteur (`kick` du DataProvider) : vitesse en m/s. */
   kickBall(id: string, v: [number, number, number]): boolean {
-    const ok = !!this.balls?.kick(id, v);
+    const ok = this.kickAny(id, v);
     if (ok) {
       this.onEvent({ type: "kick", payload: { actor: null, ball: id } });
       this.kick();
@@ -501,7 +546,46 @@ export class ProcgenView {
 
   /** Position et mouvement des ballons (publiés dans l'état). */
   ballState() {
-    return this.balls?.snapshot() ?? {};
+    const out: Record<string, { x: number; y: number; z: number; moving: boolean }> = this.balls?.snapshot() ?? {};
+    const w = this.rigid;
+    if (w) {
+      const st = this.physOut && this.physOut.status === "ready" ? this.physOut.bodies : null;
+      for (const id of w.dynamicIds) {
+        if (!w.isBall(id) || this.hiddenIds.has(id) || Object.keys(out).length >= 200) continue;
+        const c = w.center(id);
+        if (c) out[id] = { x: round3(c.pos[0]), y: round3(c.pos[1]), z: round3(c.pos[2]), moving: !!st?.[id]?.awake };
+      }
+    }
+    return out;
+  }
+
+  /** Ballon visé (simulé par Rapier ou par les ballons simples) : id, centre, rayon. */
+  private ballAt(id: string): { id: string; pos: V3; r: number } | null {
+    const w = this.rigid;
+    if (w?.isBall(id)) {
+      const c = w.center(id);
+      return c ? { id, pos: c.pos, r: c.r } : null;
+    }
+    const b = this.balls?.byId.get(id);
+    if (b) return { id, pos: b.pos, r: b.r };
+    // moteur encore en chargement : le ballon est à sa place de départ
+    const o = this.objectsById.get(id);
+    if (o && o.generator === "ball" && o.body && o.body.kind === "dynamic") {
+      const c = o.anchors.center ?? [o.pos[0], o.pos[1] + o.height / 2, o.pos[2]];
+      return { id, pos: [...c] as V3, r: o.height / 2 };
+    }
+    return null;
+  }
+
+  /** Coup : par la physique si l'objet est un corps (ordre gardé tant que le moteur charge), sinon ballon simple. */
+  private kickAny(id: string, v: [number, number, number]): boolean {
+    if (this.rigid?.isDynamic(id)) return this.rigid.kickBody(id, v);
+    const o = this.objectsById.get(id);
+    if (this.model?.physics && o?.body?.kind === "dynamic") {
+      if (this.pendingKicks.length < 32) this.pendingKicks.push([id, v]);
+      return true;
+    }
+    return !!this.balls?.kick(id, v);
   }
 
   /** Quitte une place assise : retour au point libre devant l'assise (sinon l'acteur resterait dans l'obstacle). */
@@ -531,6 +615,163 @@ export class ProcgenView {
     a.goal = { x, z, target };
   }
 
+
+  /* ---------------- physique 3D ---------------- */
+
+  /** Poses des corps de la scène courante, reprises par la prochaine composition (même objet, même départ). */
+  private keepPoses() {
+    const w = this.rigid;
+    if (!w) return;
+    this.carry.clear();
+    for (const id of w.dynamicIds) {
+      const k = this.spawnKey.get(id);
+      const p = w.pose(id);
+      if (k && p) this.carry.set(id, { key: k, pose: p });
+    }
+  }
+
+  /** Moteur chargé à la demande, puis monde physique construit ; ordres et coups arrivés entre-temps joués. */
+  private mountRigid(model: SceneModel) {
+    const tok = ++this.rigidTok;
+    if (!model.physics) {
+      this.physOut = null;
+      this.carry.clear();
+      return;
+    }
+    this.physOut = { status: "loading" };
+    this.firstForces = this.pendingForces;
+    const cache = new Map<string, LocalBounds>();
+    const bounds = (o: ObjectInfo) => {
+      const s = this.rigidSlots.get(o.id);
+      if (!s) return null;
+      const key = `${o.generator}|${JSON.stringify(o.params)}|${s.scale}|${s.pos.length}`;
+      let b = cache.get(key);
+      if (!b) cache.set(key, (b = meshBounds(s.pos, s.scale)));
+      return b;
+    };
+    loadRapier().then(
+      (R) => {
+        if (tok !== this.rigidTok || this.model !== model || this.disposed) return;
+        try {
+          const w = new ProcgenRigid(R, model, {
+            actorPose: (id) => {
+              const a = this.actors.get(id);
+              return a ? { x: a.pos[0], y: a.pos[1], z: a.pos[2], yaw: a.yaw, hidden: !a.mesh.visible } : null;
+            },
+            objectPose: (id) => {
+              const o = this.objectsById.get(id);
+              return o ? { x: o.pos[0], y: o.pos[1], z: o.pos[2], yaw: o.yaw } : null;
+            },
+          }, bounds);
+          this.rigid = w;
+          for (const msg of w.issues) model.issues.push({ path: "physics", code: "info", message: msg });
+          // même scène recomposée : les corps reprennent leur pose (endormis)
+          for (const [id, c] of this.carry) if (this.spawnKey.get(id) === c.key) w.restore(id, c.pose);
+          this.carry.clear();
+          for (const id of w.dynamicIds) this.syncSlot(id);
+          this.syncRigidHidden();
+          const first = this.firstForces ?? this.pendingForces;
+          if (first) w.applyOrders(first);
+          if (this.pendingForces && this.pendingForces !== first) w.applyOrders(this.pendingForces);
+          this.firstForces = null;
+          for (const [id, v] of this.pendingKicks.splice(0)) w.kickBody(id, v);
+          this.physOut = { status: "ready", ...w.snapshot() };
+          this.answerQueries(true);
+          this.dirty = this.shadowDirty = true;
+          this.kick();
+        } catch (e) {
+          this.physOut = { status: "error", error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+      (e) => {
+        if (tok === this.rigidTok) this.physOut = { status: "error", error: `moteur : ${e instanceof Error ? e.message : String(e)}` };
+      },
+    );
+  }
+
+  private syncRigidHidden() {
+    this.rigid?.setHidden(new Set([...this.hiddenIds].filter((id) => this.rigid!.isDynamic(id))));
+    for (const id of this.rigid?.dynamicIds ?? []) this.syncSlot(id);
+  }
+
+  private tmpM = new THREE.Matrix4();
+  private tmpP = new THREE.Vector3();
+  private tmpQ = new THREE.Quaternion();
+  private tmpS = new THREE.Vector3();
+  /** Matrice d'instance d'un corps : pose du corps à l'échelle de l'objet (caché : réduit à rien). */
+  private syncSlot(id: string) {
+    const s = this.rigidSlots.get(id);
+    const p = this.rigid?.pose(id);
+    if (!s || !p) return;
+    if (this.hiddenIds.has(id)) this.tmpM.makeScale(0, 0, 0);
+    else this.tmpM.compose(this.tmpP.set(p.x, p.y, p.z), this.tmpQ.set(p.q.x, p.q.y, p.q.z, p.q.w), this.tmpS.setScalar(s.scale));
+    s.im.setMatrixAt(s.i, this.tmpM);
+    s.im.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Ordres `forces.<id>` (vitesse, force, impulsion, téléportation) ; gardés tant que le moteur charge. */
+  applyForces(spec: unknown) {
+    this.pendingForces = spec;
+    if (!this.rigid) {
+      this.firstForces ??= spec;
+      return;
+    }
+    this.rigid.applyOrders(spec);
+    this.kick();
+  }
+
+  /** Requêtes `queries.<id>` : réponse à chaque hausse de `n`, ou à chaque pas avec `live: true` (16 au plus). */
+  applyQueries(spec: unknown) {
+    this.querySpec = spec && typeof spec === "object" ? (spec as Record<string, unknown>) : {};
+    this.answerQueries(false);
+  }
+
+  private answerQueries(all: boolean): boolean {
+    const w = this.rigid;
+    if (!w) return false;
+    let any = false;
+    for (const [id, raw] of Object.entries(this.querySpec).slice(0, 16)) {
+      if (!raw || typeof raw !== "object") continue;
+      const q = raw as Record<string, unknown>;
+      const n = typeof q.n === "number" ? q.n : 0;
+      if (!(q.live === true || all || n !== this.queryN.get(id))) continue;
+      this.queryN.set(id, n);
+      this.queryOut = { ...this.queryOut, [id]: { n, ...w.query(q) } };
+      any = true;
+    }
+    return any;
+  }
+
+  /** Avance la physique, réécrit les matrices des corps qui bougent, envoie chocs et événements. */
+  private stepRigid(dt: number, now: number) {
+    const w = this.rigid!;
+    if (!w.moving && !this.actors.size && !this.drag) return;
+    const moved = w.stepScene(dt);
+    const touched = new Set<THREE.InstancedMesh>();
+    for (const id of moved) {
+      this.syncSlot(id);
+      const s = this.rigidSlots.get(id);
+      if (s) touched.add(s.im);
+    }
+    for (const im of touched) im.computeBoundingSphere();
+    if (touched.size) this.dirty = this.shadowDirty = true;
+    for (const c of w.takeContacts()) this.onEvent({ type: "contact", payload: c });
+    for (const e of w.takeEvents()) {
+      if (e.type === "rest") this.physVersion++;
+      this.onEvent(e);
+    }
+    if (w.rested) {
+      this.physVersion++;
+      this.onEvent({ type: "settle", payload: { bodies: w.rested } });
+      w.rested = null;
+    }
+    if (Object.values(this.querySpec).some((q) => !!q && typeof q === "object" && (q as { live?: unknown }).live === true)) this.answerQueries(false);
+    if ((moved.length || this.physOut?.status !== "ready") && now - this.lastPhys >= 100) {
+      this.lastPhys = now;
+      this.physOut = { status: "ready", ...w.snapshot() };
+    }
+  }
+
   /* ---------------- édition au doigt ---------------- */
 
   /** Point du plan horizontal `y` sous le pointeur (mètres), `null` si le rayon ne le coupe pas devant la caméra. */
@@ -550,7 +791,19 @@ export class ProcgenView {
   dragBegin(objectId: string): boolean {
     this.finishSettle();
     const o = this.model?.objects.find((x) => x.id === objectId);
-    if (!o || o.generator === "ball") return false;
+    if (!o) return false;
+    // corps dynamique : il suit le doigt par la physique (pousse les autres), puis retombe au lâcher
+    if (this.rigid?.isDynamic(o.id)) {
+      const p = this.rigid.pose(o.id);
+      if (!p || !this.rigid.grab(o.id)) return false;
+      this.drag = { o, pos0: [...o.pos], yaw0: o.yaw, anchors0: {}, cur: { x: o.pos[0], y: o.pos[1], z: o.pos[2], yaw: o.yaw }, body: { off: [p.x - o.pos[0], p.y - o.pos[1], p.z - o.pos[2]], q: p.q, trail: [] } };
+      this.rigid.dragTarget.set(o.id, p);
+      this.shared.uIdBase.value = o.obj;
+      this.shared.uHighlight.value = 1;
+      this.kick();
+      return true;
+    }
+    if (o.generator === "ball" && !o.body) return false;
     const d: DragRT = { o, pos0: [...o.pos], yaw0: o.yaw, anchors0: Object.fromEntries(Object.entries(o.anchors).map(([k, v]) => [k, [...v] as V3])), ...(o.seatYaw ? { seatYaw0: { ...o.seatYaw } } : {}), cur: { x: o.pos[0], y: o.pos[1], z: o.pos[2], yaw: o.yaw } };
     if (o.mode === "actor") {
       const a = this.actors.get(o.id);
@@ -587,6 +840,8 @@ export class ProcgenView {
       if (!d.tiles.length) return false;
     }
     this.drag = d;
+    // obstacle du moteur : rendu cinématique pendant le geste (il pousse les corps)
+    if (this.rigid?.grab(o.id, true)) d.obstacle = true;
     this.shared.uIdBase.value = o.obj;
     this.shared.uHighlight.value = 1;
     return true;
@@ -596,6 +851,17 @@ export class ProcgenView {
   dragTo(x: number, y: number, z: number, yaw: number, invalid = false) {
     const d = this.drag;
     if (!d) return;
+    if (d.body) {
+      const b = d.body;
+      const t = { x: x + b.off[0], y: y + b.off[1], z: z + b.off[2], q: b.q };
+      this.rigid?.dragTarget.set(d.o.id, t);
+      b.trail.push({ x: t.x, y: t.y, z: t.z, t: performance.now() });
+      if (b.trail.length > 6) b.trail.shift();
+      d.cur = { x, y, z, yaw };
+      this.dirty = this.shadowDirty = true;
+      this.kick();
+      return;
+    }
     this.applyPose(d, x, y, z, yaw);
     this.shared.uHighlight.value = invalid ? 2 : 1;
     this.dirty = this.shadowDirty = true;
@@ -607,6 +873,24 @@ export class ProcgenView {
     const d = this.drag;
     if (!d) return;
     this.drag = null;
+    if (d.body) {
+      // lâcher : le corps reprend la physique, lancé à la vitesse du geste (15 m/s au plus)
+      const tr = d.body.trail;
+      let vel: V3 = [0, 0, 0];
+      if (tr.length >= 2) {
+        const a = tr[0], b = tr[tr.length - 1], dt = Math.max(0.016, (b.t - a.t) / 1000);
+        vel = [(b.x - a.x) / dt, (b.y - a.y) / dt, (b.z - a.z) / dt];
+        const sp = Math.hypot(vel[0], vel[1], vel[2]);
+        if (sp > 15) vel = vel.map((v) => (v * 15) / sp) as V3;
+        if (performance.now() - b.t > 150) vel = [0, 0, 0];
+      }
+      this.rigid?.dragTarget.delete(d.o.id);
+      this.rigid?.release(d.o.id, vel);
+      this.select(this.selectedObj > 0 ? this.objectsByObj.get(this.selectedObj)?.id ?? null : null);
+      this.dirty = this.shadowDirty = true;
+      this.kick();
+      return;
+    }
     const fin = to ?? { x: d.pos0[0], y: d.pos0[1], z: d.pos0[2], yaw: d.yaw0 };
     this.applyPose(d, fin.x, d.cur.y, fin.z, fin.yaw);
     this.settle = { d, from: d.cur.y, to: fin.y, t0: performance.now() };
@@ -629,6 +913,10 @@ export class ProcgenView {
     if (!s) return;
     this.settle = null;
     this.applyPose(s.d, s.d.cur.x, s.to, s.d.cur.z, s.d.cur.yaw);
+    if (s.d.obstacle) {
+      const y2 = s.d.cur.yaw / 2;
+      this.rigid?.release(s.d.o.id, undefined, { x: s.d.cur.x, y: s.to, z: s.d.cur.z, q: { x: 0, y: Math.sin(y2), z: 0, w: Math.cos(y2) } });
+    }
     for (const t of s.d.tiles ?? []) {
       t.mesh.geometry.computeBoundingSphere();
       t.mesh.geometry.computeBoundingBox();
@@ -948,7 +1236,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || !!this.balls?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || !!this.balls?.moving || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -1002,6 +1290,7 @@ export class ProcgenView {
       for (const a of this.actors.values()) if (a !== this.drag?.actor && a !== this.settle?.d.actor) this.updateActor(a, dt * this.speed);
       if (this.actors.size) this.shadowDirty = true;
       if (this.balls) this.stepBalls(dt * this.speed);
+      if (this.rigid) this.stepRigid(dt * this.speed, now);
     }
     if (anim || this.dirty) {
       const t0 = performance.now();
@@ -1094,6 +1383,13 @@ export class ProcgenView {
       for (const b of this.balls.bodies) {
         if (!b.awake || this.balls.hidden.has(b.id)) continue;
         out.push({ x: b.pos[0], z: b.pos[2], r: Math.max(0.25, b.r * 2.5) });
+      }
+    // corps physiques qui bougent (ou saisis) : ils couchent l'herbe sur leur passage
+    if (this.rigid && this.physOut?.status === "ready")
+      for (const [id, p] of Object.entries(this.physOut.bodies)) {
+        if (!p.awake || this.hiddenIds.has(id)) continue;
+        const o = this.objectsById.get(id);
+        if (o) out.push({ x: o.pos[0], z: o.pos[2], r: Math.max(0.25, Math.hypot(o.footprint.hx, o.footprint.hz) * 1.2) });
       }
     if (out.length > 8) out.sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z));
     return out.slice(0, 8);
@@ -1211,6 +1507,7 @@ export class ProcgenView {
 
   dispose() {
     this.disposed = true;
+    this.rigidTok++;
     cancelAnimationFrame(this.raf);
     this.clearScene();
     this.rt?.dispose();
@@ -1221,3 +1518,4 @@ export class ProcgenView {
 }
 
 const round = (x: number) => Math.round(x * 100) / 100;
+const round3 = (x: number) => Math.round(x * 1000) / 1000;

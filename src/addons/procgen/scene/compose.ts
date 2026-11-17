@@ -20,9 +20,11 @@ import { ACTIONS, type Action } from "../rig/locomotion";
 import { NavGrid } from "./nav";
 import { type Meadow, meadowBudget, meadowKeep, readMeadows, sowMeadows } from "./meadows";
 import { type GroundSpec, type PathKind, type PathSpec, Terrain, distToPath, pointAt } from "./terrain";
+import { type BodySpec, type PhysicsSpec, readBody, readPhysics } from "../../../shared/monde/physique";
 
 export type Placement =
-  | { at: ([number, number] | { x: number; z: number; yaw?: number })[] }
+  /** Point `at` : `y` (m au-dessus du sol) et `physics` (corps de cet objet) servent à la physique. */
+  | { at: ([number, number] | { x: number; z: number; yaw?: number; y?: number; physics?: unknown })[] }
   | { grid: [number, number]; spacing: [number, number]; origin?: [number, number] }
   | { poisson: true | [number, number, number, number]; minDist?: number }
   | { along: string; side?: "both" | "left" | "right" | "center"; spacing?: number; offset?: number; jitter?: number; start?: number; end?: number }
@@ -53,6 +55,8 @@ export type LayerSpec = {
   onWater?: boolean;
   /** Animaux, personnages : cible de l'action de départ (`"bassin.0"`, `"abreuvoir.0.spot"`, `"bancs.1.sit.0"`) : posé à la place, tourné vers elle. */
   target?: string;
+  /** Physique 3D : corps des objets de la couche (`{body: dynamic|static|kinematic, mass, friction, restitution…}`), `false` : aucun. */
+  physics?: unknown;
 };
 
 export type ActorSpec = { gen?: string; params?: Record<string, unknown>; at?: [number, number]; facing?: number | string; behavior?: "idle" | "wander" | "patrol"; action?: string; speed?: number; target?: string };
@@ -77,6 +81,8 @@ export type Recipe = {
   meadows?: unknown;
   /** Densité des prairies : 0, 1, 2 ou `auto` (0 sur mobile, 1 sinon). */
   meadowDetail?: number | string;
+  /** Physique 3D (Rapier, chargé à la demande) : `true` ou `{gravity, contactMin, hz, joints, paused, water, walls}`. */
+  physics?: unknown;
 };
 
 export type ObjectInfo = {
@@ -106,6 +112,8 @@ export type ObjectInfo = {
   walkable?: boolean;
   /** Emprises qui gênent vraiment (tronçons de clôture, garde-corps d'un ouvrage) : `[x, z, hx, hz, yaw]` monde. */
   blockers?: [number, number, number, number, number][];
+  /** Corps physique demandé (couche ou point `at`, ballons par défaut quand la scène a `physics`). */
+  body?: BodySpec;
 };
 
 export type InstanceGroup = { key: string; mesh: Mesh; matrices: M4[]; objs: number[]; flex: boolean };
@@ -143,6 +151,10 @@ export type SceneModel = {
   windDir: number;
   /** Prairies semées (rendu 3D seulement). */
   meadows: Meadow[];
+  /** Physique 3D demandée (null : aucune, le moteur n'est pas chargé). */
+  physics: PhysicsSpec | null;
+  /** Réglages propres aux scènes : flottaison (`water`, défaut oui), bords de scène (`walls`, défaut oui). */
+  physicsScene?: { water: boolean; walls: boolean };
   stats: { ms: number; triangles: number; objects: number; instances: number; actors: number };
 };
 
@@ -227,6 +239,18 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     return Number.isFinite(n) ? n : d;
   };
 
+  // physique : réglages de la scène ; une couche ou un point qui demande un corps l'active aussi
+  const physIssues: { path: string; message: string }[] = [];
+  const wantsPhysics = recipe.physics !== undefined && recipe.physics !== false && recipe.physics !== null;
+  const layerPhysics = (recipe.layers ?? []).some((l) => l && ((l.physics !== undefined && l.physics !== false) || ("at" in (l.place ?? {}) && ((l.place as { at?: unknown[] }).at ?? []).some((a) => !!a && typeof a === "object" && !Array.isArray(a) && (a as { physics?: unknown }).physics))));
+  const physics: PhysicsSpec | null = wantsPhysics || layerPhysics ? readPhysics(wantsPhysics ? recipe.physics : true, physIssues) : null;
+  const physObj = recipe.physics && typeof recipe.physics === "object" ? (recipe.physics as Record<string, unknown>) : {};
+  for (const x of physIssues) issues.add({ path: x.path, code: "unknown", message: x.message });
+  const physicsScene = { water: (physObj.water ?? physObj.eau) !== false, walls: (physObj.walls ?? physObj.bords) !== false };
+  let bodiesLeft = 200;
+  /** Corps de l'objet en cours de placement (couche, point `at`), hauteur de départ au-dessus du sol. */
+  let bodyNext: BodySpec | undefined;
+  let liftNext = 0;
   const sizeR = recipe.size ?? [40, 30];
   const size: [number, number] = [clamp(num(sizeR[0], "size[0]", root, 40), 4, 400), clamp(num(sizeR[1], "size[1]", root, 30), 4, 400)];
   // routes
@@ -361,6 +385,31 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     return { asset, key, generator: gen.id, resolved, extraScale };
   };
 
+  /**
+   * Corps d'un objet : `physics` de la couche ou du point (`false` : aucun) ; avec la physique de scène, un ballon est
+   * dynamique par défaut, avec sa masse, son rebond et son frottement publiés (`extra.physics`).
+   */
+  const bodyOf = (generator: string, asset: Asset, scale: number, spec: unknown, path: string): BodySpec | undefined => {
+    if (spec === false || spec === null) return undefined;
+    const ph = (asset.extra?.physics ?? {}) as { mass?: number; restitution?: number; friction?: number };
+    if (spec === undefined && generator !== "ball") return undefined;
+    const o: Record<string, unknown> = spec === undefined || spec === true ? {} : typeof spec === "string" ? { body: spec } : spec && typeof spec === "object" ? { ...(spec as Record<string, unknown>) } : {};
+    if (generator === "ball") {
+      // un ballon roule : freinage au roulement selon son frottement (Rapier ne freine pas une sphère qui roule)
+      const pick = (...k: string[]) => k.some((x) => o[x] !== undefined);
+      if (!pick("mass", "masse") && ph.mass) o.mass = ph.mass * scale ** 3;
+      if (!pick("restitution", "rebond") && ph.restitution !== undefined) o.restitution = ph.restitution;
+      if (!pick("friction") && ph.friction !== undefined) o.friction = Math.max(0.3, ph.friction);
+      if (!pick("angularDamping", "amortiRotation")) o.angularDamping = 0.6 + (ph.friction ?? 0.5);
+      if (!pick("damping", "amorti")) o.damping = 0.05;
+      if (!pick("shape", "forme")) o.shape = "sphere";
+    }
+    const iss: { path: string; message: string }[] = [];
+    const b = readBody(o, path, iss) ?? undefined;
+    for (const x of iss) issues.add({ path: x.path, code: "unknown", message: x.message });
+    return b;
+  };
+
   const placeObject = (layer: LayerSpec | null, id: string, asset: Asset, key: string, generator: string, rawParams: Record<string, unknown>, x: number, z: number, yaw: number, scale: number, rng: Rng, behavior?: string, action?: string) => {
     const fp = asset.footprint;
     // posé sur le point le plus bas de l'emprise (pas d'objet flottant), légèrement enfoncé
@@ -368,13 +417,19 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     const corners = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => [x + (a * fp.hx * c + b * fp.hz * s) * scale, z + (-a * fp.hx * s + b * fp.hz * c) * scale]);
     // ouvrages : posés au plus bas de leurs appuis (les berges d'un pont), pas au fond du lit
     const rest = Array.isArray(asset.extra?.rest) ? (asset.extra!.rest as [number, number][]) : null;
-    const y = rest && rest.length ? Math.min(...rest.map(([lx, lz]) => H(x + (lx * c + lz * s) * scale, z + (-lx * s + lz * c) * scale))) - 0.02 : layer?.onWater && waterLevel !== null ? waterLevel - 0.15 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - 0.02;
+    let y = rest && rest.length ? Math.min(...rest.map(([lx, lz]) => H(x + (lx * c + lz * s) * scale, z + (-lx * s + lz * c) * scale))) - 0.02 : layer?.onWater && waterLevel !== null ? waterLevel - 0.15 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - 0.02;
     const obj = objects.length + 1;
+    const body = bodyNext;
+    bodyNext = undefined;
+    // corps dynamique lâché d'en haut (`y` d'un point `at`)
+    if (body && body.kind === "dynamic" && liftNext > 0) y += liftNext;
+    liftNext = 0;
     const T = m4Compose([x, y, z], qAxis([0, 1, 0], yaw), scale);
     const anchors: Record<string, V3> = {};
     for (const [k, a] of Object.entries(asset.anchors)) anchors[k] = m4Point(T, a.pos);
     const isActor = ACTOR_GENS.has(generator);
-    const mode: ObjectInfo["mode"] = isActor ? "actor" : INSTANCEABLE.has(generator) ? "instance" : "static";
+    // un objet qui bouge par la physique est instancié (matrice réécrite à chaque pas, sans toucher aux tuiles)
+    const mode: ObjectInfo["mode"] = isActor ? "actor" : INSTANCEABLE.has(generator) || (body && body.kind !== "static") ? "instance" : "static";
     const affords = Array.isArray(asset.extra?.affords) ? (asset.extra!.affords as string[]) : undefined;
     const physics = asset.extra?.physics && typeof asset.extra.physics === "object" ? (asset.extra.physics as Record<string, unknown>) : undefined;
     const seatYaw: Record<string, number> = {};
@@ -382,7 +437,7 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       const f = qRot(a.rot, [0, 0, 1]);
       seatYaw[k] = yaw + Math.atan2(f[0], f[2]);
     }
-    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, ...(Object.keys(seatYaw).length ? { seatYaw } : {}), footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(affords ? { affords } : {}), ...(physics ? { physics } : {}) });
+    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, ...(Object.keys(seatYaw).length ? { seatYaw } : {}), footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(affords ? { affords } : {}), ...(physics ? { physics } : {}), ...(body && !isActor ? { body } : {}) });
     const segs = asset.extra?.segments as [number, number, number, number, number][] | undefined;
     if (segs) {
       // clôtures le long d'un tracé : chaque tronçon bloque sa bande, de petits disques jalonnent le tracé
@@ -505,6 +560,17 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
       else if (yw === "path") yaw = pos.yaw ?? facePath(pos.x, pos.z, paths);
       else yaw = num(yw, `${lp}.yaw`, irng, 0, vars) * DEG;
       if (layer.target && ACTOR_GENS.has(built.generator)) startAt = targetPlace(String(layer.target), built.asset, n, `${lp}.target`, layer.action);
+      if (physics && !ACTOR_GENS.has(built.generator)) {
+        bodyNext = bodyOf(built.generator, built.asset, scale, pos.physics !== undefined ? pos.physics : layer.physics, `${lp}.physics`);
+        if (bodyNext && bodyNext.kind !== "static") {
+          if (bodiesLeft <= 0) {
+            if (bodiesLeft === 0) issues.add({ path: `${lp}.physics`, code: "limit", message: "200 corps physiques au plus : les suivants restent fixes" });
+            bodiesLeft--;
+            bodyNext = undefined;
+          } else bodiesLeft--;
+        }
+        liftNext = bodyNext ? Math.max(0, Math.min(100, pos.y ?? 0)) : 0;
+      }
       placeObject(layer, id, built.asset, built.key, built.generator, { ...(resolveGeneratorId(layer.gen).preset ?? {}), ...raw }, pos.x, pos.z, yaw, scale, irng, layer.behavior, layer.action);
       const placed = objects[objects.length - 1];
       if (placed?.id === id) Object.assign(placed, { place: placeKind(place), index: n, ...(layer.onWater ? { onWater: true } : {}), ...(layer.onPath ? { onPath: true } : {}), ...(layer.walkable ? { walkable: true } : {}) });
@@ -634,6 +700,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     wind: recipe.wind ?? 1,
     windDir: (typeof recipe.windDir === "number" && Number.isFinite(recipe.windDir) ? recipe.windDir : 67) * DEG,
     meadows,
+    physics,
+    ...(physics ? { physicsScene } : {}),
     stats: { ms: Math.round(t1 - t0), triangles: total, objects: objects.length, instances: [...groups.values()].reduce((s, g) => s + g.matrices.length, 0), actors: actors.length },
   };
 }
@@ -651,7 +719,7 @@ function facePath(x: number, z: number, paths: PathSpec[]): number {
   return best ? Math.atan2(best.px - x, best.pz - z) : 0;
 }
 
-type Pos = { x: number; z: number; yaw?: number; /** Largeur franchie (placement `across`). */ span?: number };
+type Pos = { x: number; z: number; yaw?: number; /** Largeur franchie (placement `across`). */ span?: number; /** Hauteur au-dessus du sol (m) et corps d'un point `at`. */ y?: number; physics?: unknown };
 
 /**
  * Distance (selon l'avant) du pied de l'acteur à sa bouche quand il boit ou mange à une cible de hauteur `reachY` :
@@ -712,7 +780,7 @@ function placements(place: Placement, count: number, rng: Rng, size: [number, nu
   if ("at" in place) {
     for (const a of place.at ?? []) {
       if (Array.isArray(a)) out.push({ x: Number(a[0]) || 0, z: Number(a[1]) || 0 });
-      else if (a && typeof a === "object") out.push({ x: Number(a.x) || 0, z: Number(a.z) || 0, yaw: a.yaw !== undefined ? Number(a.yaw) * DEG : undefined });
+      else if (a && typeof a === "object") out.push({ x: Number(a.x) || 0, z: Number(a.z) || 0, yaw: a.yaw !== undefined ? Number(a.yaw) * DEG : undefined, ...(Number.isFinite(Number(a.y)) && a.y !== undefined ? { y: Number(a.y) } : {}), ...(a.physics !== undefined ? { physics: a.physics } : {}) });
     }
     return out;
   }

@@ -27,6 +27,8 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `hidden` | Ids cachés (objet ramassé, personnage parti) |
 | `anchors` | Ancres à suivre à l'écran : `["heros@head.top", "maisons.2@door"]` |
 | `placeRequest` | Place libre pour un nouvel objet : `{id, gen, params, at: [x, z], size: [w, d], yaw (°), onWater, onPath, ignore}` (voir Édition au doigt) ; calculée une fois par valeur |
+| `forces` | Physique 3D : ordres par corps `{<id>: {vx, fy, impulse: {n, x, y, z}, set: {n, …}, wake}}` (voir Physique 3D) |
+| `queries` | Physique 3D : requêtes `{<id>: {n, ray: {from, dir, max}} \| {n, sphere: {at, r}} \| {n, box: {lo, hi}}, mask, ignore, live}` |
 | `kick` | Coup donné à un ballon sans acteur : `{ball: "ballons.0", power, dir (°, 0 = +z), loft, n}` ou `{ball, vx, vy, vz}` (m/s, norme bornée à 40), ou une liste de 16 au plus ; joué quand la valeur change (pas au chargement) : pour retirer le même coup, incrémenter `n` |
 
 ## Clés écrites dans `state-out` (défaut `<dataProvider>State`)
@@ -43,6 +45,8 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `actors` | Position, cap, vitesse, action de chaque acteur (5 fois par seconde au plus) |
 | `anchors` / `nodes` | Positions écran des ancres demandées ; `nodes` est au format de `sonic-stage` (bulles de dialogue en HTML par-dessus la scène) |
 | `view` | Vue courante (après pan / zoom de l'utilisateur) |
+| `physics` | Physique 3D (si la recette la demande) : `{status: loading\|ready\|error, time, count, awake, bodies: {<id>: {x, y, z, rx, ry, rz (°), vx, vy, vz, awake}}}`, 10 fois par seconde au plus tant que ça bouge, rien au repos |
+| `queries` | Réponses aux requêtes : `{<id>: {n, hit, objectId, tags, x, y, z, normal, dist}}` (rayon) ou `{n, hit, objectId, all}` (sphère, boîte) |
 | `balls` | `{<id>: {x, y, z, moving}}` des ballons visibles (200 au plus), republié pendant le mouvement (5 fois par seconde au plus), au coup et à l'arrêt |
 
 `issues` : `{path, code: unknown|clamped|type|expr|missing|limit|info, message, got, used, hint, didYouMean}`. Une erreur n'arrête jamais le rendu : la scène s'affiche avec ce qui est valide.
@@ -65,6 +69,10 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `dragstart` | `{objectId, instance, layer, index, x, z}` : un glisser commence (rien d'autre n'est envoyé pendant le geste) |
 | `dragRefused` | `{objectId, layer, index, place, reason: placement\|occupied, hits}` : objet d'une couche semée, ou aucune place libre au lâcher (l'objet revient à sa place) |
 | `placeFree` | Réponse à `placeRequest` (comme `state-out.free`) |
+| `contact` | Physique 3D : choc `{a, b, tagsA, tagsB, impulse (N·s), x, y, z}` au début d'un contact (`b` vide = sol, bord ou ouvrage ; `tags` : calque, générateur, `acteur`) |
+| `settle` | Physique 3D : `{bodies}` quand tous les corps dynamiques se sont immobilisés |
+| `splash` | Physique 3D : `{body, x, z, speed}` quand un corps tombe dans l'eau |
+| `drop` | Physique 3D : `{objectId, x, y, z}` au lâcher d'un corps glissé (il reprend la physique) |
 | `actionEnd` | `{actor, action}` (après `wave`, `cheer`, `jump`, `bow`, `point`, `kick`, ou au bout de `duration`) |
 
 Intentions d'acteur (`actors.<id>`), écrites par le reducer, **jamais à chaque image** (le composant interpole) :
@@ -94,7 +102,85 @@ Les mêmes gestes que le format monde de `sonic-3d` (voir `3d/monde.md`, Éditio
 - **Persistance** : le glisser déplace l'objet à l'écran sans recomposer ; c'est au store de recopier `x`, `z` (et `yaw`) dans le point `at[index]` de la couche `layer` (ou `actors.<id>.at`). Sinon la prochaine recomposition le remet à sa place.
 - **Pendant une recomposition** (après un `place` recopié dans la recette) : la scène affichée reste saisissable, le geste sur l'objet sélectionné le déplace sans toucher à la vue ; un modèle qui arrive pendant le geste est adopté au lâcher, et les poses faites depuis le début de sa composition y sont rejouées. La vue (orbite, zoom, cadrage) et la sélection survivent à la recomposition.
 - **Nouvel objet sans collision** : écrire `placeRequest = {id: "n12", gen: "seat.parkbench", params, at: [x, z]}` (sans `at` : centre de la vue ; `size: [w, d]` en mètres au lieu de mesurer le générateur ; `ignore` : id ou calque, ou liste, à ne pas compter comme obstacle — l'objet lui-même s'il est déjà dans la recette) ; le composant répond une fois par valeur dans `state-out.free` et par l'action `placeFree` `{id, x, y, z, yaw, valid, hits, snaps}` : le réducteur ajoute alors l'objet à ce point.
+- Avec la physique 3D : un corps dynamique se glisse quel que soit son placement (ballons compris) : il suit le doigt à 25 cm au-dessus du sol en poussant les autres corps, puis retombe au lâcher, lancé à la vitesse du geste (`drop`, puis `rest` / `settle`). Un objet du décor glissé pousse les corps sur son passage ; les corps ne comptent pas comme obstacles pour le rangement.
 - Coût : rien par image hors geste ; une recherche de rangement par image pendant le glisser (emprises 2D, contexte préparé au début du geste) ; publication de `state-out` 15 fois par seconde pendant un geste, 5 sinon.
+
+## Physique 3D (corps rigides)
+
+Même moteur que le format monde de `sonic-3d` (Rapier, environ 1,5 Mo, **chargé seulement si la recette le demande** : clé
+`physics` de la recette, ou `physics` sur une couche ou un point). Sans cette demande, rien ne change.
+
+```json
+{
+  "size": [24, 16], "ground": { "relief": 0.3, "water": -0.4 },
+  "physics": { "gravity": [0, -9.81, 0], "joints": [{ "type": "rope", "a": "caisses.1", "at": [0.2, 6, 0.1], "length": 1.5 }] },
+  "layers": [
+    { "id": "caisses", "gen": "prop.crate", "physics": { "body": "dynamic", "mass": 15 }, "place": { "at": [{ "x": 0, "z": 0, "y": 3 }, { "x": 0.2, "z": 0.1, "y": 4.2 }] } },
+    { "id": "tonneaux", "gen": "prop.barrel", "physics": "dynamic", "place": { "grid": [3, 1], "spacing": [1.2, 1] } },
+    { "id": "ballons", "gen": "ball.soccer", "count": 4, "place": { "cluster": [4, 2], "radius": 2 } },
+    { "id": "chaises", "gen": "seat.chair", "physics": { "body": "dynamic", "restitution": 0.05 }, "place": { "at": [[-3, 2]] } }
+  ]
+}
+```
+
+**`physics` de la recette** : `true` ou `{gravity ([0, -9.81, 0]), ground (sol, défaut true), contactMin (impulsion
+minimale d'un choc signalé, N·s, 0,5), hz (pas par seconde, 60), paused (corps endormis jusqu'au premier ordre ou
+choc), joints, water (flottaison, défaut true), walls (bords de la scène, défaut true)}` ; les clés françaises du
+format monde (`gravite`, `sol`, `frequence`, `pause`, `liaisons`) sont acceptées.
+
+**`physics` d'une couche** (ou d'un point `at` : `{x, z, y, physics}`, prioritaire) : `"dynamic"` | `"static"` |
+`"kinematic"`, `false` (aucun corps), ou un objet :
+
+| Clé | Rôle |
+|---|---|
+| `body` | `dynamic` (défaut), `static` (obstacle aux réglages donnés), `kinematic` (suit sa pose, pousse sans être poussé) |
+| `mass` | kg (sinon volume × `density`, 500 kg/m³ : le bois flotte) |
+| `friction`, `restitution` | 0,6 ; 0,1 |
+| `damping`, `angularDamping` | Freinage dans l'air et en rotation |
+| `gravity` | Échelle de gravité (0 : flotte, -1 : monte) |
+| `ccd` | Détection continue (objet rapide) |
+| `lockRotation`, `lockPosition` | Axes bloqués (`["x", "z"]` : reste debout) |
+| `shape` | `auto`, `box`, `sphere`, `capsule`, `cylinder`, `hull` (enveloppe convexe du maillage) |
+| `vel` | Vitesse de départ [vx, vy, vz] (m/s) |
+| `sleep` | `false` : ne s'endort jamais |
+
+- `y` d'un point `at` : hauteur de départ au-dessus du sol (m) d'un corps dynamique (il tombe).
+- Avec la physique de scène, **les ballons sont dynamiques par défaut** (masse, rebond et frottement publiés par le
+  générateur, freinage au roulement) ; `physics: false` sur leur couche les rend à la simulation simple.
+- Formes automatiques : ballon → sphère ; tonneau, poubelle, borne, bouche d'incendie… → cylindre ; assises, outils,
+  véhicules, contenants, `assembly` → enveloppe convexe ; le reste → boîte du maillage. Un objet dynamique est toujours
+  instancié (sa matrice est réécrite à chaque pas).
+- Décor (sans `physics`) : boîtes des emprises procgen (bâtiments, objets), troncs des arbres, tronçons de clôture,
+  garde-corps et piles, tabliers et marches des ouvrages en dalles ; herbe, fleurs, plantes basses et eau ne bloquent
+  pas. Sol = relief (champ de hauteurs, une maille par mètre, 128 au plus par côté) ; bords de la scène fermés.
+- Acteurs (personnages, animaux) : capsules cinématiques, ils poussent les corps en marchant ; un acteur qui vise un
+  ballon dynamique (`kick`) le tire par la physique.
+- Eau (`ground.water`) : poussée selon la part immergée et freinage ; `splash` à l'entrée.
+- Prairies (`meadows`) : les corps qui bougent couchent les brins sur leur passage.
+- Zones de la recette = capteurs : `enter` / `leave` `{zone, body, actor: null}` (`ball` en plus pour un ballon).
+- 200 corps dynamiques au plus (les suivants restent fixes, signalé dans `issues`).
+
+**Liaisons** (`physics.joints`, 200 au plus) : `{type, a, b, at, axis, limits, motor, length, stiffness, damping,
+collide}` (ids d'objets ; `b` absent = accroché au monde au point `at`) : `hinge` (porte, roue, `limits` en degrés,
+`motor: {speed (°/s), force}`), `ball` (rotule), `fixed`, `slider` (glissière, `limits` en m), `spring` (ressort),
+`rope` (corde). Noms français du format monde acceptés.
+
+**Piloter** : `kick` (ballons et tout corps dynamique : vitesse ajoutée), `forces.<id>` comme dans le format monde :
+`vx vy vz` (vitesse imposée), `fx fy fz` (force continue, N), `torque`, `spin` (°/s), `wake: true`, `impulse: {n, x, y,
+z | toward: [x, y, z], power, at}` (N·s), `set: {n, x, y, z, rx, ry, rz, vx, vy, vz}` ; `impulse` et `set` sont des
+compteurs : la première lecture ne fait que mémoriser, chaque hausse de `n` agit une fois. Les ordres et coups arrivés
+pendant le chargement du moteur sont joués à son arrivée.
+
+**Requêtes** (`queries`) : rayon (premier objet touché, sol compris), sphère ou boîte (tout ce qui chevauche, 16 au
+plus), `mask` (ids ou étiquettes : calque, générateur, `sol`, `acteur`, `bord`), `ignore` ; réponse à chaque hausse de
+`n`, ou à chaque pas avec `live: true` (16 requêtes au plus).
+
+**Recomposition** : la scène recomposée (après un `place`, un `edit`) reprend la pose courante des corps dont l'objet
+et le point de départ n'ont pas changé (endormis) ; les autres repartent de la recette.
+
+**Coût** : corps endormis gratuits ; quand tout dort (et sans acteur animé), plus aucune image n'est dessinée ni rien
+publié. Pas fixes de 1/60 s (4 au plus par image). Rendu 3D seulement : en rendu vectoriel, la physique est ignorée
+(signalé dans `issues`) et les ballons gardent leur simulation simple.
 
 ## Recette
 
