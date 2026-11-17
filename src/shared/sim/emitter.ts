@@ -2,7 +2,8 @@
  * Émetteurs : des copies d'un modèle naissent, bougent et meurent sans que le reducer les connaisse une par une.
  *
  * - `ballistic` : projectiles (vitesse, gravité, frottement, contact contre les boîtes du monde et le sol).
- * - `flock` : nuée au sol (séparation, cohésion, alignement, poursuite ou fuite d'une instance, contournement).
+ * - `flock` : nuée au sol ou en vol (`altitude`) : séparation, cohésion, alignement, poursuite ou fuite d'une instance,
+ *   contournement.
  *
  * L'état vit dans des tableaux typés de taille `max` (suppression par échange avec la dernière copie) : aucune
  * allocation en jeu. Pas de temps fixe (1/60 s), graine par émetteur : même graine, même tir. Aucune dépendance au
@@ -33,6 +34,8 @@ export type FlockSpec = {
   avoid: string[];
   /** Reste dans ce rectangle `[x0, z0, x1, z1]` (mètres), s'il est donné. */
   bounds: [number, number, number, number] | null;
+  /** Nuée en vol : hauteur au-dessus du sol `[min, max]` (mètres, tirée par copie) ; `null` : au sol ou à `at[1]`. */
+  altitude: Range | null;
 };
 
 export type EmitterSpec = {
@@ -169,6 +172,7 @@ export function readEmitters(src: unknown, u: number, issues: EmitIssue[]): Emit
         wander: fin(f.wander) ? clamp(f.wander, 0, 1) : 0.3,
         avoid: strs(f.avoid),
         bounds: rect(f.bounds, u),
+        altitude: f.altitude === undefined || f.altitude === null ? null : range(f.altitude, [6, 10], u),
       };
     }
     const spawnIn = raw.spawn;
@@ -196,7 +200,7 @@ export function readEmitters(src: unknown, u: number, issues: EmitIssue[]): Emit
       mask: strs(raw.mask),
       onHit,
       bounce: fin(raw.bounce) ? clamp(raw.bounce, 0, 1) : 0.5,
-      ground: raw.on === "sol" || (behavior === "flock" && raw.on !== false),
+      ground: raw.on === "sol" || (behavior === "flock" && raw.on !== false && !(isObj(flockIn) && flockIn.altitude !== undefined && flockIn.altitude !== null)),
       spawn,
       flock,
       scale: range(raw.scale, [1, 1]),
@@ -225,6 +229,10 @@ export type SimWorld = {
   pose(name: string): { x: number; y: number; z: number; ry: number } | null;
   /** Autre émetteur du monde (cible d'un `mask`), ou `null`. */
   emitter?(id: string): Emitter | null;
+  /** Niveau de l'eau sous (x, z), ou `null` hors de l'eau (étiquette `eau` d'un `mask`). */
+  water?(x: number, z: number): number | null;
+  /** Rectangle `[x0, z0, x1, z1, yMin]` hors duquel un projectile sort de la scène (compté dans `exited`). */
+  bounds?: readonly [number, number, number, number, number] | null;
 };
 
 /** Touche : `target` = instance, étiquette ou émetteur touché ; `copy` = identifiant de la copie touchée d'un émetteur. */
@@ -260,6 +268,8 @@ export class Emitter {
   readonly ry: Float32Array;
   readonly rx: Float32Array;
   readonly cruise: Float32Array;
+  /** Hauteur de vol visée au-dessus du sol (nuée en vol). */
+  readonly alt: Float32Array;
   readonly variant: Uint8Array;
   /** 0 en vol, 1 fiché (stick). */
   readonly state: Uint8Array;
@@ -276,6 +286,8 @@ export class Emitter {
   emitted = 0;
   dropped = 0;
   expired = 0;
+  /** Projectiles sortis de la scène (`SimWorld.bounds`). */
+  exited = 0;
   /** Durée de la dernière avance (ms). */
   ms = 0;
 
@@ -294,6 +306,7 @@ export class Emitter {
     this.ry = new Float32Array(m);
     this.rx = new Float32Array(m);
     this.cruise = new Float32Array(m);
+    this.alt = new Float32Array(m);
     this.variant = new Uint8Array(m);
     this.state = new Uint8Array(m);
     this.ids = new Int32Array(m);
@@ -354,6 +367,7 @@ export class Emitter {
     this.ry[i] = this.ry[j];
     this.rx[i] = this.rx[j];
     this.cruise[i] = this.cruise[j];
+    this.alt[i] = this.alt[j];
     this.variant[i] = this.variant[j];
     this.state[i] = this.state[j];
     this.ids[i] = this.ids[j];
@@ -430,6 +444,7 @@ export class Emitter {
       this.vz[i] = Math.cos(a) * sp * 0.3;
       this.place(i);
       this.ry[i] = a;
+      if (s.flock?.altitude) this.py[i] = (world ? world.ground(this.px[i], this.pz[i]) : 0) + this.alt[i];
     }
   }
 
@@ -444,6 +459,7 @@ export class Emitter {
     this.ids[i] = this.nextId++;
     this.lastBox[i] = -1;
     this.cruise[i] = s.flock ? this.lerp(s.flock.speed) : 0;
+    this.alt[i] = s.flock?.altitude ? this.lerp(s.flock.altitude) : 0;
     this.ry[i] = Math.atan2(this.vx[i], this.vz[i]);
     this.rx[i] = 0;
     this.emitted++;
@@ -490,6 +506,8 @@ export class Emitter {
     const dt = STEP;
     const fric = s.drag > 0 ? 1 / (1 + s.drag * dt) : 1;
     const groundHit = s.mask.includes("sol");
+    const waterHit = !!world.water && s.mask.includes("eau");
+    const out = world.bounds ?? null;
     const p0: number[] = [0, 0, 0], p1: number[] = [0, 0, 0];
     for (let i = 0; i < this.n; i++) {
       this.age[i] += dt;
@@ -534,6 +552,18 @@ export class Emitter {
             bn = [0, 1, 0];
             bb = { name: "", tags: ["sol"], lo: [0, 0, 0], hi: [0, 0, 0] };
             bid = -2;
+          }
+        }
+      }
+      if (waterHit) {
+        const lv = world.water!(p1[0], p1[2]);
+        if (lv !== null && p1[1] < lv && p0[1] >= lv - 1e-6) {
+          const t = (p0[1] - lv) / Math.max(1e-9, p0[1] - p1[1]);
+          if (t < best) {
+            best = t;
+            bn = [0, 1, 0];
+            bb = { name: "", tags: ["eau"], lo: [0, 0, 0], hi: [0, 0, 0] };
+            bid = -3;
           }
         }
       }
@@ -597,6 +627,11 @@ export class Emitter {
           continue;
         }
         this.lastBox[i] = bid;
+      }
+      if (out && (p1[0] < out[0] || p1[0] > out[2] || p1[2] < out[1] || p1[2] > out[3] || p1[1] < out[4])) {
+        this.exited++;
+        this.remove(i--);
+        continue;
       }
       this.px[i] = p1[0];
       this.py[i] = p1[1];
@@ -734,7 +769,12 @@ export class Emitter {
       }
       this.px[i] = nx;
       this.pz[i] = nz;
-      this.py[i] = s.ground ? world.ground(nx, nz) : this.py[i];
+      if (f.altitude) {
+        // en vol : la hauteur rejoint doucement la hauteur visée au-dessus du relief
+        const ty = world.ground(nx, nz) + this.alt[i];
+        this.vy[i] = (ty - this.py[i]) * 1.5;
+        this.py[i] += this.vy[i] * dt;
+      } else this.py[i] = s.ground ? world.ground(nx, nz) : this.py[i];
     }
   }
 
@@ -761,7 +801,9 @@ export class Emitter {
 
   /** Tangage affiché (projectiles seulement). */
   pitch(i: number): number {
-    return this.spec.flock ? 0 : this.rx[i];
+    if (!this.spec.flock) return this.rx[i];
+    // nuée en vol : le nez suit la montée ou la descente
+    return this.spec.flock.altitude ? -Math.atan2(this.vy[i], Math.max(0.3, Math.hypot(this.vx[i], this.vz[i]))) * 0.6 : 0;
   }
 }
 

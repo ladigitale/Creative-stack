@@ -372,12 +372,35 @@ export class SceneFx {
     return ox || oy || oz ? pts.map((p) => [p[0] + ox, p[1] + oy, p[2] + oz] as V3) : pts;
   }
 
+  /** Systèmes servant de traînée à un émetteur (`trail`) : pas de naissance continue à leur propre source. */
+  trailed = new Set<string>();
+
+  /** Traînée : chaque copie d'un émetteur sème `rate` grains par seconde (30 sans débit) là où elle passe. */
+  trail(id: string, em: { n: number; px: Float32Array; py: Float32Array; pz: Float32Array; vx: Float32Array; vy: Float32Array; vz: Float32Array; heading(i: number): number }, dt: number) {
+    const s = this.systems.find((x) => x.id === id);
+    if (!s || !em.n) return;
+    const per = (s.sys.spec.rate > 0 ? s.sys.spec.rate : 30) * dt;
+    for (let i = 0; i < em.n; i++) {
+      let k = Math.floor(per);
+      if (Math.random() < per - k) k++;
+      if (k > 0) s.sys.spawn(k, this.now, [em.px[i], em.py[i], em.pz[i]], em.heading(i), 1, 0, [em.vx[i] * 0.2, em.vy[i] * 0.2, em.vz[i] * 0.2]);
+    }
+  }
+
+  /** Salve d'un système au point d'impact d'un projectile (`burst` de l'émetteur). */
+  impact(id: string, at: V3): boolean {
+    const s = this.systems.find((x) => x.id === id);
+    if (!s) return false;
+    s.sys.burstAt(this.now, at);
+    return true;
+  }
+
   /** Avance l'horloge et fait naître les grains continus. */
   step(dt: number, ctx: FxContext) {
     this.now += dt;
     for (const s of this.systems) {
       const spec = s.sys.spec;
-      if (spec.rate <= 0) continue;
+      if (spec.rate <= 0 || this.trailed.has(s.id)) continue;
       const pts = this.points(s, ctx);
       if (!pts.length) continue;
       let rate = spec.rate * pts.length;

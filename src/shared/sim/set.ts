@@ -8,22 +8,14 @@ import { placeBoxes, hull } from "../monde/collide";
 import type { MondeDriver } from "../monde/driver";
 import { BoxGrid, GridPair, type Aabb } from "./grid";
 import { groundOf } from "./infini-shapes";
-import { Emitter, readOrder, type EmitterSpec, type Hit, type SimWorld } from "./emitter";
+import type { SimWorld } from "./emitter";
+import { EmitterPool, type EmitStats } from "./pool";
 
-export type EmitStats = Record<string, { alive: number; emitted: number; dropped: number; expired: number; ms: number; near?: { id: number; x: number; y: number; z: number; d: number }[] }>;
+export type { EmitStats };
 
 type Pose = { x: number; y: number; z: number; ry: number };
-type Slot = { sig: string; sim: Emitter; seeded: boolean };
 
-/** Signature d'une définition : ce qui oblige à repartir de zéro si cela change. */
-function sigOf(s: EmitterSpec): string {
-  return JSON.stringify([s.model, s.variants, s.behavior, s.max, s.spawn, s.seed]);
-}
-
-export class EmitterSet {
-  private slots = new Map<string, Slot>();
-  /** Simulations du monde courant, dans l'ordre de `monde.emitters`. */
-  sims: Emitter[] = [];
+export class EmitterSet extends EmitterPool {
   private grid = new BoxGrid(2);
   /** Peuplement du monde infini proche : refait seulement quand les tuiles proches changent. */
   private fixed = new BoxGrid(2);
@@ -33,18 +25,8 @@ export class EmitterSet {
   ground: (x: number, z: number) => number = () => 0;
   private staticBoxes: Aabb[] = [];
   private needsBoxes = false;
-  private orders = new Map<string, { n: number; clear: number; kill: number }>();
-  private unit = 1;
-  private hits: Hit[] = [];
   /** Position affichée d'une instance nommée (le rendu resynchronise le pilote avec la scène). */
   poseOf: ((name: string) => Pose | null) | null = null;
-  onHits: ((hits: Hit[]) => void) | null = null;
-  onExpire: ((e: { emitter: string; count: number }) => void) | null = null;
-
-  get active(): boolean {
-    for (const s of this.sims) if (s.n > 0 || s.spec.rate > 0) return true;
-    return false;
-  }
 
   /** Monte les émetteurs d'un monde ; ceux dont la définition n'a pas changé gardent leurs copies. */
   set(m: Monde, driver: MondeDriver) {
@@ -52,70 +34,20 @@ export class EmitterSet {
     this.ground = groundOf(m);
     this.fixedSig = "";
     this.fixed.clear();
-    const next = new Map<string, Slot>();
-    for (const spec of m.emitters) {
-      const sig = sigOf(spec);
-      const old = this.slots.get(spec.id);
-      let slot: Slot;
-      if (old && old.sig === sig) {
-        // les réglages vivants (vitesse, cible, débit…) suivent la nouvelle lecture
-        Object.assign(old.sim.spec, spec);
-        slot = old;
-      } else slot = { sig, sim: new Emitter(spec), seeded: false };
-      next.set(spec.id, slot);
-    }
-    this.slots = next;
-    this.sims = [...next.values()].map((s) => s.sim);
-    for (const id of [...this.orders.keys()]) if (!next.has(id)) this.orders.delete(id);
     this.needsBoxes = m.emitters.some((e) => e.mask.length > 0 || (e.flock?.avoid.length ?? 0) > 0);
     this.staticBoxes = this.needsBoxes ? decorBoxes(m) : [];
-    for (const s of this.slots.values())
-      if (!s.seeded) {
-        s.seeded = true;
-        s.sim.seed(this.world(driver));
-      }
+    this.mountSpecs(m.emitters, () => this.world(driver));
   }
 
-  /**
-   * Ordres `emit.<id>` : salve à chaque hausse de `n` (`count` copies), `clear` (compteur) vide le pool,
-   * `kill: {n, ids}` retire des copies. La première lecture ne fait que mémoriser les compteurs.
-   */
+  /** Ordres `emit.<id>` (voir `EmitterPool`). */
   applyOrders(spec: unknown, driver: MondeDriver): boolean {
-    if (!spec || typeof spec !== "object") return false;
-    let any = false;
-    for (const [id, raw] of Object.entries(spec as Record<string, unknown>)) {
-      const slot = this.slots.get(id);
-      if (!slot || !raw || typeof raw !== "object") continue;
-      const o = raw as { n?: unknown; clear?: unknown; kill?: { n?: unknown; ids?: unknown } };
-      const n = typeof o.n === "number" ? o.n : 0;
-      const clear = typeof o.clear === "number" ? o.clear : 0;
-      const kill = o.kill && typeof o.kill === "object" && typeof o.kill.n === "number" ? o.kill.n : 0;
-      const prev = this.orders.get(id);
-      this.orders.set(id, { n, clear, kill });
-      if (!prev) continue;
-      if (clear > prev.clear) {
-        slot.sim.clear();
-        any = true;
-      }
-      if (kill > prev.kill && Array.isArray(o.kill!.ids)) {
-        slot.sim.kill(o.kill!.ids.filter((v): v is number => typeof v === "number"));
-        any = true;
-      }
-      if (n > prev.n) {
-        const order = readOrder(raw, this.unit);
-        // plusieurs hausses d'un coup : autant de salves (16 au plus)
-        const salvos = Math.min(16, n - prev.n);
-        for (let k = 0; k < salvos; k++) slot.sim.emit(order.count ?? 1, this.world(driver), order);
-        any = true;
-      }
-    }
-    return any;
+    return this.ordersWith(spec, () => this.world(driver));
   }
 
   world(driver: MondeDriver): SimWorld {
     return {
       boxes: this.pair,
-      emitter: (id) => this.slots.get(id)?.sim ?? null,
+      emitter: (id) => this.sim(id),
       ground: (x, z) => this.ground(x, z),
       pose: (name) => {
         if (this.poseOf) return this.poseOf(name);
@@ -152,36 +84,11 @@ export class EmitterSet {
   step(dt: number, driver: MondeDriver): boolean {
     if (!this.sims.length) return false;
     if (this.needsBoxes) this.rebuildGrid(driver);
-    const w = this.world(driver);
-    this.hits.length = 0;
-    let changed = false;
-    for (const sim of this.sims) {
-      const before = sim.expired;
-      if (sim.advance(dt, w, this.hits)) changed = true;
-      if (sim.expired > before && sim.spec.events.includes("expire")) this.onExpire?.({ emitter: sim.spec.id, count: sim.expired - before });
-    }
-    if (this.hits.length) this.onHits?.(this.hits.slice());
-    return changed;
+    return this.stepWith(dt, this.world(driver));
   }
 
   stats(driver: MondeDriver): EmitStats {
-    const out: EmitStats = {};
-    for (const s of this.sims) {
-      const e: EmitStats[string] = { alive: s.n, emitted: s.emitted, dropped: s.dropped, expired: s.expired, ms: Math.round(s.ms * 100) / 100 };
-      if (s.spec.publish > 0) {
-        const target = s.spec.flock?.seek || s.spec.flock?.flee || s.spec.from;
-        const p = target ? (this.poseOf?.(target) ?? driver.instances.get(target)?.t ?? null) : null;
-        if (p) e.near = s.near(p.x, p.z, s.spec.publish);
-      }
-      out[s.spec.id] = e;
-    }
-    return out;
-  }
-
-  dispose() {
-    this.slots.clear();
-    this.sims = [];
-    this.orders.clear();
+    return this.statsWith((target) => this.poseOf?.(target) ?? driver.instances.get(target)?.t ?? null);
   }
 }
 

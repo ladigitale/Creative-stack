@@ -35,6 +35,8 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `fx` | Salves : `{<système>: {n, at, scale, color, count}}`, une salve à chaque hausse de `n` (ex. `{"campfires-sparks": {n: 3}}`) |
 | `tiles` | Monde infini : retouches persistées par tuile `{"cx,cz": {remove, move, add}}` (voir Monde infini) ; recopier `place.payload.tiles` |
 | `kick` | Coup donné à un ballon sans acteur : `{ball: "ballons.0", power, dir (°, 0 = +z), loft, n}` ou `{ball, vx, vy, vz}` (m/s, norme bornée à 40), ou une liste de 16 au plus ; joué quand la valeur change (pas au chargement) : pour retirer le même coup, incrémenter `n` |
+| `emitters` | Émetteurs ajoutés ou réglés sans recomposer : `{<id>: {…}}` fusionné champ par champ avec `recipe.emitters` (`null` retire celui de la recette) ; voir Émetteurs |
+| `emit` | Ordres de tir : `{<id>: {n, count, at, dir, toward, clear, kill}}` (chaque hausse de `n` tire une salve ; voir Émetteurs) |
 
 ## Clés écrites dans `state-out` (défaut `<dataProvider>State`)
 
@@ -57,6 +59,8 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `balls` | `{<id>: {x, y, z, moving}}` des ballons visibles (200 au plus), republié pendant le mouvement (5 fois par seconde au plus), au coup et à l'arrêt |
 | `photo` | Rendu soigné : `{etat: arret\|attente\|calcul\|fini\|indisponible, moteur: rayons\|raster, echantillons, total, progression (0…1), raison}` ; `null` sans `photo` ; `status.photoMs` : coût du démarrage (copie traçable et BVH, ms) |
 | `ambiance` | `{name, meteo}` de l'ambiance appliquée (`meteo` : préréglages de particules demandés), `null` sans ambiance |
+| `emitters` | `{<id>: {alive, emitted, dropped, expired, exited?, ms, near?}}` : copies vivantes, nées, recyclées, mortes, sorties de la scène, coût de la simulation (ms) |
+| `impacts` | Dernières touches des projectiles (16 au plus) : `{emitter, id, target, copy?, tags, x, y, z, dir, t}` |
 
 `issues` : `{path, code: unknown|clamped|type|expr|missing|limit|info, message, got, used, hint, didYouMean}`. Une erreur n'arrête jamais le rendu : la scène s'affiche avec ce qui est valide.
 
@@ -83,6 +87,8 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `splash` | Physique 3D : `{body, x, z, speed}` quand un corps tombe dans l'eau |
 | `drop` | Physique 3D : `{objectId, x, y, z}` au lâcher d'un corps glissé (il reprend la physique) |
 | `actionEnd` | `{actor, action}` (après `wave`, `cheer`, `jump`, `bow`, `point`, `kick`, ou au bout de `duration`) |
+| `impact` | `{hits: [{emitter, id, target, copy?, tags, x, y, z}], t}` : toutes les touches d'une image en un seul événement (équivalent du `hit` du format monde ; `hit` reste ici le dribble d'un ballon) |
+| `expire` / `exit` | `{emitter, count}` : copies mortes de vieillesse / projectiles sortis de la scène, si l'émetteur les demande (`events: ["expire", "exit"]`) |
 
 Intentions d'acteur (`actors.<id>`), écrites par le reducer, **jamais à chaque image** (le composant interpole) :
 
@@ -339,6 +345,49 @@ Capes, jupes et robes, écharpes, cheveux longs, drapeaux, fanions, manches à a
 - **Vectoriel** : forme figée (la cape et les cheveux du dessin, le tissu des textiles dans son drapé de repos en plaques), pas de simulation.
 - **Budget** : 48 objets à tissus au plus par scène (`MAX_SOFT_OBJECTS` ; au-delà, leur drapé de repos est fusionné au décor, immobile). À l'image, seules les pièces visibles et d'au moins 14 px à l'écran sont simulées, les plus grandes d'abord, dans une limite de 9 000 points et 32 pièces (2 600 points et 10 pièces sur mobile) ; les autres sont figées et suivent leur acteur ou leur objet sans calcul de tissu, et reprennent sans à-coup quand elles redeviennent visibles. Rien n'est calculé quand l'animation est en pause (`anim.play: false`, `prefers-reduced-motion`). `status.soft` : `{pieces, active, points, ms}` (pièces, pièces simulées, points simulés, temps de calcul moyen par image).
 - Ordres de grandeur (un cœur de portable, pas de 1/60 s) : drapeau ≈ 80 points ; personnage `soft: all` avec cape longue, robe, écharpe et cheveux longs ≈ 500 points ; corde à linge de 5 pièces ≈ 220 points.
+
+## Émetteurs : projectiles et nuées
+
+`emitters` (dans la recette, ou dans le DataProvider pour régler sans recomposer) fait naître, bouger et mourir des copies en masse sans que le reducer les connaisse une par une : projectiles (boules de feu, flèches, pierres, ballons lancés) et nuées (oiseaux, papillons, abeilles, poissons, rats, troupeau, foule légère). Même moteur et mêmes clés que les émetteurs du format monde de `sonic-3d` (`3d/monde.md`, Émetteurs), simulés à pas fixe dans des tableaux typés ; l'apparence vient des générateurs procgen ou de formes légères.
+
+```json
+"emitters": {
+  "pigeons": { "gen": "animal.pigeon", "variants": 2, "max": 120, "spawn": { "count": 120, "area": [-20, -14, 20, 14] },
+               "flock": { "altitude": [9, 14], "speed": [3, 5], "wander": 0.5, "bounds": [-24, -18, 24, 18] } },
+  "feu": { "shape": "fireball", "from": "heros", "offset": [0, 1.3, 0.5], "speed": [14, 16], "gravity": 2, "life": 3,
+           "mask": ["mur", "sol", "eau"], "onHit": "die", "events": ["exit"] },
+  "fleches": { "shape": "arrow", "at": [-15, 2, 0], "dir": [1, 0.15, 0], "spread": 4, "speed": 25, "gravity": 9.8,
+               "mask": ["batiment", "arbre", "sol"], "onHit": "stick", "life": 8, "max": 40 }
+}
+```
+
+| Clé | Rôle |
+|---|---|
+| `gen`, `params`, `variants`, `lod` | Générateur procgen (`animal.pigeon`, `animal.seagull`, `animal.chicken`, `animal.sheep`, `ball.soccer`, `prop.crate`, `plant.mushrooms`, `character`…) et ses paramètres (expressions tirées par variante) ; `variants` : 1 (défaut) à 8 modèles différents, tirés au hasard par copie. Bâtiments, ouvrages, murs et points d'eau sont refusés (trop lourds). Animaux et personnages sont construits en maillage de foule (`detail: "crowd"`) ; `lod` : voir Allègement |
+| `shape`, `size`, `color`, `color2` | Forme légère au lieu d'un générateur : `sphere`, `stone`, `fireball`, `arrow`, `dart`, `bird`, `butterfly`, `bee`, `fish`, `rat`, `leaf` ; `size` = longueur (m) ; `color`/`color2` = rôles (`red`, `fire`, `cloth1`, `ink`…) |
+| `flap` | Cadence d'animation (cycles/s) : battement d'ailes, foulée, queue qui ondule ; défaut selon la forme (oiseau 4, abeille 18, poisson 2,5), 5 pour un animal en vol, 2,2 au sol, 0 : figé |
+| `spin` | Culbute des projectiles (°/s) : pierre, ballon, hache lancée |
+| `max`, `rate`, `life` | Copies vivantes au plus (2 000 par émetteur, 6 000 en tout ; pool plein : la plus ancienne est recyclée), naissances par seconde en continu, durée de vie (s, `0` : immortelle) |
+| `from`, `offset`, `at` | Source : acteur ou objet nommé (`heros`, `maisons.2` : le tir part de lui et suit son cap, `offset` dans son repère), sinon le point `at` |
+| `dir`, `spread`, `speed`, `gravity`, `drag` | Direction (repère de la source), écart (°), vitesse `[min, max]` (m/s), gravité (m/s²), frottement |
+| `mask`, `radius`, `onHit`, `bounce`, `kills`, `push` | Ce qui est touché (voir Cibles), rayon de contact (m) ; `die` (défaut), `bounce`, `stick` (fiché), `pierce` ; `push` (N·s) lance le ballon ou le corps physique (Physique 3D) touché |
+| `trail`, `burst` | Particules (voir Particules) : `trail` = id d'un système de `particles` semé par chaque copie en vol (fumée d'une boule de feu, poussière d'un troupeau ; son `rate` devient le débit par copie et il ne naît plus à sa propre source), `burst` = id d'un système lancé en salve au point de chaque touche (étincelles, éclaboussure) |
+| `flock` | Nuée : `seek` / `flee` (acteur ou objet, `fleeRadius`), `speed`, `separation`, `cohesion`, `align`, `radius`, `wander`, `avoid` (étiquettes contournées, sinon `mask`), `bounds` `[x0, z0, x1, z1]`, **`altitude`** `[min, max]` (m au-dessus du relief : nuée en vol, oiseaux, papillons ; absente : au sol, posée sur le relief et les tabliers) |
+| `on` | `false` : nuée ni au sol ni en vol, à la hauteur `at[1]` (poissons sous l'eau) |
+| `spawn`, `scale`, `seed` | Semis initial `{count, area}`, taille `[min, max]` par copie, graine |
+| `events`, `publish` | `["expire", "exit"]` : événements de fin de vie et de sortie ; `publish: N` : les N copies les plus proches de la cible (`seek`, `flee` ou `from`) dans `state-out.emitters` |
+| `mobile` | Part des copies gardée sur mobile (0,05 à 1 ; défaut 0,5 : `max`, `spawn.count` et `rate` divisés par deux) |
+
+**Cibles (`mask`)** : un objet par son id (`maisons.2`), son calque (`maisons`), son générateur (`building`, `tree`…), son espèce ou sorte (`prop.lamp`, `animal.sheep`) ou sa famille : `batiment`, `mur` (bâtiments, murs, clôtures), `cloture`, `arbre`, `vegetation`, `rocher`, `vehicule`, `ouvrage`, `objet`, `ballon`, `decor` (tous les objets) ; un acteur par son id ou `acteur`, `personnage`, `animal` ; `sol` (relief, tabliers des ponts), `eau` (surface de l'eau) ; le **nom d'un autre émetteur** (ses copies : tir sur une nuée de rats). Les objets sont des boîtes : emprise tournée, du sol à leur sommet (un corps de la physique 3D, à sa pose courante) ; une clôture ou un pont n'arrête un tir que par ses tronçons, garde-corps et piles ; herbes et fleurs se traversent. Un projectile qui quitte la scène (12 m au-delà du bord, ou 20 m sous le point le plus bas) meurt et compte dans `exited`. Monde infini (`infinite`) : le sol, l'eau et le peuplement des tuiles chargées comptent (boîtes refaites quand des tuiles arrivent ou partent), sans bord de scène (un projectile vit jusqu'au bout de sa `life`).
+
+**Ordres** (clé `emit`) : `{"emit": {"feu": {"n": 3, "count": 1, "toward": "loup"}}}` : chaque hausse de `n` tire une salve de `count` copies (`at`, `dir`, `toward` : acteur, objet ou point `[x, y, z]`) ; `clear` (compteur) vide le pool ; `kill: {n, ids}` retire des copies. La première lecture ne fait que mémoriser les compteurs (un rechargement ne tire pas).
+
+**Persistance** : les copies vivent hors DataProvider. Une recomposition (objet déplacé, paramètre changé) ou une relecture d'`emitters` qui ne change ni l'apparence, ni `max`, ni `spawn`, ni `seed`, ni `altitude` garde les copies en vol ; les réglages vivants (`speed`, `rate`, `mask`, cible…) s'appliquent tout de suite.
+
+**Rendu et coût** : chaque variante est figée en 4 images (ailes battues, foulée, queue) calculées une fois ; une copie choisit son image selon le temps et sa propre phase. Une instanciation par image et par variante, quel que soit le nombre de copies : 4 appels de dessin pour une nuée d'une variante. Les copies ne portent pas d'ombre, ne se sélectionnent pas et n'apparaissent pas dans `ids`. Rien n'est calculé sans émetteur ; la scène ne tourne en continu que tant qu'une copie vit ou qu'un débit (`rate`) est donné. Sur mobile, moitié des copies (`mobile`). Rendu 3D seulement : en rendu vectoriel, les émetteurs sont ignorés (signalé dans `issues`).
+**Allègement** (`lod`) : les copies d'un émetteur se partagent un budget de 80 000 triangles (40 000 sur mobile) ; au-delà, le modèle est allégé par regroupement de sommets (silhouette et couleurs gardées, détails fins fondus). Un pigeon de 160 copies passe ainsi à ≈ 500 triangles. `lod: N` impose N triangles par copie, `lod: false` garde le modèle entier. Les formes légères (`shape`) font 50 à 400 triangles et ne sont jamais allégées.
+
+**Coût mesuré** (village, 160 pigeons en 2 variantes, 24 goélands, flèches et boules de feu) : +14 appels de dessin (150 → 164), ≈ +60 000 triangles ; simulation et matrices ≈ 2 ms par image pour 220 copies, 2,6 ms pour 560, 5 ms pour 1 560 (machine partagée, à diviser par deux environ sur un poste libre). Construction au premier montage : ≈ 0,3 à 1 s par variante d'animal ou de personnage (une fois, gardée en cache), quelques millisecondes pour une forme légère.
 
 ## Vrai 2D : illustration vectorielle
 
