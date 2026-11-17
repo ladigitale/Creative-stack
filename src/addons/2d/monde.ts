@@ -19,6 +19,8 @@ import { affineOf, basisOf, bucketDir, bucketOf, depthOf, groundPoint, hull as h
 import { shade } from "../../shared/monde/math";
 import { isNum, patchOf } from "../../shared/nodes";
 import { composeYP, EmitterSet, type EmitStats } from "../../shared/sim/set";
+import { ParticleSet } from "../../shared/sim/particle-set";
+import { accelOf, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../shared/sim/particles";
 import type { Emitter, Hit } from "../../shared/sim/emitter";
 import { m4Mul } from "../../shared/monde/math";
 
@@ -110,6 +112,9 @@ export class Monde2d {
 
   /** Émetteurs (projectiles, nuées) : simulation partagée avec `sonic-3d`. */
   readonly emitters = new EmitterSet();
+  /** Particules : un dessin par système, refait à chaque image (mouvement en forme close). */
+  readonly particles = new ParticleSet();
+  private particleViews: Graphics[] = [];
   private emitDraw: EmitDraw[] = [];
   private emitWorld = new Float32Array(16);
   private lastStep = 0;
@@ -130,7 +135,17 @@ export class Monde2d {
   constructor(private invalidate: () => void) {
     this.container.sortableChildren = true;
     this.container.label = "monde";
-    this.emitters.onHits = (h) => this.onHits?.(h);
+    this.emitters.onHits = (h) => {
+      for (const hit of h) {
+        const b = this.emitters.sims.find((e) => e.spec.id === hit.emitter)?.spec.burst;
+        if (b) this.particles.impact(b, hit);
+      }
+      this.onHits?.(h);
+    };
+    this.particles.poseOf = (name) => {
+      const inst = this.driver.instances.get(name);
+      return inst && inst.visible ? { x: inst.t.x, y: inst.t.y, z: inst.t.z, ry: inst.t.ry } : null;
+    };
     this.emitters.onExpire = (e) => this.onExpire?.(e);
   }
 
@@ -143,7 +158,77 @@ export class Monde2d {
   }
 
   get emitting(): boolean {
-    return this.emitters.active;
+    return this.emitters.active || this.particles.active;
+  }
+
+  /** Ordres `fx.<id>` du DataProvider (salves de particules). */
+  applyParticles(spec: unknown): boolean {
+    if (!this.monde) return false;
+    const r = this.particles.applyOrders(spec);
+    if (r) this.invalidate();
+    return r;
+  }
+
+  private mountParticles(m: Monde) {
+    this.particles.set(m);
+    this.particles.trailed = new Set(m.emitters.map((e) => e.trail).filter((t) => t));
+    this.particleViews = this.particles.systems.map((sys) => {
+      const g = new Graphics();
+      g.label = `${sys.spec.id}~particles`;
+      if (sys.spec.blend === "add") g.blendMode = "add";
+      this.container.addChild(g);
+      return g;
+    });
+  }
+
+  /** Grains vivants projetés par la vue : disques, éclats, traits ; taille et couleur selon l'âge. */
+  private drawParticles(m: Monde) {
+    const { unit, origin } = m.view2d;
+    const pr = this.proj;
+    const pos: PV3 = [0, 0, 0], prev: PV3 = [0, 0, 0];
+    const col = [0, 0, 0], tint = [0, 0, 0];
+    this.particles.systems.forEach((sys, si) => {
+      const g = this.particleViews[si];
+      if (!g) return;
+      g.clear();
+      const s = sys.spec;
+      const acc = accelOf(s, this.particles.vent);
+      const ramp = s.color.map(rgbOf);
+      const now = this.particles.now;
+      let dsum = 0, dn = 0;
+      for (let i = 0; i < s.max; i++) {
+        const t = now - sys.born[i];
+        const life = sys.life[i];
+        if (t < 0 || t > life) continue;
+        const k = t / life;
+        positionAt(sys, i, t, acc, pos);
+        const sx = origin[0] + (pr.px[0] * pos[0] + pr.px[1] * pos[1] + pr.px[2] * pos[2]) * unit;
+        const sy = origin[1] + (pr.py[0] * pos[0] + pr.py[1] * pos[1] + pr.py[2] * pos[2]) * unit;
+        const r = Math.max(0.5, ((s.size[0] + (s.size[1] - s.size[0]) * k) * sys.scale[i] * unit) / 2);
+        rampAt(ramp, k, col);
+        if (sys.tint[i] > 0) {
+          unpackRgb(sys.tint[i], tint);
+          for (let c = 0; c < 3; c++) col[c] = col[c] * 0.25 + tint[c] * 0.75;
+        }
+        const color = ((col[0] * 255) << 16) | ((col[1] * 255) << 8) | (col[2] * 255);
+        const alpha = Math.max(0, Math.min(1, s.opacity[0] + (s.opacity[1] - s.opacity[0]) * k));
+        if (alpha < 0.01) continue;
+        if (s.sprite === "trait" || s.stretch > 0) {
+          positionAt(sys, i, Math.max(0, t - 0.03 - s.stretch), acc, prev);
+          const px = origin[0] + (pr.px[0] * prev[0] + pr.px[1] * prev[1] + pr.px[2] * prev[2]) * unit;
+          const py = origin[1] + (pr.py[0] * prev[0] + pr.py[1] * prev[1] + pr.py[2] * prev[2]) * unit;
+          g.moveTo(px, py).lineTo(sx, sy).stroke({ color, alpha, width: Math.max(1, r), cap: "round" });
+        } else if (s.sprite === "eclat") {
+          const a = s.spin * t * 6.283 + sys.seed[i] * 6.283;
+          const c = Math.cos(a) * r, d = Math.sin(a) * r;
+          g.poly([sx + c, sy + d, sx - d * 0.6, sy + c * 0.6, sx - c, sy - d, sx + d * 0.6, sy - c * 0.6], true).fill({ color, alpha });
+        } else g.circle(sx, sy, r).fill({ color, alpha: s.sprite === "volute" ? alpha * 0.8 : alpha });
+        dsum += depthOf(pr, pos[0], pos[1], pos[2]);
+        dn++;
+      }
+      // un seul dessin par système : placé à la profondeur moyenne de ses grains (devant pour la lumière)
+      g.zIndex = dn ? zOf(dsum / dn) + (s.blend === "add" ? 2000 : 0) : 0;
+    });
   }
 
   private mountEmitters(m: Monde) {
@@ -235,6 +320,7 @@ export class Monde2d {
     this.buildStatics(m);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.mountEmitters(m);
+    this.mountParticles(m);
     this.step(now, true);
     this.drawMarks(m.marks);
     this.drawSelection();
@@ -470,8 +556,14 @@ export class Monde2d {
     if (!m) return false;
     let busy = this.driver.step(now);
     const { unit, origin } = m.view2d;
+    const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
+    if (this.particleViews.length) {
+      for (const sim of this.emitters.sims) if (sim.spec.trail) this.particles.trail(sim.spec.trail, sim, dt);
+      this.particles.step(dt);
+      this.drawParticles(m);
+      if (this.particles.active) busy = true;
+    }
     if (this.emitDraw.length) {
-      const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
       this.emitters.step(dt, this.driver);
       this.drawEmitters(m);
       if (this.emitters.active) busy = true;
@@ -606,11 +698,13 @@ export class Monde2d {
     this.statics = [];
     this.marks = null;
     this.emitDraw = [];
+    this.particleViews = [];
   }
 
   destroy() {
     this.clear();
     this.emitters.dispose();
+    this.particles.dispose();
     this.container.destroy();
   }
 }

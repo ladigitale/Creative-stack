@@ -488,7 +488,44 @@ payload: {emitter, count}}` avec `events: ["expire"]`. La sortie (`out-data-prov
 et `emitters` (`{<id>: {alive, emitted, dropped, expired, ms, near?}}`, 10 fois par seconde au plus) ; l'événement DOM
 `monde-hit` porte les mêmes touches. Les copies n'apparaissent jamais dans `nodes`.
 
-Pas encore : les modèles `gen` (procgen) émis, le tap sur une copie, les particules (`trail`, `burst`, lot suivant).
+`trail` (système de particules semé par chaque copie) et `burst` (salve au point d'impact) relient un émetteur aux par## Particules : feu, fumée, étincelles, pluie
+
+`particles` projette de la matière, de la fumée ou de la lumière : purement visuel (ni contact ni événement), un appel
+de dessin par système en 3D (mouvement calculé par le GPU) et un dessin par système en 2D. `vent` (`[x, y, z]`, m/s)
+pousse les systèmes qui y sont sensibles (`wind`).
+
+```json
+"vent": [0.8, 0, 0],
+"particles": {
+  "torche": { "preset": "feu", "from": "heros", "offset": [0.5, 1.6, 0] },
+  "cheminee": { "preset": "fumee", "at": [-4, 2, 8] },
+  "boum": { "preset": "etincelles", "burst": 60, "then": "nuage", "light": { "color": "#ff9a3c", "intensity": [6, 0], "radius": 8 } },
+  "nuage": { "preset": "fumee", "rate": 0, "burst": 40, "size": [0.6, 2.5] }
+}
+```
+
+Préréglages (un jeu de valeurs par défaut, toute clé écrite le remplace) : feu, lumière (`feu`, `etincelles`, `braise`,
+`lueur`, `eclair`, `magie`), gaz (`fumee`, `vapeur`, `brume`, `poussiere`), liquide (`eclaboussure`, `gouttes`,
+`bulles`, `pluie`), solide (`debris`, `eclats`, `feuilles`, `neige`, `confettis`).
+
+| Clé | Rôle |
+|---|---|
+| `from`, `offset`, `at` | Source : instance suivie (le système la suit, `offset` dans son repère), sinon point |
+| `shape`, `extent` | Forme de naissance : `point`, `sphere`, `box`, `ring` ; rayon ou demi-côtés |
+| `dir`, `spread`, `speed` | Direction, écart (degrés), vitesse `[min, max]` |
+| `rate`, `burst`, `life`, `max` | Naissances par seconde, grains d'une salve, durée de vie `[min, max]`, grains au plus (4 000 par système, 16 000 en tout) |
+| `gravity`, `rise`, `drag`, `turbulence`, `wind` | Chute, poussée vers le haut, frottement, remous, sensibilité au vent |
+| `size`, `color`, `opacity` | Taille `[début, fin]` (m), rampe de 1 à 4 couleurs, opacité `[début, fin]` |
+| `blend`, `sprite`, `stretch`, `spin` | `add` (feu, lumière) ou `normal` ; grain `disque`, `flocon`, `goutte`, `eclat`, `trait`, `volute` ; étirement selon la vitesse ; rotation |
+| `floor` | Ne descend pas sous le sol (y = 0) |
+| `light` | `{color, intensity: [début, fin], radius}` : lumière qui suit le système (4 au plus, 3D) |
+| `then` | Système lancé à la fin d'une salve (étincelles puis fumée) |
+
+**Salves** (clé `fx` du DataProvider) : `{"fx": {"boum": {"n": 3, "at": [3, 0, 2], "scale": 1.5, "color": "#66ccff"}}}`,
+une salve à chaque hausse de `n` (`count` : nombre de grains). Un système à `rate` > 0 émet en continu à sa source.
+La scène doit tourner (`play` en 3D). En style `toon`, les grains ont un bord net.
+
+ticules. Pas encore : les modèles `gen` (procgen) émis, le tap sur une copie.
 
 ## Modèles `gen` : générateurs procgen (3D)
 

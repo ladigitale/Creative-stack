@@ -15,6 +15,7 @@ import { expandEspace, type EspaceEdge, type EspaceOpening } from "./espace";
 import { CATALOGUE } from "./catalogue";
 import { findAll, type Obb } from "./collide";
 import { readEmitters, type EmitterSpec } from "../sim/emitter";
+import { readParticles, readVent, type ParticleSpec, type V3 as PV3 } from "../sim/particles";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -189,6 +190,10 @@ export type MondeIn = {
    * pilotées par la clé DP `emit.<id>` (voir shared/sim/emitter.ts).
    */
   emitters?: Record<string, unknown>;
+  /** Particules (feu, fumée, étincelles, pluie…) : préréglages et réglages, salves par la clé DP `fx.<id>`. */
+  particles?: Record<string, unknown>;
+  /** Vent du monde (m/s), suivi par les particules qui y sont sensibles. */
+  vent?: number[];
   /** Unité des longueurs écrites (pièces, placements, clips) : `m` (défaut), `cm` ou `mm`. `nodes` reste en mètres. */
   unite?: string;
   /** Nuancier de matières : `{chene: {color: "#b98a56", tex: "bois"}}`, lu par `matiere` des pièces. */
@@ -347,6 +352,9 @@ export type Monde = {
   images: Record<string, string>;
   /** Émetteurs lus, modèles et variantes résolus (en mètres). */
   emitters: EmitterSpec[];
+  /** Systèmes de particules lus (en mètres) et vent. */
+  particles: ParticleSpec[];
+  vent: PV3;
   unit: number;
   issues: Issue[];
 };
@@ -1102,6 +1110,8 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
       issues.push({ path: `emitters.${e.id}.model`, message: known.length ? `« ${e.model} » vient d'un générateur procgen : pas encore émis (modèle en pièces attendu)` : `modèle inconnu « ${e.model} »` });
       return false;
     }),
+    particles: readParticles(raw0.particles, unit, issues),
+    vent: readVent(raw0.vent, unit),
     unit,
     issues,
   };
@@ -1319,6 +1329,7 @@ export function mondeSummary(m: Monde) {
     ...(m.conflicts.length ? { conflicts: m.conflicts.slice(0, 50) } : {}),
     ...(hasPrefabs ? { prefabs: m.prefabs } : {}),
     decor: m.place.filter((p) => !p.name).length,
+    ...(m.particles.length ? { particles: m.particles.map((p) => ({ id: p.id, preset: p.preset, max: p.max })) } : {}),
     ...(m.emitters.length ? { emitters: m.emitters.map((e) => ({ id: e.id, model: e.model, behavior: e.behavior, max: e.max, variants: e.variants.length })) } : {}),
     issues: m.issues.slice(0, 50),
   };
