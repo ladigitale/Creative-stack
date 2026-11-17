@@ -322,8 +322,11 @@ export class PhysicsWorld {
   }
 
   setGravity(g: [number, number]): void {
+    const prev = this.opts.gravity;
     this.opts.gravity = g;
     this.world.setGravity(Vec2(g[0], g[1]));
+    // Box2D ne réveille pas un corps endormi quand la gravité change : sans cela, la pile reste figée.
+    if (prev[0] !== g[0] || prev[1] !== g[1]) for (const b of this.bodies.values()) if (b.getType() === "dynamic") b.setAwake(true);
   }
 
   setBounds(bounds: WorldOptions["bounds"]): void {
@@ -709,6 +712,16 @@ export class PhysicsWorld {
   endDrag(): void {
     if (this.mouse) this.world.destroyJoint(this.mouse);
     this.mouse = null;
+  }
+
+  /**
+   * Monde au repos : aucun corps non statique éveillé (dynamique ou cinématique) et rien tenu à
+   * la souris. Rien ne bouge tant qu'une force, une impulsion, un pilotage ou un geste ne le réveille.
+   */
+  get settled(): boolean {
+    if (this.mouse) return false;
+    for (const b of this.bodies.values()) if (b.getType() !== "static" && b.isAwake()) return false;
+    return true;
   }
 
   get dragging(): string | null {
