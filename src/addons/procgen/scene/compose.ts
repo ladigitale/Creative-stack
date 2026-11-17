@@ -67,6 +67,14 @@ export type LayerSpec = {
   target?: string;
   /** Physique 3D : corps des objets de la couche (`{body: dynamic|static|kinematic, mass, friction, restitution…}`), `false` : aucun. */
   physics?: unknown;
+  /**
+   * Objets déplacés au doigt, par rang dans la couche (`index` de l'événement `place`) : `{"3": {x, z, yaw?}}`
+   * (mètres, cap en degrés). Appliqué après le tirage seedé : les autres objets ne bougent pas ; relief et emprise
+   * recalculés à la nouvelle place. Scène finie seulement (monde infini : `tiles`).
+   */
+  moves?: Record<string, { x: number; z: number; yaw?: number }>;
+  /** Rangs des objets retirés de la couche (les autres gardent leur rang et leur place). Scène finie seulement. */
+  remove?: number[];
 };
 
 export type ActorSpec = { gen?: string; params?: Record<string, unknown>; at?: [number, number]; facing?: number | string; behavior?: "idle" | "wander" | "patrol"; action?: string; speed?: number; target?: string };
@@ -124,6 +132,8 @@ export type ObjectInfo = {
   /** Placement de la couche (`at`, `grid`, `poisson`, `along`…, `actor` pour `recipe.actors`) et rang dans la couche. */
   place?: string;
   index?: number;
+  /** Replacé par `layers[i].moves` (retouche au doigt d'un calque réparti). */
+  moved?: boolean;
   /** Options de la couche utiles au rangement (édition au doigt). */
   onWater?: boolean;
   onPath?: boolean;
@@ -591,6 +601,24 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     }
 
   /* ---------- couches ---------- */
+  // retouches au doigt (`moves`, `remove`) : le tirage seedé voit chaque objet à sa place d'origine (cercles
+  // d'emprise, bâtiments lus par `edges`) ; les places retouchées ne sont rétablies qu'après toutes les couches
+  const shifted: { from: number; to: number; dx: number; dz: number }[] = [];
+  const ghostCircles = new Set<{ x: number; z: number; r: number }>();
+  const seedPose = new Map<ObjectInfo, { pos: V3; yaw: number }>();
+  const ghosts: { before: number; o: ObjectInfo }[] = [];
+  const seedObjects = (): ObjectInfo[] => {
+    if (!seedPose.size && !ghosts.length) return objects;
+    const out: ObjectInfo[] = [];
+    let g = 0;
+    for (let k = 0; k <= objects.length; k++) {
+      while (g < ghosts.length && ghosts[g].before <= k) out.push(ghosts[g++].o);
+      if (k === objects.length) break;
+      const o = objects[k], sp = seedPose.get(o);
+      out.push(sp ? { ...o, pos: sp.pos, yaw: sp.yaw } : o);
+    }
+    return out;
+  };
   const layerIds = new Set<string>();
   const layersIn = recipe.layers ?? [];
   const totalSteps = layersIn.length + Object.keys(recipe.actors ?? {}).length;
@@ -620,12 +648,31 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
       count = layer.count === undefined || "at" in place || "grid" in place ? positions.length : Math.min(positions.length, asked);
       if ("poisson" in place || "edges" in place) count = asked;
     } else {
-      positions = "scatter" in place ? scatterPositions(place.scatter, lid, String(seed), -size[0] / 2, -size[1] / 2, Math.max(size[0], size[1]), size, (v, x, z) => clamp(num(v, `${lp}.place.scatter.density`, lrng, 1, { x, z, h: H(x, z) }), 0, 1)) : placements(place, asked, lrng.fork("place"), size, paths, objects, issues, lp);
+      positions = "scatter" in place ? scatterPositions(place.scatter, lid, String(seed), -size[0] / 2, -size[1] / 2, Math.max(size[0], size[1]), size, (v, x, z) => clamp(num(v, `${lp}.place.scatter.density`, lrng, 1, { x, z, h: H(x, z) }), 0, 1)) : placements(place, asked, lrng.fork("place"), size, paths, seedObjects(), issues, lp);
       count = "at" in place || "grid" in place || ("scatter" in place && layer.count === undefined) ? Math.min(positions.length, layer.count === undefined ? positions.length : asked) : asked;
     }
     const spacing = layer.spacing ?? 1;
     let n = 0;
     const tk = tile ? `${tile.cx}_${tile.cz}` : "";
+    // retouches au doigt de la couche (scène finie) : rangs retirés, rangs déplacés
+    const removeSet = new Set<number>();
+    const moveMap = new Map<number, { x: number; z: number; yaw?: number }>();
+    if (!tile && layer.remove !== undefined) {
+      if (!Array.isArray(layer.remove)) issues.add({ path: `${lp}.remove`, code: "unknown", message: "« remove » attend une liste de rangs (entiers)" });
+      else for (const r of layer.remove) if (Number.isInteger(r) && r >= 0) removeSet.add(r);
+      else issues.add({ path: `${lp}.remove`, code: "unknown", message: `rang « ${String(r)} » invalide (entier ≥ 0)` });
+    }
+    if (!tile && layer.moves !== undefined) {
+      if (!layer.moves || typeof layer.moves !== "object" || Array.isArray(layer.moves)) issues.add({ path: `${lp}.moves`, code: "unknown", message: "« moves » attend un objet {rang: {x, z, yaw?}}" });
+      else for (const [k, mv] of Object.entries(layer.moves)) {
+        const idx = Number(k);
+        if (!Number.isInteger(idx) || idx < 0 || !mv || typeof mv !== "object" || !Number.isFinite(mv.x) || !Number.isFinite(mv.z)) {
+          issues.add({ path: `${lp}.moves.${k}`, code: "unknown", message: "déplacement invalide : clé = rang (entier ≥ 0), valeur {x, z, yaw?} en nombres" });
+          continue;
+        }
+        moveMap.set(idx, { x: mv.x, z: mv.z, ...(Number.isFinite(mv.yaw) ? { yaw: mv.yaw } : {}) });
+      }
+    }
     for (let i = 0; i < positions.length && n < count; i++) {
       if (objects.length >= MAX_ITEMS) {
         issues.add({ path: lp, code: "limit", message: `limite de ${MAX_ITEMS} objets atteinte` });
@@ -675,6 +722,23 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
       else if (yw === "away") yaw = Math.atan2(pos.x, pos.z);
       else if (yw === "path") yaw = pos.yaw ?? facePath(pos.x, pos.z, paths);
       else yaw = num(yw, `${lp}.yaw`, irng, 0, vars) * DEG;
+      const index = pos.idx ?? n;
+      if (removeSet.has(index)) {
+        // retiré : sa place tirée reste prise pendant la composition (les suivants ne bougent pas), son rang aussi
+        const ghost = { x: pos.x, z: pos.z, r: Math.max(0.15, (built.generator === "building" ? Math.max(built.asset.footprint.hx, built.asset.footprint.hz) : built.asset.footprint.r * 0.6) * scale) };
+        placedCircles.push(ghost);
+        ghostCircles.add(ghost);
+        if (built.generator === "building") ghosts.push({ before: objects.length, o: { id, layer: lid, generator: built.generator, params: {}, pos: [pos.x, 0, pos.z], yaw, scale, footprint: { hx: built.asset.footprint.hx * scale, hz: built.asset.footprint.hz * scale, r }, height: built.asset.height * scale, obj: 0, mode: "static", anchors: {} } });
+        n++;
+        continue;
+      }
+      const mv = moveMap.get(index);
+      const seed0 = { x: pos.x, z: pos.z, yaw };
+      if (mv) {
+        pos.x = mv.x - ox;
+        pos.z = mv.z - oz;
+        if (mv.yaw !== undefined) yaw = mv.yaw * DEG;
+      }
       if (layer.target && ACTOR_GENS.has(built.generator)) startAt = targetPlace(String(layer.target), built.asset, n, `${lp}.target`, layer.action);
       if (physics && !ACTOR_GENS.has(built.generator)) {
         bodyNext = bodyOf(built.generator, built.asset, scale, pos.physics !== undefined ? pos.physics : layer.physics, `${lp}.physics`);
@@ -687,12 +751,36 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
         }
         liftNext = bodyNext ? Math.max(0, Math.min(100, pos.y ?? 0)) : 0;
       }
+      const c0 = placedCircles.length;
       placeObject(layer, id, built.asset, built.key, built.generator, { ...(resolveGeneratorId(layer.gen).preset ?? {}), ...raw }, pos.x, pos.z, yaw, scale, irng, layer.behavior, layer.action);
       const placed = objects[objects.length - 1];
-      if (placed?.id === id) Object.assign(placed, { place: placeKind(place), index: pos.idx ?? n, ...(layer.onWater ? { onWater: true } : {}), ...(layer.onPath ? { onPath: true } : {}), ...(layer.walkable ? { walkable: true } : {}) });
+      if (mv && placed?.id === id) {
+        // déplacé : les couches suivantes le voient encore à sa place tirée ; rétabli après la dernière couche
+        const dx = pos.x - seed0.x, dz = pos.z - seed0.z;
+        for (let k = c0; k < placedCircles.length; k++) {
+          placedCircles[k].x -= dx;
+          placedCircles[k].z -= dz;
+        }
+        shifted.push({ from: c0, to: placedCircles.length, dx, dz });
+        seedPose.set(placed, { pos: [seed0.x, placed.pos[1], seed0.z], yaw: seed0.yaw });
+        placed.moved = true;
+      }
+      if (placed?.id === id) Object.assign(placed, { place: placeKind(place), index, ...(layer.onWater ? { onWater: true } : {}), ...(layer.onPath ? { onPath: true } : {}), ...(layer.walkable ? { walkable: true } : {}) });
       n++;
     }
     if (n < count && !("at" in place) && !tile && count > 0) issues.add({ path: `${lp}.count`, code: "info", message: `${n} placés sur ${count} demandés (place libre insuffisante)`, got: count, used: n });
+  }
+
+  // retouches au doigt : places réelles rétablies (cercles des déplacés, places des retirés libérées)
+  for (const sh of shifted)
+    for (let k = sh.from; k < sh.to; k++) {
+      placedCircles[k].x += sh.dx;
+      placedCircles[k].z += sh.dz;
+    }
+  if (ghostCircles.size) {
+    const keep = placedCircles.filter((c) => !ghostCircles.has(c));
+    placedCircles.length = 0;
+    placedCircles.push(...keep);
   }
 
   /* ---------- tuile : objets ajoutés par le joueur ---------- */
