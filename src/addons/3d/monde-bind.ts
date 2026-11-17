@@ -35,6 +35,8 @@ export type MondeHost = {
   /** Derniers ordres `emit` appliqués (idempotence). */
   lastEmitJson?: string;
   lastFxJson?: string;
+  lastQueriesJson?: string;
+  queriesOut?: Record<string, unknown>;
 };
 
 function sourceOf(host: MondeHost, data: Record<string, unknown>): unknown {
@@ -108,6 +110,16 @@ function hook(host: MondeHost) {
     if (host.target) dispatch(host.target, { type: "expire", payload: e });
   };
   host.runtime.monde.onEmitStats = (stats) => outKey("emitters", stats);
+  // requêtes : réponses rangées par identifiant dans la sortie `queries` ; capteurs : `enter` / `leave` vers target
+  host.runtime.monde.onQueries = (r) => {
+    host.queriesOut = { ...(host.queriesOut ?? {}), ...r };
+    outKey("queries", host.queriesOut);
+  };
+  host.runtime.monde.onSensor = (e) => {
+    const { type, ...payload } = e;
+    if (host.target) dispatch(host.target, { type, payload });
+    host.dispatchEvent?.(new CustomEvent(`monde-${type}`, { detail: payload, bubbles: true, composed: true }));
+  };
   // conflits recalculés après un rangement : le résumé publié suit la scène
   host.runtime.monde.onConflicts = (conflicts) => {
     if (!host.mondeParsed) return;
@@ -214,4 +226,18 @@ function fx(host: MondeHost, data: Record<string, unknown>) {
   if (host.runtime.monde.applyParticles(JSON.parse(json))) host.runtime.render();
 }
 
-export const mondeBind = { sync, hook, select, emit, fx } as const;
+/** Clé `queries` du DataProvider : `{<id>: {n, ray | sphere | box, mask, ignore, live}}` (voir shared/sim/queries.ts). */
+function queries(host: MondeHost, data: Record<string, unknown>) {
+  if (!("queries" in data) || !host.runtime?.ready) return;
+  let json: string;
+  try {
+    json = JSON.stringify(data.queries);
+  } catch {
+    return;
+  }
+  if (!json || json === host.lastQueriesJson) return;
+  host.lastQueriesJson = json;
+  host.runtime.monde.applyQueries(JSON.parse(json));
+}
+
+export const mondeBind = { sync, hook, select, emit, fx, queries } as const;

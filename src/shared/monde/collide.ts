@@ -48,6 +48,9 @@ function normalize(v: V3): V3 {
 
 /** Boîtes d'un modèle au repos, dans son repère : une par pièce dessinée (une seule, englobante, au-delà de 40 pièces). */
 export function boxesOf(model: Model): Obb[] {
+  // forme de collision écrite : elle remplace celle des pièces
+  if (model.collider === "none") return [];
+  if (model.collider) return model.collider;
   // modèle procgen : tranches mesurées par le rendu une fois le maillage généré (aucune avant)
   if (model.gen)
     return (genMeasure(model)?.slabs ?? []).map((s) => ({ c: [(s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, (s.min[2] + s.max[2]) / 2], ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], h: [(s.max[0] - s.min[0]) / 2, (s.max[1] - s.min[1]) / 2, (s.max[2] - s.min[2]) / 2] }) as Obb);
@@ -183,7 +186,7 @@ export function findAll(place: Placement[], models: Map<string, Model>, opt: Col
   const items: Item[] = [];
   const counts: Record<string, number> = {};
   for (const pl of place) {
-    if (pl.hidden || (many && !pl.name)) continue;
+    if (pl.hidden || pl.sensor || (many && !pl.name)) continue;
     const model = models.get(pl.model);
     if (!model) continue;
     const base = pl.model.split("~")[0];
