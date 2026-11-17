@@ -109,6 +109,10 @@ export type Look = {
   blush: string;
   wrinkles: string;
   detail: string;
+  /** Cape en tissu simulé (`none`, `short`, `long`). */
+  cape: string;
+  /** Ce qui passe en tissu simulé et en mèches : `none`, `cloth`, `hair`, `all`. */
+  soft: string;
 };
 
 type W = Record<string, number>;
@@ -372,6 +376,8 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
     role, figure, archetype: s("archetype"), age, height, build, shape, headSize, belly, body,
     top, bottom, over, collar, belt, details, gloves, shoes, pattern, hair, hat, bag, item, mood: s("mood"),
     headShape, eyes, brows: brows2, nose, lips, ears, beard, mustache, glasses: glasses2, freckles: freckles2, blush, wrinkles: wrinkles2, detail: s("detail"),
+    cape: ["short", "long"].includes(String(pp.cape)) ? String(pp.cape) : "none",
+    soft: ["cloth", "hair", "all"].includes(String(pp.soft)) ? String(pp.soft) : "none",
   };
 }
 

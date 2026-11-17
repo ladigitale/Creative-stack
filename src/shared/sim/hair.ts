@@ -124,6 +124,20 @@ export class HairSim {
     out[o + 2] = m[2] * x + m[6] * y + m[10] * z + m[14] * w;
   }
 
+  /**
+   * Déplace tout l'état d'un bloc (matrice 4×4 en colonnes) : une pièce figée un moment (hors écran, au loin) reprend
+   * là où son attache est allée, sans élan parasite.
+   */
+  transformAll(t: ArrayLike<number>) {
+    for (const a of [this.pos, this.prev])
+      for (let i = 0; i < a.length; i += 3) {
+        const x = a[i], y = a[i + 1], z = a[i + 2];
+        a[i] = t[0] * x + t[4] * y + t[8] * z + t[12];
+        a[i + 1] = t[1] * x + t[5] * y + t[9] * z + t[13];
+        a[i + 2] = t[2] * x + t[6] * y + t[10] * z + t[14];
+      }
+  }
+
   reset(m: ArrayLike<number>) {
     const tmp = new Float32Array(3), dw = new Float32Array(3);
     for (let s = 0; s < this.strands; s++) {
@@ -143,8 +157,11 @@ export class HairSim {
     this.started = true;
   }
 
-  /** Avance (pas fixes de 1/60 s) ; `m` : matrice monde de la tête ; `wind` en m/s. */
-  step(dt: number, m: ArrayLike<number>, gravity: V3, wind: V3): boolean {
+  /**
+   * Avance (pas fixes de 1/60 s) ; `m` : matrice monde de la tête ; `wind` en m/s ; `spheres` (facultatif) :
+   * [cx, cy, cz, r]… du corps (épaules, dos) dans le repère du monde, que les mèches ne traversent pas.
+   */
+  step(dt: number, m: ArrayLike<number>, gravity: V3, wind: V3, spheres: Float32Array | null = null): boolean {
     if (!this.started) {
       this.reset(m);
       return true;
@@ -155,13 +172,13 @@ export class HairSim {
     while (this.acc >= h) {
       this.acc -= h;
       this.t += h;
-      this.tick(h, m, gravity, wind);
+      this.tick(h, m, gravity, wind, spheres);
       ticked = true;
     }
     return ticked;
   }
 
-  private tick(h: number, m: ArrayLike<number>, gravity: V3, wind: V3) {
+  private tick(h: number, m: ArrayLike<number>, gravity: V3, wind: V3, spheres: Float32Array | null) {
     const pos = this.pos, prev = this.prev, per = this.per, sp = this.spec;
     const rootW = new Float32Array(3), dirW = new Float32Array(3), headW = new Float32Array(3);
     this.local(m, this.head[0], this.head[1], this.head[2], headW, 0);
@@ -217,6 +234,18 @@ export class HairSim {
             pos[b + 1] = headW[1] + (cy / cd) * rr;
             pos[b + 2] = headW[2] + (cz / cd) * rr;
           }
+          if (spheres)
+            for (let q = 0; q < spheres.length; q += 4) {
+              const sx = pos[b] - spheres[q], sy = pos[b + 1] - spheres[q + 1], sz = pos[b + 2] - spheres[q + 2];
+              const r = spheres[q + 3] + sp.width * 0.3;
+              const d2 = sx * sx + sy * sy + sz * sz;
+              if (d2 < r * r && d2 > 1e-10) {
+                const f = r / Math.sqrt(d2);
+                pos[b] = spheres[q] + sx * f;
+                pos[b + 1] = spheres[q + 1] + sy * f;
+                pos[b + 2] = spheres[q + 2] + sz * f;
+              }
+            }
         }
       }
     }

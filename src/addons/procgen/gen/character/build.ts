@@ -13,7 +13,7 @@ import { type Archetype, type Age, buildHumanoid, proportions } from "../../rig/
 import { computeWeights } from "../../rig/weights";
 import { type Skeleton, qFromBasis } from "../../rig/skeleton";
 import { ROLE } from "../../style/roles";
-import type { Anchor, Asset } from "../types";
+import type { Anchor, Asset, SoftPiece } from "../types";
 import { type Decal, buildBodyField } from "./body";
 import { buildFace } from "./face";
 import { handFrame, handTemplate, placeHand } from "./hands";
@@ -23,7 +23,7 @@ import { buildItem } from "./items";
 import { type Pattern, makeKit } from "./kit";
 import type { Look } from "./look";
 
-export type Built = { mesh: Mesh; skeleton: Skeleton; anchors: Record<string, Anchor>; footprint: Asset["footprint"]; height: number };
+export type Built = { mesh: Mesh; skeleton: Skeleton; anchors: Record<string, Anchor>; footprint: Asset["footprint"]; height: number; soft: SoftPiece[] };
 
 export function buildCharacter(look: Look, v: Rng): Built {
   const P = proportions({
@@ -202,7 +202,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
   };
   const bb = mesh.bounds();
   const hx = Math.max(P.shoulderHalf * 1.2, P.hipHalf * 1.4);
-  return { mesh, skeleton: skel, anchors, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: bb.max[1] };
+  return { mesh, skeleton: skel, anchors, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: bb.max[1], soft: [...bf.soft, ...hf.soft] };
 }
 
 /**

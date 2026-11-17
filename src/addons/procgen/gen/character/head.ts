@@ -10,8 +10,12 @@ import { type Blend, Field, type FieldPrim } from "../../geom/implicit";
 import type { Archetype } from "../../rig/humanoid";
 import { ROLE } from "../../style/roles";
 import { type Kit, type PrimIn, PrimSet, inflate } from "./kit";
+import type { SoftPiece } from "../types";
+import { hairPiece, softHair } from "./soft";
 
 export type HeadField = {
+  /** Mèches simulées (`soft: hair`). */
+  soft: SoftPiece[];
   set: PrimSet;
   blends: Blend[];
   headC: V3;
@@ -37,6 +41,7 @@ export function buildHeadField(k: Kit): HeadField {
   const { look, P, H, v } = k;
   const arch = look.archetype as Archetype;
   const set = new PrimSet(k.skel);
+  const soft: SoftPiece[] = [];
   const S = ROLE.skin, HR = ROLE.hair;
   const hh = P.headH, hw = P.headW, hd = P.headD;
   const neckTop = k.B("head").head;
@@ -306,7 +311,12 @@ export function buildHeadField(k: Kit): HeadField {
       // masse tombante : encadre le visage sans l'avaler (coupée devant au niveau des pommettes)
       hairPrim("hair", { kind: "ellipsoid", c: add(cc, [0, -hh * 0.16, -hd * 0.1]), r: [hw * 0.6, hh * (hair === "bob" ? 0.5 : 0.62), hd * 0.55], clip: [front(0.35, yF - hh * 0.05, cc[2] + cr[2] * (hair === "bob" ? 0.55 : 0.4)), { n: [0, -1, 0], d: -low, k: hh * 0.02 }], bump: curlB });
     }
-    if (hair === "long") {
+    const strands = softHair(k);
+    if (hair === "long" && strands) {
+      // masse courte sur le crâne, longueur en mèches simulées
+      hairPrim("hair", { kind: "ellipsoid", c: add(cc, [0, -hh * 0.06, -hd * 0.1]), r: [hw * 0.55, hh * 0.5, hd * 0.52], clip: [front(0.35, yF - hh * 0.05, cc[2] + cr[2] * 0.35), { n: [0, -1, 0], d: -(earY - hh * 0.12) }] });
+      soft.push(hairPiece(k, "longs", add(cc, [0, hh * 0.015, -hd * 0.02]), Math.max(cr[0], cr[1], cr[2]) + hairT * 0.8, hh * 1.25, hw));
+    } else if (hair === "long") {
       hairPrim("hair", { kind: "ellipsoid", c: add(cc, [0, -hh * 0.16, -hd * 0.12]), r: [hw * 0.57, hh * 0.56, hd * 0.52], clip: [front(0.35, yF - hh * 0.05, cc[2] + cr[2] * 0.35)] });
       hairPrim("hair", { kind: "capsule", a: add(cc, [0, -hh * 0.3, -hd * 0.26]), b: add(k.at("chest", 0.3), [0, 0, -P.headD * 0.62]), ra: hw * 0.4, rb: hw * 0.36, clip: [{ n: [0, 0, 1], d: cc[2] - hd * 0.12 }] });
       for (const sx of [1, -1]) hairPrim("hair", { kind: "capsule", a: add(cc, [sx * hw * 0.42, -hh * 0.2, -hd * 0.02]), b: add(k.at("clavicle." + (sx > 0 ? "l" : "r"), 0.35), [0, hh * 0.05, -hd * 0.08]), ra: hw * 0.12, rb: hw * 0.1 });
@@ -315,7 +325,8 @@ export function buildHeadField(k: Kit): HeadField {
       const y0 = hair === "ponytail" ? cc[1] + cr[1] * 0.25 : earY - hh * 0.05;
       const a: V3 = [0, y0, cc[2] - cr[2] - hairT * 0.6];
       hairPrim("hair", { kind: "ellipsoid", c: a, r: [hw * 0.09, hw * 0.09, hw * 0.07] }, ROLE.cloth3);
-      hairPrim("hair", { kind: "capsule", a: add(a, [0, -hh * 0.02, -hw * 0.06]), b: add(a, [0, -hh * (hair === "ponytail" ? 0.85 : 0.95), -hw * 0.12]), ra: hw * 0.13, rb: hw * 0.05, bump: bumpH(0.012) });
+      if (strands) soft.push(hairPiece(k, "queue", add(cc, [0, hh * 0.015, -hd * 0.02]), Math.max(cr[0], cr[1], cr[2]) + hairT * 0.8, hh * (hair === "ponytail" ? 0.85 : 0.95), hw));
+      else hairPrim("hair", { kind: "capsule", a: add(a, [0, -hh * 0.02, -hw * 0.06]), b: add(a, [0, -hh * (hair === "ponytail" ? 0.85 : 0.95), -hw * 0.12]), ra: hw * 0.13, rb: hw * 0.05, bump: bumpH(0.012) });
     }
     if (hair === "bun") hairPrim("hair", { kind: "ellipsoid", c: add(cc, [0, cr[1] * 0.55, -cr[2] * 0.85]), r: [hw * 0.21, hw * 0.2, hw * 0.2], bump: bumpH(0.01, 0.08) });
     if (hair === "topknot") {
@@ -511,7 +522,7 @@ export function buildHeadField(k: Kit): HeadField {
     }
   }
   const blends = [...set.groupBlends(groupK(hw, nr, er)), ...set.extraBlends];
-  return { set, blends, headC, headR, eyeY, eyeX, eyeR, mouthY, mouthW, noseTipY, noseTip, ears, skin, faceSurf, topY, mouthHidden };
+  return { set, blends, headC, headR, eyeY, eyeX, eyeR, mouthY, mouthW, noseTipY, noseTip, ears, skin, faceSurf, topY, mouthHidden, soft };
 }
 
 const groupK = (hw: number, nr: number, er: number) => (g: string) =>

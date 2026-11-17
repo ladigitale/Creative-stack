@@ -520,6 +520,7 @@ export class SonicProcgen extends HTMLElement {
       fps: st?.fps ?? 0,
       scale: st?.scale ?? 1,
       ...(st && "postPasses" in st ? { postPasses: st.postPasses } : {}),
+      ...(st && "soft" in st && st.soft ? { soft: st.soft } : {}),
       issues: (st && "postError" in st && st.postError ? [{ path: "style.post", code: "info", message: `post-traitement désactivé : shader refusé par le pilote (${String(st.postError).slice(0, 160)})` }, ...this.issues] : this.issues).slice(0, 40),
     };
     const actors: Record<string, unknown> = {};
