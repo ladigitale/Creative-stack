@@ -444,6 +444,52 @@ Vingt prefabs sont disponibles par leur nom, sans les écrire dans `models` : un
 vraie (`"if": "= type != 'simple'"`). `"unite": "m"` sur un modèle le déclare écrit en mètres quelle que soit l'unité
 du document : ses paramètres marqués `"unit": "m"` sont alors convertis (c'est le cas de tout le catalogue).
 
+## Émetteurs : projectiles et nuées
+
+`emitters` fait naître, bouger et mourir des copies d'un modèle sans que le reducer les connaisse une par une. Même JSON
+pour `sonic-3d` (instances : un appel de dessin par pièce, quel que soit le nombre de copies) et `sonic-2d` (silhouettes
+partagées avec les instances). Le composant doit tourner (`play` en 3D).
+
+```json
+"emitters": {
+  "blaster": { "model": "boule", "from": "heros", "offset": [0, 1.2, 0.6], "dir": [0, 0, 1], "spread": 3,
+               "speed": [16, 18], "life": 2, "max": 64, "mask": ["rats", "mur", "sol"], "onHit": "die" },
+  "rats": { "model": "rat", "max": 300, "params": { "taille": "= rand(0.7, 1.4)" },
+            "spawn": { "count": 300, "area": [-12, 2, 12, 12] }, "mask": ["mur"],
+            "flock": { "seek": "heros", "speed": [1.2, 2.6], "separation": 0.45 }, "publish": 3 }
+}
+```
+
+| Clé | Rôle |
+|---|---|
+| `model`, `params` | Modèle du monde (ou prefab du catalogue) ; paramètres tirés par copie (`= rand(…)`, 8 variantes au plus) |
+| `max` | Copies vivantes au plus (2 000 par émetteur, 6 000 en tout) ; pool plein : la plus ancienne est recyclée |
+| `from`, `offset`, `at` | Source : instance nommée (le tir part d'elle et suit son cap, `offset` dans son repère), sinon le point `at` |
+| `dir`, `spread`, `speed` | Direction (repère de la source), écart en degrés, vitesse `[min, max]` |
+| `gravity`, `drag`, `life` | Gravité (m/s²), frottement, durée de vie en s (`0` : immortelle) |
+| `rate` | Naissances par seconde en continu (0 : seulement sur ordre) |
+| `mask`, `radius` | Ce qui est touché : nom d'instance, modèle, famille, étiquette de prefab, `decor`, `sol`, ou **nom d'un autre émetteur** (ses copies) ; rayon de contact |
+| `onHit`, `bounce`, `kills` | `die` (défaut), `bounce` (restitution `bounce`), `stick`, `pierce` ; `kills: false` : une copie touchée d'un autre émetteur n'est pas retirée |
+| `flock` | Nuée au sol : `seek` / `flee` (instance, `fleeRadius`), `speed`, `separation`, `cohesion`, `align`, `radius` (voisinage), `wander`, `avoid` (étiquettes contournées, sinon `mask`), `bounds` `[x0, z0, x1, z1]` |
+| `spawn` | Semis initial `{count, area: [x0, z0, x1, z1]}` |
+| `scale` | Taille `[min, max]` par copie |
+| `events`, `publish`, `seed` | `["expire"]` : événement de fin de vie ; `publish: N` : les N copies les plus proches de la cible publiées ; graine |
+
+Longueurs dans l'unité du document (`unite`). Les copies sont simulées à pas fixe (1/60 s), dans des tableaux typés,
+hors DataProvider ; un monde relu dont l'émetteur n'a pas changé garde ses copies en vol.
+
+**Ordres** (clé `emit` du DataProvider lu) : `{"emit": {"blaster": {"n": 12, "count": 3, "toward": "boss"}}}`. Chaque
+hausse de `n` tire une salve de `count` copies (`at`, `dir`, `toward` : instance ou point visé) ; `clear` (compteur)
+vide le pool ; `kill: {"n": 4, "ids": [17]}` retire des copies. La première lecture ne fait que mémoriser les compteurs.
+
+**Retours** : `target` reçoit `{type: "hit", payload: {hits: [{emitter, id, target, copy?, tags, x, y, z}], t}}`, une fois
+par image, toutes les touches regroupées (`copy` : identifiant de la copie touchée d'un autre émetteur) ; `{type: "expire",
+payload: {emitter, count}}` avec `events: ["expire"]`. La sortie (`out-data-provider`) publie `hits` (dernières touches)
+et `emitters` (`{<id>: {alive, emitted, dropped, expired, ms, near?}}`, 10 fois par seconde au plus) ; l'événement DOM
+`monde-hit` porte les mêmes touches. Les copies n'apparaissent jamais dans `nodes`.
+
+Pas encore : les modèles `gen` (procgen) émis, le tap sur une copie, les particules (`trail`, `burst`, lot suivant).
+
 ## Modèles `gen` : générateurs procgen (3D)
 
 `{"gen": "character", "params": {…}, "seed": 4}` confie la forme aux générateurs procgen : personnages humains en
