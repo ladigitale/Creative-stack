@@ -47,6 +47,7 @@ type UniformLocs = {
   iChannelResolution: WebGLUniformLocation | null;
   iChannel: (WebGLUniformLocation | null)[];
   uParam: (WebGLUniformLocation | null)[];
+  uColor: (WebGLUniformLocation | null)[];
 };
 
 type PingPong = {
@@ -73,6 +74,8 @@ export type FrameUniforms = {
   frame: number;
   mouse: [number, number, number, number];
   params: [number, number, number, number];
+  /** 8 × RGBA (attribut `colors`) ; absent : uColor0…7 restent à leur dernière valeur (noir au départ). */
+  colors?: Float32Array;
 };
 
 /**
@@ -231,6 +234,7 @@ function getUniforms(
     iChannel: [0, 1, 2, 3].map((i) =>
       gl.getUniformLocation(program, `iChannel${i}`),
     ),
+    uColor: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => gl.getUniformLocation(program, `uColor${i}`)),
     uParam: [0, 1, 2, 3].map((i) =>
       gl.getUniformLocation(program, `uParam${i}`),
     ),
@@ -997,6 +1001,13 @@ export class ShaderToyRuntime {
     for (let i = 0; i < 4; i++) {
       if (uniforms.uParam[i]) {
         gl.uniform1f(uniforms.uParam[i], frame.params[i]);
+      }
+    }
+    if (frame.colors) {
+      const c = frame.colors;
+      for (let i = 0; i < 8; i++) {
+        const loc = uniforms.uColor?.[i];
+        if (loc) gl.uniform4f(loc, c[i * 4], c[i * 4 + 1], c[i * 4 + 2], c[i * 4 + 3]);
       }
     }
   }

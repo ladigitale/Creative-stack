@@ -1,3 +1,4 @@
+import { parseColorList, resolveColors } from "./theme-colors";
 import { css, html, LitElement } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import HTML from "@supersoniks/concorde/core/utils/HTML";
@@ -284,6 +285,9 @@ export class SonicShader extends LitElement {
       display: block;
       touch-action: none;
     }
+    .color-probe {
+      display: none;
+    }
     .err {
       position: absolute;
       inset: 0;
@@ -396,6 +400,13 @@ export class SonicShader extends LitElement {
   activeBufferFormat: ShaderBufferFormat = "rgba8";
 
   /** Generic float uniforms `uParam0`…`uParam3` (no shader rebuild). */
+  /**
+   * Couleurs vers `uColor0`…`uColor7` (vec4 RGBA 0..1, sRGB) : jetons CSS (`--sc-accent`) ou couleurs
+   * (`#ff0080`, `rgb(…)`), séparés par des espaces. Les jetons sont lus là où le shader est posé et
+   * relus quand le thème change : un shader écrit avec uColorN suit Affiche, Nuit, etc.
+   */
+  @property({ type: String }) colors = "";
+
   @property({ type: Number, attribute: "param0" }) param0 = 0;
   @property({ type: Number, attribute: "param1" }) param1 = 0;
   @property({ type: Number, attribute: "param2" }) param2 = 0;
@@ -669,6 +680,7 @@ export class SonicShader extends LitElement {
     }
     // Indépendant du runtime (pas encore prêt au premier rendu).
     if (changed.has("control")) this.listenControl();
+    if (changed.has("colors")) this.refreshColors(performance.now(), true);
     if (!this.runtime) return;
     const programChanged = PROGRAM_KEYS.some((k) => changed.has(k));
     const channelChanged = CHANNEL_KEYS.some((k) => changed.has(k));
@@ -1560,7 +1572,8 @@ export class SonicShader extends LitElement {
     });
     if (seqs.some((n) => Number.isNaN(n))) return String(Math.random());
     const c = this.getCanvas();
-    return JSON.stringify([this.effectiveParams(), this.mouseVec, this.hoverMix, c?.width, c?.height, seqs]);
+    this.refreshColors(performance.now());
+    return JSON.stringify([this.effectiveParams(), this.mouseVec, this.hoverMix, c?.width, c?.height, seqs, this.colorSig]);
   }
 
   private stopLoop() {
@@ -1570,8 +1583,35 @@ export class SonicShader extends LitElement {
     }
   }
 
+  /* --- couleurs du thème (attribut `colors`) --- */
+
+  private colorValues: Float32Array | undefined;
+  private colorSig = "";
+  private colorCheckedAt = -Infinity;
+
+  /** Relit les couleurs : tout de suite si `force`, sinon au plus deux fois par seconde. */
+  private refreshColors(now: number, force = false): boolean {
+    if (!force && now - this.colorCheckedAt < 500) return false;
+    this.colorCheckedAt = now;
+    const entries = parseColorList(this.colors);
+    if (!entries.length) {
+      const had = !!this.colorValues;
+      this.colorValues = undefined;
+      this.colorSig = "";
+      return had;
+    }
+    const probe = this.renderRoot?.querySelector?.(".color-probe") as HTMLElement | null;
+    if (!probe) return false;
+    const { values, sig } = resolveColors(entries, probe);
+    if (sig === this.colorSig && this.colorValues) return false;
+    this.colorSig = sig;
+    this.colorValues = values;
+    return true;
+  }
+
   private drawFrame(now: number) {
     if (!this.runtime || !this.ready) return;
+    this.refreshColors(now);
     const time = (now - this.startTime) / 1000;
     const timeDelta = Math.max(0, (now - this.lastTime) / 1000);
     this.lastTime = now;
@@ -1584,6 +1624,7 @@ export class SonicShader extends LitElement {
       frame: this.frame++,
       mouse: this.mouseVec,
       params,
+      colors: this.colorValues,
     });
     this.frameSeq++;
     this.maybePublishOut(now, time, params);
@@ -2150,6 +2191,7 @@ export class SonicShader extends LitElement {
   render() {
     return html`
       <canvas part="canvas"></canvas>
+      <span class="color-probe" aria-hidden="true"></span>
       ${this.errorMessage
         ? html`<div class="err" part="error">${this.errorMessage}</div>`
         : null}
@@ -2159,6 +2201,7 @@ export class SonicShader extends LitElement {
 
 export { parseChannelSource, ShaderToyRuntime, shouldUploadElementFrame, resolveBufferGlFormat, resetBufferFormatWarnFlag } from "./gl-runtime";
 export { buildFragmentSource } from "./shadertoy-prelude";
+export { parseColorList, parseCssColor } from "./theme-colors";
 export { describeShaderError, mapGlslLine, parseGlslInfoLog } from "./errors";
 export type { ShaderErrorItem } from "./errors";
 export { readShaderParams } from "./state";

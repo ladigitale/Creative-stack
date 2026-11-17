@@ -30,6 +30,8 @@ uniform float     uParam0;
 uniform float     uParam1;
 uniform float     uParam2;
 uniform float     uParam3;
+/** Couleurs de l'attribut \`colors\` (jetons du thème ou couleurs), RGBA 0..1 sRGB ; (0, 0, 0, 0) sans attribut. */
+uniform vec4      uColor0, uColor1, uColor2, uColor3, uColor4, uColor5, uColor6, uColor7;
 /** Near / far caméra (0 dans sonic-shader standalone). */
 uniform float     uNear;
 uniform float     uFar;
