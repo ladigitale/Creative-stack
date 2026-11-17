@@ -247,7 +247,8 @@ const cadre: Obj = {
   params: { largeur: len(0.5, 0.15, 2, 0.05), hauteur: len(0.4, 0.15, 2, 0.05), cadre: col("#2a2623"), image: col("#c9d6df"), miroir: yes(false) },
   parts: [
     { name: "cadre", box: ["= largeur", "= hauteur", 0.02], at: [0, "= hauteur / 2", 0.01], color: "= cadre" },
-    { name: "image", box: ["= largeur - 0.06", "= hauteur - 0.06", 0.004], at: [0, "= hauteur / 2", 0.021], color: "= miroir ? '#dbe8ee' : image", glow: "= miroir ? 0.3 : 0", tex: "= miroir ? 'metal' : 'nuages'" },
+    { name: "image", if: "= not miroir", box: ["= largeur - 0.06", "= hauteur - 0.06", 0.004], at: [0, "= hauteur / 2", 0.021], color: "= image", tex: "nuages", finish: "mat" },
+    { name: "glace", if: "= miroir", box: ["= largeur - 0.06", "= hauteur - 0.06", 0.004], at: [0, "= hauteur / 2", 0.021], color: "#dbe8ee", finish: "miroir" },
   ],
 };
 

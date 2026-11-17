@@ -8,7 +8,7 @@
 import { BufferImageSource, Container, FillPattern, Graphics, GraphicsContext, Matrix, Texture } from "pixi.js";
 import { geometryOf } from "../../shared/monde/geometry";
 import { m4, m4Compose, type M4, type V3 } from "../../shared/monde/math";
-import { isColor, partColor, partTex, type Conflict, type Model, type Monde, type Part, type Placement } from "../../shared/monde/format";
+import { isColor, partColor, partTex, type Conflict, type Finish, type Model, type Monde, type Part, type Placement } from "../../shared/monde/format";
 import { placedInfo, type PlacedInfo } from "../../shared/monde/arrange";
 import type { Obb } from "../../shared/monde/collide";
 import { envelopeOf } from "../../shared/monde/walk";
@@ -71,14 +71,32 @@ function textureOf(t: TexSpec, base: string): Texture {
 }
 
 /** Remplit un polygone (coordonnées en mètres) : couleur ou motif, reflet intérieur, contour. */
-function drawPart(g: Graphics | GraphicsContext, hull: number[], color: string, tex: TexSpec | null, glow: number, outline: number, unitPx: number, flat = false) {
+function drawPart(g: Graphics | GraphicsContext, hull: number[], color: string, tex: TexSpec | null, glow: number, outline: number, unitPx: number, flat = false, f: Finish | null = null) {
   g.clear();
   if (hull.length < 6) return;
+  // fini : opacité (verre, matière fumée), reflet plus franc pour le métal, le vernis et le verre, aucun pour le mat
+  const alpha = f ? Math.min(f.opacity, 1 - f.glass * 0.6) : 1;
   g.poly(hull, true);
-  if (tex) g.fill({ fill: patternOf(tex, color) });
-  else g.fill({ color });
-  // reflet : la même silhouette resserrée, plus claire (volume sans direction de lumière)
-  if (glow <= 0 && !flat) {
+  if (tex) g.fill({ fill: patternOf(tex, color), alpha });
+  else g.fill({ color, alpha });
+  if (f && glow <= 0 && !flat && (f.metal > 0.3 || f.glass > 0 || f.clear > 0.3 || (f.rough >= 0 && f.rough < 0.3))) {
+    let cx = 0, cy = 0, minY = Infinity, maxY = -Infinity;
+    const n = hull.length / 2;
+    for (let i = 0; i < hull.length; i += 2) {
+      cx += hull[i];
+      cy += hull[i + 1];
+      minY = Math.min(minY, hull[i + 1]);
+      maxY = Math.max(maxY, hull[i + 1]);
+    }
+    cx /= n;
+    cy /= n;
+    // métal : bord assombri, puis éclat clair resserré vers le haut ; verre : trait de lumière
+    if (f.metal > 0.3) g.poly(hull, true).fill({ color: shade(color, -0.35), alpha: 0.35 * f.metal });
+    const k = f.glass > 0 ? 0.35 : 0.45;
+    const inner: number[] = [];
+    for (let i = 0; i < hull.length; i += 2) inner.push(cx + (hull[i] - cx) * k, cy + (hull[i + 1] - cy) * k - (maxY - minY) * 0.18);
+    g.poly(inner, true).fill({ color: shade(color, 0.75), alpha: f.glass > 0 ? 0.55 : 0.4 + 0.3 * (1 - Math.max(0, f.rough)) });
+  } else if (glow <= 0 && !flat && !(f && f.rough > 0.8)) {
     let cx = 0, cy = 0;
     const n = hull.length / 2;
     for (let i = 0; i < hull.length; i += 2) {
@@ -388,7 +406,7 @@ export class Monde2d {
         let ctx = this.contexts.get(key);
         if (!ctx) {
           ctx = new GraphicsContext();
-          drawPart(ctx, hull, color, partTex(m, p), p.glow, m.outline, unit * size, p.shape?.kind === "plane");
+          drawPart(ctx, hull, color, partTex(m, p), p.glow, m.outline, unit * size, p.shape?.kind === "plane", p.finish);
           this.contexts.set(key, ctx);
         }
         g.context = ctx;
@@ -589,7 +607,7 @@ export class Monde2d {
         affineOf(wi, u, v, this.proj, unit, origin[0], origin[1], this.aff);
         const color = partColor(model, p, pl.roles, m.palette);
         const sub = new Graphics();
-        drawPart(sub, hull, color, partTex(m, p), p.glow, m.outline, Math.hypot(this.aff[0], this.aff[1]) || 1, p.shape?.kind === "plane");
+        drawPart(sub, hull, color, partTex(m, p), p.glow, m.outline, Math.hypot(this.aff[0], this.aff[1]) || 1, p.shape?.kind === "plane", p.finish);
         sub.setFromMatrix(this.mat.set(this.aff[0], this.aff[1], this.aff[2], this.aff[3], this.aff[4], this.aff[5]));
         g.addChild(sub);
         dmax = Math.max(dmax, d);
@@ -739,7 +757,7 @@ export class Monde2d {
             ctx = new GraphicsContext();
             // épaisseur du contour : px de la vue, rapportée à l'échelle de la pièce (unité × échelle)
             const sc = Math.cbrt(Math.abs(w[0] * (w[5] * w[10] - w[6] * w[9]) - w[4] * (w[1] * w[10] - w[2] * w[9]) + w[8] * (w[1] * w[6] - w[2] * w[5]))) || 1;
-            drawPart(ctx, hull, color, partTex(m, p), p.glow, m.outline, unit * sc, p.shape?.kind === "plane");
+            drawPart(ctx, hull, color, partTex(m, p), p.glow, m.outline, unit * sc, p.shape?.kind === "plane", p.finish);
             this.contexts.set(key, ctx);
           }
           pv.g.context = ctx;
