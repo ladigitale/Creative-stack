@@ -3,6 +3,12 @@
  * `follow` (perspective derrière un acteur). Toutes regardent une cible (`cx, cy, cz`) ; `zoom` multiplie le cadrage.
  */
 import * as THREE from "three";
+import { snapAxis } from "./pixelsnap";
+
+/** Accrochage à la grille des texels (caméras orthographiques) : `rw × rh` texels visibles, marge `m` texels de chaque côté. */
+export type SnapRequest = { rw: number; rh: number; m: number };
+/** Repère d'une caméra orthographique : position dans le plan de la vue (unités monde), demi-hauteur visible, reste d'accrochage. */
+export type OrthoFrame = { a: number; b: number; half: number; rx: number; ry: number };
 
 export const CAMERAS = ["side", "front", "iso", "oblique", "top", "perspective", "follow"] as const;
 export type CameraMode = (typeof CAMERAS)[number];
@@ -19,9 +25,10 @@ export function parseView(v: unknown, base: ViewState): ViewState {
 }
 
 /** Place la caméra ; `extent` = demi-taille de la scène (cadrage de base). Renvoie la caméra active. */
-export function applyView(v: ViewState, aspect: number, extent: number, ortho: THREE.OrthographicCamera, persp: THREE.PerspectiveCamera, target?: THREE.Vector3): THREE.Camera {
+export function applyView(v: ViewState, aspect: number, extent: number, ortho: THREE.OrthographicCamera, persp: THREE.PerspectiveCamera, target?: THREE.Vector3, snap?: SnapRequest, frame?: OrthoFrame): THREE.Camera {
   const D = Math.PI / 180;
   const t = target ?? new THREE.Vector3(v.cx, v.cy, v.cz);
+  if (frame) Object.assign(frame, { a: 0, b: 0, half: 0, rx: 0, ry: 0 });
   const far = extent * 12 + 100;
   if (v.camera === "perspective" || v.camera === "follow") {
     const pitch = Math.max(2, Math.min(88, v.pitch)) * D;
@@ -37,10 +44,11 @@ export function applyView(v: ViewState, aspect: number, extent: number, ortho: T
     return persp;
   }
   const half = (extent * 0.62) / v.zoom;
-  ortho.left = -half * aspect;
-  ortho.right = half * aspect;
-  ortho.top = half;
-  ortho.bottom = -half;
+  const ex = snap ? (snap.rw + 2 * snap.m) / snap.rw : 1, ey = snap ? (snap.rh + 2 * snap.m) / snap.rh : 1;
+  ortho.left = -half * aspect * ex;
+  ortho.right = half * aspect * ex;
+  ortho.top = half * ey;
+  ortho.bottom = -half * ey;
   ortho.near = 0.1;
   ortho.far = far;
   let yaw = 0, pitch = 0;
@@ -55,6 +63,21 @@ export function applyView(v: ViewState, aspect: number, extent: number, ortho: T
   ortho.position.set(t.x + Math.sin(yaw * D) * Math.cos(pitch * D) * dist, t.y + Math.sin(pitch * D) * dist, t.z + Math.cos(yaw * D) * Math.cos(pitch * D) * dist);
   ortho.up.set(0, 1, 0);
   ortho.lookAt(t);
+  ortho.updateMatrixWorld();
+  if (frame || snap) {
+    // position de la caméra le long des axes droite / haut de la vue (la translation seule, la rotation est fixe)
+    const R = new THREE.Vector3().setFromMatrixColumn(ortho.matrixWorld, 0), U = new THREE.Vector3().setFromMatrixColumn(ortho.matrixWorld, 1);
+    const a = ortho.position.dot(R), b = ortho.position.dot(U);
+    let rx = 0, ry = 0;
+    if (snap) {
+      const sx = snapAxis(a, (2 * half * aspect) / snap.rw), sy = snapAxis(b, (2 * half) / snap.rh);
+      ortho.position.addScaledVector(R, sx.snapped - a).addScaledVector(U, sy.snapped - b);
+      ortho.updateMatrixWorld();
+      rx = sx.rem;
+      ry = sy.rem;
+    }
+    if (frame) Object.assign(frame, { a, b, half, rx, ry });
+  }
   ortho.updateProjectionMatrix();
   if (v.camera === "oblique") {
     // projection cavalière : la profondeur décale vers le haut (et un peu à droite)

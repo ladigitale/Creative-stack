@@ -2,7 +2,9 @@
  * `ProcgenView` : rendu three.js d'un `SceneModel`, acteurs animés, sélection, événements de jeu.
  *
  * Passes : ombre (profondeur, seulement quand la scène ou un acteur bouge) → scène en MRT avec MSAA ×4
- * (couleur + normales/profondeur/id) → post-traitement (ciel, contours, papier, grain, vignette, pixel).
+ * (couleur + normales/profondeur/id) → image de base (ciel, contours, papier, grain, vignette, sRGB) → pile d'effets
+ * `post` facultative (`poststack.ts`, dans l'ordre donné), absente quand `post` est vide : l'image de base va alors
+ * directement à l'écran.
  * Rendu à la demande : aucune image tant que rien ne bouge ; densité de pixels adaptée à la charge.
  */
 import * as THREE from "three";
@@ -19,6 +21,9 @@ import { type MaterialPair, type Shared, makeMaterials, sharedUniforms, toGeomet
 import { horizonScreenY } from "./horizon";
 import { MAX_BONES, POST_FRAGMENT, POST_VERTEX } from "./shaders";
 import { type Governor, governDpr, keepFrame, newGovernor } from "./steady";
+import { PostStack } from "./poststack";
+import { SNAP_MARGIN, gridOffset, marginTransform, snapApplicable } from "./pixelsnap";
+import type { OrthoFrame, SnapRequest } from "./camera";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
 export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree"; payload: Record<string, unknown> };
@@ -125,6 +130,13 @@ export class ProcgenView {
   private disposed = false;
   private drag: DragRT | null = null;
   private settle: { d: DragRT; from: number; to: number; t0: number } | null = null;
+  private stack: PostStack;
+  private mobile = false;
+  /** Distance caméra → point visé (profondeur relative des masques et de l'effet miniature). */
+  private focusDist = 1;
+  /** Rendu pixel accroché au monde : texels visibles et marge (null sinon). */
+  private snapReq: SnapRequest | null = null;
+  private frame: OrthoFrame = { a: 0, b: 0, half: 0, rx: 0, ry: 0 };
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -135,6 +147,7 @@ export class ProcgenView {
     this.staticMats = makeMaterials(this.shared, this.roles, false);
     // ombres : 4096 sur ordinateur, 2048 sur mobile (écran tactile ou petite fenêtre)
     const mobile = typeof window !== "undefined" && (window.matchMedia?.("(pointer: coarse)").matches || Math.min(window.screen?.width ?? 2000, window.screen?.height ?? 2000) < 700);
+    this.mobile = mobile;
     const SM = mobile ? 2048 : 4096;
     const depthTex = new THREE.DepthTexture(SM, SM);
     depthTex.type = THREE.UnsignedIntType;
@@ -150,12 +163,13 @@ export class ProcgenView {
       uniforms: {
         tColor: { value: null }, tData: { value: null }, uTexel: { value: new THREE.Vector2() }, uOutline: { value: 1.5 }, uOutlineStrength: { value: 0.8 }, uInk: { value: new THREE.Color() },
         uSkyTop: { value: new THREE.Color() }, uSkyHorizon: { value: new THREE.Color() }, uSkyOn: { value: 1 }, uHorizonY: { value: 0.35 }, uGrain: { value: 0 }, uPaper: { value: 0 }, uVignette: { value: 0 },
-        uTime: { value: 0 }, uPixel: { value: 0 }, uResolution: { value: new THREE.Vector2() },
+        uTime: { value: 0 }, uPixel: { value: 0 }, uResolution: { value: new THREE.Vector2() }, uUvXf: { value: new THREE.Vector4(1, 1, 0, 0) },
       },
     });
     this.post = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat);
     this.post.frustumCulled = false;
     this.postScene.add(this.post);
+    this.stack = new PostStack(this.renderer);
   }
 
   /* ---------------- scène ---------------- */
@@ -290,6 +304,7 @@ export class ProcgenView {
     pu.uVignette.value = s.vignette;
     // style pixel : obtenu par la cible de rendu basse résolution (voir applySize), pas par le post-traitement
     pu.uPixel.value = 0;
+    this.stack.set(s.post, s.postQuality === "low" || (s.postQuality === "auto" && this.mobile));
     this.dirty = this.shadowDirty = true;
     this.resize();
     this.kick();
@@ -924,7 +939,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || !!this.balls?.moving || this.model.instances.some((g) => g.flex) || !!this.model.water || !!this.style?.grain;
+    return this.actors.size > 0 || !!this.balls?.moving || this.model.instances.some((g) => g.flex) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -1020,7 +1035,11 @@ export class ProcgenView {
     const dpr = this.dpr;
     const pixel = this.style?.pixel ?? 0;
     const pw = Math.round(w * dpr), ph = Math.round(h * dpr);
-    const rw = pixel > 0 ? Math.max(32, Math.round(w / pixel)) : pw, rh = pixel > 0 ? Math.max(18, Math.round(h / pixel)) : ph;
+    const vw = pixel > 0 ? Math.max(32, Math.round(w / pixel)) : pw, vh = pixel > 0 ? Math.max(18, Math.round(h / pixel)) : ph;
+    // pixel accroché au monde : cible agrandie d'une marge (le reste sous-texel décale la lecture)
+    const m = pixel > 0 && snapApplicable(this.view.camera, this.style?.pixelSnap !== false) ? SNAP_MARGIN : 0;
+    this.snapReq = m ? { rw: vw, rh: vh, m } : null;
+    const rw = vw + 2 * m, rh = vh + 2 * m;
     const key = `${w}x${h}@${dpr}|${rw}x${rh}|${pixel > 0 ? 1 : 0}`;
     if (this.rt && key === this.sizeKey) return;
     this.sizeKey = key;
@@ -1098,12 +1117,16 @@ export class ProcgenView {
       target = new THREE.Vector3(a.pos[0], a.pos[1] + a.model.asset.height * 0.6, a.pos[2]);
       this.view.yaw = (a.yaw * 180) / Math.PI + 180;
     }
-    this.camera = applyView(this.view, w / h, this.extent, this.ortho, this.persp, target);
+    this.camera = applyView(this.view, w / h, this.extent, this.ortho, this.persp, target, this.snapReq ?? undefined, this.frame);
     (this.camera as THREE.Camera).updateMatrixWorld();
+    const pu0 = (this.post.material as THREE.ShaderMaterial).uniforms;
+    const xf = this.snapReq ? marginTransform(this.snapReq.rw, this.snapReq.rh, this.snapReq.m, this.frame.rx, this.frame.ry) : [1, 1, 0, 0];
+    (pu0.uUvXf.value as THREE.Vector4).set(xf[0], xf[1], xf[2], xf[3]);
     const cam = this.camera as THREE.PerspectiveCamera | THREE.OrthographicCamera;
     this.shared.uFar.value = cam.far;
     const tgt = target ?? new THREE.Vector3(this.view.cx, this.view.cy, this.view.cz);
     const camDist = cam.position.distanceTo(tgt);
+    this.focusDist = Math.max(1e-3, camDist);
     this.shared.uFogNear.value = Math.max(0, camDist - this.extent * 0.6);
     this.shared.uFogRange.value = this.extent * 2.2;
     this.renderer.info.reset();
@@ -1114,10 +1137,31 @@ export class ProcgenView {
     this.renderer.clear(true, true, true);
     this.renderer.render(this.scene, this.camera);
     this.lastInfo = { calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles };
+    if (this.snapReq) {
+      // caméra réelle (sans arrondi ni marge) pour la sélection, les ancres et les gestes
+      this.camera = applyView(this.view, w / h, this.extent, this.ortho, this.persp, target);
+      this.camera.updateMatrixWorld();
+    }
     // horizon : calé sur la direction de visée horizontale (même hauteur quel que soit le yaw)
     const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
     pu.uHorizonY.value = horizonScreenY(cam, tgt, this.extent);
     pu.uTime.value = this.time;
+    if (this.stack.active) {
+      // pile d'effets : image de base dans une cible, puis passes jusqu'à l'écran
+      const bw = this.canvas.width, bh = this.canvas.height;
+      const base = this.stack.target("base", bw, bh);
+      this.renderer.setRenderTarget(base);
+      this.renderer.render(this.postScene, this.postCam);
+      // grilles des effets accrochées au monde en orthographique (sauf `pixelSnap: false`)
+      const ortho = this.camera === this.ortho && this.style?.pixelSnap !== false && this.frame.half > 0;
+      const grid = ortho ? gridOffset(this.frame.a, this.frame.b, h / (2 * this.frame.half)) : ([0, 0] as [number, number]);
+      this.stack.render({ base: base.texture, data: this.rt!.textures[1], dataXf: xf as [number, number, number, number], grid, w: bw, h: bh, cssW: w, cssH: h, time: this.time, depthK: cam.far / this.focusDist });
+      if (this.stack.failed) {
+        console.warn("procgen : pile de post-traitement désactivée (shader refusé)", this.stack.error);
+        this.dirty = true;
+      }
+      return;
+    }
     this.renderer.setRenderTarget(null);
     this.renderer.clear(true, true, true);
     this.renderer.render(this.postScene, this.postCam);
@@ -1125,7 +1169,7 @@ export class ProcgenView {
 
   private lastInfo = { calls: 0, triangles: 0 };
   stats() {
-    return { drawCalls: this.lastInfo.calls, triangles: this.lastInfo.triangles, fps: this.fps, scale: this.dpr };
+    return { drawCalls: this.lastInfo.calls, triangles: this.lastInfo.triangles, fps: this.fps, scale: this.dpr, ...(this.stack.active ? { postPasses: this.stack.passes } : {}), ...(this.stack.failed ? { postError: this.stack.error } : {}) };
   }
 
   actorState(id: string) {
@@ -1142,6 +1186,7 @@ export class ProcgenView {
     this.clearScene();
     this.rt?.dispose();
     this.shadowRT.dispose();
+    this.stack.dispose();
     this.renderer.dispose();
   }
 }

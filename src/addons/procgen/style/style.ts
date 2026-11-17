@@ -8,6 +8,7 @@
 import { Issues, suggest } from "../core/schema";
 import { type LCH, type RGB, hexToOklch, hexToRgb, mixLch, oklchToRgb, toLinear } from "./color";
 import { ROLES, type Role } from "./roles";
+import { POST_QUALITIES, type PostFx, type PostQuality, resolvePost } from "../render/post";
 
 export const BASE_ROLES: Record<Role, string> = {
   ground: "#8b7a5f", grass: "#7b8752", path: "#b39b74", road: "#6c6865", stone: "#9a9387", wall: "#ded2bb", trim: "#c4ad8a", roof: "#9c5640",
@@ -82,12 +83,22 @@ export type StyleTokens = {
   sky: boolean;
   /** Détail de surface : relief procédural et usure des arêtes (0 = lisse). */
   detail: number;
+  /** Pile d'effets de post-traitement (validée, voir `render/post.ts`) ; vide = aucun coût. */
+  post: PostFx[];
+  /**
+   * Pixels accrochés au monde en caméra orthographique (rendu `pixel` et effets de grille de `post`) ; `pixel: {size,
+   * snap: false}` ou `pixelSnap: false` pour l'ancien comportement (grille fixée à l'écran).
+   */
+  pixelSnap: boolean;
+  /** Qualité de la pile : `auto` (basse sur mobile), `low` (passes lourdes à demi-résolution), `high`. */
+  postQuality: PostQuality;
 };
 
 export const DEFAULT_STYLE: StyleTokens = {
   palette: "gouache", hue: 0, chroma: 1, contrast: 1, shading: "toon", bands: 3, bandSoftness: 0.08, brush: 0.35, outline: 1.6, outlineStrength: 0.75,
   lightAzimuth: 35, lightElevation: 48, lightIntensity: 1, shadows: true, shadowStrength: 0.75, ao: 0.8, texture: 0.6, fog: 0.5, fogHeight: 0.3,
   night: 0, lamps: 0.6, rim: 0.25, grain: 0.15, paper: 0, vignette: 0.25, pixel: 0, saturation: 1, roles: {}, sky: true, detail: 1,
+  post: [], postQuality: "auto", pixelSnap: true,
 };
 
 export const STYLE_PRESETS: Record<string, Partial<StyleTokens>> = {
@@ -126,14 +137,25 @@ export function resolveStyle(input: unknown, issues?: Issues): StyleTokens {
       delete over.preset;
     }
   }
-  const s: StyleTokens = { ...DEFAULT_STYLE, ...base, roles: { ...(base.roles ?? {}) } };
+  const s: StyleTokens = { ...DEFAULT_STYLE, ...base, roles: { ...(base.roles ?? {}) }, post: base.post ?? [] };
   for (const [k, v] of Object.entries(over)) {
     if (!(k in DEFAULT_STYLE)) {
       issues?.add({ path: `style.${k}`, code: "unknown", message: `jeton de style « ${k} » inconnu`, didYouMean: suggest(k, Object.keys(DEFAULT_STYLE)) });
       continue;
     }
     const d = (DEFAULT_STYLE as Record<string, unknown>)[k];
-    if (k === "roles" && v && typeof v === "object") {
+    if (k === "pixel" && v && typeof v === "object") {
+      // `pixel: {size, snap}`
+      const o = v as Record<string, unknown>;
+      if (Number.isFinite(Number(o.size))) s.pixel = Number(o.size);
+      if (o.snap !== undefined) s.pixelSnap = o.snap !== false && o.snap !== "false";
+      for (const kk of Object.keys(o)) if (kk !== "size" && kk !== "snap") issues?.add({ path: `style.pixel.${kk}`, code: "unknown", message: `clé « ${kk} » inconnue`, hint: "size, snap" });
+    } else if (k === "post") {
+      s.post = resolvePost(v, issues);
+    } else if (k === "postQuality") {
+      if ((POST_QUALITIES as readonly string[]).includes(String(v))) s.postQuality = v as PostQuality;
+      else issues?.add({ path: "style.postQuality", code: "unknown", message: `qualité « ${String(v)} » inconnue`, hint: POST_QUALITIES.join(", ") });
+    } else if (k === "roles" && v && typeof v === "object") {
       for (const [r, c] of Object.entries(v as Record<string, unknown>)) {
         if (!(ROLES as readonly string[]).includes(r)) issues?.add({ path: `style.roles.${r}`, code: "unknown", message: `rôle « ${r} » inconnu`, didYouMean: suggest(r, ROLES) });
         else if (typeof c === "string" && /^#[0-9a-f]{3,6}$/i.test(c)) (s.roles as Record<string, string>)[r] = c;
