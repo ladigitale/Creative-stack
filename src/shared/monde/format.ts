@@ -5,6 +5,7 @@
  * Ce fichier ne fait que lire et normaliser (aucune géométrie, aucun rendu) : il transforme le JSON écrit par
  * un agent en structures plates et sûres (bornes, valeurs par défaut, problèmes signalés sans jamais lever).
  */
+import { readAmbiance, readGrade, readLumiere, GRADE0, type Grade, type Lumiere } from "./ambiance";
 import { readBody, readPhysics, type BodySpec, type PhysicsSpec } from "./physique";
 import { DEG, Rand, hash32 } from "./math";
 import { PRESETS, type PresetOut } from "./presets";
@@ -239,6 +240,16 @@ export type MondeIn = {
    */
   physique?: unknown;
   physics?: unknown;
+  /**
+   * Direction artistique d'un mot (`realiste`, `militaire`, `cartoon`, `jouet`, `cyber`, `alien`, `silhouette`, `noir`,
+   * `voxel`, `retro`, `horreur`, `western`, `pastel`, `onirique`) ou `{base, …}` : rendu, ciel, palette, style `gen`,
+   * lumière et étalonnage (voir ambiance.ts). Ce que le monde écrit l'emporte.
+   */
+  ambiance?: unknown;
+  /** Lumière : `{intensite, couleur, hauteur, azimut, ambiante, couleurAmbiante}`. */
+  lumiere?: unknown;
+  /** Étalonnage de l'image : `{saturation, contraste, teinte, noirEtBlanc, grain, vignette, pixel, silhouette, contours, halo…}`. */
+  etalonnage?: unknown;
   /** Finesse des maillages : `low`, `mid` (défaut), `high`. */
   detail?: string;
   /** Vue 2D : `top`, `side`, `front`, `iso` ; `unit` px par mètre ; `origin` position écran de l'origine du monde. */
@@ -441,6 +452,12 @@ export type Monde = {
   photo: PhotoSpec | null;
   /** Physique 3D, `null` : aucune. */
   physics: PhysicsSpec | null;
+  /** Ambiance appliquée (nom), vide : aucune. */
+  ambiance: string;
+  /** Lumière réglée par l'ambiance ou `lumiere`, null : celle de la scène. */
+  lumiere: Lumiere | null;
+  /** Étalonnage de l'image, null : aucun. */
+  grade: Grade | null;
   detail: number;
   view2d: View2d;
   shadows: boolean;
@@ -1157,8 +1174,9 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
   const raw = emitters.length || infModels.length ? withEmitterPlaces(esp.src, emitters, infModels) : esp.src;
   const expanded = expandPrefabs(raw, issues, prefabFormat(unit, readMatieres(raw.materiaux, issues)));
   const src = emitters.length || infModels.length ? takeEmitterPlaces(genVariants(expanded.src, issues), emitters, resolved) : genVariants(expanded.src, issues);
-  const palette: Record<string, string> = { ...DEFAULT_PALETTE };
-  const ownPal: Record<string, string> = {};
+  const amb = readAmbiance((src as MondeIn).ambiance, (message) => issues.push({ path: "ambiance", message }));
+  const palette: Record<string, string> = { ...DEFAULT_PALETTE, ...(amb?.palette ?? {}) };
+  const ownPal: Record<string, string> = { ...(amb?.palette ?? {}) };
   if (src.palette && typeof src.palette === "object") {
     for (const [k, v] of Object.entries(src.palette)) {
       if (isColor(v)) palette[k] = ownPal[k] = v;
@@ -1190,7 +1208,15 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
   }
   const v = src.view2d ?? {};
   const view = (VIEWS as readonly string[]).includes(String(v.view)) ? (v.view as View2d["view"]) : "top";
-  const look = (LOOKS as readonly string[]).includes(String(src.look)) ? (src.look as Monde["look"]) : "doux";
+  const look = (LOOKS as readonly string[]).includes(String(src.look)) ? (src.look as Monde["look"]) : (amb?.look ?? "doux");
+  // fini par défaut de l'ambiance : pièces sans fini propre
+  if (amb?.finish) {
+    const f = readFinish(amb.finish, (message) => issues.push({ path: "ambiance.finish", message }));
+    if (f) for (const model of models.values()) for (const p of model.parts) if (!p.finish) p.finish = f;
+  }
+  const gradeIn = (src as MondeIn).etalonnage;
+  const grade = amb || gradeIn ? readGrade(gradeIn, amb?.grade ?? {}) : null;
+  const lumIn = (src as MondeIn).lumiere;
   const envIn = (src as MondeIn).environnement;
   const detail = src.detail === "low" ? 0 : src.detail === "high" ? 2 : 1;
   const conflicts: Conflict[] = [];
@@ -1217,14 +1243,17 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     palette,
     models,
     textures,
-    texture: readTex(src.texture, (message) => issues.push({ path: "texture", message })),
-    ciel: isColor(src.ciel) ? src.ciel : "",
-    brume: clampN(num(src.brume, 0), 0, 1),
-    style: src.style ?? null,
+    texture: readTex(src.texture ?? amb?.texture, (message) => issues.push({ path: "texture", message })),
+    ciel: isColor(src.ciel) ? src.ciel : (amb?.ciel ?? ""),
+    brume: clampN(num(src.brume, amb?.brume ?? 0), 0, 1),
+    style: src.style ?? amb?.style ?? null,
     traits: clampN(num(src.traits, 1), 0, 3),
     place,
     look,
-    environnement: envIn === "studio" || envIn === "exterieur" || envIn === "aucun" ? envIn : reflects(models) ? "studio" : "aucun",
+    environnement: envIn === "studio" || envIn === "exterieur" || envIn === "aucun" ? envIn : (amb?.environnement ?? (reflects(models) ? "studio" : "aucun")),
+    ambiance: amb?.name ?? "",
+    lumiere: amb || lumIn ? readLumiere(lumIn, amb?.lumiere ?? {}) : null,
+    grade: grade && JSON.stringify(grade) !== JSON.stringify(GRADE0) ? grade : null,
     photo: readPhoto((src as MondeIn).photo),
     physics: readPhysics((src as MondeIn).physique ?? (src as MondeIn).physics, issues),
     detail,
