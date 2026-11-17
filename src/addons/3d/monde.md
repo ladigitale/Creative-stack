@@ -934,10 +934,10 @@ un changement du monde reconstruit la simulation à partir des positions courant
 depuis `attente` ms, l'image est recalculée en lancer de rayons progressif. Reflets entre objets, ombres douces,
 lumière indirecte, verre qui réfracte : physiquement justes, l'image s'affine pendant quelques secondes (bruit au
 début) jusqu'à `echantillons`. Tout mouvement (orbite, glisser, animation, changement du monde) rend la main au rendu
-temps réel ; le calcul reprend à la pause suivante. Le moteur (environ 450 Ko) n'est chargé que si un monde le demande.
+temps réel ; le calcul reprend à la pause suivante. La copie de la scène pour le traceur (et sa structure d'accélération) est gardée tant que seul le point de vue change : seule la première pause après une modification du monde la reconstruit. Le moteur (environ 450 Ko) n'est chargé que si un monde le demande.
 
 - **Filtre** (`filtre`) pour une image utilisable en peu d'échantillons :
-  - `"peinture"` : 12 échantillons, 3 rebonds, calcul en demi-résolution, puis filtre de Kuwahara anisotrope : le
+  - `"peinture"` : 4 échantillons, 2 rebonds, calcul en demi-résolution, puis filtre de Kuwahara anisotrope : le
     bruit devient des touches de pinceau qui suivent les contours (image en une seconde environ). `tramage` (0 à 1,
     `true` = 0,6) ajoute avant le filtre un tramage ordonné sur `niveaux` niveaux (6) : touches plus texturées ;
     `touche` règle le rayon des touches (px, 5).
