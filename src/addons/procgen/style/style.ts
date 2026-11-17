@@ -221,4 +221,23 @@ export function resolveColors(s: StyleTokens, objectColors?: Partial<Record<Role
   return { roles, skyTop: lin(pal.skyTop), skyHorizon: lin(pal.skyHorizon), sun: lin(pal.sun), ambientSky: lin(pal.ambientSky), ambientGround: lin(pal.ambientGround) };
 }
 
+/**
+ * Couleur libre (`#rrggbb`) accordée au style comme un rôle (contraste, chroma, teinte de la palette, nuit) : RGB
+ * linéaire. Sert aux couleurs données hors rôles (prairies).
+ */
+export function styleColor(s: StyleTokens, hex: string): RGB {
+  const pal = PALETTES[s.palette] ?? PALETTES.gouache;
+  let c = transform(hexToOklch(hex), s, pal);
+  if (s.night > 0) c = mixLch(c, [c[0] * 0.62, c[1] * 0.5, 250], s.night * 0.85);
+  return toLinear(oklchToRgb(c));
+}
+
+/** Herbe de la palette du style rapportée à l'herbe de base (RGB linéaire, par canal) : saison, neige, désert… */
+export function grassShift(s: StyleTokens): RGB {
+  const pal = PALETTES[s.palette] ?? PALETTES.gouache;
+  const ref = toLinear(oklchToRgb(hexToOklch(BASE_ROLES.grass)));
+  const cur = toLinear(oklchToRgb(hexToOklch(s.roles.grass ?? pal.roles?.grass ?? BASE_ROLES.grass)));
+  return [0, 1, 2].map((i) => Math.max(0.35, Math.min(2.6, cur[i] / Math.max(1e-4, ref[i])))) as RGB;
+}
+
 export { hexToRgb };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readMonde } from "./format";
-import { readHerbes, shares, sowField } from "./herbes";
+import { bladeShape, bladeTint, herbeBendGLSL, readHerbes, shares, sowField } from "./herbes";
 
 describe("herbes", () => {
   it("lit les champs, leurs sortes et leurs erreurs", () => {
@@ -36,5 +36,21 @@ describe("herbes", () => {
     const s = shares([tri, big], 60000);
     expect(s[0] + s[1]).toBeLessThanOrEqual(60000);
     expect(sowField(big, s[1]).length / 6).toBeLessThanOrEqual(s[1]);
+  });
+  it("clés anglaises (procgen), filtre de semis, forme et teinte des brins, GLSL du ploiement", () => {
+    const [f] = readHerbes([{ type: "fleurs", zone: [0, 0, 4, 4], height: [0.3, 0.4], flowers: ["#ff0000", "nope"], seed: 9 }], []);
+    expect(f.height).toEqual([0.3, 0.4]);
+    expect(f.flowers).toEqual(["#ff0000"]);
+    expect(f.seed).toBe(9);
+    const half = sowField(f, 1e9, [], (x) => x < 2);
+    for (let i = 0; i < half.length; i += 6) expect(half[i]).toBeLessThan(2);
+    const sh = bladeShape("ble", 0.02);
+    expect(sh.head.length).toBe(sh.pos.length / 3);
+    expect(sh.bh.length).toBe(sh.pos.length / 3);
+    expect(sh.head.filter((h) => h === 1).length).toBe(12);
+    expect(bladeTint(f, 0.1).flower).toBe(0);
+    expect(bladeTint(f, 0.9).flower).toBe(-1);
+    expect(bladeTint({ flowers: [] }, 0.5).shade).toBeCloseTo(0.97);
+    expect(herbeBendGLSL({ time: "t", wind: "w", sway: "s", push: "p" })).toContain("p[i].w");
   });
 });

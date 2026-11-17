@@ -23,6 +23,7 @@ import { horizonScreenY } from "./horizon";
 import { MAX_BONES, POST_FRAGMENT, POST_VERTEX } from "./shaders";
 import { type Governor, governDpr, keepFrame, newGovernor } from "./steady";
 import { PostStack } from "./poststack";
+import { MeadowLayer } from "./meadows";
 import { SNAP_MARGIN, gridOffset, marginTransform, snapApplicable } from "./pixelsnap";
 import type { OrthoFrame, SnapRequest } from "./camera";
 
@@ -104,6 +105,8 @@ export class ProcgenView {
   private objectsByObj = new Map<number, ObjectInfo>();
   private pickables: THREE.Object3D[] = [];
   private instanceObjs = new Map<THREE.InstancedMesh, number[]>();
+  /** Prairies (brins instanciés, vent et ploiement dans le shader). */
+  readonly meadows = new MeadowLayer();
   /** Ballons dynamiques et leur emplacement dans les maillages instanciés. */
   balls: BallWorld | null = null;
   private ballSlots = new Map<number, { im: THREE.InstancedMesh; i: number; m0: M4 }>();
@@ -221,6 +224,8 @@ export class ProcgenView {
       this.instanceObjs.set(im, g.objs);
       if (this.balls) g.objs.forEach((o, i) => this.balls!.byObj.has(o) && this.ballSlots.set(o, { im, i, m0: g.matrices[i] }));
     }
+    this.meadows.mount(model.meadows ?? [], this.shared, this.roles);
+    if (this.meadows.active) this.scene.add(this.meadows.group);
     for (const a of model.actors) this.addActor(a);
     if (first) this.view = parseView(model.view, { ...DEFAULT_VIEW, cy: 0 });
     if (this.style) this.setStyle(this.style);
@@ -249,6 +254,7 @@ export class ProcgenView {
   }
 
   private clearScene() {
+    this.meadows.clear();
     this.drag = null;
     this.settle = null;
     for (const o of [...this.scene.children]) {
@@ -271,6 +277,7 @@ export class ProcgenView {
     const c = resolveColors(s);
     this.roles.value.set(c.roles);
     for (const a of this.actors.values()) a.mats.uniforms.uRoles.value.set(resolveColors(s, a.model.asset.colors).roles);
+    this.meadows.setStyle(s);
     const D = Math.PI / 180;
     const az = s.lightAzimuth * D, el = clamp(s.lightElevation, 3, 89) * D;
     (this.shared.uSunDir.value as THREE.Vector3).set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).normalize();
@@ -941,7 +948,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || !!this.balls?.moving || this.model.instances.some((g) => g.flex) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || !!this.balls?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -1077,6 +1084,21 @@ export class ProcgenView {
     this.shared.uLightCount.value = sorted.length;
   }
 
+  /** Ce qui couche les brins : acteurs, objet glissé, ballons qui roulent ; les 8 plus proches du point visé. */
+  private meadowPushers(t: THREE.Vector3): { x: number; z: number; r: number }[] {
+    const out: { x: number; z: number; r: number }[] = [];
+    for (const a of this.actors.values()) if (!a.hidden && a.mesh.visible) out.push({ x: a.pos[0], z: a.pos[2], r: Math.max(0.35, a.mo.legLength * 0.55 + 0.25) });
+    const d = this.drag ?? this.settle?.d;
+    if (d && !d.actor) out.push({ x: d.cur.x, z: d.cur.z, r: Math.max(0.4, Math.hypot(d.o.footprint.hx, d.o.footprint.hz) * 1.05) });
+    if (this.balls)
+      for (const b of this.balls.bodies) {
+        if (!b.awake || this.balls.hidden.has(b.id)) continue;
+        out.push({ x: b.pos[0], z: b.pos[2], r: Math.max(0.25, b.r * 2.5) });
+      }
+    if (out.length > 8) out.sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z));
+    return out.slice(0, 8);
+  }
+
   private shadowPass() {
     const m = this.model!;
     const sun = this.shared.uSunDir.value as THREE.Vector3;
@@ -1089,6 +1111,9 @@ export class ProcgenView {
     lc.updateMatrixWorld();
     lc.updateProjectionMatrix();
     (this.shared.uShadowMatrix.value as THREE.Matrix4).multiplyMatrices(lc.projectionMatrix, lc.matrixWorldInverse);
+    // prairies : pas d'ombre portée (des dizaines de milliers de brins), mais elles reçoivent celles du décor
+    const mv = this.meadows.group.visible;
+    this.meadows.group.visible = false;
     const swap: [THREE.Mesh, THREE.Material][] = [];
     this.scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -1103,6 +1128,7 @@ export class ProcgenView {
     this.renderer.clear(true, true, true);
     this.renderer.render(this.scene, lc);
     for (const [mesh, mat] of swap) mesh.material = mat;
+    this.meadows.group.visible = mv;
     this.shared.uShadowOn.value = this.style?.shadows === false ? 0 : 1;
     this.shadowDirty = false;
   }
@@ -1133,6 +1159,7 @@ export class ProcgenView {
     this.shared.uFogRange.value = this.extent * 2.2;
     this.renderer.info.reset();
     this.updateLights(tgt);
+    if (this.meadows.active) this.meadows.advance(this.model.wind, this.model.windDir ?? 1.17, this.meadowPushers(tgt));
     if (this.style?.shadows !== false && this.shadowDirty) this.shadowPass();
     this.renderer.setRenderTarget(this.rt);
     this.renderer.setClearColor(0x000000, 0);

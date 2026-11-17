@@ -342,7 +342,7 @@ export class SonicProcgen extends HTMLElement {
       const t0 = performance.now();
       this.composing = true;
       this.queueOut(true);
-      composeSceneAsync({ recipe: r, seed: seed as string, params, edits }, { signal, onProgress: (done, total) => ((this.progress = total ? done / total : 0), this.queueOut()) })
+      composeSceneAsync({ recipe: r, seed: seed as string, params, edits, mobile: isMobile() }, { signal, onProgress: (done, total) => ((this.progress = total ? done / total : 0), this.queueOut()) })
         .then((model) => {
           if (!model || signal.cancelled) return;
           const adopt = () => {
@@ -487,6 +487,7 @@ export class SonicProcgen extends HTMLElement {
       ms: this.composeMs,
       objects: m?.stats.objects ?? 0,
       actors: m?.stats.actors ?? 0,
+      ...(m?.meadows?.length ? { blades: m.meadows.reduce((n, f) => n + f.blades.length / 6, 0) } : {}),
       triangles: st?.triangles ?? m?.stats.triangles ?? 0,
       drawCalls: st?.drawCalls ?? 0,
       fps: st?.fps ?? 0,
@@ -806,3 +807,8 @@ function normEdits(e: unknown): Record<string, Record<string, unknown>> | undefi
 }
 
 if (!customElements.get(tagName)) customElements.define(tagName, SonicProcgen);
+
+/** Écran tactile ou petit (prairies moins denses en `meadowDetail: "auto"`). */
+function isMobile(): boolean {
+  return typeof window !== "undefined" && !!(window.matchMedia?.("(pointer: coarse)").matches || Math.min(window.screen?.width ?? 2000, window.screen?.height ?? 2000) < 700);
+}

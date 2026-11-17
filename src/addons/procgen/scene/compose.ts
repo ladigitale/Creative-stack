@@ -2,7 +2,7 @@
  * Composition d'une scène (CPU, pur, sans DOM) : recette + graine + paramètres → `SceneModel` prêt à rendre.
  *
  * Recette (JSON) : `params` (paramètres exposés), `size`, `ground`, `paths`, `layers` (générateur + placement),
- * `zones`, `actors`, `view`, `style`, `wind`. Les nombres peuvent être des expressions `"= …"`. Chaque objet placé
+ * `zones`, `actors`, `view`, `style`, `wind`, `windDir`, `meadows`, `meadowDetail`. Les nombres peuvent être des expressions `"= …"`. Chaque objet placé
  * reçoit un id stable `<couche>.<n>` ; les problèmes sont rassemblés dans `issues` (rendu partiel, jamais d'écran noir).
  *
  * Statiques uniques (bâtiments) : fusionnés par tuile spatiale ; objets répétés (arbres, rochers, objets) : instanciés ;
@@ -18,6 +18,7 @@ import { GENERATORS, resolveGeneratorId } from "../gen/index";
 import type { Asset } from "../gen/types";
 import { ACTIONS, type Action } from "../rig/locomotion";
 import { NavGrid } from "./nav";
+import { type Meadow, meadowBudget, meadowKeep, readMeadows, sowMeadows } from "./meadows";
 import { type GroundSpec, type PathKind, type PathSpec, Terrain, distToPath, pointAt } from "./terrain";
 
 export type Placement =
@@ -70,6 +71,12 @@ export type Recipe = {
   view?: Record<string, unknown>;
   style?: unknown;
   wind?: number;
+  /** Direction vers laquelle souffle le vent (°, 0 = vers +z, 90 = vers +x). */
+  windDir?: number;
+  /** Prairies : herbes hautes, blé, roseaux, fleurs, gazon en brins instanciés (voir `meadows.ts`). */
+  meadows?: unknown;
+  /** Densité des prairies : 0, 1, 2 ou `auto` (0 sur mobile, 1 sinon). */
+  meadowDetail?: number | string;
 };
 
 export type ObjectInfo = {
@@ -132,6 +139,10 @@ export type SceneModel = {
   view: Record<string, unknown>;
   style: unknown;
   wind: number;
+  /** Direction du vent (radians, 0 = vers +z). */
+  windDir: number;
+  /** Prairies semées (rendu 3D seulement). */
+  meadows: Meadow[];
   stats: { ms: number; triangles: number; objects: number; instances: number; actors: number };
 };
 
@@ -151,6 +162,8 @@ export type ComposeInput = {
   params?: Record<string, unknown>;
   edits?: Record<string, Record<string, unknown>>;
   /** Construction d'asset de remplacement (mode vectoriel : emprises et squelettes sans maillage) ; `null` = générateur réel. */
+  /** Écran tactile ou petit : prairies moins denses en `meadowDetail: "auto"`. */
+  mobile?: boolean;
   assetBuilder?: (generator: string, params: Record<string, unknown>, ctx: import("../gen/types").GenContext) => Asset | null;
 };
 
@@ -576,6 +589,27 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     total += ground.triangleCount + (roads?.triangleCount ?? 0);
   }
 
+  /* ---------- prairies (brins instanciés, rendu 3D) ---------- */
+  let meadows: Meadow[] = [];
+  if (recipe.meadows !== undefined && recipe.meadows !== null && recipe.meadows !== false) {
+    yield undefined;
+    const mr = root.fork("meadows");
+    const { fields, custom } = readMeadows(R(recipe.meadows, "meadows", mr, {}, []), size, zones, issues);
+    if (input.assetBuilder) {
+      if (fields.length) issues.add({ path: "meadows", code: "info", message: "prairies : rendu 3D seulement (ignorées en rendu vectoriel)" });
+    } else if (fields.length) {
+      const obstacles = objects
+        .filter((o) => !o.walkable && o.mode !== "actor" && o.generator !== "grass" && o.generator !== "flowers")
+        .flatMap((o) => {
+          // clôtures, ouvrages : leurs tronçons ; arbres : le tronc seulement (la canopée n'empêche pas l'herbe)
+          if (o.blockers?.length) return o.blockers.map(([x, z, hx, hz, yaw]) => ({ x, z, hx, hz, yaw }));
+          const k = o.generator === "tree" ? Math.min(1, 0.5 / Math.max(0.01, o.footprint.r)) : 0.92;
+          return [{ x: o.pos[0], z: o.pos[2], hx: o.footprint.hx * k, hz: o.footprint.hz * k, yaw: o.yaw }];
+        });
+      meadows = sowMeadows(fields, custom, meadowBudget(recipe.meadowDetail, !!input.mobile), terrain, meadowKeep(size, terrain, obstacles));
+    }
+  }
+
   const minY = terrain ? Math.min(...objects.map((o) => o.pos[1]), 0) - 1 : 0;
   const maxY = Math.max(2, ...objects.map((o) => o.pos[1] + o.height));
   const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -598,6 +632,8 @@ function* composeSteps(input: ComposeInput): Generator<[number, number] | undefi
     view: (recipe.view as Record<string, unknown>) ?? {},
     style: recipe.style,
     wind: recipe.wind ?? 1,
+    windDir: (typeof recipe.windDir === "number" && Number.isFinite(recipe.windDir) ? recipe.windDir : 67) * DEG,
+    meadows,
     stats: { ms: Math.round(t1 - t0), triangles: total, objects: objects.length, instances: [...groups.values()].reduce((s, g) => s + g.matrices.length, 0), actors: actors.length },
   };
 }

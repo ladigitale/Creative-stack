@@ -804,6 +804,8 @@ fait onduler par rafales, et ils se couchent au passage des instances nommées. 
 
 Budget de brins pour tout le monde selon `detail` : 20 000 (`low`), 60 000 (`mid`), 160 000 (`high`) ; au-delà, la
 densité de chaque champ baisse au prorata. Pas d'herbes en 2D ni dans le monde `infini` (utiliser un calque).
+Les mêmes champs (semis, brins, vent, ploiement : `shared/monde/herbes.ts`) existent dans `sonic-procgen`, clé de
+recette `meadows` (voir `procgen/procgen.md`, Prairies) ; `height`, `flowers`, `seed` y sont aussi acceptés ici.
 
 ## Ambiances : direction artistique
 

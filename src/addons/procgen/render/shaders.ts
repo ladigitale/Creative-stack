@@ -7,6 +7,10 @@
  */
 
 import { ROLES } from "../style/roles";
+import { HERBE_MAX_PUSH, herbeBendGLSL } from "../../../shared/monde/herbes";
+
+/** Fleurs d'une prairie (couleurs de corolle), au plus. */
+export const MEADOW_FLOWERS = 8;
 
 export const MAX_BONES = 32;
 
@@ -26,12 +30,14 @@ export const VERTEX = /* glsl */ `
 precision highp float;
 in float aRole;
 in float aAO;
-in float aFlex;
 in float aObj;
+#ifndef BLADE
+in float aFlex;
 in vec4 aSkinIdx;
 in vec4 aSkinW;
 in vec3 aMorph;
 in float aBlend;
+#endif
 #ifdef USE_INSTANCING
 in float aInstObj;
 #endif
@@ -51,8 +57,22 @@ out float vViewZ;
 out vec4 vShadow;
 flat out float vVar;
 out float vBlend;
+#ifdef BLADE
+// prairies : hauteur le long du brin, épi ou corolle, (rang de fleur + 1, valeur) par brin ; vent et ploiement
+// (16 attributs au plus : pas de peau, de morph ni de souplesse dans cette variante)
+in vec2 aBlade;
+in vec2 aTint;
+uniform vec2 uBladeWind;
+uniform float uSway;
+uniform vec4 uPush[${HERBE_MAX_PUSH}];
+out float vBh;
+out float vHead;
+flat out vec2 vTint;
+${herbeBendGLSL({ time: "uTime", wind: "uBladeWind", sway: "uSway", push: "uPush" })}
+#endif
 ${COMMON}
 
+#ifndef BLADE
 void dqBlend(out vec4 r, out vec4 d) {
   ivec4 bi = ivec4(aSkinIdx + 0.5);
   vec4 r0 = uDQ[bi.x * 2];
@@ -69,10 +89,12 @@ void dqBlend(out vec4 r, out vec4 d) {
   r /= l; d /= l;
 }
 vec3 qrot(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
+#endif
 
 void main() {
   vec3 p = position;
   vec3 n = normal;
+  #ifndef BLADE
   if (uSkinned > 0.5) {
     p += aMorph * uBlink;
     vec4 r, d;
@@ -81,6 +103,7 @@ void main() {
     p = qrot(r, p) + t;
     n = qrot(r, n);
   }
+  #endif
   vec4 local = vec4(p, 1.0);
   mat4 M = modelMatrix;
   #ifdef USE_INSTANCING
@@ -91,15 +114,33 @@ void main() {
   vVar = fract(aObj * 0.6180339 + 0.13);
   #endif
   vec4 wp = M * local;
+  #ifdef BLADE
+  vec3 root = (M * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+  float hgt = length(M[1].xyz);
+  float kb = clamp(aBlade.x, 0.0, 1.0);
+  kb *= kb;
+  vec2 bw = herbeBend(root);
+  wp.xz += bw * kb * hgt;
+  wp.y -= dot(bw, bw) * kb * hgt * 0.35;
+  vBh = aBlade.x;
+  vHead = aBlade.y;
+  vTint = aTint;
+  #endif
+  #ifndef BLADE
   if (aFlex > 0.0) {
     float ph = dot(wp.xz, vec2(0.35, 0.27)) + vVar * 6.28;
     float sw = sin(uTime * 1.7 + ph) * 0.6 + sin(uTime * 2.9 + ph * 1.7) * 0.25;
     wp.xz += vec2(sw, sw * 0.4) * aFlex * uWind * 0.06;
     wp.y += sin(uTime * 2.3 + ph) * aFlex * uWind * 0.01;
   }
+  #endif
   vPosW = wp.xyz;
   vPosL = p;
   vNormalW = normalize(mat3(M) * n);
+  #ifdef BLADE
+  // brins : normale tirée vers le haut (la prairie s'éclaire comme une masse, sans scintiller)
+  vNormalW = normalize(mix(vNormalW, vec3(0.0, 1.0, 0.0), 0.6));
+  #endif
   vRole = aRole;
   #ifdef USE_INSTANCING
   vObj = aInstObj;
@@ -107,7 +148,11 @@ void main() {
   vObj = aObj;
   #endif
   vAO = aAO;
+  #ifdef BLADE
+  vBlend = 0.0;
+  #else
   vBlend = aBlend;
+  #endif
   vShadow = uShadowMatrix * wp;
   vec4 mv = viewMatrix * wp;
   vViewZ = -mv.z;
@@ -129,6 +174,15 @@ in float vViewZ;
 in vec4 vShadow;
 flat in float vVar;
 in float vBlend;
+#ifdef BLADE
+in float vBh;
+in float vHead;
+flat in vec2 vTint;
+uniform vec3 uBladeBase;
+uniform vec3 uBladeTip;
+uniform vec3 uFlowers[${MEADOW_FLOWERS}];
+uniform float uFlowerHeads;
+#endif
 uniform vec3 uRoles[${ROLES.length}];
 // fini par rôle : x = rugosité + 1 (0 : aucun fini, éclairage du style), y = métal, z = reflet de tissu, w = vernis
 uniform vec4 uRoleMat[${ROLES.length}];
@@ -212,6 +266,14 @@ float roleTexture(int role, vec3 p, vec3 n) {
 void main() {
   int role = int(vRole + 0.5);
   vec3 base = uRoles[role];
+  #ifdef BLADE
+  // dégradé du pied à la pointe ; fleurs : corolle colorée (la tige garde son dégradé), sinon variation de valeur
+  vec3 tint = vTint.x > 0.5 ? uFlowers[int(vTint.x - 0.5)] : vec3(vTint.y);
+  vec3 g = mix(uBladeBase, uBladeTip, smoothstep(0.0, 1.0, vBh));
+  // prairie fleurie : les brins sans fleur gardent la pointe de la tige
+  vec3 headCol = uFlowerHeads > 0.5 ? (vTint.x > 0.5 ? tint : uBladeTip) : uBladeTip * tint;
+  base = mix(g * (uFlowerHeads > 0.5 ? vec3(1.0) : tint), headCol, vHead);
+  #endif
   if (vBlend > 0.001) {
     float r2 = floor(vBlend + 0.0005);
     float k = clamp(vBlend - r2, 0.0, 1.0);
@@ -342,6 +404,10 @@ void main() {
   outColor = vec4(lit, 1.0);
   vec3 nv = normalize(mat3(viewMatrix) * N);
   outData = vec4(nv.xy * 0.5 + 0.5, vViewZ / uFar, fract(vObj * 0.0731 + 0.1));
+  #ifdef BLADE
+  // brins : identifiant réservé (1, jamais atteint par fract) : pas de contour dans la prairie
+  outData.w = 1.0;
+  #endif
 }
 `;
 
@@ -398,6 +464,7 @@ void main() {
   if (uOutlineStrength > 0.0 && uOutline > 0.0) {
     float edgeS = 0.0, edgeC = 0.0;
     vec2 px = uTexel * max(uPixel, 1.0);
+    bool blade = d.w > 0.999;
     for (int k = 0; k < 2; k++) {
       float r = k == 0 ? uOutline : uOutline * 0.55;
       vec4 a = dataAt(uv + vec2(r, 0.0) * px), b = dataAt(uv - vec2(r, 0.0) * px);
@@ -406,6 +473,7 @@ void main() {
       if (k == 0) {
         float dz = max(max(abs(a.z - d.z), abs(b.z - d.z)), max(abs(e.z - d.z), abs(f.z - d.z))) / z;
         float did = max(max(abs(a.w - d.w), abs(b.w - d.w)), max(abs(e.w - d.w), abs(f.w - d.w)));
+        blade = blade || max(max(a.w, b.w), max(e.w, f.w)) > 0.999;
         bool nearBg = a.z <= 0.0 || b.z <= 0.0 || e.z <= 0.0 || f.z <= 0.0 || a.z >= 0.999 || b.z >= 0.999 || e.z >= 0.999 || f.z >= 0.999;
         edgeS = max(smoothstep(0.035, 0.09, dz), (did > 0.002 ? 1.0 : 0.0) * smoothstep(0.004, 0.02, dz + 0.004));
         if (nearBg && !bg) edgeS = 1.0;
@@ -415,6 +483,8 @@ void main() {
       }
     }
     float edge = max(edgeS, edgeC * 0.6) * uOutlineStrength;
+    // prairies (identifiant 1) : ni silhouette ni pli sur les brins ni à leur contact (des milliers de traits sinon)
+    if (blade) edge = 0.0;
     if (!bg) {
       vec3 ink = mix(col * 0.32, uInk, 0.35);
       col = mix(col, ink, edge);

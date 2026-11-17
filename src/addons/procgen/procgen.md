@@ -12,7 +12,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 
 | Clé | Rôle |
 |---|---|
-| `scene` | Scène de la bibliothèque : `village`, `rue`, `port`, `foret`, `bivouac`, `personnages`, `marche`, `montagne`, `vapeur`, `neon`, `blasons`, `jardin`, `ferme`, `bord-de-mer`, `aire-de-jeux`, `place-medievale`, `jardin-japonais`, `riviere` (pont de pierre et passerelle, ponton, mare, abreuvoir, train, animaux qui boivent, mangent, dorment) |
+| `scene` | Scène de la bibliothèque : `village`, `rue`, `port`, `foret`, `bivouac`, `personnages`, `marche`, `montagne`, `vapeur`, `neon`, `blasons`, `jardin`, `ferme`, `bord-de-mer`, `aire-de-jeux`, `place-medievale`, `jardin-japonais`, `riviere` (pont de pierre et passerelle, ponton, mare, abreuvoir, train, animaux qui boivent, mangent, dorment), `prairie` (blé, prairie fleurie, herbes hautes, roseaux autour d'une mare, au vent ; promeneurs et moutons qui couchent les herbes) |
 | `render` | `3d` (défaut) ou `vector` (illustration vectorielle 2D, voir plus bas) |
 | `exportSvg` | Compteur : chaque changement publie le SVG de la vue dans `state-out.svg` (mode vectoriel) |
 | `recipe` | Recette complète (prioritaire sur `scene`, voir plus bas) |
@@ -35,7 +35,7 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 
 | Clé | Contenu |
 |---|---|
-| `status` | `{phase: idle\|composing\|ready\|error, progress, error, ms, objects, actors, triangles, drawCalls, fps, scale, issues}` |
+| `status` | `{phase: idle\|composing\|ready\|error, progress, error, ms, objects, actors, blades, triangles, drawCalls, fps, scale, issues}` (`blades` : brins des prairies, s'il y en a) |
 | `selection` | `{id, generator, layer, params, x, y, z, yaw (°), w, d, h (m), place, index, movable}` de l'objet touché ; suit l'objet pendant un glisser |
 | `ids` | Liste des objets placés `{id, generator, layer, x, z, yaw (°), w, d (emprise, m), place}` : ce qui existe et peut être visé (400 au plus) |
 | `drag` | Pendant un glisser : `{objectId, x, y, z, yaw, valid}` ; `null` sinon |
@@ -125,6 +125,31 @@ Les mêmes gestes que le format monde de `sonic-3d` (voir `3d/monde.md`, Éditio
 - Options de couche : `yaw` (`path`, `random`, `center`, `away` ou degrés), `scale`, `spacing`, `onPath`, `onWater` (bateaux), `walkable`, `behavior` (`idle|wander|patrol`, personnages), `action`, `target` (personnages et animaux : `"bassin.0"`, `"abreuvoir.0.spot"`, `"bancs.0.sit.0"` : chacun part posé à sa place, tourné vers elle, avec son `action` ; les places `spot.0`, `spot.1`… d'un objet sont réparties dans la couche). Un acteur de `actors` accepte aussi `target`.
 - Ouvrages (`structure`) : ponts, pontons, quais, escaliers, rampes sont praticables (les acteurs y marchent à la hauteur du tablier, des marches, du palier ; la navigation passe au-dessus de l'eau) ; garde-corps, piliers et piles bloquent. Ils sont posés au plus bas de leurs appuis (les berges), pas au fond du lit.
 - Les ids sont `<couche>.<rang>` et ne changent pas quand on modifie un autre objet.
+- `wind` : force du vent (1 par défaut, 0 = calme) ; `windDir` : direction vers laquelle il souffle (°, 0 = vers +z, 90 = vers +x ; 67 par défaut). Feuillages et touffes souples (`grass`, `flowers`…) ondulent avec `wind` ; les prairies suivent aussi `windDir`.
+
+### Prairies (`meadows`)
+
+Herbes hautes, champs de blé, roseaux, prairies fleuries et gazon en **brins instanciés** semés sur une zone : le portage dans `sonic-procgen` des `herbes` du format monde de `sonic-3d` (même semis, même forme de brin, même vent et même ploiement, code commun dans `shared/monde/herbes.ts`).
+
+```json
+"wind": 1.2, "windDir": 70,
+"meadows": [
+  { "kind": "ble", "zone": [4, -15, 21, -4] },
+  { "kind": "fleurs", "zone": [[-21, -15], [-2, -15], [-3, -2], [-21, -1]], "flowers": ["#f2d64b", "#e86a6a"] },
+  { "kind": "herbe", "density": 160 },
+  { "kind": "roseau", "zone": "berge", "height": [1.6, 2.4] }
+]
+```
+
+- `kind` (ou `type`) : `herbe` (herbes hautes, défaut), `ble` (blé à épis), `roseau` (roseaux à massettes), `fleurs` (prairie fleurie : une tige sur trois porte une corolle), `gazon` (herbe rase dense) ; alias anglais `grass`, `wheat`, `reeds`, `flowers`, `lawn`. Sorte inconnue : champ ignoré, `issue` `meadows.N`.
+- `zone` : rectangle `[x0, z0, x1, z1]`, polygone `[[x, z]…]` (64 points au plus), id d'une zone de `zones` (boîte ou cercle) ; absente : toute la scène. Ramenée aux bords de la scène.
+- `density` (brins par m², 1 à 3000), `height` (m : `[mini, maxi]` ou un nombre), `base` / `tip` (couleurs du pied et de la pointe), `flowers` (couleurs des corolles), `width` (largeur du brin, m), `sway` (souplesse au vent, 0 à 2), `bend` (`false` : ne se couche pas au passage), `clear` (`false` : pousse aussi sous les objets), `seed`. Les clés françaises du format monde (`densite`, `hauteur`, `pied`, `pointe`, `fleurs`, `largeur`, `souplesse`, `plie`, `degage`, `graine`) sont acceptées. Défauts par sorte : ceux du format monde (`herbe` 220 brins/m², 0,35–0,8 m ; `ble` 260, 0,8–1,15 m ; `roseau` 90, 1,4–2,3 m ; `fleurs` 180, 0,25–0,6 m ; `gazon` 600, 6–14 cm). Les nombres acceptent les expressions `"= …"`.
+- **Sol libre** : rien sur les routes, trottoirs, rivières et chemins de terre (bord compris), ni sous l'eau, ni sous les objets qui ne se traversent pas (bâtiments, objets, tronçons de clôtures et garde-corps ; sous un arbre, seul le tronc), sauf `clear: false`. Les couches `walkable` (touffes `grass`, `flowers`) et les acteurs n'en retirent rien. Brins posés sur le relief.
+- **Vent et passage** : ondulation en rafales selon `wind` et `windDir`, multipliée par `sway` ; les brins se couchent autour des acteurs, de l'objet glissé (pendant le geste et sa retombée) et des ballons qui roulent (8 au plus, les plus proches du point visé). Le semis ne bouge pas pendant un glisser : la place libérée reste dégarnie jusqu'à la recomposition (`place` recopié dans la recette).
+- **Style** : brins dessinés par les shaders de la scène (bandes, brume, nuit, ombres reçues du décor, finis) ; couleurs accordées au style comme les rôles, et, sans `base` / `tip` / `flowers` donnés, teintées par l'herbe de la palette (`automne`, `neige`, `desert`…). Pas de contour sur les brins ni à leur contact (des milliers de traits sinon).
+- **Densité** : `meadowDetail` (clé de recette) `0`, `1`, `2` ou `auto` (défaut : 0 sur mobile — écran tactile ou petit —, 1 sinon) fixe le plafond de brins de toute la scène (20 000, 60 000, 160 000), partagé entre les champs au prorata ; un champ qui dépasse sa part est semé moins dense, uniformément.
+- **Coût** : rien sans `meadows`. Avec : un appel de dessin par champ (maillage instancié, 12 à 24 triangles par brin), vent et ploiement dans le shader de sommet (le CPU ne pousse que l'horloge, le vent et 8 positions par image), pas d'ombre portée par les brins (passe d'ombre sans eux), pas de sélection (les touchers traversent la prairie). Semis à la composition : une grille du sol semable et des emprises par case, quelques dizaines de ms. Une prairie au vent impose un rendu continu (comme les feuillages souples ; `anim.play: false` le suspend).
+- **Rendu vectoriel** : les prairies sont ignorées (une `issue` `info` le signale) ; pour un équivalent dessiné, semer des touffes `grass` / `flowers` ou des `plant.tallgrass` / `plant.reeds`, qui ont leur dessin vectoriel.
 
 ## Générateurs
 
@@ -168,6 +193,7 @@ Ancres : personnages `head.top`, `head.center`, `hand.r.grip`, `hand.l.grip`, `b
 `render: "vector"` (clé du DataProvider ou attribut), ou un style vectoriel, bascule sur un rendu **Canvas 2D en courbes de Bézier** : aplats, traits à épaisseur variable, net à tout zoom. Même recette, mêmes ids, mêmes acteurs, mêmes événements ; la composition est bien plus rapide (pas de maillage). Personnages et animaux sont des traits continus suivant le même squelette animé (aucune jointure possible).
 
 - Styles : `ligne-claire` (contour noir, aplats), `flat` (aplats et ombres portées en aplat), `gravure` (hachures et trames), `affiche` (palette réduite, grandes masses), `papier-decoupe` (calques à ombre douce). Variante d'ambiance : `"flat/nuit"`, `"ligne-claire/automne"`… (préréglage 3D après la barre), ou `{vector: "gravure", …jetons}`.
+- Prairies (`meadows`) : ignorées, voir Prairies.
 - Caméras : `side` (élévation, défaut) et `oblique` (cavalière) ; `front` donne `side`, `iso` / `perspective` / `top` donnent `oblique`, `follow` suit un acteur.
 - Export : changer `exportSvg` (compteur) publie le SVG de la vue dans `state-out.svg` (sans script).
 
