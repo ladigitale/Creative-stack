@@ -37,6 +37,10 @@ import type { OrthoFrame, SnapRequest } from "./camera";
 import { Issues } from "../core/schema";
 import { type FxInput, SceneFx } from "../scene/fx";
 import { createParticleMesh, disposeParticleMesh, particleQuad, uploadParticles, type ParticleMesh } from "../../../shared/sim/particles-gl";
+import { InfiniteGpu } from "./infinite-gpu";
+import type { TileWorld } from "../scene/infinite";
+import type { NavGrid } from "../scene/nav";
+import type { Terrain } from "../scene/terrain";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
 export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop"; payload: Record<string, unknown> };
@@ -51,7 +55,7 @@ type DragRT = {
   anchors0: Record<string, V3>;
   seatYaw0?: Record<string, number>;
   inst?: { im: THREE.InstancedMesh; i: number; m0: THREE.Matrix4 };
-  tiles?: { mesh: THREE.Mesh; a: number; b: number; pos0: Float32Array; nrm0: Float32Array }[];
+  tiles?: { mesh: THREE.Mesh; a: number; b: number; pos0: Float32Array; nrm0: Float32Array; /** Origine de la tuile du monde infini (maillage en repère local). */ off: [number, number] }[];
   actor?: ActorRT;
   /** Corps dynamique saisi : il suit le doigt (cinématique), décalage pied → origine du corps, rotation gardée. */
   body?: { off: V3; q: BodyPose["q"]; trail: { x: number; y: number; z: number; t: number }[] };
@@ -201,6 +205,10 @@ export class ProcgenView {
   private softs: SoftLayer | null = null;
   private softObjM = new Map<number, Float64Array>();
   private frustum = new THREE.Frustum();
+  /** Monde infini : tuiles chargées autour du point suivi (null : scène finie). */
+  private inf: { world: TileWorld; gpu: InfiniteGpu; follow: string; base: { objects: ObjectInfo[]; lights: SceneModel["lights"] }; lowSince: number; at: string; upload: number; uploadMax: number; pumpMax: number } | null = null;
+  /** Les tuiles montées ont changé (objets, ids). */
+  onTiles: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -228,7 +236,7 @@ export class ProcgenView {
       depthTest: false,
       depthWrite: false,
       uniforms: {
-        tColor: { value: null }, tData: { value: null }, uTexel: { value: new THREE.Vector2() }, uOutline: { value: 1.5 }, uOutlineStrength: { value: 0.8 }, uInk: { value: new THREE.Color() },
+        tColor: { value: null }, tData: { value: null }, uTexel: { value: new THREE.Vector2() }, uOutline: { value: 1.5 }, uOutlineStrength: { value: 0.8 }, uOutlineFade: { value: new THREE.Vector2(2, 3) }, uInk: { value: new THREE.Color() },
         uSkyTop: { value: new THREE.Color() }, uSkyHorizon: { value: new THREE.Color() }, uSkyOn: { value: 1 }, uHorizonY: { value: 0.35 }, uGrain: { value: 0 }, uPaper: { value: 0 }, uVignette: { value: 0 },
         uTime: { value: 0 }, uPixel: { value: 0 }, uResolution: { value: new THREE.Vector2() }, uUvXf: { value: new THREE.Vector4(1, 1, 0, 0) },
         tPhoto: { value: null }, uPhotoMix: { value: 0 }, uPhotoFog: { value: 0 }, uFogColor: { value: new THREE.Color() }, uFogK: { value: new THREE.Vector4() },
@@ -255,6 +263,8 @@ export class ProcgenView {
     this.extent = first ? this.fitExtent : keepFrame(this.extent, this.fitExtent);
     this.shared.uGroundY.value = 0;
     this.shared.uWaterY.value = model.terrain?.spec.water ?? -1000;
+    // nouveau modèle : l'ancien monde infini est démonté (le composant en remonte un avec `setInfinite`)
+    this.dropInfinite();
     this.shared.uFar.value = this.extent * 6;
     for (const o of model.objects) {
       this.objectsByObj.set(o.obj, o);
@@ -505,6 +515,148 @@ export class ProcgenView {
     for (let i = 0; i < Math.round(seconds * fps); i++) this.stepFx(1 / fps);
     this.dirty = true;
     this.kick();
+  }
+
+  /* ---------------- monde infini ---------------- */
+
+  /**
+   * Monte un monde infini sur le modèle courant (acteurs, zones) : le sol, la navigation et la liste d'objets du modèle
+   * deviennent ceux des tuiles chargées (façades), mis à jour à chaque tuile montée.
+   */
+  setInfinite(world: TileWorld | null, follow = "camera") {
+    this.dropInfinite();
+    const m = this.model;
+    if (!world || !m) return;
+    const gpu = new InfiniteGpu(this.staticMats, (add, rem) => {
+      if (rem.length) this.pickables = this.pickables.filter((p) => !rem.includes(p));
+      this.pickables.push(...add);
+    });
+    this.scene.add(gpu.group);
+    this.inf = { world, gpu, follow, base: { objects: m.objects, lights: m.lights }, lowSince: 0, at: "", upload: 0, uploadMax: 0, pumpMax: 0 };
+    const w = world;
+    const terrain = {
+      spec: { size: [1e6, 1e6], water: w.waterLevel, surface: "grass", relief: 0, scale: 18, mountains: 0, seed: 0 },
+      get paths() {
+        return w.pathsNear(w.center[0], w.center[1]);
+      },
+      height: (x: number, z: number) => w.height(x, z),
+      normal: (x: number, z: number) => w.normal(x, z),
+      pathInfo: (x: number, z: number) => w.pathInfo(x, z),
+    };
+    m.terrain = terrain as unknown as Terrain;
+    m.nav = { free: (x: number, z: number) => w.free(x, z), path: (a: [number, number], b: [number, number]) => w.path(a, b) } as unknown as NavGrid;
+    m.size = [1e6, 1e6];
+    this.shared.uWaterY.value = w.waterLevel ?? -1000;
+    this.adoptTiles(true);
+    this.dirty = this.shadowDirty = true;
+    this.kick();
+  }
+
+  private dropInfinite() {
+    const f = this.inf;
+    if (!f) return;
+    this.inf = null;
+    f.gpu.dispose();
+    for (const im of f.gpu.instanceObjs.keys()) this.instanceObjs.delete(im);
+    f.world.dispose();
+    for (const o of this.objectsByObj.values()) if (!f.base.objects.includes(o)) this.objectsByObj.delete(o.obj);
+  }
+
+  /** Monde infini courant (état, retouches). */
+  get infinite(): TileWorld | null {
+    return this.inf?.world ?? null;
+  }
+
+  /** Centre suivi : acteur suivi, sinon centre de la vue. */
+  private infCenter(): [number, number] {
+    const f = this.inf!;
+    const a = f.follow !== "camera" ? this.actors.get(f.follow) : undefined;
+    if (a) return [a.pos[0], a.pos[2]];
+    if (this.view.camera === "follow" && this.followId && this.actors.has(this.followId)) {
+      const b = this.actors.get(this.followId)!;
+      return [b.pos[0], b.pos[2]];
+    }
+    return [this.view.cx, this.view.cz];
+  }
+
+  /** Une image du monde infini : composition dans le budget, montage d'une tuile au plus (jamais pendant un glisser). */
+  private stepInfinite(now: number) {
+    const f = this.inf!;
+    // qualité auto : rayon réduit tant que la densité de pixels a dû baisser (ou sur mobile)
+    const low = this.mobile || this.dpr < Math.min(1, this.maxDpr) * 0.8;
+    if (low) f.lowSince ||= now;
+    else f.lowSince = 0;
+    f.world.setLow(this.mobile || (!!f.lowSince && now - f.lowSince > 2000));
+    const [x, z] = this.infCenter();
+    const budget = this.mobile ? Math.min(f.world.spec.budget, 2.5) : f.world.spec.budget;
+    f.world.update(x, z, budget);
+    if (!this.drag && !this.settle) {
+      const t0 = performance.now();
+      const T = f.world.spec.tile;
+      const here = `${Math.floor(x / T)},${Math.floor(z / T)},${f.world.radius}`;
+      if (this.adoptTiles(false, here !== f.at) || here !== f.at) {
+        f.at = here;
+        const ms = performance.now() - t0;
+        f.upload = ms;
+        f.uploadMax = Math.max(f.uploadMax, ms);
+      }
+    }
+    f.pumpMax = Math.max(f.pumpMax, f.world.state().ms);
+  }
+
+  /** Monte les tuiles composées (une par image, toutes au premier montage), démonte les relâchées. */
+  private adoptTiles(all: boolean, moved = false): boolean {
+    const f = this.inf!;
+    const w = f.world;
+    let changed = false;
+    for (const t of w.removed) {
+      // une tuile remplacée (retouche) reste affichée jusqu'au montage de la nouvelle (`mount` remplace)
+      if (f.gpu.rec(t.key) !== t || w.tiles.has(t.key)) continue;
+      f.gpu.unmount(t.key);
+      changed = true;
+    }
+    w.removed = [];
+    let n = 0;
+    while (w.added.length && (all || n < 1)) {
+      const t = w.added.shift()!;
+      if (w.tiles.get(t.key) !== t) continue;
+      f.gpu.mount(t);
+      n++;
+      changed = true;
+    }
+    if (!changed && !moved) return false;
+    const [cx, cz] = this.infCenter().map((v) => Math.floor(v / w.spec.tile));
+    f.gpu.rebuildInstances(cx, cz, w.radius < w.spec.radius);
+    f.gpu.farGround((x, z) => w.rawHeight(x, z), w.spec.tile, cx, cz, w.radius + 6);
+    for (const im of f.gpu.instanceObjs.keys()) this.instanceObjs.set(im, f.gpu.instanceObjs.get(im)!);
+    for (const im of [...this.instanceObjs.keys()]) if (im.userData.depth === this.staticMats.depth && !im.parent) this.instanceObjs.delete(im);
+    const m = this.model!;
+    const tileObjs: ObjectInfo[] = [];
+    const lights = [...f.base.lights];
+    for (const k of [...this.objectsByObj.keys()]) if (!f.base.objects.includes(this.objectsByObj.get(k)!)) this.objectsByObj.delete(k);
+    for (const t of w.tiles.values())
+      if (f.gpu.rec(t.key) === t) {
+        for (const o of t.model.objects) {
+          tileObjs.push(o);
+          this.objectsByObj.set(o.obj, o);
+        }
+        lights.push(...t.model.lights);
+      }
+    m.objects = [...f.base.objects, ...tileObjs];
+    m.lights = lights;
+    if (this.selectedObj > 0 && !this.objectsByObj.has(this.selectedObj)) this.selectedObj = -1;
+    this.dirty = this.shadowDirty = true;
+    this.onTiles?.();
+    return true;
+  }
+
+  /** Mesure du monde infini (état des tuiles, triangles et appels du sol et du peuplement). */
+  infiniteState() {
+    const f = this.inf;
+    if (!f) return null;
+    const r = (v: number) => Math.round(v * 10) / 10;
+    // temps du fil principal : composition (budget par image) et envoi d'une tuile à la carte graphique
+    return { ...f.world.state(), mounted: f.gpu.size, uploadMs: r(f.upload), uploadMaxMs: r(f.uploadMax), pumpMaxMs: r(f.pumpMax), gpu: f.gpu.stats() };
   }
 
   /* ---------------- style ---------------- */
@@ -1040,7 +1192,7 @@ export class ProcgenView {
         for (let k = 0; k < ids.length; k++) if (Math.abs(ids[k] - o.obj) < 0.5) (a < 0 && (a = k), (b = k));
         if (a < 0) continue;
         const pos = mesh.geometry.getAttribute("position").array as Float32Array, nrm = mesh.geometry.getAttribute("normal").array as Float32Array;
-        d.tiles.push({ mesh, a, b: b + 1, pos0: pos.slice(a * 3, (b + 1) * 3), nrm0: nrm.slice(a * 3, (b + 1) * 3) });
+        d.tiles.push({ mesh, a, b: b + 1, pos0: pos.slice(a * 3, (b + 1) * 3), nrm0: nrm.slice(a * 3, (b + 1) * 3), off: [mesh.position.x, mesh.position.z] });
         mesh.frustumCulled = false;
       }
       if (!d.tiles.length) return false;
@@ -1161,10 +1313,10 @@ export class ProcgenView {
         const pa = t.mesh.geometry.getAttribute("position") as THREE.BufferAttribute, na = t.mesh.geometry.getAttribute("normal") as THREE.BufferAttribute;
         const P = pa.array as Float32Array, N = na.array as Float32Array;
         for (let k = 0; k < t.pos0.length; k += 3) {
-          const q = move(t.pos0[k], t.pos0[k + 1], t.pos0[k + 2]);
-          P[t.a * 3 + k] = q[0];
+          const q = move(t.pos0[k] + t.off[0], t.pos0[k + 1], t.pos0[k + 2] + t.off[1]);
+          P[t.a * 3 + k] = q[0] - t.off[0];
           P[t.a * 3 + k + 1] = q[1];
-          P[t.a * 3 + k + 2] = q[2];
+          P[t.a * 3 + k + 2] = q[2] - t.off[1];
           const nx = t.nrm0[k], nz = t.nrm0[k + 2];
           N[t.a * 3 + k] = nx * c + nz * s;
           N[t.a * 3 + k + 1] = t.nrm0[k + 1];
@@ -1581,7 +1733,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -1633,8 +1785,11 @@ export class ProcgenView {
     const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000));
     this.last = now;
     if (this.settle) this.stepSettle(now);
+    // monde infini : composition et montage des tuiles avant les acteurs (le sol est là quand ils y marchent)
+    const busy = !!this.inf && (this.inf.world.busy || this.inf.world.added.length > 0);
+    if (this.inf && this.model) this.stepInfinite(now);
     // rendu soigné : l'animation est figée, chaque image affine le résultat ; plus rien une fois fini
-    if (this.photo?.spec && this.photoWanted(now)) {
+    if (!busy && this.photo?.spec && this.photoWanted(now)) {
       const more = this.photoFrame(now);
       this.dirty = false;
       this.onFrame();
@@ -1662,7 +1817,7 @@ export class ProcgenView {
       this.dirty = false;
       this.onFrame();
     }
-    if ((anim || this.dirty) && this.visible) this.raf = requestAnimationFrame(this.loop);
+    if ((anim || this.dirty || busy) && this.visible) this.raf = requestAnimationFrame(this.loop);
     else {
       this.running = false;
       if (this.photo?.spec && this.visible) this.armPhotoTimer(now);
@@ -1765,8 +1920,15 @@ export class ProcgenView {
     const m = this.model!;
     const sun = this.shared.uSunDir.value as THREE.Vector3;
     const b = m.bounds;
-    const c = new THREE.Vector3((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
-    const R = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2;
+    let c = new THREE.Vector3((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
+    let R = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2;
+    if (this.inf) {
+      // monde infini : ombres autour du point suivi, sur la portée de la vue (texels calés pour ne pas scintiller)
+      R = Math.min(this.inf.world.spec.tile * (this.inf.world.radius + 0.5), Math.max(20, this.extent * 1.6));
+      const [x, z] = this.infCenter();
+      const q = (2 * R) / this.shadowRT.width;
+      c = new THREE.Vector3(Math.round(x / q) * q, this.inf.world.height(x, z), Math.round(z / q) * q);
+    }
     const lc = new THREE.OrthographicCamera(-R, R, R, -R, 0.1, R * 4);
     lc.position.copy(c).addScaledVector(sun, R * 2);
     lc.lookAt(c);
@@ -1826,6 +1988,21 @@ export class ProcgenView {
     this.focusDist = Math.max(1e-3, camDist);
     this.shared.uFogNear.value = Math.max(0, camDist - this.extent * 0.6);
     this.shared.uFogRange.value = this.extent * 2.2;
+    if (this.inf) {
+      // monde infini : le brouillard atteint son plein avant le bord des tuiles chargées (pas de bord visible)
+      const reach = this.inf.world.spec.tile * (this.inf.world.radius + 0.25);
+      const fog = Math.max(this.style?.fog ?? 0.5, 0.45);
+      this.shared.uFog.value = fog;
+      this.shared.uFogNear.value = Math.max(0, camDist + reach * 0.1);
+      this.shared.uFogRange.value = Math.max(4, (reach * 0.85 * fog * 1.6) / 2);
+      if (this.shadowFollow(tgt)) this.shadowDirty = true;
+    }
+    {
+      // contours fondus dans le brouillard du monde infini (rien en scène finie)
+      const fade = (this.post.material as THREE.ShaderMaterial).uniforms.uOutlineFade.value as THREE.Vector2;
+      if (this.inf) fade.set((this.shared.uFogNear.value + this.shared.uFogRange.value * 0.15) / cam.far, (this.shared.uFogNear.value + this.shared.uFogRange.value * 0.7) / cam.far);
+      else fade.set(2, 3);
+    }
     this.renderer.info.reset();
     this.updateLights(tgt);
     if (this.meadows.active) this.meadows.advance(this.model.wind, this.model.windDir ?? 1.17, this.meadowPushers(tgt));
@@ -1900,6 +2077,15 @@ export class ProcgenView {
     this.renderer.render(this.postScene, this.postCam);
   }
 
+  private shadowAt = "";
+  /** Le centre des ombres a bougé d'un pas (monde infini) ? */
+  private shadowFollow(t: THREE.Vector3): boolean {
+    const k = `${Math.round(t.x / 4)},${Math.round(t.z / 4)}`;
+    if (k === this.shadowAt) return false;
+    this.shadowAt = k;
+    return true;
+  }
+
   private lastInfo = { calls: 0, triangles: 0 };
   stats() {
     return { drawCalls: this.lastInfo.calls, triangles: this.lastInfo.triangles, fps: this.fps, scale: this.dpr, ...(this.softs ? { soft: this.softs.stats() } : {}), ...(this.stack.active ? { postPasses: this.stack.passes } : {}), ...(this.stack.failed ? { postError: this.stack.error } : {}), ...(this.photo?.active ? { photoMs: this.photo.buildMs } : {}) };
@@ -1919,6 +2105,7 @@ export class ProcgenView {
     this.disposed = true;
     this.rigidTok++;
     cancelAnimationFrame(this.raf);
+    this.dropInfinite();
     this.clearScene();
     for (const d of this.fxMeshes) disposeParticleMesh(d);
     this.fxMeshes = [];

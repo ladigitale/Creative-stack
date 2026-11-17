@@ -551,6 +551,8 @@ uniform sampler2D tData;
 uniform vec2 uTexel;
 uniform float uOutline;
 uniform float uOutlineStrength;
+/** Contours effacés avec la profondeur (début, fin, en part de uFar) : monde infini, contours fondus dans le brouillard. */
+uniform vec2 uOutlineFade;
 uniform vec3 uInk;
 uniform vec3 uSkyTop;
 uniform vec3 uSkyHorizon;
@@ -618,7 +620,7 @@ void main() {
         edgeC = smoothstep(0.35, 0.7, dn.x + dn.y);
       }
     }
-    float edge = max(edgeS, edgeC * 0.6) * uOutlineStrength;
+    float edge = max(edgeS, edgeC * 0.6) * uOutlineStrength * (1.0 - smoothstep(uOutlineFade.x, uOutlineFade.y, d.z));
     // prairies (identifiant 1) : ni silhouette ni pli sur les brins ni à leur contact (des milliers de traits sinon)
     if (blade) edge = 0.0;
     if (!bg) {

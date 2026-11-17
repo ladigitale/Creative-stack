@@ -32,6 +32,17 @@ import { composeScene } from "./scene/compose";
 import { type Arranged, type Mover, type PlaceCtx, arrangeAt, moverFor, moverOf, placeCtx } from "./edit/arrange";
 import { Gesture, type GestureCmd } from "./edit/gesture";
 import { listenTurn, wrapAngle } from "../../shared/monde/turn-keys";
+import { MainThreadRunner, type InfiniteSpec, type TileEdits, type TileRunner, TileWorld, readInfinite, readTileEdits, recordMove } from "./scene/infinite";
+import { tileKey, tileOf } from "../../shared/monde/tiles";
+
+/**
+ * Fabrique de compositeur de tuiles hors fil principal (worker fourni par l'application : voir `tile-worker.ts`).
+ * Sans fabrique, ou si le worker échoue, les tuiles se composent sur le fil principal par tranches.
+ */
+let tileRunnerFactory: (() => TileRunner | null) | null = null;
+export function setProcgenTileRunner(f: (() => TileRunner | null) | null) {
+  tileRunnerFactory = f;
+}
 
 /** Placements qu'un glisser sait réécrire : un point `at` de couche, ou un acteur de `recipe.actors`. */
 const DRAGGABLE = new Set(["at", "actor"]);
@@ -128,6 +139,10 @@ export class SonicProcgen extends HTMLElement {
   private photoKey = "";
   private photoOut: ProcgenPhotoState | null = null;
   private ambianceOut: { name: string; meteo: string[] } | null = null;
+  /** Monde infini : spécification, retouches persistées (copie interne, reprise du DataProvider `tiles`). */
+  private infSpec: InfiniteSpec | null = null;
+  private tileEdits: TileEdits = {};
+  private tilesKey = "";
 
   constructor() {
     super();
@@ -343,6 +358,16 @@ export class SonicProcgen extends HTMLElement {
         r = SCENES.village;
       }
       if (this.pending) this.pending.cancelled = true;
+      // monde infini (rendu 3D) : la scène composée ne garde que les acteurs et les zones ; sol, routes et couches
+      // viennent des tuiles composées autour du point suivi
+      const inf = readInfinite(r.infinite, issues, String(seed));
+      if (inf && mode === "vector") issues.add({ path: "infinite", code: "info", message: "monde infini en rendu 3D seulement : scène finie en rendu vectoriel" });
+      this.infSpec = mode === "3d" ? inf : null;
+      const full = r;
+      if (this.infSpec) {
+        if (r.physics) issues.add({ path: "physics", code: "info", message: "monde infini : physique 3D des scènes finies seulement (ignorée)" });
+        r = { ...r, ground: false, layers: [], paths: [], size: [20, 20], physics: undefined };
+      }
       if (mode === "vector") {
         // composition vectorielle : sans maillage, rapide, synchrone
         const t0 = performance.now();
@@ -377,6 +402,27 @@ export class SonicProcgen extends HTMLElement {
             this.issues = [...issues.list, ...model.issues];
             this.error = "";
             this.view?.setModel(model);
+            if (this.view instanceof ProcgenView) {
+              const spec = this.infSpec;
+              let world: TileWorld | null = null;
+              if (spec) {
+                let runner: TileRunner | null = null;
+                try {
+                  runner = tileRunnerFactory?.() ?? null;
+                } catch {
+                  runner = null;
+                }
+                const mobile = typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+                world = new TileWorld(spec, full, String(seed), params, runner ?? new MainThreadRunner(), { low: mobile });
+                world.setEdits(this.tileEdits);
+              }
+              this.view.onTiles = () => {
+                this.idsVersion++;
+                if (this.selectedId) this.view?.select(this.selectedId);
+                this.queueOut();
+              };
+              this.view.setInfinite(world, spec?.follow ?? "camera");
+            }
             this.replayMoves(t0);
             if (this.selectedId) this.view?.select(this.selectedId);
             this.styleKey = "";
@@ -392,6 +438,13 @@ export class SonicProcgen extends HTMLElement {
           this.fail(`composition : ${(e as Error).message}`);
         });
       }
+    }
+    // retouches du monde infini : le DataProvider (`tiles`) fait foi quand il change
+    const tk = JSON.stringify(d.tiles ?? null);
+    if (tk !== this.tilesKey) {
+      this.tilesKey = tk;
+      this.tileEdits = readTileEdits(d.tiles);
+      if (this.view instanceof ProcgenView) this.view.infinite?.setEdits(this.tileEdits);
     }
     if (!this.model || !this.view) {
       this.queueOut();
@@ -546,7 +599,8 @@ export class SonicProcgen extends HTMLElement {
     if (!re || !(matches(re, o.id) || matches(re, o.layer))) return false;
     // corps dynamique (moteur chargé) : se saisit quel que soit son placement, ballons compris
     if (this.isBody(o.id)) return true;
-    return DRAGGABLE.has(o.place ?? "") && o.generator !== "ball";
+    // monde infini : tout objet d'une tuile se glisse (la pose est persistée par tuile : `tiles`)
+    return (DRAGGABLE.has(o.place ?? "") || (!!this.infSpec && !!o.place)) && o.generator !== "ball";
   }
 
   private isBody(id: string): boolean {
@@ -557,6 +611,12 @@ export class SonicProcgen extends HTMLElement {
     const o = id ? this.model?.objects.find((x) => x.id === id) : null;
     if (!o) return null;
     return { id: o.id, generator: o.generator, layer: o.layer, params: o.params, x: R2(o.pos[0]), y: R2(o.pos[1]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), h: R2(o.height), ...(o.place ? { place: o.place, index: o.index ?? 0 } : {}), movable: this.mode === "3d" && this.movable(o), ...(o.affords ? { affords: o.affords } : {}), ...(o.physics ? { physics: o.physics } : {}), ...(Object.keys(o.anchors).some((k) => k.startsWith("sit.")) ? { seats: Object.keys(o.anchors).filter((k) => k.startsWith("sit.")) } : {}) };
+  }
+
+  /** Problèmes de la scène et des tuiles du monde infini (préfixés `infinite.tile.`). */
+  private allIssues(): unknown[] {
+    const w = this.view instanceof ProcgenView ? this.view.infinite : null;
+    return w?.issues.length ? [...this.issues, ...w.issues.map((i) => ({ ...i, path: `infinite.tile.${i.path}` }))] : this.issues;
   }
 
   private writeOut() {
@@ -570,7 +630,7 @@ export class SonicProcgen extends HTMLElement {
       progress: this.composing ? Math.round(this.progress * 100) / 100 : 1,
       error: this.glError || this.error || null,
       ms: this.composeMs,
-      objects: m?.stats.objects ?? 0,
+      objects: this.infSpec && m ? m.objects.length : m?.stats.objects ?? 0,
       actors: m?.stats.actors ?? 0,
       ...(m?.meadows?.length ? { blades: m.meadows.reduce((n, f) => n + f.blades.length / 6, 0) } : {}),
       triangles: st?.triangles ?? m?.stats.triangles ?? 0,
@@ -581,7 +641,7 @@ export class SonicProcgen extends HTMLElement {
       ...(st && "soft" in st && st.soft ? { soft: st.soft } : {}),
       ...(this.view?.fx.systems.length ? { fx: this.view.fx.summary() } : {}),
       ...(st && "photoMs" in st ? { photoMs: st.photoMs } : {}),
-      issues: (st && "postError" in st && st.postError ? [{ path: "style.post", code: "info", message: `post-traitement désactivé : shader refusé par le pilote (${String(st.postError).slice(0, 160)})` }, ...this.issues] : this.issues).slice(0, 40),
+      issues: (st && "postError" in st && st.postError ? [{ path: "style.post", code: "info", message: `post-traitement désactivé : shader refusé par le pilote (${String(st.postError).slice(0, 160)})` }, ...this.allIssues()] : this.allIssues()).slice(0, 40),
     };
     const actors: Record<string, unknown> = {};
     for (const id of this.view?.actorIds() ?? []) actors[id] = this.view!.actorState(id);
@@ -605,6 +665,7 @@ export class SonicProcgen extends HTMLElement {
       free: this.freeOut,
       photo: this.photoOut,
       ambiance: this.ambianceOut,
+      ...(this.infSpec && this.view instanceof ProcgenView ? { infinite: this.view.infiniteState(), tiles: this.tileEdits } : {}),
     };
     const sig = JSON.stringify(next);
     if (sig !== this.lastOut) {
@@ -822,7 +883,18 @@ export class SonicProcgen extends HTMLElement {
     const o = this.model?.objects.find((x) => x.id === st.id);
     if (ok && o) this.moved.set(st.id, { x: res!.x, y: res!.y, z: res!.z, yaw: res!.yaw, t: performance.now() });
     if (ok && o) {
-      this.emit({ type: "place", payload: { objectId: st.id, instance: st.id, layer: o.layer, index: o.index ?? 0, place: o.place ?? null, x: res!.x, y: res!.y, z: res!.z, yaw: Math.round(res!.yaw * DEGS * 10) / 10, ry: Math.round(res!.yaw * 1e4) / 1e4, valid: true, snaps: res!.snaps, from: { x: R2(st.from[0]), z: R2(st.from[1]) } } });
+      // monde infini : pose persistée dans la tuile (copie interne, et `tiles` prêt à recopier par le store)
+      let inf: Json = {};
+      const spec = this.infSpec;
+      if (spec && o.place !== "actor" && v instanceof ProcgenView) {
+        const w = v.infinite;
+        const r = recordMove(this.tileEdits, spec, o, st.from, { x: res!.x, z: res!.z, yaw: res!.yaw * DEGS }, w ? w.center : st.from);
+        this.tileEdits = r.tiles;
+        w?.setEdits(r.tiles);
+        const [cx, cz] = tileOf(spec.tile, res!.x, res!.z);
+        inf = { tile: tileKey(cx, cz), tiles: r.tiles, persist: { count: r.count, total: spec.persist, dropped: r.dropped } };
+      }
+      this.emit({ type: "place", payload: { objectId: st.id, instance: st.id, layer: o.layer, index: o.index ?? 0, place: o.place ?? null, x: res!.x, y: res!.y, z: res!.z, yaw: Math.round(res!.yaw * DEGS * 10) / 10, ry: Math.round(res!.yaw * 1e4) / 1e4, valid: true, snaps: res!.snaps, from: { x: R2(st.from[0]), z: R2(st.from[1]) }, ...inf } });
     } else if (commit && res && o) {
       this.emit({ type: "dragRefused", payload: { objectId: st.id, layer: o.layer, index: o.index ?? 0, place: o.place ?? null, reason: "occupied", hits: res.hits } });
     }
@@ -891,7 +963,7 @@ export class SonicProcgen extends HTMLElement {
     const ign = (Array.isArray(req.ignore) ? req.ignore : req.ignore !== undefined ? [req.ignore] : []).map(String);
     const skip = new Set(m.objects.filter((o) => ign.includes(o.id) || ign.includes(o.layer)).map((o) => o.id));
     const res = arrangeAt(placeCtx(m, skip), moverFor("_new", fp.generator, fp.hx, fp.hz, yaw, { onWater: !!req.onWater, onPath: !!req.onPath }), num(at[0], 0), num(at[1], 0));
-    this.freeOut = { id: req.id ?? null, x: res.x, y: res.y, z: res.z, yaw: Math.round(res.yaw * DEGS * 10) / 10, valid: res.valid, hits: res.hits, snaps: res.snaps };
+    this.freeOut = { id: req.id ?? null, x: res.x, y: res.y, z: res.z, yaw: Math.round(res.yaw * DEGS * 10) / 10, valid: res.valid, hits: res.hits, snaps: res.snaps, ...(this.infSpec ? { tile: tileKey(...tileOf(this.infSpec.tile, res.x, res.z)) } : {}) };
     this.emit({ type: "placeFree", payload: this.freeOut as Json });
     this.queueOut(true);
   }
