@@ -753,6 +753,7 @@ valeur. `{"base": "noir", "etalonnage": {"grain": 0.3}}` part d'une ambiance et 
 | `horreur` | Désaturé verdâtre, brume, vignette lourde, grain |
 | `western` | Sépia chaud, soleil bas |
 | `pastel`, `onirique` | Doux et clair ; rêveur avec halo et brume colorée |
+| `tableau` | Peinture : touches de pinceau qui suivent les formes, léger tramage, couleurs chaudes |
 
 Alias acceptés : `fps`, `cyberpunk`, `neon`, `extraterrestre`, `contre-jour`, `polar`, `pixel`, `far-west`, `reve`…
 Une ambiance s'inspire d'un genre : elle ne reprend ni les personnages ni les éléments d'une œuvre.
@@ -773,6 +774,8 @@ Une ambiance s'inspire d'un genre : elle ne reprend ni les personnages ni les é
 | `contours`, `couleurContours` | Traits aux ruptures de profondeur (0 à 1) |
 | `halo`, `seuilHalo` | Lueur autour des zones claires (fenêtres, néons, `glow`) |
 | `aberration`, `lignes` | Franges colorées vers les bords ; lignes de balayage |
+| `peinture` | Touches de pinceau qui suivent les contours (filtre de Kuwahara anisotrope), rayon en px (4 à 6 : touches moyennes) |
+| `tramage` | Tramage ordonné avant la peinture (0 à 1, `true` = 0,6), sur `niveaux` niveaux (6 par défaut) |
 
 Un post-traitement écrit (`post`) passe avant : l'étalonnage est alors ignoré.
 
@@ -856,6 +859,13 @@ lumière indirecte, verre qui réfracte : physiquement justes, l'image s'affine 
 début) jusqu'à `echantillons`. Tout mouvement (orbite, glisser, animation, changement du monde) rend la main au rendu
 temps réel ; le calcul reprend à la pause suivante. Le moteur (environ 450 Ko) n'est chargé que si un monde le demande.
 
+- **Filtre** (`filtre`) pour une image utilisable en peu d'échantillons :
+  - `"peinture"` : 12 échantillons, 3 rebonds, calcul en demi-résolution, puis filtre de Kuwahara anisotrope : le
+    bruit devient des touches de pinceau qui suivent les contours (image en une seconde environ). `tramage` (0 à 1,
+    `true` = 0,6) ajoute avant le filtre un tramage ordonné sur `niveaux` niveaux (6) : touches plus texturées ;
+    `touche` règle le rayon des touches (px, 5).
+  - `"lisse"` : 32 échantillons et un débruitage qui garde les arêtes ; plus propre, moins net qu'un calcul complet.
+  - `echelle` (0,25 à 1) : résolution de calcul.
 - La sortie `photo` donne l'avancement : `{etat: "attente" | "calcul" | "fini" | "indisponible", echantillons, total, raison}`.
 - L'éclairage vient des lumières de la scène et de l'`environnement` (`aucun` : ciel blanc uniforme).
 - Particules, contours, brume et style `toon` n'ont pas d'équivalent physique : `photo` est ignoré en `toon`, les

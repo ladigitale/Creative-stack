@@ -34,6 +34,10 @@ export type Grade = {
   /** Aberration chromatique, lignes de balayage (0 à 1). */
   aberration: number;
   scanlines: number;
+  /** Peinture : rayon des touches du filtre de Kuwahara anisotrope (px, 0 : aucun). */
+  paint: number;
+  /** Tramage ordonné avant la peinture (0 à 1), sur `posterize` niveaux (6 sans postérisation). */
+  dither: number;
 };
 
 export type Lumiere = {
@@ -82,6 +86,8 @@ export const GRADE0: Grade = {
   bloomThreshold: 0.75,
   aberration: 0,
   scanlines: 0,
+  paint: 0,
+  dither: 0,
 };
 
 export const LUMIERE0: Lumiere = { intensite: 1.1, couleur: "#ffffff", hauteur: 55, azimut: 53, ambiante: 0.55, couleurAmbiante: "#ffffff" };
@@ -216,6 +222,15 @@ export const AMBIANCES: Record<string, Preset> = {
     lumiere: { intensite: 1.2, ambiante: 0.8 },
     grade: { saturation: 0.75, contrast: 0.9, brightness: 1.06, vignette: 0.1 },
   },
+  tableau: {
+    look: "doux",
+    environnement: "exterieur",
+    ciel: "#e9d9b8",
+    brume: 0.15,
+    style: "gouache",
+    lumiere: { intensite: 1.8, couleur: "#fff0d8", hauteur: 38, ambiante: 0.55, couleurAmbiante: "#d8d0e8" },
+    grade: { paint: 5, dither: 0.35, posterize: 8, saturation: 1.12, contrast: 1.05, vignette: 0.22 },
+  },
   onirique: {
     look: "doux",
     environnement: "exterieur",
@@ -256,6 +271,8 @@ const ALIASES: Record<string, string> = {
   "far-west": "western",
   reve: "onirique",
   "rêve": "onirique",
+  peinture: "tableau",
+  painting: "tableau",
 };
 
 const isColor = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
@@ -283,6 +300,8 @@ export function readGrade(v: unknown, base: Partial<Grade> = {}): Grade {
     bloomThreshold: num(o.seuilHalo ?? o.bloomThreshold, b.bloomThreshold, 0, 1),
     aberration: num(o.aberration, b.aberration, 0, 1),
     scanlines: num(o.lignes ?? o.scanlines, b.scanlines, 0, 1),
+    paint: num(o.peinture ?? o.paint, b.paint, 0, 12),
+    dither: o.tramage === true ? 0.6 : num(o.tramage ?? o.dither, b.dither, 0, 1),
   };
 }
 

@@ -234,7 +234,7 @@ export type MondeIn = {
    * (reflets, ombres douces, verre et lumière indirecte physiquement justes) ; tout mouvement rend la main au rendu
    * temps réel. `true` ou `{echantillons (200), rebonds (5), attente (ms, 600)}`.
    */
-  photo?: boolean | { echantillons?: number; rebonds?: number; attente?: number };
+  photo?: boolean | { echantillons?: number; rebonds?: number; attente?: number; filtre?: string; tramage?: number | boolean; niveaux?: number; touche?: number; echelle?: number };
   /**
    * Physique 3D (Rapier, chargé à la demande) : `true` ou `{gravite, sol, contactMin, liaisons, pause}`. Les placements
    * nommés avec `corps` tombent, roulent, se heurtent ; le décor et les autres instances sont des obstacles.
@@ -435,14 +435,39 @@ export type View2d = { view: "top" | "side" | "front" | "iso"; unit: number; ori
 
 export type Issue = { path: string; message: string };
 
-export type PhotoSpec = { echantillons: number; rebonds: number; attente: number };
+export type PhotoSpec = {
+  echantillons: number;
+  rebonds: number;
+  attente: number;
+  /** Filtre de l'image calculée : `peinture` (Kuwahara anisotrope), `lisse` (débruitage qui garde les arêtes), vide : aucun. */
+  filtre: "" | "peinture" | "lisse";
+  /** Tramage avant la peinture (0 à 1) et niveaux par couleur. */
+  tramage: number;
+  niveaux: number;
+  /** Rayon des touches de peinture (px). */
+  touche: number;
+  /** Échelle de calcul (0,25 à 1) : 0,5 en peinture, le filtre efface la différence. */
+  echelle: number;
+};
 
 /** Réglages du rendu photo ; `null` : désactivé. */
 export function readPhoto(v: unknown): PhotoSpec | null {
   if (v === undefined || v === null || v === false) return null;
   const o = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
   const n = (x: unknown, d: number, lo: number, hi: number) => (typeof x === "number" && Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d);
-  return { echantillons: n(o.echantillons, 200, 1, 4000), rebonds: n(o.rebonds, 5, 1, 12), attente: n(o.attente, 600, 0, 10000) };
+  const f = (x: unknown, d: number, lo: number, hi: number) => (typeof x === "number" && Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : d);
+  const filtre = o.filtre === "peinture" || o.filtre === "lisse" ? o.filtre : "";
+  // filtré : peu d'échantillons et de rebonds suffisent (le filtre efface le bruit)
+  return {
+    echantillons: n(o.echantillons, filtre === "peinture" ? 12 : filtre === "lisse" ? 32 : 200, 1, 4000),
+    rebonds: n(o.rebonds, filtre ? 3 : 5, 1, 12),
+    attente: n(o.attente, 600, 0, 10000),
+    filtre,
+    tramage: o.tramage === true ? 0.6 : f(o.tramage, 0, 0, 1),
+    niveaux: n(o.niveaux, 6, 2, 64),
+    touche: f(o.touche, 5, 1, 12),
+    echelle: f(o.echelle, filtre === "peinture" ? 0.5 : 1, 0.25, 1),
+  };
 }
 
 export type Monde = {
