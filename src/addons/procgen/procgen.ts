@@ -364,7 +364,10 @@ export class SonicProcgen extends HTMLElement {
       if (inf && mode === "vector") issues.add({ path: "infinite", code: "info", message: "monde infini en rendu 3D seulement : scène finie en rendu vectoriel" });
       this.infSpec = mode === "3d" ? inf : null;
       const full = r;
-      if (this.infSpec) r = { ...r, ground: false, layers: [], paths: [], size: [20, 20] };
+      if (this.infSpec) {
+        if (r.physics) issues.add({ path: "physics", code: "info", message: "monde infini : physique 3D des scènes finies seulement (ignorée)" });
+        r = { ...r, ground: false, layers: [], paths: [], size: [20, 20], physics: undefined };
+      }
       if (mode === "vector") {
         // composition vectorielle : sans maillage, rapide, synchrone
         const t0 = performance.now();

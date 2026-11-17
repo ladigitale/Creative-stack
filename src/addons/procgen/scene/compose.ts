@@ -296,7 +296,8 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
   const physIssues: { path: string; message: string }[] = [];
   const wantsPhysics = recipe.physics !== undefined && recipe.physics !== false && recipe.physics !== null;
   const layerPhysics = (recipe.layers ?? []).some((l) => l && ((l.physics !== undefined && l.physics !== false) || ("at" in (l.place ?? {}) && ((l.place as { at?: unknown[] }).at ?? []).some((a) => !!a && typeof a === "object" && !Array.isArray(a) && (a as { physics?: unknown }).physics))));
-  const physics: PhysicsSpec | null = wantsPhysics || layerPhysics ? readPhysics(wantsPhysics ? recipe.physics : true, physIssues) : null;
+  // monde infini : pas de corps dans les tuiles (physique 3D des scènes finies seulement)
+  const physics: PhysicsSpec | null = !input.tile && (wantsPhysics || layerPhysics) ? readPhysics(wantsPhysics ? recipe.physics : true, physIssues) : null;
   const physObj = recipe.physics && typeof recipe.physics === "object" ? (recipe.physics as Record<string, unknown>) : {};
   for (const x of physIssues) issues.add({ path: x.path, code: "unknown", message: x.message });
   const physicsScene = { water: (physObj.water ?? physObj.eau) !== false, walls: (physObj.walls ?? physObj.bords) !== false };
