@@ -319,7 +319,7 @@ export class SceneRuntime {
       this.monde.clear();
     }
     if (this.monde.group.parent !== this.content) this.content!.add(this.monde.group);
-    this.monde.applySky(this.scene, m);
+    this.monde.applySky(this.scene, m, this.renderer);
     if (first && fit && this.fitEnabled) {
       loadOps.updateBBox(this as never);
       this.fitToContent();

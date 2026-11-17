@@ -58,7 +58,7 @@ export type PrefabInfo = {
   variants: string[];
 };
 
-export type Matiere = { color?: string; tex?: unknown; glow?: number };
+export type Matiere = { color?: string; tex?: unknown; glow?: number; finish?: unknown };
 
 /** Ce qui distingue un format (3D en mètres, 2D en pixels) pour cette passe. */
 export type PrefabFormat = {
@@ -394,6 +394,7 @@ export function expandPrefabs<T extends { models?: unknown; place?: unknown }>(s
           if (m.color && part.color === undefined) part.color = m.color;
           if (m.tex !== undefined && part.tex === undefined) part.tex = m.tex;
           if (m.glow !== undefined && part.glow === undefined) part.glow = m.glow;
+          if (m.finish !== undefined && part.finish === undefined) part.finish = m.finish;
         }
         part = { ...part };
         delete part.matiere;

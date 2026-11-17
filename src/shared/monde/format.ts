@@ -218,6 +218,11 @@ export type MondeIn = {
   place?: PlaceIn[];
   /** `doux` (matière mate, défaut), `toon` (aplats), `brillant`. */
   look?: string;
+  /**
+   * Reflets de l'environnement (métal, verre, vernis) : `studio` (pièce lumineuse), `exterieur` (ciel et sol),
+   * `aucun`. Par défaut : `studio` dès qu'une pièce a un fini qui reflète, sinon `aucun`.
+   */
+  environnement?: string;
   /** Finesse des maillages : `low`, `mid` (défaut), `high`. */
   detail?: string;
   /** Vue 2D : `top`, `side`, `front`, `iso` ; `unit` px par mètre ; `origin` position écran de l'origine du monde. */
@@ -249,6 +254,62 @@ export type Shape = {
   pts: number[][];
 };
 
+/**
+ * Fini d'une matière : rugosité, métal, vernis (`clear`), reflet de tissu (`sheen`), opacité, verre (transmission,
+ * `ior`), relief tiré de la texture. Tout est de 0 à 1 sauf `ior` (1 à 2,5).
+ */
+export type Finish = { rough: number; metal: number; clear: number; sheen: number; opacity: number; glass: number; ior: number; relief: number };
+
+/** Finis prêts à l'emploi ; `{"fini": "verre", "rough": 0.3}` part d'un fini et en change une valeur. */
+export const FINIS: Record<string, Partial<Finish>> = {
+  mat: { rough: 0.9 },
+  satine: { rough: 0.5 },
+  brillant: { rough: 0.22, clear: 0.3 },
+  laque: { rough: 0.12, clear: 1 },
+  plastique: { rough: 0.4 },
+  ceramique: { rough: 0.25, clear: 0.6 },
+  metal: { metal: 1, rough: 0.35 },
+  brosse: { metal: 1, rough: 0.55, relief: 0.2 },
+  chrome: { metal: 1, rough: 0.04 },
+  miroir: { metal: 1, rough: 0 },
+  verre: { glass: 1, rough: 0.02, ior: 1.5 },
+  depoli: { glass: 1, rough: 0.45, ior: 1.5 },
+  eau: { glass: 0.9, rough: 0.05, ior: 1.33 },
+  tissu: { rough: 0.95, sheen: 0.7, relief: 0.3 },
+  velours: { rough: 1, sheen: 1, relief: 0.2 },
+  cuir: { rough: 0.55, clear: 0.15, relief: 0.35 },
+  caoutchouc: { rough: 0.9 },
+  bois: { rough: 0.7, relief: 0.35 },
+  pierre: { rough: 0.85, relief: 0.6 },
+  cire: { rough: 0.35, clear: 0.3, sheen: 0.2 },
+};
+
+const FINISH0: Finish = { rough: -1, metal: 0, clear: 0, sheen: 0, opacity: 1, glass: 0, ior: 1.5, relief: 0 };
+
+/** Lecture d'un fini : nom d'un fini prêt, ou objet (`fini` de départ et valeurs). `null` : aucun (rendu habituel). */
+export function readFinish(v: unknown, issue: (m: string) => void): Finish | null {
+  if (v === undefined || v === null) return null;
+  const o = typeof v === "string" ? { fini: v } : v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  if (!o) {
+    issue("nom de fini ou objet {fini, rough, metal, clear, sheen, opacity, glass, ior, relief} attendu");
+    return null;
+  }
+  const out: Finish = { ...FINISH0 };
+  if (typeof o.fini === "string") {
+    if (Object.prototype.hasOwnProperty.call(FINIS, o.fini)) Object.assign(out, FINIS[o.fini]);
+    else issue(`fini inconnu « ${o.fini} » (${Object.keys(FINIS).join(", ")})`);
+  }
+  for (const k of ["rough", "metal", "clear", "sheen", "opacity", "glass", "relief"] as const) {
+    const x = o[k];
+    if (typeof x === "number" && Number.isFinite(x)) out[k] = Math.min(1, Math.max(0, x));
+  }
+  if (typeof o.ior === "number" && Number.isFinite(o.ior)) out.ior = Math.min(2.5, Math.max(1, o.ior));
+  return out;
+}
+
+/** Signature courte d'un fini (clé de cache des matières). */
+export const finishKey = (f: Finish | null) => (f ? `${f.rough},${f.metal},${f.clear},${f.sheen},${f.opacity},${f.glass},${f.ior},${f.relief}` : "");
+
 export type Part = {
   name: string;
   parent: number;
@@ -262,6 +323,8 @@ export type Part = {
   hidden: boolean;
   glow: number;
   tex: TexSpec | null;
+  /** Fini (rugosité, métal, verre…) ; `null` : rendu habituel du style. */
+  finish: Finish | null;
   /** Image du monde (`monde.images`) posée sur la face avant (+z) de la pièce, à sa taille ; vide : aucune. */
   image: string;
   /** Nom de surface d'appui (vide : aucune), face qui reçoit et origine de `at`. */
@@ -345,6 +408,7 @@ export type Monde = {
   models: Map<string, Model>;
   place: Placement[];
   look: "doux" | "toon" | "brillant";
+  environnement: "studio" | "exterieur" | "aucun";
   detail: number;
   view2d: View2d;
   shadows: boolean;
@@ -598,6 +662,7 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
       hidden: p.hidden === true,
       glow: clampN(num(p.glow, 0), 0, 1),
       tex: readTex(p.tex, (message) => issues.push({ path: `${path2}.tex`, message })),
+      finish: readFinish((p as { finish?: unknown }).finish, (message) => issues.push({ path: `${path2}.finish`, message })),
       image: typeof (p as { image?: unknown }).image === "string" ? ((p as { image: string }).image).slice(0, 64) : "",
       ...readSurface(p.surface),
     });
@@ -1089,6 +1154,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
   const v = src.view2d ?? {};
   const view = (VIEWS as readonly string[]).includes(String(v.view)) ? (v.view as View2d["view"]) : "top";
   const look = (LOOKS as readonly string[]).includes(String(src.look)) ? (src.look as Monde["look"]) : "doux";
+  const envIn = (src as MondeIn).environnement;
   const detail = src.detail === "low" ? 0 : src.detail === "high" ? 2 : 1;
   const conflicts: Conflict[] = [];
   const textures: Record<string, TexSpec> = {};
@@ -1121,6 +1187,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     traits: clampN(num(src.traits, 1), 0, 3),
     place,
     look,
+    environnement: envIn === "studio" || envIn === "exterieur" || envIn === "aucun" ? envIn : reflects(models) ? "studio" : "aucun",
     detail,
     view2d: { view, unit: clampN(num(v.unit, 48), 1, 2000), origin: [num(v.origin?.[0], 0), num(v.origin?.[1], 0)] },
     shadows: src.shadows !== false,
@@ -1146,6 +1213,12 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     unit,
     issues,
   };
+}
+
+/** Vrai si une pièce d'un modèle a un fini qui reflète (métal, verre, vernis). */
+function reflects(models: Map<string, Model>): boolean {
+  for (const m of models.values()) for (const p of m.parts) if (p.finish && (p.finish.metal > 0.2 || p.finish.glass > 0 || p.finish.clear > 0.2)) return true;
+  return false;
 }
 
 /** Forme de collision écrite d'un modèle : boîtes dans son repère (une sphère ou une capsule comptent pour leur boîte). */
@@ -1269,20 +1342,34 @@ function readUnit(v: unknown, issues: Issue[]): number {
 
 /** Matières de base, complétées ou remplacées par `materiaux` du monde. */
 export const MATIERES: Record<string, Matiere> = {
-  chene: { color: "#b98a56", tex: "bois" },
-  pin: { color: "#dcbf8a", tex: "bois" },
-  noyer: { color: "#6b4426", tex: "bois" },
-  hetre: { color: "#d8b48a", tex: "bois" },
-  "bois-blanc": { color: "#ece6da", tex: { kind: "bois", contrast: 0.18 } },
-  "bois-noir": { color: "#2a2623", tex: { kind: "bois", contrast: 0.3 } },
-  acier: { color: "#aab2bd", tex: "metal" },
-  laiton: { color: "#b08d57", tex: "metal" },
-  "metal-noir": { color: "#23262b", tex: "metal" },
-  lin: { color: "#d9d0c1", tex: "tissu" },
-  coton: { color: "#f1eee8", tex: "tissu" },
-  laine: { color: "#c9c2b6", tex: "tricot" },
-  marbre: { color: "#e9e7e3", tex: "marbre" },
-  pierre: { color: "#9ca3af", tex: "pierre" },
+  chene: { color: "#b98a56", tex: "bois", finish: "bois" },
+  pin: { color: "#dcbf8a", tex: "bois", finish: "bois" },
+  noyer: { color: "#6b4426", tex: "bois", finish: { fini: "bois", clear: 0.25 } },
+  hetre: { color: "#d8b48a", tex: "bois", finish: "bois" },
+  "bois-blanc": { color: "#ece6da", tex: { kind: "bois", contrast: 0.18 }, finish: "satine" },
+  "bois-noir": { color: "#2a2623", tex: { kind: "bois", contrast: 0.3 }, finish: "satine" },
+  acier: { color: "#aab2bd", tex: "metal", finish: "brosse" },
+  laiton: { color: "#b08d57", tex: "metal", finish: "metal" },
+  "metal-noir": { color: "#23262b", tex: "metal", finish: { fini: "metal", rough: 0.5 } },
+  chrome: { color: "#e5e7eb", finish: "chrome" },
+  or: { color: "#e3b04b", finish: { fini: "metal", rough: 0.2 } },
+  cuivre: { color: "#c8744a", finish: { fini: "metal", rough: 0.3 } },
+  aluminium: { color: "#cfd4da", finish: { fini: "metal", rough: 0.45 } },
+  verre: { color: "#e8f2f4", finish: "verre" },
+  "verre-depoli": { color: "#eef3f5", finish: "depoli" },
+  "verre-fume": { color: "#5b6670", finish: { fini: "verre", opacity: 0.85 } },
+  plastique: { color: "#e5e7eb", finish: "plastique" },
+  "plastique-brillant": { color: "#ef4444", finish: "brillant" },
+  laque: { color: "#1f2937", finish: "laque" },
+  ceramique: { color: "#f5f5f0", finish: "ceramique" },
+  cuir: { color: "#7a4a2a", tex: { kind: "tissu", contrast: 0.15 }, finish: "cuir" },
+  velours: { color: "#5b4b8a", tex: { kind: "tissu", contrast: 0.12 }, finish: "velours" },
+  caoutchouc: { color: "#262626", finish: "caoutchouc" },
+  lin: { color: "#d9d0c1", tex: "tissu", finish: "tissu" },
+  coton: { color: "#f1eee8", tex: "tissu", finish: "tissu" },
+  laine: { color: "#c9c2b6", tex: "tricot", finish: "tissu" },
+  marbre: { color: "#e9e7e3", tex: "marbre", finish: "ceramique" },
+  pierre: { color: "#9ca3af", tex: "pierre", finish: "pierre" },
   blanc: { color: "#f8fafc" },
   noir: { color: "#16181d" },
 };
@@ -1298,6 +1385,7 @@ export function readMatieres(v: unknown, issues: Issue[]): Record<string, Matier
     else if (o.color !== undefined) issues.push({ path: `materiaux.${k}.color`, message: "couleur #rrggbb attendue" });
     if (o.tex !== undefined) mat.tex = o.tex;
     if (typeof o.glow === "number" && Number.isFinite(o.glow)) mat.glow = o.glow;
+    if (o.finish !== undefined) mat.finish = o.finish;
     out[k] = mat;
   }
   return out;

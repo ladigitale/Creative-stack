@@ -14,7 +14,7 @@
 import * as THREE from "three";
 import { geometryOf, type Geo } from "../../shared/monde/geometry";
 import { m4, m4Compose, m4Mul } from "../../shared/monde/math";
-import { partColor, partTex, type Conflict, type Model, type Monde, type Placement } from "../../shared/monde/format";
+import { finishKey, partColor, partTex, type Conflict, type Finish, type Model, type Monde, type Placement } from "../../shared/monde/format";
 import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/textures";
 import { MondeDriver, type InstanceState } from "../../shared/monde/driver";
 import { STRIDE } from "../../shared/monde/pose";
@@ -61,6 +61,73 @@ function ramp(): THREE.DataTexture {
 const IMAGES = new Map<string, THREE.Texture>();
 
 /** Matières partagées par (aspect, couleur, éclat, texture, instanciée). */
+const ENVS = new WeakMap<THREE.WebGLRenderer, Map<string, THREE.Texture>>();
+
+/** Carte d'environnement préfiltrée (PMREM) d'une sorte, gardée par rendu. */
+function envMap(renderer: THREE.WebGLRenderer, kind: "studio" | "exterieur", sky: string): THREE.Texture {
+  let byKind = ENVS.get(renderer);
+  if (!byKind) ENVS.set(renderer, (byKind = new Map()));
+  const key = kind === "exterieur" ? `${kind}|${sky}` : kind;
+  let t = byKind.get(key);
+  if (t) return t;
+  const pm = new THREE.PMREMGenerator(renderer);
+  const scene = kind === "studio" ? studioScene() : outdoorScene(sky);
+  t = pm.fromScene(scene, 0.03).texture;
+  pm.dispose();
+  scene.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    mesh.geometry?.dispose();
+    (mesh.material as THREE.Material | undefined)?.dispose?.();
+  });
+  if (byKind.size > 6) byKind.clear();
+  byKind.set(key, t);
+  return t;
+}
+
+/** Pièce claire éclairée par quelques panneaux lumineux (reflets nets sur le métal et le verre). */
+function studioScene(): THREE.Scene {
+  const s = new THREE.Scene();
+  const room = new THREE.Mesh(new THREE.BoxGeometry(10, 6, 10), new THREE.MeshBasicMaterial({ color: 0x8a8f96, side: THREE.BackSide }));
+  room.position.y = 2;
+  s.add(room);
+  const panel = (w: number, h: number, x: number, y: number, z: number, ry: number, k: number) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(k, k, k) }));
+    m.position.set(x, y, z);
+    m.rotation.y = ry;
+    m.lookAt(0, 1, 0);
+    s.add(m);
+  };
+  panel(4, 1.2, 0, 4.9, 0, 0, 6);
+  panel(2.4, 3, -4.9, 2.2, 1, Math.PI / 2, 3.5);
+  panel(2.4, 3, 4.9, 2.2, -1.5, -Math.PI / 2, 2.5);
+  panel(3, 2, 0.5, 2, -4.9, 0, 2);
+  return s;
+}
+
+/** Ciel du monde en dôme, horizon éclairci, sol sombre, soleil. */
+function outdoorScene(sky: string): THREE.Scene {
+  const s = new THREE.Scene();
+  const g = new THREE.SphereGeometry(10, 32, 16);
+  const top = new THREE.Color(sky), horizon = new THREE.Color(sky).lerp(new THREE.Color("#ffffff"), 0.6), ground = new THREE.Color("#4a4a44");
+  const pos = g.getAttribute("position");
+  const col = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 10;
+    if (y >= 0) c.copy(horizon).lerp(top, Math.min(1, y * 1.6));
+    else c.copy(horizon).lerp(ground, Math.min(1, -y * 4));
+    col[i * 3] = c.r;
+    col[i * 3 + 1] = c.g;
+    col[i * 3 + 2] = c.b;
+  }
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  s.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const sun = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(8, 7.5, 6.5) }));
+  sun.position.set(5, 7, 3);
+  s.add(sun);
+  return s;
+}
+
 class Materials {
   private map = new Map<string, THREE.Material>();
   private texs = new Map<string, THREE.DataTexture>();
@@ -91,23 +158,74 @@ class Materials {
     return tx;
   }
   /** Matière partagée du décor instancié : couleur portée par chaque copie, texture neutre. */
-  get(color: string, glow: number, tex: TexSpec | null, instanced = false): THREE.Material {
-    const key = `${color}|${glow}|${instanced}|${tex ? texKey(tex, "") + tex.scale + "/" + tex.angle : ""}`;
+  get(color: string, glow: number, tex: TexSpec | null, instanced = false, finish: Finish | null = null): THREE.Material {
+    const key = `${color}|${glow}|${instanced}|${tex ? texKey(tex, "") + tex.scale + "/" + tex.angle : ""}|${finishKey(finish)}`;
     let m = this.map.get(key);
     if (m) return m;
-    m = this.create(color, glow, tex, instanced);
+    m = this.create(color, glow, tex, instanced, finish);
     this.map.set(key, m);
     return m;
   }
 
-  /** Matière propre (instance nommée) : recolorée sur place quand ses rôles changent. */
-  create(color: string, glow: number, tex: TexSpec | null, neutral = false): THREE.MeshStandardMaterial | THREE.MeshToonMaterial {
+  /**
+   * Matière propre (instance nommée) : recolorée sur place quand ses rôles changent. Un fini donne une matière
+   * physique : rugosité et métal, vernis, reflet de tissu, verre (transmission), opacité, relief tiré de la texture.
+   * En style `toon`, seuls l'opacité et le verre (transparence) sont gardés.
+   */
+  create(color: string, glow: number, tex: TexSpec | null, neutral = false, f: Finish | null = null): THREE.MeshStandardMaterial | THREE.MeshToonMaterial {
     const map = tex ? this.texture(tex, neutral ? "#ffffff" : color) : null;
     const c = new THREE.Color(neutral || map ? "#ffffff" : color);
     const em = glow > 0 ? new THREE.Color(color).multiplyScalar(glow) : new THREE.Color(0);
-    const m = this.look === "toon"
-      ? new THREE.MeshToonMaterial({ color: c, map, gradientMap: ramp(), emissive: em })
-      : new THREE.MeshStandardMaterial({ color: c, map, roughness: this.look === "brillant" ? 0.28 : 0.72, metalness: 0, emissive: em });
+    let m: THREE.MeshStandardMaterial | THREE.MeshToonMaterial;
+    if (this.look === "toon") {
+      m = new THREE.MeshToonMaterial({ color: c, map, gradientMap: ramp(), emissive: em });
+      if (f && (f.opacity < 1 || f.glass > 0)) {
+        m.transparent = true;
+        m.opacity = Math.min(f.opacity, 1 - f.glass * 0.6);
+        m.depthWrite = false;
+      }
+    } else if (f && (f.clear > 0 || f.sheen > 0 || f.glass > 0)) {
+      const pm = new THREE.MeshPhysicalMaterial({
+        color: c,
+        map,
+        emissive: em,
+        roughness: f.rough >= 0 ? f.rough : this.look === "brillant" ? 0.28 : 0.72,
+        metalness: f.metal,
+        clearcoat: f.clear,
+        clearcoatRoughness: 0.08,
+        sheen: f.sheen,
+        sheenRoughness: 0.6,
+        sheenColor: new THREE.Color(color).lerp(new THREE.Color("#ffffff"), 0.35),
+        transmission: f.glass,
+        ior: f.ior,
+        thickness: f.glass > 0 ? 0.02 : 0,
+        // un verre teinté garde sa couleur à travers (atténuation), l'opacité < 1 fume le verre
+        attenuationColor: new THREE.Color(color),
+        attenuationDistance: f.glass > 0 ? 0.6 : Infinity,
+        specularIntensity: 1,
+      });
+      m = pm;
+    } else {
+      m = new THREE.MeshStandardMaterial({
+        color: c,
+        map,
+        roughness: f && f.rough >= 0 ? f.rough : this.look === "brillant" ? 0.28 : 0.72,
+        metalness: f ? f.metal : 0,
+        emissive: em,
+      });
+    }
+    if (f && !(m instanceof THREE.MeshToonMaterial)) {
+      if (f.opacity < 1) {
+        m.transparent = true;
+        m.opacity = f.opacity;
+        m.depthWrite = f.opacity > 0.9;
+      }
+      // relief : la texture procédurale sert aussi de carte de bosses
+      if (map && f.relief > 0) {
+        m.bumpMap = map;
+        m.bumpScale = f.relief * 3;
+      }
+    }
     this.owned.add(m);
     return m;
   }
@@ -115,10 +233,16 @@ class Materials {
   /** Recolore une matière propre (couleur, éclat, texture teintée). */
   recolor(m: THREE.MeshStandardMaterial | THREE.MeshToonMaterial, color: string, glow: number, tex: TexSpec | null) {
     if (tex) {
+      const had = !(m instanceof THREE.MeshToonMaterial) && m.bumpMap === m.map && !!m.map;
       m.map = this.texture(tex, color);
+      if (had && !(m instanceof THREE.MeshToonMaterial)) m.bumpMap = m.map;
       m.color.set(m.map.userData.neutral ? color : "#ffffff");
     } else m.color.set(color);
     if (glow > 0) m.emissive.set(color).multiplyScalar(glow);
+    if (m instanceof THREE.MeshPhysicalMaterial) {
+      m.sheenColor.set(color).lerp(new THREE.Color("#ffffff"), 0.35);
+      m.attenuationColor.set(color);
+    }
     m.needsUpdate = !!tex;
   }
   private owned = new Set<THREE.Material>();
@@ -296,7 +420,7 @@ export class Monde3d {
       if (!g || p.hidden) return;
       const color = new THREE.Color(partColor(model, p, roles, m.palette));
       if (p.glow > 0) color.multiplyScalar(1 + p.glow * 0.5);
-      out.push({ geo: this.bufferOf(g), mat: this.mats.get(partColor(model, p, undefined, m.palette), p.glow, partTex(m, p), true), local: world.slice(i * 16, i * 16 + 16), color });
+      out.push({ geo: this.bufferOf(g), mat: this.mats.get(partColor(model, p, undefined, m.palette), p.glow, partTex(m, p), true, p.finish), local: world.slice(i * 16, i * 16 + 16), color });
     });
     return out;
   }
@@ -500,8 +624,31 @@ export class Monde3d {
     } else this.selection = this.outline(this.selection, [], 0, 0);
   }
 
+  private envSaved: { env: THREE.Texture | null; intensity: number } | null = null;
+
+  /**
+   * Reflets (métal, verre, vernis) : carte d'environnement préfiltrée, calculée une fois par rendu et par sorte,
+   * sans image à charger (`studio` : pièce lumineuse ; `exterieur` : ciel du monde, horizon clair, sol sombre).
+   */
+  private applyEnv(scene: THREE.Scene, m: Monde | null, renderer?: THREE.WebGLRenderer) {
+    const kind = m && renderer ? m.environnement : "aucun";
+    if (kind === "aucun") {
+      if (this.envSaved) {
+        scene.environment = this.envSaved.env;
+        scene.environmentIntensity = this.envSaved.intensity;
+        this.envSaved = null;
+      }
+      return;
+    }
+    this.envSaved ??= { env: scene.environment, intensity: scene.environmentIntensity };
+    scene.environment = envMap(renderer!, kind, m!.ciel || "#bcd3e8");
+    // les lumières de la scène restent la source principale : l'environnement donne surtout les reflets
+    scene.environmentIntensity = 0.7;
+  }
+
   /** Ciel et brume du monde ; ceux de la scène sont rendus quand le monde n'en donne plus. */
-  applySky(scene: THREE.Scene, m: Monde | null) {
+  applySky(scene: THREE.Scene, m: Monde | null, renderer?: THREE.WebGLRenderer) {
+    this.applyEnv(scene, m, renderer);
     if (m?.ciel) {
       this.bgSaved ??= { bg: scene.background, fog: scene.fog };
       scene.background = new THREE.Color(m.ciel);
@@ -541,7 +688,7 @@ export class Monde3d {
       joints.push(j);
       const g = geometryOf(p, m.detail);
       const tex = partTex(m, p);
-      const key = `${p.color || "@" + p.role}|${p.glow}|${tex ? texKey(tex, "") + tex.scale + "/" + tex.angle : ""}`;
+      const key = `${p.color || "@" + p.role}|${p.glow}|${tex ? texKey(tex, "") + tex.scale + "/" + tex.angle : ""}|${finishKey(p.finish)}`;
       matKey.push(key);
       const img = p.image && Object.prototype.hasOwnProperty.call(m.images, p.image) ? m.images[p.image] : "";
       if (g && img) {
@@ -551,7 +698,7 @@ export class Monde3d {
         meshes.push(mesh);
       } else if (g) {
         let e = mats.get(key);
-        if (!e) mats.set(key, (e = { m: this.mats.create(partColor(model, p, inst.roles, m.palette), p.glow, tex), part: i }));
+        if (!e) mats.set(key, (e = { m: this.mats.create(partColor(model, p, inst.roles, m.palette), p.glow, tex, false, p.finish), part: i }));
         const mesh = new THREE.Mesh(this.bufferOf(g), e.m);
         // sans nom : un tap remonte à l'articulation `<instance>_<pièce>` ou à l'instance (pick-names)
         j.add(mesh);
@@ -735,7 +882,7 @@ export class Monde3d {
       model.parts.forEach((p, i) => {
         const g = geometryOf(p, m.detail);
         if (!g || p.hidden) return;
-        const im = new THREE.InstancedMesh(this.bufferOf(g), this.mats.get(partColor(model, p, undefined, m.palette), p.glow, partTex(m, p), true), list.length);
+        const im = new THREE.InstancedMesh(this.bufferOf(g), this.mats.get(partColor(model, p, undefined, m.palette), p.glow, partTex(m, p), true, p.finish), list.length);
         im.name = `${name}~decor~${p.name}`;
         const color = new THREE.Color();
         const pm = new THREE.Matrix4();

@@ -151,10 +151,11 @@ d'autres modèles (`use`) et offrir des **emplacements** (`slots`). Chaque place
 - **`slots`** : `{"abatJour": {"accepte": "abat-jour", "at": [0, "= hauteur", 0], "default": "cone"}}` réserve un
   emplacement aux modèles de la `famille` indiquée. Le placement choisit : `"slots": {"abatJour": "boule"}`,
   `{"model": "boule", "params": {…}}` ou `null` (vide).
-- **`matiere`** sur une pièce : nom du nuancier, qui donne couleur, texture et éclat. Matières de base : `chene`, `pin`,
-  `noyer`, `hetre`, `bois-blanc`, `bois-noir`, `acier`, `laiton`, `metal-noir`, `lin`, `coton`, `laine`, `marbre`,
-  `pierre`, `blanc`, `noir` ; `materiaux` du monde en ajoute ou en remplace
-  (`{"rose": "#ff66aa", "velours": {"color": "#7c2d12", "tex": "tissu"}}`).
+- **`matiere`** sur une pièce : nom du nuancier, qui donne couleur, texture, éclat et fini (voir « Finis »). Matières de base : `chene`, `pin`,
+  `noyer`, `hetre`, `bois-blanc`, `bois-noir`, `acier`, `laiton`, `metal-noir`, `chrome`, `or`, `cuivre`, `aluminium`,
+  `verre`, `verre-depoli`, `verre-fume`, `plastique`, `plastique-brillant`, `laque`, `ceramique`, `cuir`, `velours`,
+  `caoutchouc`, `lin`, `coton`, `laine`, `marbre`, `pierre`, `blanc`, `noir` ; `materiaux` du monde en ajoute ou en
+  remplace (`{"rose": "#ff66aa", "satin": {"color": "#7c2d12", "tex": "tissu", "finish": "velours"}}`).
 - **Catalogue** : `famille`, `tags`, `pose` (`sol`, `mur`, `plafond`, `dessus`), `degagement` décrivent le modèle ; ils
   sont publiés tels quels (voir Sortie).
 - **Placement** : `params` accepte des expressions tirées **par copie** dans une grille ou un semis (`i`, `n`, `rand`,
@@ -649,6 +650,40 @@ metal pierre hachures tricot nuages camouflage` (noms anglais acceptés). Forme 
 `{"kind": "rayures", "color2": "#ffffff", "scale": 6 (motifs par m), "angle": 30, "contrast": 0.6}`. Priorité : `tex` de la
 pièce > `textures.<rôle>` > `texture` du monde. Styles rapides : `"texture": "grain"` (gouache), `"hachures"` (BD),
 `"look": "toon"` (aplats).
+
+## Finis : métal, verre, vernis, tissu
+
+`finish` sur une pièce (ou dans une matière de `materiaux`) donne une matière physique : un nom de fini prêt, ou un
+objet qui part d'un fini et en change des valeurs.
+
+```json
+{ "name": "abat-jour", "cone": [0.2, 0.25], "color": "#f3ead7", "finish": { "fini": "verre", "rough": 0.4, "opacity": 0.9 } }
+```
+
+Finis prêts : `mat`, `satine`, `brillant`, `laque`, `plastique`, `ceramique`, `metal`, `brosse`, `chrome`, `miroir`,
+`verre`, `depoli`, `eau`, `tissu`, `velours`, `cuir`, `caoutchouc`, `bois`, `pierre`, `cire`.
+
+| Valeur | Effet (0 à 1) |
+|---|---|
+| `rough` | Rugosité : 0 miroir, 1 mat (sans fini : celle du `look`) |
+| `metal` | Métal : reflète l'environnement, teinte ses reflets |
+| `clear` | Vernis transparent par-dessus (laque, céramique, carrosserie) |
+| `sheen` | Reflet rasant du tissu (velours, laine) |
+| `glass`, `ior` | Verre : la lumière traverse (`ior` de 1 à 2,5, 1,5 pour le verre, 1,33 pour l'eau) ; la couleur teinte ce qui est vu à travers |
+| `opacity` | Opacité (verre fumé, voilage) |
+| `relief` | La texture procédurale (`tex`) sert aussi de relief (bois, cuir, pierre, tissu) |
+
+Les matières de base portent leur fini : `chrome`, `or`, `cuivre`, `aluminium`, `acier` (brossé), `laiton`,
+`metal-noir`, `verre`, `verre-depoli`, `verre-fume`, `plastique`, `plastique-brillant`, `laque`, `ceramique`, `cuir`,
+`velours`, `caoutchouc`, bois, tissus, `marbre`, `pierre`. Les vitres des fenêtres sont en verre, un `cadre` en
+`miroir: true` reflète.
+
+`environnement` (monde) donne les reflets : `studio` (pièce lumineuse), `exterieur` (le ciel du monde, horizon clair,
+sol sombre, soleil) ou `aucun` ; par défaut `studio` dès qu'une pièce a un fini qui reflète (métal, verre, vernis).
+Calculé une fois par rendu, sans image à charger.
+
+En style `toon`, seuls l'opacité et la transparence du verre comptent. En 2D, le verre et l'opacité rendent la
+silhouette transparente ; le métal, le vernis et le verre ont un reflet franc ; un fini mat n'en a pas.
 
 ## Performance
 

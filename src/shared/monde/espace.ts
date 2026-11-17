@@ -315,7 +315,7 @@ function builtinOpenings(U: (m: number) => number): Record<string, Obj> {
       parts: [
         ...frame(true),
         { name: "meneau", box: [f * 0.8, "= hauteur", d * 0.8], at: [0, "= hauteur / 2", 0], color: "= cadre" },
-        { name: "vitre", box: ["= largeur - " + f, "= hauteur - " + f, U(0.01)], at: [0, "= hauteur / 2", 0], color: "#bcdcf0", glow: 0.25 },
+        { name: "vitre", box: ["= largeur - " + f, "= hauteur - " + f, U(0.01)], at: [0, "= hauteur / 2", 0], color: "#d6eaf5", finish: "verre" },
       ],
     },
     porte: {
