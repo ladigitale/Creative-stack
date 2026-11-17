@@ -390,6 +390,8 @@ export type Part = {
   soft?: SoftSpec | null;
   /** Chevelure en mèches plantée sur la pièce (3D), `null` : aucune. */
   hair?: HairSpec | null;
+  /** Accessoire d'un modèle gen (cape, chapeau, sac, chevelure…) porté par un os. */
+  accessory?: boolean;
   /** Image du monde (`monde.images`) posée sur la face avant (+z) de la pièce, à sa taille ; vide : aucune. */
   image: string;
   /** Nom de surface d'appui (vide : aucune), face qui reçoit et origine de `at`. */
@@ -430,7 +432,14 @@ export type Model = {
   collider?: Obb[] | "none";
 };
 
-export type GenSpec = { id: string; params: Record<string, unknown>; seed: string; rig: GenRig };
+export type GenSpec = {
+  id: string;
+  params: Record<string, unknown>;
+  seed: string;
+  rig: GenRig;
+  /** Finis par rôle (`{"maillot": "velours", "metal": "chrome"}`), par-dessus ceux du style. */
+  finishes?: Record<string, Finish>;
+};
 
 export type Placement = {
   model: string;
@@ -719,8 +728,22 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
       const gp = genPreset(src.gen, params);
       preset = gp;
       gen = { id: src.gen, params, seed: `${src.seed ?? name}`, rig: gp.rig };
+      // finis par rôle du modèle gen : `finish: {"maillot": "velours", "metal": "chrome"}`
+      const fin = (src as { finish?: unknown }).finish;
+      if (fin && typeof fin === "object" && !Array.isArray(fin)) {
+        const finishes: Record<string, Finish> = {};
+        for (const [role, raw] of Object.entries(fin as Record<string, unknown>)) {
+          const f = readFinish(raw, (message) => issues.push({ path: `${path}.finish.${role}`, message }));
+          if (f) finishes[role] = f;
+        }
+        if (Object.keys(finishes).length) gen.finishes = finishes;
+      } else if (typeof fin === "string") {
+        // un seul fini : tous les rôles habillés (pas la peau ni les yeux)
+        const f = readFinish(fin, (message) => issues.push({ path: `${path}.finish`, message }));
+        if (f) gen.finishes = Object.fromEntries(["cloth1", "cloth2", "cloth3", "leather", "metal", "wood", "accent"].map((r) => [r, f]));
+      }
       if (src.preset !== undefined) issues.push({ path: `${path}.preset`, message: "ignoré : le modèle a déjà un générateur (gen)" });
-      if (Array.isArray(src.parts) && src.parts.length) issues.push({ path: `${path}.parts`, message: "ignorées : un modèle gen n'a que ses os (pièces sans forme)" });
+
     }
   }
   if (!gen && typeof src.preset === "string") {
@@ -730,6 +753,20 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
   }
   // Pièces du préréglage puis pièces écrites (même nom = remplace, sinon ajoute)
   const inParts: PartIn[] = [...(preset?.parts ?? [])];
+  // modèle gen : ses os, plus des accessoires (forme, `souple`, `cheveux`) accrochés à un os par `parent`
+  const accessories = new Set<string>();
+  if (gen && Array.isArray(src.parts))
+    src.parts.forEach((p, i) => {
+      if (!p || typeof p !== "object") return;
+      const q = p as PartIn & { souple?: unknown; cheveux?: unknown };
+      const has = SHAPES.some((k) => q[k] !== undefined) || q.souple !== undefined || q.cheveux !== undefined;
+      if (!has || typeof q.name !== "string" || !q.name || inParts.some((b) => b.name === q.name)) {
+        issues.push({ path: `${path}.parts.${i}`, message: "accessoire d'un modèle gen : nom libre (pas celui d'un os) et une forme, `souple` ou `cheveux` ; `parent` = un os (tete, torse, main…)" });
+        return;
+      }
+      accessories.add(q.name.replace(/[^\w-]/g, ""));
+      inParts.push(q);
+    });
   for (const p of !gen && Array.isArray(src.parts) ? src.parts : []) {
     if (!p || typeof p !== "object") continue;
     const i = typeof p.name === "string" ? inParts.findIndex((q) => q.name === p.name) : -1;
@@ -906,6 +943,8 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
   if (gen) for (const [k, v] of Object.entries(GEN_ROLES)) roles[k] = roles[v] = own(ownPal, k) ?? "";
   for (const p of sorted) if (p.role && !Object.prototype.hasOwnProperty.call(roles, p.role)) roles[p.role] = own(ownPal, p.role) ?? safeColor(own(preset?.roles, p.role)) ?? own(palette, p.role) ?? "#94a3b8";
   const clip = typeof src.clip === "string" ? src.clip : preset?.clip ?? (clips.has("idle") ? "idle" : "");
+  // dédoublés (`mirror`) ou répétés (`repeat`) : `gantL`, `boucle2` restent des accessoires
+  if (accessories.size) for (const p of sorted) if (accessories.has(p.name) || accessories.has(p.name.replace(/(L|R|\d+)$/, ""))) p.accessory = true;
   return { name, sig: "", parts: sorted, clips, clip, roles, gen, issues: [] };
 }
 

@@ -10,6 +10,7 @@
  *   plantés), actions du moteur et pistes d'os du format ajoutées à la pose ; skinning par quaternions duaux.
  * - `GenKit.instanced` : copies de décor d'un même modèle en un seul appel de dessin.
  */
+import { encodeRoleFinishes, type RoleFinishes } from "./style/finishes";
 import * as THREE from "three";
 import { genRole } from "../../shared/monde/gen";
 import { type Q, type V3, qEuler, qMul } from "./core/math";
@@ -76,6 +77,8 @@ export class GenKit {
   private size = new THREE.Vector2();
 
   private traits = 1;
+  /** Acteurs qui portent leurs propres finis (recalculés quand le style change). */
+  readonly finishOwners = new Set<GenActor>();
 
   constructor(
     style: unknown,
@@ -126,6 +129,8 @@ export class GenKit {
     u.uLamps.value = s.lamps;
     u.uRim.value = s.rim;
     u.uDetail.value = s.detail;
+    (u.uRoleMat.value as Float32Array).set(encodeRoleFinishes(s.finishes));
+    for (const a of this.finishOwners) a.refreshFinishes();
     u.uShadowStrength.value = s.shadows ? s.shadowStrength : 0;
     u.uShadowOn.value = 0;
     u.uOutlinePx.value = s.outline * s.outlineStrength * this.traits;
@@ -363,6 +368,41 @@ export class GenActor {
     this.kit.roles(this.asset, roles, this.roleBuf.value);
   }
 
+  private ownFinishes: RoleFinishes | null = null;
+  private boneW: ArrayLike<number>[] | null = null;
+
+  /** Matrice (colonnes, repère de l'acteur) d'un os procgen dans la pose courante ; `null` si l'os n'existe pas. */
+  boneMatrix(bone: string): ArrayLike<number> | null {
+    const sk = this.asset.skeleton;
+    if (!sk || !this.boneW) return null;
+    const i = sk.index[bone];
+    return i === undefined ? null : this.boneW[i];
+  }
+
+  /** Finis propres par rôle (`finish` du modèle gen), par-dessus ceux du style ; `null` : ceux du style. */
+  setFinishes(f: RoleFinishes | null) {
+    // rôles du format (`maillot`, `peau`…) ramenés aux rôles procgen
+    const mapped: RoleFinishes = {};
+    for (const [k, v] of Object.entries(f ?? {})) {
+      const r = genRole(k, ROLES);
+      if (r && v) mapped[r] = v;
+    }
+    this.ownFinishes = Object.keys(mapped).length ? mapped : null;
+    if (this.ownFinishes) {
+      this.kit.finishOwners.add(this);
+      if (this.mats.uniforms.uRoleMat === this.kit.shared.uRoleMat) this.mats.uniforms.uRoleMat = { value: new Float32Array((this.kit.shared.uRoleMat.value as Float32Array).length) };
+    } else {
+      this.kit.finishOwners.delete(this);
+      this.mats.uniforms.uRoleMat = this.kit.shared.uRoleMat;
+    }
+    this.refreshFinishes();
+  }
+
+  refreshFinishes() {
+    if (!this.ownFinishes) return;
+    (this.mats.uniforms.uRoleMat.value as Float32Array).set(encodeRoleFinishes(this.kit.style.finishes, this.ownFinishes));
+  }
+
   setGlow(amount: number, color: string | undefined) {
     this.mats.uniforms.uGlow.value = Math.max(0, Math.min(2, amount));
     if (color && /^#[0-9a-f]{6}$/i.test(color)) (this.mats.uniforms.uGlowCol.value as THREE.Color).set(color).convertSRGBToLinear();
@@ -422,6 +462,7 @@ export class GenActor {
       if (o[0] || o[1] || o[2]) pose.root = [pose.root[0] + o[0], pose.root[1] + o[1], pose.root[2] + o[2]] as V3;
     }
     const W = sk.world(pose);
+    this.boneW = W;
     const S = sk.skinMatrices(W);
     const arr = this.mats.uniforms.uDQ.value as THREE.Vector4[];
     for (let i = 0; i < Math.min(S.length, MAX_BONES); i++) {
@@ -432,6 +473,7 @@ export class GenActor {
   }
 
   dispose() {
+    this.kit.finishOwners.delete(this);
     this.mats.color.dispose();
     this.mats.outline.dispose();
     this.object.removeFromParent();

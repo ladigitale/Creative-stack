@@ -34,6 +34,7 @@ import { InfiniLayer } from "./infini3d";
 import { TexAdapt } from "./tex-adapt";
 import { applyParallax, normalMapOf, ormMapOf } from "./tex-maps";
 import { HerbesLayer } from "./herbes3d";
+import { genBodyColliders } from "./soft3d";
 import { buildHair, buildSoft, disposeHair, disposeSoft, stepHair, stepSoft, type HairView, type SoftView } from "./soft3d";
 import { loadRapier, RigidWorld, type ContactEvent, type RigidPose, type RigidState } from "../../shared/sim/rigid";
 import { decorShapes, GameProbe, type QueryResult } from "../../shared/sim/queries";
@@ -317,6 +318,8 @@ class Materials {
   }
 }
 
+const tmpM = new THREE.Matrix4();
+
 type OwnMat = THREE.MeshStandardMaterial | THREE.MeshToonMaterial;
 
 type Built = {
@@ -324,6 +327,8 @@ type Built = {
   softs?: SoftView[];
   /** Chevelures en mèches. */
   hairs?: HairView[];
+  /** Modèle gen : repère local de chaque accessoire (null pour un os). */
+  accLocal?: (THREE.Matrix4 | null)[];
   inst: InstanceState;
   joints: THREE.Object3D[];
   meshes: (THREE.Mesh | null)[];
@@ -886,6 +891,7 @@ export class Monde3d {
       root.add(j);
       return j;
     });
+    for (const j of joints) j.matrixAutoUpdate = false;
     const shadow = this.makeShadow(m, 0.35 * Math.max(pl.scale[0], pl.scale[2]));
     // placée tout de suite sous l'instance (sinon elle reste à l'origine jusqu'au premier pas d'animation)
     shadow?.position.set(pl.at[0], 0.005, pl.at[2]);
@@ -893,9 +899,11 @@ export class Monde3d {
     const kept = this.spare.get(inst.name);
     const b: Built = { inst, joints, meshes: [], mats: new Map(), matKey: [], shadow, rolesRev: inst.rolesRev, gen: { actor: null, bones: model.parts.map((p) => aliasBone(p.name)), glow: kept?.glow ?? 0, glowColor: kept?.glowColor ?? "", step: new Map(), rootOff: [0, 0, 0] } };
     this.built.set(inst.name, b);
+    this.buildAccessories(m, inst, joints, b);
     const spec = model.gen!;
     const attach = (actor: GenActor) => {
       actor.setRoles(inst.roles);
+      actor.setFinishes(spec.finishes ?? null);
       actor.setGlow(b.gen!.glow, b.gen!.glowColor);
       root.add(actor.object);
       b.gen!.actor = actor;
@@ -923,6 +931,76 @@ export class Monde3d {
     // asset déjà généré : tout de suite ; sinon en tâche découpée
     if (this.kit && this.kit.cached(spec, spec.rig !== "none")) make(this.kit);
     else this.withKit(make);
+  }
+
+  /**
+   * Accessoires d'un modèle gen (pièces écrites portées par un os) : formes avec leurs matières, finis et cartes,
+   * pièces souples (repoussées par le corps, approché par des sphères sur les os) et chevelures.
+   */
+  private buildAccessories(m: Monde, inst: InstanceState, joints: THREE.Object3D[], b: Built) {
+    const model = inst.model;
+    const softs: SoftView[] = [];
+    const hairs: HairView[] = [];
+    const local: (THREE.Matrix4 | null)[] = model.parts.map(() => null);
+    model.parts.forEach((p, i) => {
+      if (!p.accessory) return;
+      local[i] = new THREE.Matrix4().compose(new THREE.Vector3(...p.at), new THREE.Quaternion().setFromEuler(new THREE.Euler(p.rot[0], p.rot[1], p.rot[2])), new THREE.Vector3(...p.scale));
+      const j = joints[i];
+      j.visible = false;
+      const g = geometryOf(p, m.detail);
+      if (!g) return;
+      const mat = this.mats.create(partColor(model, p, inst.roles, m.palette), p.glow, partTex(m, p), false, p.finish);
+      if (p.soft) {
+        const sv = buildSoft(model, i, m.detail, mat);
+        if (sv) {
+          sv.colliders.push(...genBodyColliders(model));
+          sv.spheres = new Float32Array(Math.min(24, sv.colliders.length) * 4);
+          sv.colliders.length = Math.min(24, sv.colliders.length);
+          softs.push(sv);
+          this.group.add(sv.mesh);
+          return;
+        }
+      }
+      if (p.hair) {
+        const hv = buildHair(model, i, m.detail, mat, p.hair.color);
+        if (hv) {
+          hairs.push(hv);
+          this.group.add(hv.mesh);
+        }
+      }
+      if (!p.hidden) j.add(new THREE.Mesh(this.bufferOf(g), mat));
+    });
+    if (local.some(Boolean)) {
+      b.accLocal = local;
+      if (softs.length) b.softs = softs;
+      if (hairs.length) b.hairs = hairs;
+    }
+  }
+
+  /** Os et accessoires d'une instance gen suivent la pose de l'acteur (accessoires visibles dès qu'il existe). */
+  private poseGenJoints(b: Built) {
+    const actor = b.gen?.actor;
+    if (!actor) return;
+    const parts = b.inst.model.parts;
+    actor.object.updateMatrix();
+    const base = actor.object.matrix;
+    for (let i = 0; i < parts.length; i++) {
+      const j = b.joints[i];
+      const p = parts[i];
+      const loc = b.accLocal?.[i];
+      if (!loc) {
+        const bone = b.gen!.bones[i];
+        const w = bone ? actor.boneMatrix(bone) : null;
+        if (w) j.matrix.multiplyMatrices(base, tmpM.fromArray(w as number[]));
+        else j.matrix.copy(base);
+      } else {
+        const parent = p.parent >= 0 ? b.joints[p.parent].matrix : base;
+        j.matrix.multiplyMatrices(parent, loc);
+        // un accessoire caché ne dessine pas sa forme (pas de maillage) mais porte ses mèches ou son tissu
+        j.visible = true;
+      }
+      j.matrixWorldNeedsUpdate = true;
+    }
   }
 
   private reportGen(m: Monde, model: string, issues: { path: string; message: string }[]) {
@@ -1270,6 +1348,7 @@ export class Monde3d {
       const inst = b.inst;
       if (b.gen) {
         changed = this.stepGen(b, dt) || changed;
+        if ((b.softs || b.hairs) && b.gen.actor && this.stepSofts(b, dt)) changed = true;
         continue;
       }
       if (inst.poseChanged) {
@@ -1301,17 +1380,22 @@ export class Monde3d {
           b.shadow.visible = root.visible;
         }
       }
-      if (b.softs || b.hairs) {
-        const v = this.monde.vent;
-        const wind: [number, number, number] = Math.hypot(v[0], v[1], v[2]) > 0.01 ? [v[0], v[1], v[2]] : [0.6, 0, 0.3];
-        if (b.softs) for (const sv of b.softs) if (stepSoft(sv, b.joints, dt, [0, -9.81, 0], wind)) changed = true;
-        if (b.hairs) for (const hv of b.hairs) if (stepHair(hv, b.joints, dt, [0, -9.81, 0], wind)) changed = true;
-      }
+      if ((b.softs || b.hairs) && this.stepSofts(b, dt)) changed = true;
     }
     return changed;
   }
 
   /** Acteur procgen : clip → locomotion / action du moteur + pistes d'os ; rôles ; ombre. */
+  /** Pièces souples et chevelures d'une instance (vent du monde, sinon une brise). */
+  private stepSofts(b: Built, dt: number): boolean {
+    const v = this.monde!.vent;
+    const wind: [number, number, number] = Math.hypot(v[0], v[1], v[2]) > 0.01 ? [v[0], v[1], v[2]] : [0.6, 0, 0.3];
+    let changed = false;
+    if (b.softs) for (const sv of b.softs) if (stepSoft(sv, b.joints, dt, [0, -9.81, 0], wind)) changed = true;
+    if (b.hairs) for (const hv of b.hairs) if (stepHair(hv, b.joints, dt, [0, -9.81, 0], wind)) changed = true;
+    return changed;
+  }
+
   private stepGen(b: Built, dt: number): boolean {
     const g = b.gen!;
     const inst = b.inst;
@@ -1350,6 +1434,7 @@ export class Monde3d {
     const speed = inst.clip.speed ?? 1;
     const frozen = speed === 0 || inst.clip.fixed !== null;
     actor.update(frozen ? 0 : dt * speed, root, { clip, clipSpeed: mo.speed * speed, action: mo.action || undefined, bones, rootOff: ro }, Math.max(1e-3, Math.abs(root.scale.x)));
+    if (b.accLocal) this.poseGenJoints(b);
     return root.visible;
   }
 
