@@ -42,3 +42,13 @@ describe("porte : sens", () => {
     expect(at({ ouvre: "dehors" }, "gond")[2]).toBeLessThan(0);
   });
 });
+
+describe("plafond", () => {
+  it("n'a que sa face de dessous quand les murs sont à une face (la maquette reste ouverte)", () => {
+    const w = { ...monde(), espace: { ...monde().espace, plafond: true } };
+    const m = readMonde(w);
+    const md = m.models.get(m.place.find((p) => p.name === "plafond")!.model)!;
+    expect(md.parts[0].shape?.kind).toBe("extrude");
+    expect(md.parts[0].shape?.a[1]).toBe(1);
+  });
+});

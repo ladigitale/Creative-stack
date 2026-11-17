@@ -695,13 +695,15 @@ function readShape(p: PartIn, path: string, issues: Issue[]): Shape | null {
       return { kind, a: [], pts: pts.map(([r, y]) => [Math.abs(r), y]) };
     }
     case "extrude": {
-      const o = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { pts: raw }) as { pts?: unknown; depth?: unknown };
+      const o = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { pts: raw }) as { pts?: unknown; depth?: unknown; face?: unknown };
       const pts = ptsOf(o.pts, 2);
       if (pts.length < 3) {
         issues.push({ path, message: "extrude : au moins 3 points [x, y] dans pts" });
         return null;
       }
-      return { kind, a: [dim(num(o.depth, 0.1))], pts };
+      // face : "avant" (+z) ou "arriere" (-z) seule, visible d'un côté ; absent : le volume entier
+      const face = o.face === "avant" ? 1 : o.face === "arriere" ? -1 : 0;
+      return { kind, a: face ? [dim(num(o.depth, 0.1)), face] : [dim(num(o.depth, 0.1))], pts };
     }
     case "tube": {
       const o = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { pts: raw }) as { pts?: unknown; r?: unknown; r2?: unknown };

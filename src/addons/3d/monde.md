@@ -66,7 +66,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `rot` | Rotation de repos (degrés) |
 | `off` | Centre de la forme par rapport à l'articulation (un bras qui pend : `off: [0, -0.2, 0]`) |
 | `scale` | Nombre ou `[x, y, z]` |
-| forme | **Une** des clés : `box: [w, h, d, arrondi]`, `sphere: r` ou `[rx, ry, rz]`, `capsule: [r, longueur]` (le long de y), `cylinder: [r, h, rHaut]`, `cone: [r, h]`, `torus: [R, r, arcDeg]` (autour de y), `lathe: [[r, y], …]` (profil tourné autour de y), `extrude: {pts: [[x, y], …], depth}` (polygone dans le plan XY, épaissi en z), `tube: {pts: [[x, y, z], …], r, r2}`, `plane: [w, d]` (sol, face vers +y). Sans forme : articulation pure |
+| forme | **Une** des clés : `box: [w, h, d, arrondi]`, `sphere: r` ou `[rx, ry, rz]`, `capsule: [r, longueur]` (le long de y), `cylinder: [r, h, rHaut]`, `cone: [r, h]`, `torus: [R, r, arcDeg]` (autour de y), `lathe: [[r, y], …]` (profil tourné autour de y), `extrude: {pts: [[x, y], …], depth, face}` (polygone dans le plan XY, épaissi en z ; `face` `avant` ou `arriere` : cette seule face, visible d'un côté), `tube: {pts: [[x, y, z], …], r, r2}`, `plane: [w, d]` (sol, face vers +y). Sans forme : articulation pure |
 | `role` / `color` | Rôle de couleur (palette, recolorable par instance) ou couleur fixe |
 | `tex` | Texture propre (voir Textures) |
 | `glow` | 0 à 1 : pièce lumineuse (reflet d'œil, lampe, écran) |
@@ -390,7 +390,8 @@ parcelle avec ses clôtures et ses zones. Elle produit des instances nommées or
   Revêtements : `parquet`, `chevron`, `moquette`, `carrelage`, `beton`, `lino`, `gazon`, `dalles`, `terrasse`,
   `gravier`, `paillis`, `terre`, `sable`, `eau`. `layers` sème des modèles dans le contour de la zone :
   `{model, cell, density, count, spacing, avoid, params}` (une copie par carré de côté `cell`, gardée selon `density`).
-- **`plafond`** : `true` ou `{"couleur": …}` (vu de dessous seulement).
+- **`plafond`** : `true` ou `{"couleur": …}`. Avec les murs à une face (défaut), il n'a que sa face de dessous : vu d'en haut
+  (maquette, plan 2D), la pièce reste ouverte ; on y accroche les suspensions.
 - **`murs`** : par défaut un mur n'a qu'une face, tournée vers la pièce : de dehors on voit à travers, la pièce se
   regarde de tous côtés comme une maquette. `"murs": "pleins"` donne des murs épais et opaques.
 
