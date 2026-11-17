@@ -146,6 +146,8 @@ export class Sonic2d extends LitElement {
   /** Émetteurs : dernières touches, état publié, derniers ordres `emit` appliqués. */
   private hitsOut: Record<string, unknown> | null = null;
   private emitOut: Record<string, unknown> | null = null;
+  private physOut: unknown = null;
+  private lastForcesJson = "";
   private lastEmitJson = "";
   private lastFxJson = "";
   private lastQueriesJson = "";
@@ -356,6 +358,19 @@ export class Sonic2d extends LitElement {
       if (this.target) { const target = this.target; setTimeout(() => dispatch(target, { type, payload }), 0); }
       this.dispatchEvent(new CustomEvent(`monde-${type}`, { detail: payload, bubbles: true, composed: true }));
     };
+    this.mondeR.onPhysics = (st) => {
+      this.physOut = st;
+      this.publishOut();
+    };
+    this.mondeR.onContacts = (list) => {
+      for (const c of list.slice(0, 16)) {
+        if (this.target) { const target = this.target; setTimeout(() => dispatch(target, { type: "contact", payload: c }), 0); }
+        this.dispatchEvent(new CustomEvent("monde-contact", { detail: c, bubbles: true, composed: true }));
+      }
+    };
+    this.mondeR.onRest = (bodies) => {
+      if (this.target) { const target = this.target; setTimeout(() => dispatch(target, { type: "rest", payload: { bodies } }), 0); }
+    };
     this.mondeR.onEmitStats = (st) => {
       this.emitOut = st;
       this.publishOut();
@@ -503,6 +518,19 @@ export class Sonic2d extends LitElement {
       if (json && json !== this.lastEmitJson) {
         this.lastEmitJson = json;
         if (this.mondeR.applyEmit(JSON.parse(json))) this.mondeBusy = true;
+      }
+    }
+    if (data.forces !== undefined && this.mondeR) {
+      // ordres de physique : vitesse, force, impulsion et téléportation (voir shared/sim/rigid.ts)
+      let json = "";
+      try {
+        json = JSON.stringify(data.forces);
+      } catch {
+        /* ignoré */
+      }
+      if (json && json !== this.lastForcesJson) {
+        this.lastForcesJson = json;
+        if (this.mondeR.applyForces(JSON.parse(json))) this.mondeBusy = true;
       }
     }
     if (data.tiles !== undefined && this.mondeR) this.mondeR.applyTiles(JSON.parse(JSON.stringify(data.tiles)));
@@ -798,6 +826,7 @@ export class Sonic2d extends LitElement {
       ...(this.contactOut ? { contact: this.contactOut } : {}),
       ...(this.hitsOut ? { hits: this.hitsOut } : {}),
       ...(this.emitOut ? { emitters: this.emitOut } : {}),
+      ...(this.physOut ? { physique: this.physOut } : {}),
       ...(this.queriesOut ? { queries: this.queriesOut } : {}),
       ...(this.infiniOut ? { infini: this.infiniOut } : {}),
       ...(this.m2Parsed ? { monde2dInfo: this.m2Info ?? (this.m2Info = monde2dSummary(this.m2Parsed)) } : {}),

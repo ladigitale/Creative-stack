@@ -31,6 +31,7 @@ import { EmitterLayer, type EmitPart, type EmitStats } from "./emitters3d";
 import { ParticleLayer } from "./particles3d";
 import { InfiniLayer } from "./infini3d";
 import { TexAdapt } from "./tex-adapt";
+import { loadRapier, RigidWorld, type ContactEvent, type RigidPose, type RigidState } from "../../shared/sim/rigid";
 import { GameProbe, type QueryResult } from "../../shared/sim/queries";
 import type { Hit } from "../../shared/sim/emitter";
 
@@ -376,6 +377,14 @@ export class Monde3d {
   readonly probe = new GameProbe();
   onQueries: ((r: Record<string, QueryResult>) => void) | null = null;
   onSensor: ((e: { type: "enter" | "leave"; sensor: string; instance: string; tags: string[] }) => void) | null = null;
+  /** Physique 3D (Rapier, chargé à la demande) quand le monde la demande. */
+  rigid: RigidWorld | null = null;
+  private rigidTok = 0;
+  private lastPhysState = 0;
+  onContacts: ((c: ContactEvent[]) => void) | null = null;
+  onRest: ((bodies: Record<string, RigidPose>) => void) | null = null;
+  onPhysics: ((s: RigidState | { status: "loading" | "error"; error?: string }) => void) | null = null;
+  private pendingForces: unknown = null;
   /** Touches de l'image, regroupées (émetteurs). */
   onHits: ((hits: Hit[]) => void) | null = null;
   onExpire: ((e: { emitter: string; count: number }) => void) | null = null;
@@ -394,6 +403,7 @@ export class Monde3d {
   constructor() {
     this.group.name = "monde";
     this.emitters.onHits = (h) => {
+      this.rigid?.hits(h, (id) => this.emitters.sims.find((e) => e.spec.id === id)?.spec.push ?? 0);
       // impacts : salve du système `burst` de l'émetteur au point touché
       for (const hit of h) {
         const b = this.emitters.sims.find((e) => e.spec.id === hit.emitter)?.spec.burst;
@@ -443,6 +453,67 @@ export class Monde3d {
     this.infini.setEdits(v);
   }
 
+  /** Monde physique (re)construit à partir des positions courantes des instances. */
+  private mountRigid(m: Monde) {
+    this.rigid?.dispose();
+    this.rigid = null;
+    const tok = ++this.rigidTok;
+    if (!m.physics) return;
+    this.onPhysics?.({ status: "loading" });
+    loadRapier().then(
+      (R) => {
+        if (tok !== this.rigidTok || this.monde !== m) return;
+        try {
+          this.rigid = new RigidWorld(R, m, this.driver);
+          for (const msg of this.rigid.issues) m.issues.push({ path: "physique", message: msg });
+          if (this.pendingForces) this.rigid.applyOrders(this.pendingForces);
+          this.lastStep = 0;
+          this.onAsync?.();
+        } catch (e) {
+          this.onPhysics?.({ status: "error", error: e instanceof Error ? e.message : String(e) });
+        }
+      },
+      (e) => this.onPhysics?.({ status: "error", error: `moteur : ${e instanceof Error ? e.message : String(e)}` }),
+    );
+  }
+
+  /** Ordres `forces.<instance>` du DataProvider (vitesse, force, impulsion, téléportation). */
+  applyForces(spec: unknown): boolean {
+    this.pendingForces = spec;
+    if (!this.rigid) return false;
+    this.rigid.applyOrders(spec);
+    return true;
+  }
+
+  /** Avance la physique et reporte la pose des corps sur leurs nœuds ; true si un corps a bougé. */
+  private stepRigid(dt: number, now: number): boolean {
+    const w = this.rigid;
+    if (!w) return false;
+    // obstacles mobiles : position affichée (nodes, glisser) recopiée dans l'état du pilote
+    for (const n of this.built.keys()) if (!w.isBody(n) || this.fx?.name === n) this.syncT(n);
+    const moved = w.step(dt);
+    for (const name of moved) {
+      const root = this.built.get(name)?.joints[0]?.parent;
+      const t = this.driver.instances.get(name)?.t;
+      if (!root || !t) continue;
+      root.position.set(t.x, t.y, t.z);
+      root.rotation.set(t.rx, t.ry, t.rz);
+    }
+    if (w.contacts.length) {
+      this.onContacts?.(w.contacts);
+      w.contacts = [];
+    }
+    if (w.rested) {
+      this.onRest?.(w.rested);
+      w.rested = null;
+    }
+    if (this.onPhysics && (moved.length || !this.lastPhysState) && now - this.lastPhysState >= 100) {
+      this.lastPhysState = now;
+      this.onPhysics(w.state());
+    }
+    return moved.length > 0;
+  }
+
   /** Ordres `fx.<id>` du DataProvider (salves de particules). */
   applyParticles(spec: unknown): boolean {
     if (!this.monde) return false;
@@ -451,7 +522,7 @@ export class Monde3d {
 
   /** Vrai tant que des copies ou des grains bougent (la scène doit continuer de s'animer). */
   get simulating(): boolean {
-    return this.emitters.active || this.particles.active;
+    return this.emitters.active || this.particles.active || !!this.rigid?.active;
   }
 
   /** Ordres `emit.<id>` du DataProvider (salves, `clear`, `kill`). */
@@ -486,6 +557,7 @@ export class Monde3d {
     this.oldBuffers = this.buffers;
     this.buffers = new Map();
     this.driver.setMonde(m, now);
+    this.mountRigid(m);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.buildStatics(m);
     this.emitters.mount(m, (model, roles) => this.emitParts(model, roles), this.driver);
@@ -549,11 +621,13 @@ export class Monde3d {
 
   /** Prise d'un objet : il se soulève un peu (son ombre se détache du sol). */
   grab(name: string, now = performance.now()): void {
+    this.rigid?.grab(name);
     this.fx = { name, phase: "up", t0: now, from: this.driver.instances.get(name)?.liftY ?? 0 };
   }
 
   /** Lâcher : l'objet se pose avec un petit rebond ; le fantôme rouge disparaît. */
   release(name: string, now = performance.now()): void {
+    this.rigid?.release(name);
     this.fx = { name, phase: "down", t0: now, from: this.driver.instances.get(name)?.liftY ?? 0 };
     this.showGhost(null);
   }
@@ -1112,6 +1186,7 @@ export class Monde3d {
     const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
     this.lastStep = now;
     if (this.follow()) changed = true;
+    if (this.stepRigid(dt, now)) changed = true;
     if (this.emitters.advance(dt, this.driver)) changed = true;
     for (const sim of this.emitters.sims) if (sim.spec.trail) this.particles.trail(sim.spec.trail, sim, dt);
     if (this.particles.advance(dt)) changed = true;
@@ -1210,6 +1285,11 @@ export class Monde3d {
 
   /** Vide la scène ; `keep` : les acteurs procgen sont mis de côté pour le monde suivant (`set`). */
   clear(keep = false) {
+    if (!keep) {
+      this.rigidTok++;
+      this.rigid?.dispose();
+      this.rigid = null;
+    }
     for (const s of this.spare.values()) s.actor.dispose();
     this.spare.clear();
     for (const b of this.built.values()) {
@@ -1238,6 +1318,9 @@ export class Monde3d {
   }
 
   dispose() {
+    this.rigidTok++;
+    this.rigid?.dispose();
+    this.rigid = null;
     this.texAdapt.dispose();
     this.clear();
     this.token++;

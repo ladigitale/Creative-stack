@@ -90,6 +90,7 @@
     }
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
     "jsonata": "^2.2.2",
     "markdown-it": "15.0.3",
     "markdown-it-footnote": "4.0.0",

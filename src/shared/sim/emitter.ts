@@ -76,6 +76,8 @@ export type EmitterSpec = {
   pick: boolean;
   /** Une copie d'un autre émetteur touchée (nom de l'émetteur dans `mask`) est retirée ; `false` : seulement signalée. */
   kills: boolean;
+  /** Impulsion donnée au corps physique touché (N·s, 0 : aucune). */
+  push: number;
   /** Particules liées (lot particules) : traînée et salve d'impact, gardées pour plus tard. */
   trail: string;
   burst: string;
@@ -202,6 +204,7 @@ export function readEmitters(src: unknown, u: number, issues: EmitIssue[]): Emit
       publish: fin(raw.publish) ? clamp(Math.round(raw.publish), 0, 8) : 0,
       pick: raw.pick === true,
       kills: raw.kills !== false,
+      push: typeof raw.push === "number" && Number.isFinite(raw.push) ? Math.max(0, Math.min(10000, raw.push)) : 0,
       trail: typeof raw.trail === "string" ? raw.trail : "",
       burst: typeof raw.burst === "string" ? raw.burst : "",
       seed: typeof raw.seed === "string" || fin(raw.seed) ? String(raw.seed) : id,
@@ -225,7 +228,7 @@ export type SimWorld = {
 };
 
 /** Touche : `target` = instance, étiquette ou émetteur touché ; `copy` = identifiant de la copie touchée d'un émetteur. */
-export type Hit = { emitter: string; id: number; target: string; copy?: number; tags: string[]; x: number; y: number; z: number };
+export type Hit = { emitter: string; id: number; target: string; copy?: number; tags: string[]; x: number; y: number; z: number; /** Direction du projectile (unitaire). */ dir?: [number, number, number] };
 
 /** Ordre de tir lu dans le DataProvider (`emit.<id>`). */
 export type EmitOrder = { count?: number; at?: V3; dir?: V3; toward?: string | V3 };
@@ -564,7 +567,9 @@ export class Emitter {
       if (best <= 1 && bb) {
         const hb = bb as Aabb;
         const x = p0[0] + (p1[0] - p0[0]) * best, y = p0[1] + (p1[1] - p0[1]) * best, z = p0[2] + (p1[2] - p0[2]) * best;
-        hits.push({ emitter: s.id, id: this.ids[i], target: hb.name || hb.tags[0] || "", tags: [...hb.tags], x, y, z });
+        const dx = p1[0] - p0[0], dy = p1[1] - p0[1], dz = p1[2] - p0[2];
+        const dl = Math.hypot(dx, dy, dz) || 1;
+        hits.push({ emitter: s.id, id: this.ids[i], target: hb.name || hb.tags[0] || "", tags: [...hb.tags], x, y, z, dir: [dx / dl, dy / dl, dz / dl] });
         if (s.onHit === "die") {
           this.remove(i--);
           continue;
