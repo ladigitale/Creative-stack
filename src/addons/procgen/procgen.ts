@@ -16,6 +16,7 @@ import { resolveStyle } from "./style/style";
 import { type ActorIntent, type GameEvent, ProcgenView } from "./render/view";
 import { type ViewSync, syncView } from "./render/steady";
 import { VECTOR_STYLES, VectorView, composeVector } from "./vector/index";
+import { fxInputOf, stripFx } from "./scene/fx";
 
 type AnyView = ProcgenView | VectorView;
 
@@ -79,6 +80,8 @@ export class SonicProcgen extends HTMLElement {
   private model: SceneModel | null = null;
   private sceneKey = "";
   private styleKey = "";
+  private fxKey = "";
+  private fxModel: unknown = null;
   /** Dernière entrée de vue appliquée : la vue de l'utilisateur survit aux recompositions. */
   private viewSync: ViewSync = { key: "", modelKey: "" };
   private miscKey = "";
@@ -314,7 +317,8 @@ export class SonicProcgen extends HTMLElement {
       this.ensureView(mode);
       if (changed) this.sceneKey = "";
     }
-    const key = JSON.stringify([mode, recipe ?? sceneName, seed, params, edits]);
+    // météo, effets et particules ne recomposent pas la scène (relus à part, voir plus bas)
+    const key = JSON.stringify([mode, recipe ? stripFx(recipe) : sceneName, seed, params, edits]);
     const issues = new Issues();
     if (key !== this.sceneKey) {
       this.sceneKey = key;
@@ -391,6 +395,17 @@ export class SonicProcgen extends HTMLElement {
       } else this.view.setStyle(resolveStyle(styleIn, si));
       this.issues = [...this.issues.filter((i) => !String((i as { path: string }).path).startsWith("style")), ...si.list];
     }
+    // particules : météo, fumées, feux, embruns (clés de recette ; `weather` du DataProvider prioritaire)
+    const fxIn = fxInputOf((recipe ?? SCENES[sceneName] ?? null) as Record<string, unknown> | null, d.weather);
+    const fk = JSON.stringify(fxIn);
+    if (fk !== this.fxKey || this.fxModel !== this.model) {
+      this.fxKey = fk;
+      this.fxModel = this.model;
+      this.view.setFx(fxIn);
+      const fxPath = /^(weather|fx|particles)(\.|$)|^layers\[\d+\]\.fx/;
+      this.issues = [...this.issues.filter((i) => !fxPath.test(String((i as { path: string }).path))), ...this.view.fxIssues];
+    }
+    if (d.fx !== undefined) this.view.fxOrders(d.fx);
     const vs = syncView(this.viewSync, this.model.view, this.getAttribute("camera"), d.view);
     this.viewSync = vs.next;
     if (vs.apply) this.view.setView(vs.apply, vs.reset);
@@ -521,6 +536,7 @@ export class SonicProcgen extends HTMLElement {
       scale: st?.scale ?? 1,
       ...(st && "postPasses" in st ? { postPasses: st.postPasses } : {}),
       ...(st && "soft" in st && st.soft ? { soft: st.soft } : {}),
+      ...(this.view?.fx.systems.length ? { fx: this.view.fx.summary() } : {}),
       issues: (st && "postError" in st && st.postError ? [{ path: "style.post", code: "info", message: `post-traitement désactivé : shader refusé par le pilote (${String(st.postError).slice(0, 160)})` }, ...this.issues] : this.issues).slice(0, 40),
     };
     const actors: Record<string, unknown> = {};

@@ -18,6 +18,9 @@ import { PATH_UNIT, type Shape, pathBounds } from "./shape";
 import { type FitSpans, fitSpans, frameOf, renderSVG } from "./svg";
 import { keepFrame } from "../render/steady";
 import { type Inks, type VectorStyle, makeInks, resolveVectorStyle } from "./vstyle";
+import { Issues } from "../core/schema";
+import { type FxInput, SceneFx } from "../scene/fx";
+import { accelOf, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../../shared/sim/particles";
 
 export type VectorViewState = { camera: VectorCamera; zoom: number; cx: number | null; cy: number | null; cz: number | null; lift: number | null; actor: string | null; follow: boolean };
 
@@ -40,6 +43,10 @@ export class VectorView {
   private lastShapes: Shape[] = [];
   private hiddenIds = new Set<string>();
   private selected = -1;
+  /** Particules simplifiées : aplats par-dessus le dessin (sans occultation), budget réduit. */
+  readonly fx = new SceneFx();
+  private fxInput: FxInput = {};
+  fxIssues: Issues["list"] = [];
   private time = 0;
   private last = 0;
   private raf = 0;
@@ -82,6 +89,97 @@ export class VectorView {
     this.sim.setHidden(this.hiddenIds);
     if (first) this.resetView(model);
     this.rebuild(!first);
+    this.applyFx();
+  }
+
+  /* ---------------- particules ---------------- */
+
+  setFx(input: FxInput) {
+    this.fxInput = input;
+    this.applyFx();
+  }
+
+  private applyFx() {
+    if (!this.model) return;
+    const iss = new Issues();
+    this.fx.configure(this.fxInput, this.model, { vector: true }, iss);
+    this.fxIssues = iss.list;
+    this.dirty = true;
+    this.kick();
+  }
+
+  private fxCtx() {
+    const m = this.model;
+    const half = m ? Math.max(m.size[0], m.size[1]) / 2 : 20;
+    return { target: [this.view.cx ?? 0, 0, this.view.cz ?? 0] as V3, extent: half / Math.max(0.2, this.view.zoom || 1), hidden: this.hiddenIds };
+  }
+
+  fxOrders(spec: unknown) {
+    if (this.fx.applyOrders(spec, this.fxCtx())) {
+      this.dirty = true;
+      this.kick();
+    }
+  }
+
+  /**
+   * Grains en aplats : disques, traits (pluie, étincelles), flocons, feuilles ; feu et lueurs en fusion « lighter ».
+   * Pas d'occultation par le décor (les grains passent devant) : version simplifiée du rendu 3D.
+   */
+  private drawFx(ctx: CanvasRenderingContext2D) {
+    if (!this.fx.systems.length) return;
+    const o = this.worldToScreen([0, 0, 0]);
+    const ppm = Math.max(0.5, Math.abs(this.worldToScreen([1, 0, 0]).x - o.x));
+    const now = this.fx.now;
+    const p: PV3 = [0, 0, 0], q: PV3 = [0, 0, 0];
+    const col = [0, 0, 0];
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    for (const fs of this.fx.systems) {
+      const sys = fs.sys, s = sys.spec;
+      const acc = accelOf(s, this.fx.vent);
+      const ramp = s.color.map(rgbOf);
+      const add = s.blend === "add";
+      ctx.globalCompositeOperation = add ? "lighter" : "source-over";
+      const line = s.sprite === "trait" || s.stretch > 0;
+      for (let i = 0; i < s.max; i++) {
+        const t = now - sys.born[i];
+        const life = sys.life[i];
+        if (t < 0 || t > life) continue;
+        const k = t / life;
+        positionAt(sys, i, t, acc, p);
+        if (s.floor && p[1] < this.fx.floorY) p[1] = this.fx.floorY;
+        const a = (s.opacity[0] + (s.opacity[1] - s.opacity[0]) * k) * (s.sprite === "volute" ? 0.55 : 1);
+        if (a < 0.02) continue;
+        const sc = this.worldToScreen(p);
+        const r = Math.max(0.6, ((s.size[0] + (s.size[1] - s.size[0]) * k) * sys.scale[i] * ppm) / 2);
+        if (sys.tint[i] > 0.5) unpackRgb(sys.tint[i], col);
+        else rampAt(ramp, k, col);
+        ctx.globalAlpha = Math.min(1, a);
+        const css = `rgb(${(col[0] * 255) | 0},${(col[1] * 255) | 0},${(col[2] * 255) | 0})`;
+        if (line) {
+          positionAt(sys, i, Math.max(0, t - Math.max(0.03, s.stretch)), acc, q);
+          const sq = this.worldToScreen(q);
+          ctx.strokeStyle = css;
+          ctx.lineWidth = Math.max(0.8, r);
+          ctx.beginPath();
+          ctx.moveTo(sq.x, sq.y);
+          ctx.lineTo(sc.x, sc.y);
+          ctx.stroke();
+        } else if (s.sprite === "eclat") {
+          const ang = (s.spin * t + sys.seed[i]) * Math.PI * 2;
+          ctx.fillStyle = css;
+          ctx.beginPath();
+          ctx.ellipse(sc.x, sc.y, r * 1.2, r * 0.55, ang, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = css;
+          ctx.beginPath();
+          ctx.arc(sc.x, sc.y, s.sprite === "volute" ? r * 1.15 : r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
   }
 
   private resetView(model: SceneModel | null) {
@@ -426,6 +524,7 @@ export class VectorView {
     if (papercut) flush();
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
+    this.drawFx(ctx);
     // surlignage de la sélection
     if (this.selected > 0) {
       for (const sh of shapes) {
@@ -557,7 +656,7 @@ export class VectorView {
   }
 
   private get animated(): boolean {
-    return !!this.model && this.play && (this.sim.actors.size > 0 || !!this.sim.balls?.moving || this.model.objects.some((o) => o.generator === "prop" && (this.scene?.params.get(o.obj)?.kind === "campfire")));
+    return !!this.model && this.play && (this.sim.actors.size > 0 || this.fx.active || !!this.sim.balls?.moving || this.model.objects.some((o) => o.generator === "prop" && (this.scene?.params.get(o.obj)?.kind === "campfire")));
   }
 
   kick() {
@@ -575,6 +674,7 @@ export class VectorView {
     if (anim) {
       this.time += dt * this.speed;
       this.sim.update(dt * this.speed);
+      if (this.fx.systems.length) this.fx.step(dt * this.speed, this.fxCtx());
     }
     if (anim || this.dirty) {
       this.render();
@@ -595,6 +695,7 @@ export class VectorView {
     for (let i = 0; i < n; i++) {
       this.time += (1 / fps) * this.speed;
       this.sim.update((1 / fps) * this.speed);
+      if (this.fx.systems.length) this.fx.step((1 / fps) * this.speed, this.fxCtx());
     }
     this.dirty = true;
   }

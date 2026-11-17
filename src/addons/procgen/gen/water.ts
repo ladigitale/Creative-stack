@@ -14,7 +14,7 @@ import { type Anchor, defineGenerator } from "./types";
 export const WATER_KINDS = ["pond", "basin", "pool", "cascade"] as const;
 
 type O = { kind: string; shape: "round" | "rect"; L: number; W: number; level: number; rimH: number; rim: number; H: number; main: Role; trim: Role; water: Role; seed: number };
-type Built = { parts: PartList; spots: { spot: V3; approach: V3 }[]; center: V3; affords: string[] };
+type Built = { parts: PartList; spots: { spot: V3; approach: V3 }[]; center: V3; affords: string[]; fall?: V3; fallTop?: V3 };
 
 const bx = (c: V3, h: V3, role: Role, rot?: V3): Part => ({ t: "box", c, h, role, rot });
 /** Plaque horizontale (nappe d'eau, dalle) : polygone convexe [x, z] à la hauteur y, épaisseur 2·d. */
@@ -125,7 +125,8 @@ function cascade(o: O): Built {
     lipY = y + 0.1;
     lipZ = z + 0.2;
   }
-  return { parts: P, spots: base.spots.filter((_, i) => i !== 2), center: [0, 0.06, 0], affords: ["drink", "bathe", "fish"] };
+  // ancre `fall` : pied de la lame d'eau la plus basse, dans la vasque (embruns) ; `fall.top` : haut de la chute
+  return { parts: P, spots: base.spots.filter((_, i) => i !== 2), center: [0, 0.06, 0], affords: ["drink", "bathe", "fish"], fall: [0, 0.08, -o.W * 0.32 + 0.12], fallTop: [0, lipY, lipZ - 0.05] };
 }
 
 export type WaterModel = Built & { label: string; kind: string; scale: number };
@@ -159,14 +160,14 @@ export function waterModel(p: Record<string, unknown>): WaterModel {
   const s = clamp(Number(p.scale ?? 1) || 1, 0.2, 5);
   if (s === 1) return { ...b, label: LABELS[kind], kind, scale: 1 };
   const S = (v: V3): V3 => [v[0] * s, v[1] * s, v[2] * s];
-  return { parts: transformParts(b.parts, [0, 0, 0, 1], [0, 0, 0], s), spots: b.spots.map((q) => ({ spot: S(q.spot), approach: S(q.approach) })), center: S(b.center), affords: b.affords, label: LABELS[kind], kind, scale: s };
+  return { parts: transformParts(b.parts, [0, 0, 0, 1], [0, 0, 0], s), spots: b.spots.map((q) => ({ spot: S(q.spot), approach: S(q.approach) })), center: S(b.center), affords: b.affords, ...(b.fall ? { fall: S(b.fall) } : {}), ...(b.fallTop ? { fallTop: S(b.fallTop) } : {}), label: LABELS[kind], kind, scale: s };
 }
 
 export const water = defineGenerator({
   id: "water",
   label: "Point d'eau (mare, bassin, piscine, cascade)",
   doc:
-    "Points d'eau sur la grammaire de pièces (même modèle en 3D et en vectoriel) : pond (mare naturelle, berge et pierres), basin (bassin maçonné à margelle, `shape` round ou rect), pool (piscine affleurante, margelle de dalles, frise, échelle), cascade (rochers en gradins, lames d'eau, écume, vasque au pied). `length` × `width` (m), `level` (eau sous le haut de la margelle, m), `rimHeight` (hauteur de la margelle), `rim` (largeur de la margelle), `height` (cascade). L'eau est posée sur le sol (le terrain n'est pas creusé). Ancres `spot.0`…`spot.3` (bord de l'eau, à son niveau : avant, droite, arrière, gauche ; `spot` = `spot.0`) et `approach.N` (au sol devant) : `{target: \"<id>.spot.1\", action: \"drink\"}` y fait boire un animal ou un personnage ; `center`. `extra.affords` : drink, bathe, swim, fish, dive.",
+    "Points d'eau sur la grammaire de pièces (même modèle en 3D et en vectoriel) : pond (mare naturelle, berge et pierres), basin (bassin maçonné à margelle, `shape` round ou rect), pool (piscine affleurante, margelle de dalles, frise, échelle), cascade (rochers en gradins, lames d'eau, écume, vasque au pied). `length` × `width` (m), `level` (eau sous le haut de la margelle, m), `rimHeight` (hauteur de la margelle), `rim` (largeur de la margelle), `height` (cascade). L'eau est posée sur le sol (le terrain n'est pas creusé). Ancres `spot.0`…`spot.3` (bord de l'eau, à son niveau : avant, droite, arrière, gauche ; `spot` = `spot.0`) et `approach.N` (au sol devant) : `{target: \"<id>.spot.1\", action: \"drink\"}` y fait boire un animal ou un personnage ; `center` ; cascade : `fall` (pied de la chute, embruns) et `fall.top`. `extra.affords` : drink, bathe, swim, fish, dive.",
   tags: ["eau", "jardin", "parc", "ferme", "animal", "piscine", "fontaine", "nature"],
   schema: {
     kind: { type: "enum", default: "pond", options: WATER_KINDS, doc: "Point d'eau" },
@@ -195,6 +196,8 @@ export const water = defineGenerator({
       anchors[`spot.${i}`] = { pos: q.spot, rot, scale: m.scale };
       anchors[`approach.${i}`] = { pos: q.approach, rot, scale: m.scale };
     });
+    if (m.fall) anchors.fall = { pos: m.fall, rot, scale: m.scale };
+    if (m.fallTop) anchors["fall.top"] = { pos: m.fallTop, rot, scale: m.scale };
     if (m.spots.length) {
       anchors.spot = anchors["spot.0"];
       anchors.approach = anchors["approach.0"];

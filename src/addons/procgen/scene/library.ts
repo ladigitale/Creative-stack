@@ -29,6 +29,7 @@ export const SCENES: Record<string, Recipe & { label: string; tags: string[] }> 
       { id: "habitants", gen: "character", count: "= habitants", place: { poisson: [-24, -6, 24, 6], minDist: 2 }, behavior: "wander", params: { archetype: "cartoon", top: "= pick('tee', 'long', 'sweater', 'coat')", bottom: "= pick('trousers', 'trousers', 'skirt', 'longskirt')", hair: "= pick('short', 'bob', 'long', 'ponytail', 'bun', 'curly', 'crop')", hat: "= pick('none', 'none', 'cap', 'straw', 'beret')", height: "= rand(1.5, 1.85)", build: "= rand(0.2, 0.8)", age: "= pick('adult', 'adult', 'elder', 'teen', 'child')", item: "= pick('none', 'none', 'lantern', 'flower', 'mug', 'book')" } },
     ],
     view: { camera: "iso", zoom: 1, yaw: 30 },
+    fx: { chimneys: 0.8 },
     style: "gouache",
   },
   rue: {
@@ -100,6 +101,7 @@ export const SCENES: Record<string, Recipe & { label: string; tags: string[] }> 
       { id: "rochers", gen: "rock", count: 8, place: { poisson: true, minDist: 3 }, params: { size: "= rand(0.4, 1.2)" } },
     ],
     view: { camera: "perspective", yaw: 20, pitch: 48, zoom: 1.25, cy: 0.5 },
+    fx: { campfires: true },
     style: "nuit",
   },
   personnages: {
@@ -142,6 +144,8 @@ export const SCENES: Record<string, Recipe & { label: string; tags: string[] }> 
       { id: "chalets", gen: "building", count: 4, place: { along: "piste", spacing: 24, offset: 2 }, params: { style: "chaumiere", floors: 2, bays: 2, depth: 7, roof: "gable" } },
     ],
     view: { camera: "perspective", yaw: 30, pitch: 26, zoom: 0.8 },
+    weather: { kind: "snow", intensity: 0.35 },
+    fx: { chimneys: true },
     style: "neige",
   },
   vapeur: {
@@ -156,6 +160,7 @@ export const SCENES: Record<string, Recipe & { label: string; tags: string[] }> 
       { id: "gens", gen: "character", count: 12, place: { along: "rue", spacing: 5, offset: -0.8, jitter: 2 }, behavior: "wander", params: { archetype: "stylized", top: "coat", hat: "= pick('tophat', 'none', 'cap')", outfit: "= pick('royal', 'slate', 'ink', 'earth')", item: "= pick('none', 'umbrella', 'none')" } },
     ],
     view: { camera: "oblique" },
+    fx: { chimneys: { intensity: 1.3, color: ["#3d3a3a", "#a19c96"] } },
     style: "crepuscule",
   },
   neon: {

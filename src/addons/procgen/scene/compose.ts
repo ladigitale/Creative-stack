@@ -54,6 +54,8 @@ export type LayerSpec = {
   walkable?: boolean;
   /** Flotte : posé sur l'eau (bateaux), interdit à terre. */
   onWater?: boolean;
+  /** Particules attachées à chaque objet du calque (lues par scene/fx.ts, pas par la composition). */
+  fx?: unknown;
   /** Animaux, personnages : cible de l'action de départ (`"bassin.0"`, `"abreuvoir.0.spot"`, `"bancs.1.sit.0"`) : posé à la place, tourné vers elle. */
   target?: string;
   /** Physique 3D : corps des objets de la couche (`{body: dynamic|static|kinematic, mass, friction, restitution…}`), `false` : aucun. */
@@ -84,6 +86,10 @@ export type Recipe = {
   meadowDetail?: number | string;
   /** Physique 3D (Rapier, chargé à la demande) : `true` ou `{gravity, contactMin, hz, joints, paused, water, walls}`. */
   physics?: unknown;
+  /** Particules (scene/fx.ts) : météo, effets de scène, systèmes libres. */
+  weather?: unknown;
+  fx?: unknown;
+  particles?: unknown;
 };
 
 export type ObjectInfo = {

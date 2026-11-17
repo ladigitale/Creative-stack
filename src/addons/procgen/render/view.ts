@@ -30,6 +30,9 @@ import { MeadowLayer } from "./meadows";
 import { SOFT_BUDGET, SoftLayer, type SoftRT, yawMatrix } from "./soft";
 import { SNAP_MARGIN, gridOffset, marginTransform, snapApplicable } from "./pixelsnap";
 import type { OrthoFrame, SnapRequest } from "./camera";
+import { Issues } from "../core/schema";
+import { type FxInput, SceneFx } from "../scene/fx";
+import { createParticleMesh, disposeParticleMesh, particleQuad, uploadParticles, type ParticleMesh } from "../../../shared/sim/particles-gl";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
 export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop"; payload: Record<string, unknown> };
@@ -160,6 +163,14 @@ export class ProcgenView {
   fps = 0;
   private followId: string | null = null;
   private hiddenIds = new Set<string>();
+  /** Particules (météo, fumées, feux, embruns) : scène à part, dessinée après la scène dans la même cible. */
+  readonly fx = new SceneFx();
+  private fxGroup = new THREE.Group();
+  private fxMeshes: ParticleMesh[] = [];
+  private fxQuad = particleQuad();
+  private fxInput: FxInput = {};
+  /** Problèmes de la dernière lecture des particules (publiés dans `status.issues`). */
+  fxIssues: Issues["list"] = [];
   private selectedObj = -1;
   onEvent: (e: GameEvent) => void = () => {};
   onFrame: () => void = () => {};
@@ -180,6 +191,9 @@ export class ProcgenView {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
+    // particules dessinées dans la passe de la scène, après les objets opaques (transparentes, sans écriture de profondeur)
+    this.fxGroup.name = "procgen~particles";
+    this.scene.add(this.fxGroup);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false });
     this.renderer.autoClear = false;
     this.renderer.info.autoReset = false;
@@ -276,6 +290,7 @@ export class ProcgenView {
     for (const a of model.actors) this.addActor(a);
     this.mountRigid(model);
     this.buildSofts(model);
+    this.applyFx();
     if (first) this.view = parseView(model.view, { ...DEFAULT_VIEW, cy: 0 });
     if (this.style) this.setStyle(this.style);
     this.dirty = this.shadowDirty = true;
@@ -401,6 +416,8 @@ export class ProcgenView {
     this.softObjM.clear();
     this.settle = null;
     for (const o of [...this.scene.children]) {
+      // particules : gardées d'un modèle à l'autre (relues par applyFx)
+      if (o === this.fxGroup) continue;
       this.scene.remove(o);
       const m = o as THREE.Mesh;
       m.geometry?.dispose();
@@ -416,6 +433,60 @@ export class ProcgenView {
     this.rigidTok++;
     this.pickables = [];
     this.instanceObjs.clear();
+  }
+
+  /* ---------------- particules ---------------- */
+
+  /** Clés de particules (recette : `weather`, `fx`, `particles`, `wind`, `windDir`, `layers[].fx`). */
+  setFx(input: FxInput) {
+    this.fxInput = input;
+    this.applyFx();
+  }
+
+  private applyFx() {
+    if (!this.model) return;
+    const iss = new Issues();
+    const changed = this.fx.configure(this.fxInput, this.model, { mobile: this.mobile }, iss);
+    this.fxIssues = iss.list;
+    if (changed) {
+      for (const d of this.fxMeshes) disposeParticleMesh(d);
+      this.fxGroup.clear();
+      this.fxMeshes = this.fx.systems.map((s) => {
+        const d = createParticleMesh(s.sys, this.fxQuad, { mrt: true, hard: this.style?.shading === "toon", vent: this.fx.vent, floorY: this.fx.floorY, minPx: 1.3 });
+        this.fxGroup.add(d.mesh);
+        return d;
+      });
+    }
+    this.dirty = true;
+    this.kick();
+  }
+
+  private fxCtx() {
+    return { target: [this.view.cx, this.view.cy, this.view.cz] as V3, extent: this.extent / Math.max(0.05, this.view.zoom || 1), hidden: this.hiddenIds };
+  }
+
+  /** Ordres `fx.<id>` du DataProvider (salves). */
+  fxOrders(spec: unknown) {
+    if (this.fx.applyOrders(spec, this.fxCtx())) {
+      this.dirty = true;
+      this.kick();
+    }
+  }
+
+  private stepFx(dt: number) {
+    if (!this.fxMeshes.length) return;
+    this.fx.step(dt, this.fxCtx());
+    for (const d of this.fxMeshes) {
+      uploadParticles(d);
+      d.mat.uniforms.uNow.value = this.fx.now;
+    }
+  }
+
+  /** Avance les particules sans écran (captures, tests) : `seconds` à `fps` images par seconde. */
+  stepParticles(seconds: number, fps = 30) {
+    for (let i = 0; i < Math.round(seconds * fps); i++) this.stepFx(1 / fps);
+    this.dirty = true;
+    this.kick();
   }
 
   /* ---------------- style ---------------- */
@@ -1349,7 +1420,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || !!this.balls?.moving || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -1405,6 +1476,7 @@ export class ProcgenView {
       if (this.actors.size) this.shadowDirty = true;
       if (this.balls) this.stepBalls(dt * this.speed);
       if (this.rigid) this.stepRigid(dt * this.speed, now);
+      this.stepFx(dt * this.speed);
       this.stepSofts(dt * this.speed);
     } else if (this.dirty && this.softs) this.stepSofts(0);
     if (anim || this.dirty) {
@@ -1534,12 +1606,14 @@ export class ProcgenView {
       }
     });
     this.shared.uShadowOn.value = 0;
+    this.fxGroup.visible = false;
     this.renderer.setRenderTarget(this.shadowRT);
     this.renderer.setClearColor(0xffffff, 1);
     this.renderer.clear(true, true, true);
     this.renderer.render(this.scene, lc);
     for (const [mesh, mat] of swap) mesh.material = mat;
     this.meadows.group.visible = mv;
+    this.fxGroup.visible = true;
     this.shared.uShadowOn.value = this.style?.shadows === false ? 0 : 1;
     this.shadowDirty = false;
   }
@@ -1576,6 +1650,7 @@ export class ProcgenView {
     this.updateLights(tgt);
     if (this.meadows.active) this.meadows.advance(this.model.wind, this.model.windDir ?? 1.17, this.meadowPushers(tgt));
     if (this.style?.shadows !== false && this.shadowDirty) this.shadowPass();
+    for (const d of this.fxMeshes) d.mat.uniforms.uViewH.value = this.rt!.height;
     this.renderer.setRenderTarget(this.rt);
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.clear(true, true, true);
@@ -1631,6 +1706,10 @@ export class ProcgenView {
     this.rigidTok++;
     cancelAnimationFrame(this.raf);
     this.clearScene();
+    for (const d of this.fxMeshes) disposeParticleMesh(d);
+    this.fxMeshes = [];
+    this.fxQuad.dispose();
+    this.fx.clear();
     this.rt?.dispose();
     this.shadowRT.dispose();
     this.stack.dispose();
