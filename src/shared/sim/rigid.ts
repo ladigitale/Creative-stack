@@ -15,6 +15,8 @@ import type { Model, Monde } from "../monde/format";
 import { partBoxesOf, placeBoxes, type Obb } from "../monde/collide";
 import type { BodySpec, JointSpec, V3 } from "../monde/physique";
 import type { MondeDriver } from "../monde/driver";
+import { heightAt, type TileManager } from "../monde/infini";
+import { nearTiles, tileShapes } from "./infini-shapes";
 
 type R = typeof RapierNS;
 type Quat = { x: number; y: number; z: number; w: number };
@@ -169,7 +171,8 @@ export class RigidWorld {
     this.world = new R.World({ x: spec.gravity[0], y: spec.gravity[1], z: spec.gravity[2] });
     this.world.timestep = this.stepDt;
     this.queue = new R.EventQueue(true);
-    if (spec.ground) {
+    // monde infini avec relief : le sol vient des tuiles proches (voir syncInfini)
+    if (spec.ground && !monde.infini?.relief) {
       const g = this.world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(0, -0.5, 0));
       const c = this.world.createCollider(R.ColliderDesc.cuboid(2000, 0.5, 2000).setFriction(0.8), g);
       this.byCollider.set(c.handle, null);
@@ -502,9 +505,65 @@ export class RigidWorld {
       const rb = this.byCollider.get(h2) ?? null;
       const pa = ra?.body.translation(), pb = rb?.body.translation();
       const p = pa && pb ? { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2, z: (pa.z + pb.z) / 2 } : (pa ?? pb ?? { x: 0, y: 0, z: 0 });
-      this.contacts.push({ a: ra?.name ?? "", b: rb?.name ?? "", tagsA: ra?.tags ?? ["decor"], tagsB: rb?.tags ?? ["decor"], impulse: +impulse.toFixed(3), x: +p.x.toFixed(3), y: +p.y.toFixed(3), z: +p.z.toFixed(3) });
+      const ia = this.infiniOf.get(h1), ib = this.infiniOf.get(h2);
+      this.contacts.push({ a: ra?.name ?? ia?.name ?? "", b: rb?.name ?? ib?.name ?? "", tagsA: ra?.tags ?? ia?.tags ?? ["decor"], tagsB: rb?.tags ?? ib?.tags ?? ["decor"], impulse: +impulse.toFixed(3), x: +p.x.toFixed(3), y: +p.y.toFixed(3), z: +p.z.toFixed(3) });
     });
     if (this.fresh.size > 4096) this.fresh.clear();
+  }
+
+  private infiniTiles = new Map<string, RapierNS.RigidBody>();
+  /** Copies du monde infini touchées par un choc : identifiant et étiquettes. */
+  private infiniOf = new Map<number, { name: string; tags: string[] }>();
+  private infiniHandles = new Map<string, number[]>();
+
+  /**
+   * Monde infini : relief (champ de hauteurs de 16 × 16 mailles par tuile) et peuplement (obstacles fixes) des
+   * tuiles à au plus une tuile du centre ; les tuiles qui s'éloignent sont retirées. À appeler à chaque image.
+   */
+  syncInfini(mgr: TileManager) {
+    const s = mgr.spec;
+    if (!s) return;
+    const R = this.R;
+    const near = nearTiles(mgr, 1);
+    const keep = new Set(near.map((t) => t.key));
+    for (const [k, b] of this.infiniTiles)
+      if (!keep.has(k) || mgr.tiles.get(k) !== (b.userData as { tile?: unknown } | undefined)?.tile) {
+        this.world.removeRigidBody(b);
+        this.infiniTiles.delete(k);
+        for (const h of this.infiniHandles.get(k) ?? []) {
+          this.byCollider.delete(h);
+          this.infiniOf.delete(h);
+        }
+        this.infiniHandles.delete(k);
+      }
+    for (const t of near) {
+      if (this.infiniTiles.has(t.key)) continue;
+      const T = s.tile;
+      const body = this.world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation((t.cx + 0.5) * T, 0, (t.cz + 0.5) * T));
+      body.userData = { tile: t };
+      const handles: number[] = [];
+      this.infiniHandles.set(t.key, handles);
+      if (s.relief) {
+        const N = 16;
+        const h = new Float32Array((N + 1) * (N + 1));
+        // colonne j le long de x, ligne i le long de z (ordre colonne)
+        for (let j = 0; j <= N; j++)
+          for (let i = 0; i <= N; i++) h[j * (N + 1) + i] = heightAt(s, t.cx * T + (j / N) * T, t.cz * T + (i / N) * T);
+        const c = this.world.createCollider(R.ColliderDesc.heightfield(N, N, h, { x: T, y: 1, z: T }).setFriction(0.8), body);
+        this.byCollider.set(c.handle, null);
+        handles.push(c.handle);
+      }
+      for (const sh of tileShapes(this.monde, t)) {
+        for (const box of sh.boxes.slice(0, 4)) {
+          const d = this.colliderDesc({ kind: box.round === "sphere" ? "ball" : "box", c: [box.c[0] - (t.cx + 0.5) * T, box.c[1], box.c[2] - (t.cz + 0.5) * T], q: quatFromAxes(box.ax), h: box.h });
+          const c = this.world.createCollider(d.setFriction(0.7), body);
+          this.byCollider.set(c.handle, null);
+          this.infiniOf.set(c.handle, { name: sh.name, tags: sh.tags });
+          handles.push(c.handle);
+        }
+      }
+      this.infiniTiles.set(t.key, body);
+    }
   }
 
   /** Vrai tant qu'un corps dynamique bouge. */

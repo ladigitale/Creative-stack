@@ -589,8 +589,14 @@ tuiles. En 2D, le sol est teinté par biome, les objets sont des silhouettes ran
 **Retouches** (clé `tiles` du DataProvider) : `{"tiles": {"3,-2": {"remove": ["t.3.-2.0.12"], "add": [{"model": "feu", "x": 80, "z": -40}]}}}`,
 appliquées après la génération de la tuile (identifiants stables `t.<cx>.<cz>.<calque>.<rang>`). **Retours** : sortie
 `infini = {center, loaded, pending, ms}` ; `target` reçoit `{type: "tileEnter", payload: {cx, cz, biome}}` quand
-l'instance suivie change de tuile. Pas encore : collisions et émetteurs sur le peuplement infini, recentrage de
-l'origine au-delà de quelques kilomètres.
+l'instance suivie change de tuile.
+
+**Collisions** : les copies des tuiles proches (à une tuile au plus du centre) comptent comme décor pour les requêtes
+et capteurs (`instance` = identifiant de la copie, étiquette `infini`), pour les émetteurs (`mask` avec le nom du
+modèle, ou `infini` ; contournement des nuées) et pour la physique (obstacles fixes, chocs nommés par l'identifiant).
+Le relief porte les nuées posées au sol, arrête les projectiles et, avec `physique`, devient un champ de hauteurs
+(le sol plat infini est alors retiré). Une copie touchée se retire par `tiles.<clé>.remove`. Pas encore : recentrage
+de l'origine au-delà de quelques kilomètres.
 
 ## Modèles `gen` : générateurs procgen (3D)
 
@@ -838,7 +844,8 @@ choc}` ; `b` absent = accroché au monde au point `at` (repère du monde, défau
 par seconde tant que ça bouge) ; vers `target` : `contact` `{a, b, tagsA, tagsB, impulse, x, y, z}` au début d'un
 choc (`b` vide = décor ou sol), `rest` `{bodies}` quand tous les corps dynamiques se sont immobilisés.
 
-Limites : corps sur les placements nommés (400 au plus) ; le monde `infini` n'a pas de relief physique (sol plat) ;
+Limites : corps sur les placements nommés (400 au plus) ; avec le monde `infini`, relief et peuplement ne comptent
+qu'à une tuile au plus du centre ;
 un changement du monde reconstruit la simulation à partir des positions courantes (vitesses remises à zéro).
 
 ## Rendu photo (lancer de rayons)

@@ -29,6 +29,7 @@ import type { GenActor, GenKit } from "../procgen/index";
 import { loadProcgen, type ProcgenApi } from "../../shared/procgen-loader";
 import { EmitterLayer, type EmitPart, type EmitStats } from "./emitters3d";
 import { ParticleLayer } from "./particles3d";
+import { syncInfiniSims } from "../../shared/sim/infini-shapes";
 import { InfiniLayer } from "./infini3d";
 import { TexAdapt } from "./tex-adapt";
 import { HerbesLayer } from "./herbes3d";
@@ -1218,6 +1219,7 @@ export class Monde3d {
     for (const sim of this.emitters.sims) if (sim.spec.trail) this.particles.trail(sim.spec.trail, sim, dt);
     if (this.particles.advance(dt)) changed = true;
     if (this.monde.infini && this.infini.advance(now)) changed = true;
+    if (this.monde.infini) syncInfiniSims(this.monde, this.infini, { probe: this.probe, emitters: this.emitters, rigid: this.rigid });
     if (this.probe.busy) {
       for (const n of this.built.keys()) this.syncT(n);
       const r = this.probe.step(this.driver);

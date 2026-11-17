@@ -9,7 +9,7 @@
  * rendu ni au DOM.
  */
 import { hash32 } from "../rng";
-import { BoxGrid, PointGrid, sweepBox, type Aabb } from "./grid";
+import { BoxGrid, PointGrid, sweepBox, type Aabb, type BoxQuery } from "./grid";
 
 export type V3 = [number, number, number];
 export type Range = [number, number];
@@ -218,7 +218,7 @@ export function readEmitters(src: unknown, u: number, issues: EmitIssue[]): Emit
 /** Ce que la simulation demande au monde. */
 export type SimWorld = {
   /** Boîtes du monde (décor et instances), indexées. */
-  boxes: BoxGrid;
+  boxes: BoxQuery;
   /** Hauteur du sol sous (x, z). */
   ground(x: number, z: number): number;
   /** Position et cap (radians) d'une instance nommée, ou `null`. */

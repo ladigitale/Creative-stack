@@ -213,15 +213,26 @@ export class GameProbe {
   private seen = new Map<string, number>();
   private specs = new Map<string, QuerySpec>();
   private decor: Shape[] | null = null;
+  private own: Shape[] = [];
+  private extraSig = "";
   private inside = new Map<string, Set<string>>();
   private unit = 1;
   private hasSensors = false;
 
   set(m: Monde) {
     this.unit = m.unit;
-    this.decor = decorShapes(m);
+    this.own = decorShapes(m);
+    this.decor = this.own;
+    this.extraSig = "";
     this.hasSensors = m.place.some((p) => p.sensor);
     for (const k of [...this.inside.keys()]) if (!m.place.some((p) => p.sensor && p.name === k)) this.inside.delete(k);
+  }
+
+  /** Formes ajoutées au décor (peuplement du monde infini proche) ; `sig` évite de refaire la liste. */
+  setExtra(sig: string, shapes: Shape[]) {
+    if (sig === this.extraSig) return;
+    this.extraSig = sig;
+    this.decor = shapes.length ? [...this.own, ...shapes] : this.own;
   }
 
   get busy(): boolean {

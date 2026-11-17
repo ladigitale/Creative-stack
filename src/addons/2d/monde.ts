@@ -22,6 +22,7 @@ import { isNum, patchOf } from "../../shared/nodes";
 import { composeYP, EmitterSet, type EmitStats } from "../../shared/sim/set";
 import { ParticleSet } from "../../shared/sim/particle-set";
 import { loadRapier, RigidWorld, type ContactEvent, type RigidPose, type RigidState } from "../../shared/sim/rigid";
+import { syncInfiniSims } from "../../shared/sim/infini-shapes";
 import { GameProbe, type QueryResult } from "../../shared/sim/queries";
 import { biomeAt, TileManager, type Tile } from "../../shared/monde/infini";
 import { accelOf, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../shared/sim/particles";
@@ -755,6 +756,7 @@ export class Monde2d {
       const s = m.infini;
       const f = s.follow ? this.driver.instances.get(s.follow) : null;
       if (this.infini.update(f ? f.t.x : s.center[0], f ? f.t.z : s.center[1])) this.syncTiles(m);
+      syncInfiniSims(m, this.infini, { probe: this.probe, emitters: this.emitters, rigid: this.rigid });
       if (this.onInfiniState && now - this.lastInfiniState > 250) {
         this.lastInfiniState = now;
         this.onInfiniState(this.infini.state());
