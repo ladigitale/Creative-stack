@@ -50,6 +50,7 @@ export class PhotoMode {
   envSource: (() => EnvSource) | null = null;
   onState: ((s: PhotoState) => void) | null = null;
   private startedAt = 0;
+  private proxySig = NaN;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -75,6 +76,7 @@ export class PhotoMode {
     if (same) return;
     this.spec = spec;
     this.stop();
+    this.disposeProxy();
     if (!spec) {
       this.setState({ etat: "arret", echantillons: 0, total: 0 });
       this.disposeTracer();
@@ -97,6 +99,7 @@ export class PhotoMode {
   /** Change de vue ou de contenu : retour au temps réel. */
   invalidate() {
     this.lastSig = NaN;
+    this.proxySig = NaN;
   }
 
   /**
@@ -241,18 +244,25 @@ export class PhotoMode {
     t.renderScale = b.scale;
     t.tiles.set(b.tiles, b.tiles);
     t.rasterizeSceneCallback = () => raster();
-    this.disposeProxy();
-    const built = this.buildProxy(scene, m);
-    if (!built) return;
-    this.proxy = built;
-    t.setScene(built, camera);
+    const sceneSig = sceneSignature(scene);
+    if (this.proxy && sceneSig === this.proxySig) {
+      // seul le point de vue a bougé : pas de nouvelle copie ni de nouveau BVH
+      t.setCamera(camera);
+    } else {
+      this.disposeProxy();
+      const built = this.buildProxy(scene, m);
+      if (!built) return;
+      this.proxy = built;
+      this.proxySig = sceneSig;
+      t.setScene(built, camera);
+    }
     this.startedAt = performance.now();
     this.active = true;
   }
 
+  /** Retour au temps réel ; la copie de la scène est gardée tant que seul le point de vue change. */
   private stop() {
     this.active = false;
-    this.disposeProxy();
   }
 
   private setState(s: PhotoState) {
@@ -388,6 +398,7 @@ export class PhotoMode {
     this.owned = { geos: [], mats: [], tex: [] };
     this.ownedTargets = [];
     this.proxy = null;
+    this.proxySig = NaN;
   }
 
   private disposeTracer() {
@@ -450,13 +461,24 @@ export function tracingBudget(renderer: { getDrawingBufferSize(v: THREE.Vector2)
 
 /** Empreinte de la vue et du contenu visible : un changement relance l'attente. */
 export function signature(scene: THREE.Scene, camera: THREE.Camera): number {
+  return (sceneSignature(scene) * 7 + cameraSignature(camera)) % 1e12;
+}
+
+/** Empreinte de la vue seule : si seule elle change, la copie de la scène (et son BVH) reste valable. */
+export function cameraSignature(camera: THREE.Camera): number {
   camera.updateMatrixWorld();
+  let h = 0;
+  for (const v of camera.matrixWorld.elements) h = (h * 31 + v * 1000.123) % 1e12;
+  for (const v of camera.projectionMatrix.elements) h = (h * 31 + v * 1000.123) % 1e12;
+  return h;
+}
+
+/** Empreinte du contenu visible (objets, matériaux, lumières), sans la vue. */
+export function sceneSignature(scene: THREE.Scene): number {
   let h = 0;
   const mix = (v: number) => {
     h = (h * 31 + v * 1000.123) % 1e12;
   };
-  for (const v of camera.matrixWorld.elements) mix(v);
-  for (const v of camera.projectionMatrix.elements) mix(v);
   scene.traverseVisible((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh && !(o as THREE.Light).isLight) return;
