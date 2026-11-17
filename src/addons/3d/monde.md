@@ -940,7 +940,7 @@ temps réel ; le calcul reprend à la pause suivante. Le moteur (environ 450 Ko)
     `true` = 0,6) ajoute avant le filtre un tramage ordonné sur `niveaux` niveaux (6) : touches plus texturées ;
     `touche` règle le rayon des touches (px, 5).
   - `"lisse"` : 32 échantillons et un débruitage qui garde les arêtes ; plus propre, moins net qu'un calcul complet.
-  - `echelle` (0,25 à 1) : résolution de calcul.
+  - `echelle` (0,25 à 1) : résolution de calcul. C'est un plafond : sur téléphone ou tablette, les pixels tracés sont limités (environ 0,35 Mpx, contre 1,6 Mpx sur ordinateur) et le calcul est découpé en tuiles, pour que le GPU ne coupe pas le contexte. Si le GPU ne suit pas (aucun échantillon au bout de 30 s, contexte perdu), `photo.etat` passe à `indisponible` avec la `raison`.
 - La sortie `photo` donne l'avancement : `{etat: "attente" | "calcul" | "fini" | "indisponible", echantillons, total, raison}`.
 - L'éclairage vient des lumières de la scène et de l'`environnement` (`aucun` : ciel blanc uniforme).
 - Particules, contours, brume et style `toon` n'ont pas d'équivalent physique : `photo` est ignoré en `toon`, les

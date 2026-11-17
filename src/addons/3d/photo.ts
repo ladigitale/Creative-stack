@@ -49,12 +49,22 @@ export class PhotoMode {
   /** Source d'environnement du monde (scène procédurale rendue en cube pour le traceur). */
   envSource: (() => EnvSource) | null = null;
   onState: ((s: PhotoState) => void) | null = null;
+  private startedAt = 0;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
     /** Redessine une image (le composant ne tourne pas forcément en continu). */
     private redraw: () => void,
-  ) {}
+  ) {
+    // un contexte perdu pendant le calcul (GPU débordé) : on n'insiste pas, le temps réel reprend à la restauration
+    renderer.domElement?.addEventListener?.("webglcontextlost", () => {
+      if (!this.spec) return;
+      this.failed = "le GPU de l'appareil a interrompu le calcul";
+      this.active = false;
+      this.tracer = null;
+      this.setState({ etat: "indisponible", echantillons: 0, total: 0, raison: this.failed });
+    });
+  }
 
   get enabled() {
     return this.spec !== null;
@@ -124,6 +134,14 @@ export class PhotoMode {
     const before = t.samples;
     t.pausePathTracing = t.samples >= total;
     t.renderSample();
+    // aucun échantillon longtemps après le départ : le traceur ne compile pas sur ce GPU (trop de textures, etc.)
+    if (t.samples < 1 && now - this.startedAt > 30000) {
+      this.failed = "le GPU de l'appareil ne prend pas en charge le lancer de rayons";
+      this.stop();
+      this.setState({ etat: "indisponible", echantillons: 0, total: 0, raison: this.failed });
+      raster();
+      return false;
+    }
     const done = t.samples >= total;
     if (this.spec.filtre) this.drawFiltered(raster, t.samples !== before);
     this.setState({ etat: done ? "fini" : "calcul", echantillons: Math.min(total, Math.floor(t.samples)), total });
@@ -210,6 +228,8 @@ export class PhotoMode {
       t.fadeDuration = 400;
       t.renderDelay = 0;
       t.filterGlossyFactor = 0.5;
+      // les textures procédurales font 128 à 256 px : des couches de 1024 gaspilleraient la mémoire du GPU
+      t.textureSize.set(256, 256);
       this.tracer = t;
     }
     const t = this.tracer;
@@ -217,14 +237,16 @@ export class PhotoMode {
     t.bounces = sp.rebonds;
     // filtré : l'image reste dans la cible du traceur, le filtre la dessine (voir drawFiltered)
     t.renderToCanvas = !sp.filtre;
-    t.renderScale = sp.echelle;
-    t.tiles.set(sp.filtre ? 1 : 2, sp.filtre ? 1 : 2);
+    const b = tracingBudget(this.renderer, sp.echelle, isHandheld());
+    t.renderScale = b.scale;
+    t.tiles.set(b.tiles, b.tiles);
     t.rasterizeSceneCallback = () => raster();
     this.disposeProxy();
     const built = this.buildProxy(scene, m);
     if (!built) return;
     this.proxy = built;
     t.setScene(built, camera);
+    this.startedAt = performance.now();
     this.active = true;
   }
 
@@ -402,6 +424,28 @@ function fullscreen(mat: THREE.ShaderMaterial) {
   cam.position.z = 0.5;
   cam.updateMatrixWorld();
   return { quad, scene, cam, mat };
+}
+
+/** Appareil tactile sans souris (téléphone, tablette) : GPU plus modeste, écran très dense. */
+function isHandheld(): boolean {
+  try {
+    return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pixels tracés et découpage en tuiles : chaque passe du traceur doit rester courte (sinon le navigateur d'un
+ * téléphone coupe le contexte graphique) et les cibles flottantes tenir en mémoire.
+ */
+export function tracingBudget(renderer: { getDrawingBufferSize(v: THREE.Vector2): THREE.Vector2 }, echelle: number, handheld: boolean) {
+  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+  const px = Math.max(1, size.x * size.y);
+  const scale = Math.max(0.1, Math.min(echelle, Math.sqrt((handheld ? 350_000 : 1_600_000) / px)));
+  const traced = px * scale * scale;
+  const tiles = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(traced / (handheld ? 90_000 : 500_000)))));
+  return { scale, tiles };
 }
 
 /** Empreinte de la vue et du contenu visible : un changement relance l'attente. */
