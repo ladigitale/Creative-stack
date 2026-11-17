@@ -27,6 +27,8 @@ import type { NodesSpec } from "./nodes";
 import { aliasBone, genMotion } from "../../shared/monde/gen";
 import type { GenActor, GenKit } from "../procgen/index";
 import { loadProcgen, type ProcgenApi } from "../../shared/procgen-loader";
+import { EmitterLayer, type EmitPart, type EmitStats } from "./emitters3d";
+import type { Hit } from "../../shared/sim/emitter";
 
 type ProcgenMod = ProcgenApi;
 
@@ -233,6 +235,14 @@ export class Monde3d {
   onContact: ((c: { objectId: string; x: number; z: number; hits: string[]; blocked: boolean }) => void) | null = null;
   /** Conflits recalculés après un rangement (glisser, `nodes.<instance>.move`). */
   onConflicts: ((c: Conflict[]) => void) | null = null;
+  /** Émetteurs du monde (projectiles, nuées), simulés et dessinés en instances. */
+  readonly emitters = new EmitterLayer();
+  /** Touches de l'image, regroupées (émetteurs). */
+  onHits: ((hits: Hit[]) => void) | null = null;
+  onExpire: ((e: { emitter: string; count: number }) => void) | null = null;
+  /** État des émetteurs, 10 fois par seconde au plus. */
+  onEmitStats: ((s: EmitStats) => void) | null = null;
+  private lastStats = 0;
   /** Boîtes des objets en conflit (`collisions: "montrer"`). */
   private marks: THREE.LineSegments | null = null;
   private selection: THREE.LineSegments | null = null;
@@ -244,6 +254,37 @@ export class Monde3d {
 
   constructor() {
     this.group.name = "monde";
+    this.emitters.onHits = (h) => this.onHits?.(h);
+    this.emitters.onExpire = (e) => this.onExpire?.(e);
+    this.emitters.poseOf = (name) => {
+      const inst = this.driver.instances.get(name);
+      if (!inst || !inst.visible) return null;
+      if (this.built.has(name)) this.syncT(name);
+      return { x: inst.t.x, y: inst.t.y, z: inst.t.z, ry: inst.t.ry };
+    };
+  }
+
+  /** Pièces dessinables d'un modèle émis : géométrie partagée, matière instanciée, matrice de repos, couleur. */
+  private emitParts(model: Model, roles: Record<string, string>): EmitPart[] {
+    const m = this.monde!;
+    const offs = new Float32Array(model.parts.length * STRIDE);
+    for (let i = 6; i < offs.length; i += STRIDE) offs[i] = 1;
+    const world = restWorld(model, offs);
+    const out: EmitPart[] = [];
+    model.parts.forEach((p, i) => {
+      const g = geometryOf(p, m.detail);
+      if (!g || p.hidden) return;
+      const color = new THREE.Color(partColor(model, p, roles, m.palette));
+      if (p.glow > 0) color.multiplyScalar(1 + p.glow * 0.5);
+      out.push({ geo: this.bufferOf(g), mat: this.mats.get(partColor(model, p, undefined, m.palette), p.glow, partTex(m, p), true), local: world.slice(i * 16, i * 16 + 16), color });
+    });
+    return out;
+  }
+
+  /** Ordres `emit.<id>` du DataProvider (salves, `clear`, `kill`). */
+  applyEmit(spec: unknown): boolean {
+    if (!this.monde) return false;
+    return this.emitters.applyOrders(spec, this.driver);
   }
 
   get issues() {
@@ -272,6 +313,8 @@ export class Monde3d {
     this.driver.setMonde(m, now);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
     this.buildStatics(m);
+    this.emitters.mount(m, (model, roles) => this.emitParts(model, roles), this.driver);
+    this.group.add(this.emitters.group);
     for (const s of this.spare.values()) s.actor.dispose();
     this.spare.clear();
     for (const b of this.oldBuffers.values()) b.dispose();
@@ -853,6 +896,11 @@ export class Monde3d {
     const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
     this.lastStep = now;
     if (this.follow()) changed = true;
+    if (this.emitters.advance(dt, this.driver)) changed = true;
+    if (this.onEmitStats && this.monde.emitters.length && now - this.lastStats >= 100) {
+      this.lastStats = now;
+      this.onEmitStats(this.emitters.stats(this.driver));
+    }
     this.kit?.tick(now / 1000);
     for (const b of this.built.values()) {
       const inst = b.inst;
@@ -972,6 +1020,7 @@ export class Monde3d {
     this.jobTimer = 0;
     this.mats.dispose();
     this.kit?.dispose();
+    this.emitters.dispose();
   }
 }
 

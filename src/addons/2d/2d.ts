@@ -143,6 +143,10 @@ export class Sonic2d extends LitElement {
   private dragging: { name: string; id: number; sx: number; sy: number; ry: number | undefined; last: PlacedInfo | null; stop: () => void } | null = null;
   private placedOut: PlacedInfo | null = null;
   private contactOut: Record<string, unknown> | null = null;
+  /** Émetteurs : dernières touches, état publié, derniers ordres `emit` appliqués. */
+  private hitsOut: Record<string, unknown> | null = null;
+  private emitOut: Record<string, unknown> | null = null;
+  private lastEmitJson = "";
   /** Conflits recalculés depuis la lecture du monde (après un rangement). */
   private liveConflicts: Conflict[] | null = null;
 
@@ -322,6 +326,20 @@ export class Sonic2d extends LitElement {
       this.contactOut = { ...c, t: Date.now() };
       this.publishOut();
     };
+    this.mondeR.onHits = (hits) => {
+      const payload = { hits: hits.slice(0, 64), t: Date.now() };
+      if (this.target) dispatch(this.target, { type: "hit", payload });
+      this.dispatchEvent(new CustomEvent("monde-hit", { detail: payload, bubbles: true, composed: true }));
+      this.hitsOut = payload;
+      this.publishOut();
+    };
+    this.mondeR.onExpire = (e) => {
+      if (this.target) dispatch(this.target, { type: "expire", payload: e });
+    };
+    this.mondeR.onEmitStats = (st) => {
+      this.emitOut = st;
+      this.publishOut();
+    };
     this.mondeR.onConflicts = (c) => {
       this.liveConflicts = c;
       this.publishOut();
@@ -453,6 +471,19 @@ export class Sonic2d extends LitElement {
       if (this.m2?.instanceCount) nodes = this.routeNodes2(nodes, now, animate);
       if (this.mondeR?.instanceCount) nodes = this.routeNodes(nodes, now, animate);
       scene.nodes.apply(nodes, now, animate);
+    }
+    if (data.emit !== undefined && this.mondeR) {
+      // ordres d'émetteurs : salve à chaque hausse de `n` (voir shared/sim/set.ts)
+      let json = "";
+      try {
+        json = JSON.stringify(data.emit);
+      } catch {
+        /* ignoré */
+      }
+      if (json && json !== this.lastEmitJson) {
+        this.lastEmitJson = json;
+        if (this.mondeR.applyEmit(JSON.parse(json))) this.mondeBusy = true;
+      }
     }
     if (data.rest !== undefined || data.bones !== undefined) scene.setSkeleton(data.rest, data.bones);
     if (data.camera !== undefined && !this.camera.trim()) this.applyCameraSpec(data.camera, now, animate);
@@ -718,6 +749,8 @@ export class Sonic2d extends LitElement {
       ...(this.mondeParsed ? { mondeInfo: this.mondeInfo(this.mondeParsed) } : {}),
       ...(this.placedOut ? { placed: this.placedOut } : {}),
       ...(this.contactOut ? { contact: this.contactOut } : {}),
+      ...(this.hitsOut ? { hits: this.hitsOut } : {}),
+      ...(this.emitOut ? { emitters: this.emitOut } : {}),
       ...(this.m2Parsed ? { monde2dInfo: this.m2Info ?? (this.m2Info = monde2dSummary(this.m2Parsed)) } : {}),
     };
     const sig = JSON.stringify(next);

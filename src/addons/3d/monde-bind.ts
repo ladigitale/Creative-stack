@@ -8,6 +8,7 @@ import { formFields } from "./form-fields";
 import { reload } from "./reload";
 import { asset } from "./asset";
 import type { SceneRuntime } from "./runtime";
+import { dispatch } from "../interactive";
 
 export type MondeHost = {
   monde: string;
@@ -28,6 +29,11 @@ export type MondeHost = {
   bindOutPublisher: () => void;
   outDataProvider?: string;
   dataProvider?: string;
+  /** Store qui reçoit les événements du monde (`hit`, `expire`). */
+  target?: string;
+  dispatchEvent?: (e: Event) => boolean;
+  /** Derniers ordres `emit` appliqués (idempotence). */
+  lastEmitJson?: string;
 };
 
 function sourceOf(host: MondeHost, data: Record<string, unknown>): unknown {
@@ -80,6 +86,27 @@ function hook(host: MondeHost) {
       /* pas de DP de sortie */
     }
   };
+  const outKey = (key: string, v: unknown) => {
+    const out = host.outDataProvider?.trim();
+    if (!out || out === host.dataProvider?.trim()) return;
+    if (!host.outPublisher) host.bindOutPublisher();
+    try {
+      (host.outPublisher as Record<string, { set: (v: unknown) => void }> | null)?.[key]?.set(v);
+    } catch {
+      /* pas de DP de sortie */
+    }
+  };
+  // émetteurs : touches regroupées par image vers `target` (et la sortie `hits`), état 10 fois par seconde
+  host.runtime.monde.onHits = (hits) => {
+    const payload = { hits: hits.slice(0, 64), t: Date.now() };
+    if (host.target) dispatch(host.target, { type: "hit", payload });
+    host.dispatchEvent?.(new CustomEvent("monde-hit", { detail: payload, bubbles: true, composed: true }));
+    outKey("hits", payload);
+  };
+  host.runtime.monde.onExpire = (e) => {
+    if (host.target) dispatch(host.target, { type: "expire", payload: e });
+  };
+  host.runtime.monde.onEmitStats = (stats) => outKey("emitters", stats);
   // conflits recalculés après un rangement : le résumé publié suit la scène
   host.runtime.monde.onConflicts = (conflicts) => {
     if (!host.mondeParsed) return;
@@ -155,4 +182,21 @@ function select(host: MondeHost, data: Record<string, unknown>) {
   host.runtime?.render();
 }
 
-export const mondeBind = { sync, hook, select } as const;
+/**
+ * Clé `emit` du DataProvider : `{<émetteur>: {n, count, at, dir, toward, clear, kill: {n, ids}}}`. Chaque hausse
+ * de `n` tire une salve ; la première lecture ne fait que mémoriser les compteurs.
+ */
+function emit(host: MondeHost, data: Record<string, unknown>) {
+  if (!("emit" in data) || !host.runtime?.ready) return;
+  let json: string;
+  try {
+    json = JSON.stringify(data.emit);
+  } catch {
+    return;
+  }
+  if (!json || json === host.lastEmitJson) return;
+  host.lastEmitJson = json;
+  if (host.runtime.monde.applyEmit(JSON.parse(json))) host.runtime.render();
+}
+
+export const mondeBind = { sync, hook, select, emit } as const;

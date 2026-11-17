@@ -9,11 +9,12 @@ import { DEG, Rand, hash32 } from "./math";
 import { PRESETS, type PresetOut } from "./presets";
 import { readTex, type TexSpec } from "./textures";
 import { GEN_ACTIONS, GEN_IDS, genVariants, GEN_ROLES, genPreset, isGenId, type GenRig } from "./gen";
-import { expandPrefabs, type Matiere, type PrefabFormat, type PrefabInfo } from "./prefab";
+import { expandPrefabs, hasExpr, type Matiere, type PrefabFormat, type PrefabInfo } from "./prefab";
 import { boundsOf, DEFAULT_BOUNDS, inPolygon, localOn, surfaceNames, surfaceOf, turnY, type Box3, type Face, type From, type Surface } from "./supports";
 import { expandEspace, type EspaceEdge, type EspaceOpening } from "./espace";
 import { CATALOGUE } from "./catalogue";
 import { findAll, type Obb } from "./collide";
+import { readEmitters, type EmitterSpec } from "../sim/emitter";
 
 /* ------------------------------------------------------------------ JSON d'entrée */
 
@@ -183,6 +184,11 @@ export type MondeIn = {
    * chacune) ; une pièce les affiche par `image: "poster1"` (prefab `poster` : `params.image`).
    */
   images?: Record<string, unknown>;
+  /**
+   * Émetteurs : copies d'un modèle qui naissent, bougent et meurent en jeu (projectiles `ballistic`, nuées `flock`),
+   * pilotées par la clé DP `emit.<id>` (voir shared/sim/emitter.ts).
+   */
+  emitters?: Record<string, unknown>;
   /** Unité des longueurs écrites (pièces, placements, clips) : `m` (défaut), `cm` ou `mm`. `nodes` reste en mètres. */
   unite?: string;
   /** Nuancier de matières : `{chene: {color: "#b98a56", tex: "bois"}}`, lu par `matiere` des pièces. */
@@ -339,6 +345,8 @@ export type Monde = {
   openings: Record<string, EspaceOpening>;
   /** Images valides de `images` (URL `data:`), par nom. */
   images: Record<string, string>;
+  /** Émetteurs lus, modèles et variantes résolus (en mètres). */
+  emitters: EmitterSpec[];
   unit: number;
   issues: Issue[];
 };
@@ -1005,9 +1013,12 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
   const raw0 = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as MondeIn;
   const unit = readUnit(raw0.unite, issues);
   const esp = expandEspace(raw0, issues, unit);
-  const raw = esp.src;
+  const emitters = readEmitters(raw0.emitters, unit, issues);
+  // le modèle de chaque émetteur passe par la même lecture qu'un placement (prefab paramétré, variantes, modèle gen) :
+  // placements cachés ajoutés en fin de liste, retirés après la résolution
+  const raw = emitters.length ? withEmitterPlaces(esp.src, emitters) : esp.src;
   const expanded = expandPrefabs(raw, issues, prefabFormat(unit, readMatieres(raw.materiaux, issues)));
-  const src = genVariants(expanded.src, issues);
+  const src = emitters.length ? takeEmitterPlaces(genVariants(expanded.src, issues), emitters) : genVariants(expanded.src, issues);
   const palette: Record<string, string> = { ...DEFAULT_PALETTE };
   const ownPal: Record<string, string> = {};
   if (src.palette && typeof src.palette === "object") {
@@ -1084,9 +1095,49 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     edges: esp.edges,
     openings: esp.openings,
     images: readImages(raw0.images, issues),
+    emitters: emitters.filter((e) => {
+      const known = e.variants.filter((v) => models.has(v.model));
+      e.variants = known.filter((v) => !models.get(v.model)!.gen);
+      if (e.variants.length) return true;
+      issues.push({ path: `emitters.${e.id}.model`, message: known.length ? `« ${e.model} » vient d'un générateur procgen : pas encore émis (modèle en pièces attendu)` : `modèle inconnu « ${e.model} »` });
+      return false;
+    }),
     unit,
     issues,
   };
+}
+
+type EmitPlace = PlaceIn & { emitter?: string; copies?: { model: string; roles?: Record<string, string> }[] };
+
+/** Un placement caché par émetteur (semis de quelques copies si ses paramètres sont tirés au hasard). */
+function withEmitterPlaces<T extends { place?: unknown }>(src: T, list: EmitterSpec[]): T {
+  const place = Array.isArray(src.place) ? [...(src.place as unknown[])] : [];
+  for (const e of list) {
+    const p: EmitPlace = { model: e.model, hidden: true, emitter: e.id, seed: e.seed };
+    if (e.params) {
+      p.params = e.params;
+      if (hasExpr(e.params)) {
+        p.scatter = Math.min(8, e.max);
+        p.area = [0, 0, 1, 1];
+      }
+    }
+    place.push(p);
+  }
+  return { ...src, place };
+}
+
+/** Récupère les modèles résolus des placements d'émetteurs et les retire de la liste. */
+function takeEmitterPlaces<T extends { place?: unknown }>(src: T, list: EmitterSpec[]): T {
+  if (!Array.isArray(src.place)) return src;
+  const byId = new Map(list.map((e) => [e.id, e]));
+  const place = (src.place as EmitPlace[]).filter((p) => {
+    const e = p && typeof p === "object" && typeof p.emitter === "string" ? byId.get(p.emitter) : undefined;
+    if (!e) return true;
+    const roles = (r: unknown) => (r && typeof r === "object" ? (r as Record<string, string>) : {});
+    e.variants = Array.isArray(p.copies) && p.copies.length ? p.copies.slice(0, 8).map((c) => ({ model: c.model, roles: roles(c.roles) })) : [{ model: String(p.model), roles: roles(p.roles) }];
+    return false;
+  });
+  return { ...src, place };
 }
 
 /** `images` : URL `data:` d'images (png, jpeg, webp) ; jamais d'URL réseau. */
@@ -1268,6 +1319,7 @@ export function mondeSummary(m: Monde) {
     ...(m.conflicts.length ? { conflicts: m.conflicts.slice(0, 50) } : {}),
     ...(hasPrefabs ? { prefabs: m.prefabs } : {}),
     decor: m.place.filter((p) => !p.name).length,
+    ...(m.emitters.length ? { emitters: m.emitters.map((e) => ({ id: e.id, model: e.model, behavior: e.behavior, max: e.max, variants: e.variants.length })) } : {}),
     issues: m.issues.slice(0, 50),
   };
 }

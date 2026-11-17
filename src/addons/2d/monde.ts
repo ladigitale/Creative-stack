@@ -18,6 +18,9 @@ import { TEX_SIZE, texKey, texPixels, type TexSpec } from "../../shared/monde/te
 import { affineOf, basisOf, bucketDir, bucketOf, depthOf, groundPoint, hull as hull2, localDir, projOf, samplePoints, silhouette, type Proj } from "../../shared/monde/view2d";
 import { shade } from "../../shared/monde/math";
 import { isNum, patchOf } from "../../shared/nodes";
+import { composeYP, EmitterSet, type EmitStats } from "../../shared/sim/set";
+import type { Emitter, Hit } from "../../shared/sim/emitter";
+import { m4Mul } from "../../shared/monde/math";
 
 type PartView = {
   g: Graphics;
@@ -29,6 +32,10 @@ type PartView = {
   /** Surcharges de la pièce (`nodes.<instance>_<pièce>`). */
   over: { visible?: boolean; color?: string; opacity?: number };
 };
+
+/** Copie dessinée d'un émetteur : une silhouette par pièce, contextes partagés avec les instances. */
+type EmitView = { c: Container; parts: (Graphics | null)[]; buckets: number[]; variant: number };
+type EmitDraw = { sim: Emitter; variants: { model: Model; roles: Record<string, string>; rest: Float32Array }[]; pool: EmitView[] };
 
 type Built = { inst: InstanceState; parts: (PartView | null)[]; shadow: Graphics | null; shadowSig: string; rolesRev: number; world: Float32Array; radius: number };
 
@@ -101,6 +108,17 @@ export class Monde2d {
   private aff: number[] = [0, 0, 0, 0, 0, 0];
   private mat = new Matrix();
 
+  /** Émetteurs (projectiles, nuées) : simulation partagée avec `sonic-3d`. */
+  readonly emitters = new EmitterSet();
+  private emitDraw: EmitDraw[] = [];
+  private emitWorld = new Float32Array(16);
+  private lastStep = 0;
+  private lastStats = 0;
+  /** Touches regroupées par image, copies expirées, état 10 fois par seconde. */
+  onHits: ((hits: Hit[]) => void) | null = null;
+  onExpire: ((e: { emitter: string; count: number }) => void) | null = null;
+  onEmitStats: ((s: EmitStats) => void) | null = null;
+
   /** Résultat d'un rangement (`nodes.<instance>.move`, fin d'un glisser). */
   onPlaced: ((p: PlacedInfo) => void) | null = null;
   /** Conflits recalculés après un rangement. */
@@ -112,6 +130,97 @@ export class Monde2d {
   constructor(private invalidate: () => void) {
     this.container.sortableChildren = true;
     this.container.label = "monde";
+    this.emitters.onHits = (h) => this.onHits?.(h);
+    this.emitters.onExpire = (e) => this.onExpire?.(e);
+  }
+
+  /** Ordres `emit.<id>` du DataProvider. */
+  applyEmit(spec: unknown): boolean {
+    if (!this.monde) return false;
+    const r = this.emitters.applyOrders(spec, this.driver);
+    if (r) this.invalidate();
+    return r;
+  }
+
+  get emitting(): boolean {
+    return this.emitters.active;
+  }
+
+  private mountEmitters(m: Monde) {
+    this.emitters.set(m, this.driver);
+    this.emitDraw = this.emitters.sims.map((sim) => ({
+      sim,
+      variants: sim.spec.variants.map((v) => {
+        const model = m.models.get(v.model)!;
+        const offs = new Float32Array(model.parts.length * STRIDE);
+        for (let i = 6; i < offs.length; i += STRIDE) offs[i] = 1;
+        const rest = new Float32Array(model.parts.length * 16);
+        forward(model, offs, m4(), rest, m4());
+        return { model, roles: v.roles, rest };
+      }),
+      pool: [],
+    }));
+  }
+
+  /** Silhouettes des copies : une par pièce, posée par l'affine de sa matrice monde (comme une instance nommée). */
+  private drawEmitters(m: Monde) {
+    const { unit, origin } = m.view2d;
+    for (const d of this.emitDraw) {
+      const s = d.sim;
+      for (let i = 0; i < s.n; i++) {
+        const vi = d.variants.length > 1 ? s.variant[i] % d.variants.length : 0;
+        const v = d.variants[vi];
+        let view = d.pool[i];
+        if (!view || view.variant !== vi) {
+          if (view) view.c.destroy({ children: true });
+          const c = new Container();
+          c.label = `${s.spec.id}~emit`;
+          this.container.addChild(c);
+          view = { c, parts: v.model.parts.map((p) => (p.shape && !p.hidden ? c.addChild(new Graphics()) : null)), buckets: v.model.parts.map(() => -1), variant: vi };
+          d.pool[i] = view;
+        }
+        view.c.visible = true;
+        composeYP(this.root, s.px[i], s.py[i], s.pz[i], s.heading(i), s.pitch(i), s.size[i]);
+        let zmax = -Infinity;
+        v.model.parts.forEach((p, k) => {
+          const g = view!.parts[k];
+          if (!g) return;
+          const w = this.emitWorld;
+          m4Mul(w, this.root, v.rest.subarray(k * 16, k * 16 + 16));
+          localDir(w, this.proj.dir, this.dir);
+          const bucket = bucketOf(this.dir);
+          const color = partColor(v.model, p, v.roles, m.palette);
+          const [u, vv] = basisOf(bucketDir(bucket));
+          if (bucket !== view!.buckets[k]) {
+            view!.buckets[k] = bucket;
+            let byBucket = this.hulls.get(p);
+            if (!byBucket) this.hulls.set(p, (byBucket = new Map()));
+            let hull = byBucket.get(bucket);
+            if (!hull) {
+              const pts = this.pointsOf(p, m.detail);
+              if (!pts) return;
+              hull = silhouette(pts, u, vv);
+              byBucket.set(bucket, hull);
+            }
+            const key = `${v.model.name}#${k}|${bucket}|${color}`;
+            let ctx = this.contexts.get(key);
+            if (!ctx) {
+              ctx = new GraphicsContext();
+              drawPart(ctx, hull, color, partTex(m, p), p.glow, m.outline, unit * (s.size[i] || 1), p.shape?.kind === "plane");
+              this.contexts.set(key, ctx);
+            }
+            g.context = ctx;
+          }
+          affineOf(w, u, vv, this.proj, unit, origin[0], origin[1], this.aff);
+          g.setFromMatrix(this.mat.set(this.aff[0], this.aff[1], this.aff[2], this.aff[3], this.aff[4], this.aff[5]));
+          const z = depthOf(this.proj, w[12], w[13], w[14]);
+          g.zIndex = zOf(z + k * 1e-5);
+          zmax = Math.max(zmax, z);
+        });
+        view.c.zIndex = zOf(zmax);
+      }
+      for (let i = s.n; i < d.pool.length; i++) d.pool[i].c.visible = false;
+    }
   }
 
   get issues() {
@@ -125,6 +234,7 @@ export class Monde2d {
     this.driver.setMonde(m, now);
     this.buildStatics(m);
     for (const inst of this.driver.instances.values()) this.buildInstance(m, inst);
+    this.mountEmitters(m);
     this.step(now, true);
     this.drawMarks(m.marks);
     this.drawSelection();
@@ -358,14 +468,30 @@ export class Monde2d {
   step(now: number, force = false): boolean {
     const m = this.monde;
     if (!m) return false;
-    const busy = this.driver.step(now);
+    let busy = this.driver.step(now);
     const { unit, origin } = m.view2d;
+    if (this.emitDraw.length) {
+      const dt = this.lastStep ? Math.min(0.1, Math.max(0, (now - this.lastStep) / 1000)) : 0;
+      this.emitters.step(dt, this.driver);
+      this.drawEmitters(m);
+      if (this.emitters.active) busy = true;
+      if (this.onEmitStats && now - this.lastStats >= 100) {
+        this.lastStats = now;
+        this.onEmitStats(this.emitters.stats(this.driver));
+      }
+    }
+    this.lastStep = now;
     // trop de dessins en cache : on repart de zéro, en redessinant toutes les pièces dans cette image
     if (this.contexts.size > MAX_CONTEXTS) {
       for (const b of this.built.values()) for (const pv of b.parts) if (pv) {
         pv.bucket = -1;
         pv.g.context = EMPTY;
       }
+      for (const d of this.emitDraw)
+        for (const v of d.pool) {
+          v.buckets.fill(-1);
+          for (const g of v.parts) if (g) g.context = EMPTY;
+        }
       this.clearContexts();
       force = true;
     }
@@ -471,6 +597,7 @@ export class Monde2d {
   clear() {
     // contexte jetable (le partagé et EMPTY ne doivent pas être détruits avec la pièce)
     for (const b of this.built.values()) for (const pv of b.parts) if (pv) pv.g.context = new GraphicsContext();
+    for (const d of this.emitDraw) for (const v of d.pool) for (const g of v.parts) if (g) g.context = new GraphicsContext();
     // pièces d'instances : contexte partagé détaché ci-dessus ; décor et ombres : leurs propres dessins
     for (const c of this.container.removeChildren()) c.destroy({ children: true, context: true });
     this.clearContexts();
@@ -478,10 +605,12 @@ export class Monde2d {
     this.partIndex.clear();
     this.statics = [];
     this.marks = null;
+    this.emitDraw = [];
   }
 
   destroy() {
     this.clear();
+    this.emitters.dispose();
     this.container.destroy();
   }
 }
