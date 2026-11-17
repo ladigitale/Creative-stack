@@ -503,7 +503,7 @@ export function readPhoto(v: unknown): PhotoSpec | null {
   const filtre = o.filtre === "peinture" || o.filtre === "lisse" ? o.filtre : "";
   // filtré : peu d'échantillons et de rebonds suffisent (le filtre efface le bruit)
   return {
-    echantillons: n(o.echantillons, filtre === "peinture" ? 4 : filtre === "lisse" ? 32 : 200, 1, 4000),
+    echantillons: n(o.echantillons, filtre === "peinture" ? 6 : filtre === "lisse" ? 32 : 200, 1, 4000),
     rebonds: n(o.rebonds, filtre === "peinture" ? 2 : filtre ? 3 : 5, 1, 12),
     attente: n(o.attente, 600, 0, 10000),
     filtre,

@@ -200,9 +200,9 @@ export class PaintFilter {
     renderer.render(this.scene, this.cam);
   }
 
-  /** Filtre `src` vers `target` (null : l'écran). Taille : celle du dessin du rendu. */
+  /** Filtre `src` vers `target` (null : l'écran). Taille de calcul : celle de `target`, sinon celle du dessin du rendu. */
   render(renderer: THREE.WebGLRenderer, src: THREE.Texture, o: PaintOptions, target: THREE.WebGLRenderTarget | null = null) {
-    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+    const size = target ? new THREE.Vector2(target.width, target.height) : renderer.getDrawingBufferSize(new THREE.Vector2());
     if (size.x !== this.w || size.y !== this.h) {
       this.w = Math.max(1, size.x);
       this.h = Math.max(1, size.y);

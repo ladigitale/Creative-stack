@@ -940,10 +940,10 @@ début) jusqu'à `echantillons`. Tout mouvement (orbite, glisser, animation, cha
 temps réel ; le calcul reprend à la pause suivante. La copie de la scène pour le traceur (et sa structure d'accélération) est gardée tant que seul le point de vue change : seule la première pause après une modification du monde la reconstruit. Le moteur (environ 450 Ko) n'est chargé que si un monde le demande.
 
 - **Filtre** (`filtre`) pour une image utilisable en peu d'échantillons :
-  - `"peinture"` : 4 échantillons, 2 rebonds, calcul en demi-résolution, puis filtre de Kuwahara anisotrope : le
+  - `"peinture"` : 6 échantillons, 2 rebonds, calcul en demi-résolution, puis filtre de Kuwahara anisotrope (une seule fois, sur l'image finale, à la résolution de calcul ; l'écran l'agrandit) : le
     bruit devient des touches de pinceau qui suivent les contours (image en une seconde environ). `tramage` (0 à 1,
     `true` = 0,6) ajoute avant le filtre un tramage ordonné sur `niveaux` niveaux (6) : touches plus texturées ;
-    `touche` règle le rayon des touches (px, 5).
+    `touche` règle le rayon des touches (px de calcul, 5 : plus larges à l'écran quand la résolution est réduite).
   - `"lisse"` : 32 échantillons et un débruitage qui garde les arêtes ; plus propre, moins net qu'un calcul complet.
   - `echelle` (0,25 à 1) : résolution de calcul. C'est un plafond : sur téléphone ou tablette, les pixels tracés sont limités (environ 0,35 Mpx, contre 1,6 Mpx sur ordinateur) et le calcul est découpé en tuiles, pour que le GPU ne coupe pas le contexte. Si le GPU ne suit pas (aucun échantillon au bout de 30 s, contexte perdu), `photo.etat` passe à `indisponible` avec la `raison`.
 - La sortie `photo` donne l'avancement : `{etat: "attente" | "calcul" | "fini" | "indisponible", echantillons, total, raison}`.

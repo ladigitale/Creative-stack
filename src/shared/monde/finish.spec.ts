@@ -40,7 +40,7 @@ describe("rendu photo", () => {
     expect(readPhoto(undefined)).toBeNull();
     expect(readPhoto(false)).toBeNull();
     expect(readPhoto(true)).toMatchObject({ echantillons: 200, rebonds: 5, attente: 600, filtre: "" });
-    expect(readPhoto({ filtre: "peinture", tramage: true })).toMatchObject({ echantillons: 4, rebonds: 2, tramage: 0.6, echelle: 0.5, touche: 5 });
+    expect(readPhoto({ filtre: "peinture", tramage: true })).toMatchObject({ echantillons: 6, rebonds: 2, tramage: 0.6, echelle: 0.5, touche: 5 });
     expect(readPhoto({ filtre: "lisse" })).toMatchObject({ echantillons: 32, echelle: 1 });
     expect(readPhoto({ echantillons: 99999, rebonds: 0, attente: -5 })).toMatchObject({ echantillons: 4000, rebonds: 1, attente: 0 });
     expect(readMonde({ photo: { rebonds: 3 } }).photo).toMatchObject({ echantillons: 200, rebonds: 3, attente: 600 });
