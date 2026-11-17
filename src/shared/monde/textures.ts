@@ -292,33 +292,81 @@ function sample(kind: TexKind, u: number, v: number, seed: number): number {
   return 0;
 }
 
+/** Taille de départ d'une texture procédurale (pixels de côté). */
 export const TEX_SIZE = 128;
+/** Tailles possibles : une texture vue de près est recalculée plus finement (texture adaptative). */
+export const TEX_LEVELS = [128, 256, 512, 1024] as const;
 
-/** Pixels RGBA (TEX_SIZE²) d'une texture teintée : `base` = couleur de la pièce. Mis en cache. */
+/**
+ * Texture adaptative : plus petite taille (parmi TEX_LEVELS, au plus `max`) qui donne au moins un texel par pixel
+ * quand un mètre couvre `pxPerMeter` pixels à l'écran et que le motif se répète `scale` fois par mètre.
+ */
+export function texSizeFor(pxPerMeter: number, scale: number, max = 512): number {
+  const need = pxPerMeter / Math.max(1e-3, scale);
+  for (const n of TEX_LEVELS) if (n >= need || n >= max) return Math.min(n, Math.max(TEX_SIZE, max));
+  return Math.max(TEX_SIZE, max);
+}
+
+/** Pixels RGBA (size²) d'une texture teintée : `base` = couleur de la pièce. Mis en cache. */
 const cache = new Map<string, Uint8ClampedArray>();
-export function texPixels(t: TexSpec, base: string): Uint8ClampedArray {
-  const c2 = t.color2 || shade(base, -0.35);
-  const key = `${t.kind}|${base}|${c2}|${t.contrast}|${t.seed}`;
-  const hit = cache.get(key);
-  if (hit) return hit;
-  const N = TEX_SIZE;
-  const out = new Uint8ClampedArray(N * N * 4);
-  const a = parseHex(base) ?? 0x888888;
-  const mixTo = parseHex(mixColor(base, c2, t.contrast)) ?? a;
-  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
-  const br = (mixTo >> 16) & 255, bg = (mixTo >> 8) & 255, bb = mixTo & 255;
-  for (let y = 0; y < N; y++)
-    for (let x = 0; x < N; x++) {
-      const s = Math.max(0, Math.min(1, sample(t.kind, x / N, y / N, t.seed)));
-      const i = (y * N + x) * 4;
-      out[i] = ar + (br - ar) * s;
-      out[i + 1] = ag + (bg - ag) * s;
-      out[i + 2] = ab + (bb - ab) * s;
-      out[i + 3] = 255;
-    }
-  if (cache.size > 256) cache.clear();
+let cacheBytes = 0;
+const pixKey = (t: TexSpec, base: string, size: number) => `${t.kind}|${base}|${t.color2 || shade(base, -0.35)}|${t.contrast}|${t.seed}|${size}`;
+function keep(key: string, out: Uint8ClampedArray) {
+  // les grandes tailles pèsent lourd : cache borné en octets (32 Mo) autant qu'en nombre
+  if (cache.size > 256 || cacheBytes > 32 << 20) {
+    cache.clear();
+    cacheBytes = 0;
+  }
   cache.set(key, out);
-  return out;
+  cacheBytes += out.length;
+}
+
+/**
+ * Calcul d'une texture par bandes de lignes : `step(ms)` avance dans la limite du budget et rend les pixels une fois
+ * fini (null sinon). Sert à la texture adaptative, dont les grandes tailles prendraient plusieurs centaines de ms.
+ */
+export class TexJob {
+  readonly key: string;
+  private out: Uint8ClampedArray;
+  private y = 0;
+  private c: number[];
+  constructor(private t: TexSpec, base: string, readonly size: number) {
+    this.key = pixKey(t, base, size);
+    const hit = cache.get(this.key);
+    this.out = hit ?? new Uint8ClampedArray(size * size * 4);
+    if (hit) this.y = size;
+    const c2 = t.color2 || shade(base, -0.35);
+    const a = parseHex(base) ?? 0x888888;
+    const b = parseHex(mixColor(base, c2, t.contrast)) ?? a;
+    this.c = [(a >> 16) & 255, (a >> 8) & 255, a & 255, (b >> 16) & 255, (b >> 8) & 255, b & 255];
+  }
+  get done() {
+    return this.y >= this.size;
+  }
+  step(budgetMs = Infinity): Uint8ClampedArray | null {
+    const N = this.size, out = this.out, t = this.t;
+    const [ar, ag, ab, br, bg, bb] = this.c;
+    const t0 = budgetMs === Infinity ? 0 : performance.now();
+    while (this.y < N) {
+      const y = this.y++;
+      for (let x = 0; x < N; x++) {
+        const s = Math.max(0, Math.min(1, sample(t.kind, x / N, y / N, t.seed)));
+        const i = (y * N + x) * 4;
+        out[i] = ar + (br - ar) * s;
+        out[i + 1] = ag + (bg - ag) * s;
+        out[i + 2] = ab + (bb - ab) * s;
+        out[i + 3] = 255;
+      }
+      if (budgetMs !== Infinity && (y & 3) === 3 && performance.now() - t0 > budgetMs) break;
+    }
+    if (this.y < N) return null;
+    if (!cache.has(this.key)) keep(this.key, out);
+    return out;
+  }
+}
+
+export function texPixels(t: TexSpec, base: string, size: number = TEX_SIZE): Uint8ClampedArray {
+  return new TexJob(t, base, size).step()!;
 }
 
 /** Clé de cache d'une texture teintée (pour les textures GPU des rendus). */

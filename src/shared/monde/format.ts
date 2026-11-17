@@ -223,6 +223,12 @@ export type MondeIn = {
    * `aucun`. Par défaut : `studio` dès qu'une pièce a un fini qui reflète, sinon `aucun`.
    */
   environnement?: string;
+  /**
+   * Rendu « photo » (3D) : quand la vue ne bouge plus, l'image est recalculée en lancer de rayons progressif
+   * (reflets, ombres douces, verre et lumière indirecte physiquement justes) ; tout mouvement rend la main au rendu
+   * temps réel. `true` ou `{echantillons (200), rebonds (5), attente (ms, 600)}`.
+   */
+  photo?: boolean | { echantillons?: number; rebonds?: number; attente?: number };
   /** Finesse des maillages : `low`, `mid` (défaut), `high`. */
   detail?: string;
   /** Vue 2D : `top`, `side`, `front`, `iso` ; `unit` px par mètre ; `origin` position écran de l'origine du monde. */
@@ -403,12 +409,24 @@ export type View2d = { view: "top" | "side" | "front" | "iso"; unit: number; ori
 
 export type Issue = { path: string; message: string };
 
+export type PhotoSpec = { echantillons: number; rebonds: number; attente: number };
+
+/** Réglages du rendu photo ; `null` : désactivé. */
+export function readPhoto(v: unknown): PhotoSpec | null {
+  if (v === undefined || v === null || v === false) return null;
+  const o = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  const n = (x: unknown, d: number, lo: number, hi: number) => (typeof x === "number" && Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d);
+  return { echantillons: n(o.echantillons, 200, 1, 4000), rebonds: n(o.rebonds, 5, 1, 12), attente: n(o.attente, 600, 0, 10000) };
+}
+
 export type Monde = {
   palette: Record<string, string>;
   models: Map<string, Model>;
   place: Placement[];
   look: "doux" | "toon" | "brillant";
   environnement: "studio" | "exterieur" | "aucun";
+  /** Rendu photo (lancer de rayons à l'arrêt), `null` : temps réel seulement. */
+  photo: PhotoSpec | null;
   detail: number;
   view2d: View2d;
   shadows: boolean;
@@ -1188,6 +1206,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     place,
     look,
     environnement: envIn === "studio" || envIn === "exterieur" || envIn === "aucun" ? envIn : reflects(models) ? "studio" : "aucun",
+    photo: readPhoto((src as MondeIn).photo),
     detail,
     view2d: { view, unit: clampN(num(v.unit, 48), 1, 2000), origin: [num(v.origin?.[0], 0), num(v.origin?.[1], 0)] },
     shadows: src.shadows !== false,

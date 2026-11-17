@@ -18,6 +18,7 @@ import { tune, type TuneCtx } from "./tune";
 import type { Sonic3dAsset, Sonic3dOutput } from "./types";
 import { view, type ViewCtx } from "./view";
 import { Monde3d } from "./monde";
+import { PhotoMode } from "./photo";
 import type { PlacedInfo } from "../../shared/monde/arrange";
 import { load as loadOps } from "./load";
 import type { Monde } from "../../shared/monde/format";
@@ -48,6 +49,8 @@ export class SceneRuntime {
   /** Monde décrit en primitives (clé `monde`), ajouté au contenu chargé. */
   readonly monde = new Monde3d();
   private mondeData: Monde | null = null;
+  /** Rendu photo (lancer de rayons à l'arrêt), réglé par `monde.photo`. */
+  readonly photo: PhotoMode;
   private loadToken = 0;
   private blobUrl: string | null = null;
   private dprMax: number;
@@ -102,6 +105,8 @@ export class SceneRuntime {
     this.fitEnabled = b.fitEnabled;
     this.limits = b.limits;
     this.postFx = new PostFxPipeline(this.renderer);
+    this.photo = new PhotoMode(this.renderer, () => this.render());
+    this.photo.envSource = () => this.monde.photoEnv(this.mondeData);
     this.applyCameraMode(this.mode);
     if (b.autoRotate) this.setAutoRotate(true);
     void [
@@ -304,6 +309,7 @@ export class SceneRuntime {
       this.monde.clear();
       this.monde.group.removeFromParent();
       this.monde.applySky(this.scene, null);
+      this.photo.configure(null);
     } else this.mountMonde(m, fit);
     this.nodes.attach(this.content);
     return true;
@@ -320,6 +326,9 @@ export class SceneRuntime {
     }
     if (this.monde.group.parent !== this.content) this.content!.add(this.monde.group);
     this.monde.applySky(this.scene, m, this.renderer);
+    // le style toon n'a pas d'équivalent physique : pas de photo
+    this.photo.configure(m.look === "toon" ? null : m.photo);
+    this.photo.invalidate();
     if (first && fit && this.fitEnabled) {
       loadOps.updateBBox(this as never);
       this.fitToContent();
@@ -372,12 +381,17 @@ export class SceneRuntime {
     this.stepLook(now);
     if (this.isEye) this.eye.tick(this.eyeCtx(), now);
     this.controls?.update();
+    if (this.mondeData) this.monde.texAdapt.scan(this.monde.group, this.activeCam, this.lastCssH * this.renderer.getPixelRatio(), now);
+    if (this.photo.enabled && this.photo.frame(this.scene, this.activeCam, this.raster, now)) return;
+    this.raster();
+  }
+  private raster = () => {
     if (this.postFx.isEnabled) {
       this.postFx.render(this.scene, this.activeCam, this.postFrame);
     } else {
       this.renderer.render(this.scene, this.activeCam);
     }
-  }
+  };
   pick(normX: number, normY: number, names?: string): SceneHit | null {
     return ops.pick(this.asOpsCtx(), normX, normY, names);
   }
@@ -475,6 +489,7 @@ export class SceneRuntime {
     this.nodes.dispose();
     this.monde.dispose();
     this.postFx.dispose();
+    this.photo.dispose();
     ops.dispose(this.asOpsCtx(), loseContext);
   }
 

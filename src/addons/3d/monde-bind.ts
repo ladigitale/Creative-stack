@@ -116,6 +116,8 @@ function hook(host: MondeHost) {
     if (host.target) later(() => dispatch(host.target!, { type: "expire", payload: e }));
   };
   host.runtime.monde.onEmitStats = (stats) => outKey("emitters", stats);
+  // rendu photo : avancement (`attente`, `calcul`, `fini`, `indisponible`) dans la sortie `photo`
+  host.runtime.photo.onState = (st) => outKey("photo", st);
   // requêtes : réponses rangées par identifiant dans la sortie `queries` ; capteurs : `enter` / `leave` vers target
   host.runtime.monde.infini.onState = (st) => outKey("infini", st);
   host.runtime.monde.infini.onEnter = (e) => {
