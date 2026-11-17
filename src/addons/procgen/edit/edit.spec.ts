@@ -248,6 +248,40 @@ describe("sonic-procgen : édition au doigt (vue simulée)", () => {
     void el;
   });
 
+  it("recomposition en cours : l'objet sélectionné se glisse quand même (pas d'orbite), le modèle arrivé pendant le geste est adopté au lâcher", () => {
+    const { el, view, under, events, ptr } = setup({ drag: ".*", "drag-selected": "" });
+    const host = el as unknown as Record<string, unknown>;
+    under.id = "banc.0";
+    ptr("onDown", 1, 0, 0);
+    ptr("onUp", 1, 1, 0);
+    host.composing = true;
+    events.length = 0;
+    const adopt = vi.fn();
+    ptr("onDown", 1, 0, 0);
+    ptr("onMove", 1, 20, 0);
+    host.deferred = adopt;
+    ptr("onMove", 1, 40, 30);
+    expect(adopt).not.toHaveBeenCalled();
+    ptr("onUp", 1, 40, 30);
+    expect(events.map((e) => e.type)).toEqual(["dragstart", "place"]);
+    expect(view.interact as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(adopt).toHaveBeenCalledTimes(1);
+    expect(host.deferred).toBe(null);
+  });
+
+  it("pose rejouée sur un modèle composé avant elle, oubliée par un modèle composé après", () => {
+    const { el, view } = setup({});
+    const host = el as unknown as { moved: Map<string, unknown>; replayMoves: (t: number) => void };
+    host.moved.set("banc.0", { x: 5, y: 0, z: 6, yaw: 1, t: 10 });
+    host.replayMoves(5);
+    expect(view.dragBegin).toHaveBeenCalledWith("banc.0");
+    expect((view.dragEnd as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({ x: 5, z: 6, yaw: 1 });
+    expect(host.moved.size).toBe(1);
+    host.replayMoves(20);
+    expect(host.moved.size).toBe(0);
+    expect(view.dragEnd).toHaveBeenCalledTimes(1);
+  });
+
   it("placeRequest : place libre publiée dans state-out.free et action placeFree", () => {
     const { el, events } = setup({});
     (el as unknown as { answerPlace: (r: unknown) => void }).answerPlace({ id: "n1", gen: "rock", at: [8, 8] });
