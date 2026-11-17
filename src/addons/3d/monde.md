@@ -30,6 +30,8 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `look` | `doux` (mat, défaut), `toon` (aplats), `brillant` |
 | `detail` | Finesse des maillages : `low`, `mid`, `high` (et plafond de la texture adaptative : 256, 512, 1024 px) |
 | `environnement` | Reflets : `studio`, `exterieur`, `aucun` (voir Finis) |
+| `arrondi` | Arrondi des arêtes (m) des boîtes qui n'en écrivent pas (défaut : celui de l'ambiance, sinon 0) ; des arêtes un peu arrondies accrochent la lumière |
+| `facettes` | `true` : facettes visibles (ombrage plat, rendu low-poly) |
 | `ambiance` | Direction artistique d'un mot (rendu, ciel, palette, style `gen`, lumière, étalonnage), voir Ambiances |
 | `lumiere`, `etalonnage` | Lumière et étalonnage de l'image (voir Ambiances) |
 | `souple`, `cheveux` (sur une pièce) | Tissus et chaînes simulés, chevelures en mèches (voir Tissus souples et chevelures) |
@@ -680,7 +682,8 @@ objet qui part d'un fini et en change des valeurs.
 ```
 
 Finis prêts : `mat`, `satine`, `brillant`, `laque`, `plastique`, `ceramique`, `metal`, `brosse`, `chrome`, `miroir`,
-`verre`, `depoli`, `eau`, `tissu`, `velours`, `cuir`, `caoutchouc`, `bois`, `pierre`, `cire`.
+`verre`, `depoli`, `eau`, `tissu`, `velours`, `cuir`, `caoutchouc`, `bois`, `pierre`, `cire`, `pave`, `brique`,
+`ecorce`, `rouille`.
 
 | Valeur | Effet (0 à 1) |
 |---|---|
@@ -690,7 +693,14 @@ Finis prêts : `mat`, `satine`, `brillant`, `laque`, `plastique`, `ceramique`, `
 | `sheen` | Reflet rasant du tissu (velours, laine) |
 | `glass`, `ior` | Verre : la lumière traverse (`ior` de 1 à 2,5, 1,5 pour le verre, 1,33 pour l'eau) ; la couleur teinte ce qui est vu à travers |
 | `opacity` | Opacité (verre fumé, voilage) |
-| `relief` | La texture procédurale (`tex`) sert aussi de relief (bois, cuir, pierre, tissu) |
+| `relief` | Relief éclairé tiré de la texture (`tex`) : carte de normales (bois, cuir, pierre, tissu) |
+| `profondeur` | Parallaxe : les creux de la texture (joints, sillons) semblent creusés quand on tourne autour (pavés, briques, écorce) |
+| `usure` | Bosses polies, creux mats (variation de rugosité) |
+| `occlusion` | Creux de la texture assombris |
+
+Ces cartes viennent toutes de la texture procédurale de la pièce (sa seconde couleur marque les creux) : sans `tex`,
+`relief`, `profondeur`, `usure` et `occlusion` n'ont pas d'effet. Pour les recoins et les contacts entre objets,
+voir `occlusion` dans l'étalonnage.
 
 Les matières de base portent leur fini : `chrome`, `or`, `cuivre`, `aluminium`, `acier` (brossé), `laiton`,
 `metal-noir`, `verre`, `verre-depoli`, `verre-fume`, `plastique`, `plastique-brillant`, `laque`, `ceramique`, `cuir`,
@@ -815,6 +825,7 @@ Une ambiance s'inspire d'un genre : elle ne reprend ni les personnages ni les é
 | `contours`, `couleurContours` | Traits aux ruptures de profondeur (0 à 1) |
 | `halo`, `seuilHalo` | Lueur autour des zones claires (fenêtres, néons, `glow`) |
 | `aberration`, `lignes` | Franges colorées vers les bords ; lignes de balayage |
+| `occlusion` | Occlusion à l'écran (0 à 1) : coins, pieds des murs et contacts entre objets assombris (réglée par chaque ambiance) |
 | `peinture` | Touches de pinceau qui suivent les contours (filtre de Kuwahara anisotrope), rayon en px (4 à 6 : touches moyennes) |
 | `tramage` | Tramage ordonné avant la peinture (0 à 1, `true` = 0,6), sur `niveaux` niveaux (6 par défaut) |
 

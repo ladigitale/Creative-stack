@@ -38,6 +38,8 @@ export type Grade = {
   paint: number;
   /** Tramage ordonné avant la peinture (0 à 1), sur `posterize` niveaux (6 sans postérisation). */
   dither: number;
+  /** Occlusion ambiante à l'écran (0 à 1) : coins, contacts et recoins assombris. */
+  occlusion: number;
 };
 
 export type Lumiere = {
@@ -64,6 +66,10 @@ export type AmbianceSpec = {
   /** Style des modèles `gen` (préréglage ou jetons procgen). */
   style?: unknown;
   texture?: string;
+  /** Arrondi des arêtes (m) des boîtes sans arrondi écrit. */
+  arrondi?: number;
+  /** Ombrage à facettes (low-poly). */
+  facettes?: boolean;
   lumiere: Partial<Lumiere>;
   grade: Partial<Grade>;
 };
@@ -88,6 +94,7 @@ export const GRADE0: Grade = {
   scanlines: 0,
   paint: 0,
   dither: 0,
+  occlusion: 0,
 };
 
 export const LUMIERE0: Lumiere = { intensite: 1.1, couleur: "#ffffff", hauteur: 55, azimut: 53, ambiante: 0.55, couleurAmbiante: "#ffffff" };
@@ -96,15 +103,17 @@ type Preset = Omit<AmbianceSpec, "name">;
 
 export const AMBIANCES: Record<string, Preset> = {
   realiste: {
+    arrondi: 0.006,
     look: "doux",
     environnement: "exterieur",
     ciel: "#c9d6df",
     brume: 0.12,
     style: { shading: "lit", outline: 0, outlineStrength: 0, brush: 0, grain: 0, paper: 0, vignette: 0, texture: 0.5 },
     lumiere: { intensite: 2.2, couleur: "#fff4e6", hauteur: 42, ambiante: 0.35, couleurAmbiante: "#c8d6e6" },
-    grade: { saturation: 0.92, contrast: 1.08, vignette: 0.2, grain: 0.03, bloom: 0.1 },
+    grade: { occlusion: 0.6, saturation: 0.92, contrast: 1.08, vignette: 0.2, grain: 0.03, bloom: 0.1 },
   },
   militaire: {
+    arrondi: 0.005,
     look: "doux",
     environnement: "exterieur",
     ciel: "#b9bfb6",
@@ -112,9 +121,10 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#8a7d62", metal: "#4a4f52", accent: "#5c6640", maillot: "#5d6448", short: "#6b6a55", chaussure: "#3b342b", pierre: "#8e8a80", bois: "#6d5a44", feuillage: "#5a6340" },
     style: { shading: "lit", outline: 0, outlineStrength: 0, brush: 0, grain: 0.05, paper: 0, vignette: 0.2, texture: 0.7, chroma: 0.6 },
     lumiere: { intensite: 2.4, couleur: "#fff0dc", hauteur: 35, azimut: 120, ambiante: 0.3, couleurAmbiante: "#b8c2c8" },
-    grade: { saturation: 0.62, contrast: 1.18, tint: "#e6e0c8", vignette: 0.38, grain: 0.08, bloom: 0.12, bloomThreshold: 0.8 },
+    grade: { occlusion: 0.7, saturation: 0.62, contrast: 1.18, tint: "#e6e0c8", vignette: 0.38, grain: 0.08, bloom: 0.12, bloomThreshold: 0.8 },
   },
   cartoon: {
+    arrondi: 0.02,
     look: "toon",
     environnement: "aucun",
     ciel: "#7fc8ff",
@@ -122,9 +132,10 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#62c26a", accent: "#ff5a36", maillot: "#ff3d3d", short: "#2f6bff", pierre: "#b8b2a8", bois: "#b0703a", feuillage: "#3fb84a", eau: "#2fb4ff" },
     style: "bd",
     lumiere: { intensite: 1.5, hauteur: 60, ambiante: 0.75 },
-    grade: { saturation: 1.3, contrast: 1.05, outline: 0.9, outlineColor: "#1c1c28", bloom: 0.08 },
+    grade: { occlusion: 0.3, saturation: 1.3, contrast: 1.05, outline: 0.9, outlineColor: "#1c1c28", bloom: 0.08 },
   },
   jouet: {
+    arrondi: 0.035,
     look: "brillant",
     environnement: "studio",
     ciel: "#bfe3ff",
@@ -133,9 +144,10 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#7ccf6a", accent: "#ffcf2e", maillot: "#ff4a4a", short: "#3b7bff" },
     style: "doux",
     lumiere: { intensite: 1.6, hauteur: 58, ambiante: 0.65 },
-    grade: { saturation: 1.22, contrast: 1.04, brightness: 1.03, vignette: 0.12 },
+    grade: { occlusion: 0.4, saturation: 1.22, contrast: 1.04, brightness: 1.03, vignette: 0.12 },
   },
   cyber: {
+    arrondi: 0.004,
     look: "brillant",
     environnement: "exterieur",
     ciel: "#07060f",
@@ -144,9 +156,10 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#1b1a2a", metal: "#3a3d55", accent: "#ff2fb4", eau: "#26e0ff", pierre: "#2c2b3d", blanc: "#d8e6ff" },
     style: "neon",
     lumiere: { intensite: 1.4, couleur: "#ff5fd0", hauteur: 25, azimut: -60, ambiante: 0.55, couleurAmbiante: "#5a4ab0" },
-    grade: { saturation: 1.25, contrast: 1.15, tint: "#e0d4ff", outline: 0.8, outlineColor: "#36e6ff", bloom: 0.9, bloomThreshold: 0.5, aberration: 0.35, scanlines: 0.2, vignette: 0.4, grain: 0.04 },
+    grade: { occlusion: 0.4, saturation: 1.25, contrast: 1.15, tint: "#e0d4ff", outline: 0.8, outlineColor: "#36e6ff", bloom: 0.9, bloomThreshold: 0.5, aberration: 0.35, scanlines: 0.2, vignette: 0.4, grain: 0.04 },
   },
   alien: {
+    arrondi: 0.02,
     look: "doux",
     environnement: "exterieur",
     ciel: "#3a2466",
@@ -154,9 +167,10 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#2b2040", feuillage: "#36e0b0", accent: "#ff4fd8", pierre: "#4a3a66", eau: "#5af0ff", peau: "#8de6c0", bois: "#5a3d70" },
     style: { preset: "neon", palette: "abysses" },
     lumiere: { intensite: 1.5, couleur: "#7affd4", hauteur: 28, ambiante: 0.65, couleurAmbiante: "#8a5acc" },
-    grade: { saturation: 1.2, contrast: 1.1, tint: "#d8fff0", bloom: 0.7, bloomThreshold: 0.6, aberration: 0.18, vignette: 0.4 },
+    grade: { occlusion: 0.4, saturation: 1.2, contrast: 1.1, tint: "#d8fff0", bloom: 0.7, bloomThreshold: 0.6, aberration: 0.18, vignette: 0.4 },
   },
   silhouette: {
+    arrondi: 0,
     look: "toon",
     environnement: "aucun",
     ciel: "#d9d7cf",
@@ -166,15 +180,17 @@ export const AMBIANCES: Record<string, Preset> = {
     grade: { silhouette: 1, saturation: 0, grain: 0.14, vignette: 0.65, contrast: 1.1, bloom: 0.25, bloomThreshold: 0.7 },
   },
   noir: {
+    arrondi: 0.006,
     look: "doux",
     environnement: "aucun",
     ciel: "#2b2b2b",
     brume: 0.2,
     style: { shading: "lit", outline: 0, outlineStrength: 0, chroma: 0, grain: 0.2, vignette: 0.5 },
     lumiere: { intensite: 3, couleur: "#ffffff", hauteur: 22, azimut: 70, ambiante: 0.22 },
-    grade: { bw: 1, contrast: 1.35, grain: 0.1, vignette: 0.5, bloom: 0.2, bloomThreshold: 0.8 },
+    grade: { occlusion: 0.5, bw: 1, contrast: 1.35, grain: 0.1, vignette: 0.5, bloom: 0.2, bloomThreshold: 0.8 },
   },
   voxel: {
+    arrondi: 0,
     look: "toon",
     environnement: "aucun",
     ciel: "#9fd8ff",
@@ -182,18 +198,21 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#6fbf52", accent: "#ffb43a", pierre: "#a8a29a", bois: "#9c6a3c", feuillage: "#4fae3c", eau: "#3aa0ff" },
     style: "pixel",
     lumiere: { intensite: 1.3, hauteur: 65, azimut: 30, ambiante: 0.8 },
-    grade: { pixel: 4, posterize: 7, saturation: 1.18, outline: 0.35 },
+    grade: { occlusion: 0.5, pixel: 4, posterize: 7, saturation: 1.18, outline: 0.35 },
   },
   retro: {
+    arrondi: 0,
+    facettes: true,
     look: "doux",
     environnement: "aucun",
     ciel: "#5a6a8a",
     brume: 0.45,
     style: "lowpoly",
     lumiere: { intensite: 1.4, ambiante: 0.45 },
-    grade: { pixel: 3, posterize: 12, saturation: 1, contrast: 1.08, scanlines: 0.12, vignette: 0.25 },
+    grade: { occlusion: 0.3, pixel: 3, posterize: 12, saturation: 1, contrast: 1.08, scanlines: 0.12, vignette: 0.25 },
   },
   horreur: {
+    arrondi: 0.006,
     look: "doux",
     environnement: "aucun",
     ciel: "#5e6a5c",
@@ -201,9 +220,10 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#3a3a30", bois: "#4a3a2c", feuillage: "#3c4a34", pierre: "#555449" },
     style: { preset: "brume", chroma: 0.4 },
     lumiere: { intensite: 0.9, couleur: "#d8e0ff", hauteur: 18, ambiante: 0.3 },
-    grade: { saturation: 0.35, contrast: 1.05, brightness: 1.2, tint: "#c4d2b6", grain: 0.16, vignette: 0.7, aberration: 0.1 },
+    grade: { occlusion: 0.6, saturation: 0.35, contrast: 1.05, brightness: 1.2, tint: "#c4d2b6", grain: 0.16, vignette: 0.7, aberration: 0.1 },
   },
   western: {
+    arrondi: 0.008,
     look: "doux",
     environnement: "exterieur",
     ciel: "#f2c890",
@@ -211,34 +231,37 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#c49a62", bois: "#8a5a34", pierre: "#b88f68", feuillage: "#8a8a4a" },
     style: "desert",
     lumiere: { intensite: 2.4, couleur: "#ffd6a0", hauteur: 30, azimut: 80, ambiante: 0.35, couleurAmbiante: "#e8c8a0" },
-    grade: { sepia: 0.45, contrast: 1.12, grain: 0.1, vignette: 0.35 },
+    grade: { occlusion: 0.5, sepia: 0.45, contrast: 1.12, grain: 0.1, vignette: 0.35 },
   },
   pastel: {
+    arrondi: 0.025,
     look: "doux",
     environnement: "studio",
     ciel: "#f5e6ef",
     brume: 0.1,
     style: "doux",
     lumiere: { intensite: 1.2, ambiante: 0.8 },
-    grade: { saturation: 0.75, contrast: 0.9, brightness: 1.06, vignette: 0.1 },
+    grade: { occlusion: 0.3, saturation: 0.75, contrast: 0.9, brightness: 1.06, vignette: 0.1 },
   },
   tableau: {
+    arrondi: 0.015,
     look: "doux",
     environnement: "exterieur",
     ciel: "#e9d9b8",
     brume: 0.15,
     style: "gouache",
     lumiere: { intensite: 1.8, couleur: "#fff0d8", hauteur: 38, ambiante: 0.55, couleurAmbiante: "#d8d0e8" },
-    grade: { paint: 5, dither: 0.35, posterize: 8, saturation: 1.12, contrast: 1.05, vignette: 0.22 },
+    grade: { occlusion: 0.4, paint: 5, dither: 0.35, posterize: 8, saturation: 1.12, contrast: 1.05, vignette: 0.22 },
   },
   onirique: {
+    arrondi: 0.025,
     look: "doux",
     environnement: "exterieur",
     ciel: "#c8b8f0",
     brume: 0.45,
     style: "aquarelle",
     lumiere: { intensite: 1.3, couleur: "#ffe6f2", hauteur: 35, ambiante: 0.7, couleurAmbiante: "#d8c8ff" },
-    grade: { saturation: 0.9, brightness: 1.05, bloom: 0.55, bloomThreshold: 0.6, vignette: 0.3, aberration: 0.08 },
+    grade: { occlusion: 0.3, saturation: 0.9, brightness: 1.05, bloom: 0.55, bloomThreshold: 0.6, vignette: 0.3, aberration: 0.08 },
   },
 };
 
@@ -302,6 +325,7 @@ export function readGrade(v: unknown, base: Partial<Grade> = {}): Grade {
     scanlines: num(o.lignes ?? o.scanlines, b.scanlines, 0, 1),
     paint: num(o.peinture ?? o.paint, b.paint, 0, 12),
     dither: o.tramage === true ? 0.6 : num(o.tramage ?? o.dither, b.dither, 0, 1),
+    occlusion: num(o.occlusion ?? o.ssao, b.occlusion, 0, 1),
   };
 }
 
@@ -341,6 +365,8 @@ export function readAmbiance(v: unknown, issue: (msg: string) => void): Ambiance
     palette: { ...(p.palette ?? {}), ...(o.palette && typeof o.palette === "object" ? Object.fromEntries(Object.entries(o.palette as Record<string, unknown>).filter(([, c]) => isColor(c))) as Record<string, string> : {}) },
     style: o.style ?? p.style,
     texture: typeof o.texture === "string" ? o.texture : p.texture,
+    arrondi: typeof o.arrondi === "number" ? Math.max(0, Math.min(0.5, o.arrondi)) : p.arrondi,
+    facettes: typeof o.facettes === "boolean" ? o.facettes : p.facettes,
     lumiere: o.lumiere && typeof o.lumiere === "object" ? readLumiere(o.lumiere, p.lumiere) : p.lumiere,
     grade: o.etalonnage && typeof o.etalonnage === "object" ? readGrade(o.etalonnage, p.grade) : p.grade,
   };

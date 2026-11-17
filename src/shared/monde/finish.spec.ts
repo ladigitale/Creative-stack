@@ -46,4 +46,10 @@ describe("rendu photo", () => {
     expect(readMonde({ photo: { rebonds: 3 } }).photo).toMatchObject({ echantillons: 200, rebonds: 3, attente: 600 });
     expect(readMonde({}).photo).toBeNull();
   });
+  it("finis texturés : profondeur, usure, occlusion", () => {
+    const f = readFinish({ fini: "pierre", profondeur: 0.9, usure: 0.1 }, () => {})!;
+    expect(f).toMatchObject({ depth: 0.9, wear: 0.1, ao: FINIS.pierre.ao });
+    expect(readFinish("pave", () => {})!.depth).toBeGreaterThan(0.5);
+    expect(readFinish({ depth: 2, ao: -1 }, () => {})).toMatchObject({ depth: 1, ao: 0 });
+  });
 });

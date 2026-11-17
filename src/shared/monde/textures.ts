@@ -373,3 +373,59 @@ export function texPixels(t: TexSpec, base: string, size: number = TEX_SIZE): Ui
 export function texKey(t: TexSpec, base: string): string {
   return `${t.kind}|${base}|${t.color2}|${t.contrast}|${t.seed}`;
 }
+
+/* ---------------------------------------------------------------- cartes dérivées (relief, rugosité, occlusion) */
+
+const heightCache = new Map<string, Uint8ClampedArray>();
+
+/**
+ * Hauteur du motif (0 creux, 255 bosse ; size²) : les zones de seconde couleur (joints, veines, sillons) sont les
+ * creux. Sert aux cartes de normales, de rugosité, d'occlusion et à la parallaxe. Indépendante des couleurs.
+ */
+export function texHeights(t: TexSpec, size = 256): Uint8ClampedArray {
+  const key = `${t.kind}|${t.seed}|${size}`;
+  const hit = heightCache.get(key);
+  if (hit) return hit;
+  const out = new Uint8ClampedArray(size * size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) out[y * size + x] = 255 * (1 - Math.max(0, Math.min(1, sample(t.kind, x / size, y / size, t.seed))));
+  if (heightCache.size > 64) heightCache.clear();
+  heightCache.set(key, out);
+  return out;
+}
+
+/** Carte de normales (RGBA, repère tangent, raccord sur les bords) : `strength` = pente du relief. */
+export function normalPixels(h: Uint8ClampedArray, size: number, strength: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(size * size * 4);
+  const at = (x: number, y: number) => h[((y + size) % size) * size + ((x + size) % size)] / 255;
+  const k = strength * size * 0.02;
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * k;
+      // l'axe v des uv monte quand y descend dans l'image (texture retournée par three)
+      const dy = (at(x, y - 1) - at(x, y + 1)) * k;
+      const l = Math.hypot(dx, dy, 1);
+      const i = (y * size + x) * 4;
+      out[i] = (-dx / l) * 127.5 + 127.5;
+      out[i + 1] = (-dy / l) * 127.5 + 127.5;
+      out[i + 2] = (1 / l) * 127.5 + 127.5;
+      out[i + 3] = 255;
+    }
+  return out;
+}
+
+/**
+ * Carte « ORM » : R = occlusion (creux sombres), G = facteur de rugosité (creux à pleine rugosité, bosses polies
+ * d'autant que `wear`), B = hauteur (parallaxe).
+ */
+export function ormPixels(h: Uint8ClampedArray, size: number, wear: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(size * size * 4);
+  for (let i = 0; i < size * size; i++) {
+    const v = h[i] / 255;
+    out[i * 4] = 255 * (0.25 + 0.75 * Math.pow(v, 0.6));
+    out[i * 4 + 1] = 255 * (1 - wear * v);
+    out[i * 4 + 2] = h[i];
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+}
