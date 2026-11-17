@@ -23,6 +23,7 @@ import { type Meadow, meadowBudget, meadowKeep, readMeadows, sowMeadows } from "
 import { type GroundSpec, type PathKind, type PathSpec, Terrain, distToPath, pointAt } from "./terrain";
 import { type BodySpec, type PhysicsSpec, readBody, readPhysics } from "../../../shared/monde/physique";
 import { cellCandidates, tileKey } from "../../../shared/monde/tiles";
+import { readInfinite, worldRoads } from "./world-roads";
 
 export type Placement =
   /** Point `at` : `y` (m au-dessus du sol) et `physics` (corps de cet objet) servent à la physique. */
@@ -315,6 +316,11 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     kind: (["street", "road", "path", "river", "plaza"] as const).includes(p.kind as PathKind) ? (p.kind as PathKind) : "street",
     sidewalk: num(p.sidewalk, `paths[${i}].sidewalk`, root, p.kind === "street" || !p.kind ? 1.8 : 0),
   }));
+  // recette infinie composée en scène finie (rendu vectoriel) : le réseau de routes du monde sur l'emprise
+  if (!tile && recipe.infinite) {
+    const inf = readInfinite(recipe.infinite, new Issues(), seed);
+    if (inf) paths0.push(...worldRoads(inf, -size[0] / 2, -size[1] / 2, size[0] / 2, size[1] / 2));
+  }
   // tuile : routes de la recette et du réseau du monde, ramenées au repère de la tuile
   const paths: PathSpec[] = tile ? [...paths0, ...tile.paths].map((p) => ({ ...p, points: p.points.map(([x, z]) => [x - ox, z - oz] as [number, number]) })) : paths0;
   // sol
@@ -995,6 +1001,9 @@ function placements(place: Placement, count: number, rng: Rng, size: [number, nu
   }
   if ("along" in place) {
     const path = paths.find((p) => p.id === place.along);
+    // réseau de routes du monde (`along: "routes"`) : chaque tronçon `routes.<…>`
+    const net = path ? [] : paths.filter((p) => p.id.startsWith(place.along + "."));
+    if (net.length) return net.flatMap((p) => placements({ ...place, along: p.id }, count, rng.fork(`along/${p.id}`), size, [p], objects, issues, lp));
     if (!path) {
       issues.add({ path: `${lp}.place.along`, code: "unknown", message: `route « ${place.along} » inconnue`, didYouMean: suggest(place.along, paths.map((p) => p.id)) });
       return out;
