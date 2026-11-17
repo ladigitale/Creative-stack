@@ -5,6 +5,8 @@
  * Ce fichier ne fait que lire et normaliser (aucune géométrie, aucun rendu) : il transforme le JSON écrit par
  * un agent en structures plates et sûres (bornes, valeurs par défaut, problèmes signalés sans jamais lever).
  */
+import { readHair, type HairSpec } from "../sim/hair";
+import { readSoft, type SoftSpec } from "../sim/soft";
 import { readHerbes, type HerbeField } from "./herbes";
 import { readAmbiance, readGrade, readLumiere, GRADE0, type Grade, type Lumiere } from "./ambiance";
 import { readBody, readPhysics, type BodySpec, type PhysicsSpec } from "./physique";
@@ -355,6 +357,10 @@ export type Part = {
   tex: TexSpec | null;
   /** Fini (rugosité, métal, verre…) ; `null` : rendu habituel du style. */
   finish: Finish | null;
+  /** Pièce souple (tissu ou chaîne simulés, 3D), `null` : rigide. */
+  soft?: SoftSpec | null;
+  /** Chevelure en mèches plantée sur la pièce (3D), `null` : aucune. */
+  hair?: HairSpec | null;
   /** Image du monde (`monde.images`) posée sur la face avant (+z) de la pièce, à sa taille ; vide : aucune. */
   image: string;
   /** Nom de surface d'appui (vide : aucune), face qui reçoit et origine de `at`. */
@@ -742,6 +748,8 @@ function readModel(name: string, src: ModelIn, palette: Record<string, string>, 
       glow: clampN(num(p.glow, 0), 0, 1),
       tex: readTex(p.tex, (message) => issues.push({ path: `${path2}.tex`, message })),
       finish: readFinish((p as { finish?: unknown }).finish, (message) => issues.push({ path: `${path2}.finish`, message })),
+      soft: readSoft((p as { souple?: unknown }).souple ?? (p as { soft?: unknown }).soft, (message) => issues.push({ path: `${path2}.souple`, message })),
+      hair: readHair((p as { cheveux?: unknown }).cheveux ?? (p as { hair?: unknown }).hair, (message) => issues.push({ path: `${path2}.cheveux`, message })),
       image: typeof (p as { image?: unknown }).image === "string" ? ((p as { image: string }).image).slice(0, 64) : "",
       ...readSurface(p.surface),
     });

@@ -33,6 +33,7 @@ import { syncInfiniSims } from "../../shared/sim/infini-shapes";
 import { InfiniLayer } from "./infini3d";
 import { TexAdapt } from "./tex-adapt";
 import { HerbesLayer } from "./herbes3d";
+import { buildHair, buildSoft, disposeHair, disposeSoft, stepHair, stepSoft, type HairView, type SoftView } from "./soft3d";
 import { loadRapier, RigidWorld, type ContactEvent, type RigidPose, type RigidState } from "../../shared/sim/rigid";
 import { decorShapes, GameProbe, type QueryResult } from "../../shared/sim/queries";
 import type { Hit } from "../../shared/sim/emitter";
@@ -306,6 +307,10 @@ class Materials {
 type OwnMat = THREE.MeshStandardMaterial | THREE.MeshToonMaterial;
 
 type Built = {
+  /** Pièces souples (tissus, chaînes) simulées. */
+  softs?: SoftView[];
+  /** Chevelures en mèches. */
+  hairs?: HairView[];
   inst: InstanceState;
   joints: THREE.Object3D[];
   meshes: (THREE.Mesh | null)[];
@@ -781,6 +786,8 @@ export class Monde3d {
     const meshes: (THREE.Mesh | null)[] = [];
     const mats = new Map<string, { m: OwnMat; part: number }>();
     const matKey: string[] = [];
+    const softs: SoftView[] = [];
+    const hairs: HairView[] = [];
     if (model.gen) {
       this.buildGenInstance(m, inst, root);
       return;
@@ -807,6 +814,20 @@ export class Monde3d {
       } else if (g) {
         let e = mats.get(key);
         if (!e) mats.set(key, (e = { m: this.mats.create(partColor(model, p, inst.roles, m.palette), p.glow, tex, false, p.finish), part: i }));
+        // pièce souple : maillage déformable dans le repère du monde, simulé à chaque image
+        const sv = p.soft ? buildSoft(model, i, m.detail, e.m) : null;
+        if (sv) {
+          softs.push(sv);
+          this.group.add(sv.mesh);
+          meshes.push(sv.mesh);
+          return;
+        }
+        // chevelure : mèches plantées sur la pièce (la pièce reste dessinée : c'est le crâne)
+        const hv = p.hair ? buildHair(model, i, m.detail, e.m, p.hair.color) : null;
+        if (hv) {
+          hairs.push(hv);
+          this.group.add(hv.mesh);
+        }
         const mesh = new THREE.Mesh(this.bufferOf(g), e.m);
         // sans nom : un tap remonte à l'articulation `<instance>_<pièce>` ou à l'instance (pick-names)
         j.add(mesh);
@@ -827,7 +848,7 @@ export class Monde3d {
       this.group.add(shadow);
     }
     this.group.add(root);
-    this.built.set(inst.name, { inst, joints, meshes, mats, matKey, shadow, rolesRev: inst.rolesRev, gen: null });
+    this.built.set(inst.name, { inst, joints, meshes, mats, matKey, shadow, rolesRev: inst.rolesRev, gen: null, ...(softs.length ? { softs } : {}), ...(hairs.length ? { hairs } : {}) });
   }
 
   private makeShadow(m: Monde, r: number): THREE.Mesh | null {
@@ -1266,6 +1287,12 @@ export class Monde3d {
           b.shadow.visible = root.visible;
         }
       }
+      if (b.softs || b.hairs) {
+        const v = this.monde.vent;
+        const wind: [number, number, number] = Math.hypot(v[0], v[1], v[2]) > 0.01 ? [v[0], v[1], v[2]] : [0.6, 0, 0.3];
+        if (b.softs) for (const sv of b.softs) if (stepSoft(sv, b.joints, dt, [0, -9.81, 0], wind)) changed = true;
+        if (b.hairs) for (const hv of b.hairs) if (stepHair(hv, b.joints, dt, [0, -9.81, 0], wind)) changed = true;
+      }
     }
     return changed;
   }
@@ -1323,6 +1350,8 @@ export class Monde3d {
     this.spare.clear();
     for (const b of this.built.values()) {
       b.shadow?.removeFromParent();
+      if (b.softs) for (const sv of b.softs) disposeSoft(sv);
+      if (b.hairs) for (const hv of b.hairs) disposeHair(hv);
       const a = b.gen?.actor;
       if (!a) continue;
       if (keep) {
