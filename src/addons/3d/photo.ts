@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { PhotoSpec } from "../../shared/monde/format";
+import { MAX_TRACE_TRIS as MAX_TRIS, type PT, type PhotoState, type Tracer, fullscreen, isHandheld, loadPathTracer as loadPT, photoStateSig, tracingBudget } from "../../shared/three/pathtrace";
 import { PaintFilter } from "./paint-filter";
 
 /**
@@ -10,25 +11,11 @@ import { PaintFilter } from "./paint-filter";
  * Le traceur ne connaît ni les copies instanciées, ni les squelettes, ni les lumières ambiantes : il travaille
  * sur une copie de la scène (copies dépliées, poses figées, matières converties) et reçoit un environnement
  * équirectangulaire qui tient lieu de lumière ambiante. Particules, traits et brume n'y figurent pas.
+ * Chargement du module, quad plein écran et limites : `shared/three/pathtrace.ts` (communs avec procgen).
  */
 
-type PT = typeof import("three-gpu-pathtracer");
-type Tracer = InstanceType<PT["WebGLPathTracer"]>;
-
-export type PhotoState = {
-  etat: "arret" | "attente" | "calcul" | "fini" | "indisponible";
-  echantillons: number;
-  total: number;
-  raison?: string;
-};
-
-/** Au-delà, la scène dépliée est trop lourde pour le traceur (mémoire du BVH). */
-const MAX_TRIS = 2_500_000;
-
-let modPromise: Promise<PT> | null = null;
-function loadPT(): Promise<PT> {
-  return (modPromise ??= import("three-gpu-pathtracer"));
-}
+export type { PhotoState };
+export { tracingBudget };
 
 export type EnvSource = { kind: "studio" | "exterieur" | "aucun"; scene: THREE.Scene | null; intensity: number };
 
@@ -266,7 +253,7 @@ export class PhotoMode {
   }
 
   private setState(s: PhotoState) {
-    const sig = `${s.etat}|${s.echantillons}|${s.total}|${s.raison ?? ""}`;
+    const sig = photoStateSig(s);
     if (sig === this.stateSig) return;
     this.stateSig = sig;
     this.state = s;
@@ -424,40 +411,6 @@ export class PhotoMode {
 }
 
 /* ------------------------------------------------------------------ utilitaires */
-
-function fullscreen(mat: THREE.ShaderMaterial) {
-  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
-  quad.frustumCulled = false;
-  const scene = new THREE.Scene();
-  scene.add(quad);
-  // la matière du débruiteur projette avec projectionMatrix * modelViewMatrix : une caméra orthographique unité
-  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  cam.position.z = 0.5;
-  cam.updateMatrixWorld();
-  return { quad, scene, cam, mat };
-}
-
-/** Appareil tactile sans souris (téléphone, tablette) : GPU plus modeste, écran très dense. */
-function isHandheld(): boolean {
-  try {
-    return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Pixels tracés et découpage en tuiles : chaque passe du traceur doit rester courte (sinon le navigateur d'un
- * téléphone coupe le contexte graphique) et les cibles flottantes tenir en mémoire.
- */
-export function tracingBudget(renderer: { getDrawingBufferSize(v: THREE.Vector2): THREE.Vector2 }, echelle: number, handheld: boolean) {
-  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  const px = Math.max(1, size.x * size.y);
-  const scale = Math.max(0.1, Math.min(echelle, Math.sqrt((handheld ? 350_000 : 1_600_000) / px)));
-  const traced = px * scale * scale;
-  const tiles = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(traced / (handheld ? 90_000 : 500_000)))));
-  return { scale, tiles };
-}
 
 /** Empreinte de la vue et du contenu visible : un changement relance l'attente. */
 export function signature(scene: THREE.Scene, camera: THREE.Camera): number {

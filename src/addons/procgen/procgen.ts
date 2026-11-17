@@ -13,6 +13,8 @@ import { Issues } from "./core/schema";
 import { type Recipe, type SceneModel, composeSceneAsync, groundHeight } from "./scene/compose";
 import { SCENES } from "./scene/library";
 import { resolveStyle } from "./style/style";
+import { ambianceFx } from "./style/ambiance";
+import { readProcgenPhoto, type ProcgenPhotoState } from "./render/photo";
 import { type ActorIntent, type GameEvent, ProcgenView } from "./render/view";
 import { type ViewSync, syncView } from "./render/steady";
 import { VECTOR_STYLES, VectorView, composeVector } from "./vector/index";
@@ -64,7 +66,7 @@ const MAX_VIEWS = 2;
 
 export class SonicProcgen extends HTMLElement {
   static get observedAttributes() {
-    return ["dataprovider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target", "render", "gestures", "drag", "drag-selected", "keep-heading"];
+    return ["dataprovider", "state-out", "scene", "seed", "scene-style", "camera", "interactive", "target", "render", "gestures", "drag", "drag-selected", "keep-heading", "ambiance", "photo"];
   }
   private root: ShadowRoot;
   private canvas: HTMLCanvasElement;
@@ -122,6 +124,10 @@ export class SonicProcgen extends HTMLElement {
   /** Poses posées au doigt (id → pose, instant) : rejouées sur un modèle dont la composition a commencé avant la pose. */
   private moved = new Map<string, { x: number; y: number; z: number; yaw: number; t: number }>();
   private anchorList: string[] = [];
+  /** Rendu soigné : réglages appliqués, état publié (`state-out.photo`). */
+  private photoKey = "";
+  private photoOut: ProcgenPhotoState | null = null;
+  private ambianceOut: { name: string; meteo: string[] } | null = null;
 
   constructor() {
     super();
@@ -249,6 +255,14 @@ export class SonicProcgen extends HTMLElement {
     if (!v) return null;
     v.onEvent = (e: GameEvent) => this.emit(e);
     v.onFrame = () => this.queueOut();
+    if (v instanceof ProcgenView) {
+      this.photoKey = "";
+      v.onPhoto = (st) => {
+        this.photoOut = st;
+        // fin du calcul publiée tout de suite ; pendant, au rythme habituel
+        this.queueOut(st.etat !== "calcul");
+      };
+    }
     v.maxDpr = Math.min(mode === "vector" ? 3 : 2, window.devicePixelRatio || 1);
     v.dpr = mode === "vector" ? v.maxDpr : Math.min(1.5, v.maxDpr);
     try {
@@ -309,7 +323,8 @@ export class SonicProcgen extends HTMLElement {
     const edits = normEdits(d.edit);
     const styleIn0 = d.style ?? this.getAttribute("scene-style");
     const renderIn = String(d.render ?? this.getAttribute("render") ?? "");
-    const mode: "3d" | "vector" = renderIn === "vector" || (renderIn !== "3d" && isVectorStyle(styleIn0 ?? (recipe ?? SCENES[sceneName])?.style)) ? "vector" : "3d";
+    // `render: "photo"` : rendu 3D, rendu soigné qui fige l'animation dès que la vue est immobile
+    const mode: "3d" | "vector" = renderIn === "photo" ? "3d" : renderIn === "vector" || (renderIn !== "3d" && isVectorStyle(styleIn0 ?? (recipe ?? SCENES[sceneName])?.style)) ? "vector" : "3d";
     // une seule tentative par mode : sans WebGL, on compose quand même et on publie l'erreur, sans boucler
     if (mode !== this.mode || (!this.view && this.triedMode !== mode)) {
       const changed = mode !== this.mode && !!this.model;
@@ -382,7 +397,13 @@ export class SonicProcgen extends HTMLElement {
       this.queueOut();
       return;
     }
-    const styleIn = d.style ?? this.getAttribute("scene-style") ?? this.model.style ?? "gouache";
+    let styleIn = d.style ?? this.getAttribute("scene-style") ?? this.model.style ?? "gouache";
+    // ambiance (DataProvider, attribut, ou recette) : remplace le style de la recette ; un style écrit la complète
+    const ambIn = d.ambiance ?? this.getAttribute("ambiance") ?? ((recipe ?? SCENES[sceneName]) as { ambiance?: unknown } | undefined)?.ambiance;
+    if (ambIn !== undefined && ambIn !== null && ambIn !== "") {
+      const own = d.style ?? this.getAttribute("scene-style");
+      styleIn = own && typeof own === "object" ? { ...(own as Json), ambiance: ambIn } : own ? { preset: own, ambiance: ambIn } : { ambiance: ambIn };
+    }
     const sk = JSON.stringify(styleIn);
     if (sk !== this.styleKey) {
       this.styleKey = sk;
@@ -392,11 +413,22 @@ export class SonicProcgen extends HTMLElement {
         // la pile `post` est propre au rendu 3D (passes GPU) : ignorée en vectoriel, signalée
         if (styleIn && typeof styleIn === "object" && (styleIn as Json).post !== undefined && (styleIn as Json).post !== null && !(Array.isArray((styleIn as Json).post) && !((styleIn as Json).post as unknown[]).length))
           si.add({ path: "style.post", code: "info", message: "post-traitement ignoré en rendu vectoriel (render: vector) : effets GPU du rendu 3D seulement" });
-      } else this.view.setStyle(resolveStyle(styleIn, si));
+      } else {
+        const st = resolveStyle(styleIn, si);
+        this.view.setStyle(st);
+        this.ambianceOut = st.ambiance ? { name: st.ambiance, meteo: st.meteo } : null;
+      }
       this.issues = [...this.issues.filter((i) => !String((i as { path: string }).path).startsWith("style")), ...si.list];
     }
     // particules : météo, fumées, feux, embruns (clés de recette ; `weather` du DataProvider prioritaire)
     const fxIn = fxInputOf((recipe ?? SCENES[sceneName] ?? null) as Record<string, unknown> | null, d.weather);
+    // météo d'une ambiance : seulement là où la recette et le DataProvider n'écrivent rien (voir style/ambiance.ts)
+    if (this.ambianceOut?.meteo.length) {
+      const fx0 = fxIn.fx && typeof fxIn.fx === "object" ? (fxIn.fx as Json) : undefined;
+      const add = ambianceFx(this.ambianceOut.meteo, { weather: fxIn.weather, mist: fx0?.mist });
+      if (add.weather) fxIn.weather = add.weather;
+      if (add.mist) fxIn.fx = { ...(fx0 ?? {}), mist: add.mist };
+    }
     const fk = JSON.stringify(fxIn);
     if (fk !== this.fxKey || this.fxModel !== this.model) {
       this.fxKey = fk;
@@ -406,6 +438,17 @@ export class SonicProcgen extends HTMLElement {
       this.issues = [...this.issues.filter((i) => !fxPath.test(String((i as { path: string }).path))), ...this.view.fxIssues];
     }
     if (d.fx !== undefined) this.view.fxOrders(d.fx);
+    // rendu soigné : clé `photo` (ou attribut) ; `render: "photo"` l'impose et fige l'animation à l'arrêt
+    if (this.view instanceof ProcgenView) {
+      const photoIn = d.photo ?? (this.hasAttribute("photo") ? (this.getAttribute("photo") === "false" ? false : true) : undefined);
+      const pk = JSON.stringify([photoIn ?? null, renderIn === "photo"]);
+      if (pk !== this.photoKey) {
+        this.photoKey = pk;
+        const pi = new Issues();
+        this.view.setPhoto(readProcgenPhoto(photoIn, renderIn === "photo", (path, message) => pi.add({ path, code: "unknown", message })));
+        this.issues = [...this.issues.filter((i) => !String((i as { path: string }).path).startsWith("photo")), ...pi.list];
+      }
+    }
     const vs = syncView(this.viewSync, this.model.view, this.getAttribute("camera"), d.view);
     this.viewSync = vs.next;
     if (vs.apply) this.view.setView(vs.apply, vs.reset);
@@ -537,6 +580,7 @@ export class SonicProcgen extends HTMLElement {
       ...(st && "postPasses" in st ? { postPasses: st.postPasses } : {}),
       ...(st && "soft" in st && st.soft ? { soft: st.soft } : {}),
       ...(this.view?.fx.systems.length ? { fx: this.view.fx.summary() } : {}),
+      ...(st && "photoMs" in st ? { photoMs: st.photoMs } : {}),
       issues: (st && "postError" in st && st.postError ? [{ path: "style.post", code: "info", message: `post-traitement désactivé : shader refusé par le pilote (${String(st.postError).slice(0, 160)})` }, ...this.issues] : this.issues).slice(0, 40),
     };
     const actors: Record<string, unknown> = {};
@@ -559,6 +603,8 @@ export class SonicProcgen extends HTMLElement {
       ...(this.selectedId ? { selection: this.selectionOut(this.selectedId) } : {}),
       drag: this.dragging?.last ? { objectId: this.dragging.id, x: this.dragging.last.x, y: this.dragging.last.y, z: this.dragging.last.z, yaw: Math.round(this.dragging.last.yaw * DEGS), valid: this.dragging.last.valid } : null,
       free: this.freeOut,
+      photo: this.photoOut,
+      ambiance: this.ambianceOut,
     };
     const sig = JSON.stringify(next);
     if (sig !== this.lastOut) {
@@ -618,6 +664,8 @@ export class SonicProcgen extends HTMLElement {
 
   private onDown = (ev: PointerEvent) => {
     if (!this.interactive || !this.view) return;
+    // premier geste : le rendu soigné rend la main tout de suite
+    if (this.view instanceof ProcgenView) this.view.touch();
     this.pointerType = ev.pointerType || "mouse";
     try {
       this.canvas.setPointerCapture?.(ev.pointerId);

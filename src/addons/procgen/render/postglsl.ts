@@ -699,13 +699,32 @@ vec3 fx_pixel(vec2 uv, vec3 c, vec4 P[1]) {
   return tapIn(pxUv((floor(gpx(uv) / s) + 0.5) * s));
 }`,
   couleur: /* glsl */ `
-vec3 fx_couleur(vec2 uv, vec3 c, vec4 P[2]) {
+vec3 fx_couleur(vec2 uv, vec3 c, vec4 P[3]) {
   c *= exp2(P[0].x);
   c = (c - 0.5) * P[0].y + 0.5;
   c = mix(vec3(luma(c)), c, P[0].z);
   if (P[0].w != 0.0) c = hueTurn(c, P[0].w);
   c *= vec3(1.0 + P[1].x * 0.12, 1.0 + P[1].x * 0.02, 1.0 - P[1].x * 0.14);
+  c *= P[2].rgb;
   return pow(clamp(c, 0.0, 1.0), vec3(1.0 / P[1].y));
+}`,
+  niveaux: /* glsl */ `
+vec3 fx_niveaux(vec2 uv, vec3 c, vec4 P[1]) {
+  float lv = max(P[0].x - 1.0, 1.0);
+  float t = P[0].y > 0.0 ? (dth(floor(gpx(uv) / max(P[0].w, 1.0)), P[0].z) - 0.5) * P[0].y : 0.0;
+  return clamp(floor(c * lv + 0.5 + t) / lv, 0.0, 1.0);
+}`,
+  silhouette: /* glsl */ `
+vec3 fx_silhouette(vec2 uv, vec3 c, vec4 P[2]) {
+  vec4 d = dataAt(uv);
+  if (isBg(d)) return c;
+  float rel = d.z * uDepthK;
+  // proche : encre ; au-delà du point visé, l'air éclaircit vers le ciel
+  float k = clamp(1.0 - exp(-max(rel - 0.6, 0.0) * P[0].x * 0.9), 0.0, 0.85);
+  // un soupçon du modelé (lumière de l'image) garde la lecture des volumes
+  float l = luma(c);
+  vec3 ink = P[1].rgb * (0.8 + l * 0.35);
+  return mix(ink, P[0].yzw, k);
 }`,
 };
 

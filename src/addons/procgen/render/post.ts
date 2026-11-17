@@ -433,9 +433,23 @@ export const POST_FX: Record<string, FxDef> = {
   couleur: {
     label: "Réglages de couleur", family: "base", kind: "point",
     doc: "Exposition, contraste, saturation, rotation de teinte, température, gamma.",
-    params: { exposure: num(0, -2, 2, "exposition (IL)"), contrast: num(1, 0.3, 3, "contraste"), saturation: num(1, 0, 3, "saturation"), hue: num(0, -180, 180, "teinte (°)"), temperature: num(0, -1, 1, "température (− froid, + chaud)"), gamma: num(1, 0.3, 3, "gamma") },
+    params: { exposure: num(0, -2, 2, "exposition (IL)"), contrast: num(1, 0.3, 3, "contraste"), saturation: num(1, 0, 3, "saturation"), hue: num(0, -180, 180, "teinte (°)"), temperature: num(0, -1, 1, "température (− froid, + chaud)"), gamma: num(1, 0.3, 3, "gamma"), tint: col("#ffffff", "teinte multipliée (blanc = aucune)") },
+    slots: 3,
+    pack: (p) => [n(p, "exposure"), n(p, "contrast"), n(p, "saturation"), n(p, "hue") * D, n(p, "temperature"), n(p, "gamma"), 0, 0, ...rgb(p.tint), 0],
+  },
+  niveaux: {
+    label: "Postérisation", family: "base", kind: "point",
+    doc: "Nombre de niveaux par couleur, avec tramage ordonné facultatif entre deux niveaux (pixel art, affiche).",
+    params: { levels: num(6, 2, 32, "niveaux par canal", true), dither: num(0, 0, 1, "tramage"), pattern: { t: "enum", def: "bayer", options: PAT, doc: "motif" }, cell: num(1, 1, 8, "taille de la cellule de trame (px)") },
+    slots: 1,
+    pack: (p) => [n(p, "levels"), n(p, "dither"), pat(p), n(p, "cell")],
+  },
+  silhouette: {
+    label: "Silhouettes", family: "lumiere", kind: "point",
+    doc: "Contre-jour : les objets deviennent des aplats sombres, éclaircis par la distance vers la couleur du ciel (perspective atmosphérique) ; le ciel reste.",
+    params: { color: col("#d9d7cf", "couleur du lointain (ciel)"), ink: col("#1d1c22", "couleur des silhouettes proches"), depth: num(0.6, 0, 2, "éclaircissement par la distance") },
     slots: 2,
-    pack: (p) => [n(p, "exposure"), n(p, "contrast"), n(p, "saturation"), n(p, "hue") * D, n(p, "temperature"), n(p, "gamma"), 0, 0],
+    pack: (p) => flat(n(p, "depth"), rgb(p.color), rgb(p.ink), 0),
   },
 };
 
