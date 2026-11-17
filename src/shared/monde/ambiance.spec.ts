@@ -45,4 +45,16 @@ describe("ambiances", () => {
     expect(readMonde({ etalonnage: { peinture: 6, tramage: true } }).grade).toMatchObject({ paint: 6, dither: 0.6 });
     expect(readMonde({ ambiance: "peinture" }).ambiance).toBe("tableau");
   });
+  it("arrondi par défaut des boîtes sans arrondi écrit, facettes", () => {
+    const models = { a: { parts: [{ name: "x", box: [1, 1, 1] }, { name: "y", box: [1, 1, 1, 0] }, { name: "z", box: [0.03, 1, 1] }] } };
+    const m = readMonde({ ambiance: "jouet", models });
+    const parts = m.models.get("a")!.parts;
+    expect(parts[0].shape!.a[3]).toBeCloseTo(AMBIANCES.jouet.arrondi!, 5);
+    expect(parts[1].shape!.a[3]).toBe(0);
+    expect(parts[2].shape!.a[3]).toBeCloseTo(0.01, 5);
+    expect(readMonde({ models }).models.get("a")!.parts[0].shape!.a[3]).toBe(0);
+    expect(readMonde({ arrondi: 0.1, models }).models.get("a")!.parts[0].shape!.a[3]).toBeCloseTo(0.1, 5);
+    expect(readMonde({ ambiance: "retro" }).facettes).toBe(true);
+    expect(readMonde({ ambiance: "retro", facettes: false }).facettes).toBe(false);
+  });
 });

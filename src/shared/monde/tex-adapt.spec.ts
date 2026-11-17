@@ -35,3 +35,24 @@ describe("texture adaptative", () => {
     expect(Array.from(px!.slice(0, 4000))).toEqual(Array.from(texPixels(t, "#336699", 256).slice(0, 4000)));
   });
 });
+
+import { normalPixels, ormPixels, texHeights } from "./textures";
+describe("cartes dérivées", () => {
+  it("hauteurs, normales et ORM cohérentes avec le motif", () => {
+    const t = readTex("brique")!;
+    const h = texHeights(t, 64);
+    expect(h.length).toBe(64 * 64);
+    const n = normalPixels(h, 64, 1);
+    // une surface plate pointe vers +z (bleu fort) ; sur un joint, la pente incline la normale
+    let flat = 0, tilted = 0;
+    for (let i = 0; i < 64 * 64; i++) n[i * 4 + 2] > 250 ? flat++ : tilted++;
+    expect(flat).toBeGreaterThan(0);
+    expect(tilted).toBeGreaterThan(0);
+    const o = ormPixels(h, 64, 0.5);
+    // creux (hauteur 0) : occlusion sombre, rugosité pleine ; bosse : claire et plus lisse
+    const lo = h.indexOf(Math.min(...h)), hi = h.indexOf(Math.max(...h));
+    expect(o[lo * 4]).toBeLessThan(o[hi * 4]);
+    expect(o[lo * 4 + 1]).toBeGreaterThan(o[hi * 4 + 1]);
+    expect(o[hi * 4 + 2]).toBe(h[hi]);
+  });
+});

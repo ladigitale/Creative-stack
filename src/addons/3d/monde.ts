@@ -32,6 +32,7 @@ import { ParticleLayer } from "./particles3d";
 import { syncInfiniSims } from "../../shared/sim/infini-shapes";
 import { InfiniLayer } from "./infini3d";
 import { TexAdapt } from "./tex-adapt";
+import { applyParallax, normalMapOf, ormMapOf } from "./tex-maps";
 import { HerbesLayer } from "./herbes3d";
 import { buildHair, buildSoft, disposeHair, disposeSoft, stepHair, stepSoft, type HairView, type SoftView } from "./soft3d";
 import { loadRapier, RigidWorld, type ContactEvent, type RigidPose, type RigidState } from "../../shared/sim/rigid";
@@ -136,6 +137,8 @@ function outdoorScene(sky: string): THREE.Scene {
 class Materials {
   private map = new Map<string, THREE.Material>();
   private texs = new Map<string, THREE.DataTexture>();
+  /** Ombrage à facettes (`facettes` du monde). */
+  flat = false;
   constructor(private look: Look) {}
   /** Texture teintée (cache borné : au-delà, la version neutre, teintée par la couleur de la matière). */
   texture(t: TexSpec, base: string): THREE.DataTexture {
@@ -226,12 +229,22 @@ class Materials {
         m.opacity = f.opacity;
         m.depthWrite = f.opacity > 0.9;
       }
-      // relief : la texture procédurale sert aussi de carte de bosses
-      if (map && f.relief > 0) {
-        m.bumpMap = map;
-        m.bumpScale = f.relief * 3;
+      // cartes tirées de la texture : relief éclairé (normales), usure et occlusion (ORM), parallaxe
+      if (tex && f.relief > 0) {
+        m.normalMap = normalMapOf(tex, f.relief);
+        m.normalScale.set(1, 1);
+      }
+      if (tex && (f.wear > 0 || f.ao > 0 || f.depth > 0)) {
+        const orm = ormMapOf(tex, f.wear);
+        m.roughnessMap = orm;
+        if (f.ao > 0) {
+          m.aoMap = orm;
+          m.aoMapIntensity = f.ao;
+        }
+        if (f.depth > 0 && !this.flat) applyParallax(m, f.depth);
       }
     }
+    if (this.flat && "flatShading" in m) (m as THREE.MeshStandardMaterial).flatShading = true;
     this.owned.add(m);
     return m;
   }
@@ -573,6 +586,7 @@ export class Monde3d {
     }
     this.mats.dispose();
     this.mats = new Materials(m.look);
+    this.mats.flat = m.facettes;
     this.mats.onLoad = () => this.onAsync?.();
     // les géométries encore utilisées sont reprises, les autres libérées après reconstruction
     this.oldBuffers = this.buffers;

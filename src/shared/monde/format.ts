@@ -236,6 +236,10 @@ export type MondeIn = {
    * (reflets, ombres douces, verre et lumière indirecte physiquement justes) ; tout mouvement rend la main au rendu
    * temps réel. `true` ou `{echantillons (200), rebonds (5), attente (ms, 600)}`.
    */
+  /** Arrondi des arêtes des boîtes qui n'en donnent pas (m) ; défaut : celui de l'ambiance, sinon 0. */
+  arrondi?: number;
+  /** Facettes visibles (rendu low-poly) au lieu d'un ombrage lissé. */
+  facettes?: boolean;
   photo?: boolean | { echantillons?: number; rebonds?: number; attente?: number; filtre?: string; tramage?: number | boolean; niveaux?: number; touche?: number; echelle?: number };
   /**
    * Physique 3D (Rapier, chargé à la demande) : `true` ou `{gravite, sol, contactMin, liaisons, pause}`. Les placements
@@ -290,7 +294,23 @@ export type Shape = {
  * Fini d'une matière : rugosité, métal, vernis (`clear`), reflet de tissu (`sheen`), opacité, verre (transmission,
  * `ior`), relief tiré de la texture. Tout est de 0 à 1 sauf `ior` (1 à 2,5).
  */
-export type Finish = { rough: number; metal: number; clear: number; sheen: number; opacity: number; glass: number; ior: number; relief: number };
+export type Finish = {
+  rough: number;
+  metal: number;
+  clear: number;
+  sheen: number;
+  opacity: number;
+  glass: number;
+  ior: number;
+  /** Relief éclairé tiré de la texture (carte de normales). */
+  relief: number;
+  /** Profondeur apparente des creux (parallaxe) : les joints semblent creusés quand on tourne autour. */
+  depth: number;
+  /** Usure : bosses polies, creux mats (variation de rugosité). */
+  wear: number;
+  /** Occlusion des creux de la texture (assombris). */
+  ao: number;
+};
 
 /** Finis prêts à l'emploi ; `{"fini": "verre", "rough": 0.3}` part d'un fini et en change une valeur. */
 export const FINIS: Record<string, Partial<Finish>> = {
@@ -301,29 +321,33 @@ export const FINIS: Record<string, Partial<Finish>> = {
   plastique: { rough: 0.4 },
   ceramique: { rough: 0.25, clear: 0.6 },
   metal: { metal: 1, rough: 0.35 },
-  brosse: { metal: 1, rough: 0.55, relief: 0.2 },
+  brosse: { metal: 1, rough: 0.55, relief: 0.2, wear: 0.2 },
   chrome: { metal: 1, rough: 0.04 },
   miroir: { metal: 1, rough: 0 },
   verre: { glass: 1, rough: 0.02, ior: 1.5 },
   depoli: { glass: 1, rough: 0.45, ior: 1.5 },
   eau: { glass: 0.9, rough: 0.05, ior: 1.33 },
-  tissu: { rough: 0.95, sheen: 0.7, relief: 0.3 },
-  velours: { rough: 1, sheen: 1, relief: 0.2 },
-  cuir: { rough: 0.55, clear: 0.15, relief: 0.35 },
+  tissu: { rough: 0.95, sheen: 0.7, relief: 0.3, ao: 0.4 },
+  velours: { rough: 1, sheen: 1, relief: 0.2, ao: 0.3 },
+  cuir: { rough: 0.55, clear: 0.15, relief: 0.35, wear: 0.35, ao: 0.3 },
   caoutchouc: { rough: 0.9 },
-  bois: { rough: 0.7, relief: 0.35 },
-  pierre: { rough: 0.85, relief: 0.6 },
+  bois: { rough: 0.7, relief: 0.35, wear: 0.3, ao: 0.4 },
+  pierre: { rough: 0.85, relief: 0.6, depth: 0.4, wear: 0.4, ao: 0.6 },
+  pave: { rough: 0.8, relief: 0.7, depth: 0.7, wear: 0.5, ao: 0.7 },
+  brique: { rough: 0.85, relief: 0.6, depth: 0.6, wear: 0.3, ao: 0.7 },
+  ecorce: { rough: 0.95, relief: 0.9, depth: 0.8, ao: 0.6 },
+  rouille: { metal: 0.6, rough: 0.8, relief: 0.4, wear: 0.6, ao: 0.4 },
   cire: { rough: 0.35, clear: 0.3, sheen: 0.2 },
 };
 
-const FINISH0: Finish = { rough: -1, metal: 0, clear: 0, sheen: 0, opacity: 1, glass: 0, ior: 1.5, relief: 0 };
+const FINISH0: Finish = { rough: -1, metal: 0, clear: 0, sheen: 0, opacity: 1, glass: 0, ior: 1.5, relief: 0, depth: 0, wear: 0, ao: 0 };
 
 /** Lecture d'un fini : nom d'un fini prêt, ou objet (`fini` de départ et valeurs). `null` : aucun (rendu habituel). */
 export function readFinish(v: unknown, issue: (m: string) => void): Finish | null {
   if (v === undefined || v === null) return null;
   const o = typeof v === "string" ? { fini: v } : v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
   if (!o) {
-    issue("nom de fini ou objet {fini, rough, metal, clear, sheen, opacity, glass, ior, relief} attendu");
+    issue("nom de fini ou objet {fini, rough, metal, clear, sheen, opacity, glass, ior, relief, profondeur, usure, occlusion} attendu");
     return null;
   }
   const out: Finish = { ...FINISH0 };
@@ -336,11 +360,16 @@ export function readFinish(v: unknown, issue: (m: string) => void): Finish | nul
     if (typeof x === "number" && Number.isFinite(x)) out[k] = Math.min(1, Math.max(0, x));
   }
   if (typeof o.ior === "number" && Number.isFinite(o.ior)) out.ior = Math.min(2.5, Math.max(1, o.ior));
+  for (const [k, names] of [["depth", ["profondeur", "depth"]], ["wear", ["usure", "wear"]], ["ao", ["occlusion", "ao"]]] as const)
+    for (const n of names) {
+      const x = o[n];
+      if (typeof x === "number" && Number.isFinite(x)) out[k] = Math.min(1, Math.max(0, x));
+    }
   return out;
 }
 
 /** Signature courte d'un fini (clé de cache des matières). */
-export const finishKey = (f: Finish | null) => (f ? `${f.rough},${f.metal},${f.clear},${f.sheen},${f.opacity},${f.glass},${f.ior},${f.relief}` : "");
+export const finishKey = (f: Finish | null) => (f ? `${f.rough},${f.metal},${f.clear},${f.sheen},${f.opacity},${f.glass},${f.ior},${f.relief},${f.depth},${f.wear},${f.ao}` : "");
 
 export type Part = {
   name: string;
@@ -486,6 +515,8 @@ export type Monde = {
   photo: PhotoSpec | null;
   /** Physique 3D, `null` : aucune. */
   physics: PhysicsSpec | null;
+  /** Facettes visibles (ombrage plat). */
+  facettes: boolean;
   /** Champs de brins instanciés (3D). */
   herbes: HerbeField[];
   /** Ambiance appliquée (nom), vide : aucune. */
@@ -617,7 +648,8 @@ function readShape(p: PartIn, path: string, issues: Issue[]): Shape | null {
   switch (kind) {
     case "box": {
       const a = nums(raw);
-      return { kind, a: [dim(num(a[0], 1)), dim(num(a[1], a[0] ?? 1)), dim(num(a[2], a[0] ?? 1)), Math.max(0, num(a[3], 0))], pts: [] };
+      // arrondi absent : -1 (l'arrondi par défaut du monde ou de l'ambiance le remplace)
+      return { kind, a: [dim(num(a[0], 1)), dim(num(a[1], a[0] ?? 1)), dim(num(a[2], a[0] ?? 1)), a[3] === undefined ? -1 : Math.max(0, num(a[3], 0))], pts: [] };
     }
     case "sphere": {
       const a = nums(raw);
@@ -1252,6 +1284,11 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     const f = readFinish(amb.finish, (message) => issues.push({ path: "ambiance.finish", message }));
     if (f) for (const model of models.values()) for (const p of model.parts) if (!p.finish) p.finish = f;
   }
+  // arrondi par défaut des boîtes sans arrondi écrit : monde, puis ambiance (borné au tiers du plus petit côté)
+  const round = clampN(num((src as MondeIn).arrondi, amb?.arrondi ?? 0), 0, 0.5);
+  for (const model of models.values())
+    for (const p of model.parts)
+      if (p.shape?.kind === "box" && p.shape.a[3] < 0) p.shape.a[3] = round > 0 ? Math.min(round, Math.min(p.shape.a[0], p.shape.a[1], p.shape.a[2]) / 3) : 0;
   const gradeIn = (src as MondeIn).etalonnage;
   const grade = amb || gradeIn ? readGrade(gradeIn, amb?.grade ?? {}) : null;
   const lumIn = (src as MondeIn).lumiere;
@@ -1294,6 +1331,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     lumiere: amb || lumIn ? readLumiere(lumIn, amb?.lumiere ?? {}) : null,
     grade: grade && JSON.stringify(grade) !== JSON.stringify(GRADE0) ? grade : null,
     photo: readPhoto((src as MondeIn).photo),
+    facettes: (src as MondeIn).facettes === true || (((src as MondeIn).facettes === undefined) && amb?.facettes === true),
     physics: readPhysics((src as MondeIn).physique ?? (src as MondeIn).physics, issues),
     detail,
     view2d: { view, unit: clampN(num(v.unit, 48), 1, 2000), origin: [num(v.origin?.[0], 0), num(v.origin?.[1], 0)] },

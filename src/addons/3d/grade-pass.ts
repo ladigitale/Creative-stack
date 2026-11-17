@@ -26,7 +26,7 @@ uniform sampler2D tBloom;
 uniform vec2 res;
 uniform float near, far, ortho, time;
 uniform float saturation, contrast, brightness, bw, sepia, grain, vignette, pixel, posterize;
-uniform float silhouette, outline, bloom, aberration, scanlines, haze;
+uniform float silhouette, outline, bloom, aberration, scanlines, haze, occlusion, projScale;
 uniform vec3 tint, outlineColor, sky;
 
 float linDepth(vec2 uv) {
@@ -52,6 +52,22 @@ void main() {
 
   float dRaw = rawDepth(uv);
   bool geo = dRaw < 0.99999;
+  if (occlusion > 0.0 && geo) {
+    // occlusion à l'écran : 12 échantillons en spirale dans un rayon de 0,5 m projeté, voisins plus proches = recoin
+    float z = linDepth(uv);
+    float rpx = clamp(0.5 * projScale / max(z, 0.05), 3.0, 60.0);
+    float occ = 0.0;
+    float ang = rand2(gl_FragCoord.xy) * 6.2831;
+    for (int i = 0; i < 12; i++) {
+      float t = (float(i) + 0.5) / 12.0;
+      float a = ang + float(i) * 2.39996;
+      vec2 o = vec2(cos(a), sin(a)) * rpx * t / res;
+      float zs = linDepth(uv + o);
+      float dz = z - zs;
+      occ += clamp(dz / 0.5, 0.0, 1.0) * (1.0 - smoothstep(0.3, 1.2, dz));
+    }
+    hdr *= 1.0 - occlusion * clamp(occ / 12.0 * 1.6, 0.0, 0.85);
+  }
   if (silhouette > 0.0) {
     // aplats : sombres de près, fondus vers le ciel au loin ; le ciel garde sa lumière
     vec3 skyLin = sky;
@@ -175,6 +191,8 @@ export class GradePass {
         scanlines: { value: 0 },
         haze: { value: 0.05 },
         manualTone: { value: 0 },
+        occlusion: { value: 0 },
+        projScale: { value: 500 },
         exposure: { value: 1 },
         tint: { value: new THREE.Color(1, 1, 1) },
         outlineColor: { value: new THREE.Color(0, 0, 0) },
@@ -217,6 +235,7 @@ export class GradePass {
     u.bloom.value = grade.bloom;
     u.aberration.value = grade.aberration;
     u.scanlines.value = grade.scanlines;
+    u.occlusion.value = grade.occlusion;
     (u.tint.value as THREE.Color).set(grade.tint || "#ffffff");
     (u.outlineColor.value as THREE.Color).set(grade.outlineColor).convertSRGBToLinear();
     (u.sky.value as THREE.Color).set(sky || "#d9d7cf");
@@ -263,6 +282,7 @@ export class GradePass {
     u.near.value = cam.near ?? 0.1;
     u.far.value = cam.far ?? 100;
     u.ortho.value = cam.isOrthographicCamera ? 1 : 0;
+    u.projScale.value = cam.isPerspectiveCamera ? this.h / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) : (this.h * (cam.zoom ?? 1)) / Math.max(1e-6, cam.top - cam.bottom);
     u.time.value = time;
     if (g.paint > 0 || g.dither > 0) {
       // peinture ou tramage : image étalonnée dans une cible, puis filtre vers l'écran
