@@ -1510,12 +1510,13 @@ function restWorld(model: Model, offs: Float32Array): Float32Array {
 
 /** Rayon au sol approximatif d'un modèle (pour l'ombre). */
 /**
- * Ombres portées : tout reçoit ; l'espace (murs, sol, plafond) ne projette pas (sinon le plafond et les murs plongeraient
- * la pièce dans l'ombre), les objets si.
+ * Ombres portées : tout reçoit et tout projette, murs et plafond compris (la lumière du soleil n'entre dans une pièce que
+ * par ses ouvertures), sauf le verre.
  */
-function castFlags(mesh: THREE.Mesh, m: Monde, model: Model) {
+function castFlags(mesh: THREE.Mesh, m: Monde, _model: Model) {
   mesh.receiveShadow = m.castShadows;
-  mesh.castShadow = m.castShadows && !model.name.startsWith("espace:");
+  const mat = mesh.material as THREE.Material & { transmission?: number };
+  mesh.castShadow = m.castShadows && !mat.transparent && !(mat.transmission && mat.transmission > 0);
 }
 
 export function radiusOf(model: Model): number {
