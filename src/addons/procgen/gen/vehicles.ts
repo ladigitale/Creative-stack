@@ -10,6 +10,7 @@ import { ROLE } from "../style/roles";
 import { type Asset, defineGenerator } from "./types";
 import { partsBounds, partsToMesh } from "./parts";
 import { PART_VEHICLES, vehiclePartsModel } from "./vehicle-parts";
+import { buildJoints, jointPoint } from "./joints";
 
 const KINDS = ["carriage", "bicycle", "car", "rowboat", "sailboat", "balloon", "handcart", ...PART_VEHICLES] as const;
 const PAINTS = ["auto", "accent", "cloth1", "cloth2", "leaf2", "water", "wood", "paper", "ink", "red", "orange", "yellow", "green", "blue", "purple", "white", "black"] as const;
@@ -178,7 +179,7 @@ function build(kind: string, size: number, variant: number, paintName: string): 
 export const vehicle = defineGenerator({
   id: "vehicle",
   label: "Véhicule",
-  doc: "Véhicule instanciable : carriage (carrosse), bicycle (vélo), car (voiture ancienne), rowboat (barque), sailboat (voilier), balloon (montgolfière), handcart (charrette à bras), et sur la grammaire de pièces (même modèle en 3D et en vectoriel) : moderncar (voiture moderne), van (fourgonnette), bus, truck (camion : caisse fermée ou benne selon la variante), tractor (tracteur), wagon (voiture de voyageurs ou wagon de marchandises selon la variante), locomotive (à vapeur). Barque et voilier : couche `onWater`. Wagon et locomotive : `onRails` les pose sur une voie `structure.rails` (même point, même cap). Couleur de caisse : paint (auto = selon la variante ; couleurs franches pour les véhicules modernes). Ancres : light (montgolfière), seat (conducteur), front, back.",
+  doc: "Véhicule instanciable : carriage (carrosse), bicycle (vélo), car (voiture ancienne), rowboat (barque), sailboat (voilier), balloon (montgolfière), handcart (charrette à bras), et sur la grammaire de pièces (même modèle en 3D et en vectoriel) : moderncar (voiture moderne), van (fourgonnette), bus, truck (camion : caisse fermée ou benne selon la variante), tractor (tracteur), wagon (voiture de voyageurs ou wagon de marchandises selon la variante), locomotive (à vapeur). Barque et voilier : couche `onWater`. Wagon et locomotive : `onRails` les pose sur une voie `structure.rails` (même point, même cap). Couleur de caisse : paint (auto = selon la variante ; couleurs franches pour les véhicules modernes). Ancres : light (montgolfière), seat (conducteur), front, back ; véhicules modernes : `seat.driver`, `seat.N` (passagers), `approach.door.fl`…, et parties mobiles (clé `states`) : moderncar `door.fl` (conducteur, à gauche), `door.fr`, `door.rl`, `door.rr`, `trunk`, `hood` ; van `door.fl`, `door.fr`, `door.side` (coulissante), `door.back.l`, `door.back.r` ; bus `door.0`, `door.1` (coulissantes, à droite) ; truck `door.fl`, `door.fr`, `door.back.l|r` (caisse) ou `tailgate` (benne) ; essieux `wheel.N` (moderncar, van, bus, truck, tractor : un tour = 0…1, jamais ouverts par `open`).",
   tags: ["véhicule", "transport", "rue", "port", "décor"],
   schema: {
     kind: { type: "enum", default: "car", options: KINDS, doc: "Véhicule" },
@@ -190,14 +191,21 @@ export const vehicle = defineGenerator({
   build(p, ctx) {
     const variant = p.variant >= 0 ? p.variant : ctx.rng.int(0, 7);
     if ((PART_VEHICLES as readonly string[]).includes(p.kind)) {
-      const parts = vehiclePartsModel({ ...p, variant });
-      const bb = partsBounds(parts);
+      const vm = vehiclePartsModel({ ...p, variant });
+      // emprise et hauteur sur le véhicule fermé (portières, coffre et roues compris)
+      const all = [...vm.parts, ...vm.joints.flatMap((j) => j.parts ?? [])];
+      const bb = partsBounds(all);
       const hx = Math.max(Math.abs(bb.min[0]), Math.abs(bb.max[0])), hz = Math.max(Math.abs(bb.min[2]), Math.abs(bb.max[2]));
       const R = [0, 0, 0, 1] as [number, number, number, number];
+      const J = buildJoints(partsToMesh(vm.parts, 0.85), vm.joints, 0.85);
+      const anchors: Asset["anchors"] = { front: { pos: [0, bb.max[1] * 0.4, bb.max[2]], rot: R, scale: 1 }, back: { pos: [0, bb.max[1] * 0.4, bb.min[2]], rot: R, scale: 1 }, seat: { pos: [p.kind === "tractor" ? 0 : 0.4, bb.max[1] * 0.55, p.kind === "bus" || p.kind === "truck" ? hz * 0.75 : p.kind === "tractor" ? -0.7 : 0.1], rot: R, scale: 1 } };
+      for (const [k, v] of Object.entries(vm.anchors)) anchors[k] = { pos: v, rot: R, scale: 1 };
+      for (const j of vm.joints) for (const [k, v] of Object.entries(j.anchors ?? {})) anchors[`${j.name}.${k}`] = { pos: jointPoint(j, j.initial ?? 0, v), rot: R, scale: 1 };
       return {
         generator: "vehicle",
-        mesh: partsToMesh(parts, 0.85),
-        anchors: { front: { pos: [0, bb.max[1] * 0.4, bb.max[2]], rot: R, scale: 1 }, back: { pos: [0, bb.max[1] * 0.4, bb.min[2]], rot: R, scale: 1 }, seat: { pos: [p.kind === "tractor" ? 0 : 0.4, bb.max[1] * 0.55, p.kind === "bus" || p.kind === "truck" ? hz * 0.75 : p.kind === "tractor" ? -0.7 : 0.1], rot: R, scale: 1 } },
+        mesh: J.mesh,
+        ...(J.joints.length ? { body: J.body, joints: J.joints } : {}),
+        anchors,
         footprint: { hx, hz, r: Math.hypot(hx, hz) },
         height: bb.max[1],
         extra: { kind: p.kind },

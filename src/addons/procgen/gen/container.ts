@@ -8,6 +8,7 @@ import { type Q, type V3, DEG, clamp, qAxis } from "../core/math";
 import type { Role } from "../style/roles";
 import { type Part, type PartList, partsBounds, partsToMesh, roleParam, transformParts } from "./parts";
 import { toolParts } from "./tool";
+import { type JointSpec, buildJoints, hingeJoint, jointPoint, jointValue, posedAll, scaleJoint } from "./joints";
 import { type Anchor, defineGenerator } from "./types";
 
 export const FILLS = ["none", "apples", "oranges", "potatoes", "sand", "soil", "grain", "water", "milk", "logs", "tools", "hay", "flowers", "gold"] as const;
@@ -18,14 +19,14 @@ type Opening = { y: number; r?: number; hx?: number; hz?: number };
  * `parts` : corps ; `lid` : couvercle (dessiné avant le corps s'il est ouvert, donc derrière, après sinon) ; `grip` :
  * prise réelle (anse) ; `sit` : on peut s'asseoir dessus quand il est fermé ; `fills` : contenus permis.
  */
-type Built = { parts: PartList; lid?: PartList; opening: Opening | null; affords: string[]; grip?: V3; sit?: boolean; fills?: readonly string[] };
+type Built = { parts: PartList; /** Parties mobiles, fermées (couvercle, rabats). */ joints?: JointSpec[]; opening: Opening | null; affords: string[]; grip?: V3; sit?: boolean; fills?: readonly string[] };
 type O = { main: Role; trim: Role; open: boolean };
 
 const bx = (c: V3, h: V3, role: Role, rot?: V3): Part => ({ t: "box", c, h, role, rot });
 /** Anneau (cerclage, rebord) : tube fermé horizontal. */
 const ring = (r: number, y: number, w: number, role: Role): Part => ({ t: "tube", pts: Array.from({ length: 17 }, (_, i) => [Math.cos((i / 16) * Math.PI * 2) * r, y, Math.sin((i / 16) * Math.PI * 2) * r] as V3), r: w, role });
-/** Pièces tournées autour d'une charnière horizontale (axe x) passant par `(y, z)`. */
-const hinge = (parts: PartList, deg: number, y: number, z: number): PartList => transformParts(transformParts(parts, [0, 0, 0, 1], [0, -y, -z]), qAxis([1, 0, 0], deg * DEG), [0, y, z]);
+/** Couvercle articulé sur une charnière horizontale (axe x) passant par `(y, z)`, ouvert de `deg` degrés. */
+const lidJoint = (parts: PartList, deg: number, y: number, z: number, top: V3): JointSpec => hingeJoint("lid", "couvercle", parts, [0, y, z], [1, 0, 0], deg, { anchors: { top } });
 const SOLIDS = ["none", "apples", "oranges", "potatoes", "logs", "tools", "flowers", "gold"] as const;
 const LOOSE = ["none", "sand", "soil", "grain", "hay", "apples", "oranges", "potatoes", "gold"] as const;
 const rod = (a: V3, b: V3, r: number, role: Role, r1?: number): Part => ({ t: "rod", a, b, r, r1, role });
@@ -50,8 +51,8 @@ const KINDS: Record<string, { label: string; build: (o: O) => Built }> = {
       const h = 0.2;
       openBox(P, 0.3, h, 0.22, 0.02, o.main);
       for (const y of [0.08, 0.32]) for (const sz of [-1, 1]) P.push(bx([0, y, sz * 0.225], [0.31, 0.035, 0.008], o.trim));
-      const lid = o.open ? [] : [bx([0, 0.41, 0], [0.31, 0.012, 0.23], o.main)];
-      return { parts: P, lid, opening: o.open ? { y: 0.38, hx: 0.27, hz: 0.19 } : null, affords: ["carry", "open", "fill", "sit", "stack"], sit: true };
+      const lid = lidJoint([bx([0, 0.41, 0], [0.31, 0.012, 0.23], o.main)], -110, 0.41, -0.23, [0, 0.422, 0]);
+      return { parts: P, joints: [lid], opening: { y: 0.38, hx: 0.27, hz: 0.19 }, affords: ["carry", "open", "fill", "sit", "stack"], sit: true };
     },
   },
   chest: {
@@ -63,8 +64,7 @@ const KINDS: Record<string, { label: string; build: (o: O) => Built }> = {
       P.push(bx([0, 0.26, 0.246], [0.035, 0.04, 0.008], o.trim));
       // couvercle bombé : charnière à l'arrière (z = −0,24, y = 0,34)
       const lid: PartList = [bx([0, 0.04, 0.24], [0.385, 0.04, 0.245], o.main), { t: "blob", c: [0, 0.07, 0.24], r: [0.385, 0.07, 0.24], role: o.main }, bx([0.3, 0.06, 0.24], [0.02, 0.06, 0.25], o.trim), bx([-0.3, 0.06, 0.24], [0.02, 0.06, 0.25], o.trim)];
-      const q: Q = o.open ? qAxis([1, 0, 0], -105 * DEG) : [0, 0, 0, 1];
-      return { parts: P, lid: transformParts(lid, q, [0, 0.34, -0.24]), opening: o.open ? { y: 0.32, hx: 0.34, hz: 0.2 } : null, affords: ["open", "fill", "sit", "push"], sit: true };
+      return { parts: P, joints: [lidJoint(transformParts(lid, [0, 0, 0, 1], [0, 0.34, -0.24]), -105, 0.34, -0.24, [0, 0.48, 0])], opening: { y: 0.32, hx: 0.34, hz: 0.2 }, affords: ["open", "fill", "sit", "push"], sit: true };
     },
   },
   cardboard: {
@@ -72,16 +72,15 @@ const KINDS: Record<string, { label: string; build: (o: O) => Built }> = {
     build: (o) => {
       const P: PartList = [];
       openBox(P, 0.22, 0.17, 0.17, 0.006, o.main);
-      const lid: PartList = [];
-      if (o.open) {
-        // rabats articulés sur l'arête du bord, ouverts vers l'extérieur et relevés de 35°
-        const up = 35 * DEG;
-        lid.push(...transformParts([bx([0, 0, 0.085], [0.22, 0.003, 0.085], o.main)], qAxis([1, 0, 0], -up), [0, 0.34, 0.17]));
-        lid.push(...transformParts([bx([0, 0, -0.085], [0.22, 0.003, 0.085], o.main)], qAxis([1, 0, 0], up), [0, 0.34, -0.17]));
-        lid.push(...transformParts([bx([0.085, 0, 0], [0.085, 0.003, 0.17], o.main)], qAxis([0, 0, 1], up), [0.22, 0.34, 0]));
-        lid.push(...transformParts([bx([-0.085, 0, 0], [0.085, 0.003, 0.17], o.main)], qAxis([0, 0, 1], -up), [-0.22, 0.34, 0]));
-      } else lid.push(bx([0, 0.343, 0], [0.222, 0.004, 0.172], o.main), bx([0, 0.348, 0], [0.04, 0.002, 0.173], o.trim));
-      return { parts: P, lid, opening: o.open ? { y: 0.32, hx: 0.2, hz: 0.15 } : null, affords: ["carry", "open", "fill", "stack"], fills: SOLIDS };
+      // quatre rabats articulés sur l'arête du bord : fermés à plat (les rabats avant et arrière par-dessus), ouverts
+      // vers l'extérieur et relevés de 35° (145° de course)
+      const joints: JointSpec[] = [
+        hingeJoint("lid.f", "rabat avant", [bx([0, 0.349, 0.085], [0.22, 0.003, 0.085], o.main), bx([0, 0.353, 0.02], [0.04, 0.0015, 0.02], o.trim)], [0, 0.346, 0.17], [1, 0, 0], 145),
+        hingeJoint("lid.b", "rabat arrière", [bx([0, 0.349, -0.085], [0.22, 0.003, 0.085], o.main), bx([0, 0.353, -0.02], [0.04, 0.0015, 0.02], o.trim)], [0, 0.346, -0.17], [1, 0, 0], -145),
+        hingeJoint("lid.l", "rabat gauche", [bx([0.11, 0.343, 0], [0.11, 0.003, 0.17], o.main)], [0.22, 0.34, 0], [0, 0, 1], -145),
+        hingeJoint("lid.r", "rabat droit", [bx([-0.11, 0.343, 0], [0.11, 0.003, 0.17], o.main)], [-0.22, 0.34, 0], [0, 0, 1], 145),
+      ];
+      return { parts: P, joints, opening: { y: 0.32, hx: 0.2, hz: 0.15 }, affords: ["carry", "open", "fill", "stack"], fills: SOLIDS };
     },
   },
   basket: {
@@ -152,8 +151,8 @@ const KINDS: Record<string, { label: string; build: (o: O) => Built }> = {
         rod([0.2, 0.16, 0], [0.26, 0.16, 0], 0.012, o.trim),
         rod([-0.2, 0.16, 0], [-0.26, 0.16, 0], 0.012, o.trim),
       ],
-      lid: o.open ? [] : [{ t: "lathe", c: [0, 0.2, 0], profile: [[0.2, 0], [0.16, 0.04], [0.03, 0.05], [0.03, 0.08], [0, 0.08]], role: o.main }],
-      opening: o.open ? { y: 0.17, r: 0.18 } : null,
+      joints: [lidJoint([{ t: "lathe", c: [0, 0.2, 0], profile: [[0.2, 0], [0.16, 0.04], [0.03, 0.05], [0.03, 0.08], [0, 0.08]], role: o.main }], -75, 0.2, -0.2, [0, 0.28, 0])],
+      opening: { y: 0.17, r: 0.18 },
       affords: ["fill", "cook", "carry"],
     }),
   },
@@ -172,14 +171,15 @@ const KINDS: Record<string, { label: string; build: (o: O) => Built }> = {
       openBox(P, 0.24, 0.08, 0.11, 0.01, o.main);
       // couvercle articulé à l'arête arrière (y 0,16, z −0,11)
       const lid0: PartList = [bx([0, 0.175, 0], [0.24, 0.015, 0.11], o.main), { t: "tube", pts: [[-0.08, 0.19, 0], [-0.07, 0.24, 0], [0.07, 0.24, 0], [0.08, 0.19, 0]], r: 0.01, role: o.trim }];
-      const lid = o.open ? hinge(lid0, -110, 0.16, -0.11) : lid0;
-      return { parts: P, lid, opening: o.open ? { y: 0.15, hx: 0.22, hz: 0.09 } : null, affords: ["carry", "open", "fill"], grip: [0, 0.24, 0], fills: ["none", "tools", "gold"] };
+      return { parts: P, joints: [lidJoint(lid0, -110, 0.16, -0.11, [0, 0.24, 0])], opening: { y: 0.15, hx: 0.22, hz: 0.09 }, affords: ["carry", "open", "fill"], grip: [0, 0.24, 0], fills: ["none", "tools", "gold"] };
     },
   },
   suitcase: {
     label: "Valise",
     build: (o) => ({
-      parts: [bx([0, 0.3, 0], [0.24, 0.3, 0.1], o.main), bx([0, 0.3, 0], [0.245, 0.29, 0.102], o.trim), { t: "tube", pts: [[-0.06, 0.6, 0], [-0.05, 0.65, 0], [0.05, 0.65, 0], [0.06, 0.6, 0]], r: 0.012, role: "black" }, ...[-0.2, 0.2].map((x) => rod([x, 0.0, -0.06], [x, 0.03, -0.06], 0.02, "black"))],
+      // deux coques : l'arrière (corps, doublure, anse, roulettes) et l'avant, qui s'ouvre comme un livre (charnière à gauche, x = −0,24)
+      parts: [bx([0, 0.3, -0.05], [0.24, 0.3, 0.05], o.main), bx([0, 0.3, 0], [0.245, 0.29, 0.004], o.trim), bx([0, 0.3, 0.004], [0.22, 0.27, 0.002], "cloth2"), { t: "tube", pts: [[-0.06, 0.6, 0], [-0.05, 0.65, 0], [0.05, 0.65, 0], [0.06, 0.6, 0]], r: 0.012, role: "black" }, ...[-0.2, 0.2].map((x) => rod([x, 0.0, -0.06], [x, 0.03, -0.06], 0.02, "black"))],
+      joints: [hingeJoint("lid", "coque avant", [bx([0, 0.3, 0.053], [0.24, 0.3, 0.047], o.main), bx([0, 0.3, 0.1], [0.2, 0.26, 0.003], o.trim)], [-0.24, 0.3, 0], [0, 1, 0], -100, { anchors: { top: [0, 0.6, 0.05] } })],
       opening: null,
       affords: ["carry", "pull", "open"],
     }),
@@ -216,8 +216,8 @@ const KINDS: Record<string, { label: string; build: (o: O) => Built }> = {
         rod([-0.24, 0.92, -0.33], [0.24, 0.92, -0.33], 0.02, o.trim),
       ],
       // couvercle articulé sur l'arête arrière (y 0,94, z −0,3)
-      lid: hinge([bx([0, 0.955, 0.02], [0.3, 0.02, 0.33], o.trim)], o.open ? -105 : 0, 0.94, -0.31),
-      opening: o.open ? { y: 0.88, hx: 0.25, hz: 0.27 } : null,
+      joints: [lidJoint([bx([0, 0.955, 0.02], [0.3, 0.02, 0.33], o.trim)], -105, 0.94, -0.31, [0, 0.975, 0])],
+      opening: { y: 0.88, hx: 0.25, hz: 0.27 },
       affords: ["push", "pull", "open", "fill"],
       grip: [0, 0.92, -0.33],
     }),
@@ -226,8 +226,8 @@ const KINDS: Record<string, { label: string; build: (o: O) => Built }> = {
     label: "Bidon à lait",
     build: (o) => ({
       parts: [{ t: "lathe", c: [0, 0, 0], profile: [[0.17, 0], [0.18, 0.02], [0.18, 0.4], [0.12, 0.5], [0.1, 0.58], [0.12, 0.6], [0.1, 0.62], [0.09, 0.56], [0, 0.45]], role: o.main }, ...[-1, 1].map((s) => ({ t: "tube", pts: [[s * 0.13, 0.48, 0], [s * 0.2, 0.5, 0], [s * 0.2, 0.44, 0], [s * 0.16, 0.42, 0]], r: 0.01, role: o.main }) as Part), ring(0.183, 0.21, 0.008, o.trim)],
-      lid: o.open ? [] : [{ t: "lathe", c: [0, 0.6, 0], profile: [[0.11, 0], [0.11, 0.04], [0.04, 0.06], [0.04, 0.09], [0, 0.09]], role: o.main }],
-      opening: o.open ? { y: 0.56, r: 0.08 } : null,
+      joints: [lidJoint([{ t: "lathe", c: [0, 0.6, 0], profile: [[0.11, 0], [0.11, 0.04], [0.04, 0.06], [0.04, 0.09], [0, 0.09]], role: o.main }], -110, 0.6, -0.11, [0, 0.69, 0])],
+      opening: { y: 0.56, r: 0.08 },
       fills: ["none", "milk", "water"],
       affords: ["carry", "fill", "pour"],
     }),
@@ -238,8 +238,7 @@ const KINDS: Record<string, { label: string; build: (o: O) => Built }> = {
       const P: PartList = [];
       openBox(P, 0.27, 0.15, 0.17, 0.025, o.main);
       P.push({ t: "tube", pts: [[-0.29, 0.22, 0], [-0.31, 0.38, 0], [0.31, 0.38, 0], [0.29, 0.22, 0]], r: 0.01, role: o.trim });
-      const lid = hinge([bx([0, 0.32, 0], [0.28, 0.025, 0.18], o.trim)], o.open ? -100 : 0, 0.3, -0.18);
-      return { parts: P, lid, opening: o.open ? { y: 0.27, hx: 0.24, hz: 0.14 } : null, affords: ["carry", "open", "fill", "sit"], grip: [0, 0.38, 0], sit: true };
+      return { parts: P, joints: [lidJoint([bx([0, 0.32, 0], [0.28, 0.025, 0.18], o.trim)], -100, 0.3, -0.18, [0, 0.345, 0])], opening: { y: 0.27, hx: 0.24, hz: 0.14 }, affords: ["carry", "open", "fill", "sit"], grip: [0, 0.38, 0], sit: true };
     },
   },
 };
@@ -344,12 +343,13 @@ export function fillParts(fill: string, op: Opening): PartList {
 }
 
 export type ContainerModel = {
-  /** Corps, couvercle, contenu (déjà à l'échelle). */
+  /** Corps et contenu (déjà à l'échelle). */
   body: PartList;
-  lid: PartList;
   fill: PartList;
-  /** Couvercle ouvert : derrière le corps (dessiné avant lui). */
-  lidBehind: boolean;
+  /** Parties mobiles fermées (couvercle `lid`, rabats `lid.f`…), à l'échelle ; valeur de départ = `open`. */
+  joints: JointSpec[];
+  /** Couvercle ouvert au départ. */
+  open: boolean;
   affords: string[];
   label: string;
   opening: Opening | null;
@@ -373,19 +373,25 @@ export function containerModel(p: Record<string, unknown>): ContainerModel {
   }
   const s = clamp(Number(p.scale ?? 1) || 1, 0.2, 5);
   const sc = (l: PartList) => (s === 1 ? l : transformParts(l, [0, 0, 0, 1], [0, 0, 0], s));
-  const fillP = b.opening && fill !== "none" ? fillParts(fill, b.opening) : [];
+  // fermé au départ : vide comme avant (un contenu bombé traverserait le couvercle)
+  const hasLid = !!b.joints?.length;
+  const fillP = b.opening && fill !== "none" && (o.open || !hasLid) ? fillParts(fill, b.opening) : [];
   const S = (v?: V3): V3 | undefined => v && [v[0] * s, v[1] * s, v[2] * s];
-  return { body: sc(b.parts), lid: sc(b.lid ?? []), fill: sc(fillP), lidBehind: o.open, affords: b.affords, label: KINDS[kind].label, opening: b.opening, grip: S(b.grip), sit: !!b.sit && fill === "none" && (!o.open || kind === "pallet"), scale: s, rejected };
+  const joints = (b.joints ?? []).map((j) => scaleJoint({ ...j, initial: o.open ? 1 : 0 }, s));
+  return { body: sc(b.parts), joints, fill: sc(fillP), open: o.open, affords: b.affords, label: KINDS[kind].label, opening: b.opening, grip: S(b.grip), sit: !!b.sit && fill === "none" && (!o.open || kind === "pallet"), scale: s, rejected };
 }
 
-/** Toutes les pièces (corps, couvercle, contenu). */
-export const containerParts = (m: ContainerModel): PartList => [...m.body, ...m.lid, ...m.fill];
+/** Toutes les pièces (corps, parties posées selon `states`, contenu). */
+export const containerParts = (m: ContainerModel, states?: Record<string, number> | null): PartList => [...m.body, ...posedAll(m.joints, states), ...m.fill];
+
+/** Couvercle levé (plus qu'à moitié) : dessiné derrière le corps en vectoriel. */
+export const lidBehind = (m: ContainerModel, states?: Record<string, number> | null): boolean => m.joints.some((j) => jointValue(j, states) > 0.5);
 
 export const container = defineGenerator({
   id: "container",
   label: "Contenant : caisse, panier, seau, sac…",
   doc:
-    "Contenants à taille réelle (crate, chest, cardboard, basket, bucket, sack, jar, amphora, pot, jerrycan, toolbox, suitcase, bag, pallet, wheeliebin, milkcan, cooler) sur la grammaire de pièces. `open` ouvre le couvercle (coffre, caisse, caisse à outils, poubelle, glacière, carton, marmite, bidon, sac ; sans effet sur panier, seau, jarre…), `fill` le remplit — contenus permis selon le contenant, sinon laissé vide avec une issue — (apples, oranges, potatoes, sand, soil, grain, water, milk, logs, tools, hay, flowers, gold). `color`/`color2` = rôles du corps et des ferrures. Ancres top, grip (anse), inside, sit.0 (fermé, ou palette vide) ; `extra.affords` (carry, open, fill, pour, sit, stack, push…).",
+    "Contenants à taille réelle (crate, chest, cardboard, basket, bucket, sack, jar, amphora, pot, jerrycan, toolbox, suitcase, bag, pallet, wheeliebin, milkcan, cooler) sur la grammaire de pièces. `open` ouvre le couvercle au départ (coffre, caisse, caisse à outils, poubelle, glacière, carton, marmite, bidon, valise ; partie mobile `lid`, rabats `lid.f|b|l|r` du carton, réglable sans recomposer par la clé `states` ; sac : forme ouverte ; sans effet sur panier, seau, jarre…), `fill` le remplit — contenus permis selon le contenant, sinon laissé vide avec une issue — (apples, oranges, potatoes, sand, soil, grain, water, milk, logs, tools, hay, flowers, gold). `color`/`color2` = rôles du corps et des ferrures. Ancres top, grip (anse), inside, sit.0 (fermé, ou palette vide) ; `extra.affords` (carry, open, fill, pour, sit, stack, push…).",
   tags: ["contenant", "rangement", "marché", "ferme", "cuisine", "objet du quotidien"],
   schema: {
     kind: { type: "enum", default: "crate", options: CONTAINER_KINDS, doc: "Contenant" },
@@ -399,20 +405,24 @@ export const container = defineGenerator({
     const m = containerModel(p);
     if (m.rejected) ctx.issues.add({ path: `${ctx.path}.fill`, code: "type", message: `contenu « ${m.rejected} » impossible dans ce contenant : laissé vide` });
     // le contenu (nombreux petits morceaux) en détail réduit
-    const mesh = partsToMesh([...m.body, ...m.lid], 0.85).append(partsToMesh(m.fill, 0.45));
-    const bb = partsBounds([...m.body, ...m.lid, ...m.fill]);
+    const bodyMesh = partsToMesh(m.body, 0.85).append(partsToMesh(m.fill, 0.45));
+    const J = buildJoints(bodyMesh, m.joints, 0.85);
+    const lidNow = posedAll(m.joints);
+    const bb = partsBounds([...m.body, ...lidNow, ...m.fill]);
     // emprise et ancres sur le corps fermé : ni le couvercle levé ni le contenu
     const body = partsBounds(m.body);
     const hx = Math.max(Math.abs(body.min[0]), Math.abs(body.max[0]), 0.02);
     const hz = Math.max(Math.abs(body.min[2]), Math.abs(body.max[2]), 0.02);
     const rot: Q = [0, 0, 0, 1];
-    const topY = m.lidBehind ? body.max[1] : partsBounds([...m.body, ...m.lid]).max[1];
+    const topY = m.open || !m.joints.length ? body.max[1] : partsBounds([...m.body, ...lidNow]).max[1];
     const anchors: Record<string, Anchor> = { top: { pos: [0, topY, 0], rot, scale: m.scale }, grip: { pos: m.grip ?? [0, topY, 0], rot, scale: m.scale } };
     if (m.opening) anchors.inside = { pos: [0, m.opening.y * m.scale, 0], rot, scale: m.scale };
     if (m.sit) {
       anchors["sit.0"] = { pos: [0, topY, 0], rot, scale: m.scale };
       anchors["approach.0"] = { pos: [0, 0, hz + 0.35], rot, scale: m.scale };
     }
-    return { generator: "container", mesh, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: bb.max[1], extra: { affords: m.affords, label: m.label, fill: m.rejected ? "none" : p.fill } };
+    // ancres des parties (lid.top) : publiées à la valeur de départ, suivies par le rendu
+    for (const j of m.joints) for (const [k, v] of Object.entries(j.anchors ?? {})) anchors[`${j.name}.${k}`] = { pos: jointPoint(j, j.initial ?? 0, v), rot, scale: m.scale };
+    return { generator: "container", mesh: J.mesh, ...(J.joints.length ? { body: J.body, joints: J.joints } : {}), anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: bb.max[1], extra: { affords: m.affords, label: m.label, fill: m.rejected ? "none" : p.fill } };
   },
 });

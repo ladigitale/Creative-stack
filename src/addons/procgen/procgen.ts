@@ -20,6 +20,7 @@ import { type ActorIntent, type GameEvent, ProcgenView } from "./render/view";
 import { type ViewSync, syncView } from "./render/steady";
 import { VECTOR_STYLES, VectorView, composeVector } from "./vector/index";
 import { fxInputOf, stripFx } from "./scene/fx";
+import { type ResolvedStates, resolveStates, statesInputOf, stripStates } from "./scene/states";
 
 type AnyView = ProcgenView | VectorView;
 
@@ -61,6 +62,15 @@ function matches(re: string, name: string): boolean {
 
 const tagName = "sonic-procgen";
 
+/** Parties mobiles et états libres publiés (`selection`, `ids`) : `parts: [{name, label, kind, range, value}]`, `states`. */
+function partsOut(o: SceneModel["objects"][number]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (o.joints?.length) out.parts = o.joints.map((j) => ({ name: j.name, label: j.label, kind: j.kind, range: j.range, value: R2(o.states?.[j.name] ?? j.initial) }));
+  const free = o.states ? Object.entries(o.states).filter(([k]) => !o.joints?.some((j) => j.name === k)) : [];
+  if (free.length) out.states = Object.fromEntries(free.map(([k, v]) => [k, R2(v)]));
+  return out;
+}
+
 type Publisher = {
   get(): unknown;
   onAssign(handler: (v: unknown) => void, directHandlerCall?: boolean): void;
@@ -94,6 +104,10 @@ export class SonicProcgen extends HTMLElement {
   private styleKey = "";
   private fxKey = "";
   private fxModel: unknown = null;
+  /** États des objets lus (recette ⊕ `states`) : relus quand les clés ou le modèle changent. */
+  private statesKey = "";
+  private statesModel: unknown = null;
+  private resolved: ResolvedStates | null = null;
   /** Dernière entrée de vue appliquée : la vue de l'utilisateur survit aux recompositions. */
   private viewSync: ViewSync = { key: "", modelKey: "" };
   private miscKey = "";
@@ -350,7 +364,8 @@ export class SonicProcgen extends HTMLElement {
       if (changed) this.sceneKey = "";
     }
     // météo, effets et particules ne recomposent pas la scène (relus à part, voir plus bas)
-    const key = JSON.stringify([mode, recipe ? stripFx(recipe) : sceneName, seed, params, edits]);
+    // états des objets (parties mobiles, états libres) non plus : la vue les anime sans recomposer
+    const key = JSON.stringify([mode, recipe ? stripStates(stripFx(recipe)) : sceneName, seed, params, edits]);
     const issues = new Issues();
     if (key !== this.sceneKey) {
       this.sceneKey = key;
@@ -484,6 +499,20 @@ export class SonicProcgen extends HTMLElement {
       if (add.weather) fxIn.weather = add.weather;
       if (add.mist) fxIn.fx = { ...(fx0 ?? {}), mist: add.mist };
     }
+    // états : recette (`layers[i].states`, `actors.<id>.states`, `stateFx`) puis clé `states` (fusionnée par objet)
+    const stIn = statesInputOf((recipe ?? SCENES[sceneName] ?? null) as Record<string, unknown> | null, d.states, d.stateSpeed);
+    const stk = JSON.stringify(stIn);
+    if (stk !== this.statesKey || this.statesModel !== this.model) {
+      this.statesKey = stk;
+      this.statesModel = this.model;
+      const si = new Issues();
+      this.resolved = resolveStates(stIn, this.model.objects, si);
+      this.view.setStates(this.resolved.values, this.resolved.speed, this.resolved.lights);
+      const stPath = /^(states|stateSpeed)(\.|$)|^layers\[\d+\]\.(states|stateFx)|^actors\.[^.]+\.states/;
+      this.issues = [...this.issues.filter((i) => !stPath.test(String((i as { path: string }).path))), ...si.list];
+      this.idsVersion++;
+    }
+    if (this.resolved?.fx.length) fxIn.states = this.resolved.fx;
     const fk = JSON.stringify(fxIn);
     if (fk !== this.fxKey || this.fxModel !== this.model) {
       this.fxKey = fk;
@@ -608,7 +637,7 @@ export class SonicProcgen extends HTMLElement {
     const ver = this.idsVersion + (this.view instanceof ProcgenView ? this.view.physVersion * 1e6 : 0);
     if (this.idsCache.model === m && this.idsCache.v === ver) return this.idsCache.list;
     const list = m
-      ? m.objects.slice(0, 400).map((o) => ({ id: o.id, generator: o.generator, layer: o.layer, x: R2(o.pos[0]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), ...(o.place ? { place: o.place } : {}), ...(o.affords ? { affords: o.affords } : {}) }))
+      ? m.objects.slice(0, 400).map((o) => ({ id: o.id, generator: o.generator, layer: o.layer, x: R2(o.pos[0]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), ...(o.place ? { place: o.place } : {}), ...(o.affords ? { affords: o.affords } : {}), ...partsOut(o) }))
       : [];
     this.idsCache = { model: m, v: ver, list };
     return list;
@@ -634,7 +663,7 @@ export class SonicProcgen extends HTMLElement {
   private selectionOut(id: string | null) {
     const o = id ? this.model?.objects.find((x) => x.id === id) : null;
     if (!o) return null;
-    return { id: o.id, generator: o.generator, layer: o.layer, params: o.params, x: R2(o.pos[0]), y: R2(o.pos[1]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), h: R2(o.height), ...(o.place ? { place: o.place, index: o.index ?? 0 } : {}), movable: this.mode === "3d" && this.movable(o), ...(o.affords ? { affords: o.affords } : {}), ...(o.physics ? { physics: o.physics } : {}), ...(Object.keys(o.anchors).some((k) => k.startsWith("sit.")) ? { seats: Object.keys(o.anchors).filter((k) => k.startsWith("sit.")) } : {}) };
+    return { id: o.id, generator: o.generator, layer: o.layer, params: o.params, x: R2(o.pos[0]), y: R2(o.pos[1]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), h: R2(o.height), ...(o.place ? { place: o.place, index: o.index ?? 0 } : {}), movable: this.mode === "3d" && this.movable(o), ...(o.affords ? { affords: o.affords } : {}), ...partsOut(o), ...(o.physics ? { physics: o.physics } : {}), ...(Object.keys(o.anchors).some((k) => k.startsWith("sit.")) ? { seats: Object.keys(o.anchors).filter((k) => k.startsWith("sit.")) } : {}) };
   }
 
   /** Problèmes de la scène et des tuiles du monde infini (préfixés `infinite.tile.`). */
@@ -710,6 +739,11 @@ export class SonicProcgen extends HTMLElement {
   }
 
   private emit(e: GameEvent) {
+    // fin d'animation d'une partie : `ids` et `selection` republiés avec la nouvelle valeur
+    if (e.type === "state") {
+      this.idsVersion++;
+      this.queueOut();
+    }
     const type = `${this.actionPrefix}${e.type}`;
     if (this.target) {
       // stores du registre `interactive` (creative-stack), sinon `dispatchAction` (sonic-store de Concorde)

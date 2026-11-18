@@ -269,6 +269,21 @@ export class VectorView {
     this.kick();
   }
 
+  /** États des objets (parties, états libres) : le dessin les fige à leur valeur (pas d'animation en vectoriel). */
+  setStates(values: Record<string, Record<string, number>>, _speed?: number, _lights?: unknown) {
+    void _speed;
+    void _lights;
+    if (!this.model) return;
+    let changed = false;
+    for (const o of this.model.objects) {
+      const v = values[o.id];
+      const next = o.joints || v ? { ...Object.fromEntries((o.joints ?? []).map((j) => [j.name, j.initial])), ...(v ?? {}) } : undefined;
+      if (JSON.stringify(next) !== JSON.stringify(o.states)) changed = true;
+      o.states = next;
+    }
+    if (changed) this.rebuild(true);
+  }
+
   setHidden(ids: string[]) {
     this.hiddenIds = new Set(ids);
     this.sim.setHidden(this.hiddenIds);

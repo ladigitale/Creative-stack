@@ -45,6 +45,8 @@ export type FxInput = {
   wind?: unknown;
   windDir?: unknown;
   layers?: { id?: unknown; fx?: unknown }[];
+  /** Effets liés aux états (`scene/states.ts` : états libres, `stateFx`), déjà rapportés aux objets. */
+  states?: { id: string; raw: Record<string, unknown>; list: { id: string; anchor: string; dy: number }[]; weight: number }[];
 };
 
 type AnchorSrc = { id: string; anchor: string; dy: number };
@@ -203,6 +205,12 @@ export function planFx(input: FxInput, model: Pick<SceneModel, "objects" | "size
       plans.push({ id, raw, src: { kind: "anchors", list: srcs }, nSrc: srcs.length, weight: ef.intensity });
     });
   });
+  // ---- effets liés aux états des objets (feu, vapeur d'une marmite ouverte…)
+  for (const st of input.states ?? []) {
+    const list = st.list.filter((a) => objects.some((o) => o.id === a.id));
+    if (!list.length) continue;
+    plans.push({ id: st.id, raw: { ...st.raw, preset: presetName(st.raw.preset) || st.raw.preset }, src: { kind: "anchors", list }, nSrc: list.length, weight: Math.max(0, Math.min(3, st.weight)) });
+  }
   // ---- systèmes libres (mêmes réglages que `particles` du format monde) ; `at` : point ou "objet@ancre"
   if (input.particles !== undefined) {
     if (!isObj(input.particles)) issues.add({ path: "particles", code: "type", message: "objet {id: {preset, at, …}} attendu" });
@@ -332,9 +340,16 @@ export class SceneFx {
     return [Math.min(h, this.size[0] / 2 + 4), Math.min(h, this.size[1] / 2 + 4)];
   }
 
+  /** Position courante d'un acteur (pieds) : ses effets le suivent ; posée par le rendu. */
+  actorPos: ((id: string) => V3 | null) | null = null;
+
   private anchorAt(a: AnchorSrc, hidden?: ReadonlySet<string>): V3 | null {
     const o = this.byObj.get(a.id);
     if (!o || hidden?.has(o.id)) return null;
+    if (o.mode === "actor" && this.actorPos) {
+      const p = this.actorPos(o.id);
+      if (p) return [p[0], p[1] + (a.anchor === "top" ? o.height * 0.9 : o.height * 0.5) + a.dy, p[2]];
+    }
     const p = anchorPoint(o, a.anchor);
     return [p[0], p[1] + a.dy, p[2]];
   }
