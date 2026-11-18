@@ -14,6 +14,7 @@ import { type Affine, type P2, Pen, compose, scallop, strokeVar } from "../shape
 import type { Kit } from "./kit";
 import type { ObjectDrawer } from "./types";
 import { PART_VEHICLES, vehiclePartsModel } from "../../gen/vehicle-parts";
+import { posedAll } from "../../gen/joints";
 import { drawParts } from "./parts";
 
 const DEFAULT_H: Record<string, number> = { drystone: 0.85, coping: 1.0, fence: 1.1, picket: 1.0, hedge: 1.4, railing: 1.5, bamboo: 1.6 };
@@ -222,7 +223,9 @@ export const drawVehicle: ObjectDrawer = (kit, p, ctx) => {
   const water = kind === "rowboat" || kind === "sailboat";
   if (!water && kind !== "balloon") kit.castShadow(ctx.env.shadows, o.footprint.hx / o.scale, o.footprint.hz / o.scale, 0.6, ctx.env.ground, em.z0 - 0.5, em.layer, em.depth);
   if ((PART_VEHICLES as readonly string[]).includes(kind)) {
-    drawParts(kit, vehiclePartsModel(p), { width: 0.55 });
+    // portières, coffre : figés à leur état (clé `states`)
+    const vm = vehiclePartsModel(p);
+    drawParts(kit, [...vm.parts, ...posedAll(vm.joints, ctx.obj.states)], { width: 0.55 });
     return;
   }
   switch (kind) {

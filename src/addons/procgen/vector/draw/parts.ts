@@ -7,10 +7,11 @@ import { type V3, qRot } from "../../core/math";
 import { type Part, type PartList, boxQ, ccw } from "../../gen/parts";
 import { type P2, Pen, hull, strokeVar } from "../shape";
 import type { Kit } from "./kit";
-import { readParts } from "../../gen/parts";
+import { assemblyModel } from "../../gen/assembly";
 import { seatModel } from "../../gen/seat";
 import { placedTool } from "../../gen/tool";
-import { containerModel } from "../../gen/container";
+import { containerModel, lidBehind } from "../../gen/container";
+import { posedAll } from "../../gen/joints";
 import { streetModel } from "../../gen/street";
 import { petModel } from "../../gen/pet";
 import { structureModel } from "../../gen/structure";
@@ -183,7 +184,8 @@ export const drawSeat: ObjectDrawer = (kit, p, ctx) => {
 
 export const drawAssembly: ObjectDrawer = (kit, p, ctx) => {
   shadowOf(kit, p, ctx);
-  drawParts(kit, readParts(p.parts).parts);
+  const am = assemblyModel(p.parts);
+  drawParts(kit, [...am.parts, ...posedAll(am.joints, ctx.obj.states)]);
 };
 
 export const drawTool: ObjectDrawer = (kit, p, ctx) => {
@@ -194,10 +196,14 @@ export const drawTool: ObjectDrawer = (kit, p, ctx) => {
 export const drawContainer: ObjectDrawer = (kit, p, ctx) => {
   shadowOf(kit, p, ctx);
   // couvercle levé : derrière le corps (dessiné d'abord) ; fermé : par-dessus
+  // état figé des parties (clé `states`, `states` d'un calque) : couvercle posé à sa valeur
   const m = containerModel(p);
-  if (m.lidBehind && m.lid.length) drawParts(kit, m.lid, { width: 0.55 });
+  const st = ctx.obj.states;
+  const lid = posedAll(m.joints, st);
+  const behind = lidBehind(m, st);
+  if (behind && lid.length) drawParts(kit, lid, { width: 0.55 });
   drawParts(kit, [...m.body, ...m.fill], { width: 0.55 });
-  if (!m.lidBehind && m.lid.length) drawParts(kit, m.lid, { width: 0.55 });
+  if (!behind && lid.length) drawParts(kit, lid, { width: 0.55 });
 };
 
 export const drawStreet: ObjectDrawer = (kit, p, ctx) => {
@@ -210,14 +216,16 @@ export const drawStreet: ObjectDrawer = (kit, p, ctx) => {
 
 export const drawPet: ObjectDrawer = (kit, p, ctx) => {
   shadowOf(kit, p, ctx);
-  drawParts(kit, petModel(p).parts, { width: 0.55 });
+  const pm = petModel(p);
+  drawParts(kit, [...pm.parts, ...posedAll(pm.joints, ctx.obj.states)], { width: 0.55 });
 };
 
 export const drawStructure: ObjectDrawer = (kit, p, ctx) => {
   // ombre du tablier ou de l'arche seulement (les piles plongent sous les appuis)
   const o = ctx.obj;
   kit.castShadow(ctx.env.shadows, (o.footprint.hx / o.scale) * 0.8, (o.footprint.hz / o.scale) * 0.8, Math.min(o.height / o.scale, 2.5) * 0.5, ctx.env.ground, kit.em.z0 - 0.5, kit.em.layer, kit.em.depth);
-  drawParts(kit, structureModel({ ...p, clearance: Number(p.clearance) < 0 ? undefined : p.clearance }).parts, { width: 0.55 });
+  const sm = structureModel({ ...p, clearance: Number(p.clearance) < 0 ? undefined : p.clearance });
+  drawParts(kit, [...sm.parts, ...posedAll(sm.joints ?? [], ctx.obj.states)], { width: 0.55 });
 };
 
 export const drawWater: ObjectDrawer = (kit, p) => {

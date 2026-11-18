@@ -34,7 +34,8 @@ describe("contenants", () => {
     for (const fill of FILLS.filter((f) => f !== "none")) {
       const full = make({ kind: "crate", open: true, fill }).asset, empty = make({ kind: "crate", open: true }).asset;
       expect(full.mesh.triangleCount, fill).toBeGreaterThan(empty.mesh.triangleCount);
-      expect(full.mesh.bounds().max[1], fill).toBeLessThan(0.75);
+      // le contenu reste dans la caisse (corps sans le couvercle levé, qui est une partie mobile à part)
+      expect((full.body ?? full.mesh).bounds().max[1], fill).toBeLessThan(0.75);
     }
     const apples = make({ kind: "basket", fill: "apples" }).asset;
     expect(apples.mesh.role.includes(ROLE.red)).toBe(true);

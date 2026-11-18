@@ -15,6 +15,7 @@ import { type Q, type V3, DEG, clamp, mix, smoothstep } from "../core/math";
 import type { Role } from "../style/roles";
 import { type Part, type PartList, partsBounds, partsToMesh, roleParam, transformParts } from "./parts";
 import { type Anchor, defineGenerator } from "./types";
+import { type JointSpec, buildJoints, hingeJoint, jointPoint, scaleJoint } from "./joints";
 
 export const STRUCTURE_KINDS = ["bridge", "pontoon", "quay", "stairs", "ramp", "arch", "gate", "rails"] as const;
 export const STRUCTURE_FORMS = ["auto", "arch", "flat", "truss", "round", "pointed", "torii", "iron", "wood"] as const;
@@ -46,6 +47,8 @@ type Built = {
   walk?: Walk[];
   blockers?: [number, number, number, number][];
   rest?: [number, number][];
+  /** Parties mobiles fermées (vantaux d'un portail). */
+  joints?: JointSpec[];
 };
 
 const bx = (c: V3, h: V3, role: Role, rot?: V3): Part => ({ t: "box", c, h, role, rot });
@@ -466,7 +469,8 @@ function gate(o: O): Built {
   }
   // vantaux : construits fermés, charnière à l'origine, puis tournés vers l'intérieur (−z)
   const lw = hw - 0.02;
-  for (const sx of [-1, 1]) {
+  const joints: JointSpec[] = [];
+  for (const sx of [1, -1]) {
     const L: PartList = [];
     const x = (u: number) => -sx * u; // de la charnière vers le centre
     const hTop = (u: number) => H - 0.1 + (iron ? 0.25 * Math.sin((u / lw) * Math.PI * 0.5) : 0);
@@ -495,12 +499,12 @@ function gate(o: O): Built {
       const a = Math.atan2(H - 0.75, lw - 0.1);
       L.push(bx([x(lw / 2), H / 2 - 0.02, -0.04], [Math.hypot(lw - 0.1, H - 0.75) / 2, 0.05, 0.02], o.trim, [0, 0, sx * a / DEG]));
     }
-    const ang = o.open * 80 * DEG * sx;
-    P.push(...transformParts(L, [0, Math.sin(-ang / 2), 0, Math.cos(-ang / 2)] as Q, [sx * hw, 0, 0]));
+    // vantail : partie mobile `gate.l` (x > 0) / `gate.r`, fermé dans l'axe, ouvert de 80° vers −z ; `open` = valeur de départ
+    joints.push(hingeJoint(sx > 0 ? "gate.l" : "gate.r", sx > 0 ? "vantail gauche" : "vantail droit", transformParts(L, [0, 0, 0, 1], [sx * hw, 0, 0]), [sx * hw, 0, 0], [0, 1, 0], -80 * sx, { initial: o.open, anchors: { handle: [sx * 0.08, H * 0.5, 0] } }));
   }
   const blockers: [number, number, number, number][] = [-1, 1].map((sx) => [sx * (hw + pw / 2), 0, pw / 2 + 0.05, pw / 2 + 0.05]);
   if (o.open < 0.5) blockers.push([0, 0, hw, 0.1]);
-  return { parts: P, anchors: { top: [0, H + 0.7, 0], pass: [0, 0, 0], "entry.0": [0, 0, -0.9], "entry.1": [0, 0, 0.9] }, affords: o.open >= 0.5 ? ["pass", "close"] : ["open"], blockers };
+  return { parts: P, joints, anchors: { top: [0, H + 0.7, 0], pass: [0, 0, 0], "entry.0": [0, 0, -0.9], "entry.1": [0, 0, 0.9] }, affords: o.open >= 0.5 ? ["pass", "close"] : ["open"], blockers };
 }
 
 /* ---------- voie ferrée ---------- */
@@ -569,6 +573,7 @@ export function structureModel(p: Record<string, unknown>): StructureModel {
     walk: b.walk?.map((w) => ({ hw: w.hw * s, profile: w.profile.map(([z, y]) => [z * s, y * s] as [number, number]) })),
     blockers: b.blockers?.map(([x, z, hx, hz]) => [x * s, z * s, hx * s, hz * s] as [number, number, number, number]),
     rest: b.rest?.map(([x, z]) => [x * s, z * s] as [number, number]),
+    joints: b.joints?.map((j) => scaleJoint(j, s)),
     label: D.label,
     kind,
     scale: s,
@@ -579,7 +584,7 @@ export const structure = defineGenerator({
   id: "structure",
   label: "Ouvrage (pont, ponton, quai, escalier, rampe, arche, portail, voie ferrée)",
   doc:
-    "Ouvrages praticables sur la grammaire de pièces (même modèle en 3D et en vectoriel) : bridge (pont : `form` arch = arc de pierre en dos d'âne, plusieurs arches au-delà de 16 m ; flat = tablier plat sur pieux avec rampes ; truss = poutres de métal en treillis), pontoon (ponton de planches sur pieux, échelle, taquets), quay (quai maçonné, front vers +z, bittes d'amarrage), stairs (escalier et palier : `height`, `steps`), ramp (rampe et palier), arch (arche : `form` round, pointed, torii), gate (portail à deux vantaux : `form` iron ou wood, `open` 0…1), rails (voie ferrée : ballast, traverses, rails). Passage selon z (entrées −z et +z), largeur selon x ; y = 0 au niveau des appuis. Pont : `length` (portée, m), `width`, `clearance` (hauteur libre au milieu au-dessus des berges : ≥ 2,5 m laisse passer une barque ou un voilier démâté) ; placé `{across: \"<rivière>\"}`, il enjambe la route ou la rivière (longueur ajustée à sa largeur si `length` n'est pas donné). `rails` (garde-corps). Les acteurs marchent sur le tablier, les marches et le palier à leur hauteur (la navigation passe au-dessus de l'eau) ; les garde-corps et piliers bloquent. Ancres : deck, top, entry.0 / entry.1, approach.0 / approach.1 (devant les entrées), under (sous le pont), pass (arche, portail), bottom / top (escalier), end, spot (bout du ponton, bord du quai : pêcher, boire), moor.N (amarrage), track, end.0 / end.1 (voie ferrée). `extra.affords` : walk, cross, pass-under, moor, fish, climb, pass, open…",
+    "Ouvrages praticables sur la grammaire de pièces (même modèle en 3D et en vectoriel) : bridge (pont : `form` arch = arc de pierre en dos d'âne, plusieurs arches au-delà de 16 m ; flat = tablier plat sur pieux avec rampes ; truss = poutres de métal en treillis), pontoon (ponton de planches sur pieux, échelle, taquets), quay (quai maçonné, front vers +z, bittes d'amarrage), stairs (escalier et palier : `height`, `steps`), ramp (rampe et palier), arch (arche : `form` round, pointed, torii), gate (portail à deux vantaux : `form` iron ou wood, `open` 0…1 = valeur de départ des parties `gate.l` / `gate.r`, réglables sans recomposer par la clé `states`), rails (voie ferrée : ballast, traverses, rails). Passage selon z (entrées −z et +z), largeur selon x ; y = 0 au niveau des appuis. Pont : `length` (portée, m), `width`, `clearance` (hauteur libre au milieu au-dessus des berges : ≥ 2,5 m laisse passer une barque ou un voilier démâté) ; placé `{across: \"<rivière>\"}`, il enjambe la route ou la rivière (longueur ajustée à sa largeur si `length` n'est pas donné). `rails` (garde-corps). Les acteurs marchent sur le tablier, les marches et le palier à leur hauteur (la navigation passe au-dessus de l'eau) ; les garde-corps et piliers bloquent. Ancres : deck, top, entry.0 / entry.1, approach.0 / approach.1 (devant les entrées), under (sous le pont), pass (arche, portail), bottom / top (escalier), end, spot (bout du ponton, bord du quai : pêcher, boire), moor.N (amarrage), track, end.0 / end.1 (voie ferrée). `extra.affords` : walk, cross, pass-under, moor, fish, climb, pass, open…",
   tags: ["ouvrage", "pont", "rivière", "port", "quai", "escalier", "jardin", "ville", "architecture"],
   schema: {
     kind: { type: "enum", default: "bridge", options: STRUCTURE_KINDS, doc: "Ouvrage" },
@@ -600,17 +605,19 @@ export const structure = defineGenerator({
   },
   build(p) {
     const m = structureModel({ ...p, clearance: p.clearance < 0 ? undefined : p.clearance });
-    const mesh = partsToMesh(m.parts, 0.85);
-    const bb = partsBounds(m.parts);
+    const J = buildJoints(partsToMesh(m.parts, 0.85), m.joints ?? [], 0.85);
+    const bb = partsBounds([...m.parts, ...(m.joints ?? []).flatMap((j) => j.parts ?? [])]);
     // voie ferrée : emprise réduite aux rails (un train posé dessus passe devant elle dans le dessin vectoriel)
     const hx = m.kind === "rails" ? 0.6 * m.scale : Math.max(Math.abs(bb.min[0]), Math.abs(bb.max[0]), 0.1);
     const hz = Math.max(Math.abs(bb.min[2]), Math.abs(bb.max[2]), 0.1);
     const rot: Q = [0, 0, 0, 1];
     const anchors: Record<string, Anchor> = { top: { pos: [0, bb.max[1], 0], rot, scale: m.scale } };
     for (const [k, v] of Object.entries(m.anchors)) anchors[k] = { pos: v, rot, scale: m.scale };
+    for (const j of m.joints ?? []) for (const [k, v] of Object.entries(j.anchors ?? {})) anchors[`${j.name}.${k}`] = { pos: jointPoint(j, j.initial ?? 0, v), rot, scale: m.scale };
     return {
       generator: "structure",
-      mesh,
+      mesh: J.mesh,
+      ...(J.joints.length ? { body: J.body, joints: J.joints } : {}),
       anchors,
       footprint: { hx, hz, r: Math.hypot(hx, hz) },
       height: Math.max(0.05, bb.max[1]),

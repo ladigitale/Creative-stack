@@ -18,7 +18,8 @@ import type { Rng } from "../core/rng";
 import { Mesh } from "../geom/mesh";
 import { box, cylinder, ellipsoid, extrude, lathe, ngon } from "../geom/prims";
 import { ROLE } from "../style/roles";
-import { defineGenerator } from "./types";
+import { type Anchor, defineGenerator } from "./types";
+import { type JointSpec, MAX_JOINTS, buildJoints, jointLocal, jointPoint } from "./joints";
 
 const STYLES = ["bourg", "colombages", "vapeur", "moderne", "neon", "chaumiere", "pierre", "ferme", "chalet", "mediterraneen", "japonais", "chateau", "tour", "moulin", "chapelle", "phare", "boutique"] as const;
 const ROOFS = ["auto", "gable", "pignon", "hip", "mansard", "flat", "shed"] as const;
@@ -113,7 +114,7 @@ function archBand(kind: WinKind, w: number, h: number, fr: number): [number, num
 export const building = defineGenerator({
   id: "building",
   label: "Bâtiment",
-  doc: "Maison ou édifice par grammaire de découpe : corps, ailes, appentis, tourelles, porches, perrons ; fenêtres (rectangulaires, plein cintre, segmentaires, à meneaux, ogives, œils-de-bœuf), volets pleins ou persiennes, petits bois, jardinières, balcons en ferronnerie, corniches à modillons, gouttières ; toits à deux pans (coyaux), pignon sur rue, croupe, mansarde, monopente, terrasse, pavillon. Matériaux : enduit, pierre appareillée, brique, bardage, colombages ; tuile, ardoise, chaume, zinc, lauze. Styles : bourg, colombages, vapeur, moderne, neon, chaumiere, pierre, ferme, chalet, mediterraneen, japonais, chateau, tour, moulin, chapelle, phare, boutique. Chaque graine donne une maison distincte. Ancres : door, roof, `chimney.N` (sortie de chaque conduit : fumée des cheminées).",
+  doc: "Maison ou édifice par grammaire de découpe : corps, ailes, appentis, tourelles, porches, perrons ; fenêtres (rectangulaires, plein cintre, segmentaires, à meneaux, ogives, œils-de-bœuf), volets pleins ou persiennes, petits bois, jardinières, balcons en ferronnerie, corniches à modillons, gouttières ; toits à deux pans (coyaux), pignon sur rue, croupe, mansarde, monopente, terrasse, pavillon. Matériaux : enduit, pierre appareillée, brique, bardage, colombages ; tuile, ardoise, chaume, zinc, lauze. Styles : bourg, colombages, vapeur, moderne, neon, chaumiere, pierre, ferme, chalet, mediterraneen, japonais, chateau, tour, moulin, chapelle, phare, boutique. Chaque graine donne une maison distincte. Ancres : door, roof, `chimney.N` (sortie de chaque conduit : fumée des cheminées), `door.handle`. Parties mobiles (clé `states`) : `door` (porte d'entrée, s'ouvre vers l'intérieur), `shutter.N` (volets, 0 = fermé, 1 = ouvert à plat contre le mur).",
   tags: ["ville", "village", "rue", "architecture", "maison", "monument"],
   schema: {
     style: { type: "enum", default: "bourg", options: STYLES, doc: "Style" },
@@ -135,7 +136,11 @@ export const building = defineGenerator({
     const rng = ctx.rng;
     const st = p.style as Style;
     const mesh = new Mesh();
-    const add = (m: Mesh, pos: V3, q: Q = I) => mesh.append(m, m4Compose(pos, q));
+    // pièces des parties mobiles (porte d'entrée, volets) : construites dans leur propre maillage
+    let into = mesh;
+    const joints: JointSpec[] = [];
+    let shutterN = 0;
+    const add = (m: Mesh, pos: V3, q: Q = I) => into.append(m, m4Compose(pos, q));
     const B = (hx: number, hy: number, hz: number, role: number, pos: V3, q: Q = I, r = 0) => add(box(hx, hy, hz, role, r), pos, q);
     // emprise en plan, suivie pendant la construction (recentrée à la fin)
     const plan = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity };
@@ -646,9 +651,13 @@ export const building = defineGenerator({
           for (const sx of [-1, 1]) {
             if (r.chance(p.decay * 0.25)) continue;
             const sw = w / 4 + 0.02, sh = h / 2;
-            const ajar = r.chance(0.15 + p.decay * 0.3) ? r.range(15, 70) * DEG * sx : 0;
+            // entrebâillé : valeur de départ de la partie (le volet est construit ouvert à plat, puis fermé)
+            const ajarDeg = r.chance(0.15 + p.decay * 0.3) ? r.range(15, 70) : 0;
+            const ajar = 0;
             const hinge = P(sx * (w / 2 + fr), 0, 0.06);
             const sq = qMul(q, yawQ(-ajar));
+            const own = new Mesh();
+            into = own;
             const local = (du: number, dy: number, dz: number): V3 => {
               const c = Math.cos(f.yaw - ajar), s = Math.sin(f.yaw - ajar);
               const lu = sx * (sw) + du;
@@ -662,6 +671,11 @@ export const building = defineGenerator({
               for (const yy of [0.2, 0.8]) B(sw - 0.02, 0.035, 0.035, lk.shutter, local(0, 2 * hh * yy, 0.02), sq);
               add(box(0.025, Math.hypot(sw * 1.6, hh * 1.2) / 2, 0.03, lk.shutter), local(0, hh, 0.02), qMul(sq, qAxis([0, 0, 1], sx * Math.atan2(sw * 1.6, hh * 1.2))));
             }
+            into = mesh;
+            // fermé = rabattu de 180° devant la fenêtre ; la course le rouvre à plat contre le mur (valeur 1)
+            const close = jointLocal({ kind: "rotation", pivot: hinge, axis: [0, 1, 0], range: [0, -180 * sx] }, 1);
+            const n = shutterN++;
+            joints.push({ name: `shutter.${n}`, label: `volet ${n + 1}`, kind: "rotation", pivot: hinge, axis: [0, 1, 0], range: [0, 180 * sx], mesh: own.transform(close), initial: 1 - ajarDeg / 180 });
           }
         // jardinière fleurie
         if (floor > 0 && r.chance(lk.planters)) {
@@ -691,20 +705,36 @@ export const building = defineGenerator({
         const P = (du: number, dy: number, dz: number) => at(f, u + du, y + dy, dz + (lk.finish === "bardage" ? 0.04 : 0));
         const modernD = st === "moderne" || st === "neon";
         const kind: WinKind = arched ? (st === "chapelle" ? "lancet" : "arch") : r.chance(0.25) && lk.win === "segment" ? "segment" : "rect";
+        // porte d'entrée : partie mobile `door`, articulée côté gauche (u − w/2), ouverte vers l'intérieur (85°) ;
+        // un fond sombre dans l'embrasure, caché porte fermée
+        const leaf = new Mesh();
+        const handle = P(w * 0.32, h * 0.47, 0.06);
+        const door = (): void => {
+          into = mesh;
+          joints.push({ name: "door", label: "porte d'entrée", kind: "rotation", pivot: P(-w / 2, 0, 0.015), axis: [0, 1, 0], range: [0, 85], mesh: leaf, initial: 0, anchors: { handle } });
+        };
+        if (kind === "rect" || modernD) B(w / 2 - 0.02, h / 2 - 0.01, 0.004, ROLE.ink, P(0, h / 2, 0.006), q);
+        else add(extrude(bayOutline(kind, w - 0.04, h - 0.02), 0.004, ROLE.ink), P(0, 0, 0.004), q);
         if (modernD) {
+          into = leaf;
           B(w / 2, h / 2, 0.02, ROLE.glass, P(0, h / 2, 0.012), q);
+          B(0.012, 0.25, 0.03, ROLE.metal, P(w * 0.38, h * 0.47, 0.04), q);
+          door();
           B(w / 2 + 0.06, 0.05, 0.05, ROLE.metal, P(0, h + 0.05, 0.03), q);
           B(w / 2 + 0.6, 0.05, 0.7, ROLE.metal, P(0, h + 0.35, 0.7), q);
           if (f.kind === "front") ext(u - w / 2 - 0.6, f.o[2], u + w / 2 + 0.6, f.o[2] + 1.4);
           return;
         }
         if (kind === "rect") {
+          into = leaf;
           B(w / 2, h / 2, 0.025, lk.door, P(0, h / 2, 0.015), q);
           // panneaux moulurés ou planches
           if (r.chance(0.5)) for (const yy of [0.27, 0.68]) for (const sx of w > 1.3 ? [-1, 1] : [0]) B(w / (w > 1.3 ? 5 : 3), h * 0.16, 0.02, lk.door, P((sx * w) / 4, h * yy, 0.04), q);
           else for (let k = 1; k < 5; k++) B(0.008, h / 2, 0.035, ROLE.ink, P(-w / 2 + (k * w) / 5, h / 2, 0.02), q);
           // imposte vitrée
           if (h > 2.2 && r.chance(0.6)) B(w / 2 - 0.05, 0.14, 0.03, ROLE.glass, P(0, h - 0.18, 0.03), q);
+          add(ellipsoid(0.03, 0.03, 0.03, ROLE.metal, 4, 3), handle, q);
+          door();
           B(w / 2 + 0.12, 0.08, 0.09, lk.trim, P(0, h + 0.08, 0.045), q);
           for (const sx of [-1, 1]) B(0.1, h / 2, 0.08, lk.trim, P(sx * (w / 2 + 0.06), h / 2, 0.04), q);
           if (lk.ornament > 0.55) B(0.09, 0.13, 0.11, lk.trim, P(0, h + 0.2, 0.05), q);
@@ -714,14 +744,16 @@ export const building = defineGenerator({
             add(extrude([[-w / 2 - 0.45, 0], [w / 2 + 0.45, 0], [0, 0.45]], 0.12, lk.trim), P(0, h + 0.3, 0), q);
           }
         } else {
+          into = leaf;
           add(extrude(bayOutline(kind, w, h), 0.03, lk.door), P(0, 0, 0.01), q);
-          add(extrude(archBand(kind, w, h, 0.14), 0.1, lk.trim), P(0, 0, 0), q);
           B(0.012, (h - w / 2) / 2, 0.04, ROLE.ink, P(0, (h - w / 2) / 2, 0.03), q);
-          if (kind === "arch") B(0.1, 0.16, 0.13, lk.trim, P(0, h + 0.08, 0.06), q);
           for (const yy of [0.25, 0.6]) B(w / 2 - 0.05, 0.025, 0.035, ROLE.metal, P(0, h * yy, 0.04), q);
+          add(ellipsoid(0.03, 0.03, 0.03, ROLE.metal, 4, 3), handle, q);
+          door();
+          add(extrude(archBand(kind, w, h, 0.14), 0.1, lk.trim), P(0, 0, 0), q);
+          if (kind === "arch") B(0.1, 0.16, 0.13, lk.trim, P(0, h + 0.08, 0.06), q);
         }
-        // poignée, lanterne murale
-        add(ellipsoid(0.03, 0.03, 0.03, ROLE.metal, 4, 3), P(w * 0.32, h * 0.47, 0.06), q);
+        // lanterne murale
         if (r.chance(0.4)) {
           const side = r.chance(0.5) ? 1 : -1;
           B(0.02, 0.02, 0.12, ROLE.metal, P(side * (w / 2 + 0.35), h - 0.05, 0.12), q);
@@ -937,12 +969,27 @@ export const building = defineGenerator({
 
     // recentrage de l'emprise (la façade reste vers +z ; l'ancre suit)
     const cx = (plan.x0 + plan.x1) / 2, cz = (plan.z0 + plan.z1) / 2;
-    if (Math.abs(cx) > 1e-6 || Math.abs(cz) > 1e-6) mesh.mapPos((q) => [q[0] - cx, q[1], q[2] - cz]);
+    if (Math.abs(cx) > 1e-6 || Math.abs(cz) > 1e-6) {
+      mesh.mapPos((q) => [q[0] - cx, q[1], q[2] - cz]);
+      for (const j of joints) {
+        j.mesh!.mapPos((q) => [q[0] - cx, q[1], q[2] - cz]);
+        j.pivot = [j.pivot[0] - cx, j.pivot[1], j.pivot[2] - cz];
+        if (j.anchors) for (const k of Object.keys(j.anchors)) j.anchors[k] = [j.anchors[k][0] - cx, j.anchors[k][1], j.anchors[k][2] - cz];
+      }
+    }
+    // parties mobiles : porte d'entrée `door`, volets `shutter.N` (volets au-delà du plafond : fixes, dans le corps)
+    const kept = joints.filter((j) => j.name === "door").concat(joints.filter((j) => j.name !== "door")).slice(0, MAX_JOINTS);
+    for (const j of joints) if (!kept.includes(j)) mesh.append(j.mesh!, jointLocal(j, j.initial ?? 0));
+    const J = buildJoints(mesh, kept);
+    const jointAnchors: Record<string, Anchor> = {};
+    for (const j of kept) for (const [k, v] of Object.entries(j.anchors ?? {})) jointAnchors[`${j.name}.${k}`] = { pos: jointPoint(j, j.initial ?? 0, v), rot: [0, 0, 0, 1], scale: 1 };
     const hx = (plan.x1 - plan.x0) / 2 + 0.15, hz = (plan.z1 - plan.z0) / 2 + 0.1;
     return {
       generator: "building",
-      mesh,
+      mesh: J.mesh,
+      ...(J.joints.length ? { body: J.body, joints: J.joints } : {}),
       anchors: {
+        ...jointAnchors,
         door: { pos: [door[0] - cx, 0, door[2] - cz], rot: [0, 0, 0, 1], scale: 1 },
         roof: { pos: [-cx, roofTop, -cz], rot: [0, 0, 0, 1], scale: hx },
         ...Object.fromEntries(chimneyTops.map((q, i) => [`chimney.${i}`, { pos: [q[0] - cx, q[1], q[2] - cz] as V3, rot: [0, 0, 0, 1] as Q, scale: 1 }])),

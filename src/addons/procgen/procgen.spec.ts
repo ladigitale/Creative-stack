@@ -82,6 +82,29 @@ describe("addon procgen v3", () => {
     expect(view.getView().zoom).toBe(3);
   }, 30000);
 
+  it("états : la clé `states` règle les parties sans recomposer, publie parts, signale les entrées invalides", async () => {
+    const recipe = { size: [12, 10], ground: { relief: 0 }, layers: [{ id: "malles", gen: "container.chest", params: { open: false }, place: { at: [{ x: 0, z: 0, yaw: 0 }] } }] };
+    set("pgs", { recipe, render: "vector", select: "malles.0" });
+    const host = document.createElement("div");
+    host.innerHTML = `<sonic-procgen dataProvider="pgs"></sonic-procgen>`;
+    document.body.appendChild(host);
+    const el = host.firstElementChild as any;
+    const out = () => (PublisherManager.get("pgsState") as unknown as { get(): any }).get();
+    await wait(() => !!el.sceneModel && out()?.ids?.length > 0);
+    const m0 = el.sceneModel;
+    expect(out().ids[0].parts).toEqual([{ name: "lid", label: "couvercle", kind: "rotation", range: [0, -105], value: 0 }]);
+    expect(out().ids[0].affords).toContain("open");
+    set("pgs", { recipe, render: "vector", select: "malles.0", states: { "malles.0": { open: 1, burnin: 1 } } });
+    await wait(() => out()?.selection?.parts?.[0]?.value === 1);
+    expect(el.sceneModel).toBe(m0);
+    expect(out().selection.parts[0].value).toBe(1);
+    expect(out().status.issues.find((i: any) => i.path === "states.malles.0.burnin")).toMatchObject({ code: "unknown", didYouMean: "burning" });
+    // état dans la recette (calque) : pas de recomposition non plus
+    set("pgs", { recipe: { ...recipe, layers: [{ ...recipe.layers[0], states: { "0": { lid: 0.5 } } }] }, render: "vector", select: "malles.0" });
+    await wait(() => out()?.selection?.parts?.[0]?.value === 0.5);
+    expect(el.sceneModel).toBe(m0);
+  }, 30000);
+
   it("l'exemple n'utilise ni code ni champ libre, et branche la scène sur un store", () => {
     const tags = new Set<string>();
     const walk = (n: any) => {

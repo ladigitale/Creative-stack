@@ -19,8 +19,9 @@ import { ProcgenEmitterLayer, tagsOf } from "./emitters";
 import type { ProcgenEmitters } from "../scene/emitters";
 import type { Aabb } from "../../../shared/sim/grid";
 import type { Hit } from "../../../shared/sim/emitter";
-import { type M4, type V3, clamp, m4Point, sub } from "../core/math";
-import { type ActorModel, type ObjectInfo, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
+import { type M4, type V3, clamp, m4Compose, m4Point, qAxis, sub } from "../core/math";
+import { StateLayer } from "./states";
+import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
 import { type Motion, motionFor } from "../rig/motion";
 import { dualQuat } from "../rig/skeleton";
@@ -47,7 +48,7 @@ import type { NavGrid } from "../scene/nav";
 import type { Terrain } from "../scene/terrain";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit"; payload: Record<string, unknown> };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state"; payload: Record<string, unknown> };
 /** État publié de la physique : chargement, erreur, ou corps (10 fois par seconde au plus tant que ça bouge). */
 export type PhysicsOut = ({ status: "loading" | "error"; error?: string } | ({ status: "ready" } & RigidState)) | null;
 
@@ -133,6 +134,8 @@ export class ProcgenView {
   private objectsByObj = new Map<number, ObjectInfo>();
   private pickables: THREE.Object3D[] = [];
   private instanceObjs = new Map<THREE.InstancedMesh, number[]>();
+  /** Parties mobiles (couvercles, portières…) : instances à part, animées sans recomposer. */
+  readonly states = new StateLayer();
   /** Prairies (brins instanciés, vent et ploiement dans le shader). */
   readonly meadows = new MeadowLayer();
   /** Ballons dynamiques et leur emplacement dans les maillages instanciés. */
@@ -264,6 +267,42 @@ export class ProcgenView {
     em.onHits = (hits) => this.onEmitHits(hits);
     em.onExpire = (e) => this.onEvent({ type: "expire", payload: e });
     em.onExit = (e) => this.onEvent({ type: "exit", payload: e });
+    this.states.onState = (e) => this.onEvent({ type: "state", payload: e });
+    this.states.objMatrix = (o) => this.objMatrixOf(o);
+    this.fx.actorPos = (id) => {
+      const a = this.actors.get(id);
+      return a && !a.hidden ? a.pos : null;
+    };
+  }
+
+  /* ---------------- états des objets ---------------- */
+
+  /** Matrice monde courante d'un objet : pose du corps physique, sinon position, cap et échelle (glisser compris). */
+  private objMatrixOf(o: ObjectInfo): M4 {
+    const p = this.rigid?.isDynamic(o.id) ? this.rigid.pose(o.id) : null;
+    if (p) return m4Compose([p.x, p.y, p.z], [p.q.x, p.q.y, p.q.z, p.q.w], o.scale);
+    return m4Compose(o.pos, qAxis([0, 1, 0], o.yaw), o.scale);
+  }
+
+  /** États voulus (parties 0…1, états libres), lus et validés par `scene/states.ts` ; animés en `speed` s par course. */
+  setStates(values: Record<string, Record<string, number>>, speed: number, lights: PointLight[]) {
+    if (this.model) for (const o of this.model.objects) if (!o.joints) o.states = values[o.id] ? { ...values[o.id] } : undefined;
+    const moving = this.states.set(values, this.play ? speed : 0, lights);
+    this.dirty = true;
+    if (moving) this.touch();
+    else this.kick();
+  }
+
+  private finishIms(touched: Set<THREE.InstancedMesh>) {
+    const tiles = this.states.tilesTouched.size;
+    this.states.tilesTouched.clear();
+    if (!touched.size && !tiles) return;
+    for (const im of touched) {
+      im.instanceMatrix.needsUpdate = true;
+      im.computeBoundingSphere();
+    }
+    this.dirty = this.shadowDirty = true;
+    this.contentVersion++;
   }
 
   /* ---------------- émetteurs ---------------- */
@@ -379,11 +418,18 @@ export class ProcgenView {
       mesh.matrixAutoUpdate = false;
       this.scene.add(mesh);
       if (pick) this.pickables.push(mesh);
+      return mesh;
     };
     addStatic(model.ground);
     addStatic(model.roads);
     addStatic(model.water);
-    for (const t of model.tiles) addStatic(t);
+    const tileMeshes = model.tiles.map((t) => addStatic(t));
+    // parties mobiles des objets fusionnés (porte, volets d'un bâtiment) : sommets réécrits dans leur tuile
+    for (const o of model.objects) {
+      const jt = o.jointTile;
+      const tm = jt && jt.tile >= 0 ? tileMeshes[jt.tile] : undefined;
+      if (jt && tm) this.states.addTile(o, tm, jt.ranges);
+    }
     // avec la physique, les ballons qui ont un corps passent par Rapier
     const bw = new BallWorld(model, model.physics ? (o) => !!o.body && o.body.kind !== "static" : undefined);
     this.balls = bw.count ? bw : null;
@@ -403,6 +449,10 @@ export class ProcgenView {
       this.scene.add(im);
       this.pickables.push(im);
       this.instanceObjs.set(im, g.objs);
+      if (g.joint) {
+        this.states.add(im, g.joint, g.objs, this.objectsByObj);
+        continue;
+      }
       if (this.balls) g.objs.forEach((o, i) => this.balls!.byObj.has(o) && this.ballSlots.set(o, { im, i, m0: g.matrices[i] }));
       if (model.physics)
         g.objs.forEach((ob, i) => {
@@ -412,6 +462,7 @@ export class ProcgenView {
     }
     this.meadows.mount(model.meadows ?? [], this.shared, this.roles);
     if (this.meadows.active) this.scene.add(this.meadows.group);
+    this.finishIms(this.states.mounted());
     for (const a of model.actors) this.addActor(a);
     this.mountRigid(model);
     this.buildSofts(model);
@@ -564,6 +615,7 @@ export class ProcgenView {
     this.rigidTok++;
     this.pickables = [];
     this.instanceObjs.clear();
+    this.states.clear();
   }
 
   /* ---------------- particules ---------------- */
@@ -1166,6 +1218,9 @@ export class ProcgenView {
     else this.tmpM.compose(this.tmpP.set(p.x, p.y, p.z), this.tmpQ.set(p.q.x, p.q.y, p.q.z, p.q.w), this.tmpS.setScalar(s.scale));
     s.im.setMatrixAt(s.i, this.tmpM);
     s.im.instanceMatrix.needsUpdate = true;
+    if (this.hiddenIds.has(id)) return;
+    const o = this.objectsById.get(id);
+    if (o?.joints) for (const im of this.states.sync(id)) im.instanceMatrix.needsUpdate = true;
   }
 
   /** Ordres `forces.<id>` (vitesse, force, impulsion, téléportation) ; gardés tant que le moteur charge. */
@@ -1440,6 +1495,8 @@ export class ProcgenView {
     o.yaw = yaw;
     for (const [k, v] of Object.entries(d.anchors0)) o.anchors[k] = move(v[0], v[1], v[2]);
     if (d.seatYaw0) for (const [k, v] of Object.entries(d.seatYaw0)) o.seatYaw![k] = v + da;
+    // parties mobiles : suivent l'objet (ancres de partie recalculées)
+    if (o.joints) this.finishIms(this.states.sync(o.id));
   }
 
   /** Objet saisi (id) ou `null`. */
@@ -1449,7 +1506,7 @@ export class ProcgenView {
 
   /* ---------------- sélection ---------------- */
 
-  pick(clientX: number, clientY: number): { objectId: string | null; generator: string | null; layer: string | null; x: number; y: number; z: number; actor: string | null; zone: string | null } | null {
+  pick(clientX: number, clientY: number): { objectId: string | null; generator: string | null; layer: string | null; x: number; y: number; z: number; actor: string | null; zone: string | null; part?: string } | null {
     if (!this.model) return null;
     const r = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
@@ -1475,14 +1532,17 @@ export class ProcgenView {
     }
     const hits = ray.intersectObjects(this.pickables, false);
     let obj: ObjectInfo | null = null;
+    let part: string | null = null;
     let point = hits[0]?.point ?? null;
     for (const h of hits) {
       if ((h.object as THREE.InstancedMesh).isInstancedMesh && h.instanceId !== undefined) {
+        part = this.states.partOf.get(h.object as THREE.InstancedMesh) ?? null;
         const objs = this.instanceObjs.get(h.object as THREE.InstancedMesh);
         obj = objs ? this.objectsByObj.get(objs[h.instanceId]) ?? null : null;
       } else if (h.face) {
         const id = (h.object as THREE.Mesh).geometry.getAttribute("aObj").getX(h.face.a);
         obj = this.objectsByObj.get(Math.round(id)) ?? null;
+        if (obj?.jointTile) part = this.states.partAt(obj, h.object, h.face.a);
       }
       point = h.point;
       break;
@@ -1491,10 +1551,11 @@ export class ProcgenView {
       const a = this.actors.get(actorHit.id)!;
       obj = this.model.objects.find((o) => o.id === actorHit!.id) ?? null;
       point = new THREE.Vector3(a.pos[0], a.pos[1], a.pos[2]);
+      part = null;
     }
     if (!point) return { objectId: null, generator: null, layer: null, x: 0, y: 0, z: 0, actor: null, zone: null };
     const zone = this.zoneAt(point.x, point.z);
-    return { objectId: obj?.id ?? null, generator: obj?.generator ?? null, layer: obj?.layer ?? null, x: round(point.x), y: round(point.y), z: round(point.z), actor: actorHit && obj?.mode === "actor" ? obj.id : null, zone: zone?.id ?? null };
+    return { objectId: obj?.id ?? null, generator: obj?.generator ?? null, layer: obj?.layer ?? null, x: round(point.x), y: round(point.y), z: round(point.z), actor: actorHit && obj?.mode === "actor" ? obj.id : null, zone: zone?.id ?? null, ...(part && obj ? { part } : {}) };
   }
 
   private zoneAt(x: number, z: number): Zone | null {
@@ -1901,6 +1962,8 @@ export class ProcgenView {
       else this.running = false;
       return;
     }
+    // parties mobiles : passage doux vers l'état voulu (même à l'arrêt de l'animation)
+    if (this.states.moving) this.finishIms(this.states.step(this.play ? dt : 1e6));
     const anim = this.animated;
     if (anim) {
       this.time += dt * this.speed;
@@ -1926,7 +1989,7 @@ export class ProcgenView {
       this.dirty = false;
       this.onFrame();
     }
-    if ((anim || this.dirty || busy) && this.visible) this.raf = requestAnimationFrame(this.loop);
+    if ((anim || this.dirty || busy || this.states.moving) && this.visible) this.raf = requestAnimationFrame(this.loop);
     else {
       this.running = false;
       if (this.photo?.spec && this.visible) this.armPhotoTimer(now);
@@ -1991,7 +2054,7 @@ export class ProcgenView {
   }
 
   private updateLights(t: THREE.Vector3) {
-    const L = this.model?.lights ?? [];
+    const L = this.states.lights.length ? [...(this.model?.lights ?? []), ...this.states.lights] : this.model?.lights ?? [];
     const sorted = [...L].sort((a, b) => Math.hypot(a.pos[0] - t.x, a.pos[2] - t.z) - Math.hypot(b.pos[0] - t.x, b.pos[2] - t.z)).slice(0, 12);
     const P = this.shared.uLightPos.value as THREE.Vector4[], C = this.shared.uLightCol.value as THREE.Vector4[];
     const lampOn = 0.25 + (this.style?.night ?? 0) * (this.style?.lamps ?? 0.6);

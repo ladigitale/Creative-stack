@@ -10,6 +10,7 @@ import type { Skeleton } from "../rig/skeleton";
 import type { Role } from "../style/roles";
 import type { HairSpec } from "../../../shared/sim/hair";
 import type { SoftSpec } from "../../../shared/sim/soft";
+import type { AssetJoint } from "./joints";
 
 /**
  * Pièce souple d'un asset (cape, jupe, écharpe, drapeau, linge, rideau) ou chevelure en mèches : simulée par le rendu
@@ -63,6 +64,12 @@ export type Asset = {
   soft?: SoftPiece[];
   /** Les mêmes, figées dans leur drapé de repos (repère de l'objet) : repli quand le plafond de tissus est atteint. */
   softFrozen?: Mesh;
+  /**
+   * Parties mobiles (couvercle, portières, volets…) : maillages fermés séparés du corps `body` ; `mesh` reste le
+   * modèle complet aux valeurs de départ. Voir `gen/joints.ts`.
+   */
+  joints?: AssetJoint[];
+  body?: Mesh;
   /** Données propres au générateur (ex. points de porte d'un bâtiment). */
   extra?: Record<string, unknown>;
 };

@@ -8,7 +8,8 @@
  * Statiques uniques (bâtiments) : fusionnés par tuile spatiale ; objets répétés (arbres, rochers, objets) : instanciés ;
  * personnages : acteurs animés.
  */
-import { type M4, type V3, DEG, clamp, m4Compose, m4Point, qAxis, qRot, sub } from "../core/math";
+import { type M4, type V3, DEG, clamp, m4Compose, m4Mul, m4Point, qAxis, qRot, sub } from "../core/math";
+import { type JointInfo, jointInfo, jointLocal } from "../gen/joints";
 import { motionFor } from "../rig/motion";
 import { resolveDeep, type Scope } from "../core/expr";
 import { Rng } from "../core/rng";
@@ -142,12 +143,19 @@ export type ObjectInfo = {
   blockers?: [number, number, number, number, number][];
   /** Corps physique demandé (couche ou point `at`, ballons par défaut quand la scène a `physics`). */
   body?: BodySpec;
+  /** Parties mobiles (repère de l'objet, sans son échelle) : voir `gen/joints.ts` et `scene/states.ts`. */
+  joints?: JointInfo[];
+  /** États courants (parties et états libres, 0…1), écrits par la vue quand la clé `states` change. */
+  states?: Record<string, number>;
+  /** Objet fusionné dans une tuile (bâtiment) : sommets de chaque partie dans la tuile `tile` (rang dans `tiles`). */
+  jointTile?: { tile: number; key: string; ranges: Record<string, [number, number]> };
 };
 
 /** Tissus d'un objet de décor (drapeau, linge, rideau) : simulés par le rendu 3D, attachés au repère de l'objet. */
 export type SoftItem = { obj: number; id: string; matrix: M4; pieces: SoftPiece[] };
 
-export type InstanceGroup = { key: string; mesh: Mesh; matrices: M4[]; objs: number[]; flex: boolean };
+/** `joint` : instances d'une partie mobile (matrice = objet × mouvement de la partie à sa valeur de départ). */
+export type InstanceGroup = { key: string; mesh: Mesh; matrices: M4[]; objs: number[]; flex: boolean; joint?: string };
 export type ActorModel = {
   id: string; layer: string | null; asset: Asset; params: Record<string, unknown>; pos: V3; yaw: number; behavior: "idle" | "wander" | "patrol"; action: Action; speed: number; obj: number; seed: number;
   /** Départ à une cible (`target`) : hauteur de la cible au-dessus des pieds (boire, manger), assise occupée, point où se relever. */
@@ -510,14 +518,16 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     const isActor = ACTOR_GENS.has(generator);
     // un objet qui bouge par la physique est instancié (matrice réécrite à chaque pas, sans toucher aux tuiles)
     const mode: ObjectInfo["mode"] = isActor ? "actor" : INSTANCEABLE.has(generator) || (body && body.kind !== "static") ? "instance" : "static";
-    const affords = Array.isArray(asset.extra?.affords) ? (asset.extra!.affords as string[]) : undefined;
+    const jointsA = !isActor && asset.joints?.length ? asset.joints : null;
+    let affords = Array.isArray(asset.extra?.affords) ? (asset.extra!.affords as string[]) : undefined;
+    if (jointsA?.some((j) => j.openable !== false) && !affords?.includes("open")) affords = [...(affords ?? []), "open"];
     const physics = asset.extra?.physics && typeof asset.extra.physics === "object" ? (asset.extra.physics as Record<string, unknown>) : undefined;
     const seatYaw: Record<string, number> = {};
     for (const [k, a] of Object.entries(asset.anchors)) if (k.startsWith("sit.")) {
       const f = qRot(a.rot, [0, 0, 1]);
       seatYaw[k] = yaw + Math.atan2(f[0], f[2]);
     }
-    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, ...(Object.keys(seatYaw).length ? { seatYaw } : {}), footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(affords ? { affords } : {}), ...(physics ? { physics } : {}), ...(body && !isActor ? { body } : {}) });
+    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, ...(Object.keys(seatYaw).length ? { seatYaw } : {}), footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(affords ? { affords } : {}), ...(physics ? { physics } : {}), ...(body && !isActor ? { body } : {}), ...(jointsA ? { joints: jointsA.map((j) => jointInfo(j)) } : {}) });
     const segs = asset.extra?.segments as [number, number, number, number, number][] | undefined;
     if (segs) {
       // clôtures le long d'un tracé : chaque tronçon bloque sa bande, de petits disques jalonnent le tracé
@@ -562,6 +572,16 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
       return;
     }
     total += asset.mesh.triangleCount;
+    // parties mobiles : corps seul dans l'instance ou la tuile, chaque partie dans sa propre instance
+    const mainMesh = jointsA ? asset.body ?? asset.mesh : asset.mesh;
+    if (jointsA && mode === "instance")
+      for (const j of jointsA) {
+        const jk = `${key}#${j.name}`;
+        let g = groups.get(jk);
+        if (!g) groups.set(jk, (g = { key: jk, mesh: j.mesh, matrices: [], objs: [], flex: false, joint: j.name }));
+        g.matrices.push(m4Mul(T, jointLocal(j, j.initial)));
+        g.objs.push(obj);
+      }
     if (asset.soft?.length) {
       if (softs.length < MAX_SOFT_OBJECTS) softs.push({ obj, id, matrix: m4Compose([x, y, z], qAxis([0, 1, 0], yaw), 1), pieces: asset.soft.map((p) => scalePiece(p, scale)) });
       else if (asset.softFrozen?.vertexCount) {
@@ -576,7 +596,7 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     if (mode === "instance") {
       let g = groups.get(key);
       if (!g) {
-        g = { key, mesh: asset.mesh, matrices: [], objs: [], flex: asset.mesh.flex.some((f) => f > 0) };
+        g = { key, mesh: mainMesh, matrices: [], objs: [], flex: mainMesh.flex.some((f) => f > 0) };
         groups.set(key, g);
       }
       g.matrices.push(T);
@@ -586,9 +606,20 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
       let t = tiles.get(tk);
       if (!t) tiles.set(tk, (t = new Mesh()));
       const v0 = t.vertexCount;
-      t.append(asset.mesh, T, { obj });
+      t.append(mainMesh, T, { obj });
       // drapé sur le relief (murs, clôtures le long d'un tracé)
       if (asset.extra?.drape && terrain) for (let i = v0; i < t.vertexCount; i++) t.pos[i * 3 + 1] += H(t.pos[i * 3], t.pos[i * 3 + 2]) - y - 0.03;
+      // parties mobiles d'un objet fusionné (porte, volets d'un bâtiment) : à la suite dans la tuile, sommets notés
+      // (le rendu les réécrit quand l'état change, sans une instance par partie)
+      if (jointsA) {
+        const ranges: Record<string, [number, number]> = {};
+        for (const j of jointsA) {
+          const a = t.vertexCount;
+          t.append(j.mesh, m4Mul(T, jointLocal(j, j.initial)), { obj });
+          ranges[j.name] = [a, t.vertexCount];
+        }
+        objects[objects.length - 1].jointTile = { tile: -1, key: tk, ranges };
+      }
     }
   };
 
@@ -921,6 +952,8 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
       }
     nav.shift(ox, oz);
   }
+  const tileKeys = [...tiles.keys()];
+  for (const o of objects) if (o.jointTile) o.jointTile.tile = tileKeys.indexOf(o.jointTile.key);
   const minY = terrain ? Math.min(...objects.map((o) => o.pos[1]), 0) - 1 : 0;
   const maxY = Math.max(2, ...objects.map((o) => o.pos[1] + o.height));
   const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();

@@ -6,6 +6,7 @@ import { Mesh } from "../geom/mesh";
 import { box, cylinder, ellipsoid, extrude, lathe, ngon, tube } from "../geom/prims";
 import { ROLE } from "../style/roles";
 import { type Asset, defineGenerator } from "./types";
+import { buildJoints } from "./joints";
 
 const put = (m: Mesh, part: Mesh, p: V3, rot?: [number, number, number]) => m.append(part, m4Compose(p, rot ? qEuler(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG) : [0, 0, 0, 1]));
 const asset = (generator: string, mesh: Mesh, hx: number, hz: number, h: number, anchors: Asset["anchors"] = {}): Asset => ({ generator, mesh, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: h });
@@ -138,7 +139,13 @@ function build(kind: string, size: number, variant: number): Asset {
     case "mailbox":
       put(m, cylinder(0.04, 0.04, 1.0, W, 6), [0, 0, 0]);
       put(m, box(0.16, 0.14, 0.25, ROLE.accent, 0.04), [0, 1.12, 0]);
-      return asset(kind, m, 0.2, 0.25, 1.3);
+      put(m, box(0.11, 0.022, 0.004, ROLE.ink), [0, 1.2, 0.252]);
+      {
+        // volet de la fente (partie `lid`), articulé en bas, qui bascule vers l'avant
+        const flap = new Mesh().append(box(0.12, 0.03, 0.006, ROLE.metal, 0.004), m4Compose([0, 1.2, 0.258]));
+        const J = buildJoints(m, [{ name: "lid", label: "volet de la boîte aux lettres", kind: "rotation", pivot: [0, 1.17, 0.258], axis: [1, 0, 0], range: [0, 100], mesh: flap, anchors: { top: [0, 1.23, 0.262] } }]);
+        return { ...asset(kind, J.mesh, 0.2, 0.25, 1.3, { "lid.top": { pos: [0, 1.23, 0.262], rot: [0, 0, 0, 1], scale: 1 } }), body: J.body, joints: J.joints, extra: { affords: ["open", "post"] } };
+      }
     case "boat": {
       const hull = lathe([[0, 0], [0.5, 0.05], [0.75, 0.4], [0.8, 0.55]], W, 12, false);
       hull.mapPos((q) => [q[0] * 0.75, q[1], q[2] * 2.4]).computeNormals();

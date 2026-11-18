@@ -8,8 +8,9 @@ import { type Q, type V3, clamp } from "../core/math";
 import type { Role } from "../style/roles";
 import { type Part, type PartList, partsBounds, partsToMesh, roleParam, transformParts } from "./parts";
 import { type Anchor, defineGenerator } from "./types";
+import { type JointSpec, buildJoints, hingeJoint, jointPoint, scaleJoint } from "./joints";
 
-type Built = { parts: PartList; spot: V3; affords: string[] };
+type Built = { parts: PartList; spot: V3; affords: string[]; joints?: JointSpec[] };
 type O = { main: Role; trim: Role; s: number };
 
 const bx = (c: V3, h: V3, role: Role, rot?: V3): Part => ({ t: "box", c, h, role, rot });
@@ -44,7 +45,9 @@ const KINDS: Record<string, { label: string; for: string; main: Role; trim: Role
       // entrée en arche sombre sur la façade
       P.push({ t: "plate", c: [0, 0, d + 0.014], pts: [[-0.18, 0.04], [0.18, 0.04], [0.18, 0.46], [0.12, 0.56], [0, 0.6], [-0.12, 0.56], [-0.18, 0.46]], d: 0.002, role: "ink" });
       roof(P, w, h, r, d, o.trim);
-      return { parts: P, spot: [0, 0.05, 0], affords: ["shelter", "sleep"] };
+      // porte battante (partie `door`), articulée à gauche de l'entrée, ouverte au départ
+      const door = hingeJoint("door", "porte de la niche", [{ t: "plate", c: [0, 0, d + 0.022], pts: [[-0.18, 0.04], [0.18, 0.04], [0.18, 0.46], [0.12, 0.56], [0, 0.6], [-0.12, 0.56], [-0.18, 0.46]], d: 0.008, role: o.main }], [-0.18, 0, d + 0.022], [0, 1, 0], -110, { initial: 1 });
+      return { parts: P, spot: [0, 0.05, 0], affords: ["shelter", "sleep"], joints: [door] };
     },
   },
   bowl: {
@@ -238,7 +241,7 @@ const KINDS: Record<string, { label: string; for: string; main: Role; trim: Role
 
 export const PET_KINDS = Object.keys(KINDS);
 
-export type PetModel = { parts: PartList; spot: V3; affords: string[]; label: string; scale: number; for: string };
+export type PetModel = { parts: PartList; spot: V3; affords: string[]; label: string; scale: number; for: string; joints: JointSpec[] };
 
 export function petModel(p: Record<string, unknown>): PetModel {
   const kind = KINDS[String(p.kind)] ? String(p.kind) : "kennel";
@@ -248,7 +251,7 @@ export function petModel(p: Record<string, unknown>): PetModel {
   const s = clamp(((ANIMAL_SIZE[forWhom] ?? ANIMAL_SIZE[k.for]) / ANIMAL_SIZE[k.for]) * (clamp(Number(p.scale ?? 1) || 1, 0.2, 5)), 0.15, 5);
   const o: O = { main: roleParam(p.color, k.main), trim: roleParam(p.color2, k.trim), s };
   const b = k.build(o);
-  return { parts: s === 1 ? b.parts : transformParts(b.parts, [0, 0, 0, 1], [0, 0, 0], s), spot: [b.spot[0] * s, b.spot[1] * s, b.spot[2] * s], affords: b.affords, label: k.label, scale: s, for: forWhom };
+  return { parts: s === 1 ? b.parts : transformParts(b.parts, [0, 0, 0, 1], [0, 0, 0], s), spot: [b.spot[0] * s, b.spot[1] * s, b.spot[2] * s], affords: b.affords, label: k.label, scale: s, for: forWhom, joints: (b.joints ?? []).map((j) => scaleJoint(j, s)) };
 }
 
 export const pet = defineGenerator({
@@ -266,12 +269,13 @@ export const pet = defineGenerator({
   },
   build(p) {
     const m = petModel(p);
-    const mesh = partsToMesh(m.parts, 0.85);
+    const J = buildJoints(partsToMesh(m.parts, 0.85), m.joints, 0.85);
     const bb = partsBounds(m.parts);
     const hx = Math.max(Math.abs(bb.min[0]), Math.abs(bb.max[0]), 0.03);
     const hz = Math.max(Math.abs(bb.min[2]), Math.abs(bb.max[2]), 0.03);
     const rot: Q = [0, 0, 0, 1];
     const anchors: Record<string, Anchor> = { top: { pos: [0, bb.max[1], 0], rot, scale: m.scale }, spot: { pos: m.spot, rot, scale: m.scale }, approach: { pos: [m.spot[0], 0, Math.max(m.spot[2], hz + 0.3 * m.scale)], rot, scale: m.scale } };
-    return { generator: "pet", mesh, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: bb.max[1], extra: { affords: m.affords, label: m.label, for: m.for } };
+    for (const j of m.joints) for (const [k, v] of Object.entries(j.anchors ?? {})) anchors[`${j.name}.${k}`] = { pos: jointPoint(j, j.initial ?? 0, v), rot, scale: m.scale };
+    return { generator: "pet", mesh: J.mesh, ...(J.joints.length ? { body: J.body, joints: J.joints } : {}), anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: bb.max[1], extra: { affords: m.affords, label: m.label, for: m.for } };
   },
 });
