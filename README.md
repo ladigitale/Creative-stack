@@ -15,3 +15,4 @@
 - `arbre-gestes.json` : l'arbre peint en style réaliste (4 685 touches), à rejouer par `gestesFichier`.
 - `grimpe-gestes.json` : une photo d'escalade (salle de bloc, compétition) peinte en style réaliste (5 000 touches), à rejouer par `gestesFichier` ; la photo elle-même n'est pas versionnée.
 - `visage-gestes.json` : base de visage souriant au trait (28 traits, proportions classiques), générée par `visage_gestes.py`.
+- `clown-joyeux-ref.png` / `clown-joyeux-gestes.json` : clown joyeux original (variante de `clown_ref.py` : sourire ouvert, yeux rieurs, perruque bleue, chapiteau rayé), peint en style réaliste (5 000 touches), rendu par `clown_joyeux_ref.py`.
