@@ -52,3 +52,13 @@ describe("plafond", () => {
     expect(md.parts[0].shape?.a[1]).toBe(1);
   });
 });
+
+describe("ombres", () => {
+  it("portées par défaut dans une pièce, pastilles ailleurs, au choix sinon", () => {
+    expect(readMonde(monde()).castShadows).toBe(true);
+    expect(readMonde({ ...monde(), shadows: "pastilles" }).castShadows).toBe(false);
+    expect(readMonde({ ...monde(), shadows: false }).castShadows).toBe(false);
+    expect(readMonde({ place: [] }).castShadows).toBe(false);
+    expect(readMonde({ place: [], shadows: "portees" }).castShadows).toBe(true);
+  });
+});

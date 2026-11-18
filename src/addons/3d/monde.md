@@ -38,7 +38,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `herbes` | Herbes hautes, blé, roseaux, prairies fleuries, gazon (3D), voir Herbes et champs |
 | `physique` | Physique 3D : corps rigides, liaisons, forces (voir Physique 3D) |
 | `photo` | Rendu photo en lancer de rayons quand la vue s'arrête (3D) : `true` ou `{echantillons, rebonds, attente}` (voir Rendu photo) |
-| `shadows` | Ombres au sol des instances (défaut `true`) |
+| `shadows` | Ombres. `"portees"` : vraies ombres de la lumière principale (carte d'ombre adoucie, redessinée seulement quand le contenu ou la lumière change ; l'espace reçoit sans projeter), défaut d'un monde à `espace`. `"pastilles"` : taches sous les objets, défaut sinon. `false` : aucune |
 | `outline` | Contour des silhouettes 2D en px (défaut 1, 0 = aucun) |
 | `view2d` | Vue 2D : `{"view": "top" \| "side" \| "front" \| "iso", "unit": 48 (px par m), "origin": [x, y] (position écran de l'origine)}` |
 | `ciel`, `brume` | Fond 3D et brume (0 à 1) |

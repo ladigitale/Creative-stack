@@ -263,8 +263,11 @@ export type MondeIn = {
   detail?: string;
   /** Vue 2D : `top`, `side`, `front`, `iso` ; `unit` px par mètre ; `origin` position écran de l'origine du monde. */
   view2d?: { view?: string; unit?: number; origin?: number[] };
-  /** Ombres portées au sol (3D) et sous les pièces (2D). */
-  shadows?: boolean;
+  /**
+   * Ombres. 3D : `"portees"` vraies ombres de la lumière principale (défaut d'un monde à `espace`), `"pastilles"` taches
+   * sous les objets (défaut sinon) ; 2D : sous les pièces. `false` : aucune.
+   */
+  shadows?: boolean | "portees" | "pastilles";
   /** Contour sombre des silhouettes (2D). */
   outline?: number;
   /** Textures par rôle (`{"maillot": "rayures", "sol": {"kind": "herbe", "scale": 3}}`). */
@@ -537,6 +540,8 @@ export type Monde = {
   detail: number;
   view2d: View2d;
   shadows: boolean;
+  /** 3D : vraies ombres portées (carte d'ombre) au lieu des pastilles. */
+  castShadows: boolean;
   outline: number;
   textures: Record<string, TexSpec>;
   texture: TexSpec | null;
@@ -1377,6 +1382,7 @@ function readMondeUnsafe(input: unknown, previous?: Monde | null): Monde {
     detail,
     view2d: { view, unit: clampN(num(v.unit, 48), 1, 2000), origin: [num(v.origin?.[0], 0), num(v.origin?.[1], 0)] },
     shadows: src.shadows !== false,
+    castShadows: src.shadows === "portees" || (src.shadows !== false && src.shadows !== "pastilles" && raw0.espace != null),
     outline: clampN(num(src.outline, 1), 0, 6),
     prefabs: expanded.prefabs,
     conflicts,
