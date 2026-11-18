@@ -18,6 +18,7 @@ import { tune, type TuneCtx } from "./tune";
 import type { Sonic3dAsset, Sonic3dOutput } from "./types";
 import { view, type ViewCtx } from "./view";
 import { Monde3d } from "./monde";
+import { CastShadows } from "./shadows3d";
 import { PhotoMode } from "./photo";
 import { GradePass } from "./grade-pass";
 import type { Lumiere } from "../../shared/monde/ambiance";
@@ -45,6 +46,7 @@ export class SceneRuntime {
   private root: THREE.Group;
   private content: THREE.Object3D | null = null;
   private lights: THREE.Light[];
+  private castShadows!: CastShadows;
   private loader = new GLTFLoader();
   /** Surcharges de nœuds pilotées par DP (clé `nodes`). */
   readonly nodes = new NodeOverrides();
@@ -111,6 +113,7 @@ export class SceneRuntime {
     this.limits = b.limits;
     this.postFx = new PostFxPipeline(this.renderer);
     this.photo = new PhotoMode(this.renderer, () => this.render());
+    this.castShadows = new CastShadows(this.renderer, this.lights[1] as THREE.DirectionalLight | undefined);
     this.photo.envSource = () => this.monde.photoEnv(this.mondeData);
     this.applyCameraMode(this.mode);
     if (b.autoRotate) this.setAutoRotate(true);
@@ -356,18 +359,25 @@ export class SceneRuntime {
           li.intensity = s.i;
           li.color.copy(s.c);
           li.position.copy(s.p);
+          if (li instanceof THREE.DirectionalLight) li.position.add(li.target.position);
         });
         this.lightsSaved = null;
       }
       return;
     }
-    this.lightsSaved ??= this.lights.map((li) => ({ i: li.intensity, c: li.color.clone(), p: li.position.clone() }));
+    // position d'une lumière directionnelle gardée relative à sa cible (déplacée par les ombres portées)
+    this.lightsSaved ??= this.lights.map((li) => ({
+      i: li.intensity,
+      c: li.color.clone(),
+      p: li instanceof THREE.DirectionalLight ? li.position.clone().sub(li.target.position) : li.position.clone(),
+    }));
     amb.intensity = l.ambiante;
     amb.color.set(l.couleurAmbiante);
     key.intensity = l.intensite;
     key.color.set(l.couleur);
     const h = THREE.MathUtils.degToRad(l.hauteur), a = THREE.MathUtils.degToRad(l.azimut);
-    key.position.set(Math.cos(h) * Math.sin(a) * 8, Math.sin(h) * 8, Math.cos(h) * Math.cos(a) * 8);
+    // direction gardée par rapport à la cible (les ombres portées recentrent la lumière sur le contenu)
+    key.position.set(Math.cos(h) * Math.sin(a) * 8, Math.sin(h) * 8, Math.cos(h) * Math.cos(a) * 8).add(key.target.position);
     if (fill) fill.intensity = l.intensite * 0.25;
   }
 
@@ -418,6 +428,8 @@ export class SceneRuntime {
     if (this.isEye) this.eye.tick(this.eyeCtx(), now);
     this.controls?.update();
     if (this.mondeData) this.monde.texAdapt.scan(this.monde.group, this.activeCam, this.lastCssH * this.renderer.getPixelRatio(), now);
+    this.castShadows.set(!!this.mondeData?.castShadows);
+    if (this.castShadows.enabled) this.castShadows.update(this.monde.group);
     if (this.photo.enabled && this.photo.frame(this.scene, this.activeCam, this.raster, now)) return;
     this.raster();
   }

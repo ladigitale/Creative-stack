@@ -828,6 +828,7 @@ export class Monde3d {
       if (g && img) {
         // image du monde : matière à part (pas recolorée par les rôles)
         const mesh = new THREE.Mesh(this.bufferOf(g), this.mats.image(img, p.shape?.a[0] ?? 1, p.shape?.a[1] ?? 1));
+        castFlags(mesh, m, model);
         j.add(mesh);
         meshes.push(mesh);
       } else if (g) {
@@ -848,13 +849,14 @@ export class Monde3d {
           this.group.add(hv.mesh);
         }
         const mesh = new THREE.Mesh(this.bufferOf(g), e.m);
+        castFlags(mesh, m, model);
         // sans nom : un tap remonte à l'articulation `<instance>_<pièce>` ou à l'instance (pick-names)
         j.add(mesh);
         meshes.push(mesh);
       } else meshes.push(null);
     });
     let shadow: THREE.Mesh | null = null;
-    if (m.shadows && !inst.placement.noShadow) {
+    if (m.shadows && !m.castShadows && !inst.placement.noShadow) {
       shadowMat ??= new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false });
       shadow = new THREE.Mesh(SHADOW_GEO, shadowMat);
       shadow.name = "";
@@ -871,7 +873,7 @@ export class Monde3d {
   }
 
   private makeShadow(m: Monde, r: number): THREE.Mesh | null {
-    if (!m.shadows) return null;
+    if (!m.shadows || m.castShadows) return null;
     shadowMat ??= new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false });
     const shadow = new THREE.Mesh(SHADOW_GEO, shadowMat);
     shadow.name = "";
@@ -906,6 +908,7 @@ export class Monde3d {
       actor.setFinishes(spec.finishes ?? null);
       actor.setGlow(b.gen!.glow, b.gen!.glowColor);
       root.add(actor.object);
+      if (m.castShadows) actor.object.traverse((o) => o instanceof THREE.Mesh && castFlags(o, m, model));
       b.gen!.actor = actor;
       b.rolesRev = inst.rolesRev;
       if (b.shadow) {
@@ -1506,6 +1509,15 @@ function restWorld(model: Model, offs: Float32Array): Float32Array {
 }
 
 /** Rayon au sol approximatif d'un modèle (pour l'ombre). */
+/**
+ * Ombres portées : tout reçoit ; l'espace (murs, sol, plafond) ne projette pas (sinon le plafond et les murs plongeraient
+ * la pièce dans l'ombre), les objets si.
+ */
+function castFlags(mesh: THREE.Mesh, m: Monde, model: Model) {
+  mesh.receiveShadow = m.castShadows;
+  mesh.castShadow = m.castShadows && !model.name.startsWith("espace:");
+}
+
 export function radiusOf(model: Model): number {
   let r = 0.15;
   const offs = new Float32Array(model.parts.length * STRIDE);
