@@ -9,7 +9,7 @@
  * personnages : acteurs animés.
  */
 import { type M4, type V3, DEG, clamp, m4Compose, m4Mul, m4Point, qAxis, qRot, sub } from "../core/math";
-import { type JointInfo, jointInfo, jointLocal } from "../gen/joints";
+import { type JointInfo, jointChain, jointInfo } from "../gen/joints";
 import { motionFor } from "../rig/motion";
 import { resolveDeep, type Scope } from "../core/expr";
 import { Rng } from "../core/rng";
@@ -20,6 +20,7 @@ import type { Asset, SoftPiece } from "../gen/types";
 import { scalePiece } from "../gen/soft";
 import { ACTIONS, type Action } from "../rig/locomotion";
 import { NavGrid } from "./nav";
+import { DRIVE_AFFORDS, vehicleSpecOf } from "./drive";
 import { type Meadow, meadowBudget, meadowKeep, readMeadows, sowMeadows } from "./meadows";
 import { type GroundSpec, type PathKind, type PathSpec, Terrain, distToPath, pointAt } from "./terrain";
 import { type BodySpec, type PhysicsSpec, readBody, readPhysics } from "../../../shared/monde/physique";
@@ -521,6 +522,8 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     const jointsA = !isActor && asset.joints?.length ? asset.joints : null;
     let affords = Array.isArray(asset.extra?.affords) ? (asset.extra!.affords as string[]) : undefined;
     if (jointsA?.some((j) => j.openable !== false) && !affords?.includes("open")) affords = [...(affords ?? []), "open"];
+    // véhicules et montures : on y monte, on les conduit
+    if ((generator === "vehicle" || generator === "animal") && vehicleSpecOf({ generator, params: rawParams, footprint: fp, scale })) affords = [...new Set([...(affords ?? []), ...DRIVE_AFFORDS])];
     const physics = asset.extra?.physics && typeof asset.extra.physics === "object" ? (asset.extra.physics as Record<string, unknown>) : undefined;
     const seatYaw: Record<string, number> = {};
     for (const [k, a] of Object.entries(asset.anchors)) if (k.startsWith("sit.")) {
@@ -552,7 +555,11 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     } else {
       placedCircles.push({ x, z, r: Math.max(0.15, (generator === "building" ? Math.max(fp.hx, fp.hz) : fp.r * 0.6) * scale) });
       // ballons et outils posés ne barrent pas le passage
-      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && generator !== "ball" && generator !== "tool" && !((generator === "container" || generator === "pet") && (fp.r * scale < 0.3 || asset.height * scale < 0.3)) && !isActor) nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
+      if (!layer?.walkable && generator !== "grass" && generator !== "flowers" && generator !== "ball" && generator !== "tool" && !((generator === "container" || generator === "pet") && (fp.r * scale < 0.3 || asset.height * scale < 0.3)) && !isActor) {
+        // véhicules : obstacles mobiles (déplacés par la conduite sans recomposer)
+        if (generator === "vehicle") nav.dynBox(id, x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
+        else nav.blockBox(x, z, fp.hx * scale, fp.hz * scale, yaw, 0.25);
+      }
     }
     if (isActor) {
       const beh = (["idle", "wander", "patrol"] as const).includes(behavior as never) ? (behavior as ActorModel["behavior"]) : "idle";
@@ -576,10 +583,12 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     const mainMesh = jointsA ? asset.body ?? asset.mesh : asset.mesh;
     if (jointsA && mode === "instance")
       for (const j of jointsA) {
+        // partie sans maillage (direction d'un essieu) : seulement parente des roues
+        if (!j.mesh.vertexCount) continue;
         const jk = `${key}#${j.name}`;
         let g = groups.get(jk);
         if (!g) groups.set(jk, (g = { key: jk, mesh: j.mesh, matrices: [], objs: [], flex: false, joint: j.name }));
-        g.matrices.push(m4Mul(T, jointLocal(j, j.initial)));
+        g.matrices.push(m4Mul(T, jointChain(jointsA, j, (n) => jointsA.find((x) => x.name === n)?.initial ?? 0)));
         g.objs.push(obj);
       }
     if (asset.soft?.length) {
@@ -615,7 +624,7 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
         const ranges: Record<string, [number, number]> = {};
         for (const j of jointsA) {
           const a = t.vertexCount;
-          t.append(j.mesh, m4Mul(T, jointLocal(j, j.initial)), { obj });
+          t.append(j.mesh, m4Mul(T, jointChain(jointsA, j, (n) => jointsA.find((x) => x.name === n)?.initial ?? 0)), { obj });
           ranges[j.name] = [a, t.vertexCount];
         }
         objects[objects.length - 1].jointTile = { tile: -1, key: tk, ranges };
@@ -1223,7 +1232,8 @@ function contactAO(ground: Mesh, objects: ObjectInfo[]) {
   const CELL = 4;
   const buckets = new Map<string, ObjectInfo[]>();
   for (const o of objects) {
-    if (o.generator === "grass" || o.generator === "flowers" || o.mode === "actor") continue;
+    // véhicules : ils roulent (la conduite les déplace sans recomposer), leur ombre portée suffit
+    if (o.generator === "grass" || o.generator === "flowers" || o.mode === "actor" || o.generator === "vehicle") continue;
     const R = Math.max(o.footprint.hx, o.footprint.hz) + 2;
     for (let i = Math.floor((o.pos[0] - R) / CELL); i <= Math.floor((o.pos[0] + R) / CELL); i++)
       for (let j = Math.floor((o.pos[2] - R) / CELL); j <= Math.floor((o.pos[2] + R) / CELL); j++) {

@@ -39,12 +39,28 @@ function wheel(P: PartList, x: number, z: number, r: number, w: number, rim: Rol
   P.push(disc([x, r, z], r, w / 2, "ink", 18), disc([x + s * (w / 2 + 0.004), r, z], r * 0.58, 0.006, rim, 14), disc([x + s * (w / 2 + 0.012), r, z], r * 0.18, 0.006, "ink", 8));
 }
 
-/** Essieu (deux roues symétriques) : partie `wheel.N` qui tourne autour de l'axe x (un tour = 0…1), jamais « ouverte ». */
-function axle(B: VB, x: number, z: number, r: number, w: number, rim: Role = "metal") {
+/**
+ * Essieu (deux roues symétriques) : partie `wheel.N` qui tourne autour de l'axe x (un tour = 0…1), jamais « ouverte ».
+ * Essieu directeur (`steer`) : chaque roue est une partie à part, `wheel.N.l` / `wheel.N.r`, enfant de `steer.fl` /
+ * `steer.fr` (rotation autour de y au centre de la roue, ±35°, 0,5 = tout droit) : la roue braque et tourne à la fois.
+ */
+function axle(B: VB, x: number, z: number, r: number, w: number, rim: Role = "metal", steer = false) {
+  const n = B.axle++;
+  const label = n === 0 ? "roues avant" : `roues (essieu ${n + 1})`;
+  if (steer) {
+    for (const sx of [1, -1]) {
+      const s = sx > 0 ? "l" : "r";
+      const parts: PartList = [];
+      wheel(parts, sx * x, z, r, w, rim);
+      const side_ = sx > 0 ? "gauche" : "droite";
+      B.J.push({ name: `steer.f${s}`, label: `direction avant ${side_}`, kind: "rotation", pivot: [sx * x, r, z], axis: [0, 1, 0], range: [-35, 35], parts: [], initial: 0.5, openable: false });
+      B.J.push(hingeJoint(`wheel.${n}.${s}`, `${label} (${side_})`, parts, [sx * x, r, z], [1, 0, 0], 360, { openable: false, parent: `steer.f${s}` }));
+    }
+    return;
+  }
   const parts: PartList = [];
   for (const sx of [-1, 1]) wheel(parts, sx * x, z, r, w, rim);
-  const n = B.axle++;
-  B.J.push(hingeJoint(`wheel.${n}`, n === 0 ? "roues avant" : `roues (essieu ${n + 1})`, parts, [0, r, z], [1, 0, 0], 360, { openable: false }));
+  B.J.push(hingeJoint(`wheel.${n}`, label, parts, [0, r, z], [1, 0, 0], 360, { openable: false }));
 }
 
 /**
@@ -110,7 +126,7 @@ function moderncar(B: VB, paint: Role, v: number) {
   B.anchors["approach.trunk"] = [0, 0, -2.8];
   band(P, hw + 0.004, -0.95, 0.85, 0.61, 0.63, "ink");
   lights(P, hw, 0.68, 2.03, -2.08);
-  for (const z of [1.3, -1.3]) axle(B, hw - 0.04, z, 0.33, 0.22);
+  [1.3, -1.3].forEach((z, i) => axle(B, hw - 0.04, z, 0.33, 0.22, "metal", i === 0));
   Object.assign(B.anchors, { "seat.driver": [0.38, 0.6, 0.0], "seat.0": [-0.38, 0.6, 0.0], "seat.1": [0.38, 0.6, -0.8], "seat.2": [-0.38, 0.6, -0.8] });
 }
 
@@ -134,7 +150,7 @@ function van(B: VB, paint: Role, v: number) {
   B.J.push(slideJoint("door.side", "porte latérale coulissante", slide, [0, 0, -1], 1.0, { anchors: { handle: [-(hw + 0.032), 1.1, 0.22] } }));
   B.anchors["approach.door.side"] = [-(hw + 0.8), 0, -0.3];
   backDoors(B, hw, -2.4, 0.5, 1.98, paint, true);
-  for (const z of [1.5, -1.55]) axle(B, hw - 0.06, z, 0.35, 0.24);
+  [1.5, -1.55].forEach((z, i) => axle(B, hw - 0.06, z, 0.35, 0.24, "metal", i === 0));
   Object.assign(B.anchors, { "seat.driver": [0.45, 0.9, 0.85], "seat.0": [-0.45, 0.9, 0.85] });
 }
 
@@ -155,7 +171,7 @@ function bus(B: VB, paint: Role, v: number) {
   P.push(bx([0, 3.12, -0.6], [hw - 0.3, 0.06, 1.5], v % 2 ? "white" : "metal"));
   band(P, hw + 0.006, -L, L, 0.55, 0.69, v % 2 ? "white" : "ink");
   lights(P, hw, 0.75, L, -L);
-  for (const z of [L - 1.6, -L + 1.4]) axle(B, hw - 0.08, z, 0.5, 0.3);
+  [L - 1.6, -L + 1.4].forEach((z, i) => axle(B, hw - 0.08, z, 0.5, 0.3, "metal", i === 0));
   B.anchors["seat.driver"] = [0.7, 1.25, L - 0.9];
   [-2.5, -0.8, 1.2, 2.8].forEach((z, i) => (B.anchors[`seat.${i}`] = [i % 2 ? -0.6 : 0.6, 1.25, z]));
 }
@@ -180,7 +196,7 @@ function truck(B: VB, paint: Role, v: number) {
     for (let k = 0; k < 3; k++) P.push({ t: "blob", c: [-0.4 + k * 0.4, 1.45, -1.6 + k * 0.9], r: [0.45, 0.32, 0.6], role: k % 2 ? "path" : "ground" });
   }
   lights(P, hw, 0.95, 3.75, -3.97);
-  for (const z of [2.75, -1.8, -2.9]) axle(B, hw - 0.12, z, 0.52, 0.32);
+  [2.75, -1.8, -2.9].forEach((z, i) => axle(B, hw - 0.12, z, 0.52, 0.32, "metal", i === 0));
   Object.assign(B.anchors, { "seat.driver": [0.6, 1.95, 3.0], "seat.0": [-0.6, 1.95, 3.0] });
 }
 
@@ -201,7 +217,7 @@ function tractor(B: VB, paint: Role) {
   P.push(bx([0, 2.6, -0.52], [0.72, 0.06, 0.72], paint));
   P.push(face([0, 1.95, 0.06], 0.6, 0.6, "glass"));
   P.push(rod([0.3, 1.5, 1.4], [0.3, 2.5, 1.4], 0.05, "metal"), rod([0.3, 2.5, 1.4], [0.3, 2.62, 1.35], 0.06, "ink"));
-  axle(B, 0.62, 1.35, 0.45, 0.28, "yellow");
+  axle(B, 0.62, 1.35, 0.45, 0.28, "yellow", true);
   axle(B, 0.85, -0.85, 0.78, 0.45, "yellow");
   for (const sx of [-1, 1]) P.push(bx([sx * 0.62, 1.28, 1.95], [0.06, 0.06, 0.03], "lamp"));
   B.anchors["seat.driver"] = [0, 1.45, -0.7];

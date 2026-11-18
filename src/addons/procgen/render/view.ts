@@ -19,7 +19,7 @@ import { ProcgenEmitterLayer, tagsOf } from "./emitters";
 import type { ProcgenEmitters } from "../scene/emitters";
 import type { Aabb } from "../../../shared/sim/grid";
 import type { Hit } from "../../../shared/sim/emitter";
-import { type M4, type V3, clamp, m4Compose, m4Point, qAxis, sub } from "../core/math";
+import { type M4, type V3, clamp, m4Compose, m4Point, qAxis, qMul, sub } from "../core/math";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
@@ -46,9 +46,11 @@ import { InfiniteGpu } from "./infinite-gpu";
 import type { TileWorld } from "../scene/infinite";
 import type { NavGrid } from "../scene/nav";
 import type { Terrain } from "../scene/terrain";
+import { type DriveInput, type DriveState, type Route, type SeatPose, type VehicleSpec, ObstacleSet, doorFor, obbOverlap, followRoute, newDriveState, newRoute, obstaclesOf, planRoute, readInput, seatFor, seatNames, sideApproach, stepDrive, steerPartValue, vehicleSpecOf, wheelPartValue } from "../scene/drive";
+import { worldRoads } from "../scene/world-roads";
 
-export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state"; payload: Record<string, unknown> };
+export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump"; payload: Record<string, unknown> };
 /** État publié de la physique : chargement, erreur, ou corps (10 fois par seconde au plus tant que ça bouge). */
 export type PhysicsOut = ({ status: "loading" | "error"; error?: string } | ({ status: "ready" } & RigidState)) | null;
 
@@ -88,6 +90,8 @@ type ActorRT = {
     x: number; z: number; target?: string; seat?: { x: number; y: number; z: number; yaw: number; action?: Action }; kick?: { ball: string; power: number; loft: number; tries?: number };
     /** Boire, manger, dormir à une ancre `spot` : action lancée à l'arrivée, bouche au-dessus de l'ancre. */
     then?: { action: Action; spot: V3 };
+    /** Monter dans un véhicule (ou sur une monture) à l'arrivée. */
+    board?: { veh: string; seat: string; door: string | null };
   } | null;
   /** Hauteur de la cible (eau, gamelle) au-dessus des pieds pendant `drink` / `eat`. */
   reachY?: number;
@@ -98,6 +102,12 @@ type ActorRT = {
   /** Point libre devant l'assise, où l'acteur se relève. */
   standAt?: [number, number];
   drive: { vx: number; vz: number } | null;
+  /** Dans un véhicule ou sur une monture : place, étape (portière qui s'ouvre, assis, descente), pose. */
+  ride?: RideRT;
+  /** Ordre `drive` reçu pendant la montée : joué une fois assis. */
+  pendingDrive?: ActorIntent;
+  /** Pieds d'un occupant assis (plancher, étriers, pédales). */
+  seatFoot?: MotionState["seatFoot"];
   wantSpeed: number;
   wanderT: number;
   blinkT: number;
@@ -105,6 +115,37 @@ type ActorRT = {
   zones: Set<string>;
   hidden: boolean;
   lastIntent: string;
+};
+
+type RideRT = { veh: string; seat: string; door: string | null; phase: "open" | "enter" | "seated" | "exit"; t: number; pose: SeatPose; /** Départ du passage portière → place (monde). */ from?: V3 };
+
+/** Véhicule ou monture conduit : état du modèle bicyclette, poignée de déplacement, occupants, itinéraire. */
+type VehRT = {
+  id: string;
+  spec: VehicleSpec;
+  o: ObjectInfo | null;
+  actor: ActorRT | null;
+  s: DriveState;
+  y: number;
+  tilt: [number, number];
+  mover: DragRT | null;
+  /** Commande directe (`drive.<id>`). */
+  input: DriveInput | null;
+  route: (Route & { goal: { x: number; z: number; target: string | null }; driver: string | null; tries: number }) | null;
+  /** Place → acteur (assis ou en train de monter). */
+  occ: Map<string, string>;
+  lastHit: string | null;
+  hitT: number;
+  /** En mouvement depuis la dernière immobilisation (emprise mobile retirée de la grille, corps cinématique). */
+  rolling: boolean;
+  wheels: { name: string; r: number }[];
+  steers: string[];
+  /** Train : segment de voie (monde) sur lequel il glisse. */
+  rail: { x: number; z: number; dx: number; dz: number; t0: number; t1: number } | null;
+  /** Montgolfière : altitude au-dessus du sol. */
+  alt: number;
+  /** Portières qui se referment (rendues aux états demandés une fois fermées). */
+  closing: string[];
 };
 
 export class ProcgenView {
@@ -220,6 +261,16 @@ export class ProcgenView {
   private softObjM = new Map<number, Float64Array>();
   private frustum = new THREE.Frustum();
   /** Monde infini : tuiles chargées autour du point suivi (null : scène finie). */
+  /** Conduite : véhicules et montures actifs, inclinaisons de caisse, véhicules détachés de leur tuile (monde infini). */
+  private vehicles = new Map<string, VehRT>();
+  private tilts = new Map<string, [number, number]>();
+  private detachedIms = new Map<string, THREE.InstancedMesh>();
+  private detachedObjs = new Set<number>();
+  private obstacleCache: { key: unknown; set: ObstacleSet; vehs: ObjectInfo[] } | null = null;
+  private vehCarry: { id: string; key: string; x: number; z: number; yaw: number; y: number; occ: [string, string][] }[] = [];
+  /** Suivi caméra : position et cap lissés, décalage de cap donné par l'utilisateur (degrés). */
+  private followCam: { id: string; x: number; y: number; z: number; yaw: number; t: number } | null = null;
+  private followOff = 0;
   private inf: { world: TileWorld; gpu: InfiniteGpu; follow: string; base: { objects: ObjectInfo[]; lights: SceneModel["lights"] }; lowSince: number; at: string; upload: number; uploadMax: number; pumpMax: number } | null = null;
   /** Les tuiles montées ont changé (objets, ids). */
   onTiles: (() => void) | null = null;
@@ -281,6 +332,8 @@ export class ProcgenView {
   private objMatrixOf(o: ObjectInfo): M4 {
     const p = this.rigid?.isDynamic(o.id) ? this.rigid.pose(o.id) : null;
     if (p) return m4Compose([p.x, p.y, p.z], [p.q.x, p.q.y, p.q.z, p.q.w], o.scale);
+    const t = this.tilts.get(o.id);
+    if (t) return m4Compose(o.pos, qMul(qMul(qAxis([0, 1, 0], o.yaw), qAxis([1, 0, 0], t[0])), qAxis([0, 0, 1], t[1])), o.scale);
     return m4Compose(o.pos, qAxis([0, 1, 0], o.yaw), o.scale);
   }
 
@@ -394,6 +447,7 @@ export class ProcgenView {
     // ancien modèle remplacé dans la même tâche : aucune image vide entre les deux
     const first = !this.model;
     this.keepPoses();
+    this.keepVehicles();
     this.clearScene();
     this.model = model;
     const b = model.bounds;
@@ -464,6 +518,7 @@ export class ProcgenView {
     if (this.meadows.active) this.scene.add(this.meadows.group);
     this.finishIms(this.states.mounted());
     for (const a of model.actors) this.addActor(a);
+    this.restoreVehicles();
     this.mountRigid(model);
     this.buildSofts(model);
     this.applyFx();
@@ -607,6 +662,13 @@ export class ProcgenView {
       (m.userData.depth as THREE.Material | undefined)?.dispose?.();
     }
     this.actors.clear();
+    this.vehicles.clear();
+    this.tilts.clear();
+    this.obstacleCache = null;
+    this.detachedIms.clear();
+    this.detachedObjs.clear();
+    // suivi caméra gardé : pas de saut de vue à la recomposition
+    this.waterCache = null;
     this.objectsByObj.clear();
     this.objectsById.clear();
     this.rigidSlots.clear();
@@ -699,7 +761,7 @@ export class ProcgenView {
       pathInfo: (x: number, z: number) => w.pathInfo(x, z),
     };
     m.terrain = terrain as unknown as Terrain;
-    m.nav = { free: (x: number, z: number) => w.free(x, z), path: (a: [number, number], b: [number, number]) => w.path(a, b) } as unknown as NavGrid;
+    m.nav = { free: (x: number, z: number) => w.free(x, z), path: (a: [number, number], b: [number, number]) => w.path(a, b), pathWide: (a: [number, number], b: [number, number], c: number) => w.path(a, b, c) } as unknown as NavGrid;
     m.size = [1e6, 1e6];
     this.shared.uWaterY.value = w.waterLevel ?? -1000;
     this.adoptTiles(true);
@@ -711,6 +773,16 @@ export class ProcgenView {
     const f = this.inf;
     if (!f) return;
     this.inf = null;
+    // véhicules détachés de leurs tuiles : partent avec le monde
+    for (const [id, im] of this.detachedIms) {
+      im.removeFromParent();
+      im.geometry.dispose();
+      this.instanceObjs.delete(im);
+      this.vehicles.delete(id);
+    }
+    this.pickables = this.pickables.filter((p) => ![...this.detachedIms.values()].includes(p as THREE.InstancedMesh));
+    this.detachedIms.clear();
+    this.detachedObjs.clear();
     f.gpu.dispose();
     for (const im of f.gpu.instanceObjs.keys()) this.instanceObjs.delete(im);
     f.world.dispose();
@@ -722,15 +794,28 @@ export class ProcgenView {
     return this.inf?.world ?? null;
   }
 
+  /** Pose suivie par la caméra : acteur (ou le véhicule où il est assis), véhicule ; hauteur de visée comprise. */
+  private followPose(id: string): { id: string; x: number; y: number; z: number; yaw: number } | null {
+    const a = this.actors.get(id);
+    const vid = a?.ride ? a.ride.veh : a ? null : id;
+    if (vid) {
+      const v = this.vehicles.get(vid);
+      const o = v?.o ?? this.objectsById.get(vid) ?? this.model?.objects.find((x) => x.id === vid);
+      const va = v?.actor ?? (vid !== id ? this.actors.get(vid) : undefined);
+      if (va) return { id: vid, x: va.pos[0], y: va.pos[1] + va.model.asset.height * 0.9, z: va.pos[2], yaw: va.yaw };
+      if (o) return { id: vid, x: o.pos[0], y: o.pos[1] + Math.min(o.height, 4) * 0.6, z: o.pos[2], yaw: v ? v.s.yaw : o.yaw };
+    }
+    if (!a) return null;
+    return { id, x: a.pos[0], y: a.pos[1] + a.model.asset.height * 0.6, z: a.pos[2], yaw: a.yaw };
+  }
+
   /** Centre suivi : acteur suivi, sinon centre de la vue. */
   private infCenter(): [number, number] {
     const f = this.inf!;
-    const a = f.follow !== "camera" ? this.actors.get(f.follow) : undefined;
-    if (a) return [a.pos[0], a.pos[2]];
-    if (this.view.camera === "follow" && this.followId && this.actors.has(this.followId)) {
-      const b = this.actors.get(this.followId)!;
-      return [b.pos[0], b.pos[2]];
-    }
+    const a = f.follow !== "camera" ? this.followPose(f.follow) : null;
+    if (a) return [a.x, a.z];
+    const b = this.view.camera === "follow" && this.followId ? this.followPose(this.followId) : null;
+    if (b) return [b.x, b.z];
     return [this.view.cx, this.view.cz];
   }
 
@@ -782,6 +867,7 @@ export class ProcgenView {
     if (!changed && !moved) return false;
     const [cx, cz] = this.infCenter().map((v) => Math.floor(v / w.spec.tile));
     f.gpu.rebuildInstances(cx, cz, w.radius < w.spec.radius);
+    this.hideDetached();
     f.gpu.farGround((x, z) => w.rawHeight(x, z), w.spec.tile, cx, cz, w.radius + 6);
     for (const im of f.gpu.instanceObjs.keys()) this.instanceObjs.set(im, f.gpu.instanceObjs.get(im)!);
     for (const im of [...this.instanceObjs.keys()]) if (im.userData.depth === this.staticMats.depth && !im.parent) this.instanceObjs.delete(im);
@@ -792,6 +878,7 @@ export class ProcgenView {
     for (const t of w.tiles.values())
       if (f.gpu.rec(t.key) === t) {
         for (const o of t.model.objects) {
+          if (this.detachedObjs.has(o.obj)) continue;
           tileObjs.push(o);
           this.objectsByObj.set(o.obj, o);
         }
@@ -876,7 +963,10 @@ export class ProcgenView {
   setView(v: unknown, reset = false) {
     if (reset) this.extent = this.fitExtent;
     this.view = parseView(v, reset ? { ...DEFAULT_VIEW, cy: 0 } : this.view);
-    this.followId = this.view.camera === "follow" ? String((v as Record<string, unknown>)?.actor ?? this.followId ?? [...this.actors.keys()][0] ?? "") : null;
+    const vo = (v ?? {}) as Record<string, unknown>;
+    const want = vo.actor ?? (typeof vo.follow === "string" ? vo.follow : undefined);
+    this.followId = this.view.camera === "follow" ? String(want ?? this.followId ?? [...this.actors.keys()][0] ?? "") : null;
+    if (reset) this.followOff = 0;
     this.dirty = true;
     this.touch();
   }
@@ -892,7 +982,9 @@ export class ProcgenView {
     const v = this.view;
     if (kind === "zoom") v.zoom = clamp(v.zoom * Math.exp(-dx * 0.0015), 0.15, 12);
     else if (kind === "rotate" && (v.camera === "perspective" || v.camera === "iso" || v.camera === "follow")) {
-      v.yaw -= dx * 0.3;
+      // suivi : on tourne autour de ce qui est suivi (décalage gardé), le cap lissé continue de le suivre
+      if (v.camera === "follow") this.followOff -= dx * 0.3;
+      else v.yaw -= dx * 0.3;
       if (v.camera !== "iso") v.pitch = clamp(v.pitch + dy * 0.25, 4, 85);
     } else {
       const h = this.canvas.clientHeight || 1;
@@ -954,6 +1046,21 @@ export class ProcgenView {
       if (sig === a.lastIntent) continue;
       a.lastIntent = sig;
       if (it.mood) a.mood = String(it.mood);
+      // conduite : monter, descendre, conduire (le reste de l'intention est ignoré)
+      if (it.action === "board") {
+        this.orderBoard(a, it);
+        continue;
+      }
+      if (it.action === "alight") {
+        this.orderAlight(a);
+        continue;
+      }
+      if (it.action === "drive" || it.action === "ride") {
+        this.orderDrive(a, it);
+        continue;
+      }
+      // à bord, tout autre ordre de déplacement fait d'abord descendre (sans portière)
+      if (a.ride && (it.target || Number.isFinite(it.x) || Number.isFinite(it.z) || Number.isFinite(it.vx) || Number.isFinite(it.vz))) this.dropRide(a);
       const toSeat = typeof it.target === "string" && /\.sit\.\d+$/.test(it.target);
       const toBall = typeof it.target === "string" && !!this.ballAt(it.target);
       // boire, manger, dormir vers une cible : l'action commence à l'arrivée
@@ -1127,6 +1234,829 @@ export class ProcgenView {
   }
 
 
+  /* ---------------- conduite : véhicules et montures ---------------- */
+
+  /** Point local (repère de l'objet, sans échelle) → monde. */
+  private toWorldOf(pos: V3, yaw: number, scale: number, l: V3): V3 {
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    return [pos[0] + (l[0] * c + l[2] * s) * scale, pos[1] + l[1] * scale, pos[2] + (-l[0] * s + l[2] * c) * scale];
+  }
+  /** Point monde → repère de l'objet (sans échelle). */
+  private toLocalOf(pos: V3, yaw: number, scale: number, w: V3): V3 {
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const dx = w[0] - pos[0], dz = w[2] - pos[2];
+    return [(dx * c - dz * s) / scale, (w[1] - pos[1]) / scale, (dx * s + dz * c) / scale];
+  }
+  private frameOf(v: VehRT): { pos: V3; yaw: number; scale: number } {
+    return v.actor ? { pos: v.actor.pos, yaw: v.actor.yaw, scale: 1 } : { pos: v.o!.pos, yaw: v.o!.yaw, scale: v.o!.scale || 1 };
+  }
+  private anchorKeys(v: VehRT): string[] {
+    return v.actor ? Object.keys(v.actor.model.asset.anchors) : Object.keys(v.o!.anchors);
+  }
+  /** Place (repère du véhicule, sans échelle). */
+  private seatLocal(v: VehRT, seat: string): V3 | null {
+    if (v.actor) {
+      const an = v.actor.model.asset.anchors[seat];
+      return an ? ([...an.pos] as V3) : null;
+    }
+    const w = v.o!.anchors[seat];
+    if (!w) return null;
+    const f = this.frameOf(v);
+    return this.toLocalOf(f.pos, f.yaw, f.scale, w);
+  }
+  private seatWorld(v: VehRT, seat: string): V3 | null {
+    const l = this.seatLocal(v, seat);
+    if (!l) return null;
+    const f = this.frameOf(v);
+    return this.toWorldOf(f.pos, f.yaw, f.scale, l);
+  }
+
+  /** Véhicule ou monture `id` (créé à la première demande) ; `null` si l'objet ne se conduit pas. */
+  private vehicle(id: string): VehRT | null {
+    const have = this.vehicles.get(id);
+    if (have) return have;
+    const m = this.model;
+    if (!m) return null;
+    const a = this.actors.get(id) ?? null;
+    let o: ObjectInfo | null = null;
+    let spec: VehicleSpec | null = null;
+    if (a) spec = a.mo.kind === "animal" ? vehicleSpecOf({ generator: "animal", params: a.model.params, footprint: a.model.asset.footprint, scale: 1 }) : null;
+    else {
+      o = this.objectsById.get(id) ?? m.objects.find((x) => x.id === id) ?? null;
+      if (o && o.mode !== "actor") spec = vehicleSpecOf(o);
+    }
+    if (!spec) return null;
+    // monde infini : le véhicule quitte sa tuile (il en sortira peut-être), il est dessiné à part
+    if (o && this.inf && !this.inf.base.objects.includes(o) && !this.detach(o)) return null;
+    const pos = a ? a.pos : o!.pos, yaw = a ? a.yaw : o!.yaw;
+    const v: VehRT = { id, spec, o, actor: a, s: newDriveState(pos[0], pos[2], yaw), y: pos[1], tilt: [0, 0], mover: null, input: null, route: null, occ: new Map(), lastHit: null, hitT: -10, rolling: false, wheels: [], steers: [], rail: null, alt: 0, closing: [] };
+    if (o) {
+      for (const j of o.joints ?? []) {
+        if (/^wheel\.\d+(\.[lr])?$/.test(j.name)) v.wheels.push({ name: j.name, r: Math.max(0.1, j.pivot[1]) });
+        if (j.name.startsWith("steer.")) v.steers.push(j.name);
+      }
+      if (spec.medium === "rails") v.rail = this.railUnder(o);
+      if (spec.medium === "air") v.alt = Math.max(0, o.pos[1] - groundHeight(m, o.pos[0], o.pos[2], o.pos[1]));
+    }
+    if (a) {
+      a.path = null;
+      a.goal = null;
+      a.drive = null;
+    }
+    this.vehicles.set(id, v);
+    return v;
+  }
+
+  /** Voie ferrée sous un train (`structure` à ancres `end.0` / `end.1`). */
+  private railUnder(o: ObjectInfo): VehRT["rail"] {
+    for (const r of this.model!.objects) {
+      const a = r.anchors["end.0"], b = r.anchors["end.1"];
+      if (r.generator !== "structure" || !a || !b) continue;
+      const dx = b[0] - a[0], dz = b[2] - a[2], L = Math.hypot(dx, dz);
+      if (L < 1) continue;
+      const ux = dx / L, uz = dz / L;
+      const t = (o.pos[0] - a[0]) * ux + (o.pos[2] - a[2]) * uz;
+      const lat = Math.abs((o.pos[0] - a[0]) * uz - (o.pos[2] - a[2]) * ux);
+      if (lat < 1.5 && t > -1 && t < L + 1) return { x: a[0], z: a[2], dx: ux, dz: uz, t0: 0, t1: L };
+    }
+    return null;
+  }
+
+  /** Monde infini : copie le véhicule hors de sa tuile (instances à part, parties comprises) ; la tuile le retire. */
+  private detach(o: ObjectInfo): boolean {
+    const f = this.inf!;
+    let rec: import("../scene/infinite").TileRec | null = null;
+    for (const t of f.world.tiles.values())
+      if (t.model.objects.includes(o)) {
+        rec = t;
+        break;
+      }
+    if (!rec) return false;
+    this.objectsByObj.set(o.obj, o);
+    this.objectsById.set(o.id, o);
+    const joints: [THREE.InstancedMesh, string][] = [];
+    for (const g of rec.model.instances) {
+      const i = g.objs.indexOf(o.obj);
+      if (i < 0 || !g.mesh.vertexCount) continue;
+      const geo = toGeometry(g.mesh);
+      geo.setAttribute("aInstObj", new THREE.InstancedBufferAttribute(new Float32Array([o.obj]), 1));
+      const im = new THREE.InstancedMesh(geo, this.staticMats.color, 1);
+      im.userData.depth = this.staticMats.depth;
+      im.frustumCulled = false;
+      im.setMatrixAt(0, new THREE.Matrix4().fromArray(g.matrices[i] as unknown as number[]));
+      im.instanceMatrix.needsUpdate = true;
+      this.scene.add(im);
+      this.pickables.push(im);
+      this.instanceObjs.set(im, [o.obj]);
+      const hash = g.key.indexOf("#");
+      if (hash >= 0) joints.push([im, g.key.slice(hash + 1)]);
+      else this.detachedIms.set(o.id, im);
+    }
+    if (!this.detachedIms.has(o.id)) return false;
+    for (const [im, name] of joints) this.states.add(im, name, [o.obj], this.objectsByObj);
+    if (joints.length) this.finishIms(this.states.sync(o.id));
+    f.base.objects.push(o);
+    f.world.detach(o.id, rec.key);
+    this.detachedObjs.add(o.obj);
+    this.hideDetached();
+    return true;
+  }
+
+  /** Copies restées dans les instances partagées des tuiles : réduites à rien. */
+  private hideDetached() {
+    if (!this.inf || !this.detachedObjs.size) return;
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (const [im, objs] of this.inf.gpu.instanceObjs) {
+      let hit = false;
+      objs.forEach((ob, i) => {
+        if (this.detachedObjs.has(ob) && i < im.count) ((hit = true), im.setMatrixAt(i, zero));
+      });
+      if (hit) im.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** Emprises qui arrêtent les véhicules (hors véhicules, testés à leur pose courante). */
+  private obstacles(): { set: ObstacleSet; vehs: ObjectInfo[] } {
+    const m = this.model!;
+    const key = this.inf ? `${this.inf.world.version}|${this.inf.base.objects.length}` : m;
+    if (this.obstacleCache?.key === key) return this.obstacleCache;
+    const objs = this.inf ? [...this.inf.base.objects, ...this.inf.world.objects()] : m.objects;
+    const vehs = objs.filter((o) => o.generator === "vehicle" && !(this.inf && this.detachedObjs.has(o.obj) && !this.inf.base.objects.includes(o)));
+    const c = { key, set: new ObstacleSet(obstaclesOf(objs, (o) => o.generator === "vehicle")), vehs };
+    this.obstacleCache = c;
+    return c;
+  }
+
+  /**
+   * Surface navigable sous (x, z) : eau du terrain (fond assez bas) ou plan d'eau posé (mare, bassin, piscine), sinon
+   * `null`.
+   */
+  private waterAt(x: number, z: number): number | null {
+    const m = this.model!;
+    const wl = this.inf ? this.inf.world.waterLevel : m.terrain?.spec.water ?? null;
+    if (wl !== null && this.bed(x, z) < wl - 0.15) return wl;
+    for (const o of this.waterObjs()) {
+      const c = Math.cos(o.yaw), s = Math.sin(o.yaw);
+      const dx = x - o.pos[0], dz = z - o.pos[2];
+      if (Math.abs(dx * c - dz * s) < o.footprint.hx * 0.8 && Math.abs(dx * s + dz * c) < o.footprint.hz * 0.8) return (o.anchors.center ?? o.pos)[1];
+    }
+    return null;
+  }
+  private waterCache: { m: unknown; list: ObjectInfo[] } | null = null;
+  private waterObjs(): ObjectInfo[] {
+    const m = this.model!;
+    if (this.waterCache?.m !== m) this.waterCache = { m, list: m.objects.filter((o) => o.generator === "water" && String(o.params.kind ?? "pond") !== "cascade") };
+    return this.waterCache.list;
+  }
+
+  /** Sol sans tablier (fond de l'eau) : bateaux. */
+  private bed(x: number, z: number): number {
+    if (this.inf) return this.inf.world.groundOnly(x, z);
+    return this.model!.terrain ? this.model!.terrain.height(x, z) : 0;
+  }
+
+  /** Ce qui gêne la pose (x, z, cap) du véhicule : bord, eau ou rive, emprise, autre véhicule. */
+  private blockedFn(v: VehRT): (x: number, z: number, yaw: number) => string | null {
+    const m = this.model!;
+    const sp = v.spec;
+    const { set, vehs } = this.obstacles();
+    const wl = this.inf ? this.inf.world.waterLevel : m.terrain?.spec.water ?? null;
+    const W = m.size[0] / 2, D = m.size[1] / 2;
+    const box = (x: number, z: number, yaw: number) => ({ x, z, hx: sp.hx * 0.92, hz: sp.hz * 0.92, yaw });
+    // ce qui chevauche déjà la pose courante ne retient pas le véhicule (il peut s'en dégager)
+    const here = new Set(set.hits(box(v.s.x, v.s.z, v.s.yaw)));
+    if (v.actor) here.add(v.id);
+    return (x, z, yaw) => {
+      if (!this.inf && (Math.abs(x) > W - 0.3 || Math.abs(z) > D - 0.3)) return "edge";
+      if (sp.medium === "air") return null;
+      const b = box(x, z, yaw);
+      const c = Math.cos(yaw), s = Math.sin(yaw);
+      if (wl !== null && sp.medium === "ground")
+        for (const [u, w] of [[0, 0], [1, 1], [1, -1], [-1, 1], [-1, -1], [0, 1], [0, -1]]) {
+          const px = x + u * b.hx * c + w * b.hz * s, pz = z - u * b.hx * s + w * b.hz * c;
+          if (groundHeight(m, px, pz, wl) < wl - 0.05) return "water";
+        }
+      if (sp.medium === "water")
+        for (const [u, w] of [[0, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          const px = x + u * b.hx * c + w * b.hz * s, pz = z - u * b.hx * s + w * b.hz * c;
+          if (this.waterAt(px, pz) === null) return "shore";
+        }
+      if (sp.medium === "water") {
+        // bateau : seuls les ouvrages (piles, garde-corps) et les autres bateaux gênent
+        const hit = set.hit(b, (id) => here.has(id) || this.objectsById.get(id)?.generator !== "structure");
+        if (hit) return hit;
+      } else {
+        const hit = set.hit(b, (id) => here.has(id));
+        if (hit) return hit;
+      }
+      for (const o of vehs) {
+        if (o.id === v.id || this.hiddenIds.has(o.id)) continue;
+        if (Math.hypot(o.pos[0] - x, o.pos[2] - z) > Math.hypot(sp.hx, sp.hz) + o.footprint.r + 0.2) continue;
+        if (obbOverlap(b, { x: o.pos[0], z: o.pos[2], hx: o.footprint.hx * 0.95, hz: o.footprint.hz * 0.95, yaw: o.yaw })) return o.id;
+      }
+      return null;
+    };
+  }
+
+  /** Le véhicule commandé ou en route est-il en train de rouler ? (boucle d'images, physique, ballons) */
+  private get vehRolling(): boolean {
+    for (const v of this.vehicles.values()) if (v.rolling || v.route || (v.input && (v.input.throttle || v.input.steer)) || v.closing.length) return true;
+    return false;
+  }
+
+  /** Commande directe (`drive` du DataProvider) : `{<id>: {throttle, steer, brake}}` ; rend les ids inconnus. */
+  setDrive(spec: unknown): string[] {
+    const o = spec && typeof spec === "object" && !Array.isArray(spec) ? (spec as Record<string, unknown>) : {};
+    for (const v of this.vehicles.values()) if (v.input && !(v.id in o)) v.input = null;
+    const unknown: string[] = [];
+    for (const [id, raw] of Object.entries(o)) {
+      const v = this.vehicle(id);
+      if (!v) {
+        unknown.push(id);
+        continue;
+      }
+      const inp = readInput(raw);
+      v.input = inp;
+      if (inp && (inp.throttle || inp.steer || inp.brake)) v.route = null;
+    }
+    this.touch();
+    return unknown;
+  }
+
+  /** Point où l'on monte (et descend) : devant la portière de la place, sinon à côté de la place. */
+  private approachOf(v: VehRT, seat: string, from: [number, number]): { x: number; z: number; door: string | null } {
+    const f = this.frameOf(v);
+    const local = this.seatLocal(v, seat) ?? [0, 0, 0];
+    if (v.o && v.spec.doors) {
+      const locals: Record<string, [number, number, number]> = {};
+      for (const [k, w] of Object.entries(v.o.anchors)) if (k.startsWith("approach.door")) locals[k] = this.toLocalOf(f.pos, f.yaw, f.scale, w);
+      const d = doorFor(local, locals, (v.o.joints ?? []).map((j) => j.name));
+      if (d) {
+        const w = v.o.anchors[d.approach];
+        return { x: w[0], z: w[2], door: this.states.has(v.id, d.door) ? d.door : null };
+      }
+    }
+    const fr = this.toLocalOf(f.pos, f.yaw, f.scale, [from[0], 0, from[1]]);
+    const [lx, lz] = sideApproach(local, v.spec.hx / f.scale, [fr[0], fr[2]]);
+    const w = this.toWorldOf(f.pos, f.yaw, f.scale, [lx, 0, lz]);
+    return { x: w[0], z: w[2], door: null };
+  }
+
+  private driverSeat(v: VehRT): string | null {
+    return seatNames(this.anchorKeys(v))[0] ?? null;
+  }
+
+  /** `{target, action: "board", seat}` : marche jusqu'à la portière (ou à côté de la place), puis monte. */
+  private orderBoard(a: ActorRT, it: ActorIntent) {
+    const id = String(it.target ?? "");
+    const v = this.vehicle(id);
+    const blocked = (reason: string) => this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason, target: id, vehicle: v?.id ?? null } });
+    if (!v) return blocked("no-vehicle");
+    if (a.mo.kind !== "humanoid") return blocked("not-rider");
+    if (a.ride) {
+      if (a.ride.veh === v.id) return;
+      this.dropRide(a);
+    }
+    const seat = seatFor(it.seat, seatNames(this.anchorKeys(v)));
+    if (!seat) return blocked("no-seat");
+    const who = v.occ.get(seat);
+    if (who && who !== a.model.id) return blocked("seat-taken");
+    for (const [k, w] of v.occ) if (w === a.model.id) v.occ.delete(k);
+    v.occ.set(seat, a.model.id);
+    const ap = this.approachOf(v, seat, [a.pos[0], a.pos[2]]);
+    this.goto(a, ap.x, ap.z, v.id);
+    if (a.goal) a.goal.board = { veh: v.id, seat, door: ap.door };
+    else v.occ.delete(seat);
+  }
+
+  /** Arrivé à la portière : elle s'ouvre (l'acteur attend face au véhicule), sinon il monte tout de suite. */
+  private startBoard(a: ActorRT, b: { veh: string; seat: string; door: string | null }) {
+    const v = this.vehicles.get(b.veh);
+    if (!v || v.occ.get(b.seat) !== a.model.id) return;
+    const pose = b.seat === this.driverSeat(v) ? v.spec.pose : v.spec.passengerPose;
+    a.ride = { veh: v.id, seat: b.seat, door: b.door, phase: "open", t: 0, pose };
+    const P = this.seatWorld(v, b.seat);
+    if (P) a.yaw = Math.atan2(P[0] - a.pos[0], P[2] - a.pos[2]);
+    a.speed = 0;
+    if (b.door) this.finishIms(this.states.hold(v.id, { [b.door]: 1 }, this.stateSpeed() === 0));
+  }
+
+  private stateSpeed(): number {
+    return this.play ? this.states.speed : 0;
+  }
+
+  /** Assis à sa place : pose de conduite, la portière se referme, `board`. */
+  private seatRider(a: ActorRT, v: VehRT) {
+    const rd = a.ride!;
+    rd.phase = "seated";
+    rd.t = 0;
+    a.path = null;
+    a.goal = null;
+    a.drive = null;
+    a.standAt = undefined;
+    a.reachY = undefined;
+    a.action = rd.pose === "stand" ? (v.spec.kind === "handcart" ? "carry" : "idle") : rd.pose;
+    a.actionTime = 0;
+    a.actionWeight = 1;
+    this.placeRider(a, v);
+    if (rd.door) {
+      this.finishIms(this.states.hold(v.id, { [rd.door]: 0 }, this.stateSpeed() === 0));
+      v.closing.push(rd.door);
+    }
+    this.onEvent({ type: "board", payload: { actor: a.model.id, vehicle: v.id, seat: rd.seat, driver: rd.seat === this.driverSeat(v) } });
+    const pd = a.pendingDrive;
+    a.pendingDrive = undefined;
+    if (pd) this.orderDrive(a, pd);
+  }
+
+  /** Occupant posé à sa place, dans le repère du véhicule (bassin à l'ancre, pieds au plancher, aux étriers…). */
+  private placeRider(a: ActorRT, v: VehRT) {
+    const rd = a.ride!;
+    const P = this.seatWorld(v, rd.seat);
+    if (!P) return;
+    const yaw = this.frameOf(v).yaw;
+    // le rameur tourne le dos à l'avant
+    a.yaw = yaw + (rd.pose === "row" ? Math.PI : 0);
+    if (rd.pose === "stand") {
+      a.pos = [P[0], P[1], P[2]];
+      a.seatY = 0;
+      a.seatFoot = undefined;
+      a.speed = v.spec.kind === "handcart" ? Math.abs(v.s.speed) : 0;
+      return;
+    }
+    const sY = a.mo.legLength * 0.55;
+    a.seatY = sY;
+    const info = a.mo.kind === "humanoid" ? a.mo.info : null;
+    // le bassin à l'ancre de la place (un peu enfoncé dans un siège), pas au-dessus
+    const top = sY + (info ? info.thigh * 0.18 : 0) + (rd.pose === "ride" ? 0 : 0.1);
+    a.pos = [P[0], P[1] - top, P[2]];
+    a.speed = 0;
+    if (!info) return;
+    const sc = this.frameOf(v).scale;
+    if (rd.pose === "ride") {
+      a.seatFoot = v.spec.pedal ? { y: top - 0.56 * sc, spread: info.hipX * 0.9, fwd: 0.19 * sc, pedal: v.s.dist / (sc * 5.3), r: 0.17 * sc } : { y: top - a.mo.legLength * 0.78, spread: Math.max(info.hipX * 1.3, v.spec.hx * 0.8), fwd: 0.05 };
+      return;
+    }
+    const local = this.seatLocal(v, rd.seat) ?? [0, 0.5, 0];
+    const drop = Math.min(Math.max(0.1, local[1] * sc - 0.05), 0.38);
+    a.seatFoot = { y: top - drop, spread: info.hipX * 1.1, fwd: info.thigh };
+  }
+
+  /** `{action: "alight"}` : la portière s'ouvre, l'acteur descend devant elle (ou à côté de sa place), `alight`. */
+  private orderAlight(a: ActorRT) {
+    const rd = a.ride;
+    if (!rd) {
+      // en route vers une place : la réservation tombe
+      if (a.goal?.board) {
+        this.vehicles.get(a.goal.board.veh)?.occ.delete(a.goal.board.seat);
+        a.goal.board = undefined;
+      }
+      return;
+    }
+    const v = this.vehicles.get(rd.veh);
+    if (!v) return this.dropRide(a);
+    if (rd.phase === "open") {
+      if (rd.door) this.finishIms(this.states.hold(v.id, { [rd.door]: null }, false));
+      v.occ.delete(rd.seat);
+      a.ride = undefined;
+      return;
+    }
+    if (rd.phase === "exit") return;
+    const ap = this.approachOf(v, rd.seat, [a.pos[0], a.pos[2]]);
+    rd.door = ap.door;
+    rd.phase = "exit";
+    rd.t = 0;
+    if (rd.door) this.finishIms(this.states.hold(v.id, { [rd.door]: 1 }, this.stateSpeed() === 0));
+    else this.leaveSeat(a, v);
+  }
+
+  private leaveSeat(a: ActorRT, v: VehRT) {
+    const rd = a.ride!;
+    const local = this.seatLocal(v, rd.seat) ?? [0, 0, 0];
+    const f = this.frameOf(v);
+    // côté de la place (gauche par défaut)
+    const out = this.toWorldOf(f.pos, f.yaw, f.scale, [local[0] + (local[0] < -0.05 ? -5 : 5), 0, local[2]]);
+    const ap = this.approachOf(v, rd.seat, [out[0], out[2]]);
+    const m = this.model!;
+    let [x, z] = [ap.x, ap.z];
+    const nav = m.nav as NavGrid | null;
+    if (nav && !nav.free(x, z) && typeof nav.nearestFree === "function") {
+      const c = nav.nearestFree(x, z);
+      if (c) [x, z] = nav.center(c[0], c[1]);
+    }
+    a.pos = [x, groundHeight(m, x, z, a.pos[1]), z];
+    a.yaw = f.yaw + (local[0] < -0.05 ? -Math.PI / 2 : Math.PI / 2);
+    a.seatY = 0;
+    a.seatFoot = undefined;
+    a.action = "idle";
+    a.actionTime = 0;
+    a.speed = 0;
+    v.occ.delete(rd.seat);
+    if (rd.door) {
+      this.finishIms(this.states.hold(v.id, { [rd.door]: 0 }, this.stateSpeed() === 0));
+      v.closing.push(rd.door);
+    }
+    if (v.route?.driver === a.model.id) v.route = null;
+    a.ride = undefined;
+    this.poseActor(a, 0);
+    this.onEvent({ type: "alight", payload: { actor: a.model.id, vehicle: v.id, seat: rd.seat, x: round(x), z: round(z) } });
+  }
+
+  /** Occupant retiré sans cérémonie (saisi au doigt, autre ordre de montée). */
+  private dropRide(a: ActorRT) {
+    const rd = a.ride;
+    if (!rd) return;
+    const v = this.vehicles.get(rd.veh);
+    if (v?.occ.get(rd.seat) === a.model.id) v.occ.delete(rd.seat);
+    a.ride = undefined;
+    a.seatY = 0;
+    a.seatFoot = undefined;
+    a.action = "idle";
+  }
+
+  /** Occupant : étapes de la montée et de la descente, puis il suit sa place. Faux s'il n'est plus à bord. */
+  private updateRider(a: ActorRT, dt: number): boolean {
+    const rd = a.ride!;
+    const v = this.vehicles.get(rd.veh);
+    if (!v) {
+      a.ride = undefined;
+      return false;
+    }
+    rd.t += dt;
+    if (rd.phase === "open") {
+      const val = rd.door ? this.states.value(v.id, rd.door) ?? 1 : 1;
+      if (val > 0.9 || rd.t > 2.5) {
+        // on se glisse de la portière à sa place (0,7 s), en s'asseyant
+        rd.phase = "enter";
+        rd.t = 0;
+        rd.from = [...a.pos] as V3;
+        a.path = null;
+        a.goal = null;
+        a.action = rd.pose === "stand" ? (v.spec.kind === "handcart" ? "carry" : "idle") : rd.pose;
+        a.actionTime = 0;
+      } else {
+        a.speed = 0;
+        this.poseActor(a, dt);
+        return true;
+      }
+    }
+    if (rd.phase === "enter") {
+      const u = Math.min(1, rd.t / 0.7);
+      const e = u * u * (3 - 2 * u);
+      const from = rd.from ?? a.pos;
+      const yaw0 = a.yaw;
+      this.placeRider(a, v);
+      const to = [...a.pos] as V3;
+      a.pos = [from[0] + (to[0] - from[0]) * e, from[1] + (to[1] - from[1]) * e, from[2] + (to[2] - from[2]) * e];
+      let dy = a.yaw - yaw0;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      a.yaw = yaw0 + dy * Math.min(1, e * 1.5 + 0.1);
+      a.actionWeight = e;
+      if (u >= 1) this.seatRider(a, v);
+      this.poseActor(a, dt);
+      return true;
+    } else if (rd.phase === "exit") {
+      const val = rd.door ? this.states.value(v.id, rd.door) ?? 1 : 1;
+      if (val > 0.9 || rd.t > 2.5) {
+        this.leaveSeat(a, v);
+        return true;
+      }
+    }
+    this.placeRider(a, v);
+    // charrette : on marche en la tirant ; vélo : les pédales tournent
+    if (a.speed > 0) a.phase += (a.speed * dt) / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
+    a.actionTime += dt;
+    a.actionWeight = 1;
+    this.poseActor(a, dt);
+    return true;
+  }
+
+  /** `{action: "drive", to}` : le conducteur emmène son véhicule (ou sa monture) par les routes ou la grille. */
+  private orderDrive(a: ActorRT, it: ActorIntent) {
+    const rd = a.ride;
+    const v = rd ? this.vehicles.get(rd.veh) : undefined;
+    const blocked = (reason: string) => this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason, vehicle: v?.id ?? null } });
+    // en train de monter à la place du conducteur : l'ordre attend qu'il soit assis
+    const boarding = rd ? rd.phase === "open" || rd.phase === "enter" : !!a.goal?.board;
+    const bv = rd ? v : a.goal?.board ? this.vehicles.get(a.goal.board.veh) : undefined;
+    if (boarding && bv && (rd ? rd.seat : a.goal!.board!.seat) === this.driverSeat(bv)) {
+      a.pendingDrive = it;
+      return;
+    }
+    if (!v || !rd || rd.phase !== "seated" || rd.seat !== this.driverSeat(v)) return blocked("not-driver");
+    const m = this.model!;
+    const to = it.to ?? (Number.isFinite(it.x) || Number.isFinite(it.z) ? { x: it.x, z: it.z } : undefined);
+    let x = NaN, z = NaN, target: string | null = null, arriveR = Math.max(0.8, v.spec.hz * 0.3);
+    if (to && typeof to === "object" && !Array.isArray(to)) {
+      x = Number((to as { x?: unknown }).x);
+      z = Number((to as { z?: unknown }).z);
+    } else if (Array.isArray(to)) [x, z] = [Number(to[0]), Number(to[1])];
+    else if (typeof to === "string") {
+      target = to;
+      const zn = m.zones.find((q) => q.id === to);
+      const o = this.objectsById.get(to) ?? m.objects.find((q) => q.id === to);
+      const b = this.actors.get(to);
+      if (zn) {
+        [x, z] = zn.box ? [(zn.box[0] + zn.box[2]) / 2, (zn.box[1] + zn.box[3]) / 2] : [zn.x, zn.z];
+        arriveR = Math.max(arriveR, zn.box ? Math.min(zn.box[2] - zn.box[0], zn.box[3] - zn.box[1]) * 0.3 : zn.r * 0.6);
+      } else if (o) {
+        [x, z] = [o.pos[0], o.pos[2]];
+        arriveR = Math.max(o.footprint.hx, o.footprint.hz) + v.spec.hz + 0.8;
+      } else if (b) {
+        [x, z] = [b.pos[0], b.pos[2]];
+        arriveR = v.spec.hz + 1.5;
+      }
+    }
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return blocked("no-target");
+    const cruise = Math.min(v.spec.maxSpeed, Number.isFinite(it.speed) && Number(it.speed) > 0 ? Number(it.speed) : v.spec.maxSpeed * (v.spec.mount ? (it.run ? 0.9 : 0.45) : 0.6));
+    this.driveTo(v, a.model.id, x, z, target, arriveR, cruise);
+  }
+
+  private routeCtx(v: VehRT, from: [number, number], to: [number, number]): import("../scene/drive").RouteCtx {
+    const m = this.model!;
+    const pad = 40;
+    const b = this.inf
+      ? { x0: Math.min(from[0], to[0]) - pad, z0: Math.min(from[1], to[1]) - pad, x1: Math.max(from[0], to[0]) + pad, z1: Math.max(from[1], to[1]) + pad }
+      : { x0: -m.size[0] / 2, z0: -m.size[1] / 2, x1: m.size[0] / 2, z1: m.size[1] / 2 };
+    const roads = this.inf ? worldRoads(this.inf.world.spec, b.x0, b.z0, b.x1, b.z1).concat(m.terrain?.paths ?? []) : m.terrain?.paths ?? [];
+    const wl = this.inf ? this.inf.world.waterLevel : m.terrain?.spec.water ?? null;
+    return {
+      roads: roads.filter((p) => p.kind !== "river"),
+      nav: m.nav as never,
+      water: wl === null && !this.waterObjs().length ? undefined : (x, z) => this.waterAt(x, z) !== null,
+      bounds: b,
+      self: v.id,
+    };
+  }
+
+  private driveTo(v: VehRT, driver: string | null, x: number, z: number, target: string | null, arriveR: number, cruise: number) {
+    if (v.rail) {
+      // train : point visé ramené sur la voie
+      const r = v.rail;
+      const t = clamp((x - r.x) * r.dx + (z - r.z) * r.dz, r.t0 + v.spec.hz, r.t1 - v.spec.hz);
+      [x, z] = [r.x + r.dx * t, r.z + r.dz * t];
+    }
+    const from: [number, number] = [v.s.x, v.s.z];
+    const pts = planRoute(v.spec, from, [x, z], this.routeCtx(v, from, [x, z]));
+    if (!pts || pts.length < 2) {
+      this.onEvent({ type: "blocked", payload: { actor: driver, vehicle: v.id, reason: "no-path", x: round(x), z: round(z), target } });
+      return;
+    }
+    v.route = { ...newRoute(pts, arriveR, cruise), goal: { x, z, target }, driver, tries: v.route?.goal.x === x && v.route?.goal.z === z ? v.route.tries : 0 };
+    v.input = null;
+    this.touch();
+  }
+
+  /** En route : l'emprise mobile quitte la grille, l'obstacle du moteur physique suit la caisse (il pousse). */
+  private startRolling(v: VehRT) {
+    v.rolling = true;
+    const nav = this.model?.nav as NavGrid | null;
+    if (v.o && nav && typeof nav.dynClear === "function") nav.dynClear(v.id);
+    if (v.o) this.rigid?.grab(v.id, true);
+  }
+
+  /** Arrêt : l'emprise reprend sa place dans la grille (les piétons contournent), l'obstacle se refige. */
+  private stopRolling(v: VehRT) {
+    v.rolling = false;
+    if (!v.o) return;
+    const nav = this.model?.nav as NavGrid | null;
+    if (nav && typeof nav.dynBox === "function") nav.dynBox(v.id, v.s.x, v.s.z, v.spec.hx, v.spec.hz, v.s.yaw, 0.25);
+    const y2 = v.s.yaw / 2;
+    this.rigid?.release(v.id, undefined, { x: v.s.x, y: v.y, z: v.s.z, q: { x: 0, y: Math.sin(y2), z: 0, w: Math.cos(y2) } });
+  }
+
+  private stepVehicles(dt: number) {
+    if (!this.vehicles.size || !this.model) return;
+    for (const v of this.vehicles.values()) {
+      // portières qui se referment : rendues aux états demandés une fois fermées
+      if (v.closing.length) v.closing = v.closing.filter((d) => {
+        if ((this.states.value(v.id, d) ?? 0) > 0.02) return true;
+        this.finishIms(this.states.hold(v.id, { [d]: null }, false));
+        return false;
+      });
+      this.stepVehicle(v, dt);
+    }
+  }
+
+  private stepVehicle(v: VehRT, dt: number) {
+    if (v.actor?.hidden || (v.o && this.hiddenIds.has(v.id))) return;
+    if (this.drag && ((v.o && this.drag.o === v.o) || (v.actor && this.drag.actor === v.actor))) return;
+    if (this.settle && ((v.o && this.settle.d.o === v.o) || (v.actor && this.settle.d.actor === v.actor))) return;
+    const direct = v.input && (v.input.throttle || v.input.steer || v.input.brake) ? v.input : null;
+    let inp: DriveInput | null = direct;
+    let arrived = false, stuck = false;
+    if (!inp && v.route) {
+      const f = followRoute(v.spec, v.s, v.route, dt);
+      inp = f.input;
+      arrived = f.done;
+      stuck = f.stuck;
+    }
+    if (!inp && v.s.speed === 0) {
+      if (v.rolling) this.stopRolling(v);
+      return;
+    }
+    const r = stepDrive(v.spec, v.s, inp ?? { throttle: 0, steer: 0, brake: 0.4 }, dt, this.blockedFn(v));
+    if (v.rail) {
+      const R = v.rail;
+      const t = (v.s.x - R.x) * R.dx + (v.s.z - R.z) * R.dz;
+      const tc = clamp(t, R.t0 + v.spec.hz, R.t1 - v.spec.hz);
+      if (tc !== t) {
+        v.s.speed = 0;
+        if (v.lastHit !== "rails-end") this.onEvent({ type: "bump", payload: { vehicle: v.id, hit: "rails-end", x: round(v.s.x), z: round(v.s.z) } });
+        v.lastHit = "rails-end";
+      }
+      v.s.x = R.x + R.dx * tc;
+      v.s.z = R.z + R.dz * tc;
+    }
+    if (r.hit) {
+      if (v.lastHit !== r.hit || this.time - v.hitT > 1.5) this.onEvent({ type: "bump", payload: { vehicle: v.id, hit: r.hit, x: round(v.s.x), z: round(v.s.z) } });
+      v.lastHit = r.hit;
+      v.hitT = this.time;
+    } else if (r.moved && v.lastHit !== "rails-end") v.lastHit = null;
+    if (r.moved && !v.rolling) this.startRolling(v);
+    this.poseVehicle(v, dt);
+    if (arrived && v.route) {
+      const g = v.route.goal;
+      this.onEvent({ type: "arrive", payload: { actor: v.route.driver, vehicle: v.id, x: round(v.s.x), z: round(v.s.z), target: g.target } });
+      v.route = null;
+    } else if (stuck && v.route) {
+      const rt = v.route;
+      // coincé : un nouvel itinéraire depuis là, une fois ; puis `blocked`
+      if (rt.tries < 1) {
+        this.driveTo(v, rt.driver, rt.goal.x, rt.goal.z, rt.goal.target, rt.arriveR, rt.cruise);
+        if (v.route) v.route.tries = rt.tries + 1;
+      } else {
+        this.onEvent({ type: "blocked", payload: { actor: rt.driver, vehicle: v.id, reason: v.lastHit ? "wall" : "stuck", hit: v.lastHit } });
+        v.route = null;
+      }
+    }
+    if (!v.route && !direct && Math.abs(v.s.speed) < 1e-3 && v.rolling) this.stopRolling(v);
+  }
+
+  /** Caisse posée : sur le relief (tangage, roulis, inclinaison dans les virages), sur l'eau, sur la voie, en l'air. */
+  private poseVehicle(v: VehRT, dt: number) {
+    const m = this.model!;
+    const sp = v.spec, s = v.s;
+    const fx = Math.sin(s.yaw), fz = Math.cos(s.yaw), lx = Math.cos(s.yaw), lz = -Math.sin(s.yaw);
+    let y = v.y, pitch = 0, roll = 0;
+    if (sp.medium === "water") {
+      const wl = this.waterAt(s.x, s.z) ?? (this.inf ? this.inf.world.waterLevel ?? 0 : m.terrain?.spec.water ?? v.y + 0.15);
+      y = wl - 0.15 + Math.sin(this.time * 1.7 + s.x) * 0.025;
+      pitch = Math.sin(this.time * 1.3 + s.z) * 0.015 + clamp(-s.lon * 0.02, -0.04, 0.04);
+      roll = Math.sin(this.time * 1.1 + 1) * 0.02 + clamp(-s.lat / 9.81, -1, 1) * sp.lean;
+    } else if (sp.medium === "air") {
+      const g = groundHeight(m, s.x, s.z, v.y);
+      const want = v.route || Math.abs(s.speed) > 0.2 ? 7 : v.route === null && v.input === null ? Math.max(0, v.alt - 0.5) : v.alt;
+      v.alt += (want - v.alt) * (1 - Math.exp(-dt * 0.5));
+      y = g + v.alt;
+    } else if (sp.medium === "ground") {
+      const H = (x: number, z: number) => groundHeight(m, x, z, v.y);
+      const a = sp.hz * 0.7, b = sp.hx * 0.8;
+      const hf = H(s.x + fx * a, s.z + fz * a), hb = H(s.x - fx * a, s.z - fz * a), hl = H(s.x + lx * b, s.z + lz * b), hr = H(s.x - lx * b, s.z - lz * b);
+      y = Math.max(H(s.x, s.z), (hf + hb) / 2) - 0.02;
+      if (!sp.mount) {
+        pitch = -Math.atan2(hf - hb, 2 * a) + clamp(-s.lon * 0.006, -0.03, 0.03);
+        roll = Math.atan2(hl - hr, 2 * b);
+        // vélo : penché vers l'intérieur du virage ; voiture : la caisse roule vers l'extérieur
+        roll += sp.pedal ? -clamp(Math.atan(s.lat / 9.81), -sp.lean, sp.lean) : clamp(s.lat / 6, -1, 1) * sp.lean;
+      }
+    }
+    const k = 1 - Math.exp(-dt * 8);
+    v.tilt = [v.tilt[0] + (pitch - v.tilt[0]) * k, v.tilt[1] + (roll - v.tilt[1]) * k];
+    v.y = y;
+    if (v.o) {
+      if (!v.mover) v.mover = this.moverOf(v.o);
+      if (v.mover) this.applyPose(v.mover, s.x, y, s.z, s.yaw, v.tilt, true);
+      if (v.wheels.length || v.steers.length) {
+        const vals: Record<string, number> = {};
+        const sc = v.o.scale || 1;
+        for (const w of v.wheels) vals[w.name] = wheelPartValue(s.dist / sc, w.r);
+        for (const n of v.steers) vals[n] = steerPartValue(s.steer);
+        this.finishIms(this.states.hold(v.o.id, vals, true));
+      }
+    } else if (v.actor) {
+      const a = v.actor;
+      a.pos = [s.x, y, s.z];
+      a.turn = (s.yaw - a.yaw) / Math.max(dt, 1e-3);
+      a.yaw = s.yaw;
+      a.speed = Math.abs(s.speed);
+    }
+    this.dirty = this.shadowDirty = true;
+    this.contentVersion++;
+  }
+
+  /** Monture conduite : son allure suit la vitesse, elle ne vaque plus à ses occupations. */
+  private updateMount(a: ActorRT, dt: number) {
+    if (a.speed > 0) a.phase += (a.speed * dt) / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
+    if (a.action !== "idle" && a.action !== "walk" && a.action !== "run") a.action = "idle";
+    a.actionWeight += (0 - a.actionWeight) * (1 - Math.exp(-dt * 6));
+    this.poseActor(a, dt);
+  }
+
+  /** Véhicule ou monture déplacé hors conduite (glisser) : état et occupants suivent, emprise de la grille aussi. */
+  private afterMove(id: string) {
+    const v = this.vehicles.get(id);
+    const o = v?.o ?? this.objectsById.get(id) ?? null;
+    if (o && o.generator === "vehicle") {
+      const nav = this.model?.nav as NavGrid | null;
+      if (nav && typeof nav.dynBox === "function") nav.dynBox(o.id, o.pos[0], o.pos[2], o.footprint.hx, o.footprint.hz, o.yaw, 0.25);
+    }
+    if (!v) return;
+    const f = this.frameOf(v);
+    v.s.x = f.pos[0];
+    v.s.z = f.pos[2];
+    v.s.yaw = f.yaw;
+    v.s.speed = 0;
+    v.y = f.pos[1];
+    v.route = null;
+    v.mover = null;
+    for (const aid of v.occ.values()) {
+      const a = this.actors.get(aid);
+      if (a?.ride?.veh === v.id && a.ride.phase === "seated") {
+        this.placeRider(a, v);
+        this.poseActor(a, 0);
+      }
+    }
+  }
+
+  /** Recomposition : véhicules déplacés et occupants gardés (même objet, mêmes paramètres). */
+  private keepVehicles() {
+    this.vehCarry = [];
+    for (const v of this.vehicles.values()) {
+      const occ = [...v.occ].filter(([, aid]) => this.actors.get(aid)?.ride?.phase === "seated");
+      if (!v.o && !occ.length) continue;
+      if (v.o && this.inf) continue;
+      const f = this.frameOf(v);
+      this.vehCarry.push({ id: v.id, key: v.o ? JSON.stringify([v.o.generator, v.o.params]) : "", x: f.pos[0], z: f.pos[2], yaw: f.yaw, y: f.pos[1], occ });
+    }
+  }
+
+  private restoreVehicles() {
+    const carry = this.vehCarry;
+    this.vehCarry = [];
+    for (const c of carry) {
+      const o = this.objectsById.get(c.id);
+      if (c.key && (!o || JSON.stringify([o.generator, o.params]) !== c.key)) continue;
+      const v = this.vehicle(c.id);
+      if (!v) continue;
+      if (v.o) {
+        v.s = newDriveState(c.x, c.z, c.yaw);
+        v.y = c.y;
+        v.mover = this.moverOf(v.o);
+        if (v.mover) this.applyPose(v.mover, c.x, c.y, c.z, c.yaw, undefined, true);
+        const nav = this.model?.nav as NavGrid | null;
+        if (nav && typeof nav.dynBox === "function") nav.dynBox(v.id, c.x, c.z, v.spec.hx, v.spec.hz, c.yaw, 0.25);
+      }
+      for (const [seat, aid] of c.occ) {
+        const a = this.actors.get(aid);
+        if (!a || a.mo.kind !== "humanoid") continue;
+        v.occ.set(seat, aid);
+        a.ride = { veh: v.id, seat, door: null, phase: "seated", t: 0, pose: seat === this.driverSeat(v) ? v.spec.pose : v.spec.passengerPose };
+        a.action = a.ride.pose === "stand" ? (v.spec.kind === "handcart" ? "carry" : "idle") : a.ride.pose;
+        a.actionWeight = 1;
+        this.placeRider(a, v);
+        this.poseActor(a, 0);
+      }
+    }
+  }
+
+  /** Places et occupants d'un véhicule ou d'une monture (sélection, `vehicles`). */
+  vehicleSeats(id: string): { seats: string[]; occupants: Record<string, string> } | null {
+    const v = this.vehicles.get(id);
+    const o = v?.o ?? (this.actors.has(id) ? null : this.objectsById.get(id) ?? this.model?.objects.find((x) => x.id === id) ?? null);
+    const a = v?.actor ?? this.actors.get(id) ?? null;
+    if (!v) {
+      const sp = a ? (a.mo.kind === "animal" ? vehicleSpecOf({ generator: "animal", params: a.model.params, footprint: a.model.asset.footprint, scale: 1 }) : null) : o ? vehicleSpecOf(o) : null;
+      if (!sp) return null;
+    }
+    const keys = a ? Object.keys(a.model.asset.anchors) : Object.keys(o?.anchors ?? {});
+    const occupants: Record<string, string> = {};
+    for (const [k, aid] of v?.occ ?? []) if (this.actors.get(aid)?.ride?.veh === id) occupants[k] = aid;
+    return { seats: seatNames(keys), occupants };
+  }
+
+  /** `state-out.vehicles` : véhicules et montures (64 au plus) avec position, cap, vitesse, conducteur, places. */
+  vehicleState(): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    const m = this.model;
+    if (!m) return out;
+    let n = 0;
+    const put = (id: string, x: number, z: number, yaw: number) => {
+      if (n >= 64) return;
+      const info = this.vehicleSeats(id);
+      if (!info) return;
+      n++;
+      const v = this.vehicles.get(id);
+      const driverSeat = info.seats[0];
+      const driver = driverSeat ? info.occupants[driverSeat] ?? null : null;
+      out[id] = { x: round(x), z: round(z), yaw: Math.round((yaw * 180) / Math.PI), speed: round(v ? v.s.speed : 0), driver, passengers: Object.entries(info.occupants).filter(([k]) => k !== driverSeat).map(([, a]) => a), seats: Object.fromEntries(info.seats.map((k) => [k, info.occupants[k] ?? null])), ...(v?.route ? { to: { x: round(v.route.goal.x), z: round(v.route.goal.z), target: v.route.goal.target } } : {}) };
+    };
+    for (const o of m.objects) if (o.generator === "vehicle" && !this.hiddenIds.has(o.id)) put(o.id, o.pos[0], o.pos[2], o.yaw);
+    for (const a of this.actors.values()) if (a.mo.kind === "animal" && !a.hidden) put(a.model.id, a.pos[0], a.pos[2], a.yaw);
+    return out;
+  }
+
   /* ---------------- physique 3D ---------------- */
 
   /** Poses des corps de la scène courante, reprises par la prochaine composition (même objet, même départ). */
@@ -1259,7 +2189,7 @@ export class ProcgenView {
   /** Avance la physique, réécrit les matrices des corps qui bougent, envoie chocs et événements. */
   private stepRigid(dt: number, now: number) {
     const w = this.rigid!;
-    if (!w.moving && !this.actors.size && !this.drag) return;
+    if (!w.moving && !this.actors.size && !this.drag && !this.vehRolling) return;
     const moved = w.stepScene(dt);
     const touched = new Set<THREE.InstancedMesh>();
     for (const id of moved) {
@@ -1321,16 +2251,40 @@ export class ProcgenView {
       return true;
     }
     if (o.generator === "ball" && !o.body) return false;
-    const d: DragRT = { o, pos0: [...o.pos], yaw0: o.yaw, anchors0: Object.fromEntries(Object.entries(o.anchors).map(([k, v]) => [k, [...v] as V3])), ...(o.seatYaw ? { seatYaw0: { ...o.seatYaw } } : {}), cur: { x: o.pos[0], y: o.pos[1], z: o.pos[2], yaw: o.yaw } };
+    let d: DragRT | null;
     if (o.mode === "actor") {
       const a = this.actors.get(o.id);
       if (!a) return false;
-      d.actor = a;
-      d.pos0 = [...a.pos];
-      d.yaw0 = a.yaw;
-      d.cur = { x: a.pos[0], y: a.pos[1], z: a.pos[2], yaw: a.yaw };
-    } else if (o.mode === "instance") {
+      // un passager saisi descend (sans portière) ; une monture saisie emmène son cavalier
+      if (a.ride) this.dropRide(a);
+      d = { o, pos0: [...a.pos], yaw0: a.yaw, anchors0: Object.fromEntries(Object.entries(o.anchors).map(([k, v]) => [k, [...v] as V3])), actor: a, cur: { x: a.pos[0], y: a.pos[1], z: a.pos[2], yaw: a.yaw } };
+    } else d = this.moverOf(o);
+    if (!d) return false;
+    this.drag = d;
+    // obstacle du moteur : rendu cinématique pendant le geste (il pousse les corps)
+    if (this.rigid?.grab(o.id, true)) d.obstacle = true;
+    this.shared.uIdBase.value = o.obj;
+    this.shared.uHighlight.value = 1;
+    return true;
+  }
+
+  /**
+   * Poignée de déplacement d'un objet sans recomposer : instance (matrice réécrite) ou sommets de sa tuile. Sert au
+   * glisser et à la conduite (même pose absolue depuis la pose de départ).
+   */
+  private moverOf(o: ObjectInfo): DragRT | null {
+    const d: DragRT = { o, pos0: [...o.pos], yaw0: o.yaw, anchors0: Object.fromEntries(Object.entries(o.anchors).map(([k, v]) => [k, [...v] as V3])), ...(o.seatYaw ? { seatYaw0: { ...o.seatYaw } } : {}), cur: { x: o.pos[0], y: o.pos[1], z: o.pos[2], yaw: o.yaw } };
+    const det = this.detachedIms.get(o.id);
+    if (det) {
+      const m0 = new THREE.Matrix4();
+      det.getMatrixAt(0, m0);
+      d.inst = { im: det, i: 0, m0 };
+      return d;
+    }
+    if (o.mode === "instance") {
       for (const [im, objs] of this.instanceObjs) {
+        // instances des parties mobiles : déplacées par la couche d'états (matrice objet × partie), pas ici
+        if (this.states.partOf.has(im)) continue;
         const i = objs.indexOf(o.obj);
         if (i < 0) continue;
         const m0 = new THREE.Matrix4();
@@ -1338,7 +2292,7 @@ export class ProcgenView {
         d.inst = { im, i, m0 };
         break;
       }
-      if (!d.inst) return false;
+      if (!d.inst) return null;
     } else {
       d.tiles = [];
       for (const ob of this.pickables) {
@@ -1354,14 +2308,9 @@ export class ProcgenView {
         d.tiles.push({ mesh, a, b: b + 1, pos0: pos.slice(a * 3, (b + 1) * 3), nrm0: nrm.slice(a * 3, (b + 1) * 3), off: [mesh.position.x, mesh.position.z] });
         mesh.frustumCulled = false;
       }
-      if (!d.tiles.length) return false;
+      if (!d.tiles.length) return null;
     }
-    this.drag = d;
-    // obstacle du moteur : rendu cinématique pendant le geste (il pousse les corps)
-    if (this.rigid?.grab(o.id, true)) d.obstacle = true;
-    this.shared.uIdBase.value = o.obj;
-    this.shared.uHighlight.value = 1;
-    return true;
+    return d;
   }
 
   /** Pose courante de l'objet saisi (position de sa base, cap en radians) ; `invalid` : fantôme rouge. */
@@ -1446,7 +2395,7 @@ export class ProcgenView {
   }
 
   /** Place l'objet saisi : (x, y, z) = position de sa base, `yaw` = cap ; ancres et infos suivent. */
-  private applyPose(d: DragRT, x: number, y: number, z: number, yaw: number) {
+  private applyPose(d: DragRT, x: number, y: number, z: number, yaw: number, tilt?: [number, number], fromDrive = false) {
     d.cur = { x, y, z, yaw };
     const da = yaw - d.yaw0;
     const c = Math.cos(da), s = Math.sin(da);
@@ -1464,7 +2413,11 @@ export class ProcgenView {
       a.speed = 0;
       this.poseActor(a, 0);
     } else if (d.inst) {
-      const D = new THREE.Matrix4().makeTranslation(x, y, z).multiply(new THREE.Matrix4().makeRotationY(da)).multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
+      const D = new THREE.Matrix4().makeTranslation(x, y, z);
+      // conduite : caisse inclinée (tangage, roulis) dans son propre repère
+      if (tilt && (tilt[0] || tilt[1])) D.multiply(new THREE.Matrix4().makeRotationY(yaw)).multiply(new THREE.Matrix4().makeRotationX(tilt[0])).multiply(new THREE.Matrix4().makeRotationZ(tilt[1])).multiply(new THREE.Matrix4().makeRotationY(-d.yaw0));
+      else D.multiply(new THREE.Matrix4().makeRotationY(da));
+      D.multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
       d.inst.im.setMatrixAt(d.inst.i, D.multiply(d.inst.m0));
       d.inst.im.instanceMatrix.needsUpdate = true;
     } else
@@ -1495,8 +2448,12 @@ export class ProcgenView {
     o.yaw = yaw;
     for (const [k, v] of Object.entries(d.anchors0)) o.anchors[k] = move(v[0], v[1], v[2]);
     if (d.seatYaw0) for (const [k, v] of Object.entries(d.seatYaw0)) o.seatYaw![k] = v + da;
+    if (tilt && (tilt[0] || tilt[1])) this.tilts.set(o.id, tilt);
+    else this.tilts.delete(o.id);
     // parties mobiles : suivent l'objet (ancres de partie recalculées)
     if (o.joints) this.finishIms(this.states.sync(o.id));
+    // véhicule ou monture glissé au doigt : son état de conduite et ses occupants suivent
+    if (!fromDrive) this.afterMove(d.actor ? d.actor.model.id : o.id);
   }
 
   /** Objet saisi (id) ou `null`. */
@@ -1598,6 +2555,10 @@ export class ProcgenView {
 
   private updateActor(a: ActorRT, dt: number) {
     const m = this.model!;
+    // à bord d'un véhicule : suit sa place ; monture conduite : son allure suit la conduite
+    if (a.ride && this.updateRider(a, dt)) return;
+    const mv = a.mo.kind === "animal" ? this.vehicles.get(a.model.id) : undefined;
+    if (mv && (mv.occ.size || mv.route || mv.input || mv.rolling)) return this.updateMount(a, dt);
     const leg = a.mo.legLength;
     let vx = 0, vz = 0;
     let want = 0;
@@ -1620,6 +2581,7 @@ export class ProcgenView {
           a.path = null;
           a.goal = null;
           if (g?.kick) this.doKick(a, g.kick);
+          if (g?.board) this.startBoard(a, g.board);
           if (g?.seat) {
             a.pos[0] = g.seat.x;
             a.pos[2] = g.seat.z;
@@ -1739,7 +2701,7 @@ export class ProcgenView {
 
   private poseActor(a: ActorRT, _dt: number) {
     const sk = a.model.asset.skeleton!;
-    const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" ? a.seatY : 0, reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
+    const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
     const { pose } = a.mo.pose(st);
     const W = sk.world(pose);
     a.mesh.userData.world = W;
@@ -1815,7 +2777,7 @@ export class ProcgenView {
   /** La scène elle-même bouge-t-elle (acteurs, ballons, végétation au vent, eau) ? Le grain animé ne compte pas. */
   private get moving(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water;
+    return this.actors.size > 0 || this.vehRolling || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water;
   }
 
   /** Réveil à la fin de l'attente (la boucle est arrêtée quand rien ne bouge). */
@@ -1898,7 +2860,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || this.fx.active || !!this.balls?.moving || this.emitters.active || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || this.vehRolling || this.fx.active || !!this.balls?.moving || this.emitters.active || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -1907,8 +2869,18 @@ export class ProcgenView {
   private stepBalls(dt: number) {
     const m = this.model!;
     const bw = this.balls!;
-    if (!bw.moving && !this.actors.size && !this.ballsDirty) return;
-    const pushers = [...this.actors.values()].filter((a) => !a.hidden && !(a.action === "sit" && (a.seatY ?? 0) > 0)).map((a) => ({ id: a.model.id, pos: a.pos, vel: [Math.sin(a.yaw) * a.speed, 0, Math.cos(a.yaw) * a.speed] as V3, r: 0.18 * a.mo.legLength + 0.08, h: a.mo.legLength * 0.6 }));
+    if (!bw.moving && !this.actors.size && !this.ballsDirty && !this.vehRolling) return;
+    const pushers = [...this.actors.values()].filter((a) => !a.hidden && !a.ride && !(a.action === "sit" && (a.seatY ?? 0) > 0)).map((a) => ({ id: a.model.id, pos: a.pos, vel: [Math.sin(a.yaw) * a.speed, 0, Math.cos(a.yaw) * a.speed] as V3, r: 0.18 * a.mo.legLength + 0.08, h: a.mo.legLength * 0.6 }));
+    // véhicules qui roulent : une file de disques le long de la caisse pousse les ballons
+    for (const v of this.vehicles.values()) {
+      if (!v.o || !v.rolling || v.spec.medium === "air") continue;
+      const fx = Math.sin(v.s.yaw), fz = Math.cos(v.s.yaw);
+      const n = Math.max(1, Math.round(v.spec.hz / Math.max(0.2, v.spec.hx)));
+      for (let k = 0; k < n; k++) {
+        const t = n === 1 ? 0 : -v.spec.hz + v.spec.hx + ((2 * (v.spec.hz - v.spec.hx)) * k) / (n - 1);
+        pushers.push({ id: v.id, pos: [v.s.x + fx * t, v.y, v.s.z + fz * t] as V3, vel: [fx * v.s.speed, 0, fz * v.s.speed] as V3, r: v.spec.hx, h: v.o.height * 0.6 });
+      }
+    }
     bw.step(dt, (x, z) => (m.terrain ? m.terrain.height(x, z) : 0), (x, z) => (m.nav ? m.nav.free(x, z) : true), pushers, (e) => this.onEvent(e));
     const touched = new Set<THREE.InstancedMesh>();
     const tmp = new THREE.Matrix4();
@@ -1967,6 +2939,7 @@ export class ProcgenView {
     const anim = this.animated;
     if (anim) {
       this.time += dt * this.speed;
+      this.stepVehicles(dt * this.speed);
       for (const a of this.actors.values()) if (a !== this.drag?.actor && a !== this.settle?.d.actor) this.updateActor(a, dt * this.speed);
       if (this.actors.size) {
         this.shadowDirty = true;
@@ -2147,10 +3120,25 @@ export class ProcgenView {
     const legacy = Math.abs(wd - (67 * Math.PI) / 180) < 1e-9;
     (this.shared.uWindDir.value as THREE.Vector2).set(legacy ? 1 : Math.sin(wd) * 1.077, legacy ? 0.4 : Math.cos(wd) * 1.077);
     let target: THREE.Vector3 | undefined;
-    if (this.view.camera === "follow" && this.followId && this.actors.has(this.followId)) {
-      const a = this.actors.get(this.followId)!;
-      target = new THREE.Vector3(a.pos[0], a.pos[1] + a.model.asset.height * 0.6, a.pos[2]);
-      this.view.yaw = (a.yaw * 180) / Math.PI + 180;
+    const fp = this.view.camera === "follow" && this.followId ? this.followPose(this.followId) : null;
+    if (fp) {
+      // suivi doux derrière l'acteur ou le véhicule : position et cap lissés (jamais de saut), décalage de l'utilisateur
+      const now = performance.now();
+      let c = this.followCam;
+      if (!c || c.id !== fp.id) c = this.followCam = { id: fp.id, x: fp.x, y: fp.y, z: fp.z, yaw: fp.yaw, t: now };
+      const dt = Math.min(0.1, Math.max(0, (now - c.t) / 1000));
+      c.t = now;
+      const k = 1 - Math.exp(-dt * 6), ky = 1 - Math.exp(-dt * 2.2);
+      c.x += (fp.x - c.x) * k;
+      c.y += (fp.y - c.y) * k;
+      c.z += (fp.z - c.z) * k;
+      let dy = fp.yaw - c.yaw;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      c.yaw += dy * ky;
+      target = new THREE.Vector3(c.x, c.y, c.z);
+      this.view.yaw = (c.yaw * 180) / Math.PI + 180 + this.followOff;
+      if (Math.abs(fp.x - c.x) + Math.abs(fp.z - c.z) + Math.abs(dy) > 0.002) this.dirty = true;
     }
     this.camera = applyView(this.view, w / h, this.extent, this.ortho, this.persp, target, this.snapReq ?? undefined, this.frame);
     (this.camera as THREE.Camera).updateMatrixWorld();
@@ -2269,7 +3257,7 @@ export class ProcgenView {
 
   actorState(id: string) {
     const a = this.actors.get(id);
-    return a ? { x: round(a.pos[0]), y: round(a.pos[1]), z: round(a.pos[2]), yaw: Math.round((a.yaw * 180) / Math.PI), speed: round(a.speed), action: a.action, moving: !!a.path || a.speed > 0.05 } : null;
+    return a ? { x: round(a.pos[0]), y: round(a.pos[1]), z: round(a.pos[2]), yaw: Math.round((a.yaw * 180) / Math.PI), speed: round(a.speed), action: a.action, moving: !!a.path || a.speed > 0.05, ...(a.ride ? { vehicle: a.ride.veh, seat: a.ride.seat, boarding: a.ride.phase !== "seated" } : {}) } : null;
   }
   actorIds() {
     return [...this.actors.keys()];

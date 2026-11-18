@@ -80,7 +80,7 @@ export function packTile(m: SceneModel, sent: Set<string>): { data: TileData; tr
         sent.add(g.key);
         return { key: g.key, mesh, matrices: mats, objs: g.objs, flex: g.flex };
       }),
-      nav: nav ? { w: nav.nx * nav.cell, d: nav.nz * nav.cell, cell: nav.cell, ox: nav.ox, oz: nav.oz, blocked: nav.blocked } : null,
+      nav: nav ? { w: nav.nx * nav.cell, d: nav.nz * nav.cell, cell: nav.cell, ox: nav.ox, oz: nav.oz, blocked: nav.dyn ? nav.blocked.map((b, k) => (b || nav.dyn![k] > 0 ? 1 : 0)) : nav.blocked } : null,
     },
   };
   if (data.model.terrain) tr.push(data.model.terrain.heights.buffer);

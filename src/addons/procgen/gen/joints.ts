@@ -37,13 +37,36 @@ export type JointSpec = {
   initial?: number;
   /** `false` : partie qui ne s'« ouvre » pas (roue : `open` ne la touche pas, `affords` n'y gagne pas `open`). */
   openable?: boolean;
+  /**
+   * Partie parente (`steer.fl` pour la roue `wheel.0.l`) : le mouvement de la partie se compose avec celui de sa
+   * parente (matrice = objet × parente × partie, pivots en repère de l'objet fermé). Trois niveaux au plus.
+   */
+  parent?: string;
 };
 
 /** Partie mobile d'un asset composé : maillage fermé séparé. */
 export type AssetJoint = Omit<JointSpec, "parts" | "mesh"> & { mesh: Mesh; initial: number };
 
 /** Ce que publient `selection.parts` et `ids[].parts`. */
-export type JointInfo = { name: string; label: string; kind: JointKind; pivot: V3; axis: V3; range: [number, number]; initial: number; anchors?: Record<string, V3>; openable?: boolean };
+export type JointInfo = { name: string; label: string; kind: JointKind; pivot: V3; axis: V3; range: [number, number]; initial: number; anchors?: Record<string, V3>; openable?: boolean; parent?: string };
+
+type ChainJoint = Pick<JointSpec, "name" | "kind" | "pivot" | "axis" | "range" | "parent">;
+
+/**
+ * Mouvement d'une partie et de ses parentes (repère de l'objet) : parente × … × partie, chaque valeur lue par
+ * `value(nom)`. Sans parente, c'est `jointLocal`.
+ */
+export function jointChain(all: readonly ChainJoint[], j: ChainJoint, value: (name: string) => number): M4 {
+  let M = jointLocal(j, value(j.name));
+  let p = j.parent;
+  for (let guard = 0; p && guard < 3; guard++) {
+    const pj = all.find((x) => x.name === p);
+    if (!pj || pj === j) break;
+    M = m4Mul(jointLocal(pj, value(pj.name)), M);
+    p = pj.parent;
+  }
+  return M;
+}
 
 export const MAX_JOINTS = 24;
 
@@ -109,7 +132,30 @@ export function slideJoint(name: string, label: string, parts: PartList, axis: V
 
 /** Pièces de toutes les parties posées selon `states` (vectoriel). */
 export function posedAll(joints: JointSpec[], states?: Record<string, number> | null): PartList {
-  return joints.flatMap((j) => posedJointParts(j, jointValue(j, states)));
+  return joints.flatMap((j) => {
+    let parts = posedJointParts(j, jointValue(j, states));
+    // parentes : la pièce posée suit le mouvement de chacune (roue braquée)
+    let p = j.parent;
+    for (let guard = 0; p && guard < 3 && parts.length; guard++) {
+      const pj = joints.find((x) => x.name === p);
+      if (!pj || pj === j) break;
+      parts = moveParts(parts, pj, jointValue(pj, states));
+      p = pj.parent;
+    }
+    return parts;
+  });
+}
+
+/** Pièces déjà posées déplacées par le mouvement d'une partie (sa parente). */
+function moveParts(parts: PartList, j: Pick<JointSpec, "kind" | "pivot" | "axis" | "range">, v: number): PartList {
+  const t = mix(j.range[0], j.range[1], clamp(v, 0, 1));
+  if (Math.abs(t) < 1e-9) return parts;
+  if (j.kind === "translation") {
+    const a = norm(j.axis);
+    return transformParts(parts, [0, 0, 0, 1], [a[0] * t, a[1] * t, a[2] * t]);
+  }
+  const q: Q = qAxis(norm(j.axis), t * DEG);
+  return transformParts(transformParts(parts, [0, 0, 0, 1], [-j.pivot[0], -j.pivot[1], -j.pivot[2]]), q, j.pivot);
 }
 
 /** Valeur d'une partie dans une table d'états (nom exact ; défaut : valeur de départ). */
@@ -128,7 +174,7 @@ export function buildJoints(body: Mesh, specs: JointSpec[], detail = 0.85): { me
     return { ...rest, mesh: mesh ?? partsToMesh(parts ?? [], detail), initial: clamp(s.initial ?? 0, 0, 1) };
   });
   const full = new Mesh().append(body);
-  for (const j of joints) full.append(j.mesh, jointLocal(j, j.initial));
+  for (const j of joints) full.append(j.mesh, jointChain(joints, j, (n) => joints.find((x) => x.name === n)?.initial ?? 0));
   return { mesh: full, body, joints };
 }
 
@@ -144,6 +190,7 @@ export function jointInfo(j: AssetJoint, scale = 1): JointInfo {
     range: j.kind === "translation" ? [j.range[0] * scale, j.range[1] * scale] : j.range,
     initial: j.initial,
     ...(j.openable === false ? { openable: false } : {}),
+    ...(j.parent ? { parent: j.parent } : {}),
     ...(j.anchors ? { anchors: Object.fromEntries(Object.entries(j.anchors).map(([k, v]) => [k, S(v)])) } : {}),
   };
 }

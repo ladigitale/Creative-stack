@@ -522,6 +522,8 @@ function buildAnimalMesh(species: Species, p: Params, coat: string, pal: Palette
     mouth: { bone: sk.has("jaw") ? "jaw" : "head", pos: anchors.mouth, rot: qId(), scale: W * 0.06 },
     feet: { bone: "root", pos: [0, 0, 0], rot: qId(), scale: Math.max(bb.max[0], -bb.min[0]) },
   };
+  // monture : place du cavalier sur le dos (à cru), au milieu du dos
+  if (species === "horse" || species === "deer" || species === "cow" || species === "bear") A["seat.rider"] = { bone: "spine", pos: [0, anchors.back[1] + 0.02, anchors.back[2] * 0.5], rot: qId(), scale: W * 0.25 };
   const hx = Math.max(bb.max[0], -bb.min[0]);
   const hz = Math.max(bb.max[2], -bb.min[2]);
   return { mesh, skeleton: sk, anchors: A, footprint: { hx, hz: hz * 0.85, r: Math.max(hx, hz * 0.8) }, height: bb.max[1] };

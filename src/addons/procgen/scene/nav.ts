@@ -9,6 +9,12 @@ export class NavGrid {
   ox: number;
   oz: number;
   readonly blocked: Uint8Array;
+  /**
+   * Obstacles mobiles (véhicules) : nombre d'emprises par cellule, hors de `blocked` pour pouvoir les déplacer sans
+   * recomposer (`dynBox` / `dynMove`). `free` et les chemins en tiennent compte.
+   */
+  dyn: Uint8Array | null = null;
+  private dynCells = new Map<string, number[]>();
 
   constructor(w: number, d: number, cell = 0.5) {
     this.cell = cell;
@@ -34,12 +40,71 @@ export class NavGrid {
     return i >= 0 && j >= 0 && i < this.nx && j < this.nz;
   }
   isBlocked(i: number, j: number) {
-    return !this.inside(i, j) || this.blocked[j * this.nx + i] === 1;
+    if (!this.inside(i, j)) return true;
+    const k = j * this.nx + i;
+    return this.blocked[k] === 1 || (!!this.dyn && this.dyn[k] > 0);
   }
   free(x: number, z: number) {
     const [i, j] = this.toCell(x, z);
     return !this.isBlocked(i, j);
   }
+  /** Cellules d'une boîte orientée (centre, demi-côtés, lacet) élargie de `margin`. */
+  boxCells(cx: number, cz: number, hx: number, hz: number, yaw: number, margin = 0.3): number[] {
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const R = Math.hypot(hx, hz) + margin;
+    const [i0, j0] = this.toCell(cx - R, cz - R);
+    const [i1, j1] = this.toCell(cx + R, cz + R);
+    const out: number[] = [];
+    for (let j = Math.max(0, j0); j <= Math.min(this.nz - 1, j1); j++)
+      for (let i = Math.max(0, i0); i <= Math.min(this.nx - 1, i1); i++) {
+        const [x, z] = this.center(i, j);
+        const dx = x - cx, dz = z - cz;
+        const lx = dx * c - dz * s, lz = dx * s + dz * c;
+        if (Math.abs(lx) <= hx + margin && Math.abs(lz) <= hz + margin) out.push(j * this.nx + i);
+      }
+    return out;
+  }
+
+  /** Obstacle mobile `id` (véhicule) posé ou déplacé : ses anciennes cellules sont rendues, les nouvelles prises. */
+  dynBox(id: string, cx: number, cz: number, hx: number, hz: number, yaw: number, margin = 0.25) {
+    if (!this.dyn) this.dyn = new Uint8Array(this.nx * this.nz);
+    this.dynClear(id);
+    const cells = this.boxCells(cx, cz, hx, hz, yaw, margin);
+    for (const k of cells) this.dyn[k] = Math.min(255, this.dyn[k] + 1);
+    this.dynCells.set(id, cells);
+  }
+  /** Retire l'obstacle mobile `id` (en route : il ne bloque plus sa place de départ). */
+  dynClear(id: string) {
+    const old = this.dynCells.get(id);
+    if (!old || !this.dyn) return;
+    for (const k of old) if (this.dyn[k] > 0) this.dyn[k]--;
+    this.dynCells.delete(id);
+  }
+
+  /**
+   * Chemin pour un gabarit plus large qu'un piéton (véhicule de demi-largeur `clearance`) : obstacles élargis, sans
+   * l'obstacle mobile `ignore` (le véhicule lui-même).
+   */
+  pathWide(from: [number, number], to: [number, number], clearance: number, ignore?: string): [number, number][] | null {
+    const g = new NavGrid(this.nx * this.cell, this.nz * this.cell, this.cell);
+    g.ox = this.ox;
+    g.oz = this.oz;
+    const own = new Set(ignore ? this.dynCells.get(ignore) ?? [] : []);
+    const base = new Uint8Array(this.nx * this.nz);
+    for (let k = 0; k < base.length; k++) base[k] = this.blocked[k] === 1 || (!!this.dyn && this.dyn[k] - (own.has(k) ? 1 : 0) > 0) ? 1 : 0;
+    const r = Math.max(0, Math.ceil((clearance - 0.25) / this.cell));
+    for (let j = 0; j < this.nz; j++)
+      for (let i = 0; i < this.nx; i++) {
+        if (!base[j * this.nx + i]) continue;
+        for (let dj = -r; dj <= r; dj++)
+          for (let di = -r; di <= r; di++) {
+            const ni = i + di, nj = j + dj;
+            if (ni >= 0 && nj >= 0 && ni < this.nx && nj < this.nz && di * di + dj * dj <= r * r + r) g.blocked[nj * this.nx + ni] = 1;
+          }
+      }
+    return g.path(from, to);
+  }
+
   /** Bloque une boîte orientée (centre, demi-côtés, lacet), avec une marge (rayon de l'agent). */
   blockBox(cx: number, cz: number, hx: number, hz: number, yaw: number, margin = 0.3) {
     const c = Math.cos(yaw), s = Math.sin(yaw);

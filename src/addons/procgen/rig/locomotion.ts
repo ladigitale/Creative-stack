@@ -14,7 +14,9 @@ import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qC
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
 export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep"] as const;
-export type Action = (typeof ACTIONS)[number];
+/** Poses à bord (posées par la conduite, pas des ordres d'acteur) : mains au volant, à califourchon, à la rame. */
+export const RIDE_ACTIONS = ["drive", "ride", "row"] as const;
+export type Action = (typeof ACTIONS)[number] | (typeof RIDE_ACTIONS)[number];
 
 export type MotionState = {
   /** Vitesse au sol (m/s), lissée par l'appelant. */
@@ -37,6 +39,11 @@ export type MotionState = {
   seatY?: number;
   /** Boire, manger à une cible : hauteur de la cible au-dessus des pieds (m). Absent : gobelet, nourriture à la main ; animal : au sol. */
   reachY?: number;
+  /**
+   * Assis dans un véhicule ou sur une monture (`drive`, `ride`, `row`, `sit`) : pieds par rapport au bassin posé
+   * (`y` sous les pieds de l'acteur, écart latéral, avance), `pedal` = tours de pédalier (vélo), `r` son rayon.
+   */
+  seatFoot?: { y: number; spread: number; fwd: number; pedal?: number; r?: number };
 };
 
 export type RigInfo = {
@@ -264,6 +271,27 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       over.head = qEuler(26 * DEG, 0, 10 * DEG);
       break;
     }
+    case "drive":
+      // mains au volant (ou aux rênes du cocher) : bras tendus devant, coudes un peu pliés
+      raiseArm("r", 16, 58, 42);
+      raiseArm("l", 16, 58, 42);
+      over.spine = qEuler(-4 * DEG, 0, 0);
+      break;
+    case "ride": {
+      // à califourchon : mains basses devant (rênes, guidon), buste un peu penché
+      raiseArm("r", 14, 42, 55);
+      raiseArm("l", 14, 42, 55);
+      over.spine = qEuler(10 * DEG, 0, 0);
+      break;
+    }
+    case "row": {
+      // ramer : les mains tirent vers la poitrine, le buste bascule en arrière (un coup toutes les 2 s)
+      const k = 0.5 + 0.5 * Math.sin(at * Math.PI);
+      raiseArm("r", 22, 30 + 45 * (1 - k), 30 + 80 * k);
+      raiseArm("l", 22, 30 + 45 * (1 - k), 30 + 80 * k);
+      over.spine = qEuler((18 - 30 * k) * DEG, 0, 0);
+      break;
+    }
     case "bow": {
       const k = Math.sin(clamp(at / 1.2, 0, 1) * Math.PI);
       over.spine = qEuler(35 * k * DEG, 0, 0);
@@ -274,7 +302,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   for (const [k, q] of Object.entries(over)) rot[k] = qSlerp(rot[k] ?? qId(), q, w);
 
   /* ---------- jambes : IK ---------- */
-  const sit = st.action === "sit" || st.action === "sleep" ? w : 0;
+  const seated = st.action === "drive" || st.action === "ride" || st.action === "row";
+  const sit = st.action === "sit" || st.action === "sleep" || seated ? (seated ? 1 : w) : 0;
   const jumpT = st.action === "jump" ? at % 1.1 : -1;
   let jumpY = 0;
   let jumpCrouch = 0;
@@ -316,6 +345,14 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     z *= moving;
     feetLocal[s] = { p: [sx + sway * 0.2, y, z + info.footLen * 0.05], pitch, planted: u < beta || moving < 0.05 };
     if (sit > 0) feetLocal[s].p = [sx * 1.15, 0, mix(feetLocal[s].p[2], info.thigh * 0.95, sit)];
+    // véhicule, monture : pieds au plancher, dans le vide de part et d'autre, ou sur les pédales
+    const sf = sit > 0 ? st.seatFoot : undefined;
+    if (sf) {
+      const sg = s === "l" ? 1 : -1;
+      const a = (sf.pedal ?? 0) * Math.PI * 2 + (s === "l" ? 0 : Math.PI);
+      const r = sf.pedal !== undefined ? sf.r ?? 0.17 : 0;
+      feetLocal[s] = { p: [sg * sf.spread, sf.y + Math.sin(a) * r, sf.fwd + Math.cos(a) * r], pitch: 0, planted: true };
+    }
     // tir : le pied droit recule, puis fouette vers l'avant et vers le haut (0,7 s)
     if (st.action === "kick" && s === "r") {
       const t = clamp(st.actionTime / 0.7, 0, 1);

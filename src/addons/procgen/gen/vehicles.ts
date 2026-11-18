@@ -31,6 +31,8 @@ function build(kind: string, size: number, variant: number, paintName: string): 
   const autoPaint = [ROLE.accent, ROLE.leaf2, ROLE.water, ROLE.cloth2, ROLE.cloth1, ROLE.ink, ROLE.paper, ROLE.wood][variant % 8];
   const P = paintName === "auto" ? autoPaint : ((ROLE as Record<string, number>)[paintName] ?? ROLE.accent);
   const W = ROLE.wood, M = ROLE.metal;
+  // places (conduite) : `seat.driver` (bassin du conducteur), `seat.N` (passagers)
+  const A = (pos: V3) => ({ pos, rot: [0, 0, 0, 1] as [number, number, number, number], scale: 1 });
   const asset = (hx: number, hz: number, h: number, anchors: Asset["anchors"] = {}): Asset => ({ generator: "vehicle", mesh: m, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: h, extra: { kind } });
   switch (kind) {
     case "carriage": {
@@ -55,7 +57,7 @@ function build(kind: string, size: number, variant: number, paintName: string): 
       put(m, box(0.5, 0.25, 0.03, P), [0, 1.55, 0.68]);
       put(m, cylinder(0.04, 0.04, 0.12, ROLE.lamp, 6), [0.55, 1.45, 0.75]);
       put(m, cylinder(0.04, 0.04, 0.12, ROLE.lamp, 6), [-0.55, 1.45, 0.75]);
-      return asset(1.0, 2.5, 2.1);
+      return asset(1.0, 2.5, 2.1, { "seat.driver": A([0, 1.4, 0.92]), "seat.0": A([0.3, 0.95, -0.2]), "seat.1": A([-0.3, 0.95, -0.2]) });
     }
     case "bicycle": {
       // bicyclette : deux roues, cadre en losange, guidon, selle, panier
@@ -68,7 +70,7 @@ function build(kind: string, size: number, variant: number, paintName: string): 
       put(m, tube([[-0.25, 0.92, 0.32], [0, 0.88, 0.4], [0.25, 0.92, 0.32]], [0.012, 0.012, 0.012], M, 4), [0, 0, 0]);
       put(m, tube([head, [0, 0.9, 0.36]], [0.015, 0.015], M, 4), [0, 0, 0]);
       if (variant % 2) put(m, lathe([[0.1, 0], [0.13, 0.18], [0.12, 0.18], [0.09, 0.02], [0, 0.02]], ROLE.path, 8, false), [0, 0.8, 0.52]);
-      return asset(0.3, 0.9, 1.0);
+      return asset(0.3, 0.9, 1.0, { "seat.driver": A([0, 0.88, -0.24]) });
     }
     case "car": {
       // voiture ancienne : capot long à calandre, ailes galbées, habitacle, roues à rayons, phares ronds
@@ -97,7 +99,7 @@ function build(kind: string, size: number, variant: number, paintName: string): 
       put(m, cylinder(0.12, 0.12, 0.015, ROLE.ink, 10), [0.08, 1.05, 0.15], [60, 0, 0]);
       put(m, box(0.4, 0.06, 0.06, M), [0, 0.45, 1.72]);
       put(m, box(0.35, 0.18, 0.2, ROLE.leather), [0, 0.88, -1.8]);
-      return asset(0.82, 1.9, 1.4);
+      return asset(0.82, 1.9, 1.4, { "seat.driver": A([0.25, 0.95, -0.05]), "seat.0": A([-0.25, 0.95, -0.05]) });
     }
     case "rowboat": {
       // barque : coque en bordages (lignes), bancs, avirons, flotte (y = 0,15 = flottaison)
@@ -117,7 +119,7 @@ function build(kind: string, size: number, variant: number, paintName: string): 
         put(m, tube([[sx * 0.45, 0.48, 0.1], [sx * 1.1, 0.2, -0.3], [sx * 1.4, 0.05, -0.45]], [0.02, 0.02, 0.02], W, 4), [0, 0, 0]);
         put(m, box(0.06, 0.012, 0.16, W), [sx * 1.45, 0.05, -0.48], [0, sx * 25, 0]);
       }
-      return asset(0.8, 1.7, 0.7);
+      return asset(0.8, 1.7, 0.7, { "seat.driver": A([0, 0.39, -0.55]), "seat.0": A([0, 0.39, 0.35]) });
     }
     case "sailboat": {
       // voilier : coque à quille, pont, rouf, mât, bôme, grand-voile et foc triangulaires
@@ -136,7 +138,7 @@ function build(kind: string, size: number, variant: number, paintName: string): 
       put(m, tube([[0, 5.9, 0.35], [0, 0.55, 2.4]], [0.006, 0.006], ROLE.ink, 3, false, false), [0, 0, 0]);
       put(m, extrude([[0, 0], [0.4, -0.1], [0, -0.22]], 0.01, ROLE.accent), [0, 5.95, 0.35], [0, 90, 0]);
       put(m, box(0.03, 0.4, 0.25, W), [0, -0.1, -2.3]);
-      return asset(0.9, 2.6, 6.0);
+      return asset(0.9, 2.6, 6.0, { "seat.driver": A([0, 0.55, -1.7]), "seat.0": A([0.4, 0.55, -1.1]) });
     }
     case "balloon": {
       // montgolfière : enveloppe à fuseaux alternés, suspentes, nacelle d'osier, brûleur (lampe)
@@ -157,7 +159,7 @@ function build(kind: string, size: number, variant: number, paintName: string): 
       }
       put(m, cylinder(0.12, 0.12, 0.2, M, 6), [0, 1.6, 0]);
       put(m, ellipsoid(0.1, 0.18, 0.1, ROLE.fire, 6, 4), [0, 1.95, 0]);
-      return asset(R * 0.4, R * 0.4, 2.6 + 2 * R, { light: { pos: [0, 2.0, 0], rot: [0, 0, 0, 1], scale: 1 } });
+      return asset(R * 0.4, R * 0.4, 2.6 + 2 * R, { light: { pos: [0, 2.0, 0], rot: [0, 0, 0, 1], scale: 1 }, "seat.driver": A([0, 0.05, 0.12]), "seat.0": A([0, 0.05, -0.15]) });
     }
     case "handcart": {
       // charrette à bras : plateau à ridelles, deux roues, brancards
@@ -170,7 +172,7 @@ function build(kind: string, size: number, variant: number, paintName: string): 
       }
       put(m, box(0.42, 0.015, 0.015, W), [0, 0.53, 1.85]);
       for (let k = 0; k < 4; k++) put(m, lathe([[0.18, 0], [0.22, 0.28], [0.17, 0.33], [0, 0.34]], ROLE.cloth3, 7), [(k % 2 ? 0.2 : -0.2), 0.58, -0.4 + Math.floor(k / 2) * 0.5]);
-      return asset(0.75, 1.9, 1.0);
+      return asset(0.75, 1.9, 1.0, { "seat.driver": A([0, 0, 1.75]) });
     }
   }
   return asset(0.3, 0.3, 0.3);

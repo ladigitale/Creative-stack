@@ -5,12 +5,14 @@
  */
 import * as THREE from "three";
 import { type M4, m4Dir, m4Invert, m4Mul, m4Point } from "../core/math";
-import { type JointInfo, jointLocal } from "../gen/joints";
+import { type JointInfo, jointChain } from "../gen/joints";
 import type { ObjectInfo, PointLight } from "../scene/compose";
 
 /** Partie instanciée (instance `i` de `im`) ou fusionnée dans une tuile (sommets `a…b` de `mesh`, repère de la partie fermée). */
 type Slot = { im: THREE.InstancedMesh; i: number; def: JointInfo; tile?: undefined } | { im?: undefined; def: JointInfo; tile: { mesh: THREE.Mesh; a: number; b: number; pos: Float32Array; nrm: Float32Array } };
 type RT = { o: ObjectInfo; slots: Slot[]; cur: Record<string, number>; target: Record<string, number> };
+/** Valeur imposée par le rendu (roues d'un véhicule qui roule, portière ouverte pour monter) : `snap` = sans passage doux. */
+type Hold = { v: number; snap: boolean };
 
 export type StateEvent = { objectId: string; part: string; value: number };
 
@@ -29,10 +31,18 @@ export class StateLayer {
   /** Matrice monde courante de l'objet (pose glissée, corps physique). */
   objMatrix: (o: ObjectInfo) => M4 = () => new Float64Array(16);
   private tmp = new THREE.Matrix4();
+  /** Valeurs imposées par objet (conduite : roues, direction, portières), prioritaires sur les états demandés. */
+  private holds = new Map<string, Record<string, Hold>>();
 
   clear() {
     this.rts.clear();
     this.partOf.clear();
+    this.holds.clear();
+  }
+
+  /** Toutes les parties de l'objet (slots ou non : une direction sans maillage reste parente des roues). */
+  private init(rt: RT) {
+    for (const j of rt.o.joints ?? []) if (!(j.name in rt.cur)) rt.cur[j.name] = rt.target[j.name] = j.initial;
   }
 
   get count() {
@@ -49,7 +59,7 @@ export class StateLayer {
       let rt = this.rts.get(o.id);
       if (!rt) this.rts.set(o.id, (rt = { o, slots: [], cur: {}, target: {} }));
       rt.slots.push({ im, i, def });
-      rt.cur[joint] = rt.target[joint] = def.initial;
+      this.init(rt);
     });
   }
 
@@ -60,7 +70,7 @@ export class StateLayer {
     for (const def of o.joints ?? []) {
       const r = ranges[def.name];
       if (!r) continue;
-      const inv = m4Invert(m4Mul(M, jointLocal(def, def.initial)));
+      const inv = m4Invert(m4Mul(M, jointChain(o.joints!, def, (n) => o.joints!.find((x) => x.name === n)?.initial ?? 0)));
       const n = r[1] - r[0];
       const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3);
       for (let k = 0; k < n; k++) {
@@ -74,7 +84,7 @@ export class StateLayer {
       let rt = this.rts.get(o.id);
       if (!rt) this.rts.set(o.id, (rt = { o, slots: [], cur: {}, target: {} }));
       rt.slots.push({ def, tile: { mesh, a: r[0], b: r[1], pos, nrm } });
-      rt.cur[def.name] = rt.target[def.name] = def.initial;
+      this.init(rt);
     }
   }
 
@@ -113,7 +123,50 @@ export class StateLayer {
 
   private retarget(rt: RT) {
     const v = this.values[rt.o.id];
-    for (const s of rt.slots) rt.target[s.def.name] = typeof v?.[s.def.name] === "number" ? v[s.def.name] : s.def.initial;
+    const h = this.holds.get(rt.o.id);
+    for (const j of rt.o.joints ?? []) rt.target[j.name] = h?.[j.name] ? h[j.name].v : typeof v?.[j.name] === "number" ? v[j.name] : j.initial;
+  }
+
+  /**
+   * Impose des valeurs à des parties (conduite) : `snap` les pose tout de suite (roues, direction : rien n'est
+   * publié), sinon elles y vont en douceur (portière : événement `state` à l'arrivée). `null` rend la partie aux états
+   * demandés. Rend les maillages touchés.
+   */
+  hold(id: string, values: Record<string, number | null>, snap: boolean, touched = new Set<THREE.InstancedMesh>()): Set<THREE.InstancedMesh> {
+    const rt = this.rts.get(id);
+    if (!rt) return touched;
+    let h = this.holds.get(id);
+    if (!h) this.holds.set(id, (h = {}));
+    let any = false;
+    for (const [k, v] of Object.entries(values)) {
+      if (!(k in rt.cur)) continue;
+      if (v === null) delete h[k];
+      else h[k] = { v, snap };
+      any = true;
+    }
+    if (!Object.keys(h).length) this.holds.delete(id);
+    if (!any) return touched;
+    this.retarget(rt);
+    if (snap) {
+      let moved = false;
+      for (const k of Object.keys(values)) if (k in rt.cur && rt.cur[k] !== rt.target[k]) ((rt.cur[k] = rt.target[k]), (moved = true));
+      if (moved) {
+        this.write(rt, touched);
+        rt.o.states = { ...(this.values[rt.o.id] ?? {}), ...rt.cur };
+      }
+    }
+    return touched;
+  }
+
+  /** Valeur courante d'une partie (ou `null`). */
+  value(id: string, part: string): number | null {
+    const v = this.rts.get(id)?.cur[part];
+    return typeof v === "number" ? v : null;
+  }
+
+  /** L'objet a-t-il cette partie (instanciée ou fusionnée) ? */
+  has(id: string, part: string): boolean {
+    return !!this.rts.get(id) && part in this.rts.get(id)!.cur;
   }
 
   /** États courants recopiés dans les objets (sélection, `ids`, vectoriel) : parties et états libres. */
@@ -158,7 +211,7 @@ export class StateLayer {
   private write(rt: RT, touched: Set<THREE.InstancedMesh>) {
     const M = this.objMatrix(rt.o);
     for (const s of rt.slots) {
-      const W = m4Mul(M, jointLocal(s.def, rt.cur[s.def.name]));
+      const W = m4Mul(M, jointChain(rt.o.joints ?? [s.def], s.def, (n) => rt.cur[n] ?? 0));
       if (s.tile) this.writeTile(s.tile, W);
       else {
         s.im.setMatrixAt(s.i, this.tmp.fromArray(W as unknown as number[]));

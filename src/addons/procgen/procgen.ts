@@ -113,6 +113,8 @@ export class SonicProcgen extends HTMLElement {
   private miscKey = "";
   private kickKey: string | null = null;
   private forcesKey = "";
+  private driveKey = "";
+  private driveModel: unknown = null;
   private queriesKey = "";
   /** Émetteurs lus (recette ⊕ `emitters` du DataProvider, graine, qualité) : relus seulement quand la clé change. */
   private emitKey = "";
@@ -562,6 +564,16 @@ export class SonicProcgen extends HTMLElement {
         if (!this.view.kickBall(k.ball, v)) { if (!this.issues.some((x) => (x as { path?: string; got?: unknown }).path === "kick.ball" && (x as { got?: unknown }).got === k.ball)) this.issues = [...this.issues, { path: "kick.ball", code: "unknown", message: `ballon inconnu : ${k.ball}`, got: k.ball }]; }
       }
     }
+    // conduite : commande directe `drive` {<véhicule>: {throttle, steer, brake}}, sans recomposer
+    if (this.view instanceof ProcgenView) {
+      const dk = JSON.stringify(d.drive ?? null);
+      if (dk !== this.driveKey || this.driveModel !== this.model) {
+        this.driveKey = dk;
+        this.driveModel = this.model;
+        const unknown = this.view.setDrive(d.drive);
+        this.issues = [...this.issues.filter((i) => !String((i as { path: string }).path).startsWith("drive.")), ...unknown.map((id) => ({ path: `drive.${id}`, code: "unknown", message: `« ${id} » ne se conduit pas (véhicule ou monture attendu)`, didYouMean: suggest(id, this.model!.objects.filter((o) => o.affords?.includes("drive")).map((o) => o.id)) }))];
+      }
+    }
     // physique : ordres `forces` (compteurs) et requêtes `queries` (rayon, sphère, boîte)
     if (this.view instanceof ProcgenView) {
       const fk = JSON.stringify(d.forces ?? null);
@@ -663,7 +675,13 @@ export class SonicProcgen extends HTMLElement {
   private selectionOut(id: string | null) {
     const o = id ? this.model?.objects.find((x) => x.id === id) : null;
     if (!o) return null;
-    return { id: o.id, generator: o.generator, layer: o.layer, params: o.params, x: R2(o.pos[0]), y: R2(o.pos[1]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), h: R2(o.height), ...(o.place ? { place: o.place, index: o.index ?? 0 } : {}), movable: this.mode === "3d" && this.movable(o), ...(o.affords ? { affords: o.affords } : {}), ...partsOut(o), ...(o.physics ? { physics: o.physics } : {}), ...(Object.keys(o.anchors).some((k) => k.startsWith("sit.")) ? { seats: Object.keys(o.anchors).filter((k) => k.startsWith("sit.")) } : {}) };
+    return { id: o.id, generator: o.generator, layer: o.layer, params: o.params, x: R2(o.pos[0]), y: R2(o.pos[1]), z: R2(o.pos[2]), yaw: Math.round(o.yaw * DEGS), w: R2(o.footprint.hx * 2), d: R2(o.footprint.hz * 2), h: R2(o.height), ...(o.place ? { place: o.place, index: o.index ?? 0 } : {}), movable: this.mode === "3d" && this.movable(o), ...(o.affords ? { affords: o.affords } : {}), ...partsOut(o), ...(o.physics ? { physics: o.physics } : {}), ...(Object.keys(o.anchors).some((k) => k.startsWith("sit.")) ? { seats: Object.keys(o.anchors).filter((k) => k.startsWith("sit.")) } : {}), ...this.vehicleOut(o.id) };
+  }
+
+  /** Véhicule ou monture sélectionné : ses places et leurs occupants. */
+  private vehicleOut(id: string): Record<string, unknown> {
+    const v = this.view instanceof ProcgenView ? this.view.vehicleSeats(id) : null;
+    return v ? { seats: v.seats, occupants: v.occupants } : {};
   }
 
   /** Problèmes de la scène et des tuiles du monde infini (préfixés `infinite.tile.`). */
@@ -711,6 +729,7 @@ export class SonicProcgen extends HTMLElement {
       nodes,
       svg: this.svgOut,
       balls: this.view?.ballState() ?? {},
+      ...(this.view instanceof ProcgenView ? { vehicles: this.view.vehicleState() } : {}),
       ...(this.view instanceof ProcgenView && this.model?.physics ? { physics: this.view.physOut, queries: this.view.queryOut } : {}),
       ...(this.view instanceof ProcgenView ? this.view.emitState() : {}),
       ids: this.idsList(),
@@ -756,7 +775,7 @@ export class SonicProcgen extends HTMLElement {
     }
     this.dispatchEvent(new CustomEvent(`procgen-${e.type}`, { detail: e.payload, bubbles: true, composed: true }));
     // positions des ballons republiées quand un coup part ou qu'un ballon s'arrête
-    if (e.type === "kick" || e.type === "rest" || e.type === "settle" || e.type === "drop" || e.type === "impact") this.queueOut();
+    if (e.type === "kick" || e.type === "rest" || e.type === "settle" || e.type === "drop" || e.type === "impact" || e.type === "board" || e.type === "alight" || e.type === "arrive") this.queueOut();
   }
 
   /* ---------------- interactions ---------------- */

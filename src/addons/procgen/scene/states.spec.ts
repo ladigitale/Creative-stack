@@ -56,7 +56,7 @@ describe("parties mobiles déclarées par les générateurs", () => {
 
   it("véhicules : portières (door.fl côté conducteur, x > 0), coffre, capot, essieux, places", () => {
     const car = build("vehicle", { kind: "moderncar", variant: 0 });
-    expect(names(car)).toEqual(["door.fl", "door.rl", "door.fr", "door.rr", "trunk", "hood", "wheel.0", "wheel.1"]);
+    expect(names(car)).toEqual(["door.fl", "door.rl", "door.fr", "door.rr", "trunk", "hood", "steer.fl", "wheel.0.l", "steer.fr", "wheel.0.r", "wheel.1"]);
     const fl = car.joints!.find((j) => j.name === "door.fl")!;
     expect(fl.pivot[0]).toBeGreaterThan(0);
     expect(car.anchors["seat.driver"].pos[0]).toBeGreaterThan(0);
@@ -65,7 +65,8 @@ describe("parties mobiles déclarées par les générateurs", () => {
     // la portière ouverte s'écarte de la caisse (vers +x)
     const h = car.anchors["door.fl.handle"].pos;
     expect(m4Point(jointLocal(fl, 1), h)[0]).toBeGreaterThan(h[0] + 0.5);
-    expect(car.joints!.find((j) => j.name === "wheel.0")!.openable).toBe(false);
+    expect(car.joints!.find((j) => j.name === "wheel.0.l")!.openable).toBe(false);
+    expect(car.joints!.find((j) => j.name === "steer.fl")!.openable).toBe(false);
     expect(names(build("vehicle", { kind: "van", variant: 1 }))).toEqual(expect.arrayContaining(["door.fl", "door.fr", "door.side", "door.back.l", "door.back.r"]));
     expect(build("vehicle", { kind: "van", variant: 1 }).joints!.find((j) => j.name === "door.side")!.kind).toBe("translation");
     expect(names(build("vehicle", { kind: "bus" }))).toEqual(expect.arrayContaining(["door.0", "door.1"]));
@@ -137,7 +138,8 @@ describe("lecture des états", () => {
     expect(r.values["malles.1"]).toEqual({ lid: 1 });
     expect(r.values["malles.0"].lid).toBe(0.5);
     expect(r.values["autos.0"]).toMatchObject({ "door.fl": 1, "door.fr": 1, "door.rl": 1, "door.rr": 1, trunk: 1 });
-    expect(r.values["autos.0"]["wheel.0"]).toBeUndefined();
+    expect(r.values["autos.0"]["wheel.0.l"]).toBeUndefined();
+    expect(r.values["autos.0"]["steer.fl"]).toBeUndefined();
     expect(r.values["maisons.0"]).toMatchObject({ door: 1, burning: 1 });
     const byPath = Object.fromEntries(issues.list.map((i) => [i.path, i]));
     expect(byPath["states.autos.0.trunk"].code).toBe("clamped");
