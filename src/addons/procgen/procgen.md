@@ -21,7 +21,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `seed` | Graine. Même graine = même monde ; chaque objet a sa sous-graine, donc modifier un objet ne bouge pas les autres |
 | `params` | Paramètres exposés par la recette (ex. `village` : `maisons`, `habitants`) |
 | `style` | Préréglage (`gouache`, `doux`, `encre`, `bd`, `pixel`, `lowpoly`, `brume`, `nuit`, `neon`, `crepuscule`, `automne`, `printemps`, `desert`, `neige`, `papier`, `abysses`, `aquarelle`) ou jetons (voir Styles) |
-| `view` | `{camera, yaw, pitch, zoom, cx, cy, cz, actor}` ; `camera` : `side`, `front`, `iso`, `oblique`, `top`, `perspective`, `follow` (suit `actor`) |
+| `view` | `{camera, yaw, pitch, zoom, cx, cy, cz, actor}` ; `camera` : `side`, `front`, `iso`, `oblique`, `top`, `perspective`, `follow` (suit `actor` ou `follow` : acteur ou véhicule, voir Conduite) |
 | `anim` | `{play, speed}` |
 | `actors` | Intentions par acteur (voir Jeu) |
 | `select` | Id d'objet à surligner (`maisons.3`) |
@@ -38,6 +38,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `emitters` | Émetteurs ajoutés ou réglés sans recomposer : `{<id>: {…}}` fusionné champ par champ avec `recipe.emitters` (`null` retire celui de la recette) ; voir Émetteurs |
 | `states` | États des objets sans recomposer : `{"<objectId>": {"lid": 1, "door.fl": 0.5, "burning": true}}`, fusionné par objet par-dessus les états de la recette (voir Parties et états) |
 | `stateSpeed` | Durée d'une course complète d'une partie (s, 0,6 par défaut ; 0 = immédiat) ; aussi clé `stateSpeed` de la recette |
+| `drive` | Conduite directe sans recomposer : `{"<véhicule ou monture>": {throttle: -1…1, steer: -1…1 (> 0 : à droite), brake: 0…1}}` (voir Conduite) |
 | `emit` | Ordres de tir : `{<id>: {n, count, at, dir, toward, clear, kill}}` (chaque hausse de `n` tire une salve ; voir Émetteurs) |
 
 ## Clés écrites dans `state-out` (défaut `<dataProvider>State`)
@@ -62,6 +63,7 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `photo` | Rendu soigné : `{etat: arret\|attente\|calcul\|fini\|indisponible, moteur: rayons\|raster, echantillons, total, progression (0…1), raison}` ; `null` sans `photo` ; `status.photoMs` : coût du démarrage (copie traçable et BVH, ms) |
 | `ambiance` | `{name, meteo}` de l'ambiance appliquée (`meteo` : préréglages de particules demandés), `null` sans ambiance |
 | `emitters` | `{<id>: {alive, emitted, dropped, expired, exited?, ms, near?}}` : copies vivantes, nées, recyclées, mortes, sorties de la scène, coût de la simulation (ms) |
+| `vehicles` | Véhicules et montures (64 au plus) : `{<id>: {x, z, yaw (°), speed (m/s), driver, passengers: [ids], seats: {"seat.driver": id\|null, …}, to?: {x, z, target}}}` |
 | `impacts` | Dernières touches des projectiles (16 au plus) : `{emitter, id, target, copy?, tags, x, y, z, dir, t}` |
 
 `issues` : `{path, code: unknown|clamped|type|expr|missing|limit|info, message, got, used, hint, didYouMean}`. Une erreur n'arrête jamais le rendu : la scène s'affiche avec ce qui est valide.
@@ -75,8 +77,10 @@ Le composant **n'écrit jamais** dans `dataProvider` : un `sonic-store` qui le p
 | `pick` | `{objectId, generator, layer, x, y, z, actor, zone, part}` : position au sol comprise (point-and-click) ; `part` : partie mobile touchée (`lid`, `door.fl`…, rendu 3D) |
 | `state` | `{objectId, part, value}` : une partie a fini de bouger (fin de l'animation vers l'état demandé) |
 | `select` | `{objectId, generator, layer, params}` |
-| `arrive` | `{actor, x, z, target}` : l'acteur est arrivé |
-| `blocked` | `{actor, reason: no-path\|wall\|ball-moved}` (`ball-moved` : le ballon visé a roulé hors d'atteinte trois fois) |
+| `arrive` | `{actor, x, z, target}` : l'acteur est arrivé ; `{actor, vehicle, x, z, target}` : le véhicule conduit est arrivé |
+| `board` / `alight` | `{actor, vehicle, seat, driver}` : assis à sa place (portière refermée ensuite) / `{actor, vehicle, seat, x, z}` : descendu |
+| `bump` | `{vehicle, hit, x, z}` : le véhicule s'arrête contre `hit` (objet, `edge`, `water`, `shore`, `rails-end`), une fois par contact |
+| `blocked` | `{actor, reason: no-path\|wall\|ball-moved}` (`ball-moved` : le ballon visé a roulé hors d'atteinte trois fois) ; conduite : `{actor, vehicle, reason: no-vehicle\|no-seat\|seat-taken\|not-rider\|not-driver\|no-target\|no-path\|wall\|stuck}` |
 | `enter` / `leave` | `{zone, actor}` ou `{zone, ball, actor: null}` quand un ballon entre dans une zone (un but) |
 | `kick` | `{actor, ball, power}` ; `{actor: null, ball}` pour la clé `kick` |
 | `hit` | `{ball, actor}` : un acteur a heurté un ballon (dribble) |
@@ -97,6 +101,7 @@ Intentions d'acteur (`actors.<id>`), écrites par le reducer, **jamais à chaque
 
 - `{x, z}` ou `{target: "maisons.2"}` (ancre `door` par défaut, ou `"maisons.2.door"`) : marche jusque-là par la grille de navigation, contourne les bâtiments, puis `arrive` ; `run: true` pour courir, `speed` en m/s ;
 - `{target: "bancs.1.sit.0", action: "sit"}` : marche jusqu'à la place (ancre `approach.0`, devant l'assise), s'assied sur `sit.0` face à l'avant, le bassin à hauteur d'assise (chaise, tabouret de bar, rondin, balançoire…), puis `arrive` ;
+- `{target: "voitures.0", action: "board", seat: "driver" | N}`, `{action: "alight"}`, `{action: "drive", to}` : monter, descendre, conduire (voir Conduite) ;
 - `{target: "ballons.0", action: "kick", power, loft}` : va au ballon (le rattrape s'il a roulé) et tire dans l'axe de son arrivée (`power` en m/s, 7 par défaut, 30 au plus ; `loft` 0 à 1,5 lève le ballon) ; les ballons (`ball`) rebondissent selon leur `physics` (restitution, frottement) sur le sol, les obstacles (à toute hauteur) et les bords, roulent, s'empilent, sont poussés par les acteurs qui marchent dessus ; les ovales et les ballons écrasés glissent sans culbuter ; un ballon caché (`hidden`) sort du jeu ; `pick` et `selection` donnent la position de départ, `balls` la position courante ;
 - `{vx, vz}` : déplacement direct (manette à 30 Hz), sans chemin ;
 - `{target: "bassin.0.spot.1", action: "drink"}` (ou `"eat"`, `"sleep"`) : marche jusqu'à `approach.N`, se place la bouche au-dessus de l'ancre `spot.N` (eau d'un `water`, abreuvoir, gamelle, mangeoire d'un `pet`), tourné vers elle, puis boit ou mange (cou baissé jusqu'à la hauteur de la cible) ; `sleep` vers une niche ou un panier : s'y couche ; `{target: "bassin.0", action: "drink"}` prend la place la plus proche ; `{target: "bancs.1.sit.0", action: "sleep"}` : s'endort assis. Chien, chat, cheval, vache, mouton, oiseaux et personnages ;
@@ -157,16 +162,61 @@ Un acteur peut porter un état libre (`actors.<id>.states`) : ses effets le suiv
 | Générateur | Parties |
 |---|---|
 | `container` | `lid` : coffre (chest), caisse (crate), caisse à outils, poubelle à roulettes, glacière, marmite (pot), bidon à lait, valise (coque avant, en livre) ; carton : rabats `lid.f`, `lid.b`, `lid.l`, `lid.r`. `open` = valeur de départ ; contenu (`fill`) seulement s'il part ouvert |
-| `vehicle` | `moderncar` : `door.fl` (conducteur, à gauche, x > 0), `door.fr`, `door.rl`, `door.rr`, `trunk` (hayon), `hood` ; `van` : `door.fl`, `door.fr`, `door.side` (coulissante, à droite), `door.back.l`, `door.back.r` ; `bus` : `door.0`, `door.1` (coulissantes, à droite) ; `truck` : `door.fl`, `door.fr`, puis `door.back.l|r` (caisse) ou `tailgate` (benne). Essieux `wheel.N` (moderncar, van, bus, truck, tractor ; un tour = 0…1, jamais ouverts par `open`). Places : `seat.driver`, `seat.N`, `approach.door.fl`… |
+| `vehicle` | `moderncar` : `door.fl` (conducteur, à gauche, x > 0), `door.fr`, `door.rl`, `door.rr`, `trunk` (hayon), `hood` ; `van` : `door.fl`, `door.fr`, `door.side` (coulissante, à droite), `door.back.l`, `door.back.r` ; `bus` : `door.0`, `door.1` (coulissantes, à droite) ; `truck` : `door.fl`, `door.fr`, puis `door.back.l|r` (caisse) ou `tailgate` (benne). Essieux `wheel.N` (un tour = 0…1, jamais ouverts par `open`) ; essieu avant directeur : roues `wheel.0.l` / `wheel.0.r` (préfixe `wheel.0`), enfants de `steer.fl` / `steer.fr` (±35°, 0,5 = tout droit) : moderncar, van, bus, truck, tractor. Places : `seat.driver`, `seat.N`, `approach.door.fl`… |
 | `building` | `door` (porte d'entrée, vers l'intérieur, embrasure sombre) ; volets `shutter.N` (0 = fermé devant la fenêtre, 1 = ouvert à plat ; entrebâillés au départ selon la graine), 24 parties au plus |
 | `structure.gate` | `gate.l`, `gate.r` (vantaux, `open` = valeur de départ) |
 | `pet.kennel` | `door` (porte battante, ouverte au départ) |
 | `prop.mailbox` | `lid` (volet de la fente) |
 | `assembly` | toute pièce avec `part: {name, pivot, axis, range, kind: rotation\|translation, label, initial}` ; les pièces d'un même nom forment une partie |
 
-**Non couvert (limites)** : voiture ancienne (`vehicle.car`), carrosse et autres véhicules dessinés au maillage ; portes d'armoire et tiroirs (aucun générateur de meuble à portes) ; `street.barrier` (barrière de chantier fixe : utiliser `structure.gate`) ; porte des tours, moulins, phares et des annexes d'un bâtiment. La direction des roues (`steer`) n'est pas une partie : un essieu tourne d'un bloc autour de x. Le vectoriel fige l'état demandé pour les objets sur la grammaire de pièces (contenants, véhicules modernes, portail, niche, assemblage) ; le bâtiment et la boîte aux lettres y restent fermés, sans `pick.part`. La navigation et les obstacles d'un portail suivent `open` à la composition, pas l'état. Monde infini : parties à leur valeur de départ (la clé `states` n'y est pas appliquée). Physique : pas de charnière automatique ; une partie ne pousse pas les corps (pour un battant physique, `physics.joints` avec `hinge`). Un contenu qui dépasse d'un contenant ouvert puis refermé traverse le couvercle.
+**Parties imbriquées** : une partie peut avoir une parente (`parent`, trois niveaux au plus) ; sa matrice vaut objet × parente × partie (pivots en repère de l'objet fermé). La roue `wheel.0.l` braque avec `steer.fl` et tourne sur son axe en même temps ; une partie sans maillage (direction) ne sert que de parente.
+
+**Non couvert (limites)** : voiture ancienne (`vehicle.car`), carrosse et autres véhicules dessinés au maillage ; portes d'armoire et tiroirs (aucun générateur de meuble à portes) ; `street.barrier` (barrière de chantier fixe : utiliser `structure.gate`) ; porte des tours, moulins, phares et des annexes d'un bâtiment. Le vectoriel fige l'état demandé pour les objets sur la grammaire de pièces (contenants, véhicules modernes, portail, niche, assemblage) ; le bâtiment et la boîte aux lettres y restent fermés, sans `pick.part`. La navigation et les obstacles d'un portail suivent `open` à la composition, pas l'état. Monde infini : parties à leur valeur de départ (la clé `states` n'y est pas appliquée). Physique : pas de charnière automatique ; une partie ne pousse pas les corps (pour un battant physique, `physics.joints` avec `hinge`). Un contenu qui dépasse d'un contenant ouvert puis refermé traverse le couvercle.
 
 **Structure pour la suite** : une partie a un nom stable, ses ancres et son propre maillage (instance ou plage de sommets) ; des dégâts pourront l'arracher (cacher son instance, lâcher un débris) et des contenus s'attacher à une ancre de partie ou se cacher sous une partie fermée.
+
+## Conduite
+
+Véhicules (`vehicle`) et montures (`animal` : `horse`, `deer`, `cow`, `bear`) se conduisent sans recomposer : la caisse, ses parties et ses occupants sont déplacés image par image (rendu 3D).
+
+```json
+{ "actors": { "heros": { "target": "voitures.0", "action": "board", "seat": "driver" } } }
+{ "actors": { "heros": { "action": "drive", "to": "gare" } } }
+{ "drive": { "voitures.0": { "throttle": 0.6, "steer": -0.4, "brake": 0 } } }
+```
+
+**Monter, descendre** (`actors.<id>`, personnages seulement) :
+- `{target: "<véhicule>", action: "board", seat}` : `seat` = `"driver"` (défaut, `seat.driver`, `seat` ou `seat.rider`), un rang N (`seat.N`) ou un nom d'ancre. L'acteur marche jusqu'à `approach.door.X` (la portière la plus proche de sa place, du même côté), la portière s'ouvre (état `door.X`, `stateSpeed`), il se glisse à sa place, s'assied (bassin à l'ancre, pieds au plancher, mains au volant), `board` part, la portière se referme. Sans portière (vélo, charrette, voiture ancienne, carrosse, barque, voilier, tracteur, montgolfière, train, monture) : à côté de la place, du côté d'où il vient, puis il monte directement. Une place prise : `blocked` (`seat-taken`).
+- `{action: "alight"}` : la portière s'ouvre, il descend devant elle (ou à côté de sa place, sur une case libre), `alight`, elle se referme. Tout ordre de déplacement (`x, z`, `target`, `vx`) fait descendre d'abord.
+- Poses à bord : `drive` (assis, mains au volant ou aux rênes : voitures, tracteur, carrosse, train), `ride` (à califourchon, pieds dans le vide ; sur le vélo, les pieds pédalent), `row` (barque : le rameur tourne le dos à l'avant et rame), `sit` (passagers), debout (montgolfière ; charrette : il marche entre les brancards en la tirant). Montures : à cru, ancre `seat.rider` sur le dos.
+- L'occupant suit sa place dans le repère du véhicule ; `state-out.actors.<id>` porte `vehicle`, `seat`, `boarding`.
+
+**Conduire vers une destination** : `{action: "drive", to}` sur le conducteur (assis à la place du conducteur ; reçu pendant la montée, l'ordre attend qu'il soit assis ; sinon `blocked` `not-driver`). `to` : `{x, z}` ou `[x, z]`, id de zone (centre), id d'objet (arrêt devant son emprise) ou d'acteur ; `speed` (m/s), `run` (monture au galop). Itinéraire : par les routes et chemins de la recette (`paths`, routes du monde infini) quand elles rapprochent (gabarit compatible : une voiture ne prend pas un sentier, le vélo si), sinon par la grille de navigation élargie au gabarit ; bateaux par l'eau (eau du terrain ou mare, bassin, piscine ; une cible à terre : on accoste au plus près) ; train le long de sa voie ; montgolfière en ligne droite, elle s'élève en route et se pose à l'arrêt. Le véhicule suit l'itinéraire en visant un point devant lui, accélère et freine en douceur (vitesse bornée par les virages et la distance d'arrêt), recule pour une cible proche derrière lui, puis `arrive` `{actor, vehicle, x, z, target}`. Coincé 6 s : un nouvel itinéraire, puis `blocked` (`wall` ou `stuck`).
+
+**Commande directe** : clé `drive` `{<id>: {throttle, steer, brake}}` (manette, curseurs) ; prioritaire sur l'itinéraire tant qu'une valeur est non nulle, retirer l'entrée laisse le véhicule s'arrêter en roue libre. Aucun conducteur n'est exigé. Modèle « bicyclette » : cap = vitesse × tan(braquage) / empattement ; braquage lissé, réduit à haute vitesse ; marche arrière avec `throttle` < 0 une fois arrêté.
+
+| Sorte | Empattement | Braquage | Vitesse max | Milieu |
+|---|---|---|---|---|
+| `moderncar` / `van` / `bus` / `truck` | 2,6 / 3,05 / 7,8 / 5,1 m | 35 / 33 / 30 / 30° | 14 / 12 / 10 / 10 m/s | sol, portières |
+| `tractor`, `car`, `carriage` | 2,2 / 2,2 / 1,75 m | 38 / 32 / 30° | 7 / 10 / 6 m/s | sol |
+| `bicycle`, `handcart` | 1,04 / 1 m | 40 / 45° | 6 / 1,6 m/s | sol |
+| `rowboat`, `sailboat` | 2 / 3,5 m | 40 / 30° | 2 / 4 m/s | eau |
+| `balloon`, `locomotive` | 2 / 5 m | 60 / 0° | 3 / 12 m/s | air / rails (`structure` à ancres `end.0`, `end.1`) |
+| montures `horse`, `deer`, `cow`, `bear` | 1,1 × longueur | 50 à 55° | 9 / 8 / 3 / 5 m/s | sol ; au pas, tourne sur place |
+
+Échelle d'objet : empattement et gabarit suivent. Le `wagon` ne se conduit pas.
+
+**Rendu** : caisse posée sur le relief (tangage, roulis), qui roule un peu vers l'extérieur des virages (le vélo se penche vers l'intérieur) et pique au freinage ; bateaux qui tanguent sur l'eau ; roues `wheel.N` qui tournent à la vitesse du sol et roues avant braquées (`steer.f*`) ; monture qui marche, trotte ou galope selon la vitesse.
+
+**Collisions** : le véhicule s'arrête au contact (`bump`) des emprises du décor (bâtiments, mobilier, troncs des arbres, tronçons de clôture, garde-corps et piles d'ouvrages ; pas l'herbe, les fleurs, les petits objets bas ni les ballons), des autres véhicules, des bords de la scène, de l'eau (au sol) ou de la rive (bateaux). Il pousse les ballons (simulation simple) ; avec `physics`, il devient un corps cinématique pendant qu'il roule et pousse les corps dynamiques. À l'arrêt, son emprise reprend place dans la grille de navigation (les piétons le contournent) : un véhicule est un obstacle mobile, ni recomposé ni assombri au sol.
+
+**Caméra** : `view: {camera: "follow", actor: "<véhicule>"}` (ou `follow: "<id>"`, ou l'acteur assis : la caméra suit son véhicule) : suivi doux derrière lui (position et cap lissés) ; un doigt tourne autour (décalage gardé), sans saut ni réinitialisation à la recomposition.
+
+**Publication** : `state-out.vehicles` (voir plus haut) ; `ids[].affords` et `selection.affords` contiennent `board` et `drive` ; `selection.seats` (places, conducteur d'abord) et `selection.occupants` (`{place: acteur}`). Le glisser au doigt d'un véhicule (ou d'une monture) emmène ses occupants ; un passager saisi descend.
+
+**Monde infini** : le véhicule conduit quitte sa tuile pour la séance (dessiné à part, parties comprises ; la tuile le retire à sa recomposition, sans écrire dans `tiles`) et roule d'une tuile à l'autre ; `infinite.follow` et `view.actor` peuvent viser le véhicule. Itinéraires par les tuiles chargées (160 m au plus, au-delà en ligne droite).
+
+**Limites** : rendu 3D seulement (le vectoriel ignore les ordres de conduite) ; pas de selle (à cru) ; pas d'attelage (le carrosse n'a pas de chevaux attelés, le wagon ne suit pas la locomotive) ; le train suit une seule voie droite ; occupants assis droits (ils ne suivent pas le roulis) ; les véhicules ne s'arrêtent pas devant les piétons ; un véhicule conduit en monde infini revient à sa tuile si le monde est recomposé ; les véhicules déplacés d'une scène finie gardent leur pose et leurs occupants à la recomposition, pas leur itinéraire.
 
 ## Physique 3D (corps rigides)
 

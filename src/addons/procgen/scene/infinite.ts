@@ -227,8 +227,23 @@ export class TileWorld {
     return this.edits;
   }
 
+  /** Objets sortis de leur tuile pour la séance (véhicule conduit, dessiné à part) : retirés à la recomposition. */
+  private detached = new Map<string, Set<string>>();
+  detach(id: string, key: string) {
+    let d = this.detached.get(key);
+    if (!d) this.detached.set(key, (d = new Set()));
+    d.add(id);
+  }
+  /** Retouches d'une tuile, objets détachés compris (non persistés dans `tiles`). */
+  private editsFor(key: string): TileEdit | undefined {
+    const e = this.edits[key];
+    const d = this.detached.get(key);
+    if (!d?.size) return e;
+    return { ...(e ?? {}), remove: [...new Set([...(e?.remove ?? []), ...d])] };
+  }
+
   private sigOf(key: string) {
-    return JSON.stringify(this.edits[key] ?? null);
+    return JSON.stringify(this.editsFor(key) ?? null);
   }
 
   /**
@@ -278,7 +293,7 @@ export class TileWorld {
       queued++;
       const serial = this.serial++;
       const objBase = 100000 + (serial % 4000) * 2048;
-      const h = this.runner.start({ recipe: this.recipe, seed: this.seed, params: this.params, spec: this.spec, cx: w.cx, cz: w.cz, edits: this.edits[w.key], objBase, step: this.step }, (m, ms) => {
+      const h = this.runner.start({ recipe: this.recipe, seed: this.seed, params: this.params, spec: this.spec, cx: w.cx, cz: w.cz, edits: this.editsFor(w.key), objBase, step: this.step }, (m, ms) => {
         const cur = this.jobs.get(w.key);
         if (!cur || cur.sig !== sig) return;
         this.jobs.delete(w.key);
@@ -367,7 +382,7 @@ export class TileWorld {
    * Chemin de `from` à `to` à travers les tuiles chargées : grille de navigation recousue sur le rectangle des deux
    * points (élargi de 8 m, 160 m de côté au plus). Au-delà, ligne droite (l'acteur s'arrête contre un obstacle).
    */
-  path(from: [number, number], to: [number, number]): [number, number][] | null {
+  path(from: [number, number], to: [number, number], clearance = 0): [number, number][] | null {
     const pad = 8;
     const x0 = Math.min(from[0], to[0]) - pad, x1 = Math.max(from[0], to[0]) + pad;
     const z0 = Math.min(from[1], to[1]) - pad, z1 = Math.max(from[1], to[1]) + pad;
@@ -378,7 +393,8 @@ export class TileWorld {
         const [x, z] = g.center(i, j);
         if (!this.free(x, z)) g.blocked[j * g.nx + i] = 1;
       }
-    return g.path(from, to);
+    // véhicule : obstacles élargis à son gabarit
+    return clearance > 0.3 ? g.pathWide(from, to, clearance) : g.path(from, to);
   }
 
   /** Objets de toutes les tuiles chargées (repère du monde), recalculés quand l'ensemble change. */
