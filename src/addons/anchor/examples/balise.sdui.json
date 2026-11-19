@@ -36,7 +36,7 @@
           "tagName": "sonic-orientation",
           "attributes": {
             "id": "orient",
-            "for": "go",
+            "for": "capteurs",
             "sensors": true,
             "smoothing": "0.6",
             "rate": "15"
@@ -46,7 +46,7 @@
           "tagName": "sonic-geolocation",
           "attributes": {
             "id": "geo",
-            "for": "go",
+            "for": "capteurs",
             "places": "balises.items",
             "radius": "150"
           }
@@ -72,6 +72,36 @@
           "attributes": {
             "style": "margin:0;opacity:.75"
           }
+        },
+        {
+          "tagName": "sonic-media-start",
+          "attributes": {
+            "id": "go",
+            "for": "cam"
+          },
+          "nodes": [
+            {
+              "tagName": "sonic-button",
+              "attributes": {
+                "type": "primary",
+                "shape": "block"
+              },
+              "nodes": [
+                {
+                  "tagName": "sonic-icon",
+                  "attributes": {
+                    "library": "iconoir",
+                    "name": "camera",
+                    "slot": "prefix"
+                  }
+                },
+                {
+                  "tagName": "span",
+                  "textContent": "Activer la caméra"
+                }
+              ]
+            }
+          ]
         },
         {
           "tagName": "div",
@@ -160,24 +190,17 @@
                   ]
                 }
               ]
-            },
-            {
-              "tagName": "div",
-              "attributes": {
-                "style": "position:absolute;left:0;right:0;bottom:1rem;display:flex;justify-content:center"
-              },
-              "nodes": [
-                {
-                  "tagName": "sonic-media-start",
-                  "attributes": {
-                    "id": "go",
-                    "for": "cam",
-                    "label": "Démarrer la caméra et les capteurs"
-                  }
-                }
-              ]
             }
           ]
+        },
+        {
+          "tagName": "sonic-button",
+          "attributes": {
+            "id": "capteurs",
+            "variant": "outline",
+            "size": "sm"
+          },
+          "textContent": "Activer GPS et inclinaison (après la caméra)"
         },
         {
           "tagName": "div",
