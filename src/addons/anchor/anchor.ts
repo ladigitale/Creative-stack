@@ -33,6 +33,10 @@ export type AnchorState = {
   ms: number;
   fps: number;
   references: number;
+  /** Numéro (`frameSeq` de la source) de l'image analysée : `sonic-frame-sync sync="<id>"` montre cette image exacte. */
+  frameSeq: number;
+  /** Délai entre la prise de cette image et la publication (ms). */
+  latencyMs: number;
   /** Références essayées (après le filtre `within`). */
   candidates: number;
   /** Champs de l'entrée trouvée, sans sa référence (message, effet, auteur…). */
@@ -44,7 +48,7 @@ export type AnchorState = {
 const IDLE: AnchorState = {
   status: "idle", error: null, found: false, refId: null, index: -1, corners: null, width: 0, height: 0,
   matches: 0, inliers: 0, confidence: 0, rotation: null, ms: 0, fps: 0, references: 0,
-  candidates: 0, item: null, similarity: null,
+  candidates: 0, item: null, similarity: null, frameSeq: -1, latencyMs: 0,
 };
 
 /**
@@ -63,6 +67,9 @@ const IDLE: AnchorState = {
  * - `active` ou `control` `{ start, stop }` ; analyse au plus toutes les `interval` ms, image réduite à `max-size`.
  * - `smoothing` 0..0.9 lisse les coins ; `hold` garde la dernière position quelques analyses après une perte.
  * - État `<id>State` (ou `out-data-provider`) : voir `AnchorState`. `debug` dessine la zone trouvée.
+ * - Synchronisation image / contenu : l'état porte `frameSeq` et `latencyMs` de l'image analysée ; afficher la
+ *   caméra à travers `sonic-frame-sync for="cam" sync="<id>State"` (puis un `sonic-shader channel0`) pour que le
+ *   contenu projeté tombe exactement sur l'image où la zone a été trouvée.
  */
 @customElement("sonic-anchor")
 export class SonicAnchor extends LitElement {
@@ -203,9 +210,12 @@ export class SonicAnchor extends LitElement {
     const el = resolveSource(this, this.source);
     if (!el || !isFrameSource(el)) return;
     if (el.frameSeq === this.lastSeq) return;
+    const grabbedAt = performance.now();
     const grab = grabGray(el, this.maxSize);
     if (!grab) return;
-    this.lastSeq = el.frameSeq;
+    // Lu après la copie : getFrameCanvas() peut avoir avancé la source d'une image.
+    const seq = el.frameSeq;
+    this.lastSeq = seq;
     const t0 = performance.now();
     const { gray } = grab;
     const frame = extractFeatures(gray, { maxPoints: this.maxPoints, levels: 4 });
@@ -225,6 +235,7 @@ export class SonicAnchor extends LitElement {
     const base = {
       width: gray.width, height: gray.height, ms: Math.round(ms), fps, references: this.refs.length, error: null,
       candidates: this.pool().length, similarity: this.bestSimilarity,
+      frameSeq: seq, latencyMs: Math.round(performance.now() - grabbedAt),
     };
 
     if (hit) {
@@ -246,7 +257,8 @@ export class SonicAnchor extends LitElement {
     }
     this.misses++;
     if (this.smoothed && this.misses <= Math.max(0, this.hold)) {
-      this.publish({ ...this.stateValue, ...base, status: "holding", matches: best.matches, inliers: best.inliers });
+      // La position gardée appartient à l'image du dernier succès : on garde son numéro.
+      this.publish({ ...this.stateValue, ...base, frameSeq: this.stateValue.frameSeq, latencyMs: this.stateValue.latencyMs, status: "holding", matches: best.matches, inliers: best.inliers });
       return;
     }
     this.current = -1;
