@@ -6,6 +6,7 @@ import "../src/addons/media";
 import "../src/addons/device";
 import "../src/addons/anchor";
 import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import "../src/addons/vision";
 import descriptor from "../src/addons/anchor/examples/balise.sdui.json";
 
 (window as unknown as Record<string, unknown>).__get = (k: string) => JSON.parse(JSON.stringify(get(k) ?? null));

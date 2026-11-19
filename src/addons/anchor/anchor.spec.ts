@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./index";
+import "../interactive";
 import { buildReference, fitRect, projectionMatrix, type SonicAnchor, type SonicAnchorRef, type SonicAnchorView } from "./index";
 import { boxBlur } from "./core/image";
 
@@ -60,7 +61,61 @@ describe("sonic-anchor", () => {
   });
 });
 
+describe("sonic-anchor : entrées enregistrées", () => {
+  it("lit les entrées {id, ref, …}, filtre par proximité et publie les champs de l'entrée", async () => {
+    const zone = [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }];
+    const ref = buildReference(texture(200, 150), zone);
+    set("entreesTest", [
+      { id: "ici", lat: 47.39, lon: 0.69, message: "bonjour", ref },
+      { id: "loin", lat: 48, lon: 2, ref },
+      { id: "sansgps", ref },
+    ]);
+    set("procheTest", { nearby: [] });
+    const el = document.createElement("sonic-anchor") as SonicAnchor;
+    el.id = "ancreEntrees";
+    el.setAttribute("reference", "entreesTest");
+    el.setAttribute("only", "procheTest");
+    document.body.appendChild(el);
+    await tick();
+    expect(el.candidateIds()).toEqual(["ici", "loin", "sansgps"]);
+    set("procheTest", { nearby: [{ id: "ici", distance: 4 }] });
+    await tick();
+    expect(el.candidateIds()).toEqual(["ici", "sansgps"]);
+    expect((get("ancreEntreesState") as { references: number }).references).toBe(3);
+    el.remove();
+  });
+});
+
 describe("sonic-anchor-ref", () => {
+  it("enregistre la balise dans un store, avec les champs de `extra`", async () => {
+    const store = document.createElement("sonic-store");
+    store.id = "balisesTest";
+    store.setAttribute("initial", JSON.stringify({ items: [] }));
+    store.setAttribute("reducer", '$action.type = "save" ? $merge([$state, {"items": $append($state.items, [$action.payload])}]) : $state');
+    document.body.appendChild(store);
+    set("extraTest", { message: "coucou", effet: "motif" });
+    const el = document.createElement("sonic-anchor-ref") as SonicAnchorRef;
+    el.id = "poseSave";
+    el.setAttribute("target", "balisesTest");
+    el.setAttribute("extra", "extraTest");
+    document.body.appendChild(el);
+    await tick();
+    expect(el.save()).toBe(false);
+    const ref = buildReference(texture(200, 150), [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }]);
+    ref.geo = { lat: 47.39, lon: 0.69, accuracy: 6 };
+    el.stateValue = { ...el.stateValue, reference: ref };
+    expect(el.save()).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    const items = (get("balisesTest") as { items: Array<Record<string, unknown>> }).items;
+    expect(items).toHaveLength(1);
+    expect(items[0].message).toBe("coucou");
+    expect(items[0].lat).toBe(47.39);
+    expect((items[0].ref as { id: string }).id).toBe(items[0].id);
+    expect((get("poseSaveState") as { saved: number }).saved).toBe(1);
+    el.remove();
+    store.remove();
+  });
+
   it("publie la zone ordonnée sans photo, et refuse de capturer sans source", async () => {
     set("zoneTest", null);
     const el = document.createElement("sonic-anchor-ref") as SonicAnchorRef;

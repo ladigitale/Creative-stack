@@ -18,6 +18,8 @@ export type AnchorReference = {
   /** Vecteur unitaire « haut » (repère image, y vers le bas) ; absent si le téléphone était à plat. */
   up?: Pt;
   geo?: { lat: number; lon: number; accuracy?: number; heading?: number };
+  /** Empreinte globale de la photo (`sonic-image-embedder`), pour classer les lieux candidats. */
+  embedding?: number[];
   n: number;
   /** Coordonnées ×4 en Uint16 (x, y), base64. */
   pts: string;
@@ -27,6 +29,8 @@ export type AnchorReference = {
 };
 
 export type DecodedReference = {
+  embedding: Float32Array | null;
+  geo: AnchorReference["geo"] | null;
   features: Features;
   zone: Pt[];
   up: Pt | null;
@@ -107,7 +111,10 @@ export function decodeReference(ref: unknown): DecodedReference | null {
     const x = new Float32Array(n), y = new Float32Array(n);
     for (let i = 0; i < n; i++) { x[i] = p16[i * 2] / 4; y[i] = p16[i * 2 + 1] / 4; }
     const desc = new Uint32Array(db.buffer, db.byteOffset, n * DESC_WORDS);
+    const emb = Array.isArray(r.embedding) && r.embedding.length ? Float32Array.from(r.embedding.map(Number)) : null;
     return {
+      embedding: emb && emb.every(Number.isFinite) ? emb : null,
+      geo: r.geo && Number.isFinite(+r.geo.lat) && Number.isFinite(+r.geo.lon) ? { ...r.geo } : null,
       features: { n, x, y, level: new Uint8Array(n), desc, width: r.width, height: r.height },
       zone: r.zone.map((p) => ({ x: +p.x, y: +p.y })),
       up: r.up ? unit(r.up) : null,
@@ -204,6 +211,14 @@ export function locate(ref: DecodedReference, frame: Features, opts: LocateOptio
 }
 
 /** Angle signé (degrés) pour passer de `a` à `b`, positif dans le sens horaire à l'écran (y vers le bas). */
+/** Cosinus entre deux empreintes (0 si tailles différentes ou nulles). */
+export function cosine(a: ArrayLike<number> | null, b: ArrayLike<number> | null): number {
+  if (!a || !b || a.length !== b.length || !a.length) return 0;
+  let d = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return na > 0 && nb > 0 ? d / Math.sqrt(na * nb) : 0;
+}
+
 export function signedAngle(a: Pt, b: Pt): number {
   return (Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y) * 180) / Math.PI;
 }
