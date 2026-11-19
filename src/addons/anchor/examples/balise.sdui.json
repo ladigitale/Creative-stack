@@ -9,17 +9,27 @@
         {
           "tagName": "sonic-store",
           "attributes": {
-            "id": "balise",
-            "initial": "{\"onglet\": \"poser\", \"effet\": \"motif\"}",
+            "id": "ui",
+            "initial": "{\"onglet\": \"poser\"}",
             "reducer": "$state"
           }
         },
         {
           "tagName": "sonic-store",
           "attributes": {
-            "id": "message",
-            "initial": "{\"texte\": \"Ici, quelqu'un a pens\\u00e9 \\u00e0 toi.\"}",
+            "id": "brouillon",
+            "initial": "{\"message\": \"Ici, quelqu'un a pensé à toi.\", \"effet\": \"message\"}",
             "reducer": "$state"
+          }
+        },
+        {
+          "tagName": "sonic-store",
+          "attributes": {
+            "id": "balises",
+            "initial": "{\"items\": []}",
+            "persist": "balises",
+            "max-state-bytes": "1200000",
+            "reducer": "$action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$action.payload])}]) : $action.type = \"remove\" ? $merge([$state, {\"items\": [$state.items[id != $action.payload]]}]) : $state"
           }
         },
         {
@@ -36,7 +46,17 @@
           "tagName": "sonic-geolocation",
           "attributes": {
             "id": "geo",
-            "for": "go"
+            "for": "go",
+            "places": "balises.items",
+            "radius": "150"
+          }
+        },
+        {
+          "tagName": "sonic-image-embedder",
+          "attributes": {
+            "id": "emb",
+            "for": "cam",
+            "fps": "2"
           }
         },
         {
@@ -44,11 +64,11 @@
           "attributes": {
             "style": "margin:0;font-size:1.4rem"
           },
-          "textContent": "Balise"
+          "textContent": "Balises"
         },
         {
           "tagName": "p",
-          "textContent": "Photographie une surface plane et texturée (façade, panneau, vitrine), délimite la zone, puis vise-la : le contenu s'y accroche.",
+          "textContent": "Pose une balise sur une surface plane et texturée (façade, panneau, vitrine), puis reviens la retrouver : son contenu s'y accroche.",
           "attributes": {
             "style": "margin:0;opacity:.75"
           }
@@ -74,7 +94,9 @@
               "attributes": {
                 "id": "ancre",
                 "source": "#cam",
-                "reference": "poseState.reference",
+                "reference": "balises.items",
+                "only": "geoState",
+                "embedding": "emb",
                 "gravity": "orientState",
                 "active": true,
                 "debug": true,
@@ -93,8 +115,8 @@
                 {
                   "tagName": "sonic-states",
                   "attributes": {
-                    "dataProvider": "balise",
-                    "data-path": "effet"
+                    "dataProvider": "ancreState",
+                    "data-path": "item.effet"
                   },
                   "nodes": [
                     {
@@ -121,14 +143,14 @@
                         {
                           "tagName": "div",
                           "attributes": {
-                            "style": "width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:48px;box-sizing:border-box;background:rgba(255,236,92,.88);color:#111;font:700 64px/1.1 system-ui,sans-serif;text-align:center;border-radius:24px"
+                            "style": "width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:48px;box-sizing:border-box;background:rgba(255,236,92,.9);color:#111;font:700 64px/1.1 system-ui,sans-serif;text-align:center;border-radius:24px"
                           },
                           "nodes": [
                             {
                               "tagName": "sonic-value",
                               "attributes": {
-                                "dataProvider": "message",
-                                "key": "texte"
+                                "dataProvider": "ancreState",
+                                "key": "item.message"
                               }
                             }
                           ]
@@ -158,9 +180,97 @@
           ]
         },
         {
+          "tagName": "div",
+          "attributes": {
+            "style": "display:flex;gap:.8rem;flex-wrap:wrap;font-size:.8rem;opacity:.75"
+          },
+          "nodes": [
+            {
+              "tagName": "span",
+              "nodes": [
+                {
+                  "tagName": "span",
+                  "textContent": "État : "
+                },
+                {
+                  "tagName": "sonic-value",
+                  "attributes": {
+                    "dataProvider": "ancreState",
+                    "key": "status"
+                  }
+                }
+              ]
+            },
+            {
+              "tagName": "span",
+              "nodes": [
+                {
+                  "tagName": "span",
+                  "textContent": "Points sûrs : "
+                },
+                {
+                  "tagName": "sonic-value",
+                  "attributes": {
+                    "dataProvider": "ancreState",
+                    "key": "inliers"
+                  }
+                }
+              ]
+            },
+            {
+              "tagName": "span",
+              "nodes": [
+                {
+                  "tagName": "span",
+                  "textContent": "Analyses/s : "
+                },
+                {
+                  "tagName": "sonic-value",
+                  "attributes": {
+                    "dataProvider": "ancreState",
+                    "key": "fps"
+                  }
+                }
+              ]
+            },
+            {
+              "tagName": "span",
+              "nodes": [
+                {
+                  "tagName": "span",
+                  "textContent": "Candidates : "
+                },
+                {
+                  "tagName": "sonic-value",
+                  "attributes": {
+                    "dataProvider": "ancreState",
+                    "key": "candidates"
+                  }
+                }
+              ]
+            },
+            {
+              "tagName": "span",
+              "nodes": [
+                {
+                  "tagName": "span",
+                  "textContent": "GPS ± m : "
+                },
+                {
+                  "tagName": "sonic-value",
+                  "attributes": {
+                    "dataProvider": "geoState",
+                    "key": "accuracy"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
           "tagName": "sonic-group",
           "attributes": {
-            "formDataProvider": "balise"
+            "formDataProvider": "ui"
           },
           "nodes": [
             {
@@ -179,18 +289,18 @@
               "attributes": {
                 "radio": true,
                 "name": "onglet",
-                "value": "retrouver",
+                "value": "liste",
                 "size": "sm",
                 "variant": "outline"
               },
-              "textContent": "Retrouver"
+              "textContent": "Mes balises"
             }
           ]
         },
         {
           "tagName": "sonic-if",
           "attributes": {
-            "dataProvider": "balise",
+            "dataProvider": "ui",
             "key": "onglet",
             "equals": "poser"
           },
@@ -207,7 +317,7 @@
                     "id": "photo",
                     "type": "primary"
                   },
-                  "textContent": "Photographier la surface"
+                  "textContent": "1. Photographier la surface"
                 },
                 {
                   "tagName": "sonic-anchor-ref",
@@ -215,16 +325,19 @@
                     "id": "pose",
                     "source": "#cam",
                     "for": "photo",
+                    "save-for": "garder",
+                    "target": "balises",
+                    "extra": "brouillon",
                     "gravity": "orientState",
                     "geo": "geoState",
-                    "ref-id": "balise-1",
+                    "embedding": "emb",
                     "style": "border-radius:.8rem;overflow:hidden"
                   }
                 },
                 {
                   "tagName": "div",
                   "attributes": {
-                    "style": "display:flex;gap:1rem;flex-wrap:wrap;font-size:.9rem;opacity:.8"
+                    "style": "display:flex;gap:1rem;flex-wrap:wrap;font-size:.85rem;opacity:.8"
                   },
                   "nodes": [
                     {
@@ -258,22 +371,6 @@
                           }
                         }
                       ]
-                    },
-                    {
-                      "tagName": "span",
-                      "nodes": [
-                        {
-                          "tagName": "span",
-                          "textContent": "Précision GPS (m) : "
-                        },
-                        {
-                          "tagName": "sonic-value",
-                          "attributes": {
-                            "dataProvider": "geoState",
-                            "key": "accuracy"
-                          }
-                        }
-                      ]
                     }
                   ]
                 },
@@ -294,10 +391,88 @@
                 },
                 {
                   "tagName": "small",
-                  "textContent": "Déplace les quatre coins sur la surface. Les points jaunes sont ce que la balise reconnaîtra : il en faut beaucoup, bien répartis.",
+                  "textContent": "2. Place les quatre coins sur la surface : les points jaunes sont ce que la balise reconnaîtra, il en faut beaucoup et bien répartis.",
                   "attributes": {
                     "style": "opacity:.7"
                   }
+                },
+                {
+                  "tagName": "sonic-fieldset",
+                  "attributes": {
+                    "label": "3. Contenu de la balise"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-form-layout",
+                      "nodes": [
+                        {
+                          "tagName": "sonic-group",
+                          "attributes": {
+                            "formDataProvider": "brouillon"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "radio": true,
+                                "name": "effet",
+                                "value": "message",
+                                "size": "sm",
+                                "variant": "outline"
+                              },
+                              "textContent": "Message"
+                            },
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "radio": true,
+                                "name": "effet",
+                                "value": "motif",
+                                "size": "sm",
+                                "variant": "outline"
+                              },
+                              "textContent": "Motif animé"
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-input",
+                          "attributes": {
+                            "formDataProvider": "brouillon",
+                            "name": "message",
+                            "label": "Message accroché à la surface"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-button",
+                  "attributes": {
+                    "id": "garder",
+                    "type": "success"
+                  },
+                  "textContent": "4. Poser la balise ici"
+                },
+                {
+                  "tagName": "small",
+                  "attributes": {
+                    "style": "opacity:.75"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "span",
+                      "textContent": "Balises posées pendant cette visite : "
+                    },
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "poseState",
+                        "key": "saved"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -306,110 +481,121 @@
         {
           "tagName": "sonic-if",
           "attributes": {
-            "dataProvider": "balise",
+            "dataProvider": "ui",
             "key": "onglet",
-            "equals": "retrouver"
+            "equals": "liste"
           },
           "nodes": [
             {
-              "tagName": "div",
+              "tagName": "sonic-jsonata",
               "attributes": {
-                "style": "display:flex;flex-direction:column;gap:.6rem"
+                "inputProvider": "balises",
+                "outputProvider": "listeBalises",
+                "expression": "$append([], $reverse($input.items).{\"id\": id, \"message\": message, \"effet\": effet, \"points\": points, \"quand\": $substring(createdAt, 0, 16), \"gps\": lat ? \"GPS ± \" & $string($round(accuracy)) & \" m\" : \"sans GPS\"})"
+              }
+            },
+            {
+              "tagName": "sonic-list",
+              "attributes": {
+                "dataProvider": "listeBalises"
               },
               "nodes": [
                 {
-                  "tagName": "sonic-group",
-                  "attributes": {
-                    "formDataProvider": "balise"
-                  },
+                  "tagName": "template",
                   "nodes": [
                     {
-                      "tagName": "sonic-button",
+                      "tagName": "div",
                       "attributes": {
-                        "radio": true,
-                        "name": "effet",
-                        "value": "motif",
-                        "size": "sm",
-                        "variant": "outline"
+                        "style": "display:flex;gap:.6rem;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--sc-base-200, #ddd)"
                       },
-                      "textContent": "Motif animé"
-                    },
-                    {
-                      "tagName": "sonic-button",
-                      "attributes": {
-                        "radio": true,
-                        "name": "effet",
-                        "value": "message",
-                        "size": "sm",
-                        "variant": "outline"
-                      },
-                      "textContent": "Message"
+                      "nodes": [
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "flex:1;min-width:0"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "strong",
+                              "attributes": {
+                                "style": "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-value",
+                                  "attributes": {
+                                    "key": "message"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "small",
+                              "attributes": {
+                                "data-bind": "",
+                                "::text-content": "$quand · $effet · $points points · $gps",
+                                "style": "opacity:.7"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "balises",
+                            "type": "remove",
+                            "data-bind": "",
+                            "::payload": "$id"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "type": "danger",
+                                "variant": "ghost",
+                                "size": "sm"
+                              },
+                              "textContent": "Supprimer"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 },
                 {
-                  "tagName": "sonic-input",
+                  "tagName": "template",
                   "attributes": {
-                    "formDataProvider": "message",
-                    "name": "texte",
-                    "label": "Message accroché à la surface"
+                    "data-value": "no-item"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "p",
+                      "textContent": "Aucune balise pour l'instant : pose la première dans l'onglet « Poser ».",
+                      "attributes": {
+                        "style": "opacity:.7"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tagName": "small",
+              "attributes": {
+                "style": "opacity:.75"
+              },
+              "nodes": [
+                {
+                  "tagName": "span",
+                  "textContent": "Sauvegarde : "
+                },
+                {
+                  "tagName": "sonic-value",
+                  "attributes": {
+                    "dataProvider": "sauvegarde",
+                    "key": "etat"
                   }
-                },
-                {
-                  "tagName": "div",
-                  "attributes": {
-                    "style": "display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem;font-size:.85rem"
-                  },
-                  "nodes": [
-                    {
-                      "tagName": "span",
-                      "nodes": [
-                        {
-                          "tagName": "span",
-                          "textContent": "État : "
-                        },
-                        {
-                          "tagName": "sonic-value",
-                          "attributes": {
-                            "dataProvider": "ancreState",
-                            "key": "status"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "span",
-                      "nodes": [
-                        {
-                          "tagName": "span",
-                          "textContent": "Points sûrs : "
-                        },
-                        {
-                          "tagName": "sonic-value",
-                          "attributes": {
-                            "dataProvider": "ancreState",
-                            "key": "inliers"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "span",
-                      "nodes": [
-                        {
-                          "tagName": "span",
-                          "textContent": "Analyses/s : "
-                        },
-                        {
-                          "tagName": "sonic-value",
-                          "attributes": {
-                            "dataProvider": "ancreState",
-                            "key": "fps"
-                          }
-                        }
-                      ]
-                    }
-                  ]
                 }
               ]
             }

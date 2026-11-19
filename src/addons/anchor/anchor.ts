@@ -5,7 +5,7 @@ import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import { isFrameSource } from "../../shared/mediaRef";
 import { extractFeatures } from "./core/features";
-import { decodeReference, locate, type DecodedReference } from "./core/reference";
+import { cosine, decodeReference, locate, type DecodedReference } from "./core/reference";
 import type { Pt } from "./core/homography";
 import { grabGray, resolveSource, upFromOrientation } from "./frame";
 
@@ -33,19 +33,31 @@ export type AnchorState = {
   ms: number;
   fps: number;
   references: number;
+  /** Références essayées (après le filtre `only`). */
+  candidates: number;
+  /** Champs de l'entrée trouvée, sans sa référence (message, effet, auteur…). */
+  item: Record<string, unknown> | null;
+  /** Ressemblance globale (cosinus d'empreintes) de la meilleure candidate, si `embedding`. */
+  similarity: number | null;
 };
 
 const IDLE: AnchorState = {
   status: "idle", error: null, found: false, refId: null, index: -1, corners: null, width: 0, height: 0,
   matches: 0, inliers: 0, confidence: 0, rotation: null, ms: 0, fps: 0, references: 0,
+  candidates: 0, item: null, similarity: null,
 };
 
 /**
  * Retrouve une zone photographiée (référence de `sonic-anchor-ref`) dans l'image d'une source en direct.
  *
  * - `source` : `#id` de `sonic-camera` (ou toute source d'images).
- * - `reference` (DP) : une référence, ou une liste (`[{…}, {…}]`) : la dernière trouvée est essayée en premier,
- *   puis une autre à chaque analyse.
+ * - `reference` (DP) : une référence, ou une liste ; chaque élément est une référence ou une entrée
+ *   `{id, ref, …}` (sortie `save` de `sonic-anchor-ref`) dont les autres champs sont publiés dans `item` quand
+ *   elle est trouvée. La dernière trouvée est essayée en premier, puis une autre à chaque analyse.
+ * - `only` (DP) : restreint aux ids listés (`["a", "b"]`, `[{id}]`, ou l'état de `sonic-geolocation` dont
+ *   `nearby` est lu) ; liste vide ou absente = toutes.
+ * - `embedding` (DP de sortie d'un `sonic-image-embedder` sur la caméra) : les candidates sont essayées par
+ *   ressemblance globale décroissante (les `top` premières plus souvent).
  * - `gravity` (DP) : état de `sonic-orientation` (capteurs actifs) ; écarte les solutions dont la rotation
  *   contredit l'inclinaison du téléphone (tolérance `gravity-tolerance` degrés, 0 = sans filtre).
  * - `active` ou `control` `{ start, stop }` ; analyse au plus toutes les `interval` ms, image réduite à `max-size`.
@@ -72,6 +84,10 @@ export class SonicAnchor extends LitElement {
   @property({ type: Number, attribute: "min-inliers" }) minInliers = 14;
   @property({ type: Number }) smoothing = 0.5;
   @property({ type: Number }) hold = 4;
+  @property({ type: String }) only = "";
+  @property({ type: String }) embedding = "";
+  /** Candidates les plus ressemblantes essayées en priorité (avec `embedding`). */
+  @property({ type: Number }) top = 3;
   @property({ type: Boolean, reflect: true }) debug = false;
   @property({ type: String }) fit: "contain" | "cover" = "cover";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
@@ -79,7 +95,9 @@ export class SonicAnchor extends LitElement {
   @state() private view: AnchorState = { ...IDLE };
 
   stateValue: AnchorState = { ...IDLE };
-  private refs: Array<{ id: string | null; ref: DecodedReference }> = [];
+  private refs: Array<{ id: string | null; ref: DecodedReference; meta: Record<string, unknown> | null }> = [];
+  private onlyIds: Set<string> | null = null;
+  private vector: number[] | null = null;
   private up: Pt | null = null;
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -107,7 +125,7 @@ export class SonicAnchor extends LitElement {
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("reference") || c.has("gravity") || c.has("control")) this.listen();
+    if (c.has("reference") || c.has("gravity") || c.has("control") || c.has("only") || c.has("embedding")) this.listen();
     if (c.has("active")) { if (this.active) this.start(); else if (c.get("active") !== undefined) this.stop(); }
   }
 
@@ -117,6 +135,11 @@ export class SonicAnchor extends LitElement {
     this.startT.reset(); this.stopT.reset();
     if (this.reference) this.unsubs.push(listenDp(this.reference, (v) => this.setReferences(plain(v))));
     if (this.gravity) this.unsubs.push(listenDp(this.gravity, (v) => { this.up = upFromOrientation(v); }));
+    if (this.only) this.unsubs.push(listenDp(this.only, (v) => { this.onlyIds = idSet(plain(v)); }));
+    if (this.embedding) this.unsubs.push(listenDp(this.embedding, (v) => {
+      const vec = (v as { vector?: unknown } | null)?.vector;
+      this.vector = Array.isArray(vec) && vec.length ? (plain(vec) as number[]) : null;
+    }));
     if (this.control) this.unsubs.push(listenDp(this.control, (v) => {
       const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
       if (this.startT.feed(o.start)) this.start();
@@ -129,8 +152,17 @@ export class SonicAnchor extends LitElement {
     const list = Array.isArray(v) ? v : v ? [v] : [];
     this.refs = [];
     list.forEach((r, i) => {
-      const d = decodeReference(r);
-      if (d) this.refs.push({ id: typeof (r as { id?: unknown }).id === "string" ? (r as { id: string }).id : String(i), ref: d });
+      const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
+      const wrapped = o.ref && typeof o.ref === "object";
+      const d = decodeReference(wrapped ? o.ref : r);
+      if (!d) return;
+      const id = typeof o.id === "string" ? o.id : String(i);
+      let meta: Record<string, unknown> | null = null;
+      if (wrapped) {
+        meta = { ...o };
+        delete meta.ref;
+      }
+      this.refs.push({ id, ref: d, meta });
     });
     this.current = -1;
     this.cursor = 0;
@@ -177,13 +209,7 @@ export class SonicAnchor extends LitElement {
     const t0 = performance.now();
     const { gray } = grab;
     const frame = extractFeatures(gray, { maxPoints: this.maxPoints, levels: 4 });
-    // Ordre d'essai : la référence courante, puis une autre à tour de rôle.
-    const order: number[] = [];
-    if (this.current >= 0) order.push(this.current);
-    if (this.refs.length > 1 || this.current < 0) {
-      const k = this.cursor++ % this.refs.length;
-      if (k !== this.current) order.push(k);
-    }
+    const order = this.order();
     let hit: { i: number; r: ReturnType<typeof locate> } | null = null;
     let best = { matches: 0, inliers: 0 };
     for (const i of order) {
@@ -196,7 +222,10 @@ export class SonicAnchor extends LitElement {
     this.times.push(now);
     while (this.times.length > 1 && now - this.times[0] > 2000) this.times.shift();
     const fps = this.times.length > 1 ? Math.round(((this.times.length - 1) * 1000) / (now - this.times[0]) * 10) / 10 : 0;
-    const base = { width: gray.width, height: gray.height, ms: Math.round(ms), fps, references: this.refs.length, error: null };
+    const base = {
+      width: gray.width, height: gray.height, ms: Math.round(ms), fps, references: this.refs.length, error: null,
+      candidates: this.pool().length, similarity: this.bestSimilarity,
+    };
 
     if (hit) {
       this.misses = 0;
@@ -208,7 +237,7 @@ export class SonicAnchor extends LitElement {
       }
       this.current = hit.i;
       this.publish({
-        ...base, status: "tracking", found: true, refId: this.refs[hit.i].id, index: hit.i,
+        ...base, status: "tracking", found: true, refId: this.refs[hit.i].id, index: hit.i, item: this.refs[hit.i].meta,
         corners: this.smoothed.map((p) => ({ x: r4(p.x), y: r4(p.y) })),
         matches: hit.r.matches, inliers: hit.r.inliers, confidence: hit.r.confidence,
         rotation: hit.r.rotation === null ? null : Math.round(hit.r.rotation),
@@ -223,6 +252,51 @@ export class SonicAnchor extends LitElement {
     this.current = -1;
     this.smoothed = null;
     this.publish({ ...IDLE, ...base, status: "searching", matches: best.matches, inliers: best.inliers });
+  }
+
+  private bestSimilarity: number | null = null;
+
+  /** Ids des références essayables (après `only`), dans l'ordre de la liste. */
+  candidateIds(): Array<string | null> {
+    return this.pool().map((i) => this.refs[i].id);
+  }
+
+  /** Indices des références autorisées par `only`. */
+  private pool(): number[] {
+    const out: number[] = [];
+    const only = this.onlyIds;
+    // Une entrée sans position (prise sans GPS) n'est jamais écartée par le filtre de proximité.
+    this.refs.forEach((r, i) => {
+      const located = typeof r.meta?.lat === "number" || typeof r.ref.geo?.lat === "number";
+      if (!only || !only.size || !located || (r.id !== null && only.has(r.id))) out.push(i);
+    });
+    return out;
+  }
+
+  /** Références à essayer à cette analyse : la courante, puis une candidate (par ressemblance si possible). */
+  private order(): number[] {
+    const pool = this.pool();
+    if (!pool.length) return [];
+    const out: number[] = [];
+    if (this.current >= 0 && pool.includes(this.current)) out.push(this.current);
+    let ranked = pool;
+    this.bestSimilarity = null;
+    if (this.vector) {
+      const v = this.vector;
+      const scored = pool.map((i) => ({ i, s: this.refs[i].ref.embedding ? cosine(v, this.refs[i].ref.embedding) : -2 }));
+      scored.sort((a, b) => b.s - a.s);
+      ranked = scored.map((x) => x.i);
+      if (scored[0].s > -2) this.bestSimilarity = Math.round(scored[0].s * 1000) / 1000;
+      // Les `top` plus ressemblantes deux fois sur trois, le reste à tour de rôle.
+      const k = Math.max(1, Math.min(ranked.length, this.top));
+      const c = this.cursor++;
+      const pick = c % 3 !== 2 || ranked.length <= k ? ranked[(c >> 0) % k] : ranked[k + (c % (ranked.length - k))];
+      if (!out.includes(pick)) out.push(pick);
+      return out;
+    }
+    const pick = ranked[this.cursor++ % ranked.length];
+    if (!out.includes(pick)) out.push(pick);
+    return out;
   }
 
   private publish(s: AnchorState): void {
@@ -243,6 +317,18 @@ export class SonicAnchor extends LitElement {
       <circle cx=${s.corners[0].x * s.width} cy=${s.corners[0].y * s.height} r=${sw * 4} fill="#3ddc97"></circle>
     </svg>`;
   }
+}
+
+/** Ids depuis `["a"]`, `[{id}]` ou un état `{nearby: [{id}]}` ; `null` = pas de filtre. */
+function idSet(v: unknown): Set<string> | null {
+  const list = Array.isArray(v) ? v : v && typeof v === "object" && Array.isArray((v as { nearby?: unknown }).nearby) ? (v as { nearby: unknown[] }).nearby : null;
+  if (!list) return null;
+  const out = new Set<string>();
+  for (const x of list) {
+    if (typeof x === "string") out.add(x);
+    else if (x && typeof x === "object" && typeof (x as { id?: unknown }).id === "string") out.add((x as { id: string }).id);
+  }
+  return out;
 }
 
 function jump(a: Pt[], b: Pt[]): number {

@@ -3,6 +3,7 @@ import { customElement, property, query, state } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
+import { dispatch } from "../interactive";
 import { extractFeatures, type Features } from "./core/features";
 import { orderQuad, referenceFromFeatures, zoneMask, type AnchorReference } from "./core/reference";
 import type { Pt } from "./core/homography";
@@ -20,6 +21,21 @@ export type AnchorRefState = {
   /** Vignette JPEG (data URL) de la photo, pour une liste de lieux. */
   thumb: string | null;
   captures: number;
+  /** Balises envoyées au store `target` et id de la dernière. */
+  saved: number;
+  lastSaved: string | null;
+};
+
+/** Entrée envoyée au store `target` (action `save`) : de quoi lister, localiser et retrouver la balise. */
+export type SavedAnchor = {
+  id: string;
+  createdAt: string;
+  lat?: number;
+  lon?: number;
+  accuracy?: number;
+  points: number;
+  ref: AnchorReference;
+  [k: string]: unknown;
 };
 
 const DEFAULT_ZONE: Pt[] = [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }];
@@ -59,6 +75,15 @@ export class SonicAnchorRef extends LitElement {
   @property({ type: Number, attribute: "max-size" }) maxSize = 640;
   @property({ type: Number, attribute: "max-points" }) maxPoints = 1200;
   @property({ type: Boolean, attribute: "show-points" }) showPoints = true;
+  /** Store (id) qui reçoit la balise enregistrée : `{type: action, payload: SavedAnchor}`. */
+  @property({ type: String }) target = "";
+  @property({ type: String }) action = "save";
+  /** Ids des boutons dont le clic enregistre la balise courante. */
+  @property({ type: String, attribute: "save-for" }) saveFor = "";
+  /** DP dont les clés sont ajoutées à l'entrée enregistrée (message, effet, auteur…). */
+  @property({ type: String }) extra = "";
+  /** DP de sortie d'un `sonic-image-embedder` sur la même caméra : son vecteur est gardé dans la référence. */
+  @property({ type: String }) embedding = "";
   @property({ type: String, attribute: "empty-text" }) emptyText = "Cadre la surface puis prends la photo";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
 
@@ -67,7 +92,7 @@ export class SonicAnchorRef extends LitElement {
   @query("canvas") private canvas!: HTMLCanvasElement;
   @query("svg") private svgEl!: SVGSVGElement;
 
-  stateValue: AnchorRefState = { status: "idle", error: null, reference: null, zone: DEFAULT_ZONE, points: 0, quality: "none", thumb: null, captures: 0 };
+  stateValue: AnchorRefState = { status: "idle", error: null, reference: null, zone: DEFAULT_ZONE, points: 0, quality: "none", thumb: null, captures: 0, saved: 0, lastSaved: null };
   private features: Features | null = null;
   private photo: HTMLCanvasElement | null = null;
   private up: Pt | null = null;
@@ -75,7 +100,10 @@ export class SonicAnchorRef extends LitElement {
   private geoNow: Record<string, unknown> | null = null;
   private geoAtCapture: AnchorReference["geo"] | undefined;
   private unsubs: Array<() => void> = [];
-  private triggers = { capture: new CounterTrigger(), reset: new CounterTrigger(), clear: new CounterTrigger() };
+  private triggers = { capture: new CounterTrigger(), reset: new CounterTrigger(), clear: new CounterTrigger(), save: new CounterTrigger() };
+  private extraNow: Record<string, unknown> = {};
+  private vectorNow: number[] | null = null;
+  private vectorAtCapture: number[] | null = null;
   private drag: { k: number; id: number } | null = null;
   private lastZoneJson = "";
   private photoDirty = false;
@@ -94,7 +122,7 @@ export class SonicAnchorRef extends LitElement {
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("control") || c.has("zone") || c.has("gravity") || c.has("geo")) this.listen();
+    if (c.has("control") || c.has("zone") || c.has("gravity") || c.has("geo") || c.has("extra") || c.has("embedding")) this.listen();
     if (this.photoDirty && this.photo && this.canvas) {
       this.photoDirty = false;
       this.canvas.width = this.photo.width;
@@ -112,6 +140,15 @@ export class SonicAnchorRef extends LitElement {
       if (this.triggers.capture.feed(o.capture)) this.capture();
       if (this.triggers.reset.feed(o.reset)) this.setZone(DEFAULT_ZONE);
       if (this.triggers.clear.feed(o.clear)) this.clear();
+      if (this.triggers.save.feed(o.save)) this.save();
+    }));
+    if (this.extra) this.unsubs.push(listenDp(this.extra, (v) => {
+      const o = plain<Record<string, unknown>>(v);
+      this.extraNow = o && typeof o === "object" && !Array.isArray(o) ? o : {};
+    }));
+    if (this.embedding) this.unsubs.push(listenDp(this.embedding, (v) => {
+      const vec = (v as { vector?: unknown } | null)?.vector;
+      this.vectorNow = Array.isArray(vec) && vec.length && vec.every((x) => typeof x === "number") ? (plain(vec) as number[]) : null;
     }));
     if (this.zone) this.unsubs.push(listenDp(this.zone, (v) => {
       const z = plain<Pt[]>(v);
@@ -123,9 +160,34 @@ export class SonicAnchorRef extends LitElement {
   }
 
   private onDocClick = (e: Event): void => {
-    const ids = this.targets.split(/\s+/).map((s) => s.replace(/^#/, "")).filter(Boolean);
-    if (ids.length && e.composedPath().some((n) => n instanceof Element && !!n.id && ids.includes(n.id))) this.capture();
+    const hit = (list: string) => {
+      const ids = list.split(/\s+/).map((s) => s.replace(/^#/, "")).filter(Boolean);
+      return ids.length > 0 && e.composedPath().some((n) => n instanceof Element && !!n.id && ids.includes(n.id));
+    };
+    if (hit(this.targets)) this.capture();
+    if (hit(this.saveFor)) this.save();
   };
+
+  /** Envoie la balise courante au store `target`. Faux si rien à enregistrer. */
+  save(): boolean {
+    const ref = this.stateValue.reference;
+    if (!ref || !this.target) {
+      this.stateValue = { ...this.stateValue, error: !ref ? "rien à enregistrer : prends d'abord une photo" : "aucun store cible (target)" };
+      this.publish(false);
+      return false;
+    }
+    const id = `b-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+    const entry: SavedAnchor = { ...this.extraNow, id, createdAt: new Date().toISOString(), points: ref.n, ref: { ...ref, id } };
+    if (ref.geo) {
+      entry.lat = ref.geo.lat;
+      entry.lon = ref.geo.lon;
+      if (ref.geo.accuracy !== undefined) entry.accuracy = ref.geo.accuracy;
+    }
+    dispatch(this.target, { type: this.action || "save", payload: entry });
+    this.stateValue = { ...this.stateValue, error: null, saved: this.stateValue.saved + 1, lastSaved: id };
+    this.publish(false);
+    return true;
+  }
 
   /** Fige l'image courante de la source et extrait ses points. */
   capture(): boolean {
@@ -143,6 +205,7 @@ export class SonicAnchorRef extends LitElement {
     this.photoDirty = true;
     this.features = extractFeatures(grab.gray, { maxPoints: this.maxPoints });
     this.upAtCapture = this.up;
+    this.vectorAtCapture = this.vectorNow;
     const g = this.geoNow;
     const lat = Number(g?.lat), lon = Number(g?.lon);
     this.geoAtCapture = Number.isFinite(lat) && Number.isFinite(lon) && g?.lat !== null
@@ -184,6 +247,7 @@ export class SonicAnchorRef extends LitElement {
     }
     const ref = referenceFromFeatures(f, this.quad, { margin: this.margin, up: this.upAtCapture, id: this.refId || undefined });
     if (this.geoAtCapture) ref.geo = this.geoAtCapture;
+    if (this.vectorAtCapture) ref.embedding = this.vectorAtCapture.map((x) => Math.round(x * 1000) / 1000);
     ref.createdAt = new Date().toISOString();
     this.stateValue = {
       ...this.stateValue, status: "ready", error: ref.n < 30 ? "surface trop unie : choisis une zone plus texturée" : null,

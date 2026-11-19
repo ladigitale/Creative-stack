@@ -38,6 +38,25 @@ Le cœur du câblage :
 { "tagName": "sonic-anchor-ref", "attributes": { "id": "pose", "source": "#cam", "for": "btnPhoto", "gravity": "orientState", "geo": "geoState" } }
 ```
 
+## Enregistrer des balises
+
+`sonic-anchor-ref` envoie la balise courante à un store (`target`) au clic d'un bouton (`save-for`) ou par `control.save` :
+
+```json
+{ "tagName": "sonic-anchor-ref", "attributes": { "id": "pose", "source": "#cam", "for": "btnPhoto", "save-for": "btnGarder", "target": "balises", "extra": "brouillon", "gravity": "orientState", "geo": "geoState", "embedding": "emb" } }
+```
+
+Action `{type: "save", payload: {id, createdAt, lat, lon, accuracy, points, ref, …clés de extra}}`. Réducteur type :
+
+```
+$action.type = "save" ? $merge([$state, {"items": $append($state.items, [$action.payload])}]) :
+$action.type = "remove" ? $merge([$state, {"items": [$state.items[id != $action.payload]]}]) : $state
+```
+
+Garder `balises` d'une visite à l'autre : `data.persist = {providers: ["balises"], version: 1}` (et `online: true` pour une copie chez Tadaaa), `maxStateBytes` du store relevé (une balise pèse 30 à 50 Ko).
+
+`sonic-anchor reference="balises.items"` lit directement ces entrées ; quand l'une est trouvée, ses autres champs (message, effet…) sont publiés dans `ancreState.item`. Pour ne chercher que près de soi : `sonic-geolocation places="balises.items"` puis `sonic-anchor only="geoState"` (une entrée prise sans GPS reste toujours candidate). Avec un `sonic-image-embedder id="emb" for="cam"` partagé, `embedding="emb"` sur les deux composants : l'empreinte de la photo est gardée dans la référence, et les candidates les plus ressemblantes à l'image courante sont essayées d'abord (`top`, `ancreState.similarity`).
+
 ## Références
 
 `poseState.reference` est un objet JSON (environ 30 à 60 Ko pour 600 points) :
