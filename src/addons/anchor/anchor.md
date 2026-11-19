@@ -104,8 +104,17 @@ L'analyse prend 50 à 200 ms : posé sur l'image *courante* de la caméra, le co
 - `smoothing` (0.5) : lissage des coins. `hold` (4) : analyses ratées tolérées avant de cacher le contenu.
 - `gravity-tolerance` (45°) : écart toléré entre la rotation trouvée et celle attendue d'après l'accéléromètre. Mettre `0` pour désactiver le filtre.
 
+## Performances
+
+L'analyse tourne dans un Web Worker (script en `blob:`, compatible CSP ; repli sur le fil principal si le worker est refusé, ou avec `no-worker`). Le fil principal ne fait que copier l'image réduite (`max-size`).
+
+1. **Détection** (`mode: "detect"`) : points et descripteurs de toute l'image, appariement, homographie. Environ 80 ms pour 480 × 360 sur un ordinateur ; essayée au rythme de `interval`.
+2. **Suivi** (`mode: "track"`) : une fois la zone trouvée, ses points (120 au plus) sont suivis d'une image à l'autre par flot optique de Lucas-Kanade pyramidal avec vérification aller-retour, puis l'homographie est réestimée. Environ 10 ms : la zone est suivie à chaque image de la caméra.
+3. **Regarnissage** : quand les points suivis s'appauvrissent (moins de la moitié) ou toutes les 30 images, une détection sur la même référence remplace le suivi si elle trouve mieux.
+
+Les coins sont lissés par un filtre One Euro (`smoothing`) : immobile, très stable ; en mouvement, sans retard.
+
 ## Limites connues
 
-- Analyse sur le fil principal, image par image (pas encore de suivi par flot optique ni de worker) : compter 5 à 15 analyses par seconde sur un téléphone moyen.
 - Forts changements de lumière (jour / nuit), reflets, occultations : enregistrer plusieurs références du même lieu.
 - Signe de l'accéléromètre : corrigé pour iOS d'après la présence de `DeviceMotionEvent.requestPermission` ; à vérifier sur chaque appareil cible avant de resserrer `gravity-tolerance`.

@@ -4,8 +4,10 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import { isFrameSource } from "../../shared/mediaRef";
-import { extractFeatures } from "./core/features";
-import { cosine, decodeReference, locate, type DecodedReference } from "./core/reference";
+import { OneEuro } from "../../shared/ml/one-euro";
+import { cosine, decodeReference, type DecodedReference } from "./core/reference";
+import type { EngineResult } from "./core/engine";
+import { EngineRunner } from "./runner";
 import type { Pt } from "./core/homography";
 import { grabGray, resolveSource, upFromOrientation } from "./frame";
 
@@ -37,6 +39,10 @@ export type AnchorState = {
   frameSeq: number;
   /** Délai entre la prise de cette image et la publication (ms). */
   latencyMs: number;
+  /** `detect` (appariement complet) ou `track` (suivi par flot optique, bien plus léger). */
+  mode: "detect" | "track" | "none";
+  /** Où tourne l'analyse : `worker` ou `main` (repli). */
+  engine: "worker" | "main";
   /** Références essayées (après le filtre `within`). */
   candidates: number;
   /** Champs de l'entrée trouvée, sans sa référence (message, effet, auteur…). */
@@ -48,7 +54,7 @@ export type AnchorState = {
 const IDLE: AnchorState = {
   status: "idle", error: null, found: false, refId: null, index: -1, corners: null, width: 0, height: 0,
   matches: 0, inliers: 0, confidence: 0, rotation: null, ms: 0, fps: 0, references: 0,
-  candidates: 0, item: null, similarity: null, frameSeq: -1, latencyMs: 0,
+  candidates: 0, item: null, similarity: null, frameSeq: -1, latencyMs: 0, mode: "none", engine: "main",
 };
 
 /**
@@ -85,7 +91,10 @@ export class SonicAnchor extends LitElement {
   @property({ type: Number, attribute: "gravity-tolerance" }) gravityTolerance = 45;
   @property({ type: Boolean }) active = false;
   @property({ type: String }) control = "";
+  /** Intervalle minimal entre deux analyses en recherche (ms) ; une zone suivie est analysée à chaque image. */
   @property({ type: Number }) interval = 90;
+  /** Analyse sur le fil principal (sans worker). */
+  @property({ type: Boolean, attribute: "no-worker" }) noWorker = false;
   @property({ type: Number, attribute: "max-size" }) maxSize = 480;
   @property({ type: Number, attribute: "max-points" }) maxPoints = 700;
   @property({ type: Number, attribute: "min-inliers" }) minInliers = 14;
@@ -104,6 +113,7 @@ export class SonicAnchor extends LitElement {
   stateValue: AnchorState = { ...IDLE };
   private refs: Array<{ id: string | null; ref: DecodedReference; meta: Record<string, unknown> | null }> = [];
   private onlyIds: Set<string> | null = null;
+  private rawRefs: unknown[] = [];
   private vector: number[] | null = null;
   private up: Pt | null = null;
   private running = false;
@@ -116,6 +126,8 @@ export class SonicAnchor extends LitElement {
   private cursor = 0;
   private misses = 0;
   private smoothed: Pt[] | null = null;
+  private filters: OneEuro[] = [];
+  private runner: EngineRunner | null = null;
   private times: number[] = [];
 
   connectedCallback(): void {
@@ -126,6 +138,8 @@ export class SonicAnchor extends LitElement {
 
   disconnectedCallback(): void {
     this.stop();
+    this.runner?.dispose();
+    this.runner = null;
     this.unsubs.forEach((u) => u());
     this.unsubs = [];
     super.disconnectedCallback();
@@ -158,6 +172,7 @@ export class SonicAnchor extends LitElement {
   setReferences(v: unknown): void {
     const list = Array.isArray(v) ? v : v ? [v] : [];
     this.refs = [];
+    this.rawRefs = [];
     list.forEach((r, i) => {
       const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
       const wrapped = o.ref && typeof o.ref === "object";
@@ -170,10 +185,12 @@ export class SonicAnchor extends LitElement {
         delete meta.ref;
       }
       this.refs.push({ id, ref: d, meta });
+      this.rawRefs.push(wrapped ? o.ref : r);
     });
     this.current = -1;
     this.cursor = 0;
     this.smoothed = null;
+    this.engineRunner().setReferences(this.rawRefs);
     const bad = list.length - this.refs.length;
     this.publish({ ...this.stateValue, references: this.refs.length, error: bad ? `${bad} référence(s) illisible(s) ignorée(s)` : null });
   }
@@ -190,80 +207,94 @@ export class SonicAnchor extends LitElement {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.smoothed = null;
+    this.runner?.reset();
     this.publish({ ...IDLE, references: this.refs.length });
+  }
+
+  private engineRunner(): EngineRunner {
+    this.runner ??= new EngineRunner(!this.noWorker);
+    return this.runner;
   }
 
   private loop = (): void => {
     if (!this.running) return;
     const t0 = performance.now();
-    try { this.step(); } catch (e) {
+    this.step().catch((e) => {
       this.publish({ ...this.stateValue, status: "error", error: e instanceof Error ? e.message : "échec de l'analyse" });
-    }
-    const spent = performance.now() - t0;
-    // Laisse toujours respirer le fil principal (affichage caméra, shaders).
-    this.timer = setTimeout(this.loop, Math.max(Math.max(16, this.interval) - spent, spent * 0.5, 8));
+    }).finally(() => {
+      if (!this.running) return;
+      const spent = performance.now() - t0;
+      // Zone suivie : à chaque nouvelle image (le suivi est léger). Recherche : au rythme de `interval`.
+      const wait = this.current >= 0 ? 8 : Math.max(16, this.interval) - spent;
+      this.timer = setTimeout(this.loop, Math.max(8, wait));
+    });
   };
 
-  /** Une analyse (public pour les tests). */
-  step(): void {
+  /** Une analyse (public pour les tests) : saisie de l'image ici, calcul dans le worker. */
+  async step(): Promise<void> {
     if (!this.refs.length) return;
     const el = resolveSource(this, this.source);
     if (!el || !isFrameSource(el)) return;
     if (el.frameSeq === this.lastSeq) return;
+    const runner = this.engineRunner();
+    if (runner.busy) return;
     const grabbedAt = performance.now();
     const grab = grabGray(el, this.maxSize);
     if (!grab) return;
     // Lu après la copie : getFrameCanvas() peut avoir avancé la source d'une image.
     const seq = el.frameSeq;
     this.lastSeq = seq;
-    const t0 = performance.now();
-    const { gray } = grab;
-    const frame = extractFeatures(gray, { maxPoints: this.maxPoints, levels: 4 });
-    const order = this.order();
-    let hit: { i: number; r: ReturnType<typeof locate> } | null = null;
-    let best = { matches: 0, inliers: 0 };
-    for (const i of order) {
-      const r = locate(this.refs[i].ref, frame, { up: this.up, gravityTolerance: this.gravityTolerance, minInliers: this.minInliers });
-      if (r.matches > best.matches) best = { matches: r.matches, inliers: r.inliers };
-      if (r.found) { hit = { i, r }; break; }
-    }
-    const ms = performance.now() - t0;
+    const { width, height } = grab.gray;
+    const r = await runner.process(grab.gray, {
+      order: this.order(), up: this.up, gravityTolerance: this.gravityTolerance,
+      minInliers: this.minInliers, maxPoints: this.maxPoints,
+    });
+    if (!this.running) return;
+    this.handle(r, seq, grabbedAt, width, height, runner.engine);
+  }
+
+  private handle(r: EngineResult, seq: number, grabbedAt: number, width: number, height: number, engine: "worker" | "main"): void {
     const now = performance.now();
     this.times.push(now);
     while (this.times.length > 1 && now - this.times[0] > 2000) this.times.shift();
     const fps = this.times.length > 1 ? Math.round(((this.times.length - 1) * 1000) / (now - this.times[0]) * 10) / 10 : 0;
     const base = {
-      width: gray.width, height: gray.height, ms: Math.round(ms), fps, references: this.refs.length, error: null,
+      width, height, ms: Math.round(r.ms), fps, references: this.refs.length, error: null,
       candidates: this.pool().length, similarity: this.bestSimilarity,
-      frameSeq: seq, latencyMs: Math.round(performance.now() - grabbedAt),
+      frameSeq: seq, latencyMs: Math.round(now - grabbedAt), mode: r.mode, engine,
     };
-
-    if (hit) {
+    if (r.found && r.corners) {
       this.misses = 0;
-      const norm = hit.r.corners!.map((p) => ({ x: p.x / gray.width, y: p.y / gray.height }));
-      if (hit.i !== this.current || !this.smoothed || jump(this.smoothed, norm) > 0.15) this.smoothed = norm;
-      else {
-        const a = Math.min(0.9, Math.max(0, this.smoothing));
-        this.smoothed = this.smoothed.map((p, k) => ({ x: p.x * a + norm[k].x * (1 - a), y: p.y * a + norm[k].y * (1 - a) }));
+      const norm = r.corners.map((p) => ({ x: p.x / width, y: p.y / height }));
+      if (r.index !== this.current || !this.smoothed || jump(this.smoothed, norm) > 0.15 || this.smoothing <= 0) {
+        this.filters = [];
+        this.smoothed = norm;
       }
-      this.current = hit.i;
+      // One Euro : presque immobile = très lissé, mouvement rapide = sans retard.
+      if (this.smoothing > 0) {
+        if (!this.filters.length) this.filters = Array.from({ length: 8 }, () => new OneEuro(Math.max(0.05, 2.5 * (1 - this.smoothing)), 30));
+        this.smoothed = norm.map((p, k) => ({ x: this.filters[k * 2].filter(p.x, now), y: this.filters[k * 2 + 1].filter(p.y, now) }));
+      }
+      this.current = r.index;
+      const entry = this.refs[r.index];
       this.publish({
-        ...base, status: "tracking", found: true, refId: this.refs[hit.i].id, index: hit.i, item: this.refs[hit.i].meta,
+        ...base, status: "tracking", found: true, refId: entry?.id ?? null, index: r.index, item: entry?.meta ?? null,
         corners: this.smoothed.map((p) => ({ x: r4(p.x), y: r4(p.y) })),
-        matches: hit.r.matches, inliers: hit.r.inliers, confidence: hit.r.confidence,
-        rotation: hit.r.rotation === null ? null : Math.round(hit.r.rotation),
+        matches: r.matches, inliers: r.inliers, confidence: r.confidence,
+        rotation: r.rotation === null ? null : Math.round(r.rotation),
       });
       return;
     }
     this.misses++;
     if (this.smoothed && this.misses <= Math.max(0, this.hold)) {
       // La position gardée appartient à l'image du dernier succès : on garde son numéro.
-      this.publish({ ...this.stateValue, ...base, frameSeq: this.stateValue.frameSeq, latencyMs: this.stateValue.latencyMs, status: "holding", matches: best.matches, inliers: best.inliers });
+      this.publish({ ...this.stateValue, ...base, frameSeq: this.stateValue.frameSeq, latencyMs: this.stateValue.latencyMs, status: "holding", matches: r.matches, inliers: r.inliers });
       return;
     }
     this.current = -1;
     this.smoothed = null;
-    this.publish({ ...IDLE, ...base, status: "searching", matches: best.matches, inliers: best.inliers });
+    this.filters = [];
+    this.publish({ ...IDLE, ...base, status: "searching", matches: r.matches, inliers: r.inliers });
   }
 
   private bestSimilarity: number | null = null;

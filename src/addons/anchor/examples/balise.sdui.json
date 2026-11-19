@@ -56,7 +56,7 @@
           "attributes": {
             "id": "emb",
             "for": "cam",
-            "fps": "2"
+            "fps": "1"
           }
         },
         {
