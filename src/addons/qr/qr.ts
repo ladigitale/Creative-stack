@@ -2,7 +2,7 @@ import { LitElement, css, html, nothing, svg } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
-import { MAX_QR_TEXT, qrMatrix, qrPath, safeHref, sanitizeEcc, type QrMatrix } from "./core";
+import { MAX_QR_TEXT, qrImage, qrMatrix, qrPath, safeHref, sanitizeEcc, svgDataUrl, type QrMatrix } from "./core";
 
 export type QrState = {
   status: "ready" | "empty" | "error";
@@ -46,9 +46,24 @@ export class SonicQr extends LitElement {
   /** Message affiché tant que le texte est vide. */
   @property({ type: String }) placeholder = "";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
+  /**
+   * DP où publier le code en image (SonicMediaRef `{url: data:image/svg+xml…, width, height, mime}`) : source d'un
+   * `sonic-still` (`ref-provider`) pour `sonic-label-printer`, à télécharger ou partager.
+   */
+  @property({ type: String, attribute: "image-provider" }) imageProvider = "";
+  /** Légende de l'image (lignes séparées par « \n ») ; `caption-from` (DP) la remplace. */
+  @property({ type: String }) caption = "";
+  @property({ type: String, attribute: "caption-from" }) captionFrom = "";
+  /** Légende à droite du code (`right`, étiquette en longueur) ou dessous (`below`). */
+  @property({ type: String, attribute: "caption-position" }) captionPosition = "right";
+  /** Côté du code dans l'image publiée (px). */
+  @property({ type: Number, attribute: "image-size" }) imageSize = 240;
 
   @state() private fromValue: string | null = null;
+  @state() private captionValue: string | null = null;
   private off: (() => void) | null = null;
+  private offCaption: (() => void) | null = null;
+  private lastImage = "";
   private lastOut = "";
 
   connectedCallback(): void {
@@ -60,10 +75,35 @@ export class SonicQr extends LitElement {
     super.disconnectedCallback();
     this.off?.();
     this.off = null;
+    this.offCaption?.();
+    this.offCaption = null;
   }
 
   protected updated(changed: Map<string, unknown>): void {
     if (changed.has("textFrom")) this.listen();
+    if (changed.has("captionFrom")) {
+      this.offCaption?.();
+      this.offCaption = null;
+      this.captionValue = null;
+      if (this.captionFrom && this.isConnected) {
+        this.offCaption = listenDp(this.captionFrom, (v) => { this.captionValue = typeof v === "string" ? v : v === null || v === undefined ? "" : String(v); });
+      }
+    }
+  }
+
+  private publishImage(m: QrMatrix | null, margin: number): void {
+    const path = this.imageProvider.trim();
+    if (!path) return;
+    const caption = this.captionFrom ? this.captionValue ?? "" : this.caption;
+    let ref: unknown = null;
+    if (m) {
+      const img = qrImage(m, { margin, color: this.color, background: this.background, caption, position: this.captionPosition === "below" ? "below" : "right", px: this.imageSize });
+      ref = { url: svgDataUrl(img.svg), width: img.width, height: img.height, mime: "image/svg+xml" };
+    }
+    const k = JSON.stringify(ref);
+    if (k === this.lastImage) return;
+    this.lastImage = k;
+    set(path, ref as never);
   }
 
   private listen(): void {
@@ -95,6 +135,7 @@ export class SonicQr extends LitElement {
       error = e instanceof Error ? e.message : String(e);
     }
     this.publish({ status: error ? "error" : m ? "ready" : "empty", text, version: m?.version ?? null, modules: m?.size ?? null, error });
+    this.publishImage(m, Math.max(0, Math.min(8, Math.round(Number(this.margin) || 0))));
     if (!m) {
       const msg = error ?? this.placeholder;
       return msg || error ? html`<div class="empty" role="img" aria-label=${msg} style="width:${px}px">${msg}</div>` : html`<div class="empty" aria-hidden="true" style="width:${px}px"></div>`;

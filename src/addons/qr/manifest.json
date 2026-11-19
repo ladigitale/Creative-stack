@@ -11,19 +11,65 @@
   "components": [
     {
       "name": "sonic-qr",
-      "description": "QR code SVG : text (texte à encoder) ou text-from (DataProvider ou dp.chemin lu en direct, l'emporte sur text) ; ecc L|M|Q|H (défaut M) ; size (px, défaut 192 ; variable CSS --qr-size) ; margin (zone de silence en modules, défaut 2) ; color / background (défaut #000000 / #ffffff : garder un fort contraste) ; link (le code est aussi un lien quand le texte est une URL http/https) ; label (texte lu par les lecteurs d'écran) ; placeholder (affiché tant que le texte est vide) ; 1200 caractères au plus ; état {status ready|empty|error, text, version, modules, error} dans out-data-provider",
+      "description": "QR code SVG : text (texte à encoder) ou text-from (DataProvider ou dp.chemin lu en direct, l'emporte sur text) ; ecc L|M|Q|H (défaut M) ; size (px, défaut 192 ; variable CSS --qr-size) ; margin (zone de silence en modules, défaut 2) ; color / background (défaut #000000 / #ffffff : garder un fort contraste) ; link (le code est aussi un lien quand le texte est une URL http/https) ; label (texte lu par les lecteurs d'écran) ; placeholder (affiché tant que le texte est vide) ; 1200 caractères au plus ; état {status ready|empty|error, text, version, modules, error} dans out-data-provider ; image-provider publie le code en image SVG (avec caption à droite ou dessous) pour l'imprimer sur une étiquette (sonic-still in-data-provider puis sonic-label-printer source) ou la partager",
       "props": {
-        "text": { "type": "string" },
-        "text-from": { "type": "string" },
-        "ecc": { "type": "string" },
-        "size": { "type": "number" },
-        "margin": { "type": "number" },
-        "color": { "type": "string" },
-        "background": { "type": "string" },
-        "link": { "type": "boolean" },
-        "label": { "type": "string" },
-        "placeholder": { "type": "string" },
-        "out-data-provider": { "type": "string" }
+        "text": {
+          "type": "string"
+        },
+        "text-from": {
+          "type": "string"
+        },
+        "ecc": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        },
+        "margin": {
+          "type": "number"
+        },
+        "color": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "link": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        },
+        "image-provider": {
+          "type": "string",
+          "description": "DP où publier le code en image SVG (SonicMediaRef data:image/svg+xml) : sonic-still in-data-provider → sonic-label-printer"
+        },
+        "caption": {
+          "type": "string",
+          "description": "légende de l'image (lignes séparées par \\n)"
+        },
+        "caption-from": {
+          "type": "string",
+          "description": "DP de la légende (remplace caption)"
+        },
+        "caption-position": {
+          "type": "string",
+          "values": [
+            "right",
+            "below"
+          ],
+          "description": "légende à droite (étiquette en longueur, 2,5:1) ou dessous"
+        },
+        "image-size": {
+          "type": "number",
+          "description": "côté du code dans l'image (px, 240)"
+        }
       }
     }
   ]

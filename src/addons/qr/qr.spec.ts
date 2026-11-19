@@ -54,3 +54,23 @@ describe("garde-fous", () => {
     expect(sanitizeEcc(undefined, "Q")).toBe("Q");
   });
 });
+
+import { qrImage, qrMatrix as qrMat, safeColor, svgDataUrl } from "./core";
+
+describe("image du QR code (étiquette)", () => {
+  it("légende à droite : format 2,5:1, texte échappé, couleurs nettoyées", () => {
+    const m = qrMat("https://exemple.org/balise")!;
+    const img = qrImage(m, { caption: "Une balise <ici>\nvise le mur", px: 200, color: "red;x", background: "#fff" });
+    expect(img.width).toBe(500);
+    expect(img.height).toBe(200);
+    expect(img.svg).toContain("&lt;ici&gt;");
+    expect(img.svg).not.toContain("red;x");
+    expect(safeColor("rgb(0, 0, 0)", "#000")).toBe("rgb(0, 0, 0)");
+    expect(svgDataUrl(img.svg)).toMatch(/^data:image\/svg\+xml;base64,/);
+  });
+
+  it("légende dessous : image plus haute que large", () => {
+    const img = qrImage(qrMat("abc")!, { caption: "Bonjour", position: "below", px: 200 });
+    expect(img.height).toBeGreaterThan(img.width);
+  });
+});
