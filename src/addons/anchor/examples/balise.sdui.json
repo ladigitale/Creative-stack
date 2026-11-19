@@ -815,7 +815,7 @@
                           "tagName": "sonic-icon",
                           "attributes": {
                             "library": "iconoir",
-                            "name": "sparks",
+                            "name": "flash",
                             "slot": "prefix"
                           }
                         },
@@ -1043,7 +1043,7 @@
                               "tagName": "sonic-icon",
                               "attributes": {
                                 "library": "iconoir",
-                                "name": "microphone",
+                                "name": "sound-high",
                                 "slot": "prefix"
                               }
                             },
@@ -1351,7 +1351,7 @@
                 },
                 {
                   "tagName": "small",
-                  "textContent": "Pour l'installer : menu du navigateur puis « Ajouter à l'écran d'accueil ».",
+                  "textContent": "Pour l'avoir sous la main : menu du navigateur, puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».",
                   "attributes": {
                     "style": "opacity:.65"
                   }
