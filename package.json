@@ -35,6 +35,7 @@
     "./paint": "./src/addons/paint/index.ts",
     "./sketch": "./src/addons/sketch/index.ts",
     "./color": "./src/addons/color/index.ts",
+    "./qr": "./src/addons/qr/index.ts",
     "./predict": "./src/addons/predict/index.ts",
     "./scroll": "./src/addons/scroll/index.ts",
     "./cursor": "./src/addons/cursor/index.ts",
@@ -98,7 +99,8 @@
     "planck": "1.4.2",
     "polygon-clipping": "0.15.7",
     "three-gpu-pathtracer": "0.0.24",
-    "three-mesh-bvh": "0.9.8"
+    "three-mesh-bvh": "0.9.8",
+    "uqr": "0.1.3"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.0",

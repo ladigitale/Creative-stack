@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "qr",
+  "label": "QR codes",
+  "description": "QR codes dessinés en SVG dans la page, sans service tiers, depuis un texte ou un DataProvider lu en direct (lien d'un run, lien spectateur, code de salon, URL) ; noir sur blanc par défaut pour rester lisible quel que soit le thème",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "qr.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-qr",
+      "description": "QR code SVG : text (texte à encoder) ou text-from (DataProvider ou dp.chemin lu en direct, l'emporte sur text) ; ecc L|M|Q|H (défaut M) ; size (px, défaut 192 ; variable CSS --qr-size) ; margin (zone de silence en modules, défaut 2) ; color / background (défaut #000000 / #ffffff : garder un fort contraste) ; link (le code est aussi un lien quand le texte est une URL http/https) ; label (texte lu par les lecteurs d'écran) ; placeholder (affiché tant que le texte est vide) ; 1200 caractères au plus ; état {status ready|empty|error, text, version, modules, error} dans out-data-provider",
+      "props": {
+        "text": { "type": "string" },
+        "text-from": { "type": "string" },
+        "ecc": { "type": "string" },
+        "size": { "type": "number" },
+        "margin": { "type": "number" },
+        "color": { "type": "string" },
+        "background": { "type": "string" },
+        "link": { "type": "boolean" },
+        "label": { "type": "string" },
+        "placeholder": { "type": "string" },
+        "out-data-provider": { "type": "string" }
+      }
+    }
+  ]
+}
