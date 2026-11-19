@@ -74,7 +74,7 @@ describe("sonic-anchor : entrées enregistrées", () => {
     const el = document.createElement("sonic-anchor") as SonicAnchor;
     el.id = "ancreEntrees";
     el.setAttribute("reference", "entreesTest");
-    el.setAttribute("only", "procheTest");
+    el.setAttribute("within", "procheTest");
     document.body.appendChild(el);
     await tick();
     expect(el.candidateIds()).toEqual(["ici", "loin", "sansgps"]);

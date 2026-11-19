@@ -91,7 +91,7 @@
     },
     {
       "name": "sonic-anchor",
-      "description": "Retrouve en direct une ou plusieurs références (sorties de sonic-anchor-ref) dans l'image de la caméra. source (#camera), reference = DP d'une référence ou d'une liste (références, ou entrées {id, ref, …} enregistrées par sonic-anchor-ref : leurs autres champs sont publiés dans item), only = DP d'ids ou état de sonic-geolocation (nearby) pour ne garder que les lieux proches, embedding = DP de sortie d'un sonic-image-embedder (candidates essayées par ressemblance, top), gravity = DP d'état de sonic-orientation (filtre les rotations impossibles, gravity-tolerance degrés), active ou control {start, stop}, interval ms, smoothing, hold. État <id>State {status idle|searching|tracking|holding|error, found, refId, index, corners [{x,y}×4] en 0..1 de l'image, width, height, matches, inliers, confidence, rotation, ms, fps, references, candidates, item, similarity}. debug dessine la zone (même fit que la caméra).",
+      "description": "Retrouve en direct une ou plusieurs références (sorties de sonic-anchor-ref) dans l'image de la caméra. source (#camera), reference = DP d'une référence ou d'une liste (références, ou entrées {id, ref, …} enregistrées par sonic-anchor-ref : leurs autres champs sont publiés dans item), within = DP d'ids ou état de sonic-geolocation (nearby) pour ne garder que les lieux proches, embedding = DP de sortie d'un sonic-image-embedder (candidates essayées par ressemblance, top), gravity = DP d'état de sonic-orientation (filtre les rotations impossibles, gravity-tolerance degrés), active ou control {start, stop}, interval ms, smoothing, hold. État <id>State {status idle|searching|tracking|holding|error, found, refId, index, corners [{x,y}×4] en 0..1 de l'image, width, height, matches, inliers, confidence, rotation, ms, fps, references, candidates, item, similarity}. debug dessine la zone (même fit que la caméra).",
       "props": {
         "source": {
           "type": "string",
@@ -157,10 +157,6 @@
           "type": "string",
           "description": "DP d'état (défaut <id>State)"
         },
-        "only": {
-          "type": "string",
-          "description": "DP d'ids, ou état de sonic-geolocation (nearby) : lieux à essayer"
-        },
         "embedding": {
           "type": "string",
           "description": "DP de sortie d'un sonic-image-embedder sur la caméra"
@@ -168,6 +164,10 @@
         "top": {
           "type": "number",
           "description": "candidates les plus ressemblantes essayées en priorité (3)"
+        },
+        "within": {
+          "type": "string",
+          "description": "DP d'ids, ou état de sonic-geolocation (nearby) : lieux à essayer"
         }
       }
     },
