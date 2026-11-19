@@ -60,118 +60,140 @@
           }
         },
         {
-          "tagName": "sonic-jsonata",
-          "attributes": {
-            "inputProvider": "ui",
-            "outputProvider": "uiVue",
-            "expression": "{\"camera\": $string(ecran in [\"accueil\", \"chercher\", \"photo\"])}"
-          }
-        },
-        {
           "tagName": "sonic-if",
           "attributes": {
-            "dataProvider": "uiVue",
-            "key": "camera",
-            "equals": "true"
+            "dataProvider": "ui",
+            "key": "ecran",
+            "not": "accueil"
           },
           "nodes": [
             {
-              "tagName": "div",
+              "tagName": "sonic-if",
               "attributes": {
-                "style": "position:relative;aspect-ratio:3/4;max-height:68svh;width:100%;margin:0 auto;border-radius:1rem;overflow:hidden;background:#0b0d14"
+                "dataProvider": "ui",
+                "key": "ecran",
+                "not": "zone"
               },
               "nodes": [
                 {
-                  "tagName": "sonic-camera",
+                  "tagName": "sonic-if",
                   "attributes": {
-                    "id": "cam",
-                    "facing": "environment",
-                    "fit": "cover",
-                    "max-width": "960",
-                    "hidden-preview": true
-                  }
-                },
-                {
-                  "tagName": "sonic-frame-sync",
-                  "attributes": {
-                    "id": "vue",
-                    "for": "cam",
-                    "sync": "ancreState",
-                    "history": "24",
-                    "max-width": "960"
-                  }
-                },
-                {
-                  "tagName": "sonic-shader",
-                  "attributes": {
-                    "channel0": "#vue",
-                    "image": "void mainImage(out vec4 o, in vec2 f){\n  vec2 tex = iChannelResolution[0].xy;\n  if (tex.x < 1.0) { o = vec4(0.04, 0.05, 0.08, 1.0); return; }\n  vec2 uv = f / iResolution.xy;\n  float ra = iResolution.x / iResolution.y, ta = tex.x / tex.y;\n  vec2 s = ra > ta ? vec2(1.0, ta / ra) : vec2(ra / ta, 1.0);\n  o = vec4(texture(iChannel0, (uv - 0.5) * s + 0.5).rgb, 1.0);\n}",
-                    "style": "position:absolute;inset:0;width:100%;height:100%;display:block"
-                  }
-                },
-                {
-                  "tagName": "sonic-anchor",
-                  "attributes": {
-                    "id": "ancre",
-                    "source": "#cam",
-                    "reference": "balises.items",
-                    "within": "geoState",
-                    "embedding": "emb",
-                    "gravity": "orientState",
-                    "active": true,
-                    "debug": true,
-                    "fit": "cover"
-                  }
-                },
-                {
-                  "tagName": "sonic-anchor-view",
-                  "attributes": {
-                    "anchor": "ancreState",
-                    "fit": "cover",
-                    "content-width": "800",
-                    "content-height": "600"
+                    "dataProvider": "ui",
+                    "key": "ecran",
+                    "not": "contenu"
                   },
                   "nodes": [
                     {
-                      "tagName": "sonic-states",
+                      "tagName": "sonic-if",
                       "attributes": {
-                        "dataProvider": "ancreState",
-                        "data-path": "item.effet"
+                        "dataProvider": "ui",
+                        "key": "ecran",
+                        "not": "liste"
                       },
                       "nodes": [
                         {
-                          "tagName": "template",
+                          "tagName": "div",
                           "attributes": {
-                            "data-value": "^motif$"
+                            "style": "position:relative;aspect-ratio:3/4;max-height:68svh;width:100%;margin:0 auto;border-radius:1rem;overflow:hidden;background:#0b0d14"
                           },
                           "nodes": [
+                            {
+                              "tagName": "sonic-camera",
+                              "attributes": {
+                                "id": "cam",
+                                "facing": "environment",
+                                "fit": "cover",
+                                "max-width": "960",
+                                "hidden-preview": true
+                              }
+                            },
+                            {
+                              "tagName": "sonic-frame-sync",
+                              "attributes": {
+                                "id": "vue",
+                                "for": "cam",
+                                "sync": "ancreState",
+                                "history": "24",
+                                "max-width": "960"
+                              }
+                            },
                             {
                               "tagName": "sonic-shader",
                               "attributes": {
-                                "image": "void mainImage(out vec4 o, in vec2 f){\n  vec2 uv = f / iResolution.xy;\n  vec2 p = (uv - 0.5) * vec2(iResolution.x / iResolution.y, 1.0);\n  float t = iTime * 0.6;\n  float r = length(p);\n  float a = atan(p.y, p.x);\n  float w = sin(r * 22.0 - t * 4.0 + sin(a * 5.0 + t) * 1.5);\n  vec3 c1 = vec3(1.0, 0.36, 0.62), c2 = vec3(0.2, 0.95, 0.8), c3 = vec3(1.0, 0.86, 0.2);\n  vec3 col = mix(c1, c2, smoothstep(-0.6, 0.6, w));\n  col = mix(col, c3, smoothstep(0.85, 1.0, sin(a * 3.0 - t * 2.0)) * 0.6);\n  float edge = smoothstep(0.0, 0.02, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));\n  o = vec4(col, 0.82 * edge);\n}",
-                                "style": "display:block;width:100%;height:100%"
+                                "channel0": "#vue",
+                                "image": "void mainImage(out vec4 o, in vec2 f){\n  vec2 tex = iChannelResolution[0].xy;\n  if (tex.x < 1.0) { o = vec4(0.04, 0.05, 0.08, 1.0); return; }\n  vec2 uv = f / iResolution.xy;\n  float ra = iResolution.x / iResolution.y, ta = tex.x / tex.y;\n  vec2 s = ra > ta ? vec2(1.0, ta / ra) : vec2(ra / ta, 1.0);\n  o = vec4(texture(iChannel0, (uv - 0.5) * s + 0.5).rgb, 1.0);\n}",
+                                "style": "position:absolute;inset:0;width:100%;height:100%;display:block"
                               }
-                            }
-                          ]
-                        },
-                        {
-                          "tagName": "template",
-                          "attributes": {
-                            "data-value": "^message$"
-                          },
-                          "nodes": [
+                            },
                             {
-                              "tagName": "div",
+                              "tagName": "sonic-anchor",
                               "attributes": {
-                                "style": "width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:48px;box-sizing:border-box;background:rgba(255,236,92,.9);color:#111;font:700 64px/1.1 system-ui,sans-serif;text-align:center;border-radius:24px"
+                                "id": "ancre",
+                                "source": "#cam",
+                                "reference": "balises.items",
+                                "within": "geoState",
+                                "embedding": "emb",
+                                "gravity": "orientState",
+                                "active": true,
+                                "debug": true,
+                                "fit": "cover"
+                              }
+                            },
+                            {
+                              "tagName": "sonic-anchor-view",
+                              "attributes": {
+                                "anchor": "ancreState",
+                                "fit": "cover",
+                                "content-width": "800",
+                                "content-height": "600"
                               },
                               "nodes": [
                                 {
-                                  "tagName": "sonic-value",
+                                  "tagName": "sonic-states",
                                   "attributes": {
                                     "dataProvider": "ancreState",
-                                    "key": "item.message"
-                                  }
+                                    "data-path": "item.effet"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "template",
+                                      "attributes": {
+                                        "data-value": "^motif$"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-shader",
+                                          "attributes": {
+                                            "image": "void mainImage(out vec4 o, in vec2 f){\n  vec2 uv = f / iResolution.xy;\n  vec2 p = (uv - 0.5) * vec2(iResolution.x / iResolution.y, 1.0);\n  float t = iTime * 0.6;\n  float r = length(p);\n  float a = atan(p.y, p.x);\n  float w = sin(r * 22.0 - t * 4.0 + sin(a * 5.0 + t) * 1.5);\n  vec3 c1 = vec3(1.0, 0.36, 0.62), c2 = vec3(0.2, 0.95, 0.8), c3 = vec3(1.0, 0.86, 0.2);\n  vec3 col = mix(c1, c2, smoothstep(-0.6, 0.6, w));\n  col = mix(col, c3, smoothstep(0.85, 1.0, sin(a * 3.0 - t * 2.0)) * 0.6);\n  float edge = smoothstep(0.0, 0.02, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));\n  o = vec4(col, 0.82 * edge);\n}",
+                                            "style": "display:block;width:100%;height:100%"
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tagName": "template",
+                                      "attributes": {
+                                        "data-value": "^message$"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "div",
+                                          "attributes": {
+                                            "style": "width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:48px;box-sizing:border-box;background:rgba(255,236,92,.9);color:#111;font:700 64px/1.1 system-ui,sans-serif;text-align:center;border-radius:24px"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-value",
+                                              "attributes": {
+                                                "dataProvider": "ancreState",
+                                                "key": "item.message"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
                                 }
                               ]
                             }
