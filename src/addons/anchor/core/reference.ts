@@ -137,6 +137,7 @@ export type LocateOptions = {
   ratio?: number;
   maxDistance?: number;
   random?: () => number;
+  maxIterations?: number;
 };
 
 export type LocateResult = {
@@ -158,19 +159,21 @@ export type LocateResult = {
 const NOT_FOUND = (matches = 0): LocateResult => ({ found: false, h: null, corners: null, matches, inliers: 0, error: 0, confidence: 0, rotation: null });
 
 /** Retrouve la zone de la référence dans l'image caméra. */
-export function locate(ref: DecodedReference, frame: Features, opts: LocateOptions = {}): LocateResult {
-  const m = matchDescriptors(frame.desc, frame.n, ref.features.desc, ref.features.n, { ratio: opts.ratio ?? 0.8, maxDistance: opts.maxDistance ?? 70 });
+/** Correspondances retenues : référence (s) → image (d), en pixels. */
+export type Pairs = { sx: Float64Array; sy: Float64Array; dx: Float64Array; dy: Float64Array; n: number };
+
+/**
+ * Homographie référence → image à partir de correspondances (appariements de descripteurs ou points suivis),
+ * avec les mêmes garde-fous : zone convexe et dans le bon sens, taille plausible, rotation compatible avec la gravité.
+ */
+export function fitPairs(ref: DecodedReference, frameW: number, frameH: number, p: Pairs, opts: LocateOptions & { matches?: number } = {}): LocateResult & { pairs: Pairs | null } {
   const minIn = Math.max(6, opts.minInliers ?? 14);
-  if (m.n < minIn) return NOT_FOUND(m.n);
-  const sx = new Float64Array(m.n), sy = new Float64Array(m.n), dx = new Float64Array(m.n), dy = new Float64Array(m.n);
-  for (let k = 0; k < m.n; k++) {
-    sx[k] = ref.features.x[m.r[k]]; sy[k] = ref.features.y[m.r[k]];
-    dx[k] = frame.x[m.q[k]]; dy[k] = frame.y[m.q[k]];
-  }
-  const zonePx = ref.zone.map((p) => ({ x: p.x * ref.width, y: p.y * ref.height }));
+  const fail = { ...NOT_FOUND(opts.matches ?? p.n), pairs: null };
+  if (p.n < minIn) return fail;
+  const zonePx = ref.zone.map((q) => ({ x: q.x * ref.width, y: q.y * ref.height }));
   const sign = Math.sign(quadArea(zonePx)) || 1;
-  const frameArea = frame.width * frame.height;
-  const centre = { x: zonePx.reduce((s, p) => s + p.x, 0) / 4, y: zonePx.reduce((s, p) => s + p.y, 0) / 4 };
+  const frameArea = frameW * frameH;
+  const centre = { x: zonePx.reduce((s, q) => s + q.x, 0) / 4, y: zonePx.reduce((s, q) => s + q.y, 0) / 4 };
   const tol = opts.gravityTolerance ?? 45;
   const expected = tol > 0 && ref.up && opts.up ? signedAngle(ref.up, opts.up) : null;
 
@@ -185,7 +188,7 @@ export function locate(ref: DecodedReference, frame: Features, opts: LocateOptio
 
   const accept = (h: Mat3): boolean => {
     const q: Pt[] = [];
-    for (const p of zonePx) { const t = apply(h, p.x, p.y); if (!t) return false; q.push(t); }
+    for (const z of zonePx) { const t = apply(h, z.x, z.y); if (!t) return false; q.push(t); }
     if (!convexQuad(q, sign)) return false;
     const a = Math.abs(quadArea(q)) / frameArea;
     if (a < 0.002 || a > 6) return false;
@@ -196,18 +199,35 @@ export function locate(ref: DecodedReference, frame: Features, opts: LocateOptio
     return true;
   };
 
-  const res = ransacHomography(sx, sy, dx, dy, m.n, {
-    threshold: opts.threshold ?? Math.max(3, Math.max(frame.width, frame.height) / 160),
-    accept, random: opts.random,
+  const res = ransacHomography(p.sx, p.sy, p.dx, p.dy, p.n, {
+    threshold: opts.threshold ?? Math.max(3, Math.max(frameW, frameH) / 160),
+    accept, random: opts.random, maxIterations: opts.maxIterations,
   });
-  if (!res || res.count < minIn) return NOT_FOUND(m.n);
-  const corners = zonePx.map((p) => apply(res.h, p.x, p.y)!);
-  const ratio = res.count / m.n;
+  if (!res || res.count < minIn) return fail;
+  const corners = zonePx.map((z) => apply(res.h, z.x, z.y)!);
+  const total = opts.matches ?? p.n;
+  const ratio = res.count / Math.max(1, p.n);
   const confidence = Math.min(1, ratio * Math.min(1, res.count / (minIn * 3)) * 1.5);
+  const keep = { sx: new Float64Array(res.count), sy: new Float64Array(res.count), dx: new Float64Array(res.count), dy: new Float64Array(res.count), n: res.count };
+  for (let i = 0, k = 0; i < p.n; i++) {
+    if (!res.inliers[i]) continue;
+    keep.sx[k] = p.sx[i]; keep.sy[k] = p.sy[i]; keep.dx[k] = p.dx[i]; keep.dy[k] = p.dy[i]; k++;
+  }
   return {
-    found: ratio >= 0.2, h: res.h, corners, matches: m.n, inliers: res.count,
-    error: res.error, confidence: Math.round(confidence * 1000) / 1000, rotation: rotationOf(res.h),
+    found: ratio >= 0.2, h: res.h, corners, matches: total, inliers: res.count,
+    error: res.error, confidence: Math.round(confidence * 1000) / 1000, rotation: rotationOf(res.h), pairs: keep,
   };
+}
+
+/** Retrouve la zone de la référence dans l'image caméra (appariement de descripteurs puis homographie). */
+export function locate(ref: DecodedReference, frame: Features, opts: LocateOptions = {}): LocateResult & { pairs: Pairs | null } {
+  const m = matchDescriptors(frame.desc, frame.n, ref.features.desc, ref.features.n, { ratio: opts.ratio ?? 0.8, maxDistance: opts.maxDistance ?? 70 });
+  const p: Pairs = { sx: new Float64Array(m.n), sy: new Float64Array(m.n), dx: new Float64Array(m.n), dy: new Float64Array(m.n), n: m.n };
+  for (let k = 0; k < m.n; k++) {
+    p.sx[k] = ref.features.x[m.r[k]]; p.sy[k] = ref.features.y[m.r[k]];
+    p.dx[k] = frame.x[m.q[k]]; p.dy[k] = frame.y[m.q[k]];
+  }
+  return fitPairs(ref, frame.width, frame.height, p, { ...opts, matches: m.n });
 }
 
 /** Angle signé (degrés) pour passer de `a` à `b`, positif dans le sens horaire à l'écran (y vers le bas). */

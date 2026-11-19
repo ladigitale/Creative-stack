@@ -91,7 +91,7 @@
     },
     {
       "name": "sonic-anchor",
-      "description": "Retrouve en direct une ou plusieurs références (sorties de sonic-anchor-ref) dans l'image de la caméra. source (#camera), reference = DP d'une référence ou d'une liste (références, ou entrées {id, ref, …} enregistrées par sonic-anchor-ref : leurs autres champs sont publiés dans item), within = DP d'ids ou état de sonic-geolocation (nearby) pour ne garder que les lieux proches, embedding = DP de sortie d'un sonic-image-embedder (candidates essayées par ressemblance, top), gravity = DP d'état de sonic-orientation (filtre les rotations impossibles, gravity-tolerance degrés), active ou control {start, stop}, interval ms, smoothing, hold. État <id>State {status idle|searching|tracking|holding|error, found, refId, index, corners [{x,y}×4] en 0..1 de l'image, width, height, matches, inliers, confidence, rotation, ms, fps, references, candidates, item, similarity, frameSeq, latencyMs}. Image et contenu synchrones : caméra en hidden-preview, sonic-frame-sync for=\"cam\" sync=\"<id>State\" (montre l'image exacte analysée, frameSeq), affichée par un sonic-shader channel0 ; le contenu projeté tombe alors pile sur la zone.. debug dessine la zone (même fit que la caméra).",
+      "description": "Retrouve en direct une ou plusieurs références (sorties de sonic-anchor-ref) dans l'image de la caméra. source (#camera), reference = DP d'une référence ou d'une liste (références, ou entrées {id, ref, …} enregistrées par sonic-anchor-ref : leurs autres champs sont publiés dans item), within = DP d'ids ou état de sonic-geolocation (nearby) pour ne garder que les lieux proches, embedding = DP de sortie d'un sonic-image-embedder (candidates essayées par ressemblance, top), gravity = DP d'état de sonic-orientation (filtre les rotations impossibles, gravity-tolerance degrés), active ou control {start, stop}, interval ms, smoothing, hold. État <id>State {status idle|searching|tracking|holding|error, found, refId, index, corners [{x,y}×4] en 0..1 de l'image, width, height, matches, inliers, confidence, rotation, ms, fps, references, candidates, item, similarity, frameSeq, latencyMs, mode detect|track, engine worker|main}. Analyse dans un worker : détection par appariement, puis suivi image par image par flot optique (environ 8 fois moins cher), redétection quand le suivi s'appauvrit. Image et contenu synchrones : caméra en hidden-preview, sonic-frame-sync for=\"cam\" sync=\"<id>State\" (montre l'image exacte analysée, frameSeq), affichée par un sonic-shader channel0 ; le contenu projeté tombe alors pile sur la zone.. debug dessine la zone (même fit que la caméra).",
       "props": {
         "source": {
           "type": "string",
@@ -119,7 +119,7 @@
         },
         "interval": {
           "type": "number",
-          "description": "intervalle minimal entre deux analyses (ms, 90)"
+          "description": "intervalle minimal entre deux analyses en recherche (ms, 90) ; une zone suivie est analysée à chaque image"
         },
         "max-size": {
           "type": "number",
@@ -168,6 +168,10 @@
         "within": {
           "type": "string",
           "description": "DP d'ids, ou état de sonic-geolocation (nearby) : lieux à essayer"
+        },
+        "no-worker": {
+          "type": "boolean",
+          "description": "analyse sur le fil principal (par défaut : dans un worker)"
         }
       }
     },
