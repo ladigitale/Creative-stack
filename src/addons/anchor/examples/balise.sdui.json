@@ -95,7 +95,7 @@
                 "id": "ancre",
                 "source": "#cam",
                 "reference": "balises.items",
-                "only": "geoState",
+                "within": "geoState",
                 "embedding": "emb",
                 "gravity": "orientState",
                 "active": true,

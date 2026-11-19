@@ -33,7 +33,7 @@ export type AnchorState = {
   ms: number;
   fps: number;
   references: number;
-  /** Références essayées (après le filtre `only`). */
+  /** Références essayées (après le filtre `within`). */
   candidates: number;
   /** Champs de l'entrée trouvée, sans sa référence (message, effet, auteur…). */
   item: Record<string, unknown> | null;
@@ -54,7 +54,7 @@ const IDLE: AnchorState = {
  * - `reference` (DP) : une référence, ou une liste ; chaque élément est une référence ou une entrée
  *   `{id, ref, …}` (sortie `save` de `sonic-anchor-ref`) dont les autres champs sont publiés dans `item` quand
  *   elle est trouvée. La dernière trouvée est essayée en premier, puis une autre à chaque analyse.
- * - `only` (DP) : restreint aux ids listés (`["a", "b"]`, `[{id}]`, ou l'état de `sonic-geolocation` dont
+ * - `within` (DP) : restreint aux ids listés (`["a", "b"]`, `[{id}]`, ou l'état de `sonic-geolocation` dont
  *   `nearby` est lu) ; liste vide ou absente = toutes.
  * - `embedding` (DP de sortie d'un `sonic-image-embedder` sur la caméra) : les candidates sont essayées par
  *   ressemblance globale décroissante (les `top` premières plus souvent).
@@ -84,7 +84,7 @@ export class SonicAnchor extends LitElement {
   @property({ type: Number, attribute: "min-inliers" }) minInliers = 14;
   @property({ type: Number }) smoothing = 0.5;
   @property({ type: Number }) hold = 4;
-  @property({ type: String }) only = "";
+  @property({ type: String }) within = "";
   @property({ type: String }) embedding = "";
   /** Candidates les plus ressemblantes essayées en priorité (avec `embedding`). */
   @property({ type: Number }) top = 3;
@@ -125,7 +125,7 @@ export class SonicAnchor extends LitElement {
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("reference") || c.has("gravity") || c.has("control") || c.has("only") || c.has("embedding")) this.listen();
+    if (c.has("reference") || c.has("gravity") || c.has("control") || c.has("within") || c.has("embedding")) this.listen();
     if (c.has("active")) { if (this.active) this.start(); else if (c.get("active") !== undefined) this.stop(); }
   }
 
@@ -135,7 +135,7 @@ export class SonicAnchor extends LitElement {
     this.startT.reset(); this.stopT.reset();
     if (this.reference) this.unsubs.push(listenDp(this.reference, (v) => this.setReferences(plain(v))));
     if (this.gravity) this.unsubs.push(listenDp(this.gravity, (v) => { this.up = upFromOrientation(v); }));
-    if (this.only) this.unsubs.push(listenDp(this.only, (v) => { this.onlyIds = idSet(plain(v)); }));
+    if (this.within) this.unsubs.push(listenDp(this.within, (v) => { this.onlyIds = idSet(plain(v)); }));
     if (this.embedding) this.unsubs.push(listenDp(this.embedding, (v) => {
       const vec = (v as { vector?: unknown } | null)?.vector;
       this.vector = Array.isArray(vec) && vec.length ? (plain(vec) as number[]) : null;
@@ -256,12 +256,12 @@ export class SonicAnchor extends LitElement {
 
   private bestSimilarity: number | null = null;
 
-  /** Ids des références essayables (après `only`), dans l'ordre de la liste. */
+  /** Ids des références essayables (après `within`), dans l'ordre de la liste. */
   candidateIds(): Array<string | null> {
     return this.pool().map((i) => this.refs[i].id);
   }
 
-  /** Indices des références autorisées par `only`. */
+  /** Indices des références autorisées par `within`. */
   private pool(): number[] {
     const out: number[] = [];
     const only = this.onlyIds;

@@ -55,7 +55,7 @@ $action.type = "remove" ? $merge([$state, {"items": [$state.items[id != $action.
 
 Garder `balises` d'une visite à l'autre : `data.persist = {providers: ["balises"], version: 1}` (et `online: true` pour une copie chez Tadaaa), `maxStateBytes` du store relevé (une balise pèse 30 à 50 Ko).
 
-`sonic-anchor reference="balises.items"` lit directement ces entrées ; quand l'une est trouvée, ses autres champs (message, effet…) sont publiés dans `ancreState.item`. Pour ne chercher que près de soi : `sonic-geolocation places="balises.items"` puis `sonic-anchor only="geoState"` (une entrée prise sans GPS reste toujours candidate). Avec un `sonic-image-embedder id="emb" for="cam"` partagé, `embedding="emb"` sur les deux composants : l'empreinte de la photo est gardée dans la référence, et les candidates les plus ressemblantes à l'image courante sont essayées d'abord (`top`, `ancreState.similarity`).
+`sonic-anchor reference="balises.items"` lit directement ces entrées ; quand l'une est trouvée, ses autres champs (message, effet…) sont publiés dans `ancreState.item`. Pour ne chercher que près de soi : `sonic-geolocation places="balises.items"` puis `sonic-anchor within="geoState"` (une entrée prise sans GPS reste toujours candidate). Avec un `sonic-image-embedder id="emb" for="cam"` partagé, `embedding="emb"` sur les deux composants : l'empreinte de la photo est gardée dans la référence, et les candidates les plus ressemblantes à l'image courante sont essayées d'abord (`top`, `ancreState.similarity`).
 
 ## Références
 
