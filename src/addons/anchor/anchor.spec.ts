@@ -94,10 +94,12 @@ describe("sonic-anchor-ref", () => {
     store.setAttribute("reducer", '$action.type = "save" ? $merge([$state, {"items": $append($state.items, [$action.payload])}]) : $state');
     document.body.appendChild(store);
     set("extraTest", { message: "coucou", effet: "motif" });
+    set("voixTest", { last: { url: "data:audio/webm;base64,AAAA", mime: "audio/webm", durS: 1.5 } });
     const el = document.createElement("sonic-anchor-ref") as SonicAnchorRef;
     el.id = "poseSave";
     el.setAttribute("target", "balisesTest");
     el.setAttribute("extra", "extraTest");
+    el.setAttribute("attach", "voix=voixTest.last dessin=#absent");
     document.body.appendChild(el);
     await tick();
     expect(el.save()).toBe(false);
@@ -111,6 +113,8 @@ describe("sonic-anchor-ref", () => {
     expect(items[0].message).toBe("coucou");
     expect(items[0].lat).toBe(47.39);
     expect((items[0].ref as { id: string }).id).toBe(items[0].id);
+    expect(items[0].voix).toEqual({ url: "data:audio/webm;base64,AAAA", mime: "audio/webm", durS: 1.5, width: undefined, height: undefined });
+    expect(items[0].dessin).toBeUndefined();
     expect((get("poseSaveState") as { saved: number }).saved).toBe(1);
     el.remove();
     store.remove();

@@ -43,6 +43,8 @@ export type AnchorState = {
   mode: "detect" | "track" | "none";
   /** Où tourne l'analyse : `worker` ou `main` (repli). */
   engine: "worker" | "main";
+  /** Compteur : +1 chaque fois qu'une balise apparaît (aucune avant, ou une autre) ; `trigger` d'un son. */
+  foundCount: number;
   /** Références essayées (après le filtre `within`). */
   candidates: number;
   /** Champs de l'entrée trouvée, sans sa référence (message, effet, auteur…). */
@@ -54,7 +56,7 @@ export type AnchorState = {
 const IDLE: AnchorState = {
   status: "idle", error: null, found: false, refId: null, index: -1, corners: null, width: 0, height: 0,
   matches: 0, inliers: 0, confidence: 0, rotation: null, ms: 0, fps: 0, references: 0,
-  candidates: 0, item: null, similarity: null, frameSeq: -1, latencyMs: 0, mode: "none", engine: "main",
+  candidates: 0, item: null, similarity: null, frameSeq: -1, latencyMs: 0, mode: "none", engine: "main", foundCount: 0,
 };
 
 /**
@@ -127,6 +129,7 @@ export class SonicAnchor extends LitElement {
   private misses = 0;
   private smoothed: Pt[] | null = null;
   private filters: OneEuro[] = [];
+  private foundCount = 0;
   private runner: EngineRunner | null = null;
   private times: number[] = [];
 
@@ -258,10 +261,11 @@ export class SonicAnchor extends LitElement {
     this.times.push(now);
     while (this.times.length > 1 && now - this.times[0] > 2000) this.times.shift();
     const fps = this.times.length > 1 ? Math.round(((this.times.length - 1) * 1000) / (now - this.times[0]) * 10) / 10 : 0;
+    if (r.found && r.corners && r.index !== this.current) this.foundCount++;
     const base = {
       width, height, ms: Math.round(r.ms), fps, references: this.refs.length, error: null,
       candidates: this.pool().length, similarity: this.bestSimilarity,
-      frameSeq: seq, latencyMs: Math.round(now - grabbedAt), mode: r.mode, engine,
+      frameSeq: seq, latencyMs: Math.round(now - grabbedAt), mode: r.mode, engine, foundCount: this.foundCount,
     };
     if (r.found && r.corners) {
       this.misses = 0;

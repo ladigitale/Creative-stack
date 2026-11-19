@@ -1,12 +1,13 @@
 import { LitElement, css, html, nothing, svg } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { get as getDp } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp, plain } from "../../shared/audio/dp";
 import { CounterTrigger } from "../../shared/media/control";
 import { dispatch } from "../interactive";
 import { extractFeatures, type Features } from "./core/features";
 import { orderQuad, referenceFromFeatures, zoneMask, type AnchorReference } from "./core/reference";
-import type { Pt } from "./core/homography";
+import { apply, squareToQuad, type Pt } from "./core/homography";
 import { grabGray, resolveSource, upFromOrientation } from "./frame";
 
 export type AnchorRefState = {
@@ -24,6 +25,10 @@ export type AnchorRefState = {
   /** Balises envoyées au store `target` et id de la dernière. */
   saved: number;
   lastSaved: string | null;
+  /** La zone redressée (vue de face), SonicMediaRef JPEG en data: : fond pour dessiner dessus (`sonic-still in-data-provider`). */
+  zoneImage: { url: string; width: number; height: number; mime: string } | null;
+  /** Enregistrement en cours (pièces jointes à lire). */
+  saving: boolean;
 };
 
 /** Entrée envoyée au store `target` (action `save`) : de quoi lister, localiser et retrouver la balise. */
@@ -82,6 +87,14 @@ export class SonicAnchorRef extends LitElement {
   @property({ type: String, attribute: "save-for" }) saveFor = "";
   /** DP dont les clés sont ajoutées à l'entrée enregistrée (message, effet, auteur…). */
   @property({ type: String }) extra = "";
+  /**
+   * Pièces jointes copiées dans l'entrée à l'enregistrement, `clé=source` séparées par des espaces : `#id` d'un
+   * `sonic-sketch` (son dessin en SVG), ou chemin DP d'un SonicMediaRef (prise de `sonic-audio-recorder`, photo…).
+   * Les URL `blob:` sont converties en `data:` pour survivre à la sauvegarde. Ex. `dessin=#croquis voix=voixState.last`.
+   */
+  @property({ type: String }) attach = "";
+  /** Taille max (octets) d'une pièce jointe ; au-delà elle est ignorée et signalée dans `error`. */
+  @property({ type: Number, attribute: "attach-max" }) attachMax = 400000;
   /** DP de sortie d'un `sonic-image-embedder` sur la même caméra : son vecteur est gardé dans la référence. */
   @property({ type: String }) embedding = "";
   @property({ type: String, attribute: "empty-text" }) emptyText = "Cadre la surface puis prends la photo";
@@ -92,7 +105,7 @@ export class SonicAnchorRef extends LitElement {
   @query("canvas") private canvas!: HTMLCanvasElement;
   @query("svg") private svgEl!: SVGSVGElement;
 
-  stateValue: AnchorRefState = { status: "idle", error: null, reference: null, zone: DEFAULT_ZONE, points: 0, quality: "none", thumb: null, captures: 0, saved: 0, lastSaved: null };
+  stateValue: AnchorRefState = { status: "idle", error: null, reference: null, zone: DEFAULT_ZONE, points: 0, quality: "none", thumb: null, captures: 0, saved: 0, lastSaved: null, zoneImage: null, saving: false };
   private features: Features | null = null;
   private photo: HTMLCanvasElement | null = null;
   private up: Pt | null = null;
@@ -168,7 +181,7 @@ export class SonicAnchorRef extends LitElement {
     if (hit(this.saveFor)) this.save();
   };
 
-  /** Envoie la balise courante au store `target`. Faux si rien à enregistrer. */
+  /** Envoie la balise courante au store `target` (après lecture des pièces jointes). Faux si rien à enregistrer. */
   save(): boolean {
     const ref = this.stateValue.reference;
     if (!ref || !this.target) {
@@ -183,10 +196,59 @@ export class SonicAnchorRef extends LitElement {
       entry.lon = ref.geo.lon;
       if (ref.geo.accuracy !== undefined) entry.accuracy = ref.geo.accuracy;
     }
-    dispatch(this.target, { type: this.action || "save", payload: entry });
-    this.stateValue = { ...this.stateValue, error: null, saved: this.stateValue.saved + 1, lastSaved: id };
+    const pairs = this.attach.split(/\s+/).map((p) => p.split("=")).filter((p) => p.length === 2 && p[0] && p[1]);
+    this.stateValue = { ...this.stateValue, saving: true, error: null };
     this.publish(false);
+    void Promise.all(pairs.map(([k, src]) => this.attachment(src).then((v) => [k, v] as const))).then((got) => {
+      const skipped: string[] = [];
+      for (const [k, v] of got) {
+        if (v === "too-big") skipped.push(k);
+        else if (v) entry[k] = v;
+      }
+      dispatch(this.target, { type: this.action || "save", payload: entry });
+      this.stateValue = {
+        ...this.stateValue, saving: false, saved: this.stateValue.saved + 1, lastSaved: id,
+        error: skipped.length ? `trop lourd, non joint : ${skipped.join(", ")}` : null,
+      };
+      this.publish(false);
+    });
     return true;
+  }
+
+  /** Lit une pièce jointe : SVG d'un sonic-sketch (`#id`) ou SonicMediaRef d'un DP, en data:. */
+  private async attachment(src: string): Promise<{ url: string; width?: number; height?: number; mime: string; durS?: number } | "too-big" | null> {
+    try {
+      if (src.startsWith("#")) {
+        const el = resolveSource(this, src) as (Element & { toSvg?: () => string | null; doc?: { strokes?: unknown[] } }) | null;
+        if (!el || typeof el.toSvg !== "function") return null;
+        if (Array.isArray(el.doc?.strokes) && !el.doc!.strokes!.length) return null;
+        const svg = el.toSvg();
+        if (!svg) return null;
+        const bytes = new TextEncoder().encode(svg);
+        if (bytes.length > this.attachMax) return "too-big";
+        let bin = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        const vb = /viewBox="([-\d.]+)[ ,]+([-\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)"/.exec(svg);
+        return { url: `data:image/svg+xml;base64,${btoa(bin)}`, mime: "image/svg+xml", width: vb ? +vb[3] : undefined, height: vb ? +vb[4] : undefined };
+      }
+      const ref = plain<Record<string, unknown>>(getDp(src));
+      const url = typeof ref?.url === "string" ? ref.url : "";
+      if (!url) return null;
+      const meta = { width: num(ref?.width), height: num(ref?.height), durS: num(ref?.durS) };
+      if (url.startsWith("data:")) return url.length > this.attachMax * 1.37 ? "too-big" : { url, mime: String(ref?.mime ?? ""), ...meta };
+      if (!url.startsWith("blob:")) return null;
+      const blob = await (await fetch(url)).blob();
+      if (blob.size > this.attachMax) return "too-big";
+      const dataUrl = await new Promise<string>((ok, ko) => {
+        const r = new FileReader();
+        r.onload = () => ok(String(r.result));
+        r.onerror = () => ko(r.error);
+        r.readAsDataURL(blob);
+      });
+      return { url: dataUrl, mime: blob.type, ...meta };
+    } catch {
+      return null;
+    }
   }
 
   /** Fige l'image courante de la source et extrait ses points. */
@@ -251,9 +313,41 @@ export class SonicAnchorRef extends LitElement {
     ref.createdAt = new Date().toISOString();
     this.stateValue = {
       ...this.stateValue, status: "ready", error: ref.n < 30 ? "surface trop unie : choisis une zone plus texturée" : null,
-      reference: ref, zone: ref.zone, points: ref.n, quality: quality(ref.n),
+      reference: ref, zone: ref.zone, points: ref.n, quality: quality(ref.n), zoneImage: this.rectify(ref.zone),
     };
     this.publish(publishZone);
+  }
+
+  /** La zone vue de face (homographie inverse), au plus 800 px de côté, en JPEG data:. */
+  private rectify(zone: Pt[]): AnchorRefState["zoneImage"] {
+    const photo = this.photo;
+    if (!photo || zone.length !== 4) return null;
+    try {
+      const q = zone.map((p) => ({ x: p.x * photo.width, y: p.y * photo.height }));
+      const d = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
+      const aspect = Math.max(0.2, Math.min(5, (d(q[0], q[1]) + d(q[3], q[2])) / Math.max(1, d(q[0], q[3]) + d(q[1], q[2]))));
+      const W = Math.round(aspect >= 1 ? 800 : 800 * aspect), H = Math.round(aspect >= 1 ? 800 / aspect : 800);
+      const H2 = squareToQuad(q);
+      if (!H2) return null;
+      const src = photo.getContext("2d")!.getImageData(0, 0, photo.width, photo.height).data;
+      const out = document.createElement("canvas");
+      out.width = W; out.height = H;
+      const ctx = out.getContext("2d")!;
+      const img = ctx.createImageData(W, H);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const p = apply(H2, (x + 0.5) / W, (y + 0.5) / H);
+          if (!p) continue;
+          const sx = Math.min(photo.width - 1, Math.max(0, p.x | 0)), sy = Math.min(photo.height - 1, Math.max(0, p.y | 0));
+          const i = (sy * photo.width + sx) * 4, o = (y * W + x) * 4;
+          img.data[o] = src[i]; img.data[o + 1] = src[i + 1]; img.data[o + 2] = src[i + 2]; img.data[o + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      return { url: out.toDataURL("image/jpeg", 0.8), width: W, height: H, mime: "image/jpeg" };
+    } catch {
+      return null;
+    }
   }
 
   private publish(publishZone = true): void {
@@ -329,3 +423,5 @@ export class SonicAnchorRef extends LitElement {
 }
 
 const clamp01 = (v: number) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
+
+const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);

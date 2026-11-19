@@ -59,3 +59,64 @@ export function safeHref(text: string): string | null {
     return null;
   }
 }
+
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+export type QrImageOptions = {
+  margin?: number;
+  color?: string;
+  background?: string;
+  /** Texte à côté du code (lignes séparées par « \n »), pour une étiquette. */
+  caption?: string;
+  /** `right` (étiquette en longueur, 2,5:1) ou `below`. */
+  position?: "right" | "below";
+  /** Côté du code en pixels dans l'image. */
+  px?: number;
+};
+
+/**
+ * Image SVG autonome (code + légende facultative) : à imprimer (`sonic-still` → `sonic-label-printer`),
+ * télécharger ou partager. Couleurs nettoyées (pas d'injection dans le SVG), texte échappé.
+ */
+export function qrImage(m: QrMatrix, o: QrImageOptions = {}): { svg: string; width: number; height: number } {
+  const margin = Math.max(0, Math.min(8, Math.round(o.margin ?? 2)));
+  const total = m.size + margin * 2;
+  const px = Math.max(48, Math.min(2048, Math.round(o.px ?? 240)));
+  const unit = px / total;
+  const color = safeColor(o.color, "#000000"), bg = safeColor(o.background, "#ffffff");
+  const lines = (o.caption ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 4);
+  const pos = o.position === "below" ? "below" : "right";
+  let width = px, height = px, text = "";
+  if (lines.length) {
+    if (pos === "right") {
+      width = Math.round(px * 2.5);
+      const fs = Math.round(Math.min(px / (lines.length * 1.25 + 0.5), (width - px) / Math.max(...lines.map((l) => l.length * 0.56), 1)));
+      const y0 = (px - lines.length * fs * 1.2) / 2 + fs;
+      text = lines.map((l, i) => `<text x="${px + fs * 0.4}" y="${(y0 + i * fs * 1.2).toFixed(1)}" font-size="${fs}">${esc(l)}</text>`).join("");
+    } else {
+      const fs = Math.round(Math.min(px / 7, px / Math.max(...lines.map((l) => l.length * 0.56), 1)));
+      height = Math.round(px + lines.length * fs * 1.25 + fs * 0.4);
+      text = lines.map((l, i) => `<text x="${px / 2}" y="${(px + fs * 1.1 + i * fs * 1.25).toFixed(1)}" font-size="${fs}" text-anchor="middle">${esc(l)}</text>`).join("");
+    }
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`
+    + `<rect width="${width}" height="${height}" fill="${bg}"/>`
+    + `<g transform="scale(${unit.toFixed(5)})" shape-rendering="crispEdges"><path d="${qrPath(m, margin)}" fill="${color}"/></g>`
+    + (text ? `<g fill="${color}" font-family="Helvetica, Arial, sans-serif" font-weight="700">${text}</g>` : "")
+    + `</svg>`;
+  return { svg, width, height };
+}
+
+/** Couleur CSS simple (#hex, nom, rgb/hsl) ; sinon le repli. */
+export function safeColor(v: unknown, fallback: string): string {
+  const s = typeof v === "string" ? v.trim() : "";
+  return /^(#[0-9a-f]{3,8}|[a-z]{3,20}|(rgb|hsl)a?\([0-9.,%\s]+\))$/i.test(s) ? s : fallback;
+}
+
+/** data: URL d'un SVG (base64, UTF-8). */
+export function svgDataUrl(svg: string): string {
+  const bytes = new TextEncoder().encode(svg);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return `data:image/svg+xml;base64,${btoa(bin)}`;
+}

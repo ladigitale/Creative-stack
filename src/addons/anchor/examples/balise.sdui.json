@@ -9,6 +9,30 @@
         {
           "tagName": "sonic-store",
           "attributes": {
+            "id": "pinceau",
+            "initial": "{\"color\": \"#ff3d7f\"}",
+            "reducer": "$state"
+          }
+        },
+        {
+          "tagName": "sonic-store",
+          "attributes": {
+            "id": "enreg",
+            "initial": "{\"recording\": false}",
+            "reducer": "$state"
+          }
+        },
+        {
+          "tagName": "sonic-store",
+          "attributes": {
+            "id": "lecture",
+            "initial": "{\"events\": [{\"sample\": \"voix\"}]}",
+            "reducer": "$state"
+          }
+        },
+        {
+          "tagName": "sonic-store",
+          "attributes": {
             "id": "ui",
             "initial": "{\"ecran\": \"accueil\"}",
             "reducer": "$state"
@@ -57,6 +81,31 @@
             "id": "emb",
             "for": "cam",
             "fps": "1"
+          }
+        },
+        {
+          "tagName": "sonic-mic",
+          "attributes": {
+            "id": "micro"
+          }
+        },
+        {
+          "tagName": "sonic-audio-recorder",
+          "attributes": {
+            "id": "voix",
+            "source": "#micro",
+            "max-s": "15",
+            "max-takes": "1",
+            "control": "enreg"
+          }
+        },
+        {
+          "tagName": "sonic-sampler",
+          "attributes": {
+            "id": "lecteur",
+            "samples": "{\"voix\": {\"ref\": \"ancreState.item.voix\"}}",
+            "events": "lecture.events",
+            "trigger": "ancreState.foundCount"
           }
         },
         {
@@ -190,6 +239,22 @@
                                               }
                                             }
                                           ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tagName": "template",
+                                      "attributes": {
+                                        "data-value": "^dessin$"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-still",
+                                          "attributes": {
+                                            "in-data-provider": "ancreState.item.dessin",
+                                            "fit": "fill",
+                                            "style": "display:block;width:100%;height:100%;background:transparent"
+                                          }
                                         }
                                       ]
                                     }
@@ -550,6 +615,7 @@
                     "save-for": "garder",
                     "target": "balises",
                     "extra": "brouillon",
+                    "attach": "dessin=#croquis voix=voixState.last",
                     "gravity": "orientState",
                     "geo": "geoState",
                     "embedding": "emb",
@@ -682,51 +748,329 @@
                   }
                 },
                 {
-                  "tagName": "sonic-fieldset",
+                  "tagName": "sonic-group",
                   "attributes": {
-                    "label": "Contenu de la balise"
+                    "formDataProvider": "brouillon"
                   },
                   "nodes": [
                     {
-                      "tagName": "sonic-form-layout",
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "radio": true,
+                        "name": "effet",
+                        "value": "message",
+                        "size": "sm",
+                        "variant": "outline"
+                      },
                       "nodes": [
                         {
-                          "tagName": "sonic-group",
+                          "tagName": "sonic-icon",
                           "attributes": {
-                            "formDataProvider": "brouillon"
+                            "library": "iconoir",
+                            "name": "text",
+                            "slot": "prefix"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "Message"
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "radio": true,
+                        "name": "effet",
+                        "value": "dessin",
+                        "size": "sm",
+                        "variant": "outline"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "design-pencil",
+                            "slot": "prefix"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "Dessin"
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "radio": true,
+                        "name": "effet",
+                        "value": "motif",
+                        "size": "sm",
+                        "variant": "outline"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "sparks",
+                            "slot": "prefix"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "Motif"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-if",
+                  "attributes": {
+                    "dataProvider": "brouillon",
+                    "key": "effet",
+                    "equals": "message"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-input",
+                      "attributes": {
+                        "formDataProvider": "brouillon",
+                        "name": "message",
+                        "label": "Message accroché à la surface"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-if",
+                  "attributes": {
+                    "dataProvider": "brouillon",
+                    "key": "effet",
+                    "equals": "dessin"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "display:flex;flex-direction:column;gap:.5rem"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "p",
+                          "textContent": "Dessine directement sur la surface : le dessin s'y accrochera.",
+                          "attributes": {
+                            "style": "margin:0;opacity:.75;font-size:.95rem"
+                          }
+                        },
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "position:relative;aspect-ratio:4/3;border-radius:.8rem;overflow:hidden;background:#222"
                           },
                           "nodes": [
                             {
-                              "tagName": "sonic-button",
+                              "tagName": "sonic-still",
                               "attributes": {
-                                "radio": true,
-                                "name": "effet",
-                                "value": "message",
-                                "size": "sm",
-                                "variant": "outline"
-                              },
-                              "textContent": "Message"
+                                "in-data-provider": "poseState.zoneImage",
+                                "fit": "fill",
+                                "style": "position:absolute;inset:0;width:100%;height:100%;opacity:.85"
+                              }
                             },
                             {
-                              "tagName": "sonic-button",
+                              "tagName": "sonic-sketch",
                               "attributes": {
-                                "radio": true,
-                                "name": "effet",
-                                "value": "motif",
-                                "size": "sm",
-                                "variant": "outline"
-                              },
-                              "textContent": "Motif animé"
+                                "id": "croquis",
+                                "width": "800",
+                                "height": "600",
+                                "background": "transparent",
+                                "color": "#ff3d7f",
+                                "size": "10",
+                                "brush-from": "pinceau",
+                                "style": "position:absolute;inset:0;width:100%;height:100%"
+                              }
                             }
                           ]
                         },
                         {
-                          "tagName": "sonic-input",
+                          "tagName": "div",
                           "attributes": {
-                            "formDataProvider": "brouillon",
-                            "name": "message",
-                            "label": "Message"
+                            "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-group",
+                              "attributes": {
+                                "formDataProvider": "pinceau"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "radio": true,
+                                    "name": "color",
+                                    "value": "#ff3d7f",
+                                    "size": "sm",
+                                    "variant": "outline",
+                                    "shape": "circle"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "display:inline-block;width:1rem;height:1rem;border-radius:50%;background:#ff3d7f"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "radio": true,
+                                    "name": "color",
+                                    "value": "#ffd500",
+                                    "size": "sm",
+                                    "variant": "outline",
+                                    "shape": "circle"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "display:inline-block;width:1rem;height:1rem;border-radius:50%;background:#ffd500"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "radio": true,
+                                    "name": "color",
+                                    "value": "#22d3a6",
+                                    "size": "sm",
+                                    "variant": "outline",
+                                    "shape": "circle"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "display:inline-block;width:1rem;height:1rem;border-radius:50%;background:#22d3a6"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "radio": true,
+                                    "name": "color",
+                                    "value": "#ffffff",
+                                    "size": "sm",
+                                    "variant": "outline",
+                                    "shape": "circle"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "display:inline-block;width:1rem;height:1rem;border-radius:50%;background:#ffffff"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "radio": true,
+                                    "name": "color",
+                                    "value": "#111111",
+                                    "size": "sm",
+                                    "variant": "outline",
+                                    "shape": "circle"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "display:inline-block;width:1rem;height:1rem;border-radius:50%;background:#111111"
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-fieldset",
+                  "attributes": {
+                    "label": "Message vocal (facultatif)"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-audio-unlock",
+                          "attributes": {
+                            "start": "mic",
+                            "label": "Activer le micro"
                           }
+                        },
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "formDataProvider": "enreg",
+                            "name": "recording",
+                            "size": "sm",
+                            "type": "danger",
+                            "variant": "outline"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "microphone",
+                                "slot": "prefix"
+                              }
+                            },
+                            {
+                              "tagName": "span",
+                              "textContent": "Enregistrer / arrêter"
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "small",
+                          "attributes": {
+                            "style": "opacity:.75"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-value",
+                              "attributes": {
+                                "dataProvider": "voixState",
+                                "key": "elapsedS"
+                              }
+                            },
+                            {
+                              "tagName": "span",
+                              "textContent": " s"
+                            }
+                          ]
                         }
                       ]
                     }
@@ -744,7 +1088,7 @@
                         "radio": true,
                         "formDataProvider": "ui",
                         "name": "ecran",
-                        "value": "chercher",
+                        "value": "etiquette",
                         "type": "success",
                         "id": "garder"
                       },
@@ -776,6 +1120,241 @@
                       "textContent": "Retour"
                     }
                   ]
+                },
+                {
+                  "tagName": "small",
+                  "attributes": {
+                    "style": "color:var(--sc-danger, #c33)"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "poseState",
+                        "key": "error"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "ui",
+            "key": "ecran",
+            "equals": "etiquette"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "display:flex;flex-direction:column;gap:.7rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "h2",
+                  "textContent": "Balise posée !",
+                  "attributes": {
+                    "style": "margin:0;font-size:1.2rem"
+                  }
+                },
+                {
+                  "tagName": "p",
+                  "textContent": "Imprime une étiquette à coller sur place : elle invite les passants à venir voir.",
+                  "attributes": {
+                    "style": "margin:0;opacity:.75;font-size:.95rem"
+                  }
+                },
+                {
+                  "tagName": "sonic-qr",
+                  "attributes": {
+                    "text": "https://artifacts.tadaaa.space/balise?k=6c9e9c723c61df11ce176af9ea3784ce",
+                    "image-provider": "etiquetteImg",
+                    "caption": "Une balise est cachée ici\nScanne puis vise le mur",
+                    "size": "140",
+                    "ecc": "M"
+                  }
+                },
+                {
+                  "tagName": "sonic-still",
+                  "attributes": {
+                    "id": "etiq",
+                    "in-data-provider": "etiquetteImg",
+                    "hidden-preview": true
+                  }
+                },
+                {
+                  "tagName": "sonic-bluetooth",
+                  "attributes": {
+                    "id": "bt",
+                    "profile": "luck niimbot",
+                    "for": "connecter",
+                    "auto-reconnect": true
+                  }
+                },
+                {
+                  "tagName": "sonic-label-printer",
+                  "attributes": {
+                    "id": "imp",
+                    "transport": "#bt",
+                    "source": "#etiq",
+                    "label-mm": "30x12",
+                    "for": "imprimer",
+                    "show-preview": true,
+                    "style": "width:240px;max-width:100%"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "id": "connecter",
+                        "variant": "outline",
+                        "size": "sm"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "bluetooth",
+                            "slot": "prefix"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "Connecter l'imprimante"
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "id": "imprimer",
+                        "type": "primary",
+                        "size": "sm"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "printer",
+                            "slot": "prefix"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "Imprimer"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "small",
+                  "attributes": {
+                    "style": "opacity:.75"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "impState",
+                        "key": "status"
+                      }
+                    },
+                    {
+                      "tagName": "span",
+                      "textContent": " "
+                    },
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "impState",
+                        "key": "error"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-share",
+                  "attributes": {
+                    "id": "partage",
+                    "for": "partager",
+                    "title": "Balises",
+                    "text": "Une balise t'attend : ouvre et vise le mur.",
+                    "url": "https://artifacts.tadaaa.space/balise?k=6c9e9c723c61df11ce176af9ea3784ce"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "id": "partager",
+                        "variant": "outline",
+                        "size": "sm"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "share-android",
+                            "slot": "prefix"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "Partager le lien"
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "radio": true,
+                        "formDataProvider": "ui",
+                        "name": "ecran",
+                        "value": "chercher",
+                        "type": "primary"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "check",
+                            "slot": "prefix"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "Terminé"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "small",
+                  "textContent": "Pour l'installer : menu du navigateur puis « Ajouter à l'écran d'accueil ».",
+                  "attributes": {
+                    "style": "opacity:.65"
+                  }
                 }
               ]
             }

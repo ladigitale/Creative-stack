@@ -13,7 +13,7 @@
   "components": [
     {
       "name": "sonic-anchor-ref",
-      "description": "Photographie un lieu et délimite la zone à ancrer. source (#camera) ; capture par control {capture:n} ou for (clic) ; 4 coins déplaçables au doigt (zone = DP facultatif en lecture/écriture) ; gravity = DP d'état de sonic-orientation (haut au moment de la prise) ; geo = DP d'état de sonic-geolocation (position) ; control {reset, clear, save}. Enregistrer : target = id d'un store, save-for = ids des boutons (ou control.save) → action {type: action (save), payload: {id, createdAt, lat, lon, accuracy, points, ref, …clés du DP extra}} ; embedding = DP de sortie d'un sonic-image-embedder sur la caméra (empreinte gardée dans ref). État <id>State {status, error, reference (JSON à stocker et à donner à sonic-anchor), zone, points, quality none|weak|ok|good, thumb (data URL), captures, saved, lastSaved}. Zone plane et texturée (façade, panneau, vitrine, sol) ; surface unie = weak.",
+      "description": "Photographie un lieu et délimite la zone à ancrer. source (#camera) ; capture par control {capture:n} ou for (clic) ; 4 coins déplaçables au doigt (zone = DP facultatif en lecture/écriture) ; gravity = DP d'état de sonic-orientation (haut au moment de la prise) ; geo = DP d'état de sonic-geolocation (position) ; control {reset, clear, save}. Enregistrer : target = id d'un store, save-for = ids des boutons (ou control.save) → action {type: action (save), payload: {id, createdAt, lat, lon, accuracy, points, ref, …clés du DP extra}} ; embedding = DP de sortie d'un sonic-image-embedder sur la caméra (empreinte gardée dans ref). État <id>State {status, error, reference (JSON à stocker et à donner à sonic-anchor), zone, points, quality none|weak|ok|good, thumb (data URL), captures, saved, lastSaved, saving, zoneImage (la zone vue de face, SonicMediaRef JPEG : fond pour dessiner dessus)}. Zone plane et texturée (façade, panneau, vitrine, sol) ; surface unie = weak.",
       "props": {
         "source": {
           "type": "string",
@@ -86,12 +86,20 @@
         "embedding": {
           "type": "string",
           "description": "DP de sortie d'un sonic-image-embedder sur la caméra"
+        },
+        "attach": {
+          "type": "string",
+          "description": "pièces jointes « clé=source » séparées par des espaces : #id d'un sonic-sketch (dessin SVG) ou chemin DP d'un SonicMediaRef (prise audio…) ; blob: converti en data:"
+        },
+        "attach-max": {
+          "type": "number",
+          "description": "taille max d'une pièce jointe (octets, 400000)"
         }
       }
     },
     {
       "name": "sonic-anchor",
-      "description": "Retrouve en direct une ou plusieurs références (sorties de sonic-anchor-ref) dans l'image de la caméra. source (#camera), reference = DP d'une référence ou d'une liste (références, ou entrées {id, ref, …} enregistrées par sonic-anchor-ref : leurs autres champs sont publiés dans item), within = DP d'ids ou état de sonic-geolocation (nearby) pour ne garder que les lieux proches, embedding = DP de sortie d'un sonic-image-embedder (candidates essayées par ressemblance, top), gravity = DP d'état de sonic-orientation (filtre les rotations impossibles, gravity-tolerance degrés), active ou control {start, stop}, interval ms, smoothing, hold. État <id>State {status idle|searching|tracking|holding|error, found, refId, index, corners [{x,y}×4] en 0..1 de l'image, width, height, matches, inliers, confidence, rotation, ms, fps, references, candidates, item, similarity, frameSeq, latencyMs, mode detect|track, engine worker|main}. Analyse dans un worker : détection par appariement, puis suivi image par image par flot optique (environ 8 fois moins cher), redétection quand le suivi s'appauvrit. Image et contenu synchrones : caméra en hidden-preview, sonic-frame-sync for=\"cam\" sync=\"<id>State\" (montre l'image exacte analysée, frameSeq), affichée par un sonic-shader channel0 ; le contenu projeté tombe alors pile sur la zone.. debug dessine la zone (même fit que la caméra).",
+      "description": "Retrouve en direct une ou plusieurs références (sorties de sonic-anchor-ref) dans l'image de la caméra. source (#camera), reference = DP d'une référence ou d'une liste (références, ou entrées {id, ref, …} enregistrées par sonic-anchor-ref : leurs autres champs sont publiés dans item), within = DP d'ids ou état de sonic-geolocation (nearby) pour ne garder que les lieux proches, embedding = DP de sortie d'un sonic-image-embedder (candidates essayées par ressemblance, top), gravity = DP d'état de sonic-orientation (filtre les rotations impossibles, gravity-tolerance degrés), active ou control {start, stop}, interval ms, smoothing, hold. État <id>State {status idle|searching|tracking|holding|error, found, refId, index, corners [{x,y}×4] en 0..1 de l'image, width, height, matches, inliers, confidence, rotation, ms, fps, references, candidates, item, similarity, frameSeq, latencyMs, mode detect|track, engine worker|main, foundCount (+1 à chaque balise qui apparaît : trigger d'un son)}. Analyse dans un worker : détection par appariement, puis suivi image par image par flot optique (environ 8 fois moins cher), redétection quand le suivi s'appauvrit. Image et contenu synchrones : caméra en hidden-preview, sonic-frame-sync for=\"cam\" sync=\"<id>State\" (montre l'image exacte analysée, frameSeq), affichée par un sonic-shader channel0 ; le contenu projeté tombe alors pile sur la zone.. debug dessine la zone (même fit que la caméra).",
       "props": {
         "source": {
           "type": "string",
