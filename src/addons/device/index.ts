@@ -9,6 +9,7 @@ export { SonicFullscreen, type FullscreenState } from "./fullscreen";
 export { SonicPointerLock, type PointerLockState } from "./pointer-lock";
 export { SonicWakeLock, type WakeLockState } from "./wake-lock";
 export { SonicOrientation, type OrientationState } from "./orientation";
+export { SonicGeolocation, distanceBearing, nearbyPlaces, type GeolocationState, type GeoPlace, type NearbyPlace } from "./geolocation";
 export { SonicClipboard, type ClipboardState } from "./clipboard";
 export { SonicShare, safeShareUrl, type ShareState } from "./share";
 export { SonicVibrate, parsePattern, type VibrateState } from "./vibrate";

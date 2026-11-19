@@ -1,0 +1,421 @@
+{
+  "nodes": [
+    {
+      "tagName": "div",
+      "attributes": {
+        "style": "display:flex;flex-direction:column;gap:.8rem;max-width:34rem;margin:0 auto;padding:.8rem"
+      },
+      "nodes": [
+        {
+          "tagName": "sonic-store",
+          "attributes": {
+            "id": "balise",
+            "initial": "{\"onglet\": \"poser\", \"effet\": \"motif\"}",
+            "reducer": "$state"
+          }
+        },
+        {
+          "tagName": "sonic-store",
+          "attributes": {
+            "id": "message",
+            "initial": "{\"texte\": \"Ici, quelqu'un a pens\\u00e9 \\u00e0 toi.\"}",
+            "reducer": "$state"
+          }
+        },
+        {
+          "tagName": "sonic-orientation",
+          "attributes": {
+            "id": "orient",
+            "for": "go",
+            "sensors": true,
+            "smoothing": "0.6",
+            "rate": "15"
+          }
+        },
+        {
+          "tagName": "sonic-geolocation",
+          "attributes": {
+            "id": "geo",
+            "for": "go"
+          }
+        },
+        {
+          "tagName": "h1",
+          "attributes": {
+            "style": "margin:0;font-size:1.4rem"
+          },
+          "textContent": "Balise"
+        },
+        {
+          "tagName": "p",
+          "textContent": "Photographie une surface plane et texturée (façade, panneau, vitrine), délimite la zone, puis vise-la : le contenu s'y accroche.",
+          "attributes": {
+            "style": "margin:0;opacity:.75"
+          }
+        },
+        {
+          "tagName": "div",
+          "attributes": {
+            "style": "position:relative;aspect-ratio:3/4;border-radius:1rem;overflow:hidden;background:#0b0d14"
+          },
+          "nodes": [
+            {
+              "tagName": "sonic-camera",
+              "attributes": {
+                "id": "cam",
+                "facing": "environment",
+                "fit": "cover",
+                "max-width": "960",
+                "style": "position:absolute;inset:0;width:100%;height:100%"
+              }
+            },
+            {
+              "tagName": "sonic-anchor",
+              "attributes": {
+                "id": "ancre",
+                "source": "#cam",
+                "reference": "poseState.reference",
+                "gravity": "orientState",
+                "active": true,
+                "debug": true,
+                "fit": "cover"
+              }
+            },
+            {
+              "tagName": "sonic-anchor-view",
+              "attributes": {
+                "anchor": "ancreState",
+                "fit": "cover",
+                "content-width": "800",
+                "content-height": "600"
+              },
+              "nodes": [
+                {
+                  "tagName": "sonic-states",
+                  "attributes": {
+                    "dataProvider": "balise",
+                    "data-path": "effet"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "template",
+                      "attributes": {
+                        "data-value": "^motif$"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-shader",
+                          "attributes": {
+                            "image": "void mainImage(out vec4 o, in vec2 f){\n  vec2 uv = f / iResolution.xy;\n  vec2 p = (uv - 0.5) * vec2(iResolution.x / iResolution.y, 1.0);\n  float t = iTime * 0.6;\n  float r = length(p);\n  float a = atan(p.y, p.x);\n  float w = sin(r * 22.0 - t * 4.0 + sin(a * 5.0 + t) * 1.5);\n  vec3 c1 = vec3(1.0, 0.36, 0.62), c2 = vec3(0.2, 0.95, 0.8), c3 = vec3(1.0, 0.86, 0.2);\n  vec3 col = mix(c1, c2, smoothstep(-0.6, 0.6, w));\n  col = mix(col, c3, smoothstep(0.85, 1.0, sin(a * 3.0 - t * 2.0)) * 0.6);\n  float edge = smoothstep(0.0, 0.02, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));\n  o = vec4(col, 0.82 * edge);\n}",
+                            "style": "display:block;width:100%;height:100%"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "template",
+                      "attributes": {
+                        "data-value": "^message$"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:48px;box-sizing:border-box;background:rgba(255,236,92,.88);color:#111;font:700 64px/1.1 system-ui,sans-serif;text-align:center;border-radius:24px"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-value",
+                              "attributes": {
+                                "dataProvider": "message",
+                                "key": "texte"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:absolute;left:0;right:0;bottom:1rem;display:flex;justify-content:center"
+              },
+              "nodes": [
+                {
+                  "tagName": "sonic-media-start",
+                  "attributes": {
+                    "id": "go",
+                    "for": "cam",
+                    "label": "Démarrer la caméra et les capteurs"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-group",
+          "attributes": {
+            "formDataProvider": "balise"
+          },
+          "nodes": [
+            {
+              "tagName": "sonic-button",
+              "attributes": {
+                "radio": true,
+                "name": "onglet",
+                "value": "poser",
+                "size": "sm",
+                "variant": "outline"
+              },
+              "textContent": "Poser"
+            },
+            {
+              "tagName": "sonic-button",
+              "attributes": {
+                "radio": true,
+                "name": "onglet",
+                "value": "retrouver",
+                "size": "sm",
+                "variant": "outline"
+              },
+              "textContent": "Retrouver"
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "balise",
+            "key": "onglet",
+            "equals": "poser"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "display:flex;flex-direction:column;gap:.6rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "sonic-button",
+                  "attributes": {
+                    "id": "photo",
+                    "type": "primary"
+                  },
+                  "textContent": "Photographier la surface"
+                },
+                {
+                  "tagName": "sonic-anchor-ref",
+                  "attributes": {
+                    "id": "pose",
+                    "source": "#cam",
+                    "for": "photo",
+                    "gravity": "orientState",
+                    "geo": "geoState",
+                    "ref-id": "balise-1",
+                    "style": "border-radius:.8rem;overflow:hidden"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;gap:1rem;flex-wrap:wrap;font-size:.9rem;opacity:.8"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "span",
+                      "nodes": [
+                        {
+                          "tagName": "span",
+                          "textContent": "Points : "
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "poseState",
+                            "key": "points"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "span",
+                      "nodes": [
+                        {
+                          "tagName": "span",
+                          "textContent": "Qualité : "
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "poseState",
+                            "key": "quality"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "span",
+                      "nodes": [
+                        {
+                          "tagName": "span",
+                          "textContent": "Précision GPS (m) : "
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "geoState",
+                            "key": "accuracy"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "small",
+                  "attributes": {
+                    "style": "color:var(--sc-danger, #c33)"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "poseState",
+                        "key": "error"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "tagName": "small",
+                  "textContent": "Déplace les quatre coins sur la surface. Les points jaunes sont ce que la balise reconnaîtra : il en faut beaucoup, bien répartis.",
+                  "attributes": {
+                    "style": "opacity:.7"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "balise",
+            "key": "onglet",
+            "equals": "retrouver"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "display:flex;flex-direction:column;gap:.6rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "sonic-group",
+                  "attributes": {
+                    "formDataProvider": "balise"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "radio": true,
+                        "name": "effet",
+                        "value": "motif",
+                        "size": "sm",
+                        "variant": "outline"
+                      },
+                      "textContent": "Motif animé"
+                    },
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "radio": true,
+                        "name": "effet",
+                        "value": "message",
+                        "size": "sm",
+                        "variant": "outline"
+                      },
+                      "textContent": "Message"
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-input",
+                  "attributes": {
+                    "formDataProvider": "message",
+                    "name": "texte",
+                    "label": "Message accroché à la surface"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem;font-size:.85rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "span",
+                      "nodes": [
+                        {
+                          "tagName": "span",
+                          "textContent": "État : "
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "ancreState",
+                            "key": "status"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "span",
+                      "nodes": [
+                        {
+                          "tagName": "span",
+                          "textContent": "Points sûrs : "
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "ancreState",
+                            "key": "inliers"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "span",
+                      "nodes": [
+                        {
+                          "tagName": "span",
+                          "textContent": "Analyses/s : "
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "ancreState",
+                            "key": "fps"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

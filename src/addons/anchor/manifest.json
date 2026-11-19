@@ -1,0 +1,177 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "anchor",
+  "label": "Ancrage sur le réel",
+  "description": "Ancre du contenu sur une surface réelle vue par la caméra, dans le navigateur, sans service tiers : sonic-anchor-ref photographie un lieu et délimite une zone plane (4 coins au doigt), sonic-anchor la retrouve en direct (points ORB, homographie RANSAC, a priori de gravité via sonic-orientation), sonic-anchor-view y projette en perspective n'importe quel SDUI (image, shader, dessin, texte). Références JSON stockables dans les données d'un artefact.",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "anchor.md",
+  "examples": [
+    "examples/balise.sdui.json"
+  ],
+  "components": [
+    {
+      "name": "sonic-anchor-ref",
+      "description": "Photographie un lieu et délimite la zone à ancrer. source (#camera) ; capture par control {capture:n} ou for (clic) ; 4 coins déplaçables au doigt (zone = DP facultatif en lecture/écriture) ; gravity = DP d'état de sonic-orientation (haut au moment de la prise) ; geo = DP d'état de sonic-geolocation (position) ; control {reset, clear}. État <id>State {status, error, reference (JSON à stocker et à donner à sonic-anchor), zone, points, quality none|weak|ok|good, thumb (data URL), captures}. Zone plane et texturée (façade, panneau, vitrine, sol) ; surface unie = weak.",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "#id de la source d'images (sonic-camera)"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs capture, reset, clear"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic prend la photo"
+        },
+        "zone": {
+          "type": "string",
+          "description": "DP de la zone [{x,y}×4] en 0..1 (lu et écrit)"
+        },
+        "gravity": {
+          "type": "string",
+          "description": "DP d'état de sonic-orientation (capteurs actifs)"
+        },
+        "geo": {
+          "type": "string",
+          "description": "DP d'état de sonic-geolocation"
+        },
+        "ref-id": {
+          "type": "string",
+          "description": "id donné à la référence"
+        },
+        "margin": {
+          "type": "number",
+          "description": "contexte gardé autour de la zone (fraction, 0.2)"
+        },
+        "max-size": {
+          "type": "number",
+          "description": "plus grand côté analysé (640)"
+        },
+        "max-points": {
+          "type": "number",
+          "description": "points extraits au plus (1200)"
+        },
+        "show-points": {
+          "type": "boolean",
+          "description": "affiche les points trouvés (défaut vrai)"
+        },
+        "empty-text": {
+          "type": "string",
+          "description": "texte avant la première photo"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        }
+      }
+    },
+    {
+      "name": "sonic-anchor",
+      "description": "Retrouve en direct une ou plusieurs références (sorties de sonic-anchor-ref) dans l'image de la caméra. source (#camera), reference = DP d'une référence ou d'une liste, gravity = DP d'état de sonic-orientation (filtre les rotations impossibles, gravity-tolerance degrés), active ou control {start, stop}, interval ms, smoothing, hold. État <id>State {status idle|searching|tracking|holding|error, found, refId, index, corners [{x,y}×4] en 0..1 de l'image, width, height, matches, inliers, confidence, rotation, ms, fps, references}. debug dessine la zone (même fit que la caméra).",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "#id de la source d'images (sonic-camera)"
+        },
+        "reference": {
+          "type": "string",
+          "description": "DP d'une référence ou d'une liste de références"
+        },
+        "gravity": {
+          "type": "string",
+          "description": "DP d'état de sonic-orientation"
+        },
+        "gravity-tolerance": {
+          "type": "number",
+          "description": "écart de rotation toléré en degrés (45, 0 = sans filtre)"
+        },
+        "active": {
+          "type": "boolean",
+          "description": "analyse en continu dès le chargement"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs start, stop"
+        },
+        "interval": {
+          "type": "number",
+          "description": "intervalle minimal entre deux analyses (ms, 90)"
+        },
+        "max-size": {
+          "type": "number",
+          "description": "plus grand côté analysé (480)"
+        },
+        "max-points": {
+          "type": "number",
+          "description": "points par image (700)"
+        },
+        "min-inliers": {
+          "type": "number",
+          "description": "appariements cohérents exigés (14)"
+        },
+        "smoothing": {
+          "type": "number",
+          "description": "lissage des coins 0..0.9 (0.5)"
+        },
+        "hold": {
+          "type": "number",
+          "description": "analyses ratées avant de déclarer la zone perdue (4)"
+        },
+        "debug": {
+          "type": "boolean",
+          "description": "dessine la zone trouvée"
+        },
+        "fit": {
+          "type": "string",
+          "values": [
+            "contain",
+            "cover"
+          ],
+          "description": "cadrage du dessin de debug, comme la caméra"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        }
+      }
+    },
+    {
+      "name": "sonic-anchor-view",
+      "description": "Projette ses enfants SDUI sur la zone suivie, en perspective (CSS matrix3d). À placer dans le même conteneur positionné que l'affichage caméra, avec le même fit. anchor = DP d'état de sonic-anchor ; content-width/content-height = taille du plan (les enfants le remplissent) ; fade ms ; interactive = les enfants reçoivent les clics.",
+      "props": {
+        "anchor": {
+          "type": "string",
+          "description": "DP d'état de sonic-anchor"
+        },
+        "fit": {
+          "type": "string",
+          "values": [
+            "contain",
+            "cover"
+          ],
+          "description": "cadrage de la caméra affichée dessous (cover)"
+        },
+        "content-width": {
+          "type": "number",
+          "description": "largeur du plan de contenu (800)"
+        },
+        "content-height": {
+          "type": "number",
+          "description": "hauteur du plan de contenu (600)"
+        },
+        "fade": {
+          "type": "number",
+          "description": "fondu en ms (180)"
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "le contenu projeté reçoit les clics"
+        }
+      }
+    }
+  ]
+}
