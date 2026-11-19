@@ -84,6 +84,19 @@ Garder `balises` d'une visite à l'autre : `data.persist = {providers: ["balises
 
 `debug` dessine la zone par-dessus la caméra (même `fit`).
 
+## Image et contenu synchrones
+
+L'analyse prend 50 à 200 ms : posé sur l'image *courante* de la caméra, le contenu traîne derrière la vidéo quand on bouge. `sonic-anchor` publie `frameSeq` (numéro de l'image analysée) et `latencyMs` ; `sonic-frame-sync` (addon media) garde les dernières images et montre exactement celle-là. La caméra n'affiche plus rien elle-même :
+
+```json
+{ "tagName": "sonic-camera", "attributes": { "id": "cam", "facing": "environment", "hidden-preview": true } },
+{ "tagName": "sonic-frame-sync", "attributes": { "id": "vue", "for": "cam", "sync": "ancreState", "history": "24", "max-width": "960" } },
+{ "tagName": "sonic-shader", "attributes": { "channel0": "#vue", "image": "<affichage en cover, voir l'exemple>", "style": "position:absolute;inset:0;width:100%;height:100%" } },
+{ "tagName": "sonic-anchor", "attributes": { "id": "ancre", "source": "#cam", "...": "…" } }
+```
+
+`sonic-anchor` lit toujours `#cam` (la source en direct) ; seul l'affichage passe par `#vue`. Contrepartie : la vidéo montrée a le retard de l'analyse et avance au rythme des analyses (`fps` de l'état). Quand la zone est perdue depuis peu (`holding`), l'image du dernier succès reste affichée avec son contenu. `history` doit couvrir la latence : 24 images à 30 i/s = 800 ms.
+
 ## Réglages utiles
 
 - `max-size` (480) : taille d'analyse. Plus grand = plus de points et plus de portée, plus lent.
