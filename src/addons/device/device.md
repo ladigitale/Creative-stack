@@ -8,6 +8,7 @@ Addon `@supersoniks/creative-stack/device` : les API « appareil » du navigateu
 | `sonic-pointer-lock` | Souris verrouillée, déplacements relatifs | `lock {unadjustedMovement}`, `unlock`, `toggle {unadjustedMovement}`, `reset` ; réglage `unadjustedMovement` |
 | `sonic-wake-lock` | Écran toujours allumé | `acquire`, `release`, `toggle` |
 | `sonic-orientation` | Orientation de l'écran, capteurs de mouvement | `lock {type}`, `unlock`, `sensors`, `stop` ; réglage `smoothing` |
+| `sonic-geolocation` | Position GPS, lieux proches (distance, relèvement) | `start`, `stop`, `once` |
 | `sonic-clipboard` | Copier, lire le presse-papiers (texte) | `copy {text}`, `read` |
 | `sonic-share` | Partage natif, repli par copie | `share {title, text, url}` |
 | `sonic-vibrate` | Vibration (Android) | `vibrate {pattern}`, `stop` |
@@ -58,6 +59,7 @@ L'hôte doit autoriser la fonction : attribut `allow` de l'`<iframe>`, ou en-tê
 | `sonic-pointer-lock` | `sandbox="… allow-pointer-lock"` (c'est un drapeau `sandbox`, pas `allow`) |
 | `sonic-wake-lock` | `allow="screen-wake-lock"` |
 | `sonic-orientation` | `allow="accelerometer; gyroscope; magnetometer"` |
+| `sonic-geolocation` | `allow="geolocation"` |
 | `sonic-clipboard` | `allow="clipboard-write; clipboard-read"` |
 | `sonic-share` | `allow="web-share"` |
 | `sonic-vibrate` | `allow="vibrate"` (selon le navigateur) |
@@ -122,6 +124,14 @@ Un clic sur le canevas verrouille la souris. `viseeState` : `{ active, dx, dy, x
 ```
 
 Un clic démarre les capteurs (sous iOS, la permission est demandée dans le clic). `tiltState` : `alpha` / `beta` / `gamma` (degrés), `ax` / `ay` / `az` (accélération), `ra` / `rb` / `rg` (rotation), `null` quand l'appareil n'en envoie pas (ordinateur).
+
+### Position et lieux proches
+
+```json
+{ "tagName": "sonic-geolocation", "attributes": { "id": "geo", "for": "btn-position", "places": "lieux", "radius": "250" } }
+```
+
+`geoState` : `{ lat, lon, accuracy, heading, speed, nearby: [{ id, lat, lon, …, distance, bearing }], nearest }`. `lieux` est n'importe quel DataProvider qui contient une liste `[{ id, lat, lon, … }]` (store, transform, collecte) ; les autres clés de chaque lieu sont recopiées telles quelles dans `nearby`. La précision (`accuracy`, en mètres) tourne autour de 5 à 15 m en ville : pour un repérage plus fin, enchaîner avec l'addon `anchor` (reconnaissance visuelle).
 
 ### Dégrader proprement avec `sonic-capabilities`
 

@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "device",
   "label": "Appareil et navigateur",
-  "description": "API du navigateur en DataProviders, sans JS : plein écran, pointer lock, wake lock, orientation et capteurs, presse-papiers, partage, vibration, état de la page, et un agrégateur de capacités (ce que la page hôte autorise). Manettes : addon controller ; MIDI : addon audio.",
+  "description": "API du navigateur en DataProviders, sans JS : plein écran, pointer lock, wake lock, orientation et capteurs, géolocalisation et lieux proches, presse-papiers, partage, vibration, état de la page, et un agrégateur de capacités (ce que la page hôte autorise). Manettes : addon controller ; MIDI : addon audio.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -118,6 +118,56 @@
         "smoothing": {
           "type": "number",
           "description": "lissage 0..0.95 des capteurs (0 = brut)"
+        }
+      }
+    },
+    {
+      "name": "sonic-geolocation",
+      "description": "Position GPS et lieux proches. watch (suivi dès le chargement) ou control {start, stop, once} ; for = démarre dans le clic ; places = DP d'une liste [{id, lat, lon, …}] ; radius m (300) ; état <id>State {status, error, supported, allowed, active, watching, lat, lon, accuracy (m), altitude, heading, speed, timestamp, nearby [{…lieu, distance m, bearing °}] du plus proche au plus loin, nearest}. Précision typique 5 à 15 m en ville. https obligatoire ; iframe : allow=\"geolocation\"",
+      "props": {
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs start, stop, once"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic démarre le suivi"
+        },
+        "rate": {
+          "type": "number",
+          "description": "publications par seconde au plus (30)"
+        },
+        "watch": {
+          "type": "boolean",
+          "description": "suit la position dès le chargement"
+        },
+        "high-accuracy": {
+          "type": "boolean",
+          "description": "GPS précis (défaut vrai)"
+        },
+        "maximum-age": {
+          "type": "number",
+          "description": "âge maximal d'une position en cache (ms, 5000)"
+        },
+        "timeout": {
+          "type": "number",
+          "description": "délai d'obtention (ms, 20000)"
+        },
+        "places": {
+          "type": "string",
+          "description": "DP de la liste de lieux [{id, lat, lon, …}]"
+        },
+        "radius": {
+          "type": "number",
+          "description": "rayon des lieux proches (m, 300)"
+        },
+        "max-nearby": {
+          "type": "number",
+          "description": "lieux proches publiés au plus (30)"
         }
       }
     },
