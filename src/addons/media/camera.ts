@@ -11,7 +11,7 @@ import {
   type MediaDeviceInfoLite,
 } from "../../shared/media/capture";
 import { bool, CounterTrigger } from "../../shared/media/control";
-import { VideoFrames } from "../../shared/media/frames";
+import { VideoFrames, type FrameListener } from "../../shared/media/frames";
 import { TrackAdjuster } from "../../shared/media/track-controls";
 import { revokeMediaUrls, type SonicFrameConsumerHost, type SonicFrameSource, type SonicMediaRef } from "../../shared/mediaRef";
 
@@ -161,6 +161,7 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
   private videoEl!: HTMLVideoElement;
 
   private frames: VideoFrames | null = null;
+  private frameListeners = new Set<FrameListener>();
   private stream: MediaStream | null = null;
   private wantActive = false;
   private opening = false;
@@ -194,6 +195,19 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
 
   getFrameSource(): HTMLVideoElement | null {
     return this.stream ? (this.frames?.getFrameSource() ?? null) : null;
+  }
+
+  /**
+   * Appelle `listener` à chaque image de la caméra, avec son numéro et ses instants de présentation
+   * et de capture (mesures horodatées : `sonic-luma`). Retourne la désinscription.
+   */
+  addFrameListener(listener: FrameListener): () => void {
+    this.frameListeners.add(listener);
+    this.frames?.listeners.add(listener);
+    return () => {
+      this.frameListeners.delete(listener);
+      this.frames?.listeners.delete(listener);
+    };
   }
 
   registerFrameConsumer(token: object = {}): void {
@@ -232,6 +246,7 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
 
   protected firstUpdated(): void {
     this.frames = new VideoFrames(this.videoEl);
+    for (const l of this.frameListeners) this.frames.listeners.add(l);
     this.frames.maxWidth = this.maxWidth;
     this.frames.mirror = this.isMirrored();
     this.frames.start();

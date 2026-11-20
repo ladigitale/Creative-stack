@@ -19,6 +19,7 @@ Le micro (`sonic-mic`) est dans l'addon `audio`.
 | `sonic-screen` | Capture d'écran : source d'images, photos, son du partage, export |
 | `sonic-video` | Lecteur vidéo propriétaire de sa `<video>` |
 | `sonic-frame-sync` | Resynchronise l'image et un résultat de tracker (image exacte analysée, ou retard fixe) |
+| `sonic-luma` | Sonde de luminosité : niveaux et fronts allumé / éteint d'un signal lumineux, horodatés |
 | `sonic-media-start` | Bouton d'invite qui démarre caméra / micro / vidéo, affiche un refus |
 | `sonic-media-recorder` | Export vidéo d'un shader, d'une caméra ou d'une vidéo, avec le son |
 | `sonic-media-download` | Lien de téléchargement d'une prise, d'une photo ou d'un export |
@@ -229,6 +230,45 @@ Le shader lit `#synced` (pas `#cam`) et les valeurs du tracker (`param0..3` via 
 - **Diagnostic.** `matched: false` en mode `sync` = l'image du tracker n'est plus dans le tampon (augmenter `history`) ou la source de `for` n'est pas celle du tracker.
 - **Une photo (figer image et résultats)** : `sonic-frame-sync id="held" for="cam" mode="live" control="app"`, puis les trackers et les remplacements de masque lisent `held` (`for="held"`). Quand le store publie `{ hold: true }`, l'image et `frameSeq` se figent : les trackers n'ont plus de nouvelle image et gardent leur dernier résultat (pose, masque). La caméra reste active ; lever le gel reprend le direct. **Image envoyée au lieu de la caméra** : un `sonic-still id="photo"` (rempli par `sonic-file-open`) et `{ source: "#photo" }` dans le même store ; trackers et découpage suivent sans changement. Les copies de `held` sont des canvas : un tracker les lit sans retourner x (si la caméra est en miroir, l'image l'est déjà : `mirror="false"` sur le tracker).
 - **Pas de frameSeq ?** (source qui n'est pas un composant Media) → `delay-ms` avec la `latencyMs` du tracker (`statusProvider` ou sortie).
+
+## `sonic-luma` : sonde de luminosité
+
+Mesure, image par image, la luminosité d'une source d'images et détecte les fronts allumé / éteint d'un signal lumineux : une lampe, la torche d'un autre téléphone, un écran qui clignote. Invisible ; tout passe par les DataProviders.
+
+```json
+{ "tagName": "sonic-camera", "attributes": { "id": "cam", "facing": "environment", "autostart": true, "adjust": "reglages" } },
+{ "tagName": "sonic-luma", "attributes": { "id": "sonde", "source": "#cam", "target": "jeu", "mark-from": "reglages.torch" } }
+```
+
+### Mesure
+
+- `level` : luminosité moyenne de la zone (0..1) ; `peak` : point le plus clair, à `peakX` / `peakY` (0..1 dans la zone).
+- `measure="mean"` (défaut) pilote la détection par la moyenne : scène entière, reflet sur un mur. `measure="peak"` par le point le plus clair : lampe lointaine qui n'occupe que quelques pixels.
+- `region="x,y,w,h"` restreint l'analyse à une zone de l'image (0..1). `resolution` : largeur de la grille d'analyse (64 par défaut ; monter pour une lampe très petite).
+
+### Fronts
+
+- Seuil automatique : à mi-chemin entre le niveau sombre (`lo`) et le niveau clair (`hi`) observés, avec hystérésis. Les deux niveaux s'oublient en `adapt-ms` (5 s) : la détection suit les dérives lentes (exposition automatique, jour qui tombe). `threshold="0.5"` impose un seuil fixe.
+- Aucun front tant que l'écart `hi − lo` reste sous `min-contrast` (`signal: false`).
+- Chaque front : `{n, on, t, dur, level, sinceMark, markGap}`. `t` est en ms sur l'horloge de `performance.now()`, interpolé entre deux images ; `dur` est la durée de l'état qui vient de se terminer (la durée de l'éclat pour un front `on: false`, celle du silence pour un front `on: true`).
+- `clock` dit d'où viennent les instants : `capture` (instant de prise de vue, donné par `sonic-camera` quand le navigateur le fournit), `frame` (présentation de l'image, en retard de la chaîne vidéo), `poll` (source sans horodatage, relevée à chaque rafraîchissement). La résolution est d'une image : `1000 / fps` ms.
+- `target="store"` : une action par front, `{type: "edge", payload: {…front, fps, clock}}` (`type` change le nom). L'état garde les `max-events` derniers dans `events`.
+
+### Délai commande → lumière
+
+`mark-from` désigne un booléen de DataProvider qui commande la lumière, typiquement la clé `torch` du DP `adjust` d'une `sonic-camera`. À chaque bascule, la sonde note l'instant ; le front suivant de même sens porte `sinceMark` (ms entre l'ordre et la lumière vue) et `markGap` (durée commandée de l'état qui se termine). Une commande ne sert qu'à un front : un front sans commande a `sinceMark: null`.
+
+### Pilotage
+
+- `params` : réglages en direct, prioritaires sur les attributs : `{active, measure, region, resolution, threshold, minContrast, adaptMs, hysteresis, interval}` (`active: false` met la mesure en pause, `threshold: "auto"` revient au seuil automatique).
+- `control` : `{reset: compteur}`, une hausse remet à zéro niveaux observés, fronts et commandes en attente.
+- Sortie (`out-data-provider`, défaut `<id>State`) : `{status, error, active, level, peak, peakX, peakY, lo, hi, contrast, signal, on, edges, last, events, fps, clock, settings}`. Les niveaux sont publiés toutes les `interval` ms (100), les fronts tout de suite. Événement DOM `luma-edge`.
+
+### À savoir
+
+- **Exposition automatique.** Une caméra compense une lumière qui s'allume : l'image s'assombrit en quelques dixièmes de seconde. Le seuil automatique le supporte ; pour des fronts plus nets, verrouiller l'exposition par `adjust` (`exposureMode: "manual"`, `exposureTime` court) quand la caméra le permet.
+- **Dans le noir**, la caméra allonge la pose et la cadence tombe : lire `fps`.
+- **Toute source d'images convient** (`sonic-video`, `sonic-screen`, `sonic-shader`…), mais seule `sonic-camera` donne l'instant de capture.
 
 ## `sonic-media-start`
 

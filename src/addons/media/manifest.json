@@ -189,6 +189,80 @@
       }
     },
     {
+      "name": "sonic-luma",
+      "description": "Sonde de luminosité : mesure image par image la luminosité d'une source d'images (source=\"#cam\") et détecte les fronts allumé / éteint d'un signal lumineux (lampe, torche, écran qui clignote), horodatés à la capture de l'image ; measure mean (moyenne de la zone, défaut) | peak (point le plus clair : lampe lointaine), region « x,y,w,h » 0..1, seuil automatique (threshold=\"auto\") ou fixe 0..1, min-contrast, adapt-ms, hysteresis ; état dans out-data-provider (défaut <id>State) : {status idle|ready|error, error, active, level, peak, peakX, peakY, lo, hi, contrast, signal, on, edges, last, events[{n, on, t, dur, level, sinceMark, markGap}], fps, clock capture|frame|poll, settings} (t et dur en ms ; dur = durée de l'état qui se termine) ; target = store qui reçoit une action par front {type (défaut edge), payload: front + fps + clock} ; mark-from = chemin d'un DataProvider booléen qui commande la lumière (ex. reglages.torch, le DP adjust d'une sonic-camera) : sinceMark = délai commande → lumière, markGap = durée commandée ; params = réglages en direct {active, measure, region, resolution, threshold, minContrast, adaptMs, hysteresis, interval} ; control {reset: compteur} remet à zéro ; invisible",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "#id d'une source d'images (sonic-camera, sonic-video, sonic-screen, sonic-shader…)"
+        },
+        "measure": {
+          "type": "string",
+          "values": [
+            "mean",
+            "peak"
+          ],
+          "description": "mean (défaut) : moyenne de la zone ; peak : point le plus clair"
+        },
+        "region": {
+          "type": "string",
+          "description": "zone analysée « x,y,w,h » en 0..1 de l'image (défaut : toute l'image)"
+        },
+        "resolution": {
+          "type": "number",
+          "description": "largeur de la grille d'analyse en cellules (8..160, défaut 64)"
+        },
+        "threshold": {
+          "type": "string",
+          "description": "auto (défaut) ou seuil fixe 0..1"
+        },
+        "min-contrast": {
+          "type": "number",
+          "description": "écart sombre / clair minimal (0..1, défaut 0.06) pour émettre des fronts"
+        },
+        "adapt-ms": {
+          "type": "number",
+          "description": "temps d'oubli des niveaux sombre et clair observés (défaut 5000)"
+        },
+        "hysteresis": {
+          "type": "number",
+          "description": "part de l'écart sombre / clair (0..0.8, défaut 0.2)"
+        },
+        "interval": {
+          "type": "number",
+          "description": "période de publication des niveaux en ms (défaut 100) ; les fronts sont publiés tout de suite"
+        },
+        "max-events": {
+          "type": "number",
+          "description": "fronts gardés dans events (défaut 32)"
+        },
+        "mark-from": {
+          "type": "string",
+          "description": "chemin d'un DataProvider booléen qui commande la lumière (ex. reglages.torch)"
+        },
+        "target": {
+          "type": "string",
+          "description": "store qui reçoit une action par front"
+        },
+        "type": {
+          "type": "string",
+          "description": "type de l'action (défaut edge)"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct, prioritaires sur les attributs"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage {reset: compteur}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP de sortie (défaut <id>State)"
+        }
+      }
+    },
+    {
       "name": "sonic-screen",
       "description": "Capture d'écran (getDisplayMedia, clic direct requis : sonic-media-start for=\"screen\") : source d'images (#id) pour sonic-shader, photos (control.snapshot), son du partage (audio) pour l'analyseur / l'enregistreur, export par sonic-media-recorder ; état {status, error, surface, width, height, audio, snapshot}",
       "props": {
