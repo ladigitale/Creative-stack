@@ -89,7 +89,7 @@
         },
         "attach": {
           "type": "string",
-          "description": "pièces jointes « clé=source » séparées par des espaces : #id d'un sonic-sketch (dessin SVG) ou chemin DP d'un SonicMediaRef (prise audio…) ; blob: converti en data:"
+          "description": "pièces jointes « clé=source » séparées par des espaces : #id d'un sonic-sketch (dessin SVG de la vue affichée : posé sur la photo de la zone, il garde sa place) ou chemin DP d'un SonicMediaRef (prise audio…) ; blob: converti en data:"
         },
         "attach-max": {
           "type": "number",
