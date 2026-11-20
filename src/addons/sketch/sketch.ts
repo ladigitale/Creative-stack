@@ -2670,10 +2670,20 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   rotateRight(): void { this.nav.rotateBy(ROTATE_STEP); }
   straighten(): void { this.nav.straighten(); }
 
-  /** Document SVG du dessin (tout le contenu), ou `null` en cas d'erreur (`error` renseignée). */
-  toSvg(): string | null {
+  /**
+   * Document SVG du dessin, ou `null` en cas d'erreur (`error` renseignée). Par défaut tout le contenu
+   * (cadré sur ses traits) ; `{area: "view"}` exporte exactement la vue affichée (viewBox = zone visible,
+   * même proportion que `width` × `height`), pour superposer le dessin à ce qu'il recouvrait à l'écran.
+   */
+  toSvg(opts: { area?: "view" | "content" } = {}): string | null {
     try {
-      const svg = exportSvg(this.doc.strokes, { background: this.background });
+      let svg: string;
+      if (opts.area === "view") {
+        const { w, h } = this.dims();
+        svg = exportSvg(this.doc.strokes, { background: this.background, area: visibleRect(this.view, w, h), margin: 0 });
+      } else {
+        svg = exportSvg(this.doc.strokes, { background: this.background });
+      }
       this.error = null;
       return svg;
     } catch (err) {
@@ -2704,15 +2714,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const area = this.liveExport.area ?? (this.hasAttribute("export-area") ? this.exportArea : "content");
     if (area === "view") {
       const { w, h } = this.dims();
-      const r = visibleRect(this.view, w, h);
-      try {
-        const svg = exportSvg(this.doc.strokes, { background: this.background, area: r, margin: 0 });
-        this.error = null;
-        this.setLast(new Blob([svg], { type: "image/svg+xml" }), Math.round(w), Math.round(h));
-      } catch (err) {
-        this.error = err instanceof Error ? err.message : "export impossible";
-        this.publish();
-      }
+      const svg = this.toSvg({ area: "view" });
+      if (svg !== null) this.setLast(new Blob([svg], { type: "image/svg+xml" }), Math.round(w), Math.round(h));
       return;
     }
     const svg = this.toSvg();

@@ -66,6 +66,27 @@ describe("sonic-sketch : gestes rejoués", () => {
     vi.unstubAllGlobals();
   });
 
+  it("toSvg({area: 'view'}) garde le cadre de la vue (le dessin reste à sa place), le défaut recadre sur les traits", async () => {
+    set("skGestView", null);
+    const el = document.createElement("sonic-sketch") as SonicSketch;
+    for (const [k, v] of Object.entries({ width: "400", height: "300", background: "transparent", "gestures-from": "skGestView", "out-data-provider": "skGestViewState" })) el.setAttribute(k, v);
+    document.body.appendChild(el);
+    await el.updateComplete;
+    set("skGestView", { width: 400, height: 300, strokes: [{ color: "#ff00ff", size: 10, hardness: 1, pts: [300, 200, 1, 340, 240, 1] }] });
+    for (let i = 0; i < 100 && el.getState().gestures?.playing !== false; i++) await wait(20);
+    const vb = (svg: string | null) => (/viewBox="([^"]+)"/.exec(svg ?? "")?.[1] ?? "").split(/\s+/).map(Number);
+    const [x, y, w, h] = vb(el.toSvg({ area: "view" }));
+    expect([w, h]).toEqual([400, 300]);
+    const [cx, cy, cw, ch] = vb(el.toSvg());
+    // Le trait est dans la vue, mais le cadre par défaut se resserre sur lui.
+    expect(cx).toBeGreaterThan(x);
+    expect(cy).toBeGreaterThan(y);
+    expect(cx + cw).toBeLessThan(x + w);
+    expect(cy + ch).toBeLessThan(y + h);
+    expect(cw).toBeLessThan(w / 2);
+    el.remove();
+  });
+
   it("chaque nouveau jeu est dessiné avec ses réglages (couleur, fusion, gomme) ; le jeu présent au branchement non", async () => {
     set("skGest", { width: 100, height: 100, strokes: [{ color: "#00ff00", size: 10, pts: [0, 0, 1, 100, 100, 1] }] });
     const el = document.createElement("sonic-sketch") as SonicSketch;
