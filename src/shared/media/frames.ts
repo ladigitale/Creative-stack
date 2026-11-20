@@ -11,9 +11,13 @@
 import type { SonicMediaRef } from "../mediaRef";
 
 type RVFCVideo = HTMLVideoElement & {
-  requestVideoFrameCallback?: (cb: () => void) => number;
+  requestVideoFrameCallback?: (cb: (now: number, metadata?: { captureTime?: number }) => void) => number;
   cancelVideoFrameCallback?: (id: number) => void;
 };
+
+/** Une image présentée : numéro, instant de présentation et, si le navigateur le donne, instant de capture (ms, horloge de `performance.now()`). */
+export type FrameInfo = { seq: number; time: number; captureTime: number | null };
+export type FrameListener = (info: FrameInfo) => void;
 
 export class VideoFrames {
   seq = 0;
@@ -21,6 +25,12 @@ export class VideoFrames {
   /** Largeur max de la copie (0 = taille native). */
   maxWidth = 0;
   readonly consumers = new Set<object>();
+  /** Instant de présentation de l'image courante (ms, `performance.now()`). */
+  time = 0;
+  /** Instant de capture de l'image courante quand le navigateur le fournit (caméra locale), sinon null. */
+  captureTime: number | null = null;
+  /** Appelés à chaque image présentée, pendant que cette image est encore celle du <video>. */
+  readonly listeners = new Set<FrameListener>();
   private canvas: HTMLCanvasElement | null = null;
   private drawnSeq = -1;
   private handle = 0;
@@ -49,8 +59,8 @@ export class VideoFrames {
     if (!this.running) return;
     const v = this.video as RVFCVideo;
     if (typeof v.requestVideoFrameCallback === "function") {
-      this.handle = v.requestVideoFrameCallback(() => {
-        this.seq++;
+      this.handle = v.requestVideoFrameCallback((now, metadata) => {
+        this.advance(typeof now === "number" ? now : performance.now(), metadata?.captureTime);
         this.schedule();
       });
       return;
@@ -58,10 +68,25 @@ export class VideoFrames {
     this.raf = requestAnimationFrame(() => {
       if (v.readyState >= 2 && (v.currentTime !== this.lastTime || v.srcObject)) {
         this.lastTime = v.currentTime;
-        this.seq++;
+        this.advance(performance.now(), undefined);
       }
       this.schedule();
     });
+  }
+
+  private advance(time: number, captureTime: number | undefined): void {
+    this.seq++;
+    this.time = time;
+    this.captureTime = typeof captureTime === "number" && Number.isFinite(captureTime) ? captureTime : null;
+    if (!this.listeners.size) return;
+    const info: FrameInfo = { seq: this.seq, time: this.time, captureTime: this.captureTime };
+    for (const l of [...this.listeners]) {
+      try {
+        l(info);
+      } catch {
+        /* un écouteur en erreur n'arrête pas la boucle d'images */
+      }
+    }
   }
 
   get ready(): boolean {
