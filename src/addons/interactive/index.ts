@@ -19,6 +19,7 @@ export { TriggerMachine, matchesRule, readPath, type TriggerEvent, type TriggerO
 export { SonicMotion } from "./motion";
 export { MotionTracker, quantizeNote, parseRange, parseScale, type MotionOptions, type MotionOutput } from "./motion-core";
 export { SonicMatrix } from "./matrix";
+export { SonicNotify, toMessages, escapeText, type NotifyMessage } from "./notify";
 
 /** `sonic-if` (mode attributs) et `sonic-value` (`format`) sur Concorde classique. */
 import "../../shared/concorde-compat";
@@ -31,3 +32,4 @@ import "./ticker";
 import "./trigger";
 import "./motion";
 import "./matrix";
+import "./notify";

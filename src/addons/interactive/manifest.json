@@ -377,6 +377,32 @@
           "type": "string"
         }
       }
+    },
+    {
+      "name": "sonic-notify",
+      "description": "Toast déclaratif (Concorde) : montre un toast quand la valeur du DP watch change et n'est pas vide (texte, {text, label, status, preserve} ou tableau ; texte brut, jamais de HTML). La valeur présente au chargement n'est pas montrée. Pour une erreur, une confirmation ou une astuce au moment où elle sert, au lieu d'un texte gris permanent.",
+      "props": {
+        "watch": {
+          "type": "string",
+          "description": "chemin DP surveillé (ex. poseState.error, jeu.notice)"
+        },
+        "status": {
+          "type": "string",
+          "description": "success | error | warning | info (défaut neutre)"
+        },
+        "label": {
+          "type": "string",
+          "description": "titre par défaut du toast"
+        },
+        "preserve": {
+          "type": "boolean",
+          "description": "le toast reste jusqu'à fermeture"
+        },
+        "initial": {
+          "type": "boolean",
+          "description": "montrer aussi la valeur présente au branchement"
+        }
+      }
     }
   ]
 }
