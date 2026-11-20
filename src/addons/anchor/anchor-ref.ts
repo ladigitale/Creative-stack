@@ -26,7 +26,7 @@ export type AnchorRefState = {
   saved: number;
   lastSaved: string | null;
   /** La zone redressée (vue de face), SonicMediaRef JPEG en data: : fond pour dessiner dessus (`sonic-still in-data-provider`). */
-  zoneImage: { url: string; width: number; height: number; mime: string } | null;
+  zoneImage: { url: string; width: number; height: number; mime: string; pad: number } | null;
   /** Enregistrement en cours (pièces jointes à lire). */
   saving: boolean;
 };
@@ -77,6 +77,12 @@ export class SonicAnchorRef extends LitElement {
   @property({ type: String }) geo = "";
   @property({ type: String, attribute: "ref-id" }) refId = "";
   @property({ type: Number }) margin = 0.2;
+  /**
+   * Marge de `zoneImage` autour de la zone, en fraction de la zone de chaque côté (0 à 2, défaut 0) : à 1,
+   * l'image couvre 3 × 3 zones, pour dessiner au-delà de la surface (même plan). Afficher alors le dessin
+   * en débord (left/top -pad×100 %, largeur (1 + 2 pad)×100 %) dans le contenu de sonic-anchor-view.
+   */
+  @property({ type: Number, attribute: "zone-pad" }) zonePad = 0;
   @property({ type: Number, attribute: "max-size" }) maxSize = 640;
   @property({ type: Number, attribute: "max-points" }) maxPoints = 1200;
   @property({ type: Boolean, attribute: "show-points" }) showPoints = true;
@@ -320,15 +326,17 @@ export class SonicAnchorRef extends LitElement {
     this.publish(publishZone);
   }
 
-  /** La zone vue de face (homographie inverse), au plus 800 px de côté, en JPEG data:. */
+  /** La zone vue de face (homographie inverse), plus `zone-pad` autour, au plus 960 px de côté, en JPEG data:. */
   private rectify(zone: Pt[]): AnchorRefState["zoneImage"] {
     const photo = this.photo;
     if (!photo || zone.length !== 4) return null;
     try {
+      const pad = Math.max(0, Math.min(2, Number(this.zonePad) || 0));
       const q = zone.map((p) => ({ x: p.x * photo.width, y: p.y * photo.height }));
       const d = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
       const aspect = Math.max(0.2, Math.min(5, (d(q[0], q[1]) + d(q[3], q[2])) / Math.max(1, d(q[0], q[3]) + d(q[1], q[2]))));
-      const W = Math.round(aspect >= 1 ? 800 : 800 * aspect), H = Math.round(aspect >= 1 ? 800 / aspect : 800);
+      const side = pad > 0 ? 960 : 800;
+      const W = Math.round(aspect >= 1 ? side : side * aspect), H = Math.round(aspect >= 1 ? side / aspect : side);
       const H2 = squareToQuad(q);
       if (!H2) return null;
       const src = photo.getContext("2d")!.getImageData(0, 0, photo.width, photo.height).data;
@@ -336,17 +344,24 @@ export class SonicAnchorRef extends LitElement {
       out.width = W; out.height = H;
       const ctx = out.getContext("2d")!;
       const img = ctx.createImageData(W, H);
+      const span = 1 + 2 * pad;
+      const wc = H2[6] * 0.5 + H2[7] * 0.5 + H2[8];
       for (let y = 0; y < H; y++) {
         for (let x = 0; x < W; x++) {
-          const p = apply(H2, (x + 0.5) / W, (y + 0.5) / H);
-          if (!p) continue;
-          const sx = Math.min(photo.width - 1, Math.max(0, p.x | 0)), sy = Math.min(photo.height - 1, Math.max(0, p.y | 0));
-          const i = (sy * photo.width + sx) * 4, o = (y * W + x) * 4;
+          const o = (y * W + x) * 4;
+          const u = ((x + 0.5) / W) * span - pad, v = ((y + 0.5) / H) * span - pad;
+          const p = (H2[6] * u + H2[7] * v + H2[8]) * wc > 0 ? apply(H2, u, v) : null;
+          if (!p || p.x < 0 || p.y < 0 || p.x >= photo.width || p.y >= photo.height) {
+            // Hors de la photo (ou derrière l'horizon du plan) : gris neutre.
+            img.data[o] = img.data[o + 1] = img.data[o + 2] = 40; img.data[o + 3] = 255;
+            continue;
+          }
+          const i = ((p.y | 0) * photo.width + (p.x | 0)) * 4;
           img.data[o] = src[i]; img.data[o + 1] = src[i + 1]; img.data[o + 2] = src[i + 2]; img.data[o + 3] = 255;
         }
       }
       ctx.putImageData(img, 0, 0);
-      return { url: out.toDataURL("image/jpeg", 0.8), width: W, height: H, mime: "image/jpeg" };
+      return { url: out.toDataURL("image/jpeg", 0.8), width: W, height: H, mime: "image/jpeg", pad };
     } catch {
       return null;
     }
