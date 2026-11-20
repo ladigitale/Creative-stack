@@ -199,3 +199,15 @@ Injected: `$rand`, `$randInt`, `$clamp`, `$range`, `$set`, `$matrix`, `$rotate`.
 ## Out of scope (this pass)
 
 Multiplayer, persistence. Pour le son, voir l’addon `sound` (`sonic-sound` piloté par une sous-clé du store).
+
+## sonic-notify — toast au bon moment
+
+Montre un toast Concorde quand une valeur de DataProvider change, au lieu d'un texte gris affiché en permanence :
+
+```html
+<sonic-notify watch="poseState.error" status="error"></sonic-notify>
+<sonic-notify watch="jeu.notice"></sonic-notify> <!-- {text, label, status, preserve} écrit par le réducteur -->
+```
+
+La valeur présente au chargement n'est pas montrée ; une même valeur non plus tant qu'elle n'a pas changé (le réducteur
+la remet à `""` ou en écrit une autre). Le texte est affiché tel quel (jamais interprété comme du HTML).
