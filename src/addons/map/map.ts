@@ -17,7 +17,7 @@ import { customElement, property } from "lit/decorators.js";
 import * as maplibregl from "maplibre-gl";
 import mlCss from "maplibre-gl/dist/maplibre-gl.css?inline";
 import { PublisherManager } from "@supersoniks/concorde/utils";
-import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch } from "../interactive";
 import { firstForbiddenUrl, plain, hostAllowed as hostAllowedCore, readPointsSpec, round, sameCamera, toGeoJSON } from "./map-core";
 
@@ -193,7 +193,8 @@ export default class SonicMap extends LitElement {
 
   private watch(name: string, apply: (v: Any) => void) {
     if (!name) return;
-    const pub: Any = PublisherManager.get(name);
+    // dp() suit un chemin pointé (`carte.points`) ; PublisherManager.get le prendrait pour un nom.
+    const pub: Any = name.includes(".") ? dp(name) : PublisherManager.get(name);
     const handler = (v: Any) => { try { apply(v); } catch (e: Any) { this.fail(`${name} : ${e?.message ?? e}`); } };
     const onMut = () => handler(pub.get());
     pub.onAssign(handler, true);
