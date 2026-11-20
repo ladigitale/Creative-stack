@@ -1954,9 +1954,17 @@
                   }
                 },
                 {
+                  "tagName": "sonic-jsonata",
+                  "attributes": {
+                    "inputProvider": "carte",
+                    "outputProvider": "cartePoints",
+                    "expression": "$exists($input.points) ? [$input.points] : []"
+                  }
+                },
+                {
                   "tagName": "sonic-map",
                   "attributes": {
-                    "points-provider": "carte.points",
+                    "points-provider": "cartePoints",
                     "view-provider": "carteVue",
                     "style-provider": "carteFond",
                     "state-provider": "carteState",
