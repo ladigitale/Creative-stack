@@ -760,7 +760,7 @@
         },
         "control": {
           "type": "string",
-          "description": "DP : {recording: true|false, target: \"chemin.dp\"}"
+          "description": "DP : {recording: true|false (ou valeur d'un bouton bascule : sonic-button name=\"recording\" value=\"on\" unique ; vide = arrêt), target: \"chemin.dp\"}"
         },
         "out-data-provider": {
           "type": "string"

@@ -133,7 +133,7 @@ export class SonicAudioRecorder extends LitElement {
       listenDp(this.control, (v) => {
         if (!v || typeof v !== "object") return;
         const c = v as { recording?: unknown; target?: unknown };
-        const rec = bool(c.recording);
+        const rec = onOff(c.recording);
         if (rec === true && !this.take) this.start(typeof c.target === "string" ? c.target : undefined);
         if (rec === false) this.stop();
       }),
@@ -202,3 +202,17 @@ export class SonicAudioRecorder extends LitElement {
 }
 
 export default SonicAudioRecorder;
+
+/**
+ * `recording` du DP control : booléen, ou valeur d'un bouton bascule (`sonic-button name="recording" value="on"
+ * unique`) : une chaîne non vide démarre, vide / null / "false" / "0" / "off" arrête ; absent = rien.
+ */
+export function onOff(v: unknown): boolean | undefined {
+  if (v === undefined) return undefined;
+  const b = bool(v);
+  if (b !== undefined) return b;
+  if (v === null || v === "" || v === 0) return false;
+  if (typeof v === "string") return !/^(false|0|off|no|non)$/i.test(v.trim());
+  if (typeof v === "number") return v !== 0;
+  return undefined;
+}
