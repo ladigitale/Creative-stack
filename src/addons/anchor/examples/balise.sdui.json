@@ -18,7 +18,7 @@
           "tagName": "sonic-store",
           "attributes": {
             "id": "enreg",
-            "initial": "{\"recording\": false}",
+            "initial": "{\"recording\": null}",
             "reducer": "$state"
           }
         },
@@ -42,7 +42,7 @@
           "tagName": "sonic-store",
           "attributes": {
             "id": "brouillon",
-            "initial": "{\"message\": \"Ici, quelqu'un a pensé à toi.\", \"effet\": \"message\"}",
+            "initial": "{\"message\": \"Ici, quelqu'un a pensé à toi.\", \"effet\": \"message\", \"cadreDessin\": \"3\"}",
             "reducer": "$state"
           }
         },
@@ -60,7 +60,7 @@
           "tagName": "sonic-orientation",
           "attributes": {
             "id": "orient",
-            "for": "capteurs",
+            "for": "capteurs capteurs2",
             "sensors": true,
             "smoothing": "0.6",
             "rate": "15"
@@ -70,7 +70,7 @@
           "tagName": "sonic-geolocation",
           "attributes": {
             "id": "geo",
-            "for": "capteurs",
+            "for": "capteurs capteurs2",
             "places": "toutes.items",
             "radius": "150"
           }
@@ -152,7 +152,7 @@
                         {
                           "tagName": "div",
                           "attributes": {
-                            "style": "position:relative;aspect-ratio:3/4;max-height:68svh;width:100%;margin:0 auto;border-radius:1rem;overflow:hidden;background:#0b0d14"
+                            "style": "position:relative;aspect-ratio:3/4;max-height:80svh;width:100%;margin:0 auto;border-radius:1rem;overflow:hidden;background:#0b0d14"
                           },
                           "nodes": [
                             {
@@ -193,7 +193,6 @@
                                 "embedding": "emb",
                                 "gravity": "orientState",
                                 "active": true,
-                                "debug": true,
                                 "fit": "cover"
                               }
                             },
@@ -213,21 +212,6 @@
                                     "data-path": "item.effet"
                                   },
                                   "nodes": [
-                                    {
-                                      "tagName": "template",
-                                      "attributes": {
-                                        "data-value": "^motif$"
-                                      },
-                                      "nodes": [
-                                        {
-                                          "tagName": "sonic-shader",
-                                          "attributes": {
-                                            "image": "void mainImage(out vec4 o, in vec2 f){\n  vec2 uv = f / iResolution.xy;\n  vec2 p = (uv - 0.5) * vec2(iResolution.x / iResolution.y, 1.0);\n  float t = iTime * 0.6;\n  float r = length(p);\n  float a = atan(p.y, p.x);\n  float w = sin(r * 22.0 - t * 4.0 + sin(a * 5.0 + t) * 1.5);\n  vec3 c1 = vec3(1.0, 0.36, 0.62), c2 = vec3(0.2, 0.95, 0.8), c3 = vec3(1.0, 0.86, 0.2);\n  vec3 col = mix(c1, c2, smoothstep(-0.6, 0.6, w));\n  col = mix(col, c3, smoothstep(0.85, 1.0, sin(a * 3.0 - t * 2.0)) * 0.6);\n  float edge = smoothstep(0.0, 0.02, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));\n  o = vec4(col, 0.82 * edge);\n}",
-                                            "style": "display:block;width:100%;height:100%"
-                                          }
-                                        }
-                                      ]
-                                    },
                                     {
                                       "tagName": "template",
                                       "attributes": {
@@ -258,11 +242,383 @@
                                       },
                                       "nodes": [
                                         {
-                                          "tagName": "sonic-still",
+                                          "tagName": "div",
                                           "attributes": {
-                                            "in-data-provider": "ancreState.item.dessin",
-                                            "fit": "fill",
-                                            "style": "display:block;width:100%;height:100%;background:transparent"
+                                            "style": "position:relative;width:100%;height:100%"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-if",
+                                              "attributes": {
+                                                "dataProvider": "ancreState",
+                                                "key": "item.cadreDessin",
+                                                "equals": "3"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-still",
+                                                  "attributes": {
+                                                    "in-data-provider": "ancreState.item.dessin",
+                                                    "fit": "fill",
+                                                    "style": "position:absolute;left:-100%;top:-100%;width:300%;height:300%;background:transparent"
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "sonic-if",
+                                              "attributes": {
+                                                "dataProvider": "ancreState",
+                                                "key": "item.cadreDessin",
+                                                "not": "3"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-still",
+                                                  "attributes": {
+                                                    "in-data-provider": "ancreState.item.dessin",
+                                                    "fit": "fill",
+                                                    "style": "position:absolute;inset:0;width:100%;height:100%;background:transparent"
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-if",
+                              "attributes": {
+                                "dataProvider": "ui",
+                                "key": "ecran",
+                                "equals": "chercher"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:.8rem;box-sizing:border-box;pointer-events:none;z-index:2"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "style": "align-self:center;max-width:92%;padding:.45rem .9rem;border-radius:999px;background:rgba(10,12,20,.62);color:#fff;font-size:.9rem;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);pointer-events:auto;text-align:center"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-states",
+                                          "attributes": {
+                                            "dataProvider": "ancreState",
+                                            "data-path": "status"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "template",
+                                              "attributes": {
+                                                "data-value": "^(tracking|holding)$"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "span",
+                                                  "textContent": "✨ Balise trouvée"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "template",
+                                              "attributes": {
+                                                "data-value": "^error$"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-value",
+                                                  "attributes": {
+                                                    "dataProvider": "ancreState",
+                                                    "key": "error"
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "template",
+                                              "attributes": {
+                                                "data-value": "^(searching|idle)$"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "span",
+                                                  "textContent": "Vise un mur balisé · "
+                                                },
+                                                {
+                                                  "tagName": "sonic-value",
+                                                  "attributes": {
+                                                    "dataProvider": "ancreState",
+                                                    "key": "candidates"
+                                                  }
+                                                },
+                                                {
+                                                  "tagName": "span",
+                                                  "textContent": " à proximité"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "style": "align-self:center;pointer-events:auto"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-media-start",
+                                          "attributes": {
+                                            "for": "cam"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-button",
+                                              "attributes": {
+                                                "type": "primary",
+                                                "id": "capteurs2",
+                                                "style": "border-radius:999px;box-shadow:0 0 0 3px rgba(255,255,255,.92)"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-icon",
+                                                  "attributes": {
+                                                    "library": "iconoir",
+                                                    "name": "camera",
+                                                    "slot": "prefix"
+                                                  }
+                                                },
+                                                {
+                                                  "tagName": "span",
+                                                  "textContent": "Ouvrir la caméra"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "style": "display:flex;align-items:center;justify-content:space-between;gap:.6rem;pointer-events:auto"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "radio": true,
+                                            "formDataProvider": "ui",
+                                            "name": "ecran",
+                                            "value": "liste",
+                                            "type": "default",
+                                            "shape": "circle",
+                                            "size": "md",
+                                            "aria-label": "Mes balises",
+                                            "title": "Mes balises"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "list"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "style": "border-radius:999px;box-shadow:0 0 0 3px rgba(255,255,255,.92)",
+                                            "radio": true,
+                                            "formDataProvider": "ui",
+                                            "name": "ecran",
+                                            "value": "photo",
+                                            "type": "primary",
+                                            "shape": "circle",
+                                            "size": "xl",
+                                            "aria-label": "Poser une balise",
+                                            "title": "Poser une balise"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "plus"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "div",
+                                          "attributes": {
+                                            "style": "min-width:2.6rem;display:flex;justify-content:flex-end"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-jsonata",
+                                              "attributes": {
+                                                "inputProvider": "ancreState",
+                                                "outputProvider": "trouvee",
+                                                "expression": "$input.found and $input.item.mine = false ? [{\"id\": $input.item.id}] : []"
+                                              }
+                                            },
+                                            {
+                                              "tagName": "sonic-list",
+                                              "attributes": {
+                                                "dataProvider": "trouvee"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "template",
+                                                  "nodes": [
+                                                    {
+                                                      "tagName": "sonic-action",
+                                                      "attributes": {
+                                                        "target": "balises",
+                                                        "type": "report",
+                                                        "data-bind": "",
+                                                        "::payload": "$id"
+                                                      },
+                                                      "nodes": [
+                                                        {
+                                                          "tagName": "sonic-button",
+                                                          "attributes": {
+                                                            "shape": "circle",
+                                                            "size": "md",
+                                                            "type": "danger",
+                                                            "aria-label": "Signaler cette balise",
+                                                            "title": "Signaler cette balise"
+                                                          },
+                                                          "nodes": [
+                                                            {
+                                                              "tagName": "sonic-icon",
+                                                              "attributes": {
+                                                                "library": "iconoir",
+                                                                "name": "warning-triangle-outline"
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                },
+                                                {
+                                                  "tagName": "template",
+                                                  "attributes": {
+                                                    "data-value": "no-item"
+                                                  },
+                                                  "nodes": []
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-if",
+                              "attributes": {
+                                "dataProvider": "ui",
+                                "key": "ecran",
+                                "equals": "photo"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:.8rem;box-sizing:border-box;pointer-events:none;z-index:2"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "style": "align-self:center;max-width:92%;padding:.45rem .9rem;border-radius:999px;background:rgba(10,12,20,.62);color:#fff;font-size:.9rem;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);pointer-events:auto;text-align:center"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "span",
+                                          "textContent": "Vise une surface plane et texturée, bien de face"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "style": "display:flex;align-items:center;justify-content:space-between;gap:.6rem;pointer-events:auto"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "radio": true,
+                                            "formDataProvider": "ui",
+                                            "name": "ecran",
+                                            "value": "chercher",
+                                            "type": "default",
+                                            "shape": "circle",
+                                            "size": "md",
+                                            "aria-label": "Annuler",
+                                            "title": "Annuler"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "cancel"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "style": "border-radius:999px;box-shadow:0 0 0 3px rgba(255,255,255,.92)",
+                                            "radio": true,
+                                            "formDataProvider": "ui",
+                                            "name": "ecran",
+                                            "value": "zone",
+                                            "type": "primary",
+                                            "shape": "circle",
+                                            "size": "xl",
+                                            "aria-label": "Photographier",
+                                            "title": "Photographier",
+                                            "id": "photo"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "camera"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "div",
+                                          "attributes": {
+                                            "style": "width:2.6rem"
                                           }
                                         }
                                       ]
@@ -299,12 +655,12 @@
                   "tagName": "h1",
                   "textContent": "Balises",
                   "attributes": {
-                    "style": "margin:0;font-size:1.5rem"
+                    "style": "margin:0;font-size:1.6rem"
                   }
                 },
                 {
                   "tagName": "p",
-                  "textContent": "Accroche un message ou un motif à un mur, une vitrine ou un panneau. Quiconque vise le même endroit le verra apparaître.",
+                  "textContent": "Des messages et des dessins accrochés aux murs de la ville. Ouvre la caméra et vise : ils apparaissent.",
                   "attributes": {
                     "style": "margin:0;opacity:.75;font-size:.95rem"
                   }
@@ -313,14 +669,21 @@
                   "tagName": "sonic-media-start",
                   "attributes": {
                     "id": "go",
-                    "for": "cam"
+                    "for": "cam",
+                    "persist": true
                   },
                   "nodes": [
                     {
                       "tagName": "sonic-button",
                       "attributes": {
+                        "radio": true,
+                        "formDataProvider": "ui",
+                        "name": "ecran",
+                        "value": "chercher",
                         "type": "primary",
-                        "shape": "block"
+                        "shape": "block",
+                        "size": "lg",
+                        "id": "capteurs"
                       },
                       "nodes": [
                         {
@@ -333,7 +696,7 @@
                         },
                         {
                           "tagName": "span",
-                          "textContent": "Activer la caméra"
+                          "textContent": "Ouvrir la caméra"
                         }
                       ]
                     }
@@ -345,10 +708,9 @@
                     "radio": true,
                     "formDataProvider": "ui",
                     "name": "ecran",
-                    "value": "chercher",
-                    "type": "primary",
-                    "variant": "outline",
-                    "id": "capteurs",
+                    "value": "liste",
+                    "type": "default",
+                    "variant": "ghost",
                     "shape": "block"
                   },
                   "nodes": [
@@ -356,330 +718,22 @@
                       "tagName": "sonic-icon",
                       "attributes": {
                         "library": "iconoir",
-                        "name": "arrow-right",
+                        "name": "list",
                         "slot": "prefix"
                       }
                     },
                     {
                       "tagName": "span",
-                      "textContent": "C'est parti"
+                      "textContent": "Mes balises"
                     }
                   ]
                 },
                 {
                   "tagName": "small",
-                  "textContent": "« C'est parti » demande aussi la position et l'inclinaison du téléphone, pour ne chercher que les balises proches.",
+                  "textContent": "La position et l'inclinaison du téléphone servent à ne chercher que les balises proches.",
                   "attributes": {
-                    "style": "opacity:.65"
+                    "style": "opacity:.6"
                   }
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "tagName": "sonic-if",
-          "attributes": {
-            "dataProvider": "ui",
-            "key": "ecran",
-            "equals": "chercher"
-          },
-          "nodes": [
-            {
-              "tagName": "div",
-              "attributes": {
-                "style": "display:flex;flex-direction:column;gap:.7rem"
-              },
-              "nodes": [
-                {
-                  "tagName": "div",
-                  "attributes": {
-                    "style": "display:flex;gap:.8rem;flex-wrap:wrap;font-size:.8rem;opacity:.7"
-                  },
-                  "nodes": [
-                    {
-                      "tagName": "span",
-                      "nodes": [
-                        {
-                          "tagName": "span",
-                          "textContent": ""
-                        },
-                        {
-                          "tagName": "sonic-value",
-                          "attributes": {
-                            "dataProvider": "ancreState",
-                            "key": "status"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "span",
-                      "nodes": [
-                        {
-                          "tagName": "span",
-                          "textContent": "Points sûrs : "
-                        },
-                        {
-                          "tagName": "sonic-value",
-                          "attributes": {
-                            "dataProvider": "ancreState",
-                            "key": "inliers"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "span",
-                      "nodes": [
-                        {
-                          "tagName": "span",
-                          "textContent": "Analyses/s : "
-                        },
-                        {
-                          "tagName": "sonic-value",
-                          "attributes": {
-                            "dataProvider": "ancreState",
-                            "key": "fps"
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "span",
-                      "nodes": [
-                        {
-                          "tagName": "span",
-                          "textContent": "Balises proches : "
-                        },
-                        {
-                          "tagName": "sonic-value",
-                          "attributes": {
-                            "dataProvider": "ancreState",
-                            "key": "candidates"
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "tagName": "sonic-jsonata",
-                  "attributes": {
-                    "inputProvider": "ancreState",
-                    "outputProvider": "trouvee",
-                    "expression": "$input.found and $input.item.mine = false ? [{\"id\": $input.item.id}] : []"
-                  }
-                },
-                {
-                  "tagName": "sonic-list",
-                  "attributes": {
-                    "dataProvider": "trouvee"
-                  },
-                  "nodes": [
-                    {
-                      "tagName": "template",
-                      "nodes": [
-                        {
-                          "tagName": "sonic-action",
-                          "attributes": {
-                            "target": "balises",
-                            "type": "report",
-                            "data-bind": "",
-                            "::payload": "$id"
-                          },
-                          "nodes": [
-                            {
-                              "tagName": "sonic-button",
-                              "attributes": {
-                                "variant": "ghost",
-                                "size": "sm",
-                                "type": "danger"
-                              },
-                              "nodes": [
-                                {
-                                  "tagName": "sonic-icon",
-                                  "attributes": {
-                                    "library": "iconoir",
-                                    "name": "warning-triangle-outline",
-                                    "slot": "prefix"
-                                  }
-                                },
-                                {
-                                  "tagName": "span",
-                                  "textContent": "Signaler cette balise"
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "template",
-                      "attributes": {
-                        "data-value": "no-item"
-                      },
-                      "nodes": []
-                    }
-                  ]
-                },
-                {
-                  "tagName": "div",
-                  "attributes": {
-                    "style": "font-size:.8rem;opacity:.7"
-                  },
-                  "nodes": [
-                    {
-                      "tagName": "span",
-                      "textContent": "Balises partagées autour : "
-                    },
-                    {
-                      "tagName": "sonic-value",
-                      "attributes": {
-                        "dataProvider": "publiques",
-                        "key": "count"
-                      }
-                    },
-                    {
-                      "tagName": "span",
-                      "textContent": " "
-                    },
-                    {
-                      "tagName": "sonic-value",
-                      "attributes": {
-                        "dataProvider": "publiques",
-                        "key": "error"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "tagName": "div",
-                  "attributes": {
-                    "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
-                  },
-                  "nodes": [
-                    {
-                      "tagName": "sonic-button",
-                      "attributes": {
-                        "radio": true,
-                        "formDataProvider": "ui",
-                        "name": "ecran",
-                        "value": "photo",
-                        "type": "primary"
-                      },
-                      "nodes": [
-                        {
-                          "tagName": "sonic-icon",
-                          "attributes": {
-                            "library": "iconoir",
-                            "name": "plus",
-                            "slot": "prefix"
-                          }
-                        },
-                        {
-                          "tagName": "span",
-                          "textContent": "Poser une balise"
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "sonic-button",
-                      "attributes": {
-                        "radio": true,
-                        "formDataProvider": "ui",
-                        "name": "ecran",
-                        "value": "liste",
-                        "type": "default",
-                        "variant": "outline"
-                      },
-                      "nodes": [
-                        {
-                          "tagName": "sonic-icon",
-                          "attributes": {
-                            "library": "iconoir",
-                            "name": "list",
-                            "slot": "prefix"
-                          }
-                        },
-                        {
-                          "tagName": "span",
-                          "textContent": "Mes balises"
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "tagName": "sonic-if",
-          "attributes": {
-            "dataProvider": "ui",
-            "key": "ecran",
-            "equals": "photo"
-          },
-          "nodes": [
-            {
-              "tagName": "div",
-              "attributes": {
-                "style": "display:flex;flex-direction:column;gap:.7rem"
-              },
-              "nodes": [
-                {
-                  "tagName": "p",
-                  "textContent": "Vise une surface plane et bien texturée, de face, puis prends la photo.",
-                  "attributes": {
-                    "style": "margin:0;opacity:.75;font-size:.95rem"
-                  }
-                },
-                {
-                  "tagName": "div",
-                  "attributes": {
-                    "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
-                  },
-                  "nodes": [
-                    {
-                      "tagName": "sonic-button",
-                      "attributes": {
-                        "radio": true,
-                        "formDataProvider": "ui",
-                        "name": "ecran",
-                        "value": "zone",
-                        "type": "primary",
-                        "id": "photo"
-                      },
-                      "nodes": [
-                        {
-                          "tagName": "sonic-icon",
-                          "attributes": {
-                            "library": "iconoir",
-                            "name": "camera",
-                            "slot": "prefix"
-                          }
-                        },
-                        {
-                          "tagName": "span",
-                          "textContent": "Photographier"
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "sonic-button",
-                      "attributes": {
-                        "radio": true,
-                        "formDataProvider": "ui",
-                        "name": "ecran",
-                        "value": "chercher",
-                        "type": "default",
-                        "variant": "ghost"
-                      },
-                      "textContent": "Annuler"
-                    }
-                  ]
                 }
               ]
             }
@@ -700,11 +754,54 @@
               },
               "nodes": [
                 {
-                  "tagName": "h2",
-                  "textContent": "Délimite la surface",
+                  "tagName": "div",
                   "attributes": {
-                    "style": "margin:0;font-size:1.2rem"
-                  }
+                    "style": "display:flex;align-items:center;gap:.5rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "radio": true,
+                        "formDataProvider": "ui",
+                        "name": "ecran",
+                        "value": "photo",
+                        "type": "default",
+                        "shape": "circle",
+                        "size": "sm",
+                        "aria-label": "Retour",
+                        "title": "Retour"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "nav-arrow-left"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "div",
+                      "nodes": [
+                        {
+                          "tagName": "small",
+                          "textContent": "Étape 1 sur 3",
+                          "attributes": {
+                            "style": "display:block;opacity:.6"
+                          }
+                        },
+                        {
+                          "tagName": "strong",
+                          "textContent": "Délimite la surface",
+                          "attributes": {
+                            "style": "font-size:1.15rem"
+                          }
+                        }
+                      ]
+                    }
+                  ]
                 },
                 {
                   "tagName": "sonic-anchor-ref",
@@ -716,6 +813,7 @@
                     "target": "balises",
                     "extra": "brouillon",
                     "attach": "dessin=#croquis voix=voixState.last",
+                    "zone-pad": "1",
                     "gravity": "orientState",
                     "geo": "geoState",
                     "embedding": "emb",
@@ -724,42 +822,77 @@
                 },
                 {
                   "tagName": "p",
-                  "textContent": "Déplace les quatre coins. Les points jaunes sont ce qui sera reconnu : il en faut beaucoup, bien répartis.",
+                  "textContent": "Déplace les quatre coins sur la surface. Les points jaunes sont ce qui sera reconnu.",
                   "attributes": {
                     "style": "margin:0;opacity:.75;font-size:.95rem"
                   }
                 },
                 {
-                  "tagName": "div",
+                  "tagName": "sonic-states",
                   "attributes": {
-                    "style": "font-size:.85rem;opacity:.8"
+                    "dataProvider": "poseState",
+                    "data-path": "quality"
                   },
                   "nodes": [
                     {
-                      "tagName": "span",
-                      "textContent": "Qualité : "
-                    },
-                    {
-                      "tagName": "sonic-value",
+                      "tagName": "template",
                       "attributes": {
-                        "dataProvider": "poseState",
-                        "key": "quality"
-                      }
+                        "data-value": "^good$"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "small",
+                          "textContent": "✅ Très bien reconnaissable",
+                          "attributes": {
+                            "style": "opacity:.85"
+                          }
+                        }
+                      ]
                     },
                     {
-                      "tagName": "span",
-                      "textContent": " · "
-                    },
-                    {
-                      "tagName": "sonic-value",
+                      "tagName": "template",
                       "attributes": {
-                        "dataProvider": "poseState",
-                        "key": "points"
-                      }
+                        "data-value": "^ok$"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "small",
+                          "textContent": "👍 Reconnaissable",
+                          "attributes": {
+                            "style": "opacity:.85"
+                          }
+                        }
+                      ]
                     },
                     {
-                      "tagName": "span",
-                      "textContent": " points"
+                      "tagName": "template",
+                      "attributes": {
+                        "data-value": "^weak$"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "small",
+                          "textContent": "⚠️ Peu de détails : choisis une surface plus texturée ou agrandis la zone",
+                          "attributes": {
+                            "style": "color:var(--sc-warning, #b80)"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "template",
+                      "attributes": {
+                        "data-value": "^none$"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "small",
+                          "textContent": "Prends d'abord la photo",
+                          "attributes": {
+                            "style": "opacity:.6"
+                          }
+                        }
+                      ]
                     }
                   ]
                 },
@@ -779,46 +912,27 @@
                   ]
                 },
                 {
-                  "tagName": "div",
+                  "tagName": "sonic-button",
                   "attributes": {
-                    "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
+                    "radio": true,
+                    "formDataProvider": "ui",
+                    "name": "ecran",
+                    "value": "contenu",
+                    "type": "primary",
+                    "shape": "block"
                   },
                   "nodes": [
                     {
-                      "tagName": "sonic-button",
+                      "tagName": "sonic-icon",
                       "attributes": {
-                        "radio": true,
-                        "formDataProvider": "ui",
-                        "name": "ecran",
-                        "value": "contenu",
-                        "type": "primary"
-                      },
-                      "nodes": [
-                        {
-                          "tagName": "sonic-icon",
-                          "attributes": {
-                            "library": "iconoir",
-                            "name": "arrow-right",
-                            "slot": "prefix"
-                          }
-                        },
-                        {
-                          "tagName": "span",
-                          "textContent": "Suivant"
-                        }
-                      ]
+                        "library": "iconoir",
+                        "name": "arrow-right",
+                        "slot": "prefix"
+                      }
                     },
                     {
-                      "tagName": "sonic-button",
-                      "attributes": {
-                        "radio": true,
-                        "formDataProvider": "ui",
-                        "name": "ecran",
-                        "value": "photo",
-                        "type": "default",
-                        "variant": "ghost"
-                      },
-                      "textContent": "Reprendre la photo"
+                      "tagName": "span",
+                      "textContent": "Suivant"
                     }
                   ]
                 }
@@ -841,11 +955,54 @@
               },
               "nodes": [
                 {
-                  "tagName": "h2",
-                  "textContent": "Que doit-on voir ici ?",
+                  "tagName": "div",
                   "attributes": {
-                    "style": "margin:0;font-size:1.2rem"
-                  }
+                    "style": "display:flex;align-items:center;gap:.5rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "radio": true,
+                        "formDataProvider": "ui",
+                        "name": "ecran",
+                        "value": "zone",
+                        "type": "default",
+                        "shape": "circle",
+                        "size": "sm",
+                        "aria-label": "Retour",
+                        "title": "Retour"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "nav-arrow-left"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "div",
+                      "nodes": [
+                        {
+                          "tagName": "small",
+                          "textContent": "Étape 2 sur 3",
+                          "attributes": {
+                            "style": "display:block;opacity:.6"
+                          }
+                        },
+                        {
+                          "tagName": "strong",
+                          "textContent": "Que doit-on voir ici ?",
+                          "attributes": {
+                            "style": "font-size:1.15rem"
+                          }
+                        }
+                      ]
+                    }
+                  ]
                 },
                 {
                   "tagName": "sonic-group",
@@ -898,30 +1055,6 @@
                         {
                           "tagName": "span",
                           "textContent": "Dessin"
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "sonic-button",
-                      "attributes": {
-                        "radio": true,
-                        "name": "effet",
-                        "value": "motif",
-                        "size": "sm",
-                        "variant": "outline"
-                      },
-                      "nodes": [
-                        {
-                          "tagName": "sonic-icon",
-                          "attributes": {
-                            "library": "iconoir",
-                            "name": "flash",
-                            "slot": "prefix"
-                          }
-                        },
-                        {
-                          "tagName": "span",
-                          "textContent": "Motif"
                         }
                       ]
                     }
@@ -1125,7 +1258,7 @@
                         {
                           "tagName": "sonic-audio-unlock",
                           "attributes": {
-                            "start": "mic",
+                            "start": "micro",
                             "label": "Activer le micro"
                           }
                         },
@@ -1134,6 +1267,8 @@
                           "attributes": {
                             "formDataProvider": "enreg",
                             "name": "recording",
+                            "value": "on",
+                            "unique": true,
                             "size": "sm",
                             "type": "danger",
                             "variant": "outline"
@@ -1149,7 +1284,17 @@
                             },
                             {
                               "tagName": "span",
-                              "textContent": "Enregistrer / arrêter"
+                              "attributes": {
+                                "swap": "off"
+                              },
+                              "textContent": "Enregistrer"
+                            },
+                            {
+                              "tagName": "span",
+                              "attributes": {
+                                "swap": "on"
+                              },
+                              "textContent": "Arrêter"
                             }
                           ]
                         },
@@ -1184,47 +1329,28 @@
                   }
                 },
                 {
-                  "tagName": "div",
+                  "tagName": "sonic-button",
                   "attributes": {
-                    "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
+                    "radio": true,
+                    "formDataProvider": "ui",
+                    "name": "ecran",
+                    "value": "etiquette",
+                    "type": "success",
+                    "id": "garder",
+                    "shape": "block"
                   },
                   "nodes": [
                     {
-                      "tagName": "sonic-button",
+                      "tagName": "sonic-icon",
                       "attributes": {
-                        "radio": true,
-                        "formDataProvider": "ui",
-                        "name": "ecran",
-                        "value": "etiquette",
-                        "type": "success",
-                        "id": "garder"
-                      },
-                      "nodes": [
-                        {
-                          "tagName": "sonic-icon",
-                          "attributes": {
-                            "library": "iconoir",
-                            "name": "check",
-                            "slot": "prefix"
-                          }
-                        },
-                        {
-                          "tagName": "span",
-                          "textContent": "Poser la balise ici"
-                        }
-                      ]
+                        "library": "iconoir",
+                        "name": "check",
+                        "slot": "prefix"
+                      }
                     },
                     {
-                      "tagName": "sonic-button",
-                      "attributes": {
-                        "radio": true,
-                        "formDataProvider": "ui",
-                        "name": "ecran",
-                        "value": "zone",
-                        "type": "default",
-                        "variant": "ghost"
-                      },
-                      "textContent": "Retour"
+                      "tagName": "span",
+                      "textContent": "Poser la balise ici"
                     }
                   ]
                 },
@@ -1262,11 +1388,23 @@
               },
               "nodes": [
                 {
-                  "tagName": "h2",
-                  "textContent": "Balise posée !",
-                  "attributes": {
-                    "style": "margin:0;font-size:1.2rem"
-                  }
+                  "tagName": "div",
+                  "nodes": [
+                    {
+                      "tagName": "small",
+                      "textContent": "Étape 3 sur 3",
+                      "attributes": {
+                        "style": "display:block;opacity:.6"
+                      }
+                    },
+                    {
+                      "tagName": "strong",
+                      "textContent": "Balise posée !",
+                      "attributes": {
+                        "style": "font-size:1.15rem"
+                      }
+                    }
+                  ]
                 },
                 {
                   "tagName": "p",
@@ -1484,7 +1622,7 @@
                 {
                   "tagName": "div",
                   "attributes": {
-                    "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
+                    "style": "display:flex;align-items:center;gap:.5rem"
                   },
                   "nodes": [
                     {
@@ -1495,28 +1633,26 @@
                         "name": "ecran",
                         "value": "chercher",
                         "type": "default",
-                        "variant": "ghost"
+                        "shape": "circle",
+                        "size": "sm",
+                        "aria-label": "Retour",
+                        "title": "Retour"
                       },
                       "nodes": [
                         {
                           "tagName": "sonic-icon",
                           "attributes": {
                             "library": "iconoir",
-                            "name": "nav-arrow-left",
-                            "slot": "prefix"
+                            "name": "nav-arrow-left"
                           }
-                        },
-                        {
-                          "tagName": "span",
-                          "textContent": "Retour"
                         }
                       ]
                     },
                     {
-                      "tagName": "h2",
+                      "tagName": "strong",
                       "textContent": "Mes balises",
                       "attributes": {
-                        "style": "margin:0;font-size:1.2rem"
+                        "style": "font-size:1.15rem"
                       }
                     }
                   ]
