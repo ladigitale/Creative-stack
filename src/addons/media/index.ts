@@ -6,6 +6,7 @@ export { SonicScreen, type ScreenState } from "./screen";
 export { SonicCamera, type CameraState } from "./camera";
 export { SonicVideo, type VideoState, type VideoStatus } from "./video";
 export { SonicFrameSync, type FrameSyncMode, type FrameSyncState } from "./frame-sync";
+export { SonicMorse, type MorseSettings, type MorseState } from "./morse";
 export { SonicLuma, type LumaSettings, type LumaState } from "./luma";
 export { SonicStill, type StillState, type StillStatus } from "./still";
 export { SonicFileOpen, fileKind, type FileOpenState, type FileKind } from "./file-open";
@@ -15,6 +16,7 @@ export { SonicMediaDownload } from "./download";
 export { pickMime, extensionFor } from "../../shared/media/record";
 export { FrameRing, type RingSlot } from "../../shared/media/frame-ring";
 export { VideoFrames, type FrameInfo, type FrameListener } from "../../shared/media/frames";
+export { MORSE, MorseDecoder, morseDecode, morseEncode, morseNormalize, morseTimeline, type MorseDecoderOptions, type MorseStep } from "../../shared/media/morse";
 export { LumaDetector, LUMA_DEFAULTS, measureLuma, parseRegion, type LumaDetectorOptions, type LumaEdge, type LumaMeasure } from "../../shared/media/luma";
 export {
   CONTROLS,

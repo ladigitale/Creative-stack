@@ -20,11 +20,15 @@ export type LumaSettings = {
   measure: Measure;
   region: string;
   resolution: number;
+  detect: "level" | "jump";
   /** null : seuil automatique. */
   threshold: number | null;
   minContrast: number;
   adaptMs: number;
   hysteresis: number;
+  jumpMs: number;
+  jumpRatio: number;
+  maxOnMs: number;
   interval: number;
 };
 
@@ -120,6 +124,25 @@ export class SonicLuma extends LitElement {
   /** Largeur de la grille d'analyse en cellules (8..160, défaut 64). */
   @property({ type: Number })
   resolution = 64;
+
+  /**
+   * `level` (défaut) : seuil entre le sombre et le clair observés. `jump` : sauts brusques de
+   * luminosité, insensible à l'exposition automatique pendant un éclat long (morse, signaux lents).
+   */
+  @property({ type: String })
+  detect: "level" | "jump" = "level";
+
+  /** Mode jump : fenêtre en ms sur laquelle un changement compte comme un saut. */
+  @property({ type: Number, attribute: "jump-ms" })
+  jumpMs = LUMA_DEFAULTS.jumpMs;
+
+  /** Mode jump : part du plus grand saut récent qu'un saut doit atteindre (0..1). */
+  @property({ type: Number, attribute: "jump-ratio" })
+  jumpRatio = LUMA_DEFAULTS.jumpRatio;
+
+  /** Durée maximale d'un état allumé en ms, après quoi l'extinction est émise d'office (0 : sans limite). */
+  @property({ type: Number, attribute: "max-on-ms" })
+  maxOnMs = LUMA_DEFAULTS.maxOnMs;
 
   /** `auto` (défaut) ou seuil fixe 0..1. */
   @property({ type: String })
@@ -258,10 +281,14 @@ export class SonicLuma extends LitElement {
       measure: MEASURES.includes(this.measure) ? this.measure : "mean",
       region: this.region,
       resolution: Math.round(num(this.resolution, 8, 160) ?? 64),
+      detect: this.detect === "jump" ? "jump" : "level",
       threshold: fixed ?? null,
       minContrast: num(this.minContrast, 0, 1) ?? LUMA_DEFAULTS.minContrast,
       adaptMs: num(this.adaptMs, 0, 600000) ?? LUMA_DEFAULTS.adaptMs,
       hysteresis: num(this.hysteresis, 0, 0.8) ?? LUMA_DEFAULTS.hysteresis,
+      jumpMs: num(this.jumpMs, 1, 5000) ?? LUMA_DEFAULTS.jumpMs,
+      jumpRatio: num(this.jumpRatio, 0, 1) ?? LUMA_DEFAULTS.jumpRatio,
+      maxOnMs: num(this.maxOnMs, 0, 600000) ?? LUMA_DEFAULTS.maxOnMs,
       interval: num(this.interval, 16, 5000) ?? 100,
     };
     return { ...base, ...this.live };
@@ -305,7 +332,16 @@ export class SonicLuma extends LitElement {
 
   private applySettings(): void {
     const s = this.settings();
-    this.detector.opts = { threshold: s.threshold, minContrast: s.minContrast, adaptMs: s.adaptMs, hysteresis: s.hysteresis };
+    this.detector.opts = {
+      detect: s.detect,
+      threshold: s.threshold,
+      minContrast: s.minContrast,
+      adaptMs: s.adaptMs,
+      hysteresis: s.hysteresis,
+      jumpMs: s.jumpMs,
+      jumpRatio: s.jumpRatio,
+      maxOnMs: s.maxOnMs,
+    };
   }
 
   private resolve(): Element | null {
@@ -471,6 +507,13 @@ function readParams(v: unknown): Partial<LumaSettings> {
   if (adaptMs !== undefined) out.adaptMs = adaptMs;
   const hysteresis = num(p.hysteresis, 0, 0.8);
   if (hysteresis !== undefined) out.hysteresis = hysteresis;
+  if (p.detect === "level" || p.detect === "jump") out.detect = p.detect;
+  const jumpMs = num(p.jumpMs, 1, 5000);
+  if (jumpMs !== undefined) out.jumpMs = jumpMs;
+  const jumpRatio = num(p.jumpRatio, 0, 1);
+  if (jumpRatio !== undefined) out.jumpRatio = jumpRatio;
+  const maxOnMs = num(p.maxOnMs, 0, 600000);
+  if (maxOnMs !== undefined) out.maxOnMs = maxOnMs;
   const interval = num(p.interval, 16, 5000);
   if (interval !== undefined) out.interval = interval;
   return out;

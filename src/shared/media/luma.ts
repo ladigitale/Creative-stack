@@ -68,22 +68,50 @@ export type LumaEdge = {
 };
 
 export type LumaDetectorOptions = {
-  /** Seuil fixe 0..1 ; null : seuil automatique à mi-chemin entre le sombre et le clair observés. */
+  /**
+   * `level` (défaut) : compare la valeur à un seuil entre le sombre et le clair observés.
+   * `jump` : cherche les sauts brusques de luminosité ; insensible à l'exposition automatique
+   * de la caméra, qui ramène lentement l'image vers sa luminosité habituelle pendant un éclat long.
+   */
+  detect: "level" | "jump";
+  /** Seuil fixe 0..1 (mode level) ; null : seuil automatique à mi-chemin entre le sombre et le clair observés. */
   threshold: number | null;
-  /** Écart minimal sombre / clair (0..1) en dessous duquel aucun front n'est émis. */
+  /** Écart minimal sombre / clair (0..1) en dessous duquel aucun front n'est émis ; saut minimal en mode jump. */
   minContrast: number;
-  /** Temps d'oubli des niveaux sombre et clair observés, en ms. */
+  /** Temps d'oubli des niveaux sombre et clair observés (et de l'ampleur des sauts), en ms. */
   adaptMs: number;
-  /** Largeur de l'hystérésis, en part de l'écart sombre / clair (0..0.8). */
+  /** Largeur de l'hystérésis, en part de l'écart sombre / clair (0..0.8, mode level). */
   hysteresis: number;
+  /** Mode jump : fenêtre en ms sur laquelle un changement compte comme un saut. */
+  jumpMs: number;
+  /** Mode jump : part du plus grand saut récent qu'un saut doit atteindre (0..1). */
+  jumpRatio: number;
+  /** Durée maximale d'un état allumé en ms : au-delà, un front d'extinction est émis d'office (0 : sans limite). */
+  maxOnMs: number;
 };
 
-export const LUMA_DEFAULTS: LumaDetectorOptions = { threshold: null, minContrast: 0.06, adaptMs: 5000, hysteresis: 0.2 };
+export const LUMA_DEFAULTS: LumaDetectorOptions = {
+  detect: "level",
+  threshold: null,
+  minContrast: 0.06,
+  adaptMs: 5000,
+  hysteresis: 0.2,
+  jumpMs: 120,
+  jumpRatio: 0.4,
+  maxOnMs: 0,
+};
+
+type Sample = { t: number; v: number };
 
 /**
  * Suit une valeur de luminosité dans le temps et émet un front à chaque passage sombre → clair
- * ou clair → sombre. Seuil automatique : enveloppes basse et haute qui se resserrent lentement
- * (`adaptMs`), donc insensible au niveau absolu et aux dérives lentes de l'exposition.
+ * ou clair → sombre.
+ *
+ * - Mode `level` : seuil automatique entre les enveloppes basse et haute, qui se resserrent
+ *   lentement (`adaptMs`) ; insensible au niveau absolu et aux dérives lentes.
+ * - Mode `jump` : un front est un saut brusque (en `jumpMs`) d'au moins `jumpRatio` fois le plus
+ *   grand saut récent. À préférer quand la caméra règle seule son exposition et que la lumière
+ *   reste allumée plus de quelques dixièmes de seconde.
  *
  * `mark(t, on)` note l'instant d'une commande (allumer / éteindre) : le front suivant de même sens
  * porte le délai commande → lumière (`sinceMark`).
@@ -93,10 +121,13 @@ export class LumaDetector {
   lo = 0;
   hi = 0;
   on = false;
-  /** L'écart sombre / clair dépasse `minContrast` : un signal est lisible. */
+  /** L'écart sombre / clair (ou le saut, en mode jump) dépasse `minContrast` : un signal est lisible. */
   signal = false;
   edges = 0;
-  private prev: { t: number; v: number } | null = null;
+  /** Plus grand saut récent (mode jump). */
+  scale = 0;
+  private prev: Sample | null = null;
+  private hist: Sample[] = [];
   private lastEdgeT: number | null = null;
   private markOn: number | null = null;
   private markOff: number | null = null;
@@ -113,7 +144,9 @@ export class LumaDetector {
     this.on = false;
     this.signal = false;
     this.edges = 0;
+    this.scale = 0;
     this.prev = null;
+    this.hist = [];
     this.lastEdgeT = null;
     this.markOn = null;
     this.markOff = null;
@@ -144,13 +177,22 @@ export class LumaDetector {
     if (!prev) {
       this.lo = v;
       this.hi = v;
+      this.hist = [{ t, v }];
       return null;
     }
     const dt = Math.min(1000, Math.max(0, t - prev.t));
     const k = this.opts.adaptMs > 0 ? 1 - Math.exp(-dt / this.opts.adaptMs) : 1;
     this.lo = v < this.lo ? v : this.lo + (v - this.lo) * k;
     this.hi = v > this.hi ? v : this.hi + (v - this.hi) * k;
+    const at = this.opts.detect === "jump" ? this.jump(t, v, k) : this.level(t, v, prev);
+    this.hist.push({ t, v });
+    const keep = t - Math.max(500, this.opts.jumpMs * 3);
+    while (this.hist.length > 2 && this.hist[0].t < keep) this.hist.shift();
+    return at === null ? null : this.emit(at, v);
+  }
 
+  /** Seuil entre sombre et clair : instant du passage, sinon null. */
+  private level(t: number, v: number, prev: Sample): number | null {
     let up: number;
     let down: number;
     const fixed = this.opts.threshold;
@@ -166,23 +208,63 @@ export class LumaDetector {
       up = this.lo + c * (0.5 + h);
       down = this.lo + c * (0.5 - h);
     }
-
-    let next = this.on;
-    if (!this.on && v > up) next = true;
-    else if (this.on && v < down) next = false;
-    if (next === this.on) return null;
-
+    const next = !this.on && v > up ? true : this.on && v < down ? false : this.on;
+    if (next === this.on) return this.overdue(t);
     const thr = next ? up : down;
     let tc = t;
     if (v !== prev.v && (next ? prev.v < thr : prev.v > thr)) {
       tc = prev.t + ((thr - prev.v) / (v - prev.v)) * (t - prev.t);
       tc = Math.min(t, Math.max(prev.t, tc));
     }
+    return tc;
+  }
+
+  /** Saut brusque par rapport aux mesures des `jumpMs` précédentes : instant du saut, sinon null. */
+  private jump(t: number, v: number, k: number): number | null {
+    const from = t - Math.max(1, this.opts.jumpMs);
+    // Fenêtre : les mesures récentes, et toujours au moins la précédente (caméra lente).
+    let start = this.hist.length - 1;
+    while (start > 0 && this.hist[start - 1].t >= from) start--;
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = start; i < this.hist.length; i++) {
+      min = Math.min(min, this.hist[i].v);
+      max = Math.max(max, this.hist[i].v);
+    }
+    const rise = v - min;
+    const fall = max - v;
+    this.scale = Math.max(rise, fall, this.scale * (1 - k));
+    this.signal = this.scale >= this.opts.minContrast;
+    const need = Math.max(this.opts.minContrast, Math.min(1, Math.max(0, this.opts.jumpRatio)) * this.scale);
+    const next = !this.on && rise > need ? true : this.on && fall > need ? false : this.on;
+    if (next === this.on) return this.overdue(t);
+    // Instant : milieu du plus grand pas entre deux mesures consécutives de la fenêtre.
+    const seq = [...this.hist.slice(start), { t, v }];
+    let best = 0;
+    let tc = t;
+    for (let i = 1; i < seq.length; i++) {
+      const step = next ? seq[i].v - seq[i - 1].v : seq[i - 1].v - seq[i].v;
+      if (step > best) {
+        best = step;
+        tc = (seq[i - 1].t + seq[i].t) / 2;
+      }
+    }
+    return tc;
+  }
+
+  /** État allumé trop long (`maxOnMs`) : extinction d'office à l'instant `t`. */
+  private overdue(t: number): number | null {
+    const max = this.opts.maxOnMs;
+    if (!this.on || !(max > 0) || this.lastEdgeT === null || t - this.lastEdgeT <= max) return null;
+    return t;
+  }
+
+  private emit(tc: number, v: number): LumaEdge {
+    const next = !this.on;
     this.on = next;
     this.edges++;
     const dur = this.lastEdgeT === null ? 0 : tc - this.lastEdgeT;
     this.lastEdgeT = tc;
-
     let sinceMark: number | null = null;
     let markGap: number | null = null;
     if (next) {

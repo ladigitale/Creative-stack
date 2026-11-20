@@ -190,7 +190,7 @@
     },
     {
       "name": "sonic-luma",
-      "description": "Sonde de luminosité : mesure image par image la luminosité d'une source d'images (source=\"#cam\") et détecte les fronts allumé / éteint d'un signal lumineux (lampe, torche, écran qui clignote), horodatés à la capture de l'image ; measure mean (moyenne de la zone, défaut) | peak (point le plus clair : lampe lointaine), region « x,y,w,h » 0..1, seuil automatique (threshold=\"auto\") ou fixe 0..1, min-contrast, adapt-ms, hysteresis ; état dans out-data-provider (défaut <id>State) : {status idle|ready|error, error, active, level, peak, peakX, peakY, lo, hi, contrast, signal, on, edges, last, events[{n, on, t, dur, level, sinceMark, markGap}], fps, clock capture|frame|poll, settings} (t et dur en ms ; dur = durée de l'état qui se termine) ; target = store qui reçoit une action par front {type (défaut edge), payload: front + fps + clock} ; mark-from = chemin d'un DataProvider booléen qui commande la lumière (ex. reglages.torch, le DP adjust d'une sonic-camera) : sinceMark = délai commande → lumière, markGap = durée commandée ; params = réglages en direct {active, measure, region, resolution, threshold, minContrast, adaptMs, hysteresis, interval} ; control {reset: compteur} remet à zéro ; invisible",
+      "description": "Sonde de luminosité : mesure image par image la luminosité d'une source d'images (source=\"#cam\") et détecte les fronts allumé / éteint d'un signal lumineux (lampe, torche, écran qui clignote), horodatés à la capture de l'image ; measure mean (moyenne de la zone, défaut) | peak (point le plus clair : lampe lointaine), region « x,y,w,h » 0..1, detect level (défaut : seuil automatique entre sombre et clair, ou threshold fixe 0..1) | jump (sauts brusques : à choisir pour du morse ou tout éclat de plus de quelques dixièmes de seconde, car l'exposition automatique de la caméra assombrit l'image pendant l'éclat et trompe un seuil), min-contrast, adapt-ms, hysteresis, jump-ms, jump-ratio, max-on-ms ; état dans out-data-provider (défaut <id>State) : {status idle|ready|error, error, active, level, peak, peakX, peakY, lo, hi, contrast, signal, on, edges, last, events[{n, on, t, dur, level, sinceMark, markGap}], fps, clock capture|frame|poll, settings} (t et dur en ms ; dur = durée de l'état qui se termine) ; target = store qui reçoit une action par front {type (défaut edge), payload: front + fps + clock} ; mark-from = chemin d'un DataProvider booléen qui commande la lumière (ex. reglages.torch, le DP adjust d'une sonic-camera) : sinceMark = délai commande → lumière, markGap = durée commandée ; params = réglages en direct {active, measure, region, resolution, detect, threshold, minContrast, adaptMs, hysteresis, jumpMs, jumpRatio, maxOnMs, interval} ; control {reset: compteur} remet à zéro ; invisible",
       "props": {
         "source": {
           "type": "string",
@@ -212,6 +212,14 @@
           "type": "number",
           "description": "largeur de la grille d'analyse en cellules (8..160, défaut 64)"
         },
+        "detect": {
+          "type": "string",
+          "values": [
+            "level",
+            "jump"
+          ],
+          "description": "level (défaut) : seuil entre sombre et clair ; jump : sauts brusques, insensible à l'exposition automatique (morse, éclats longs)"
+        },
         "threshold": {
           "type": "string",
           "description": "auto (défaut) ou seuil fixe 0..1"
@@ -227,6 +235,18 @@
         "hysteresis": {
           "type": "number",
           "description": "part de l'écart sombre / clair (0..0.8, défaut 0.2)"
+        },
+        "jump-ms": {
+          "type": "number",
+          "description": "mode jump : fenêtre en ms sur laquelle un changement compte comme un saut (défaut 120)"
+        },
+        "jump-ratio": {
+          "type": "number",
+          "description": "mode jump : part du plus grand saut récent à atteindre (0..1, défaut 0.4)"
+        },
+        "max-on-ms": {
+          "type": "number",
+          "description": "durée maximale d'un état allumé, après quoi l'extinction est émise d'office (0 : sans limite)"
         },
         "interval": {
           "type": "number",
@@ -255,6 +275,64 @@
         "control": {
           "type": "string",
           "description": "DP de pilotage {reset: compteur}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP de sortie (défaut <id>State)"
+        }
+      }
+    },
+    {
+      "name": "sonic-morse",
+      "description": "Morse par la lumière, émission et réception. ÉMISSION : à chaque hausse du compteur send-from (chemin de DP), le texte lu dans text-from est émis en allumant / éteignant le booléen drive (ex. drive=\"lampe.torch\" avec sonic-camera adjust=\"lampe\" : la torche du téléphone) ; unit = durée du point en ms (défaut 300 : une torche de téléphone ne tient guère moins de 250 ms), trim = ms retirés à chaque éclat ; messages en file. RÉCEPTION : source = DP d'état d'une sonic-luma (detect=\"jump\" conseillé) ; ses fronts sont décodés, un silence de end-units unités (défaut 12) termine le message ; auto-unit ajuste l'unité aux durées vues ; coupée pendant l'émission et guard-ms après (la lampe éclaire aussi sa propre caméra). Actions vers le store target : morse:sent {text} et morse:message {text, unit}. État (out-data-provider, défaut <id>State) : {status idle|sending|receiving, on, tx {text, signs, chars, total, progress, queue}, rx {text, signs, unit}, lastReceived, lastSent, sent, received, settings}. params = réglages en direct {unit, trim, autoUnit, endUnits, guardMs} ; control {cancel: compteur} arrête l'émission. Texte ramené aux lettres, chiffres et ponctuation du code (accents retirés). Invisible",
+      "props": {
+        "unit": {
+          "type": "number",
+          "description": "durée du point en ms (défaut 300) ; même valeur sur les deux appareils, sauf auto-unit"
+        },
+        "trim": {
+          "type": "number",
+          "description": "ms retirés à chaque éclat émis et ajoutés au silence suivant"
+        },
+        "drive": {
+          "type": "string",
+          "description": "chemin du booléen de DP à allumer / éteindre (ex. lampe.torch)"
+        },
+        "text-from": {
+          "type": "string",
+          "description": "chemin du texte à émettre"
+        },
+        "send-from": {
+          "type": "string",
+          "description": "chemin d'un compteur : chaque hausse émet le texte de text-from"
+        },
+        "source": {
+          "type": "string",
+          "description": "DP d'état d'une sonic-luma (ex. sondeState)"
+        },
+        "target": {
+          "type": "string",
+          "description": "store qui reçoit morse:sent et morse:message"
+        },
+        "auto-unit": {
+          "type": "boolean",
+          "description": "ajuste l'unité de réception aux durées observées"
+        },
+        "end-units": {
+          "type": "number",
+          "description": "silence, en unités, qui termine un message reçu (défaut 12)"
+        },
+        "guard-ms": {
+          "type": "number",
+          "description": "ms de réception coupée après une émission (défaut 800)"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {unit, trim, autoUnit, endUnits, guardMs}"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage {cancel: compteur}"
         },
         "out-data-provider": {
           "type": "string",

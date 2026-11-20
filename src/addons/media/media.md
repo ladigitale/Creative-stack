@@ -20,6 +20,7 @@ Le micro (`sonic-mic`) est dans l'addon `audio`.
 | `sonic-video` | Lecteur vidéo propriétaire de sa `<video>` |
 | `sonic-frame-sync` | Resynchronise l'image et un résultat de tracker (image exacte analysée, ou retard fixe) |
 | `sonic-luma` | Sonde de luminosité : niveaux et fronts allumé / éteint d'un signal lumineux, horodatés |
+| `sonic-morse` | Morse par la lumière : émet un texte sur un booléen (torche), décode les fronts d'une `sonic-luma` |
 | `sonic-media-start` | Bouton d'invite qui démarre caméra / micro / vidéo, affiche un refus |
 | `sonic-media-recorder` | Export vidéo d'un shader, d'une caméra ou d'une vidéo, avec le son |
 | `sonic-media-download` | Lien de téléchargement d'une prise, d'une photo ou d'un export |
@@ -250,6 +251,7 @@ Mesure, image par image, la luminosité d'une source d'images et détecte les fr
 
 - Seuil automatique : à mi-chemin entre le niveau sombre (`lo`) et le niveau clair (`hi`) observés, avec hystérésis. Les deux niveaux s'oublient en `adapt-ms` (5 s) : la détection suit les dérives lentes (exposition automatique, jour qui tombe). `threshold="0.5"` impose un seuil fixe.
 - Aucun front tant que l'écart `hi − lo` reste sous `min-contrast` (`signal: false`).
+- `detect="jump"` remplace le seuil par la recherche de **sauts brusques** : un front est un changement d'au moins `jump-ratio` (0,4) fois le plus grand saut récent, survenu en `jump-ms` (120 ms). À choisir dès qu'un éclat dure plus de quelques dixièmes de seconde (morse) : l'exposition automatique de la caméra assombrit l'image pendant l'éclat, parfois jusqu'au niveau d'avant, et un seuil coupe alors l'éclat trop tôt. `max-on-ms` émet l'extinction d'office si elle a été manquée.
 - Chaque front : `{n, on, t, dur, level, sinceMark, markGap}`. `t` est en ms sur l'horloge de `performance.now()`, interpolé entre deux images ; `dur` est la durée de l'état qui vient de se terminer (la durée de l'éclat pour un front `on: false`, celle du silence pour un front `on: true`).
 - `clock` dit d'où viennent les instants : `capture` (instant de prise de vue, donné par `sonic-camera` quand le navigateur le fournit), `frame` (présentation de l'image, en retard de la chaîne vidéo), `poll` (source sans horodatage, relevée à chaque rafraîchissement). La résolution est d'une image : `1000 / fps` ms.
 - `target="store"` : une action par front, `{type: "edge", payload: {…front, fps, clock}}` (`type` change le nom). L'état garde les `max-events` derniers dans `events`.
@@ -260,15 +262,46 @@ Mesure, image par image, la luminosité d'une source d'images et détecte les fr
 
 ### Pilotage
 
-- `params` : réglages en direct, prioritaires sur les attributs : `{active, measure, region, resolution, threshold, minContrast, adaptMs, hysteresis, interval}` (`active: false` met la mesure en pause, `threshold: "auto"` revient au seuil automatique).
+- `params` : réglages en direct, prioritaires sur les attributs : `{active, measure, region, resolution, detect, threshold, minContrast, adaptMs, hysteresis, jumpMs, jumpRatio, maxOnMs, interval}` (`active: false` met la mesure en pause, `threshold: "auto"` revient au seuil automatique).
 - `control` : `{reset: compteur}`, une hausse remet à zéro niveaux observés, fronts et commandes en attente.
 - Sortie (`out-data-provider`, défaut `<id>State`) : `{status, error, active, level, peak, peakX, peakY, lo, hi, contrast, signal, on, edges, last, events, fps, clock, settings}`. Les niveaux sont publiés toutes les `interval` ms (100), les fronts tout de suite. Événement DOM `luma-edge`.
 
 ### À savoir
 
-- **Exposition automatique.** Une caméra compense une lumière qui s'allume : l'image s'assombrit en quelques dixièmes de seconde. Le seuil automatique le supporte ; pour des fronts plus nets, verrouiller l'exposition par `adjust` (`exposureMode: "manual"`, `exposureTime` court) quand la caméra le permet.
+- **Exposition automatique.** Une caméra compense une lumière qui s'allume : l'image s'assombrit en quelques dixièmes de seconde. Le seuil (`detect="level"`) ne le supporte que pour des éclats courts ; au-delà, passer en `detect="jump"`, ou verrouiller l'exposition par `adjust` (`exposureMode: "manual"`, `exposureTime` court) quand la caméra le permet.
 - **Dans le noir**, la caméra allonge la pose et la cadence tombe : lire `fps`.
 - **Toute source d'images convient** (`sonic-video`, `sonic-screen`, `sonic-shader`…), mais seule `sonic-camera` donne l'instant de capture.
+
+## `sonic-morse` : morse par la lumière
+
+Émet un texte en morse sur un booléen de DataProvider, et décode les fronts vus par une `sonic-luma`. Avec la torche et la caméra d'un téléphone : un chat sans réseau entre deux appareils face à face. Invisible.
+
+```json
+{ "tagName": "sonic-camera", "attributes": { "id": "cam", "facing": "environment", "autostart": true, "adjust": "lampe" } },
+{ "tagName": "sonic-luma", "attributes": { "id": "sonde", "source": "#cam", "detect": "jump", "max-on-ms": "3000" } },
+{ "tagName": "sonic-morse", "attributes": { "id": "morse", "unit": "300", "drive": "lampe.torch", "text-from": "chat.outgoing", "send-from": "chat.txN", "source": "sondeState", "target": "chat" } }
+```
+
+### Émission
+
+- `text-from` : chemin du texte ; `send-from` : chemin d'un compteur. Chaque hausse du compteur émet le texte (le réducteur écrit le texte et incrémente le compteur dans la même action). Les messages s'enchaînent en file.
+- `drive` : chemin du booléen allumé / éteint. `lampe.torch` avec `adjust="lampe"` sur la caméra pilote la torche ; les autres clés de `lampe` sont conservées.
+- `unit` : durée du point en ms. Trait = 3 unités, silence entre lettres = 3, entre mots = 7. Mesuré sur un téléphone : une torche ne tient guère d'éclat sous 250 ms et s'allume environ 400 ms après l'ordre (retard constant, sans effet sur le code) ; 300 ms est un bon défaut, soit 4 mots par minute.
+- `trim` : ms retirés à chaque éclat et ajoutés au silence suivant, pour une lampe qui reste allumée plus longtemps que commandé.
+- Le texte est ramené aux caractères du code : majuscules, accents retirés, le reste ôté.
+
+### Réception
+
+- `source` : le DP d'état d'une `sonic-luma` (`sondeState`). Mettre la sonde en `detect="jump"`.
+- Un éclat de moins de 2 unités est un point, sinon un trait ; un silence de 2 unités clôt la lettre, de 5 le mot, de `end-units` (12) le message.
+- `auto-unit` : l'unité se cale sur les éclats observés dès que points et traits ont été vus ; sinon les deux appareils doivent avoir le même `unit`.
+- La réception est coupée pendant l'émission et `guard-ms` (800) après : la lampe éclaire aussi la scène que filme sa propre caméra. L'échange est donc à l'alternat.
+
+### Sorties
+
+- Actions vers `target` : `{type: "morse:sent", payload: {text}}` à la fin d'une émission, `{type: "morse:message", payload: {text, unit}}` à la fin d'un message reçu.
+- État (`out-data-provider`, défaut `<id>State`) : `{status: idle|sending|receiving, on, tx: {text, signs, chars, total, progress, queue}, rx: {text, signs, unit}, lastReceived, lastSent, sent, received, settings}`. `rx.text` et `rx.signs` suivent le message en cours de réception.
+- `params` : `{unit, trim, autoUnit, endUnits, guardMs}` en direct. `control` : `{cancel: compteur}` arrête l'émission et vide la file. Événements DOM `morse-sent`, `morse-message`.
 
 ## `sonic-media-start`
 
