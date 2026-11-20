@@ -3,7 +3,7 @@
     {
       "tagName": "div",
       "attributes": {
-        "style": "position:relative;min-height:100svh;background:#16181d;--sc-primary:#ff3d7f;--sc-primary-content:#fff"
+        "style": "position:relative;min-height:100svh;background:#16181d;--sc-primary:#1c1e24;--sc-primary-content:#fff"
       },
       "nodes": [
         {
@@ -129,48 +129,55 @@
           "tagName": "sonic-notify",
           "attributes": {
             "watch": "poseState.error",
-            "status": "error"
+            "status": "error",
+            "label": "Photo"
           }
         },
         {
           "tagName": "sonic-notify",
           "attributes": {
-            "watch": "balises.erreur"
+            "watch": "balises.erreur",
+            "label": "Partage"
           }
         },
         {
           "tagName": "sonic-notify",
           "attributes": {
             "watch": "publiques.error",
-            "status": "error"
+            "status": "error",
+            "label": "Balises autour"
           }
         },
         {
           "tagName": "sonic-notify",
           "attributes": {
             "watch": "carte.error",
-            "status": "error"
+            "status": "error",
+            "label": "Carte"
           }
         },
         {
           "tagName": "sonic-notify",
           "attributes": {
             "watch": "impState.error",
-            "status": "error"
+            "status": "error",
+            "label": "Impression"
           }
         },
         {
           "tagName": "sonic-notify",
           "attributes": {
             "watch": "voixState.error",
-            "status": "error"
+            "status": "error",
+            "label": "Micro"
           }
         },
         {
           "tagName": "sonic-notify",
           "attributes": {
             "watch": "geoState.error",
-            "status": "warning"
+            "status": "warning",
+            "label": "Position"
           }
         },
         {
@@ -535,7 +542,7 @@
                                                         "type": "primary",
                                                         "size": "xl",
                                                         "id": "capteurs",
-                                                        "style": "--sc-btn-rounded:999px;--sc-btn-px:1.6rem"
+                                                        "style": "--sc-btn-rounded:999px;--sc-btn-px:1.6rem;--sc-primary:#ffffff;--sc-primary-content:#1c1e24"
                                                       },
                                                       "nodes": [
                                                         {
@@ -587,7 +594,7 @@
                                                     "value": "photo",
                                                     "type": "primary",
                                                     "size": "lg",
-                                                    "style": "--sc-btn-rounded:999px;--sc-btn-px:1.4rem;box-shadow:0 0 0 4px rgba(255,255,255,.95);border-radius:999px"
+                                                    "style": "--sc-btn-rounded:999px;--sc-btn-px:1.4rem;box-shadow:0 8px 24px rgba(0,0,0,.35);border-radius:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24"
                                                   },
                                                   "nodes": [
                                                     {
@@ -751,7 +758,7 @@
                                                 "type": "primary",
                                                 "size": "xl",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:4.6rem;box-shadow:0 0 0 5px rgba(255,255,255,.95);border-radius:999px",
+                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:4.6rem;box-shadow:0 0 0 5px rgba(255,255,255,.55);border-radius:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24",
                                                 "id": "photo",
                                                 "aria-label": "Photographier",
                                                 "title": "Photographier"
@@ -1943,7 +1950,7 @@
                   "attributes": {
                     "inputProvider": "geoState",
                     "outputProvider": "carteVue",
-                    "expression": "$input.lat ? {\"center\": [$input.lon, $input.lat], \"zoom\": 15} : {\"center\": [2.4, 46.6], \"zoom\": 5}"
+                    "expression": "$input.lat ? {\"center\": [$input.lon, $input.lat], \"zoom\": 13} : {\"center\": [2.4, 46.6], \"zoom\": 5}"
                   }
                 },
                 {
