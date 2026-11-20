@@ -53,7 +53,7 @@
             "initial": "{\"items\": []}",
             "persist": "balises",
             "max-state-bytes": "1200000",
-            "reducer": "$action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$action.payload])}]) : $action.type = \"remove\" ? $merge([$state, {\"items\": [$state.items[id != $action.payload]]}]) : $state"
+            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $p}]) : $ob}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : \"\"}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $state)"
           }
         },
         {
@@ -71,7 +71,7 @@
           "attributes": {
             "id": "geo",
             "for": "capteurs",
-            "places": "balises.items",
+            "places": "toutes.items",
             "radius": "150"
           }
         },
@@ -97,6 +97,15 @@
             "max-s": "15",
             "max-takes": "1",
             "control": "enreg"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "publiques",
+            "formDataProvider": "balises",
+            "outputProvider": "toutes",
+            "expression": "{\"items\": $append($items ? $items : [], $input.items[ref and $not(id in $items.placeId)])}"
           }
         },
         {
@@ -179,7 +188,7 @@
                               "attributes": {
                                 "id": "ancre",
                                 "source": "#cam",
-                                "reference": "balises.items",
+                                "reference": "toutes.items",
                                 "within": "geoState",
                                 "embedding": "emb",
                                 "gravity": "orientState",
@@ -451,6 +460,97 @@
                           }
                         }
                       ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-jsonata",
+                  "attributes": {
+                    "inputProvider": "ancreState",
+                    "outputProvider": "trouvee",
+                    "expression": "$input.found and $input.item.mine = false ? [{\"id\": $input.item.id}] : []"
+                  }
+                },
+                {
+                  "tagName": "sonic-list",
+                  "attributes": {
+                    "dataProvider": "trouvee"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "template",
+                      "nodes": [
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "balises",
+                            "type": "report",
+                            "data-bind": "",
+                            "::payload": "$id"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "variant": "ghost",
+                                "size": "sm",
+                                "type": "danger"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "warning-triangle-outline",
+                                    "slot": "prefix"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Signaler cette balise"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "template",
+                      "attributes": {
+                        "data-value": "no-item"
+                      },
+                      "nodes": []
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "font-size:.8rem;opacity:.7"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "span",
+                      "textContent": "Balises partagées autour : "
+                    },
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "publiques",
+                        "key": "count"
+                      }
+                    },
+                    {
+                      "tagName": "span",
+                      "textContent": " "
+                    },
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "publiques",
+                        "key": "error"
+                      }
                     }
                   ]
                 },
@@ -1077,6 +1177,13 @@
                   ]
                 },
                 {
+                  "tagName": "small",
+                  "textContent": "Une fois posée, la balise est visible par tous ceux qui passent ici (avec le GPS activé).",
+                  "attributes": {
+                    "style": "opacity:.7"
+                  }
+                },
+                {
                   "tagName": "div",
                   "attributes": {
                     "style": "display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"
@@ -1419,7 +1526,7 @@
                   "attributes": {
                     "inputProvider": "balises",
                     "outputProvider": "listeBalises",
-                    "expression": "$append([], $reverse($input.items).{\"id\": id, \"message\": message, \"effet\": effet, \"points\": points, \"quand\": $substring(createdAt, 0, 16), \"gps\": lat ? \"GPS ± \" & $string($round(accuracy)) & \" m\" : \"sans GPS\"})"
+                    "expression": "$append([], $reverse($input.items).{\"id\": id, \"message\": message, \"effet\": effet, \"points\": points, \"quand\": $substring(createdAt, 0, 16), \"gps\": lat ? \"GPS ± \" & $string($round(accuracy)) & \" m\" : \"sans GPS\", \"partage\": placeId ? \"partagée\" : (lat ? \"envoi…\" : \"sur cet appareil\")})"
                   }
                 },
                 {
@@ -1461,7 +1568,7 @@
                                   "tagName": "small",
                                   "attributes": {
                                     "data-bind": "",
-                                    "::text-content": "$quand · $effet · $points points · $gps",
+                                    "::text-content": "$quand · $effet · $points points · $gps · $partage",
                                     "style": "opacity:.7"
                                   }
                                 }
@@ -1523,6 +1630,21 @@
                       "attributes": {
                         "dataProvider": "sauvegarde",
                         "key": "etat"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "tagName": "small",
+                  "attributes": {
+                    "style": "opacity:.75"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "balises",
+                        "key": "erreur"
                       }
                     }
                   ]
