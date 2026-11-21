@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "qr",
   "label": "QR codes",
-  "description": "QR codes dessinés en SVG dans la page, sans service tiers, depuis un texte ou un DataProvider lu en direct (lien d'un run, lien spectateur, code de salon, URL) ; noir sur blanc par défaut pour rester lisible quel que soit le thème",
+  "description": "QR codes dessinés en SVG dans la page, sans service tiers, depuis un texte ou un DataProvider lu en direct (lien d'un run, lien spectateur, code de salon, URL) ; lecteur de QR codes par la caméra ; flux de QR codes animés pour passer un fichier (photo, dessin, texte) de l'écran d'un appareil à la caméra d'un autre, sans réseau",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -69,6 +69,125 @@
         "image-size": {
           "type": "number",
           "description": "côté du code dans l'image (px, 240)"
+        }
+      }
+    },
+    {
+      "name": "sonic-qr-reader",
+      "description": "Lecteur de QR codes : analyse en continu les images d'une source (source=\"#cam\" : sonic-camera, sonic-still…) et publie le texte du code vu ; état (out-data-provider, défaut <id>State) {status idle|loading|ready|error, error, engine native|jsqr, active, text (dernier texte lu), count (lectures d'un texte nouveau), scans, rate (analyses/s), ms, settings} ; target = store qui reçoit {type (défaut qr), payload: {text}} à chaque nouveau texte ; détecteur du navigateur quand il existe (Chrome Android), sinon décodeur chargé à la demande depuis jsDelivr (version épinglée, empreinte d'intégrité) ; interval ms entre deux analyses (défaut 50), max-size px de l'image analysée par le décodeur de repli (640) ; params = réglages en direct {active, interval, maxSize} ; rien ne quitte l'appareil ; invisible",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "#id d'une source d'images"
+        },
+        "interval": {
+          "type": "number",
+          "description": "ms entre deux analyses (16..2000, défaut 50)"
+        },
+        "engine": {
+          "type": "string",
+          "values": [
+            "auto",
+            "native",
+            "jsqr"
+          ],
+          "description": "auto (défaut) : détecteur du navigateur s'il lit les QR, sinon décodeur de repli"
+        },
+        "max-size": {
+          "type": "number",
+          "description": "plus grand côté de l'image analysée par le décodeur de repli (px, défaut 640)"
+        },
+        "target": {
+          "type": "string",
+          "description": "store qui reçoit une action par nouveau texte lu"
+        },
+        "type": {
+          "type": "string",
+          "description": "type de l'action (défaut qr)"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {active, interval, maxSize}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP de sortie (défaut <id>State)"
+        }
+      }
+    },
+    {
+      "name": "sonic-qr-sender",
+      "description": "Émetteur d'un flux de QR codes animés : découpe un fichier en trames et les publie tour à tour, en boucle, dans son état ; un sonic-qr text-from=\"<id>State.frame\" ecc=\"L\" les affiche, en face sonic-qr-reader + sonic-qr-receiver rassemblent le fichier. Source from = chemin de DP : URL blob: ou data:, SonicMediaRef {url, mime} (snapshot-provider d'une sonic-camera, export d'un dessin…) ou texte brut ; auto : envoie à chaque changement de la source ; send-from : chemin d'un compteur dont chaque hausse (re)lance l'envoi. Une image est d'abord réduite : image-max px (défaut 320, 0 = telle quelle), image-quality JPEG (0.6). fps trames/s (défaut 8), chunk octets par trame (défaut 300 ; plus = code plus dense). 400 ko au plus. État {status idle|preparing|sending|error, error, frame (texte de la trame à afficher), index, frames, loops (tours complets), bytes, mime, name, loopSeconds, settings} ; params {fps, chunk, imageMax, imageQuality} ; control {cancel: compteur} ; invisible",
+      "props": {
+        "from": {
+          "type": "string",
+          "description": "chemin de DP du fichier à envoyer"
+        },
+        "auto": {
+          "type": "boolean",
+          "description": "envoie à chaque changement de la source"
+        },
+        "send-from": {
+          "type": "string",
+          "description": "chemin d'un compteur : chaque hausse (re)lance l'envoi"
+        },
+        "fps": {
+          "type": "number",
+          "description": "trames par seconde (1..30, défaut 8)"
+        },
+        "chunk": {
+          "type": "number",
+          "description": "octets par trame (20..800, défaut 300)"
+        },
+        "image-max": {
+          "type": "number",
+          "description": "plus grand côté d'une image envoyée, px (défaut 320 ; 0 : telle quelle)"
+        },
+        "image-quality": {
+          "type": "number",
+          "description": "qualité JPEG d'une image réduite (0.1..1, défaut 0.6)"
+        },
+        "name": {
+          "type": "string",
+          "description": "nom du fichier annoncé au récepteur"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {fps, chunk, imageMax, imageQuality}"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage {cancel: compteur}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP de sortie (défaut <id>State)"
+        }
+      }
+    },
+    {
+      "name": "sonic-qr-receiver",
+      "description": "Récepteur d'un flux de QR codes animés : écoute les textes lus par un sonic-qr-reader (source=\"lecteurState.text\"), rassemble les trames dans n'importe quel ordre, vérifie l'empreinte et publie le fichier en URL blob:. État (out-data-provider, défaut <id>State) {status idle|receiving|done|error, error, received, total, progress 0..1, percent 0..100, mime, name, size, file {url, mime, name, size}, text (contenu d'un fichier texte), seconds, count} ; file-provider = DP qui reçoit le fichier seul en SonicMediaRef {url, mime} (sonic-still in-data-provider, sonic-media-download source) ; target = store qui reçoit {type: \"qr:received\", payload: {name, mime, size}} ; un nouvel envoi remplace le précédent ; control {reset: compteur} ; barre de progression : div dataProvider=\"<id>State\" > sonic-progress data-bind=\"\" ::value=\"$percent\" max=\"100\" ; invisible",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "chemin de DP du texte lu (ex. lecteurState.text)"
+        },
+        "target": {
+          "type": "string",
+          "description": "store qui reçoit qr:received"
+        },
+        "file-provider": {
+          "type": "string",
+          "description": "DP qui reçoit le fichier seul en SonicMediaRef {url, mime}"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage {reset: compteur}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP de sortie (défaut <id>State)"
         }
       }
     }
