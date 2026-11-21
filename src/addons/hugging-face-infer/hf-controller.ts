@@ -45,6 +45,7 @@ import {
   type HfDevice,
   type HfTask,
 } from "./types";
+import { publisherAt } from "../../shared/dp-path";
 
 const BYTES_PER_MIB = 1024 * 1024;
 const IDLE_PRELOAD_TIMEOUT_MS = 5_000;
@@ -259,7 +260,7 @@ export function createHfInferController(
     ? resolveStaticPublisherPath(options.status)
     : null;
   const outputPub = resolvePublisher(outputPath);
-  const statePub = PublisherManager.get(deriveStateKey(outputPath));
+  const statePub = publisherAt(deriveStateKey(outputPath));
   const statusPub = statusPath ? resolvePublisher(statusPath) : null;
 
   // Options d'appel : défauts du modèle + options de l'instance. Les options

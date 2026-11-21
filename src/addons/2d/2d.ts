@@ -16,6 +16,7 @@ import { TAP_MAX_MOVE_PX, TAP_MAX_MS, easeCurve, isNum, namesRegex, type NodeCur
 import { MAX_SPRITES, defaultCamera, parseLayers, parseSprite, readCamera, type Camera, type SpriteSpec } from "./model";
 import { Scene2D } from "./scene";
 import "./elements";
+import { publisherAt } from "../../shared/dp-path";
 
 const tagName = "sonic-2d";
 
@@ -457,7 +458,7 @@ export class Sonic2d extends LitElement {
         }),
       );
       try {
-        const cur = (PublisherManager.get(camPath) as unknown as Publisher).get();
+        const cur = (publisherAt(camPath) as unknown as Publisher).get();
         if (cur && typeof cur === "object" && Object.keys(cur).length) this.applyCameraSpec(JSON.parse(JSON.stringify(cur)), performance.now(), false);
       } catch {
         /* pas encore de valeur */
@@ -729,7 +730,7 @@ export class Sonic2d extends LitElement {
     this.unbind();
     const id = this.dataProvider.trim() || HTML.getAncestorAttributeValue(this.parentElement, "dataProvider") || "";
     if (!id) return;
-    const pub = PublisherManager.get(id) as unknown as Publisher;
+    const pub = publisherAt(id) as unknown as Publisher;
     this.publisher = pub;
     pub.onAssign(this.onData, false);
     pub.onInternalMutation(this.onData);

@@ -6,6 +6,7 @@ import { dispatch } from "../interactive";
 import { TAP_MAX_MOVE_PX, TAP_MAX_MS, namesRegex } from "../../shared/nodes";
 import { num } from "../../shared/media/control";
 import { StageNodes, type StageLayout } from "./stage-core";
+import { publisherAt } from "../../shared/dp-path";
 
 const tagName = "sonic-stage";
 
@@ -211,7 +212,7 @@ export class SonicStage extends LitElement {
     this.unbind();
     const id = this.dataProvider.trim() || HTML.getAncestorAttributeValue(this.parentElement, "dataProvider") || "";
     if (!id) return;
-    const pub = PublisherManager.get(id) as unknown as Publisher;
+    const pub = publisherAt(id) as unknown as Publisher;
     this.publisher = pub;
     // Un producteur peut tout réassigner (physique, store) ou patcher un chemin (`scene.nodes.titre.x`).
     pub.onAssign(this.onData, false);

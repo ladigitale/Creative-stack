@@ -43,6 +43,7 @@ import {
   rgbaToUint8,
   shouldReleaseWhenOffscreen,
 } from "./types";
+import { publisherAt } from "../../shared/dp-path";
 
 const tagName = "sonic-shader";
 
@@ -793,7 +794,7 @@ export class SonicShader extends LitElement {
     this.unbindFormProvider();
     const id = this.resolveFormProviderId();
     if (!id) return;
-    this.formPublisher = PublisherManager.get(id);
+    this.formPublisher = publisherAt(id);
     this.formPublisher.onInternalMutation(this.onFormMutation);
     this.bindChannelPublishers();
     this.onFormMutation();
@@ -807,7 +808,7 @@ export class SonicShader extends LitElement {
 
   private bindOutPublisher() {
     const id = this.resolveOutProviderId();
-    this.outPublisher = id ? PublisherManager.get(id) : null;
+    this.outPublisher = id ? publisherAt(id) : null;
   }
 
   private resolveExtractProviderId(): string {
@@ -818,7 +819,7 @@ export class SonicShader extends LitElement {
 
   private bindExtractPublisher() {
     const id = this.resolveExtractProviderId();
-    this.extractPublisher = id ? PublisherManager.get(id) : null;
+    this.extractPublisher = id ? publisherAt(id) : null;
   }
 
   private applyFormParams(value: unknown) {

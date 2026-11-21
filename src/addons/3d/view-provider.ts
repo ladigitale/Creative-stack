@@ -1,4 +1,5 @@
 import { PublisherManager } from "@supersoniks/concorde/utils";
+import { publisherAt } from "../../shared/dp-path";
 
 /**
  * `view-provider` : DataProvider de réglages de vue en direct, `{camera, eyeHeight}` ; `camera` (orbit, yeux, map…)
@@ -20,7 +21,7 @@ function read(host: Host) {
 function bind(host: Host) {
   unbind(host);
   if (!host.viewProvider) return;
-  host.viewPub = PublisherManager.get(host.viewProvider);
+  host.viewPub = publisherAt(host.viewProvider);
   host.onViewMutation = () => read(host);
   host.viewPub.onInternalMutation(host.onViewMutation);
   read(host);
