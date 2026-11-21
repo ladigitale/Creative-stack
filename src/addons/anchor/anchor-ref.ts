@@ -66,6 +66,7 @@ export class SonicAnchorRef extends LitElement {
     canvas { width: 100%; height: auto; display: block; border-radius: inherit; }
     svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
     .handle { cursor: grab; touch-action: none; }
+    :host([dragging]) .handle { cursor: grabbing; }
     .empty { line-height: normal; padding: 2rem 1rem; text-align: center; opacity: .7; }
   `;
 
@@ -134,6 +135,8 @@ export class SonicAnchorRef extends LitElement {
   }
 
   disconnectedCallback(): void {
+    document.removeEventListener("touchmove", this.holdTouch);
+    this.drag = null;
     document.removeEventListener("click", this.onDocClick, true);
     this.unsubs.forEach((u) => u());
     this.unsubs = [];
@@ -385,10 +388,29 @@ export class SonicAnchorRef extends LitElement {
     return { x: clamp01((e.clientX - r.left) / r.width), y: clamp01((e.clientY - r.top) / r.height) };
   }
 
+  /**
+   * Toucher une poignée ne doit jamais faire défiler la page : sinon le navigateur annule le geste
+   * (pointercancel) et la poignée « lâche » le doigt. touch-action ne suffit pas partout (Safari iOS sur du SVG),
+   * d'où ces écouteurs tactiles non passifs.
+   */
+  private readonly blockTouch = { handleEvent: (e: Event) => e.cancelable && e.preventDefault(), passive: false };
+  private readonly holdTouch = (e: TouchEvent) => {
+    if (this.drag && e.cancelable) e.preventDefault();
+  };
+
   private onDown(e: PointerEvent, k: number): void {
     e.preventDefault();
-    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    // Capture sur le <svg> (pas sur le <g> de la poignée, que Safari ne capture pas toujours) : le geste suit
+    // le doigt même hors de la photo, jusqu'au relâchement.
+    try {
+      this.svgEl?.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointeur déjà relâché */
+    }
     this.drag = { k, id: e.pointerId };
+    this.toggleAttribute("dragging", true);
+    document.addEventListener("touchmove", this.holdTouch, { passive: false });
+    this.onMove(e);
   }
 
   private onMove(e: PointerEvent): void {
@@ -403,6 +425,13 @@ export class SonicAnchorRef extends LitElement {
   private onUp(e: PointerEvent): void {
     if (!this.drag || e.pointerId !== this.drag.id) return;
     this.drag = null;
+    this.toggleAttribute("dragging", false);
+    document.removeEventListener("touchmove", this.holdTouch);
+    try {
+      this.svgEl?.releasePointerCapture(e.pointerId);
+    } catch {
+      /* déjà relâché */
+    }
     this.setZone(this.quad);
   }
 
@@ -430,8 +459,8 @@ export class SonicAnchorRef extends LitElement {
         <path d=${`M0 0H${w}V${h}H0Z M${q.map((p) => `${p.x} ${p.y}`).join("L")}Z`} fill="rgba(0,0,0,.45)" fill-rule="evenodd"></path>
         ${dots}
         <polygon points=${q.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#fff" stroke-width=${sw * 2} stroke-linejoin="round"></polygon>
-        ${q.map((p, k) => svg`<g class="handle" @pointerdown=${(e: PointerEvent) => this.onDown(e, k)}>
-          <circle cx=${p.x} cy=${p.y} r=${r * 1.6} fill="transparent"></circle>
+        ${q.map((p, k) => svg`<g class="handle" @pointerdown=${(e: PointerEvent) => this.onDown(e, k)} @touchstart=${this.blockTouch}>
+          <circle cx=${p.x} cy=${p.y} r=${r * 2.4} fill="transparent"></circle>
           <circle cx=${p.x} cy=${p.y} r=${r * 0.55} fill="#fff" stroke="#111" stroke-width=${sw}></circle>
         </g>`)}
       </svg>

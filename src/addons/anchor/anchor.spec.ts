@@ -133,4 +133,38 @@ describe("sonic-anchor-ref", () => {
     expect((get("poseTestState") as { status: string }).status).toBe("error");
     el.remove();
   });
+
+  it("une poignée garde le doigt : défilement bloqué pendant le geste, zone publiée au relâchement", async () => {
+    set("zoneDrag", null);
+    const el = document.createElement("sonic-anchor-ref") as SonicAnchorRef;
+    el.id = "poseDrag";
+    el.setAttribute("zone", "zoneDrag");
+    document.body.appendChild(el);
+    (el as unknown as { size: { w: number; h: number } }).size = { w: 400, h: 300 };
+    el.requestUpdate();
+    await el.updateComplete;
+    const svgEl = el.shadowRoot!.querySelector("svg")!;
+    svgEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const pe = (type: string, x: number, y: number) => {
+      const e = new MouseEvent(type, { bubbles: true, composed: true, cancelable: true, clientX: x, clientY: y }) as MouseEvent & { pointerId: number };
+      Object.defineProperty(e, "pointerId", { value: 7 });
+      return e as unknown as PointerEvent;
+    };
+    const touch = () => {
+      const t = new Event("touchmove", { bubbles: true, cancelable: true });
+      document.dispatchEvent(t);
+      return t.defaultPrevented;
+    };
+    const handle = el.shadowRoot!.querySelector(".handle")!;
+    handle.dispatchEvent(pe("pointerdown", 40, 30));
+    expect(el.hasAttribute("dragging")).toBe(true);
+    expect(touch()).toBe(true);
+    svgEl.dispatchEvent(pe("pointermove", 20, 15));
+    svgEl.dispatchEvent(pe("pointerup", 20, 15));
+    expect(el.hasAttribute("dragging")).toBe(false);
+    expect(touch()).toBe(false);
+    const z = get("zoneDrag") as Array<{ x: number; y: number }>;
+    expect(z[0]).toEqual({ x: 0.05, y: 0.05 });
+    el.remove();
+  });
 });
