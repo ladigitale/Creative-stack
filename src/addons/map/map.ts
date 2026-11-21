@@ -366,6 +366,8 @@ export default class SonicMap extends LitElement {
 
   // ---------- Vue ----------
 
+  private cameraApplied = false;
+
   private applyView(v: Any, force = false) {
     if (!v || typeof v !== "object" || !this.map) return;
     const m = this.map;
@@ -388,6 +390,10 @@ export default class SonicMap extends LitElement {
     const camKeys = ["center", "zoom", "bearing", "pitch", "padding", "bounds", "fit", "mode", "duration", "seq"];
     const camChanged = camKeys.some((k) => diff(k));
     if (!camChanged) return;
+    // `once` : la caméra de la vue n'est appliquée qu'une fois (puis à chaque nouveau `seq`) : une vue dérivée d'une
+    // position suivie en continu (sonic-geolocation) ne ramène pas sans cesse la carte que l'on zoome ou déplace.
+    if (v.once && this.cameraApplied && !force && !diff("seq")) return;
+    this.cameraApplied = true;
     if (finite(v.seq)) this.appliedSeq = v.seq;
     if (v.fit === "points") return this.fitToPoints(v);
     if (v.fit === "selection" && this.selectedId !== null) {

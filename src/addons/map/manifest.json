@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-map",
-      "description": "Carte MapLibre pilotée par DP. Entrées : <dp>/points, <dp>/view {center [lon,lat], zoom, bearing, pitch, bounds, fit:\"points\"|\"selection\", mode jump|ease|fly, duration, seq, projection mercator|globe, terrain, interactions, controls, selectedId}, <dp>/style {style, patches, patchSeq, featureStates, pointStyle}. Sortie : <dp>/state. Clic sur un point : target + pick-action-type → {type, payload:{id}}. URL externes du style refusées sauf allowed-hosts.",
+      "description": "Carte MapLibre pilotée par DP. Entrées : <dp>/points, <dp>/view {center [lon,lat], zoom, bearing, pitch, bounds, fit:\"points\"|\"selection\", mode jump|ease|fly, duration, seq, once (caméra appliquée une fois puis à chaque nouveau seq : vue dérivée d'une position suivie), projection mercator|globe, terrain, interactions, controls, selectedId}, <dp>/style {style, patches, patchSeq, featureStates, pointStyle}. Sortie : <dp>/state. Clic sur un point : target + pick-action-type → {type, payload:{id}}. URL externes du style refusées sauf allowed-hosts.",
       "props": {
         "dataProvider": { "type": "string", "description": "Base des DP : <nom>/points, /view, /style, /state" },
         "points-provider": { "type": "string", "description": "DP des points (remplace <dataProvider>/points), ex. une transform" },
