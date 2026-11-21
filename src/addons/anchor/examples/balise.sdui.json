@@ -2758,7 +2758,7 @@
                                       "tagName": "sonic-audio-player",
                                       "attributes": {
                                         "data-bind": "",
-                                        "::src": "$url",
+                                        "::media": "$url",
                                         "label": "Vocal",
                                         "style": "--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
                                       }
@@ -3087,7 +3087,7 @@
                                               "tagName": "sonic-audio-player",
                                               "attributes": {
                                                 "data-bind": "",
-                                                "::src": "$url",
+                                                "::media": "$url",
                                                 "label": "Ton vocal",
                                                 "style": "flex:1;--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
                                               }

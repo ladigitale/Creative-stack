@@ -68,7 +68,8 @@ let current: SonicAudioPlayer | null = null;
  * clavier), temps écoulé / durée. Joue par le moteur audio de la page (déverrouillé au clic sur lecture) ;
  * un seul lecteur joue à la fois.
  *
- * - `src` : URL du son (https, blob:, data:audio/…, relative) ; dans un modèle de liste : `data-bind` + `::src`.
+ * - `src` : URL du son (https, blob:, data:audio/…, relative).
+ * - `media` : idem, pour une URL venue des données : dans un modèle de liste, `data-bind` + `::media`.
  * - `src-from` : chemin DP, URL ou SonicMediaRef `{ url }` (ex. un enregistrement de sonic-audio-recorder).
  * - `label` : nom accessible (défaut « Son »).
  * - Couleurs : `--sonic-player-accent` (partie jouée, bouton), `--sonic-player-wave` (reste de l'onde),
@@ -143,6 +144,8 @@ export class SonicAudioPlayer extends LitElement {
   `;
 
   @property({ type: String }) src = "";
+  /** Comme `src` ; à lier dans un modèle de liste (`data-bind` + `::media`). */
+  @property({ type: String }) media = "";
   @property({ type: String, attribute: "src-from" }) srcFrom = "";
   @property({ type: String }) label = "Son";
 
@@ -193,7 +196,7 @@ export class SonicAudioPlayer extends LitElement {
 
   protected updated(changed: PropertyValues): void {
     if (changed.has("srcFrom")) this.listen();
-    if (changed.has("src") || changed.has("srcFrom")) this.setUrl(this.srcFrom ? this.fromDp : this.src);
+    if (changed.has("src") || changed.has("media") || changed.has("srcFrom")) this.setUrl(this.srcFrom ? this.fromDp : this.media || this.src);
     this.draw();
   }
 
