@@ -20,13 +20,29 @@ export type MorseSettings = {
   endUnits: number;
   /** ms pendant lesquels la réception reste coupée après une émission. */
   guardMs: number;
+  /** Nombre minimal de caractères d'un message reçu ; en dessous il est écarté. */
+  minChars: number;
+  /** Durée du signal de début, en unités (0 : pas de signal de début). */
+  startUnits: number;
 };
 
 export type MorseState = {
   status: "idle" | "sending" | "receiving";
   /** État commandé de la lampe. */
   on: boolean;
-  tx: { text: string; signs: string; chars: number; total: number; progress: number; queue: number };
+  tx: {
+    text: string;
+    signs: string;
+    /** Partie du texte déjà émise, et partie restante. */
+    done: string;
+    rest: string;
+    chars: number;
+    total: number;
+    /** Avancement 0..1, et le même en pourcentage entier. */
+    progress: number;
+    percent: number;
+    queue: number;
+  };
   rx: { text: string; signs: string; unit: number };
   /** Dernier message reçu en entier. */
   lastReceived: string;
@@ -34,6 +50,8 @@ export type MorseState = {
   lastSent: string;
   sent: number;
   received: number;
+  /** Messages reçus écartés car trop courts (`min-chars`). */
+  dropped: number;
   settings: MorseSettings;
 };
 
@@ -46,6 +64,12 @@ export type MorseState = {
  * - Réception : `source` = DP d'état d'une `sonic-luma` ; ses fronts sont décodés en texte. Un
  *   silence de `end-units` unités termine le message.
  * - Réception coupée pendant l'émission et `guard-ms` après : la lampe éclaire aussi sa propre caméra.
+ *   Un éclat n'est compté que si son allumage a été vu hors de cette période.
+ * - Signal de début (`start-units`, 5 unités par défaut) : chaque message émis commence par un éclat
+ *   plus long qu'un trait, et rien n'est décodé tant que ce signal n'a pas été vu. Une lumière
+ *   parasite ne devient donc pas un message. `start-units="0"` sur les deux appareils le retire.
+ * - Un message reçu de moins de `min-chars` caractères est écarté : une lettre seule est presque
+ *   toujours un reflet ou un passage devant la caméra.
  *
  * Actions vers le store `target` : `morse:sent {text}` et `morse:message {text, unit}`.
  */
@@ -93,11 +117,22 @@ export class SonicMorse extends LitElement {
   @property({ type: Number, attribute: "end-units" })
   endUnits = 12;
 
-  /** ms de réception coupée après une émission (défaut 800). */
+  /** ms de réception coupée après une émission (défaut 1500 : la lampe s'éteint en retard et la caméra aussi). */
   @property({ type: Number, attribute: "guard-ms" })
-  guardMs = 800;
+  guardMs = 1500;
 
-  /** DataProvider de réglages en direct {unit, trim, autoUnit, endUnits, guardMs}. */
+  /** Nombre minimal de caractères d'un message reçu (défaut 2) ; en dessous il est écarté. */
+  @property({ type: Number, attribute: "min-chars" })
+  minChars = 2;
+
+  /**
+   * Durée du signal de début en unités (défaut 5, 0 pour s'en passer). Émis avant chaque message et
+   * exigé en réception : même valeur sur les deux appareils.
+   */
+  @property({ type: Number, attribute: "start-units" })
+  startUnits = 5;
+
+  /** DataProvider de réglages en direct {unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits}. */
   @property({ type: String })
   params = "";
 
@@ -130,6 +165,11 @@ export class SonicMorse extends LitElement {
   private lastSent = "";
   private sent = 0;
   private received = 0;
+  private dropped = 0;
+  /** L'allumage de l'éclat en cours a été vu en réception (hors émission et garde). */
+  private rxOpen = false;
+  /** Le signal de début du message en cours a été vu. */
+  private rxStarted = false;
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -158,23 +198,30 @@ export class SonicMorse extends LitElement {
       trim: num(this.trim, 0, 2000) ?? 0,
       autoUnit: Boolean(this.autoUnit),
       endUnits: num(this.endUnits, 8, 100) ?? 12,
-      guardMs: num(this.guardMs, 0, 10000) ?? 800,
+      guardMs: num(this.guardMs, 0, 10000) ?? 1500,
+      minChars: Math.round(num(this.minChars, 1, 20) ?? 2),
+      startUnits: startUnits(this.startUnits) ?? 5,
     };
     return { ...base, ...this.live };
   }
 
   getState(): MorseState {
     const sending = this.txTimer !== null;
-    const total = morseNormalize(this.txText).length;
+    const total = this.txText.length;
+    const chars = Math.min(this.txChars, total);
+    const progress = total ? chars / total : 0;
     return {
-      status: sending ? "sending" : this.decoder.text || this.decoder.signs ? "receiving" : "idle",
+      status: sending ? "sending" : this.listening() ? "receiving" : "idle",
       on: this.lampOn,
       tx: {
         text: this.txText,
         signs: morseEncode(this.txText),
-        chars: this.txChars,
+        done: this.txText.slice(0, chars),
+        rest: this.txText.slice(chars),
+        chars,
         total,
-        progress: total ? Math.round((this.txChars / total) * 100) / 100 : 0,
+        progress: Math.round(progress * 100) / 100,
+        percent: Math.round(progress * 100),
         queue: this.queue.length,
       },
       rx: { text: this.decoder.text, signs: this.decoder.signs, unit: Math.round(this.decoder.unit) },
@@ -182,6 +229,7 @@ export class SonicMorse extends LitElement {
       lastSent: this.lastSent,
       sent: this.sent,
       received: this.received,
+      dropped: this.dropped,
       settings: this.settings(),
     };
   }
@@ -213,7 +261,7 @@ export class SonicMorse extends LitElement {
     const s = this.settings();
     this.txText = text;
     this.txChars = 0;
-    this.steps = morseTimeline(text, s.unit, s.trim);
+    this.steps = morseTimeline(text, s.unit, s.trim, s.startUnits);
     this.stepIndex = 0;
     this.stepAt = performance.now();
     this.resetRx();
@@ -243,7 +291,7 @@ export class SonicMorse extends LitElement {
     this.guardUntil = performance.now() + this.settings().guardMs;
     this.lastSent = this.txText;
     this.sent++;
-    this.txChars = morseNormalize(this.txText).length;
+    this.txChars = this.txText.length;
     const target = this.target.trim();
     if (target) dispatch(target, { type: "morse:sent", payload: { text: this.txText } });
     this.dispatchEvent(new CustomEvent("morse-sent", { detail: { text: this.txText }, bubbles: true, composed: true }));
@@ -280,21 +328,51 @@ export class SonicMorse extends LitElement {
 
   /* ------------------------------- réception ------------------------------ */
 
+  /** Caractères lisibles du message en cours de réception, lettre en cours comprise. */
+  private heard(): number {
+    return this.decoder.text.replace(/[\s?]/g, "").length + (this.decoder.signs ? 1 : 0);
+  }
+
+  /** Un message est en cours de réception : signal de début vu, ou assez de caractères sans signal de début. */
+  private listening(): boolean {
+    const s = this.settings();
+    return s.startUnits > 0 ? this.rxStarted : this.heard() >= s.minChars;
+  }
+
   private resetRx(): void {
     this.decoder.reset();
+    this.rxOpen = false;
+    this.rxStarted = false;
     if (this.rxTimer) clearTimeout(this.rxTimer);
     this.rxTimer = null;
   }
 
   /** Front vu par la sonde. Ignoré pendant l'émission et juste après. */
   feedEdge(edge: LumaEdge): void {
-    if (this.txTimer !== null || performance.now() < this.guardUntil) return;
+    if (this.txTimer !== null || performance.now() < this.guardUntil) {
+      this.rxOpen = false;
+      return;
+    }
     if (edge.on) {
+      this.rxOpen = true;
       if (this.rxTimer) clearTimeout(this.rxTimer);
       this.rxTimer = null;
       if (edge.dur > 0) this.decoder.silence(edge.dur);
     } else {
-      this.decoder.light(edge.dur);
+      // Extinction sans allumage vu : fin de notre propre éclat, ou sonde tout juste branchée.
+      if (!this.rxOpen) return;
+      this.rxOpen = false;
+      const start = this.settings().startUnits;
+      if (start > 0 && edge.dur >= (start - 1) * this.decoder.unit) {
+        // Signal de début : un nouveau message commence, ce qui précède est oublié.
+        this.decoder.text = "";
+        this.decoder.signs = "";
+        this.rxStarted = true;
+      } else if (start > 0 && !this.rxStarted) {
+        return; // lumière sans signal de début : pas un message
+      } else {
+        this.decoder.light(edge.dur);
+      }
       this.silentSince = performance.now();
       this.watchSilence();
     }
@@ -325,9 +403,12 @@ export class SonicMorse extends LitElement {
   private complete(): void {
     const text = this.decoder.text.trim();
     const unit = Math.round(this.decoder.unit);
+    const enough = this.heard() >= this.settings().minChars;
     this.decoder.text = "";
     this.decoder.signs = "";
-    if (text) {
+    this.rxStarted = false;
+    if (text && !enough) this.dropped++;
+    if (text && enough) {
       this.lastReceived = text;
       this.received++;
       const target = this.target.trim();
@@ -404,6 +485,13 @@ export class SonicMorse extends LitElement {
   }
 }
 
+/** Signal de début : 0 (aucun) ou au moins 4 unités, pour rester plus long qu'un trait. */
+function startUnits(v: unknown): number | undefined {
+  const n = num(v, 0, 20);
+  if (n === undefined) return undefined;
+  return n === 0 ? 0 : Math.max(4, n);
+}
+
 function readParams(v: unknown): Partial<MorseSettings> {
   const p = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
   const out: Partial<MorseSettings> = {};
@@ -417,6 +505,10 @@ function readParams(v: unknown): Partial<MorseSettings> {
   if (endUnits !== undefined) out.endUnits = endUnits;
   const guardMs = num(p.guardMs, 0, 10000);
   if (guardMs !== undefined) out.guardMs = guardMs;
+  const minChars = num(p.minChars, 1, 20);
+  if (minChars !== undefined) out.minChars = Math.round(minChars);
+  const start = startUnits(p.startUnits);
+  if (start !== undefined) out.startUnits = start;
   return out;
 }
 

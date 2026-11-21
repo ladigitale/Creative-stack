@@ -32,8 +32,15 @@ describe("code morse", () => {
   it("chronologie : point 1, trait 3, lettre 3, mot 7", () => {
     const steps = morseTimeline("ET A", 100);
     expect(steps.map((s) => `${s.on ? "1" : "0"}${s.ms}`)).toEqual(["1100", "0300", "1300", "0700", "1100", "0100", "1300", "0300"]);
-    expect(steps.map((s) => s.chars)).toEqual([0, 1, 1, 3, 3, 3, 3, 4]);
+    expect(steps.map((s) => s.chars)).toEqual([1, 1, 3, 3, 3, 3, 4, 4]);
     expect(morseTimeline("", 100)).toEqual([]);
+  });
+
+  it("signal de début : un éclat plus long qu'un trait avant le message", () => {
+    const steps = morseTimeline("E", 100, 0, 5);
+    expect(steps.map((s) => `${s.on ? "1" : "0"}${s.ms}`)).toEqual(["1500", "0300", "1100", "0300"]);
+    expect(steps.map((s) => s.chars)).toEqual([0, 0, 1, 1]);
+    expect(morseTimeline("€", 100, 0, 5)).toEqual([]);
   });
 
   it("trim : éclats raccourcis, silences allongés d'autant, durée totale inchangée", () => {
@@ -199,24 +206,44 @@ describe("sonic-morse", () => {
         log.push([Math.round(performance.now()), last]);
       }
     });
-    await mount({ unit: "100", drive: "lampe1.torch", "text-from": "chat1.outgoing", "send-from": "chat1.txN", target: "morseStore", "out-data-provider": "morse1" });
+    await mount({ unit: "100", "start-units": "0", drive: "lampe1.torch", "text-from": "chat1.outgoing", "send-from": "chat1.txN", target: "morseStore", "out-data-provider": "morse1" });
     const t0 = performance.now();
     PublisherManager.get("chat1").set({ outgoing: "en", txN: 1 });
     expect(state("morse1").status).toBe("sending");
-    expect(state("morse1").tx).toMatchObject({ text: "EN", signs: ". -.", total: 2 });
+    expect(state("morse1").tx).toMatchObject({ text: "EN", signs: ". -.", total: 2, done: "", rest: "EN", percent: 0 });
+    await vi.advanceTimersByTimeAsync(150); // le point de E vient de finir
+    expect(state("morse1").tx).toMatchObject({ done: "E", rest: "N", chars: 1, percent: 50 });
     await vi.advanceTimersByTimeAsync(2000);
     // E = point ; N = trait point. 100 | 300 | 300 | 100 | 100
     expect(log.map(([t, on]) => [t - t0, on])).toEqual([[0, true], [100, false], [400, true], [700, false], [800, true], [900, false]]);
     expect(state("morse1").status).toBe("idle");
     expect(state("morse1")).toMatchObject({ lastSent: "EN", sent: 1, on: false });
+    expect(state("morse1").tx).toMatchObject({ done: "EN", rest: "", percent: 100 });
     expect((PublisherManager.get("lampe1").get() as { zoom: number }).zoom).toBe(2);
     expect(received).toMatchObject([{ type: "morse:sent", payload: { text: "EN" } }]);
+  });
+
+  it("signal de début émis par défaut : éclat de 5 unités, silence de 3, puis le message", async () => {
+    PublisherManager.get("lampe7").set({ torch: false });
+    const log: Array<[number, boolean]> = [];
+    let last = false;
+    PublisherManager.get("lampe7").onAssign((v: { torch?: boolean }) => {
+      if (Boolean(v?.torch) !== last) {
+        last = Boolean(v?.torch);
+        log.push([Math.round(performance.now()), last]);
+      }
+    });
+    const el = await mount({ unit: "100", drive: "lampe7.torch", "out-data-provider": "morse7" });
+    const t0 = performance.now();
+    el.send("E");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(log.map(([t, on]) => [t - t0, on])).toEqual([[0, true], [500, false], [800, true], [900, false]]);
   });
 
   it("enchaîne les messages en file et s'arrête sur cancel", async () => {
     PublisherManager.get("lampe2").set({ torch: false });
     PublisherManager.get("ctl2").set({ cancel: 0 });
-    const el = await mount({ unit: "100", drive: "lampe2.torch", control: "ctl2", target: "morseStore", "out-data-provider": "morse2" });
+    const el = await mount({ unit: "100", "start-units": "0", drive: "lampe2.torch", control: "ctl2", target: "morseStore", "out-data-provider": "morse2" });
     el.send("E");
     el.send("T");
     el.send("€");
@@ -231,12 +258,13 @@ describe("sonic-morse", () => {
     expect(received.map((a) => a.type)).toEqual(["morse:sent"]);
   });
 
-  /** Publie les fronts d'un message comme le ferait une sonic-luma, à l'heure. */
-  async function play(dpName: string, text: string, unit: number, n0 = 0) {
-    const events: LumaEdge[] = [];
-    let n = n0;
+  /** Publie les fronts d'un message comme le ferait une sonic-luma, à l'heure. `start` : unités du signal de début. */
+  const edges: Record<string, LumaEdge[]> = {};
+  async function play(dpName: string, text: string, unit: number, start = 5) {
+    const events = (edges[dpName] ??= []);
+    let n = events.length ? events[events.length - 1].n : 0;
     let prev = performance.now();
-    for (const s of morseTimeline(text, unit)) {
+    for (const s of morseTimeline(text, unit, 0, start)) {
       if (s.on) {
         events.push({ n: ++n, on: true, t: performance.now(), dur: performance.now() - prev, level: 1, sinceMark: null, markGap: null });
         prev = performance.now();
@@ -249,43 +277,110 @@ describe("sonic-morse", () => {
         await vi.advanceTimersByTimeAsync(s.ms);
       }
     }
-    return n;
   }
 
-  it("décode les fronts d'une sonde, clôt le message après le silence", async () => {
+  it("décode un message annoncé par le signal de début, le clôt après le silence", async () => {
     PublisherManager.get("sonde3").set({ events: [] });
     await mount({ unit: "100", source: "sonde3", target: "morseStore", "out-data-provider": "morse3", "end-units": "12" });
     await vi.advanceTimersByTimeAsync(50);
+    expect(state("morse3").status).toBe("idle");
     await play("sonde3", "OK GO", 100);
     expect(state("morse3").rx.text).toBe("OK GO");
     expect(state("morse3").status).toBe("receiving");
     expect(received).toEqual([]);
     await vi.advanceTimersByTimeAsync(1500);
-    expect(state("morse3")).toMatchObject({ status: "idle", lastReceived: "OK GO", received: 1 });
+    expect(state("morse3")).toMatchObject({ status: "idle", lastReceived: "OK GO", received: 1, dropped: 0 });
     expect(state("morse3").rx.text).toBe("");
     expect(received).toMatchObject([{ type: "morse:message", payload: { text: "OK GO", unit: 100 } }]);
   });
 
-  it("n'écoute pas pendant sa propre émission ni juste après, ni les fronts d'avant le branchement", async () => {
-    PublisherManager.get("sonde4").set({ events: [{ n: 1, on: true, t: performance.now() - 500, dur: 0, level: 1, sinceMark: null, markGap: null }, { n: 2, on: false, t: performance.now() - 400, dur: 100, level: 0, sinceMark: null, markGap: null }] });
-    const el = await mount({ unit: "100", source: "sonde4", target: "morseStore", "out-data-provider": "morse4", "guard-ms": "500" });
+  it("réception annoncée dès le signal de début, avant la première lettre", async () => {
+    PublisherManager.get("sonde8").set({ events: [] });
+    await mount({ unit: "100", source: "sonde8", "out-data-provider": "morse8" });
+    await vi.advanceTimersByTimeAsync(50);
+    const all: LumaEdge[] = (edges["sonde8"] = []);
+    const t = performance.now();
+    all.push({ n: 1, on: true, t, dur: 0, level: 1, sinceMark: null, markGap: null });
+    PublisherManager.get("sonde8").set({ events: [...all] });
+    await vi.advanceTimersByTimeAsync(500);
+    all.push({ n: 2, on: false, t: performance.now(), dur: 500, level: 0, sinceMark: null, markGap: null });
+    PublisherManager.get("sonde8").set({ events: [...all] });
+    expect(state("morse8").status).toBe("receiving");
+    expect(state("morse8").rx.text).toBe("");
+  });
+
+  it("sans signal de début, une lumière n'est pas un message", async () => {
+    PublisherManager.get("sonde9").set({ events: [] });
+    await mount({ unit: "100", source: "sonde9", target: "morseStore", "out-data-provider": "morse9" });
+    await vi.advanceTimersByTimeAsync(50);
+    await play("sonde9", "SOS SOS", 100, 0);
+    expect(state("morse9").status).toBe("idle");
     await vi.advanceTimersByTimeAsync(3000);
     expect(received).toEqual([]);
-    el.send("T");
-    let n = await play("sonde4", "E", 100, 2); // sa propre lampe, vue par sa caméra
-    await vi.advanceTimersByTimeAsync(300); // émission finie à 300 ms, garde jusqu'à 800 ms
-    n = await play("sonde4", "E", 100, n);
+    expect(state("morse9")).toMatchObject({ received: 0, dropped: 0 });
+  });
+
+  it("une lettre seule est écartée, avec ou sans signal de début", async () => {
+    PublisherManager.get("sonde10").set({ events: [] });
+    await mount({ unit: "100", source: "sonde10", target: "morseStore", "out-data-provider": "morse10" });
+    await vi.advanceTimersByTimeAsync(50);
+    await play("sonde10", "T", 100);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(received).toEqual([]);
+    expect(state("morse10")).toMatchObject({ received: 0, dropped: 1, status: "idle" });
+    await play("sonde10", "TA", 100);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(received).toMatchObject([{ type: "morse:message", payload: { text: "TA" } }]);
+
+    PublisherManager.get("sonde11").set({ events: [] });
+    await mount({ unit: "100", "start-units": "0", source: "sonde11", target: "morseStore", "out-data-provider": "morse11" });
+    await vi.advanceTimersByTimeAsync(50);
+    await play("sonde11", "E", 100, 0);
+    expect(state("morse11").status).toBe("idle"); // une lettre : pas encore une réception
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(state("morse11")).toMatchObject({ received: 0, dropped: 1 });
+  });
+
+  it("ne se reçoit pas lui-même : sourd pendant l'émission, la garde, et à la fin d'un éclat commencé avant", async () => {
+    PublisherManager.get("sonde4").set({ events: [] });
+    const el = await mount({ unit: "100", source: "sonde4", target: "morseStore", "out-data-provider": "morse4", "guard-ms": "500" });
+    await vi.advanceTimersByTimeAsync(50);
+    el.send("TT");
+    await play("sonde4", "TT", 100); // sa propre lampe, vue par sa caméra, pendant l'émission
+    expect(state("morse4").rx.text).toBe("");
+    // Fin de son dernier éclat vue en retard, garde passée : un allumage pendant la garde,
+    // l'extinction après. Ce n'est pas un signal de début.
+    const all = edges["sonde4"];
+    let n = all[all.length - 1].n;
+    all.push({ n: ++n, on: true, t: performance.now(), dur: 100, level: 1, sinceMark: null, markGap: null });
+    PublisherManager.get("sonde4").set({ events: all.slice(-32) });
+    await vi.advanceTimersByTimeAsync(700);
+    all.push({ n: ++n, on: false, t: performance.now(), dur: 700, level: 0, sinceMark: null, markGap: null });
+    PublisherManager.get("sonde4").set({ events: all.slice(-32) });
+    expect(state("morse4").status).toBe("idle");
     await vi.advanceTimersByTimeAsync(3000);
     expect(received.map((a) => a.type)).toEqual(["morse:sent"]);
-    await play("sonde4", "E", 100, n);
+    // Puis un vrai message de l'autre appareil.
+    await play("sonde4", "OK", 100);
     await vi.advanceTimersByTimeAsync(3000);
-    expect(received.map((a) => a.type)).toEqual(["morse:sent", "morse:message"]);
+    expect(received).toMatchObject([{ type: "morse:sent" }, { type: "morse:message", payload: { text: "OK" } }]);
+  });
+
+  it("les fronts d'avant le branchement ne comptent pas", async () => {
+    const t = performance.now();
+    PublisherManager.get("sonde12").set({ events: [
+      { n: 1, on: true, t: t - 900, dur: 0, level: 1, sinceMark: null, markGap: null },
+      { n: 2, on: false, t: t - 400, dur: 500, level: 0, sinceMark: null, markGap: null },
+    ] });
+    await mount({ unit: "100", source: "sonde12", "out-data-provider": "morse12" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(state("morse12").status).toBe("idle");
   });
 
   it("réglages en direct", async () => {
-    PublisherManager.get("params5").set({ unit: 250, autoUnit: true, endUnits: 20 });
+    PublisherManager.get("params5").set({ unit: 250, autoUnit: true, endUnits: 20, minChars: 3, startUnits: 2 });
     const el = await mount({ unit: "100", params: "params5", "out-data-provider": "morse5" });
-    expect(el.settings()).toMatchObject({ unit: 250, autoUnit: true, endUnits: 20 });
+    expect(el.settings()).toMatchObject({ unit: 250, autoUnit: true, endUnits: 20, minChars: 3, startUnits: 4, guardMs: 1500 });
     expect(state("morse5").rx.unit).toBe(250);
   });
 });

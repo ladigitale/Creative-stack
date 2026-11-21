@@ -284,7 +284,7 @@
     },
     {
       "name": "sonic-morse",
-      "description": "Morse par la lumière, émission et réception. ÉMISSION : à chaque hausse du compteur send-from (chemin de DP), le texte lu dans text-from est émis en allumant / éteignant le booléen drive (ex. drive=\"lampe.torch\" avec sonic-camera adjust=\"lampe\" : la torche du téléphone) ; unit = durée du point en ms (défaut 300 : une torche de téléphone ne tient guère moins de 250 ms), trim = ms retirés à chaque éclat ; messages en file. RÉCEPTION : source = DP d'état d'une sonic-luma (detect=\"jump\" conseillé) ; ses fronts sont décodés, un silence de end-units unités (défaut 12) termine le message ; auto-unit ajuste l'unité aux durées vues ; coupée pendant l'émission et guard-ms après (la lampe éclaire aussi sa propre caméra). Actions vers le store target : morse:sent {text} et morse:message {text, unit}. État (out-data-provider, défaut <id>State) : {status idle|sending|receiving, on, tx {text, signs, chars, total, progress, queue}, rx {text, signs, unit}, lastReceived, lastSent, sent, received, settings}. params = réglages en direct {unit, trim, autoUnit, endUnits, guardMs} ; control {cancel: compteur} arrête l'émission. Texte ramené aux lettres, chiffres et ponctuation du code (accents retirés). Invisible",
+      "description": "Morse par la lumière, émission et réception. ÉMISSION : à chaque hausse du compteur send-from (chemin de DP), le texte lu dans text-from est émis en allumant / éteignant le booléen drive (ex. drive=\"lampe.torch\" avec sonic-camera adjust=\"lampe\" : la torche du téléphone) ; unit = durée du point en ms (défaut 300 : une torche de téléphone ne tient guère moins de 250 ms), trim = ms retirés à chaque éclat ; messages en file. RÉCEPTION : source = DP d'état d'une sonic-luma (detect=\"jump\" conseillé) ; ses fronts sont décodés, un silence de end-units unités (défaut 12) termine le message ; auto-unit ajuste l'unité aux durées vues ; coupée pendant l'émission et guard-ms après (la lampe éclaire aussi sa propre caméra), un éclat ne compte que si son allumage a été vu hors de cette période. SIGNAL DE DÉBUT : chaque message émis commence par un éclat de start-units unités (défaut 5, plus long qu'un trait) et rien n'est décodé tant qu'il n'a pas été vu (status passe à receiving dès ce signal) : une lumière parasite ne devient pas un message ; même valeur sur les deux appareils, 0 pour s'en passer. Un message de moins de min-chars caractères (défaut 2) est écarté (compteur dropped). Actions vers le store target : morse:sent {text} et morse:message {text, unit}. État (out-data-provider, défaut <id>State) : {status idle|sending|receiving, on, tx {text, signs, done (texte déjà émis), rest (texte restant), chars, total, progress 0..1, percent 0..100, queue}, rx {text, signs, unit}, lastReceived, lastSent, sent, received, dropped, settings}. params = réglages en direct {unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits} ; control {cancel: compteur} arrête l'émission. Texte ramené aux lettres, chiffres et ponctuation du code (accents retirés). Invisible",
       "props": {
         "unit": {
           "type": "number",
@@ -324,11 +324,19 @@
         },
         "guard-ms": {
           "type": "number",
-          "description": "ms de réception coupée après une émission (défaut 800)"
+          "description": "ms de réception coupée après une émission (défaut 1500)"
+        },
+        "min-chars": {
+          "type": "number",
+          "description": "nombre minimal de caractères d'un message reçu (défaut 2) ; en dessous il est écarté"
+        },
+        "start-units": {
+          "type": "number",
+          "description": "durée du signal de début en unités (défaut 5 ; 0 : aucun) : émis avant chaque message et exigé en réception"
         },
         "params": {
           "type": "string",
-          "description": "DP de réglages en direct {unit, trim, autoUnit, endUnits, guardMs}"
+          "description": "DP de réglages en direct {unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits}"
         },
         "control": {
           "type": "string",
