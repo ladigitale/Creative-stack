@@ -1,9 +1,10 @@
 import { defineConfig } from "vite";
 import { configDefaults } from "vitest/config";
+import { decoratorsGuardPlugin, decoratorsTransformOptions } from "@supersoniks/concorde/vite-config";
 import path from "path";
 import { readdirSync, existsSync, mkdirSync, writeFileSync } from "fs";
 
-const addonsDir = path.resolve(__dirname, "src/addons");
+const addonsDir = path.resolve(import.meta.dirname, "src/addons");
 
 /** Un addon = un dossier `src/addons/<id>` avec `index.ts` + `manifest.json`. */
 export const addonIds = readdirSync(addonsDir, { withFileTypes: true })
@@ -28,27 +29,33 @@ function isProcgenIndex(id: string, importer?: string): boolean {
   return abs === procgenIndex || abs === procgenIndex.replace(/\.ts$/, "");
 }
 
-/** Concorde est publié en TS source avec décorateurs legacy. */
-const tsconfigRaw = {
-  compilerOptions: { experimentalDecorators: true, useDefineForClassFields: false },
-};
+/**
+ * Concorde est publié en TS source avec décorateurs legacy, qui posent des accesseurs sur
+ * le prototype. Vite 8 (Oxc) ignore `esbuild.tsconfigRaw` et n'applique pas ce tsconfig aux
+ * fichiers de node_modules : on force les décorateurs legacy et les champs de classe en
+ * [[Set]] pour tout fichier transformé. Sans ça, un champ (`mode = "x"`, ou une propriété
+ * redéclarée dans une sous-classe) devient une propriété d'instance qui masque l'accesseur :
+ * plus de rendu ni d'écriture dans le DataProvider. Le garde-fou fait échouer le build.
+ */
+const decorators = decoratorsTransformOptions;
 
 /** En IIFE, l'entrée (générée) charge d'abord la passerelle vers Concorde core. */
 function iifeEntry(id: string): string {
-  const dir = path.resolve(__dirname, "node_modules/.creative-stack");
+  const dir = path.resolve(import.meta.dirname, "node_modules/.creative-stack");
   mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `iife-${id}.ts`);
   writeFileSync(
     file,
-    `import ${JSON.stringify(path.resolve(__dirname, "src/shared/iife-bridge.ts"))};\n` +
+    `import ${JSON.stringify(path.resolve(import.meta.dirname, "src/shared/iife-bridge.ts"))};\n` +
       `export * from ${JSON.stringify(path.join(addonsDir, id, "index.ts"))};\n`,
   );
   return file;
 }
 
 export default defineConfig({
-  esbuild: { tsconfigRaw },
-  optimizeDeps: { esbuildOptions: { tsconfigRaw } },
+  plugins: [decoratorsGuardPlugin()],
+  oxc: decorators,
+  optimizeDeps: { rolldownOptions: { transform: decorators } },
   define: {
     __BUILD_DATE__: JSON.stringify(new Date().toString()),
     // bundles autonomes : procgen n'est jamais embarqué par un autre addon (voir src/shared/procgen-loader.ts)
@@ -67,7 +74,7 @@ export default defineConfig({
               ? `creative-stack-${addon}.es.js`
               : `creative-stack-${addon}.bundle.js`,
         },
-        rollupOptions:
+        rolldownOptions:
           format === "es"
             ? {
                 // procgen chargé à la demande par 3d / 2d : le bundle ES de l'addon procgen, pas une copie
