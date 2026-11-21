@@ -24,6 +24,7 @@ import Objects from "@supersoniks/concorde/core/utils/Objects";
 import UrlPattern from "@supersoniks/concorde/core/utils/url-pattern";
 import "@supersoniks/concorde/if";
 import "@supersoniks/concorde/value";
+import { publisherAt } from "./dp-path";
 
 const PATCHED_IF = Symbol.for("creative-stack.compat.if");
 const PATCHED_VALUE = Symbol.for("creative-stack.compat.value");
@@ -130,7 +131,7 @@ function bindIf(el: LitHost): void {
   const dataProvider = hasRule ? resolveDataProvider(el) : null;
 
   if (dataProvider) {
-    const publisher = PublisherManager.get(dataProvider) as unknown as Publisher;
+    const publisher = publisherAt(dataProvider) as unknown as Publisher;
     state.rule = rule;
     state.publisher = publisher;
     publisher.onAssign(state.update, false);

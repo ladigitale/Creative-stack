@@ -36,6 +36,7 @@ import { Gesture, type GestureCmd } from "./edit/gesture";
 import { listenTurn, wrapAngle } from "../../shared/monde/turn-keys";
 import { MainThreadRunner, type InfiniteSpec, type TileEdits, type TileRunner, TileWorld, readInfinite, readTileEdits, recordMove } from "./scene/infinite";
 import { tileKey, tileOf } from "../../shared/monde/tiles";
+import { publisherAt } from "../../shared/dp-path";
 
 /**
  * Fabrique de compositeur de tuiles hors fil principal (worker fourni par l'application : voir `tile-worker.ts`).
@@ -328,7 +329,7 @@ export class SonicProcgen extends HTMLElement {
     this.unbind();
     const id = this.dataProvider;
     if (id) {
-      this.publisher = PublisherManager.get(id) as unknown as Publisher;
+      this.publisher = publisherAt(id) as unknown as Publisher;
       this.publisher.onAssign(this.onData);
       this.publisher.onInternalMutation(this.onData);
     }
@@ -719,7 +720,7 @@ export class SonicProcgen extends HTMLElement {
     const anchors = this.view && this.anchorList.length ? this.view.anchors(this.anchorList) : {};
     const nodes: Record<string, unknown> = {};
     for (const [k, a] of Object.entries(anchors)) nodes[k] = { x: a.x, y: a.y, hidden: !a.visible };
-    const prev = (PublisherManager.get(out) as unknown as Publisher).get() as Json | null;
+    const prev = (publisherAt(out) as unknown as Publisher).get() as Json | null;
     const next = {
       ...(prev && typeof prev === "object" ? prev : {}),
       status,
@@ -751,7 +752,7 @@ export class SonicProcgen extends HTMLElement {
     const out = this.stateOut;
     const o = id ? this.model?.objects.find((x) => x.id === id) ?? null : null;
     if (out) {
-      const prev = (PublisherManager.get(out) as unknown as Publisher).get() as Json | null;
+      const prev = (publisherAt(out) as unknown as Publisher).get() as Json | null;
       set(out, { ...(prev && typeof prev === "object" ? prev : {}), selection: o ? this.selectionOut(o.id) : null });
     }
     return o;

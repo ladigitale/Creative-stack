@@ -3,6 +3,7 @@ import { ensure } from "./ensure";
 import { formBind } from "./form-bind";
 import { wantsOffscreenPlay } from "./playback";
 import type { SceneRuntime } from "./runtime";
+import { publisherAt } from "../../shared/dp-path";
 
 /** Host Lit pour cycle de vie / observers / bind DP. */
 export type LifeHost = {
@@ -75,7 +76,7 @@ function bindFormProvider(host: LifeHost) {
     host.dataProvider,
   );
   if (!id) return;
-  host.formPublisher = PublisherManager.get(id);
+  host.formPublisher = publisherAt(id);
   host.formPublisher.onInternalMutation(host.onFormMutation);
   const child = nodesChildOf(host.formPublisher);
   if (child) {
@@ -91,7 +92,7 @@ function bindOutPublisher(host: LifeHost) {
     host.outDataProvider,
     host.dataProvider,
   );
-  host.outPublisher = id ? PublisherManager.get(id) : null;
+  host.outPublisher = id ? publisherAt(id) : null;
 }
 
 function firstUpdated(host: LifeHost) {

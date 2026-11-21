@@ -20,6 +20,7 @@ import { PublisherManager } from "@supersoniks/concorde/utils";
 import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch } from "../interactive";
 import { firstForbiddenUrl, plain, hostAllowed as hostAllowedCore, readPointsSpec, round, sameCamera, toGeoJSON } from "./map-core";
+import { publisherAt } from "../../shared/dp-path";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -194,7 +195,7 @@ export default class SonicMap extends LitElement {
   private watch(name: string, apply: (v: Any) => void) {
     if (!name) return;
     // dp() suit un chemin pointé (`carte.points`) ; PublisherManager.get le prendrait pour un nom.
-    const pub: Any = name.includes(".") ? dp(name) : PublisherManager.get(name);
+    const pub: Any = publisherAt(name);
     const handler = (v: Any) => { try { apply(v); } catch (e: Any) { this.fail(`${name} : ${e?.message ?? e}`); } };
     const onMut = () => handler(pub.get());
     pub.onAssign(handler, true);

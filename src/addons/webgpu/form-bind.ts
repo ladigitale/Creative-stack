@@ -6,6 +6,7 @@ import {
   channelFormValue,
   toNum,
 } from "./helpers";
+import { publisherAt } from "../../shared/dp-path";
 
 export type FormBindHost = {
   dataProvider: string;
@@ -50,14 +51,14 @@ function bindFormProvider(host: FormBindHost & HTMLElement) {
   unbindFormProvider(host);
   const id = resolveFormProviderId(host);
   if (!id) return;
-  host.formPublisher = PublisherManager.get(id);
+  host.formPublisher = publisherAt(id);
   host.formPublisher.onInternalMutation(host.onFormMutation);
   host.onFormMutation();
 }
 
 function bindOutPublisher(host: FormBindHost & HTMLElement) {
   const id = host.outDataProvider?.trim() || resolveFormProviderId(host) || "";
-  host.outPublisher = id ? PublisherManager.get(id) : null;
+  host.outPublisher = id ? publisherAt(id) : null;
 }
 
 function applyFormParams(host: FormBindHost, data: Record<string, unknown>) {
