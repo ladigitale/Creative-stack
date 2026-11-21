@@ -24,6 +24,7 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 | `sonic-audio-input` | Module de patch : entrée externe (micro, vidéo, sampler…) ; un patch sans voix devient une chaîne d'effets |
 | `sonic-midi` | Web MIDI : claviers et contrôleurs MPE en entrée, notes / CC / horloge vers des appareils |
 | `sonic-audio-recorder` | Enregistre une source en prise (SonicMediaRef) rejouable par le sampler, téléchargeable |
+| `sonic-audio-player` | Lecteur : lecture/pause, forme d'onde où l'on se déplace, temps |
 | `sonic-audio-unlock` | Bouton « Activer le son » (caché une fois actif) ; `start="mic"` démarre aussi le micro |
 | `sonic-audio-master` | Volume / muet du master |
 | `sonic-audio-load` | Charge du moteur audio (Render Capacity) en DataProvider |
@@ -323,6 +324,16 @@ Accès demandé **sur geste** seulement (`sonic-media-start for="midi"`, `sonic-
 - `cc-out="knobs"` : DP `{ "74": 0.5, "71": 0.2 }`, chaque valeur changée (0..1) part en CC (pas les valeurs initiales).
 - `clock-out="#seq"` : horloge 24 ppq + Start / Stop calée sur le séquenceur (la machine suit le tempo et la mesure de la page). `offset-ms` compense la latence d'un appareil.
 - `control` (DP) : `{ active, input, output, channel, outChannel, program, panic: compteur, transpose, bendRange, offsetMs, durS }` — `panic` coupe toutes les notes (CC 123 sur les 16 canaux). `transpose` (-48..48), `bendRange` (0..96, 0 = automatique), `offsetMs` (-1000..1000) et `durS` (0.01..60, durée des notes envoyées sans `durS`) recouvrent les attributs tant que la clé est présente (clé retirée : retour à l'attribut) ; une note tenue garde la note jouée à son noteOn.
+
+## Lecteur (`sonic-audio-player`)
+
+Pour écouter un son enregistré ou reçu (vocal, prise, fichier) : bouton lecture / pause, forme d'onde dessinée à partir du son (la partie jouée prend la couleur d'accent), déplacement en touchant ou en glissant sur l'onde (le défilement vertical de la page reste possible) ou aux flèches du clavier, temps écoulé puis durée. Le moteur audio est déverrouillé au clic sur lecture ; lancer un lecteur met les autres en pause.
+
+```json
+{"tagName": "sonic-audio-player", "attributes": {"src-from": "prises.voix", "label": "Ta prise"}}
+```
+
+Dans une liste (un lecteur par message) : `{"tagName": "sonic-audio-player", "attributes": {"data-bind": "", "::src": "$url", "label": "Vocal"}}`. Couleurs : `--sonic-player-accent` (partie jouée et bouton), `--sonic-player-wave` (reste de l'onde), `--sonic-player-ink` (icône), `--sonic-player-text` (temps), dans `style`.
 
 ## Enregistreur (`sonic-audio-recorder`)
 

@@ -768,6 +768,24 @@
       }
     },
     {
+      "name": "sonic-audio-player",
+      "description": "Lecteur de son prêt à l'emploi : bouton lecture/pause, forme d'onde où l'on se déplace (toucher, glisser, flèches), temps écoulé/durée ; un seul lecteur joue à la fois. src (URL https, blob:, data:audio, relative ; dans un modèle de liste data-bind + ::src) ou src-from (DP : URL ou SonicMediaRef {url}, ex. une prise de sonic-audio-recorder). Couleurs par variables CSS --sonic-player-accent, --sonic-player-wave, --sonic-player-ink, --sonic-player-text. Pour écouter un son enregistré ou reçu : préférer ce lecteur à un bouton + sonic-sampler",
+      "props": {
+        "src": {
+          "type": "string",
+          "description": "URL du son"
+        },
+        "src-from": {
+          "type": "string",
+          "description": "DP : URL ou SonicMediaRef {url}"
+        },
+        "label": {
+          "type": "string",
+          "description": "Nom accessible (défaut « Son »)"
+        }
+      }
+    },
+    {
       "name": "sonic-midi",
       "description": "Web MIDI (accès sur geste, sans SysEx). Entrée : target=\"#synth\" joue les notes (MPE : bend / pression / timbre par note → voice.bend|pressure|timbre du patch), store=id reçoit {type:\"midi\", payload:{kind, note, name, vel, ch, cc, value}} ; état {status, inputs, held, last, notes, cc, bend, pressure, clock{running,bpm,beat}, settings{transpose,bendRange,offsetMs,durS}}. Sortie : instrument (cible d'un sonic-sequencer ou events/trigger) vers output=\"nom\", cc-out (DP {\"74\":0.5}), clock-out=\"#seq\" (horloge 24 ppq + Start/Stop)",
       "props": {
