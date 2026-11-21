@@ -59,7 +59,7 @@
           "attributes": {
             "id": "balises",
             "initial": "{\"items\": [], \"outbox\": []}",
-            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $p}]) : $ob}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : \"\"}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $state)",
+            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $p}]) : $ob}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : \"\")}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $state)",
             "persist": "balises",
             "max-state-bytes": "1200000"
           }
@@ -586,28 +586,37 @@
                                                   }
                                                 },
                                                 {
-                                                  "tagName": "sonic-button",
+                                                  "tagName": "sonic-action",
                                                   "attributes": {
-                                                    "radio": true,
-                                                    "formDataProvider": "ui",
-                                                    "name": "ecran",
-                                                    "value": "photo",
-                                                    "type": "primary",
-                                                    "size": "lg",
-                                                    "style": "--sc-btn-rounded:999px;--sc-btn-px:1.4rem;box-shadow:0 8px 24px rgba(0,0,0,.35);border-radius:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24"
+                                                    "target": "balises",
+                                                    "type": "maj:annuler"
                                                   },
                                                   "nodes": [
                                                     {
-                                                      "tagName": "sonic-icon",
+                                                      "tagName": "sonic-button",
                                                       "attributes": {
-                                                        "library": "iconoir",
-                                                        "name": "plus",
-                                                        "slot": "prefix"
-                                                      }
-                                                    },
-                                                    {
-                                                      "tagName": "span",
-                                                      "textContent": "Poser une balise"
+                                                        "radio": true,
+                                                        "formDataProvider": "ui",
+                                                        "name": "ecran",
+                                                        "value": "photo",
+                                                        "type": "primary",
+                                                        "size": "lg",
+                                                        "style": "--sc-btn-rounded:999px;--sc-btn-px:1.4rem;box-shadow:0 8px 24px rgba(0,0,0,.35);border-radius:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24"
+                                                      },
+                                                      "nodes": [
+                                                        {
+                                                          "tagName": "sonic-icon",
+                                                          "attributes": {
+                                                            "library": "iconoir",
+                                                            "name": "plus",
+                                                            "slot": "prefix"
+                                                          }
+                                                        },
+                                                        {
+                                                          "tagName": "span",
+                                                          "textContent": "Poser une balise"
+                                                        }
+                                                      ]
                                                     }
                                                   ]
                                                 },
@@ -883,7 +892,7 @@
                     "id": "pose",
                     "source": "#cam",
                     "for": "photo",
-                    "save-for": "garder",
+                    "save-for": "garder garder2",
                     "target": "balises",
                     "extra": "brouillon",
                     "attach": "dessin=#croquis voix=voixState.last",
@@ -985,27 +994,83 @@
                   ]
                 },
                 {
+                  "tagName": "sonic-jsonata",
+                  "attributes": {
+                    "inputProvider": "balises",
+                    "outputProvider": "majEtat",
+                    "expression": "{\"on\": $input.maj ? \"oui\" : \"non\"}"
+                  }
+                },
+                {
                   "tagName": "div",
                   "attributes": {
                     "style": "margin-top:auto;position:sticky;bottom:0;display:flex;flex-direction:column;gap:.6rem;padding:.8rem 0 max(.4rem,env(safe-area-inset-bottom));background:linear-gradient(rgba(255,255,255,0),#ffffff 35%)"
                   },
                   "nodes": [
                     {
-                      "tagName": "sonic-button",
+                      "tagName": "sonic-if",
                       "attributes": {
-                        "radio": true,
-                        "formDataProvider": "ui",
-                        "name": "ecran",
-                        "value": "contenu",
-                        "type": "primary",
-                        "size": "lg",
-                        "shape": "block",
-                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
+                        "dataProvider": "majEtat",
+                        "key": "on",
+                        "equals": "non"
                       },
                       "nodes": [
                         {
-                          "tagName": "span",
-                          "textContent": "Continuer"
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "radio": true,
+                            "formDataProvider": "ui",
+                            "name": "ecran",
+                            "value": "contenu",
+                            "type": "primary",
+                            "size": "lg",
+                            "shape": "block",
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "span",
+                              "textContent": "Continuer"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-if",
+                      "attributes": {
+                        "dataProvider": "majEtat",
+                        "key": "on",
+                        "equals": "oui"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "radio": true,
+                            "formDataProvider": "ui",
+                            "name": "ecran",
+                            "value": "chercher",
+                            "type": "primary",
+                            "size": "lg",
+                            "shape": "block",
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem",
+                            "id": "garder2"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "refresh-double",
+                                "slot": "prefix"
+                              }
+                            },
+                            {
+                              "tagName": "span",
+                              "textContent": "Remplacer la surface de la balise"
+                            }
+                          ]
                         }
                       ]
                     }
@@ -2048,7 +2113,7 @@
                             "inputProvider": "carte",
                             "formDataProvider": "carteState",
                             "outputProvider": "carteSel",
-                            "expression": "($s := $selected; $it := $input.items[id = $s]; $it ? [{\"titre\": $it.effet = \"dessin\" ? \"Un dessin est accroché ici\" : $it.message}] : [])"
+                            "expression": "($s := $selected; $it := $input.items[id = $s]; $it ? [{\"id\": $it.id, \"titre\": $it.effet = \"dessin\" ? \"Un dessin est accroché ici\" : $it.message}] : [])"
                           }
                         },
                         {
@@ -2086,6 +2151,52 @@
                                         "style": "margin-top:.3rem;font-size:.92rem;color:#5b5e68"
                                       },
                                       "textContent": "Va sur place et vise le mur pour la voir."
+                                    },
+                                    {
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "style": "margin-top:.7rem"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-action",
+                                          "attributes": {
+                                            "target": "balises",
+                                            "type": "maj",
+                                            "data-bind": "",
+                                            "::payload": "$id"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-button",
+                                              "attributes": {
+                                                "radio": true,
+                                                "formDataProvider": "ui",
+                                                "name": "ecran",
+                                                "value": "photo",
+                                                "type": "default",
+                                                "size": "sm",
+                                                "style": "--sc-btn-rounded:999px",
+                                                "variant": "outline"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-icon",
+                                                  "attributes": {
+                                                    "library": "iconoir",
+                                                    "name": "refresh-double",
+                                                    "slot": "prefix"
+                                                  }
+                                                },
+                                                {
+                                                  "tagName": "span",
+                                                  "textContent": "Le mur a changé ? Reprendre la surface"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
                                     }
                                   ]
                                 }
