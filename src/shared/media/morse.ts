@@ -51,27 +51,39 @@ export function morseDecode(signs: string): string {
     .trim();
 }
 
-export type MorseStep = { on: boolean; ms: number; /** Caractères entièrement émis à la fin de ce pas. */ chars: number };
+export type MorseStep = { on: boolean; ms: number; /** Caractères émis à la fin de ce pas. */ chars: number };
 
 /**
  * Suite des états à tenir pour émettre `text`. `trim` raccourcit chaque éclat et allonge d'autant le
  * silence qui suit : compense une lampe qui reste allumée un peu plus longtemps que commandé.
+ * `startUnits` > 0 fait précéder le message d'un signal de début : un éclat de cette durée (en
+ * unités, plus long qu'un trait) qui annonce au récepteur qu'un vrai message commence.
  */
-export function morseTimeline(text: string, unit: number, trim = 0): MorseStep[] {
+export function morseTimeline(text: string, unit: number, trim = 0, startUnits = 0): MorseStep[] {
   const clean = morseNormalize(text);
   const u = Math.max(1, unit);
   const cut = Math.min(Math.max(0, trim), u * 0.8);
   const steps: MorseStep[] = [];
   let chars = 0;
+  if (!clean) return steps;
+  // Signal de début : un éclat plus long qu'un trait, puis un silence de lettre.
+  if (startUnits > 0) {
+    steps.push({ on: true, ms: startUnits * u - cut, chars: 0 });
+    steps.push({ on: false, ms: 3 * u + cut, chars: 0 });
+  }
   const gap = (units: number) => {
     const last = steps[steps.length - 1];
     if (last && !last.on) last.ms = Math.max(last.ms, units * u + cut);
   };
   for (const c of clean) {
+    // Un caractère compte comme émis à la fin de son dernier éclat ; une espace, avec la lettre qui la précède.
+    const done = () => {
+      chars++;
+      for (const st of steps.slice(-2)) st.chars = chars;
+    };
     if (c === " ") {
       gap(7);
-      chars++;
-      if (steps.length) steps[steps.length - 1].chars = chars;
+      done();
       continue;
     }
     const signs = MORSE[c];
@@ -80,8 +92,7 @@ export function morseTimeline(text: string, unit: number, trim = 0): MorseStep[]
       steps.push({ on: false, ms: u + cut, chars });
     }
     gap(3);
-    chars++;
-    steps[steps.length - 1].chars = chars;
+    done();
   }
   return steps;
 }

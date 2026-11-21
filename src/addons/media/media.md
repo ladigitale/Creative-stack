@@ -295,13 +295,16 @@ Mesure, image par image, la luminosité d'une source d'images et détecte les fr
 - `source` : le DP d'état d'une `sonic-luma` (`sondeState`). Mettre la sonde en `detect="jump"`.
 - Un éclat de moins de 2 unités est un point, sinon un trait ; un silence de 2 unités clôt la lettre, de 5 le mot, de `end-units` (12) le message.
 - `auto-unit` : l'unité se cale sur les éclats observés dès que points et traits ont été vus ; sinon les deux appareils doivent avoir le même `unit`.
-- La réception est coupée pendant l'émission et `guard-ms` (800) après : la lampe éclaire aussi la scène que filme sa propre caméra. L'échange est donc à l'alternat.
+- La réception est coupée pendant l'émission et `guard-ms` (1500) après : la lampe éclaire aussi la scène que filme sa propre caméra, et son extinction est vue avec du retard. Un éclat n'est compté que si son allumage a été vu hors de cette période. L'échange est donc à l'alternat.
+- **Signal de début** : chaque message émis commence par un éclat de `start-units` unités (5 par défaut, plus long qu'un trait) suivi d'un silence de lettre. En réception, rien n'est décodé tant que ce signal n'a pas été vu, et `status` passe à `receiving` dès qu'il l'est : une lampe qu'on allume, un reflet ou un passage devant la caméra ne deviennent pas un message. Même valeur sur les deux appareils ; `start-units="0"` le retire.
+- Un message de moins de `min-chars` caractères (2) est écarté et compté dans `dropped`.
 
 ### Sorties
 
 - Actions vers `target` : `{type: "morse:sent", payload: {text}}` à la fin d'une émission, `{type: "morse:message", payload: {text, unit}}` à la fin d'un message reçu.
-- État (`out-data-provider`, défaut `<id>State`) : `{status: idle|sending|receiving, on, tx: {text, signs, chars, total, progress, queue}, rx: {text, signs, unit}, lastReceived, lastSent, sent, received, settings}`. `rx.text` et `rx.signs` suivent le message en cours de réception.
-- `params` : `{unit, trim, autoUnit, endUnits, guardMs}` en direct. `control` : `{cancel: compteur}` arrête l'émission et vide la file. Événements DOM `morse-sent`, `morse-message`.
+- État (`out-data-provider`, défaut `<id>State`) : `{status: idle|sending|receiving, on, tx: {text, signs, done, rest, chars, total, progress, percent, queue}, rx: {text, signs, unit}, lastReceived, lastSent, sent, received, dropped, settings}`. `rx.text` et `rx.signs` suivent le message en cours de réception.
+- Progression de l'émission : `tx.done` est la partie du texte déjà émise, `tx.rest` ce qui reste, `tx.percent` l'avancement de 0 à 100 (pour un `sonic-progress` : `sonic-jsonata` qui publie `{value: $input.tx.percent, max: 100}`).
+- `params` : `{unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits}` en direct. `control` : `{cancel: compteur}` arrête l'émission et vide la file. Événements DOM `morse-sent`, `morse-message`.
 
 ## `sonic-media-start`
 
