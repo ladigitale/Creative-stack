@@ -111,7 +111,7 @@
         },
         "reference": {
           "type": "string",
-          "description": "DP d'une référence ou d'une liste de références"
+          "description": "DP d'une référence ou d'une liste (références, ou entrées {id, ref, refs?, …champs}) ; refs = surfaces de remplacement de la même balise (lieu repeint, affiche changée), essayées sous le même id (4 plus récentes)"
         },
         "gravity": {
           "type": "string",

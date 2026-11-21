@@ -79,6 +79,9 @@ const IDLE: AnchorState = {
  *   caméra à travers `sonic-frame-sync for="cam" sync="<id>State"` (puis un `sonic-shader channel0`) pour que le
  *   contenu projeté tombe exactement sur l'image où la zone a été trouvée.
  */
+/** Surfaces de remplacement lues par entrée (`refs`), les plus récentes. */
+export const MAX_EXTRA_REFS = 4;
+
 @customElement("sonic-anchor")
 export class SonicAnchor extends LitElement {
   static styles = css`
@@ -189,13 +192,22 @@ export class SonicAnchor extends LitElement {
       }
       this.refs.push({ id, ref: d, meta });
       this.rawRefs.push(wrapped ? o.ref : r);
+      // Surfaces de remplacement (lieu repeint, affiche changée…) : `refs` de l'entrée, mêmes id et contenu.
+      if (wrapped && Array.isArray(o.refs)) {
+        for (const extra of o.refs.slice(-MAX_EXTRA_REFS)) {
+          const e = decodeReference(extra);
+          if (!e) continue;
+          this.refs.push({ id, ref: e, meta });
+          this.rawRefs.push(extra);
+        }
+      }
     });
     this.current = -1;
     this.cursor = 0;
     this.smoothed = null;
     this.engineRunner().setReferences(this.rawRefs);
-    const bad = list.length - this.refs.length;
-    this.publish({ ...this.stateValue, references: this.refs.length, error: bad ? `${bad} référence(s) illisible(s) ignorée(s)` : null });
+    const bad = list.filter((r) => !decodeReference(r && typeof r === "object" && (r as Record<string, unknown>).ref && typeof (r as Record<string, unknown>).ref === "object" ? (r as Record<string, unknown>).ref : r)).length;
+    this.publish({ ...this.stateValue, references: new Set(this.refs.map((r) => r.id)).size, error: bad ? `${bad} référence(s) illisible(s) ignorée(s)` : null });
   }
 
   start(): void {
@@ -211,7 +223,7 @@ export class SonicAnchor extends LitElement {
     this.timer = null;
     this.smoothed = null;
     this.runner?.reset();
-    this.publish({ ...IDLE, references: this.refs.length });
+    this.publish({ ...IDLE, references: new Set(this.refs.map((r) => r.id)).size });
   }
 
   private engineRunner(): EngineRunner {
@@ -263,8 +275,8 @@ export class SonicAnchor extends LitElement {
     const fps = this.times.length > 1 ? Math.round(((this.times.length - 1) * 1000) / (now - this.times[0]) * 10) / 10 : 0;
     if (r.found && r.corners && r.index !== this.current) this.foundCount++;
     const base = {
-      width, height, ms: Math.round(r.ms), fps, references: this.refs.length, error: null,
-      candidates: this.pool().length, similarity: this.bestSimilarity,
+      width, height, ms: Math.round(r.ms), fps, references: new Set(this.refs.map((r) => r.id)).size, error: null,
+      candidates: new Set(this.pool().map((i) => this.refs[i].id)).size, similarity: this.bestSimilarity,
       frameSeq: seq, latencyMs: Math.round(now - grabbedAt), mode: r.mode, engine, foundCount: this.foundCount,
     };
     if (r.found && r.corners) {
@@ -305,7 +317,7 @@ export class SonicAnchor extends LitElement {
 
   /** Ids des références essayables (après `within`), dans l'ordre de la liste. */
   candidateIds(): Array<string | null> {
-    return this.pool().map((i) => this.refs[i].id);
+    return [...new Set(this.pool().map((i) => this.refs[i].id))];
   }
 
   /** Indices des références autorisées par `within`. */

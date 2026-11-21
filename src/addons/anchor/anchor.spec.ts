@@ -84,6 +84,24 @@ describe("sonic-anchor : entrées enregistrées", () => {
     expect((get("ancreEntreesState") as { references: number }).references).toBe(3);
     el.remove();
   });
+
+  it("essaie aussi les surfaces de remplacement (`refs`) d'une entrée, sous le même id", async () => {
+    const zone = [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }];
+    const ref = buildReference(texture(200, 150), zone);
+    const ref2 = buildReference(texture(160, 120), zone);
+    set("entreesRefs", [{ id: "mur", message: "repeint", ref, refs: [ref2, { pas: "une référence" }] }]);
+    const el = document.createElement("sonic-anchor") as SonicAnchor;
+    el.id = "ancreRefs";
+    el.setAttribute("reference", "entreesRefs");
+    document.body.appendChild(el);
+    await tick();
+    expect(el.candidateIds()).toEqual(["mur"]);
+    expect((el as unknown as { refs: unknown[] }).refs).toHaveLength(2);
+    const st = get("ancreRefsState") as { references: number; error: string | null };
+    expect(st.references).toBe(1);
+    expect(st.error).toBeNull();
+    el.remove();
+  });
 });
 
 describe("sonic-anchor-ref", () => {
