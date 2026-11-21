@@ -769,11 +769,15 @@
     },
     {
       "name": "sonic-audio-player",
-      "description": "Lecteur de son prêt à l'emploi : bouton lecture/pause, forme d'onde où l'on se déplace (toucher, glisser, flèches), temps écoulé/durée ; un seul lecteur joue à la fois. src (URL https, blob:, data:audio, relative ; dans un modèle de liste data-bind + ::src) ou src-from (DP : URL ou SonicMediaRef {url}, ex. une prise de sonic-audio-recorder). Couleurs par variables CSS --sonic-player-accent, --sonic-player-wave, --sonic-player-ink, --sonic-player-text. Pour écouter un son enregistré ou reçu : préférer ce lecteur à un bouton + sonic-sampler",
+      "description": "Lecteur de son prêt à l'emploi : bouton lecture/pause, forme d'onde où l'on se déplace (toucher, glisser, flèches), temps écoulé/durée ; un seul lecteur joue à la fois. src (URL https, blob:, data:audio, relative), media (même chose depuis les données : dans un modèle de liste data-bind + ::media) ou src-from (DP : URL ou SonicMediaRef {url}, ex. une prise de sonic-audio-recorder). Couleurs par variables CSS --sonic-player-accent, --sonic-player-wave, --sonic-player-ink, --sonic-player-text. Pour écouter un son enregistré ou reçu : préférer ce lecteur à un bouton + sonic-sampler",
       "props": {
         "src": {
           "type": "string",
           "description": "URL du son"
+        },
+        "media": {
+          "type": "string",
+          "description": "URL du son venue des données (liste : data-bind + ::media)"
         },
         "src-from": {
           "type": "string",

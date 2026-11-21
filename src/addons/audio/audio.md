@@ -333,7 +333,7 @@ Pour écouter un son enregistré ou reçu (vocal, prise, fichier) : bouton lectu
 {"tagName": "sonic-audio-player", "attributes": {"src-from": "prises.voix", "label": "Ta prise"}}
 ```
 
-Dans une liste (un lecteur par message) : `{"tagName": "sonic-audio-player", "attributes": {"data-bind": "", "::src": "$url", "label": "Vocal"}}`. Couleurs : `--sonic-player-accent` (partie jouée et bouton), `--sonic-player-wave` (reste de l'onde), `--sonic-player-ink` (icône), `--sonic-player-text` (temps), dans `style`.
+Dans une liste (un lecteur par message) : `{"tagName": "sonic-audio-player", "attributes": {"data-bind": "", "::media": "$url", "label": "Vocal"}}`. Couleurs : `--sonic-player-accent` (partie jouée et bouton), `--sonic-player-wave` (reste de l'onde), `--sonic-player-ink` (icône), `--sonic-player-text` (temps), dans `style`.
 
 ## Enregistreur (`sonic-audio-recorder`)
 
