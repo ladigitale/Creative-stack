@@ -6,7 +6,6 @@
  * Aucun code n'est évalué : recettes et expressions sont analysées par procgen lui-même.
  */
 import { applyGestures, gestureMode, wheelToPage } from "../../shared/gestures";
-import { PublisherManager } from "@supersoniks/concorde/utils";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch, listStoreIds } from "../interactive";
 import { Issues } from "./core/schema";

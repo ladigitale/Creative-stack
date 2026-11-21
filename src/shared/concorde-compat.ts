@@ -19,7 +19,7 @@
 import { html, nothing, type ReactiveController, type TemplateResult } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { templateContent } from "lit/directives/template-content.js";
-import { HTML, PublisherManager } from "@supersoniks/concorde/utils";
+import { HTML } from "@supersoniks/concorde/utils";
 import Objects from "@supersoniks/concorde/core/utils/Objects";
 import UrlPattern from "@supersoniks/concorde/core/utils/url-pattern";
 import "@supersoniks/concorde/if";
