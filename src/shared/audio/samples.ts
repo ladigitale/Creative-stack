@@ -23,15 +23,38 @@ export function safeSampleUrl(url: string): boolean {
   return safeMediaUrl(url, "audio");
 }
 
+/**
+ * Octets d'une URL `data:` (base64 ou texte encodé), sans `fetch` : la CSP des pages (connect-src) refuse
+ * souvent `data:`. Null si ce n'est pas une URL data valide.
+ */
+export function dataUrlBytes(url: string): ArrayBuffer | null {
+  const m = /^data:([^,]*),(.*)$/is.exec(url.trim());
+  if (!m) return null;
+  try {
+    let bin: string;
+    if (/;base64$/i.test(m[1])) bin = atob(m[2].replace(/\s+/g, ""));
+    else bin = decodeURIComponent(m[2]);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+    return out.buffer;
+  } catch {
+    return null;
+  }
+}
+
 export function loadSample(url: string): Promise<AudioBuffer> {
   let p = decodeCache.get(url);
   if (!p) {
     p = (async () => {
       const ctx = decodingContext();
       if (!ctx) throw new Error("WebAudio indisponible");
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.arrayBuffer();
+      let data: ArrayBuffer | null = /^data:/i.test(url) ? dataUrlBytes(url) : null;
+      if (/^data:/i.test(url) && !data) throw new Error("URL data: illisible");
+      if (!data) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.arrayBuffer();
+      }
       return await ctx.decodeAudioData(data);
     })();
     decodeCache.set(url, p);
