@@ -10,6 +10,7 @@ export { SonicSequencer, type SequencerState } from "./sequencer";
 export { SonicSampler, safeSampleUrl, type SamplerState, type SampleSpec } from "./sampler";
 export { SonicAudioAnalyser, estimatePitch, type AnalyserState } from "./analyser";
 export { SonicMic, type MicState } from "./mic";
+export { SonicAudioPlayer } from "./player";
 export { SonicAudioRecorder, type AudioRecorderState } from "./recorder";
 export { SonicMidi, type MidiState, type MidiClockEvent } from "./midi";
 export { parseMidi, encode as encodeMidi, ClockFollower, NoteTracker, matchPorts } from "./midi/core";
