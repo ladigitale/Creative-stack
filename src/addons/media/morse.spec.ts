@@ -527,6 +527,16 @@ describe("sonic-morse", () => {
       expect(received.map((a) => a.payload)).toMatchObject([{ text: "MERCI", speaker: "LOUP" }]);
     });
 
+    it("roster et identity peuvent venir de params, en direct", async () => {
+      PublisherManager.get("sondeF8d").set({ events: [] });
+      PublisherManager.get("reglF8d").set({ roster: ["Renard", "Loup"], identity: "Loup" });
+      await mount({ codec: "fast", unit: "100", params: "reglF8d", source: "sondeF8d", target: "morseStore", "out-data-provider": "morseF8d" });
+      await vi.advanceTimersByTimeAsync(50);
+      await playFast("sondeF8d", "merci", 100, { table: buildFastTable(undefined, ["Renard", "Loup"]), speaker: "Renard" });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(received.map((a) => a.payload)).toMatchObject([{ text: "MERCI", speaker: "RENARD" }]);
+    });
+
     it("ne se reçoit pas lui-même", async () => {
       PublisherManager.get("sondeF9").set({ events: [] });
       const el = await mount({ codec: "fast", unit: "100", source: "sondeF9", target: "morseStore", "out-data-provider": "morseF9", "guard-ms": "500" });

@@ -353,7 +353,7 @@
         },
         "params": {
           "type": "string",
-          "description": "DP de réglages en direct {codec, unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits, identity}"
+          "description": "DP de réglages en direct {codec, unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits, identity, roster}"
         },
         "control": {
           "type": "string",

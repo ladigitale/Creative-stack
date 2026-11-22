@@ -31,6 +31,8 @@ export type MorseSettings = {
   startUnits: number;
   /** Pseudo de cet appareil, émis en tête des messages du code rapide (doit figurer dans `roster`). */
   identity: string;
+  /** Liste des pseudos en JSON (voir la propriété `roster`), en direct. */
+  roster: string;
 };
 
 export type MorseState = {
@@ -258,6 +260,7 @@ export class SonicMorse extends LitElement {
       minChars: Math.round(num(this.minChars, 1, 20) ?? 2),
       startUnits: startUnits(this.startUnits) ?? 5,
       identity: String(this.identity ?? ""),
+      roster: String(this.roster ?? ""),
     };
     const all = { ...base, ...this.live };
     // Le code rapide s'étalonne sur le signal de début : il en faut un.
@@ -267,10 +270,11 @@ export class SonicMorse extends LitElement {
 
   /** Table de phrases du code rapide, reconstruite si `phrases` a changé. */
   private table(): FastTable {
-    const key = `${this.phrases.trim()}@${this.roster.trim()}`;
+    const roster = this.settings().roster.trim();
+    const key = `${this.phrases.trim()}@${roster}`;
     if (key !== this.tableKey) {
       this.tableKey = key;
-      this.fastTable = buildFastTable(parsePhrases(this.phrases.trim()), parseRoster(this.roster.trim()));
+      this.fastTable = buildFastTable(parsePhrases(this.phrases.trim()), parseRoster(roster));
       this.fastDecoder.setTable(this.fastTable);
     }
     return this.fastTable;
@@ -681,6 +685,8 @@ function readParams(v: unknown): Partial<MorseSettings> {
   const start = startUnits(p.startUnits);
   if (start !== undefined) out.startUnits = start;
   if (typeof p.identity === "string") out.identity = p.identity;
+  if (Array.isArray(p.roster)) out.roster = JSON.stringify(p.roster);
+  else if (typeof p.roster === "string") out.roster = p.roster;
   return out;
 }
 
