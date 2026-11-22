@@ -6,7 +6,7 @@ import { listenDp } from "../../shared/audio/dp";
 import { CounterTrigger, bool, num } from "../../shared/media/control";
 import type { LumaEdge } from "../../shared/media/luma";
 import { MorseDecoder, morseEncode, morseNormalize, morseTimeline, type MorseStep } from "../../shared/media/morse";
-import { FastDecoder, buildFastTable, fastSigns, fastTimeline, type FastTable } from "../../shared/media/fastcode";
+import { FAST_START_EXTRA, FastDecoder, buildFastTable, fastSigns, fastTimeline, type FastTable } from "../../shared/media/fastcode";
 
 const tagName = "sonic-morse";
 
@@ -29,6 +29,8 @@ export type MorseSettings = {
   minChars: number;
   /** Durée du signal de début, en unités (0 : pas de signal de début). */
   startUnits: number;
+  /** Pseudo de cet appareil, émis en tête des messages du code rapide (doit figurer dans `roster`). */
+  identity: string;
 };
 
 export type MorseState = {
@@ -46,9 +48,15 @@ export type MorseState = {
     /** Avancement 0..1, et le même en pourcentage entier. */
     progress: number;
     percent: number;
+    /** Durée totale du message en ms, durée déjà émise, secondes restantes et avancement dans le temps (0..100). */
+    duration: number;
+    elapsed: number;
+    remaining: number;
+    timePercent: number;
     queue: number;
   };
-  rx: { text: string; signs: string; unit: number };
+  /** `codec` : code du message en cours de réception, reconnu à son signal de début (`""` : pas encore connu). */
+  rx: { text: string; signs: string; unit: number; codec: MorseCodec | ""; speaker: string };
   codec: MorseCodec;
   /** Dernier message reçu en entier. */
   lastReceived: string;
@@ -85,7 +93,9 @@ export type MorseState = {
  *   un silence de 3 unités étalonne le récepteur ; 3 chiffres de contrôle (base 3) terminent le message,
  *   qui est livré dès qu'il est complet, sans attendre de silence. Un message dont le contrôle échoue est
  *   rejeté (`errors`). `phrases` (tableau JSON de textes) remplace la table : à l'identique sur les deux
- *   appareils, sinon les messages à phrases sont rejetés. Même `codec`, `unit` et `start-units` des deux côtés.
+ *   appareils, sinon les messages à phrases sont rejetés. Même `unit` et `start-units` des deux côtés.
+ *   `codec` ne règle que l'émission : le récepteur reconnaît le code de chaque message à son signal de
+ *   début (l'éclat du code rapide dure 2 unités de plus que celui du morse), les deux se mélangent.
  *
  * Actions vers le store `target` : `morse:sent {text}` et `morse:message {text, unit}`.
  */
@@ -159,6 +169,18 @@ export class SonicMorse extends LitElement {
   @property({ type: String })
   phrases = "";
 
+  /**
+   * Liste partagée des pseudos (tableau JSON de textes, 26 au plus). Avec elle, chaque message du code
+   * rapide commence par l'identifiant de son émetteur (2 intervalles jusqu'à 8 pseudos, 3 au-delà) et le
+   * récepteur lit le pseudo (`rx.speaker`, `speaker` du message reçu). Même liste sur tous les appareils.
+   */
+  @property({ type: String })
+  roster = "";
+
+  /** Pseudo de cet appareil dans `roster` (vide ou inconnu : anonyme). Réglable aussi via `params`. */
+  @property({ type: String })
+  identity = "";
+
   /** DataProvider de réglages en direct {codec, unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits}. */
   @property({ type: String })
   params = "";
@@ -186,6 +208,8 @@ export class SonicMorse extends LitElement {
   private guardUntil = 0;
   private decoder = new MorseDecoder();
   private fastDecoder = new FastDecoder();
+  private rxCodec: MorseCodec | null = null;
+  private startMs = 0;
   private tableKey: string | null = null;
   private fastTable: FastTable = buildFastTable();
   private lastEdge = 0;
@@ -233,6 +257,7 @@ export class SonicMorse extends LitElement {
       guardMs: num(this.guardMs, 0, 10000) ?? 1500,
       minChars: Math.round(num(this.minChars, 1, 20) ?? 2),
       startUnits: startUnits(this.startUnits) ?? 5,
+      identity: String(this.identity ?? ""),
     };
     const all = { ...base, ...this.live };
     // Le code rapide s'étalonne sur le signal de début : il en faut un.
@@ -242,10 +267,10 @@ export class SonicMorse extends LitElement {
 
   /** Table de phrases du code rapide, reconstruite si `phrases` a changé. */
   private table(): FastTable {
-    const key = this.phrases.trim();
+    const key = `${this.phrases.trim()}@${this.roster.trim()}`;
     if (key !== this.tableKey) {
       this.tableKey = key;
-      this.fastTable = buildFastTable(parsePhrases(key));
+      this.fastTable = buildFastTable(parsePhrases(this.phrases.trim()), parseRoster(this.roster.trim()));
       this.fastDecoder.setTable(this.fastTable);
     }
     return this.fastTable;
@@ -256,24 +281,30 @@ export class SonicMorse extends LitElement {
     const total = this.txText.length;
     const chars = Math.min(this.txChars, total);
     const progress = total ? chars / total : 0;
+    const duration = this.steps.reduce((a, st) => a + st.ms, 0);
+    const elapsed = sending ? this.steps.slice(0, this.stepIndex).reduce((a, st) => a + st.ms, 0) : duration;
     return {
       status: sending ? "sending" : this.listening() ? "receiving" : "idle",
       on: this.lampOn,
       tx: {
         text: this.txText,
-        signs: this.settings().codec === "fast" ? fastSigns(this.txText, this.table()) : morseEncode(this.txText),
+        signs: this.settings().codec === "fast" ? fastSigns(this.txText, this.table(), this.settings().identity) : morseEncode(this.txText),
         done: this.txText.slice(0, chars),
         rest: this.txText.slice(chars),
         chars,
         total,
         progress: Math.round(progress * 100) / 100,
         percent: Math.round(progress * 100),
+        duration: Math.round(duration),
+        elapsed: Math.round(elapsed),
+        remaining: Math.max(0, Math.ceil((duration - elapsed) / 1000)),
+        timePercent: duration ? Math.round((elapsed / duration) * 100) : 0,
         queue: this.queue.length,
       },
       rx:
-        this.settings().codec === "fast"
-          ? { text: this.fastDecoder.text, signs: "", unit: Math.round(this.fastDecoder.unit) }
-          : { text: this.decoder.text, signs: this.decoder.signs, unit: Math.round(this.decoder.unit) },
+        this.rxCodec === "fast"
+          ? { text: this.fastDecoder.text, signs: "", unit: Math.round(this.fastDecoder.unit), codec: "fast", speaker: this.fastDecoder.speaker }
+          : { text: this.decoder.text, signs: this.decoder.signs, unit: Math.round(this.decoder.unit), codec: this.rxCodec ?? "", speaker: "" },
       codec: this.settings().codec,
       lastReceived: this.lastReceived,
       lastSent: this.lastSent,
@@ -313,7 +344,7 @@ export class SonicMorse extends LitElement {
     this.txText = text;
     this.txChars = 0;
     this.steps =
-      s.codec === "fast" ? fastTimeline(text, s.unit, s.trim, s.startUnits, this.table()) : morseTimeline(text, s.unit, s.trim, s.startUnits);
+      s.codec === "fast" ? fastTimeline(text, s.unit, s.trim, s.startUnits, this.table(), s.identity) : morseTimeline(text, s.unit, s.trim, s.startUnits);
     this.stepIndex = 0;
     this.stepAt = performance.now();
     this.resetRx();
@@ -394,6 +425,7 @@ export class SonicMorse extends LitElement {
   private resetRx(): void {
     this.decoder.reset();
     this.fastDecoder.reset();
+    this.rxCodec = null;
     this.rxOpen = false;
     this.rxStarted = false;
     if (this.rxTimer) clearTimeout(this.rxTimer);
@@ -406,29 +438,40 @@ export class SonicMorse extends LitElement {
       this.rxOpen = false;
       return;
     }
-    const fast = this.settings().codec === "fast";
+    const start = this.settings().startUnits;
     if (edge.on) {
       this.rxOpen = true;
       if (this.rxTimer) clearTimeout(this.rxTimer);
       this.rxTimer = null;
-      if (fast) {
-        // Le silence qui vient de finir est un intervalle du code (étalonnage compris).
-        if (this.rxStarted && edge.dur > 0 && this.feedFast(false, edge.dur)) return;
-      } else if (edge.dur > 0) this.decoder.silence(edge.dur);
+      if (start === 0) {
+        if (edge.dur > 0) this.decoder.silence(edge.dur);
+      } else if (this.rxStarted && edge.dur > 0) {
+        if (this.rxCodec === null) {
+          // Premier silence après le signal de début : 3 unités dans les deux codes, le rapport éclat de
+          // début / silence dit le code (S/3 en morse, (S+2)/3 en rapide) quelle que soit l'unité.
+          this.rxCodec = this.startMs / edge.dur >= (start + 1) / 3 ? "fast" : "morse";
+          if (this.rxCodec === "fast") this.fastDecoder.start(this.startMs, start + FAST_START_EXTRA);
+        }
+        if (this.rxCodec === "fast") {
+          // Le silence qui vient de finir est un intervalle du code (étalonnage compris).
+          if (this.feedFast(false, edge.dur)) return;
+        } else this.decoder.silence(edge.dur);
+      }
     } else {
       // Extinction sans allumage vu : fin de notre propre éclat, ou sonde tout juste branchée.
       if (!this.rxOpen) return;
       this.rxOpen = false;
-      const start = this.settings().startUnits;
       if (start > 0 && edge.dur >= (start - 1) * this.decoder.unit) {
         // Signal de début : un nouveau message commence, ce qui précède est oublié.
         this.decoder.text = "";
         this.decoder.signs = "";
+        this.fastDecoder.reset();
         this.rxStarted = true;
-        if (fast) this.fastDecoder.start(edge.dur, start);
+        this.rxCodec = null;
+        this.startMs = edge.dur;
       } else if (start > 0 && !this.rxStarted) {
         return; // lumière sans signal de début : pas un message
-      } else if (fast) {
+      } else if (this.rxCodec === "fast") {
         if (this.feedFast(true, edge.dur)) return;
       } else {
         this.decoder.light(edge.dur);
@@ -448,9 +491,11 @@ export class SonicMorse extends LitElement {
     if (r === "more") return false;
     const text = this.fastDecoder.text.trim();
     const unit = Math.round(this.fastDecoder.unit);
+    const speaker = this.fastDecoder.speaker;
     const ok = r === "done";
     this.fastDecoder.reset();
     this.rxStarted = false;
+    this.rxCodec = null;
     if (this.rxTimer) clearTimeout(this.rxTimer);
     this.rxTimer = null;
     if (!ok) this.errors++;
@@ -459,8 +504,8 @@ export class SonicMorse extends LitElement {
       this.lastReceived = text;
       this.received++;
       const target = this.target.trim();
-      if (target) dispatch(target, { type: "morse:message", payload: { text, unit } });
-      this.dispatchEvent(new CustomEvent("morse-message", { detail: { text, unit }, bubbles: true, composed: true }));
+      if (target) dispatch(target, { type: "morse:message", payload: { text, unit, speaker } });
+      this.dispatchEvent(new CustomEvent("morse-message", { detail: { text, unit, speaker }, bubbles: true, composed: true }));
     }
     this.publish();
     return true;
@@ -471,7 +516,7 @@ export class SonicMorse extends LitElement {
     if (this.rxTimer) clearTimeout(this.rxTimer);
     const unit = this.decoder.unit;
     const end = this.settings().endUnits;
-    const fast = this.settings().codec === "fast";
+    const fast = this.rxCodec === "fast";
     const marks = (fast ? [end] : [2, 5, end]).map((u) => u * unit);
     const tick = () => {
       const quiet = performance.now() - this.silentSince;
@@ -483,6 +528,7 @@ export class SonicMorse extends LitElement {
           if (this.rxStarted) this.errors++;
           this.fastDecoder.reset();
           this.rxStarted = false;
+          this.rxCodec = null;
           this.publish();
         } else this.complete();
         return;
@@ -501,6 +547,7 @@ export class SonicMorse extends LitElement {
     this.decoder.text = "";
     this.decoder.signs = "";
     this.rxStarted = false;
+    this.rxCodec = null;
     if (text && !enough) this.dropped++;
     if (text && enough) {
       this.lastReceived = text;
@@ -604,6 +651,17 @@ function parsePhrases(raw: string): (string | [string, number])[] | undefined {
   }
 }
 
+/** Liste de pseudos en JSON : tableau de textes ; autre chose : pas d'identifiant. */
+function parseRoster(raw: string): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((e): e is string => typeof e === "string") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function readParams(v: unknown): Partial<MorseSettings> {
   const p = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
   const out: Partial<MorseSettings> = {};
@@ -622,6 +680,7 @@ function readParams(v: unknown): Partial<MorseSettings> {
   if (minChars !== undefined) out.minChars = Math.round(minChars);
   const start = startUnits(p.startUnits);
   if (start !== undefined) out.startUnits = start;
+  if (typeof p.identity === "string") out.identity = p.identity;
   return out;
 }
 

@@ -382,11 +382,11 @@ describe("sonic-morse", () => {
 
   describe("code rapide", () => {
     /** Publie les fronts d'une chronologie comme le ferait une sonic-luma ; `tweak` altère la durée du pas `i`. */
-    async function playFast(dpName: string, text: string, unit: number, opts: { table?: ReturnType<typeof buildFastTable>; tweak?: (i: number, ms: number) => number; stopAt?: number } = {}) {
+    async function playFast(dpName: string, text: string, unit: number, opts: { table?: ReturnType<typeof buildFastTable>; tweak?: (i: number, ms: number) => number; stopAt?: number; speaker?: string } = {}) {
       const events = (edges[dpName] ??= []);
       let n = events.length ? events[events.length - 1].n : 0;
       let prev = performance.now();
-      const steps = fastTimeline(text, unit, 0, 5, opts.table);
+      const steps = fastTimeline(text, unit, 0, 5, opts.table, opts.speaker);
       for (let i = 0; i < steps.length; i++) {
         if (opts.stopAt !== undefined && i >= opts.stopAt) return;
         const s = steps[i];
@@ -497,14 +497,34 @@ describe("sonic-morse", () => {
       expect(state("morseF7")).toMatchObject({ received: 0, status: "idle" });
     });
 
-    it("la réception d'un message morse ne passe pas pour un message rapide", async () => {
+    it("un récepteur rapide reconnaît un message morse et le livre", async () => {
       PublisherManager.get("sondeF8").set({ events: [] });
       await mount({ codec: "fast", unit: "100", source: "sondeF8", target: "morseStore", "out-data-provider": "morseF8" });
       await vi.advanceTimersByTimeAsync(50);
       await play("sondeF8", "OK GO", 100); // morse avec signal de début, reçu par un récepteur rapide
       await vi.advanceTimersByTimeAsync(3000);
-      expect(received).toEqual([]);
-      expect(state("morseF8")).toMatchObject({ received: 0, status: "idle" });
+      expect(received.map((a) => (a.payload as { text: string }).text)).toEqual(["OK GO"]);
+      expect(state("morseF8")).toMatchObject({ received: 1, errors: 0, status: "idle" });
+    });
+
+    it("un récepteur morse reconnaît un message rapide et le livre", async () => {
+      PublisherManager.get("sondeF8b").set({ events: [] });
+      await mount({ codec: "morse", unit: "100", source: "sondeF8b", target: "morseStore", "out-data-provider": "morseF8b" });
+      await vi.advanceTimersByTimeAsync(50);
+      await playFast("sondeF8b", "merci", 100);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(received.map((a) => (a.payload as { text: string }).text)).toEqual(["MERCI"]);
+      expect(state("morseF8b")).toMatchObject({ received: 1, errors: 0 });
+    });
+
+    it("pseudo de l'émetteur : lu dans l'en-tête et joint au message", async () => {
+      PublisherManager.get("sondeF8c").set({ events: [] });
+      const roster = JSON.stringify(["Renard", "Loup"]);
+      await mount({ codec: "fast", unit: "100", roster, source: "sondeF8c", target: "morseStore", "out-data-provider": "morseF8c" });
+      await vi.advanceTimersByTimeAsync(50);
+      await playFast("sondeF8c", "merci", 100, { table: buildFastTable(undefined, ["Renard", "Loup"]), speaker: "Loup" });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(received.map((a) => a.payload)).toMatchObject([{ text: "MERCI", speaker: "LOUP" }]);
     });
 
     it("ne se reçoit pas lui-même", async () => {
