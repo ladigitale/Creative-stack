@@ -105,6 +105,10 @@
         "import-skip": {
           "type": "string"
         },
+        "import-replace": {
+          "type": "boolean",
+          "description": "Un import remplace tout le dessin au lieu de s'empiler (aussi importReplace: true dans control)"
+        },
         "import-colors-from": {
           "type": "string"
         },

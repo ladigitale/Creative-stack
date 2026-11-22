@@ -122,6 +122,28 @@ describe("sonic-sketch : import de formes vectorisées", () => {
     el.remove();
   });
 
+  it("import-replace : un nouvel import remplace le dessin au lieu de s'y empiler (une étape d'annulation)", async () => {
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport11", control: "skCtl11", "out-data-provider": "skState11" });
+    set("vecImport11", result(1, [{ color: "#ff0000", d: sq(0, 0, 40) }]));
+    set("skCtl11", { import: 1 });
+    set("vecImport11", result(2, [{ color: "#0000ff", d: sq(50, 50, 20) }]));
+    set("skCtl11", { import: 2 });
+    // Sans remplacement : les deux imports se superposent.
+    expect(el.getState().colors).toBe(2);
+    set("skCtl11", { import: 3, importReplace: true });
+    expect(el.getState().colors).toBe(1);
+    expect(el.toSvg() ?? "").not.toMatch(/#ff0000/);
+    el.undo();
+    expect(el.getState().colors).toBe(2);
+    el.setAttribute("import-replace", "");
+    await el.updateComplete;
+    set("vecImport11", result(3, [{ color: "#00ff00", d: sq(0, 0, 10) }]));
+    set("skCtl11", { import: 4 });
+    expect(el.getState().colors).toBe(1);
+    expect(el.toSvg() ?? "").toMatch(/#00ff00/);
+    el.remove();
+  });
+
   it("import-skip ne retire rien d'un SVG lu tel quel (keepColors) : le noir est gardé", async () => {
     const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport7", "import-skip": "#000000", control: "skCtl7", "out-data-provider": "skState7" });
     set("vecImport7", { ...result(1, [{ color: "#000000", d: sq(0, 0, 40) }, { color: "#ff0000", d: sq(50, 0, 30) }]), keepColors: true });
