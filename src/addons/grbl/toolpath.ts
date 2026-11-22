@@ -1,4 +1,5 @@
-import { inRing, offset, ringsToMulti, type Pt, type Ring } from "../vector";
+import { offset, ringsToMulti, type Pt, type Ring } from "../vector";
+import { islands, orderBlocks, orderPaths as order } from "./order";
 import { parseSvgDocument, type SvgRawShape } from "../vectorize";
 import { dither, type DitherMode } from "../../shared/raster1bit";
 import { num } from "./codec";
@@ -58,7 +59,6 @@ export const TOOLPATH_DEFAULTS: ToolpathSettings = {
 };
 
 export const MAX_GCODE_LINES = 400_000;
-const MAX_ORDER_PATHS = 1500;
 const MAX_KERF_POINTS = 4000;
 
 export type ToolPath = { pts: Pt[]; closed: boolean };
@@ -148,34 +148,9 @@ export function hatch(rings: Ring[], interval: number): [Pt, Pt][] {
 }
 
 // ─── Ordre des parcours ──────────────────────────────────────────────────────────────────────────────────────────
-/** Intérieurs d'abord (une pièce découpée ne bouge plus quand on en grave l'intérieur), puis au plus proche. */
-export function orderPaths(paths: ToolPath[]): ToolPath[] {
-  if (paths.length < 2 || paths.length > MAX_ORDER_PATHS) return paths;
-  const closed = paths.filter((p) => p.closed && p.pts.length >= 3);
-  const depth = paths.map((p) => closed.reduce((n, c) => n + (c !== p && inRing(p.pts[0], c.pts) ? 1 : 0), 0));
-  const left = paths.map((p, i) => ({ p, d: depth[i] }));
-  const out: ToolPath[] = [];
-  let at: Pt = [0, 0];
-  const d2 = (a: Pt, b: Pt): number => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
-  while (left.length) {
-    const deepest = left.reduce((m, e) => Math.max(m, e.d), 0);
-    let best = -1, bestD = Infinity, reverse = false;
-    for (let i = 0; i < left.length; i++) {
-      const e = left[i];
-      if (e.d !== deepest) continue;
-      const start = d2(at, e.p.pts[0]);
-      if (start < bestD) { best = i; bestD = start; reverse = false; }
-      if (!e.p.closed) {
-        const end = d2(at, e.p.pts[e.p.pts.length - 1]);
-        if (end < bestD) { best = i; bestD = end; reverse = true; }
-      }
-    }
-    const [{ p }] = left.splice(best, 1);
-    const next = reverse ? { pts: [...p.pts].reverse(), closed: false } : p;
-    out.push(next);
-    at = next.closed ? next.pts[0] : next.pts[next.pts.length - 1];
-  }
-  return out;
+/** Intérieurs d'abord, puis au plus proche (voir `order.ts`). */
+export function orderPaths(paths: ToolPath[], from: Pt = [0, 0]): ToolPath[] {
+  return order(paths, from);
 }
 
 // ─── Du SVG aux passes ───────────────────────────────────────────────────────────────────────────────────────────
@@ -220,13 +195,20 @@ export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolP
   const map = (p: Pt): Pt => [(p[0] - fx) * k + s.xMm, (fh - (p[1] - fy)) * k + s.yMm];
 
   const groups = new Map<string, ToolPass>();
+  const fillBlocks = new Map<ToolPass, ToolPath[][]>();
   let kerfSkipped = false;
   for (const it of items) {
     let pass = groups.get(it.key);
     if (!pass) groups.set(it.key, (pass = { op: it.op, kind: it.kind, paths: [] }));
+    let blocks = fillBlocks.get(pass);
+    if (!blocks) fillBlocks.set(pass, (blocks = []));
     const lines = it.lines.map((l) => ({ ring: l.ring.map(map), closed: l.closed })).filter((l) => l.ring.length >= 2);
     if (it.kind === "fill") {
-      for (const [a, b] of hatch(lines.map((l) => l.ring).filter((r) => r.length >= 3), it.op.interval)) pass.paths.push({ pts: [a, b], closed: false });
+      // Une île (forme et ses trous) à la fois, en serpentin : la tête ne traverse pas tout le dessin à chaque ligne.
+      for (const island of islands(lines.map((l) => l.ring).filter((r) => r.length >= 3))) {
+        const segs = hatch(island, it.op.interval).map(([a, b]) => ({ pts: [a, b], closed: false }));
+        if (segs.length) blocks.push(segs);
+      }
       continue;
     }
     const closedRings = lines.filter((l) => l.closed && l.ring.length >= 3);
@@ -249,9 +231,16 @@ export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolP
     const at = p.op.color ? s.ops.findIndex((o) => o.color === p.op.color) : -1;
     return (p.kind === "fill" ? 0 : 1000) + at + 1;
   };
-  const passes = [...groups.values()].filter((p) => p.paths.length).sort((a, b) => rank(a) - rank(b));
-  for (const p of passes) if (p.kind === "line") p.paths = orderPaths(p.paths);
-  return { passes, issues, sizeMm: { w: Math.round(fw * k * 100) / 100, h: Math.round(fh * k * 100) / 100 } };
+  // Ordre dans chaque passe, la tête partant de là où la passe précédente l'a laissée.
+  const passes = [...groups.values()];
+  let at: Pt = [0, 0];
+  const ordered = passes.sort((a, b) => rank(a) - rank(b)).map((p) => {
+    p.paths = p.kind === "fill" ? orderBlocks(fillBlocks.get(p) ?? [], at) : orderPaths(p.paths, at);
+    const last = p.paths[p.paths.length - 1];
+    if (last) at = last.closed ? last.pts[0] : last.pts[last.pts.length - 1];
+    return p;
+  }).filter((p) => p.paths.length);
+  return { passes: ordered, issues, sizeMm: { w: Math.round(fw * k * 100) / 100, h: Math.round(fh * k * 100) / 100 } };
 }
 
 // ─── Écriture du G-code ──────────────────────────────────────────────────────────────────────────────────────────
@@ -267,14 +256,27 @@ export function emitPasses(passes: ToolPass[], s: ToolpathSettings): string[] | 
     if (pass.op.color) out.push(`;op ${pass.op.color}`);
     const power = `S${num(Math.round((clamp(pass.op.power, 0, 100) / 100) * s.maxS))}`;
     const feed = `F${num(pass.op.speed)}`;
+    const trace = (path: ToolPath): void => {
+      out.push(`G0${xy(path.pts[0])}`);
+      if (pen) out.push(`M3S${num(s.penS)}`, dwell);
+      const pts = path.closed ? [...path.pts.slice(1), path.pts[0]] : path.pts.slice(1);
+      for (let i = 0; i < pts.length; i++) out.push(i === 0 ? `G1${xy(pts[i])}${pen ? "" : power}${feed}` : `G1${xy(pts[i])}`);
+      if (pen) out.push("M5", dwell);
+    };
+    if (pass.kind === "line") {
+      // Contours : toutes les passes d'un tracé à la suite, sans trajet entre elles (un trait ouvert repart dans
+      // l'autre sens) ; le G0 de reprise est sur place.
+      for (const path of pass.paths) {
+        if (path.pts.length < 2) continue;
+        for (let rep = 0; rep < pass.op.passes; rep++) trace(path.closed || rep % 2 === 0 ? path : { pts: [...path.pts].reverse(), closed: false });
+        if (out.length > MAX_GCODE_LINES) return null;
+      }
+      continue;
+    }
     for (let rep = 0; rep < pass.op.passes; rep++) {
       for (const path of pass.paths) {
         if (path.pts.length < 2) continue;
-        out.push(`G0${xy(path.pts[0])}`);
-        if (pen) out.push(`M3S${num(s.penS)}`, dwell);
-        const pts = path.closed ? [...path.pts.slice(1), path.pts[0]] : path.pts.slice(1);
-        for (let i = 0; i < pts.length; i++) out.push(i === 0 ? `G1${xy(pts[i])}${pen ? "" : power}${feed}` : `G1${xy(pts[i])}`);
-        if (pen) out.push("M5", dwell);
+        trace(path);
         if (out.length > MAX_GCODE_LINES) return null;
       }
     }
