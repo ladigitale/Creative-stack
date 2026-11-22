@@ -166,11 +166,19 @@ L'opacité est celle du trait entier, comme dans les logiciels de dessin : ses e
 
 Le mode de fusion se calcule contre ce qui est dessous : le fond (`background`) là où rien n'est dessiné. Sur un fond transparent, il n'y a rien avec quoi fusionner : la couleur est posée telle quelle (règle de composition standard).
 
-## Photo de fond, plafond de traits, export du cadre
+## Photo de fond, plafond de traits, cadre, plein écran, retouche
 
 - `backdrop-from` (DP : URL ou `{url}`, data:image, blob: ou https) pose une photo sous le dessin, dans le cadre de la toile (`width` × `height` à la vue d'origine) ; elle suit le zoom, le déplacement et la rotation, n'est jamais exportée. Avec `background="transparent"` (sinon le fond la couvre).
 - `max-strokes` limite le nombre de traits : au-delà, un nouveau trait est refusé (`full: true` dans l'état, événement `sketch-full`) ; annuler ou gommer libère de la place.
 - `export-area="page"` exporte le cadre de la toile quel que soit le zoom : le dessin reste calé sur la photo de fond.
+- `page-width` × `page-height` fixent ce cadre (en unités du dessin, centré) indépendamment de la toile : photo de fond, export `page` et vue d'origine (`reset`) s'y rapportent ; la vue d'origine ajuste le cadre à la toile.
+- `auto-size` : la toile prend la taille de la boîte de l'élément (à lui donner en CSS : `width:100%;height:100%`, plein écran…) au lieu de `width` × `height`. Avec un cadre, l'éditeur peut être plein écran en portrait comme en paysage : le cadre garde ses proportions, réajusté à chaque redimensionnement tant que la vue n'a pas été déplacée.
+- `export-source` : l'export SVG (`save`) embarque les traits d'origine (`<metadata id="sonic-sketch-source">`, JSON compressé en gzip) ; le SVG reste ordinaire, lisible partout. Il porte toujours `width`/`height` (taille nominale du cadre exporté).
+- `open-from` (DP : SVG en texte, `data:image/svg+xml`, `blob:` ou `{url}`) : à chaque nouvelle valeur, le dessin est remplacé par les traits d'origine de ce SVG (historique neuf, vue d'origine) ; un SVG sans source est ignoré. État `opened : {strokes} | {error}`. Pour retoucher plus tard un dessin envoyé.
+
+```json
+{ "tagName": "sonic-sketch", "attributes": { "auto-size": true, "page-width": 1200, "page-height": 900, "backdrop-from": "prise", "export-area": "page", "export-source": true, "open-from": "aRetoucher", "background": "transparent", "style": "position:absolute;inset:0" } }
+```
 
 ## Fond et damier
 

@@ -361,7 +361,7 @@ Lien `<a download>` vers le SonicMediaRef lu dans `source` (`exportState.last`, 
 { "tagName": "sonic-still", "attributes": { "id": "photo", "src": "/img/portrait.jpg", "drop": true, "max-size": 2048 } }
 ```
 
-Image fixe vue comme une source d'images : `sonic-shader channel0="#photo"`, trackers de vision (`for="#photo"`), vectorisation, OCR. Sources : `src` (https, `blob:`, `data:image`, chemin relatif), dépôt d'un fichier (`drop`), ou `in-data-provider` portant un SonicMediaRef / une URL. Une image https doit autoriser CORS pour rester analysable. `ref-provider` reçoit le SonicMediaRef de l'image chargée. État : `{ status: idle | loading | ready | error, error, src, width, height, mime }`.
+Image fixe vue comme une source d'images : `sonic-shader channel0="#photo"`, trackers de vision (`for="#photo"`), vectorisation, OCR. Sources : `src` (https, `blob:`, `data:image`, chemin relatif), dépôt d'un fichier (`drop`), ou `in-data-provider` portant un SonicMediaRef / une URL. Une image https doit autoriser CORS pour rester analysable. `ref-provider` reçoit le SonicMediaRef de l'image chargée. `max-size` (défaut 4096) : côté long au-delà duquel l'image est réduite. `vector-size` : un SVG (`data:image/svg+xml`, `.svg` ou type déclaré) est pixellisé à ce côté long (plafonné par `max-size`) au lieu de sa taille nominale, pour rester net affiché en grand (plan d'un `sonic-anchor-view`, plein écran). État : `{ status: idle | loading | ready | error, error, src, width, height, mime }`.
 
 ## `sonic-file-open`
 

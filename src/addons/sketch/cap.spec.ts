@@ -59,4 +59,35 @@ describe("sonic-sketch : plafond de traits, photo de fond, export du cadre", () 
     expect(vb(el.toSvg({ area: "view" }))[2]).toBeCloseTo(400 / 3, 0);
     el.remove();
   });
+  it("page-width × page-height : cadre fixe pour l'export page, vue d'origine ajustée à la toile", async () => {
+    const { el } = await mount({ width: "390", height: "700", "page-width": "1200", "page-height": "900" });
+    const vb = (svg: string | null) => (/viewBox="([^"]+)"/.exec(svg ?? "")?.[1] ?? "").split(/\s+/).map(Number);
+    expect(vb(el.toSvg({ area: "page" }))).toEqual([-600, -450, 1200, 900]);
+    expect(el.getState().zoom).toBeCloseTo(390 / 1200, 5);
+    el.zoomIn();
+    await wait(5);
+    expect(el.getState().zoom).toBeGreaterThan(390 / 1200);
+    el.reset();
+    expect(el.getState().zoom).toBeCloseTo(390 / 1200, 5);
+    // La toile change de taille vue d'origine non touchée : le cadre est réajusté.
+    el.width = 800; el.height = 500;
+    await el.updateComplete;
+    expect(el.getState().zoom).toBeCloseTo(500 / 900, 5);
+    el.remove();
+  });
+
+  it("auto-size : la toile prend la taille de la boîte de l'élément", async () => {
+    const el = document.createElement("sonic-sketch") as SonicSketch;
+    el.setAttribute("auto-size", "");
+    el.setAttribute("page-width", "1200");
+    el.setAttribute("page-height", "900");
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, right: 360, bottom: 640, width: 360, height: 640, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    document.body.appendChild(el);
+    await el.updateComplete;
+    await el.updateComplete;
+    expect([el.width, el.height]).toEqual([360, 640]);
+    expect(el.shadowRoot!.querySelector("canvas")!.width).toBe(360 * Math.max(1, Math.min(2, devicePixelRatio || 1)));
+    expect(el.getState().zoom).toBeCloseTo(360 / 1200, 5);
+    el.remove();
+  });
 });

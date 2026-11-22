@@ -492,6 +492,9 @@
         "max-size": {
           "type": "number"
         },
+        "vector-size": {
+          "type": "number"
+        },
         "fit": {
           "type": "string"
         },
