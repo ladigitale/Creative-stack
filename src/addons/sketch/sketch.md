@@ -166,6 +166,12 @@ L'opacité est celle du trait entier, comme dans les logiciels de dessin : ses e
 
 Le mode de fusion se calcule contre ce qui est dessous : le fond (`background`) là où rien n'est dessiné. Sur un fond transparent, il n'y a rien avec quoi fusionner : la couleur est posée telle quelle (règle de composition standard).
 
+## Photo de fond, plafond de traits, export du cadre
+
+- `backdrop-from` (DP : URL ou `{url}`, data:image, blob: ou https) pose une photo sous le dessin, dans le cadre de la toile (`width` × `height` à la vue d'origine) ; elle suit le zoom, le déplacement et la rotation, n'est jamais exportée. Avec `background="transparent"` (sinon le fond la couvre).
+- `max-strokes` limite le nombre de traits : au-delà, un nouveau trait est refusé (`full: true` dans l'état, événement `sketch-full`) ; annuler ou gommer libère de la place.
+- `export-area="page"` exporte le cadre de la toile quel que soit le zoom : le dessin reste calé sur la photo de fond.
+
 ## Fond et damier
 
 `background` est la couleur du papier : ce qui n'est pas dessiné, ce que la gomme fait réapparaître, ce contre quoi se calculent les modes de fusion, et le fond des exports. `background="transparent"` : rien dessous (export PNG transparent, fusions posées telles quelles). `checker` dessine alors un damier sous le dessin, à l'écran seulement, pour voir ce qui est vide ou à moitié effacé : deux couleurs (`checker="#f4f1ea #e7e1d4"`) ou `true` ; `checker-size` en px d'écran (défaut 8). Les traits déjà aplatis gardent les couleurs calculées contre le fond de l'époque.

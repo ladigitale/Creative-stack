@@ -9,6 +9,7 @@ import { cosine, decodeReference, type DecodedReference } from "./core/reference
 import type { EngineResult } from "./core/engine";
 import { EngineRunner } from "./runner";
 import type { Pt } from "./core/homography";
+import { rectify, type Rectified } from "./core/rectify";
 import { grabGray, resolveSource, upFromOrientation } from "./frame";
 
 export type AnchorStatus = "idle" | "searching" | "tracking" | "holding" | "error";
@@ -51,12 +52,17 @@ export type AnchorState = {
   item: Record<string, unknown> | null;
   /** Ressemblance globale (cosinus d'empreintes) de la meilleure candidate, si `embedding`. */
   similarity: number | null;
+  /**
+   * Dernière prise de vue (commande `capture`) : la zone suivie vue de face dans l'image en couleur, plus
+   * `capture-pad` fois sa taille autour (JPEG data:), avec `refId` et `seq` ; `{error}` si la zone était perdue.
+   */
+  capture: (Rectified & { refId: string | null; seq: number }) | { error: string; seq: number } | null;
 };
 
 const IDLE: AnchorState = {
   status: "idle", error: null, found: false, refId: null, index: -1, corners: null, width: 0, height: 0,
   matches: 0, inliers: 0, confidence: 0, rotation: null, ms: 0, fps: 0, references: 0,
-  candidates: 0, item: null, similarity: null, frameSeq: -1, latencyMs: 0, mode: "none", engine: "main", foundCount: 0,
+  candidates: 0, item: null, similarity: null, frameSeq: -1, latencyMs: 0, mode: "none", engine: "main", foundCount: 0, capture: null,
 };
 
 /**
@@ -72,7 +78,8 @@ const IDLE: AnchorState = {
  *   ressemblance globale décroissante (les `top` premières plus souvent).
  * - `gravity` (DP) : état de `sonic-orientation` (capteurs actifs) ; écarte les solutions dont la rotation
  *   contredit l'inclinaison du téléphone (tolérance `gravity-tolerance` degrés, 0 = sans filtre).
- * - `active` ou `control` `{ start, stop }` ; analyse au plus toutes les `interval` ms, image réduite à `max-size`.
+ * - `active` ou `control` `{ start, stop, capture }` (capture : la zone suivie prise de face dans `capture`
+ *   de l'état, avec `capture-pad` fois sa taille autour, `capture-size` px au plus) ; analyse au plus toutes les `interval` ms, image réduite à `max-size`.
  * - `smoothing` 0..0.9 lisse les coins ; `hold` garde la dernière position quelques analyses après une perte.
  * - État `<id>State` (ou `out-data-provider`) : voir `AnchorState`. `debug` dessine la zone trouvée.
  * - Synchronisation image / contenu : l'état porte `frameSeq` et `latencyMs` de l'image analysée ; afficher la
@@ -96,6 +103,10 @@ export class SonicAnchor extends LitElement {
   @property({ type: Number, attribute: "gravity-tolerance" }) gravityTolerance = 45;
   @property({ type: Boolean }) active = false;
   @property({ type: String }) control = "";
+  /** Prise de vue (`capture`) : marge autour de la zone, en fois sa taille de chaque côté (0..2). */
+  @property({ type: Number, attribute: "capture-pad" }) capturePad = 1;
+  /** Prise de vue : plus grand côté en px (256..2048). */
+  @property({ type: Number, attribute: "capture-size" }) captureSize = 1440;
   /** Intervalle minimal entre deux analyses en recherche (ms) ; une zone suivie est analysée à chaque image. */
   @property({ type: Number }) interval = 90;
   /** Analyse sur le fil principal (sans worker). */
@@ -125,6 +136,7 @@ export class SonicAnchor extends LitElement {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private unsubs: Array<() => void> = [];
   private startT = new CounterTrigger();
+  private captureT = new CounterTrigger();
   private stopT = new CounterTrigger();
   private lastSeq = -1;
   private current = -1;
@@ -159,7 +171,7 @@ export class SonicAnchor extends LitElement {
   private listen(): void {
     this.unsubs.forEach((u) => u());
     this.unsubs = [];
-    this.startT.reset(); this.stopT.reset();
+    this.startT.reset(); this.stopT.reset(); this.captureT.reset();
     if (this.reference) this.unsubs.push(listenDp(this.reference, (v) => this.setReferences(plain(v))));
     if (this.gravity) this.unsubs.push(listenDp(this.gravity, (v) => { this.up = upFromOrientation(v); }));
     if (this.within) this.unsubs.push(listenDp(this.within, (v) => { this.onlyIds = idSet(plain(v)); }));
@@ -171,7 +183,21 @@ export class SonicAnchor extends LitElement {
       const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
       if (this.startT.feed(o.start)) this.start();
       if (this.stopT.feed(o.stop)) this.stop();
+      if (this.captureT.feed(o.capture)) this.capture();
     }));
+  }
+
+  /**
+   * Prise de vue de la zone suivie, redressée de face (commande `capture` de `control`) : publiée dans
+   * `capture` de l'état. Pour dessiner ensuite sur le mur tel qu'il est, calé sur la zone.
+   */
+  capture(): void {
+    const seq = ((this.stateValue.capture?.seq) ?? 0) + 1;
+    const s = this.stateValue;
+    const el = resolveSource(this, this.source) as (Element & { getFrameCanvas?: () => HTMLCanvasElement | null }) | null;
+    const frame = el?.getFrameCanvas?.() ?? null;
+    const shot = s.found && s.corners && frame ? rectify(frame, s.corners, this.capturePad, Math.max(256, Math.min(2048, this.captureSize))) : null;
+    this.publish({ ...this.stateValue, capture: shot ? { ...shot, refId: s.refId, seq } : { error: s.found ? "prise de vue impossible" : "vise le mur pour le prendre en photo", seq } });
   }
 
   /** Remplace les références (une ou une liste). */
@@ -277,7 +303,7 @@ export class SonicAnchor extends LitElement {
     const base = {
       width, height, ms: Math.round(r.ms), fps, references: new Set(this.refs.map((r) => r.id)).size, error: null,
       candidates: new Set(this.pool().map((i) => this.refs[i].id)).size, similarity: this.bestSimilarity,
-      frameSeq: seq, latencyMs: Math.round(now - grabbedAt), mode: r.mode, engine, foundCount: this.foundCount,
+      frameSeq: seq, latencyMs: Math.round(now - grabbedAt), mode: r.mode, engine, foundCount: this.foundCount, capture: this.stateValue.capture,
     };
     if (r.found && r.corners) {
       this.misses = 0;

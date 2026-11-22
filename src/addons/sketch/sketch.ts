@@ -33,6 +33,7 @@ import {
 } from "./store";
 import { ViewSync } from "../../shared/view-sync";
 import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
+import { safeMediaUrl } from "../../shared/media/urls";
 import { multiArea, multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt } from "../vector";
 import { applyAffine } from "../../shared/frame-geometry";
 
@@ -84,6 +85,9 @@ export type SketchState = {
   /** Rotation de la vue (radians). */
   rotation: number;
   strokes: number;
+  /** Plafond de traits (`max-strokes`, 0 = aucun) et plafond atteint. */
+  maxStrokes: number;
+  full: boolean;
   /** Points de tous les traits (après simplification), et ceux du dernier trait avant / après. */
   points: number;
   lastStroke: { before: number; after: number };
@@ -168,6 +172,14 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: Number }) width = 800;
   @property({ type: Number }) height = 600;
   @property({ type: String }) background = "#ffffff";
+  /**
+   * Photo de fond (DP : URL ou `{url}` d'une image — data:image, blob:, https) posée sous le dessin dans le cadre
+   * de la toile (width × height à la vue d'origine), qui suit le zoom et la rotation. Jamais exportée ; avec
+   * `background="transparent"`, pour dessiner calé sur une prise de vue.
+   */
+  @property({ type: String, attribute: "backdrop-from" }) backdropFrom = "";
+  /** Nombre de traits au plus (0 = sans limite) : au-delà, un nouveau trait est refusé (`full` dans l'état) ; la gomme reste permise. */
+  @property({ type: Number, attribute: "max-strokes" }) maxStrokes = 0;
   /**
    * Damier sous le dessin quand le fond est transparent (`background="transparent"`), pour voir ce qui n'est pas
    * dessiné ou à moitié effacé : vide = aucun ; sinon deux couleurs (`"#f4f1ea #e7e1d4"`) ou `true` (gris clairs).
@@ -352,7 +364,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * `content` (tout le dessin, cadré). Aussi en direct dans le DP `control` : `{ savePng: n, exportScale, exportArea }`.
    */
   @property({ type: Number, attribute: "export-scale" }) exportScale = 1;
-  @property({ type: String, attribute: "export-area" }) exportArea: "view" | "content" = "view";
+  @property({ type: String, attribute: "export-area" }) exportArea: "view" | "content" | "page" = "view";
   /**
    * Aplatissement à chaque fin de geste : un trait plein (net, sans pointe ni variation ; opacité et mode de
    * fusion permis) est découpé dans la carte d'aplats du dessus. Sous le trait, chaque région prend la vraie
@@ -562,7 +574,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   protected updated(c: Map<string | number | symbol, unknown>): void {
-    if (c.has("control") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom") || c.has("gesturesFrom") || c.has("settingsFrom") || c.has("prefsFrom") || c.has("renderFrom")) this.listen();
+    if (c.has("maxStrokes")) this.publish();
+    if (c.has("control") || c.has("backdropFrom") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom") || c.has("gesturesFrom") || c.has("settingsFrom") || c.has("prefsFrom") || c.has("renderFrom")) this.listen();
     if (c.has("renderMode") || c.has("liveRender") || c.has("noGpu") || c.has("noWorker")) this.renderChanged();
     if (c.has("width") || c.has("height")) { this.layer = null; this.layerDirty = true; this.compose(); }
     if (c.has("background") || c.has("checker") || c.has("checkerSize")) this.compose();
@@ -587,6 +600,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     for (const dp of new Set([...this.settingsRefs(), ...this.prefsRefs()].map((r) => r.dp))) {
       this.unsubs.push(listenDp(dp, (v) => this.onSettingsValue(dp, v)));
     }
+    if (this.backdropFrom) this.unsubs.push(listenDp(this.backdropFrom, (v) => this.setBackdrop(v)));
+    else this.setBackdrop(null);
     if (this.brushFrom) this.unsubs.push(listenDp(this.brushFrom, (v) => {
       const before = this.live.color;
       this.live = { ...(v && typeof v === "object" ? (v as Record<string, unknown>) : {}), ...(this.live.tip !== undefined && this.tipFrom ? { tip: this.live.tip } : {}) };
@@ -682,7 +697,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
           this.importShapes(src ? plain(get(src)) : undefined);
         }
         if (typeof c.exportScale === "number" || typeof c.exportScale === "string") this.liveExport.scale = Number(c.exportScale);
-        if (c.exportArea === "view" || c.exportArea === "content") this.liveExport.area = c.exportArea;
+        if (c.exportArea === "view" || c.exportArea === "content" || c.exportArea === "page") this.liveExport.area = c.exportArea;
         for (const cmd of ["undo", "redo", "clear", "save", "savePng", "fit", "reset", "zoomIn", "zoomOut", "rotateLeft", "rotateRight", "straighten", "selectAll", "deselect", "deleteSelection"] as const) {
           if (cmd in c && this.trigger(cmd).feed(c[cmd])) this[cmd]();
         }
@@ -979,6 +994,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         ctx.fillStyle = pattern;
         ctx.fillRect(0, 0, w, h);
       }
+    }
+    if (this.backdrop) {
+      ctx.save();
+      const m = viewMatrix(this.view, w, h);
+      ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(this.backdrop, -w / 2, -h / 2, w, h);
+      ctx.restore();
     }
     let layer: HTMLCanvasElement = this.ensureLayer();
     // Gomme en cours : la couche est montrée trouée par le tracé de la gomme.
@@ -1302,6 +1326,13 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   private startStroke(p: { x: number; y: number }, e: PointerEvent, erase = false): void {
+    if (!erase && this.isFull()) {
+      this.mode = "none";
+      this.pointer = null;
+      this.dispatchEvent(new CustomEvent("sketch-full", { detail: { max: this.strokeCap() }, bubbles: true, composed: true }));
+      this.publish();
+      return;
+    }
     const lv = this.layerView, v = this.view;
     // Couche en retard sur la vue : rendue ici si c'est rapide ; sinon le trait se pose sur l'ancienne (montrée
     // transformée) et la nouvelle, demandée au worker, arrive après le trait avec lui.
@@ -2675,12 +2706,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * (cadré sur ses traits) ; `{area: "view"}` exporte exactement la vue affichée (viewBox = zone visible,
    * même proportion que `width` × `height`), pour superposer le dessin à ce qu'il recouvrait à l'écran.
    */
-  toSvg(opts: { area?: "view" | "content" } = {}): string | null {
+  toSvg(opts: { area?: "view" | "content" | "page" } = {}): string | null {
     try {
       let svg: string;
-      if (opts.area === "view") {
+      if (opts.area === "view" || opts.area === "page") {
         const { w, h } = this.dims();
-        svg = exportSvg(this.doc.strokes, { background: this.background, area: visibleRect(this.view, w, h), margin: 0 });
+        svg = exportSvg(this.doc.strokes, { background: this.background, area: visibleRect(opts.area === "page" ? DEFAULT_VIEW : this.view, w, h), margin: 0 });
       } else {
         svg = exportSvg(this.doc.strokes, { background: this.background });
       }
@@ -2712,9 +2743,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    */
   save(): void {
     const area = this.liveExport.area ?? (this.hasAttribute("export-area") ? this.exportArea : "content");
-    if (area === "view") {
+    if (area === "view" || area === "page") {
       const { w, h } = this.dims();
-      const svg = this.toSvg({ area: "view" });
+      const svg = this.toSvg({ area });
       if (svg !== null) this.setLast(new Blob([svg], { type: "image/svg+xml" }), Math.round(w), Math.round(h));
       return;
     }
@@ -2724,17 +2755,17 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.setLast(new Blob([svg], { type: "image/svg+xml" }), Math.round(b?.w ?? 0), Math.round(b?.h ?? 0));
   }
 
-  private liveExport: { scale?: number; area?: "view" | "content" } = {};
+  private liveExport: { scale?: number; area?: "view" | "content" | "page" } = {};
 
   /**
    * Rend le dessin dans un canvas neuf, net à la résolution demandée : `scale` × la taille de la vue
    * (`area: "view"`) ou du cadre du dessin (`area: "content"`, côté long = `scale` × le côté long de la vue).
    * 8192 px de côté au plus. Fond compris (sauf `transparent`).
    */
-  renderImage(opts: { scale?: number; area?: "view" | "content" } = {}): HTMLCanvasElement | null {
+  renderImage(opts: { scale?: number; area?: "view" | "content" | "page" } = {}): HTMLCanvasElement | null {
     const { w, h } = this.dims();
     const scale = Math.min(8, Math.max(0.25, Number(opts.scale) || 1));
-    let lw = w, lh = h, view: View = { ...this.view };
+    let lw = w, lh = h, view: View = opts.area === "page" ? { ...DEFAULT_VIEW } : { ...this.view };
     if (opts.area === "content") {
       const b = contentBBox(this.doc.strokes);
       if (b && b.w > 0 && b.h > 0) {
@@ -2764,11 +2795,37 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     c?.toBlob((blob) => { if (blob) this.setLast(blob, c.width, c.height); }, "image/png");
   }
 
+  private strokeCap(): number {
+    const n = Math.floor(Number(this.maxStrokes) || 0);
+    return n > 0 ? n : 0;
+  }
+
+  private isFull(): boolean {
+    const cap = this.strokeCap();
+    return cap > 0 && this.doc.strokes.length >= cap;
+  }
+
+  private backdrop: HTMLImageElement | null = null;
+  private backdropUrl = "";
+
+  private setBackdrop(v: unknown): void {
+    const o = plain(v) as unknown;
+    const url = typeof o === "string" ? o.trim() : o && typeof o === "object" && typeof (o as { url?: unknown }).url === "string" ? String((o as { url: string }).url).trim() : "";
+    if (url === this.backdropUrl) return;
+    this.backdropUrl = url;
+    this.backdrop = null;
+    if (!url || !safeMediaUrl(url, "image")) { this.compose(); return; }
+    const img = new Image();
+    img.decoding = "async";
+    img.onload = () => { if (this.backdropUrl === url) { this.backdrop = img; this.compose(); } };
+    img.src = url;
+  }
+
   getState(): SketchState {
     const b = this.brush();
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
-      strokes: this.doc.strokes.length, points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
+      strokes: this.doc.strokes.length, maxStrokes: this.strokeCap(), full: this.isFull(), points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
       tool: this.currentTool(), color: b.color, picked: this.picked, sampled: this.sampled, imported: this.imported, gestures: this.gestureState, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
       edit: { op: this.editOp(), preview: !!this.pending, error: this.editError, scope: this.selected.size ? "selection" : "all" },
       render: this.renderState(),
