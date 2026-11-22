@@ -1542,7 +1542,11 @@ export class SonicShader extends LitElement {
     // render-size="channel0" : suit la taille de la source.
     if (this.renderSize.trim().toLowerCase() === "channel0") {
       const f = this.fixedRenderSize();
-      if (f && f.join("x") !== this.renderedSize) this.syncSize();
+      if (f && f.join("x") !== this.renderedSize) {
+        this.syncSize();
+        // Les proportions affichées suivent aussi la source (elle n'avait pas sa taille au branchement).
+        this.applyAspectRatio();
+      }
     }
     // Image fixe (ni temps ni rétroaction) : on ne redessine que si une entrée a changé.
     if (this.staticKeys) {

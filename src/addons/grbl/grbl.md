@@ -6,7 +6,8 @@ Addon `@supersoniks/creative-stack/grbl` : du dessin à la machine, par DataProv
 |---|---|
 | `sonic-gcode` | Préparation : dessin (SVG ou image) → programme G-code, aperçu, durée, emprise |
 | `sonic-laser-pattern` | Modèles paramétriques : boîte à encoches, engrenages, puzzle, tampon, porte-clés, pendentif, dessous de verre, règle, grille d'essais |
-| `sonic-grbl` | Pilote : machine GRBL derrière un `sonic-serial` (état, déplacements, cadrage, envoi, pause, arrêt) |
+| `sonic-gcode-view` | Contrôle : parcours réel à zoom libre, repère en mm (grille, règles, origine, plateau), tête, avancement, simulation, placement au doigt |
+| `sonic-grbl` | Pilote : machine GRBL derrière un `sonic-serial` (état, déplacements, cadrage, essai à vide, envoi, pause, arrêt, reprise) |
 
 Machines visées : graveurs et découpeuses laser à diode sous GRBL 1.1 (Atomstack, Ortur, Sculpfun, Longer, TwoTrees…), traceurs à stylo. **Non validé sur matériel par ce dépôt** : le protocole suit la documentation de GRBL et les tests passent sur une machine simulée.
 
@@ -121,10 +122,11 @@ Les rendus en traits (`hatch`, `waves`, `spiral`, `isolines`, `stipple`) utilise
 
 | Commande (`control`) | Effet |
 |---|---|
-| `run` (défaut de `for`) | Lance le programme de `source`, ou `{n, gcode: "…"}` |
+| `run` (défaut de `for`) | Lance le programme de `source`, ou `{n, gcode: "…"}`. `{n, from: 1234}` : reprise à cette ligne du programme (déplacement faisceau coupé jusqu'au point atteint, vitesse, puissance et M4 rétablis) ; `{n, dry: true}` = `dryRun` |
+| `dryRun {n, speed, from}` | Essai à vide : mêmes mouvements, faisceau coupé (M3/M4 → M5, mots S retirés) ; `speed` 1 à 4 accélère (plafond 6000 mm/min). Ne compte pas dans `jobs` |
 | `hold`, `resume` | Pause (le faisceau se coupe), reprise |
 | `stop` | Arrêt : pause, attente de l'arrêt du mouvement, remise à zéro. La position est gardée |
-| `frame {n, power, feed}` | Tour de l'emprise du programme. `power` 0 (défaut, faisceau éteint) à 5 % |
+| `frame {n, power, feed, shape, loops}` | Tour de l'emprise du programme (points brûlés). `shape: "hull"` : contour réel du dessin (enveloppe convexe) au lieu du rectangle ; `loops` 1 à 5. `power` 0 (défaut, faisceau éteint) à 5 % |
 | `jog {n, x, y, feed}` | Déplacement relatif en mm, faisceau éteint |
 | `goto {n, x, y, feed}` | Déplacement vers un point de travail |
 | `jogCancel` | Interrompt un déplacement manuel |
@@ -135,10 +137,11 @@ Les rendus en traits (`hatch`, `waves`, `spiral`, `isolines`, `stipple`) utilise
 | `refresh` | Relit les réglages |
 | `send {n, line}` | Ligne libre (console) |
 
-État : `{ status, error, active, connected, firmware, machine, machineState, alarm {code, message}, pos {x, y, z}, mpos, feed, power, area {x, y}, maxS, laserMode, homing, settings, job {kind, lines, sent, acked, progress, running, paused, elapsedS, estimateS, bbox}, jobs, issues, console }`.
+État : `{ status, error, active, connected, firmware, machine, machineState, alarm {code, message}, pos {x, y, z}, mpos, feed, power, area {x, y}, maxS, laserMode, homing, settings, job {kind: job | dry | frame, from, total, line, lines, sent, acked, progress, running, paused, elapsedS, estimateS, bbox}, lastStop {kind, line, resumeAt, total, reason}, jobs, issues, console }`.
 
 - `status` : `idle` (pas de transport) → `requesting` (attente de la machine) → `ready`. `error` porte un message lisible : pas de réponse (débit, machine éteinte), ligne refusée, alarme.
 - `machineState` suit GRBL : `Idle`, `Run`, `Hold`, `Jog`, `Alarm`… Une tâche ne part que de `Idle`.
+- `job.line` : dernière ligne du programme (préparé : sans lignes vides ni commentaires) entrée dans le planificateur. Après un arrêt, une erreur ou une alarme, `lastStop.resumeAt` donne la ligne de reprise conseillée (16 lignes avant, pour ne pas laisser de trou) : `run {n, from: lastStop.resumeAt}` (vérifier d'abord que la pièce n'a pas bougé). Une gravure menée au bout remet `lastStop` à `null`.
 - `job.progress` compte les lignes acquittées : GRBL acquitte une ligne quand elle entre dans son planificateur, une quinzaine de mouvements avant de l'exécuter.
 - `console` : les 30 dernières lignes échangées hors tâche, pour une console d'atelier.
 - Événements DOM : `sonic-grbl-ready`, `sonic-grbl-start`, `sonic-grbl-done`, `sonic-grbl-stop`, `sonic-grbl-error {line, message}`.
@@ -188,3 +191,24 @@ Modèles paramétriques, sans JS : le SVG (millimètres réels, noir = gravure, 
 `motif` : 0 aucun, 1 cœur, 2 étoile, 3 fleur, 4 rosace.
 
 Pour des illustrations plus riches (personnages, arbres, bâtiments, blasons…), `sonic-procgen` en rendu vectoriel publie son SVG (`control.exportSvg`, état `svg`) : même branchement sur `svg-from`, et une opération par couleur.
+
+## `sonic-gcode-view`
+
+```json
+{ "tagName": "sonic-gcode-view", "attributes": { "id": "vue", "source": "#prog", "machine": "atomstack-a5-pro", "state-from": "laserState", "control": "vueCtl", "drag-job": true, "target": "job", "style": "height:60svh" } }
+```
+
+Le programme réel (celui que recevra la machine), à zoom libre : molette ou pincement sous le pointeur, glisser pour déplacer, double-clic ou `0` pour tout voir, boutons intégrés (zoom, travail, plateau ; `no-controls` les masque). Repère en millimètres : grille 1-2-5 adaptée au zoom, règles cotées en haut et à gauche, axes du travail (X rouge, Y vert) et origine, plateau de la machine (`machine` ou `bed="410 400"`, ou zone lue sur la machine), emprise cotée, coordonnées du pointeur. Le trait a la largeur réelle du faisceau (`beam-mm`, 0,1) quand on zoome assez.
+
+| Attribut | Rôle |
+|---|---|
+| `source` | `#id` du `sonic-gcode` |
+| `machine`, `bed` | Plateau (profil, ou `"largeur hauteur"` en mm) |
+| `state-from` | État du `sonic-grbl` : tête (croix), origine posée (le plateau se décale d'autant), tâche en cours (le fait en plein, le reste estompé) |
+| `control` | `{fit: n, bed: n, zoomIn: n, zoomOut: n, upTo: 0..1, travel: bool, beamMm}` : `upTo` simule l'avancement (tracé jusque-là, tête bleue au point atteint ; 1 ou vide : tout le tracé) ; `travel` montre les déplacements à vide en pointillés |
+| `drag-job` + `target` | Glisser l'emprise envoie `{type: "place", payload: {dx, dy}}` (mm, pas de 0,1 à 1 selon le zoom) au store au lâcher : le réducteur ajoute dx, dy au décalage `xMm`, `yMm` du `sonic-gcode` |
+| `show-travel`, `beam-mm`, `gestures` | Déplacements à vide, largeur du faisceau, cohabitation avec le défilement (`auto`, `capture`, `cooperative`) |
+
+État (`out-data-provider`, défaut `<id>State`) : `{status: empty | ready, pointer {x, y} | null, zoom (px/mm), bbox, segments, lines, bed, seq}`.
+
+**Avant de lancer** : placer (glisser l'emprise, ou décalage et ancrage dans le store), cadrer (`frame`, `shape: "hull"`), essai à vide (`dryRun`, `speed: 2`), puis `run`. Arrêt : `stop` ; reprise : `run {from: lastStop.resumeAt}`.

@@ -358,7 +358,7 @@ Image fixe vue comme une source d'images : `sonic-shader channel0="#photo"`, tra
 { "tagName": "sonic-file-open", "attributes": { "accept": "image/*", "ref-provider": "fichier", "label": "Choisir une image" } }
 ```
 
-Ouvre un fichier du disque (clic, ou dépôt avec `drop`) et le publie en SonicMediaRef `{ url (blob:), blob, mime, width, height }` dans `ref-provider` : à brancher sur `sonic-still in-data-provider`, un lecteur audio, etc. Les fichiers texte (CSV, JSON) exposent leur contenu dans l'état (`text`, limité par `max-text`). État : `{ name, size, mime, kind: image | audio | video | text | other, text, files, error }`.
+Ouvre un fichier du disque (clic, ou dépôt avec `drop`) — ou, avec `capture="environment"` (caméra arrière) ou `"user"`, l'appareil photo du téléphone directement (pas de capacité `camera` à déclarer : c'est le système qui prend la photo ; sans effet sur ordinateur) — et le publie en SonicMediaRef `{ url (blob:), blob, mime, width, height }` dans `ref-provider` : à brancher sur `sonic-still in-data-provider`, un lecteur audio, etc. Les fichiers texte (CSV, JSON) exposent leur contenu dans l'état (`text`, limité par `max-text`). État : `{ name, size, mime, kind: image | audio | video | text | other, text, files, error }`.
 
 ## Démos
 
