@@ -3,7 +3,7 @@
     {
       "tagName": "div",
       "attributes": {
-        "style": "position:relative;min-height:100svh;background:#16181d;--sc-primary:#1c1e24;--sc-primary-content:#fff"
+        "style": "position:relative;min-height:100svh;background:#16181d;--sc-primary:#ff3d7f;--sc-primary-content:#fff;--sc-base-100:#f2f3f6;--sc-input-bg:#f2f3f6"
       },
       "nodes": [
         {
@@ -51,7 +51,7 @@
           "attributes": {
             "id": "balises",
             "initial": "{\"items\": [], \"outbox\": [], \"panneau\": \"non\", \"fil\": null, \"saisie\": \"\", \"dessin\": 0, \"fType\": \"tout\", \"fDepuis\": \"tout\", \"fQui\": \"tous\", \"fParcours\": \"oui\", \"vus\": []}",
-            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $merge([$p, {\"aVoix\": $p.voix ? true : false}])}]) : $ob}]) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\", \"pListe\": \"non\", \"pvOuvert\": \"non\", \"ceForm\": \"non\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\" or $action.type = \"dessin:retoucher\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($v := [$distinct($append($state.vus ? $state.vus : [], [$p.value]))][[-300..-1]]; $state.ici = $p.value ? $merge([$state, {\"vus\": $v}]) : $merge([$state, {\"ici\": $p.value, \"vus\": $v, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($r := $state.retouche; $state.fil and $p.url ? ($r.kind = \"drawing\" ? $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rd-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"dessin\": $p.url, \"cadreDessin\": \"3\"}, \"seen\": true} : {\"id\": \"rd-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"media\": $p.url, \"cadre\": 3, \"seen\": true, \"refId\": $state.capRef}]), \"retouche\": null, \"editeur\": \"non\", \"erreur\": \"Dessin retouché : il est sur le mur.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3, \"refId\": $state.capRef}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}])) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": null}]) : $action.type = \"dessin:retoucher\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"drawing\"}, \"erreur\": \"Retouche : ton dessin est rouvert, trait par trait.\"}]) : $action.type = \"capture:ref\" ? $merge([$state, {\"capRef\": $p.value}]) : $action.type = \"texte:retoucher\" ? $merge([$state, {\"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"text\"}, \"retoucheTexte\": $p.text, \"retoucheOuvert\": \"oui\"}]) : $action.type = \"texte:enregistrer\" ? ($r := $state.retouche; $t := $trim($state.retoucheTexte ? $state.retoucheTexte : \"\"); $t = \"\" ? $merge([$state, {\"erreur\": \"Le message ne peut pas être vide.\"}]) : $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rt-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"message\": $t}} : {\"id\": \"rt-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"text\": $t}]), \"retouche\": null, \"retoucheOuvert\": \"non\", \"erreur\": \"Message modifié.\"}])) : $action.type = \"retouche:fermer\" ? $merge([$state, {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\"}]) : $action.type = \"msg:retirer\" ? $merge([$state, {\"aRetirer\": $p, \"confirmRetrait\": \"oui\"}]) : $action.type = \"msg:retirerOk\" ? ($state.fil and $state.aRetirer ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"dm-\" & $state.aRetirer, \"op\": \"deleteMessage\", \"place\": $state.fil, \"message\": $state.aRetirer}]), \"aRetirer\": null, \"confirmRetrait\": \"non\", \"erreur\": \"Retiré : une trace reste dans la discussion.\"}]) : $state) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\", \"retouche\": null}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : ($p.op = \"addRoute\" ? \"Parcours publié !\" : \"\"))}, $p.op = \"addRoute\" ? {\"pv\": $p.routeId, \"pvOuvert\": \"oui\", \"ceEtapes\": [], \"ceTitre\": \"\", \"ceDesc\": \"\"} : {}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $action.type = \"parcours:liste\" ? $merge([$state, {\"pListe\": \"oui\", \"pvOuvert\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:listeFermer\" ? $merge([$state, {\"pListe\": \"non\"}]) : $action.type = \"parcours:voir\" ? $merge([$state, {\"pv\": $p, \"pvOuvert\": \"oui\", \"pListe\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:voirSuivi\" ? $merge([$state, {\"pv\": $state.suivi.id, \"pvOuvert\": \"oui\"}]) : $action.type = \"parcours:fermer\" ? $merge([$state, {\"pvOuvert\": \"non\"}]) : $action.type = \"parcours:signaler\" ? ($state.pv ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rr-\" & $state.pv, \"op\": \"reportRoute\", \"route\": $state.pv}]), \"pvOuvert\": \"non\", \"erreur\": \"Merci, parcours signalé.\"}]) : $state) : $action.type = \"suivi:demarrer\" ? ($rid := $type($p) = \"string\" ? $p : $state.pv; $rid ? $merge([$state, {\"suivi\": {\"id\": $rid, \"faits\": [], \"joue\": 0, \"step\": null, \"poche\": \"non\"}, \"pv\": $rid, \"pvOuvert\": \"non\", \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1, \"erreur\": \"C'est parti : avance vers la première étape.\"}]) : $state) : $action.type = \"suivi:arreter\" ? $merge([$state, {\"suivi\": null, \"wakeR\": ($state.wakeR ? $state.wakeR : 0) + 1, \"pvOuvert\": \"non\", \"erreur\": \"Parcours arrêté.\"}]) : $action.type = \"suivi:arrive\" ? ($i := $p.value - 1; $state.suivi.id and $not($i in $state.suivi.faits) ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"faits\": $append($state.suivi.faits, [$i]), \"joue\": $state.suivi.joue + 1, \"step\": $i}]), \"erreur\": \"Étape \" & $string($p.value) & \" : vise le mur pour la découvrir.\"}]) : $state) : $action.type = \"poche:on\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"oui\"}]), \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1}]) : $state) : $action.type = \"poche:off\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"non\"}])}]) : $state) : $action.type = \"ce:debut\" ? $merge([$state, {\"cree\": \"oui\", \"ceForm\": \"non\", \"pListe\": \"non\", \"ceEtapes\": [], \"ceOrdre\": \"oui\", \"ceMode\": \"etape\", \"erreur\": \"Touche une balise sur la carte puis « Ajouter au parcours ».\"}]) : $action.type = \"ce:annuler\" ? $merge([$state, {\"cree\": \"non\", \"ceForm\": \"non\", \"ceEtapes\": [], \"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:ouvrir\" ? $merge([$state, {\"ceForm\": \"oui\"}]) : $action.type = \"ce:fermerForm\" ? $merge([$state, {\"ceForm\": \"non\"}]) : $action.type = \"ce:ajouter\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $count($e) >= 30 ? $merge([$state, {\"erreur\": \"30 étapes au plus.\"}]) : ($e[-1].place = $p.place ? $state : $merge([$state, {\"ceEtapes\": $append($e, [{\"place\": $p.place, \"titre\": $p.titre, \"radius\": 30, \"sound\": \"balise\"}]), \"erreur\": \"Étape \" & $string($count($e) + 1) & \" ajoutée.\"}]))) : $action.type = \"ce:retirer\" ? $merge([$state, {\"ceEtapes\": [$filter($state.ceEtapes, function($x, $k){ $k != $p })]}]) : $action.type = \"ce:monter\" or $action.type = \"ce:descendre\" ? ($e := $state.ceEtapes; $j := $action.type = \"ce:monter\" ? $p - 1 : $p + 1; $j < 0 or $j >= $count($e) ? $state : $merge([$state, {\"ceEtapes\": [$map($e, function($x, $k){ $k = $p ? $e[$j] : ($k = $j ? $e[$p] : $x) })]}])) : $action.type = \"ce:rayon\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"radius\": $p.r}]) : $x })]}]) : $action.type = \"ce:son\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"sound\": $p.s, \"media\": null}]) : $x })]}]) : $action.type = \"ce:enreg\" ? $merge([$state, {\"ceCible\": $p, \"ceEnreg\": \"oui\", \"ceImport\": \"non\"}]) : $action.type = \"ce:importer\" ? $merge([$state, {\"ceCible\": $p, \"ceImport\": \"oui\", \"ceEnreg\": \"non\"}]) : $action.type = \"ce:enregFermer\" ? $merge([$state, {\"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:garder\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $state.ceCible ? $merge([$x, {\"sound\": \"propre\", \"media\": $p}]) : $x })], \"ceEnreg\": \"non\", \"ceImport\": \"non\", \"erreur\": \"Son gardé pour l'étape \" & $string($state.ceCible + 1) & \".\"}]) : $action.type = \"ce:publier\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $t := $trim($state.ceTitre ? $state.ceTitre : \"\"); $count($e) < 2 ? $merge([$state, {\"erreur\": \"Il faut au moins deux étapes.\"}]) : $t = \"\" ? $merge([$state, {\"erreur\": \"Donne un titre à ton parcours.\"}]) : $e[sound = \"propre\" and $not(media)] ? $merge([$state, {\"erreur\": \"Une étape attend encore son son à part.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"p-\" & $string($millis()), \"op\": \"addRoute\", \"data\": {\"title\": $t, \"description\": $state.ceDesc ? $state.ceDesc : \"\", \"ordered\": $state.ceOrdre != \"non\", \"mode\": $state.ceMode = \"ambiance\" ? \"ambiance\" : \"etape\", \"steps\": [$e.{\"place\": place, \"radius\": radius, \"sound\": sound, \"media\": media}]}}]), \"cree\": \"non\", \"ceForm\": \"non\", \"erreur\": \"Publication du parcours…\"}])) : $state)",
+            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $merge([$p, {\"aVoix\": $p.voix ? true : false}])}]) : $ob}]) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\", \"pListe\": \"non\", \"pvOuvert\": \"non\", \"ceForm\": \"non\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\" or $action.type = \"dessin:retoucher\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($v := [$distinct($append($state.vus ? $state.vus : [], [$p.value]))][[-300..-1]]; $state.ici = $p.value ? $merge([$state, {\"vus\": $v}]) : $merge([$state, {\"ici\": $p.value, \"vus\": $v, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($r := $state.retouche; $state.fil and $p.url ? ($r.kind = \"drawing\" ? $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rd-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"dessin\": $p.url, \"cadreDessin\": \"3\"}, \"seen\": true} : {\"id\": \"rd-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"media\": $p.url, \"cadre\": 3, \"seen\": true, \"refId\": $state.capRef}]), \"retouche\": null, \"editeur\": \"non\", \"erreur\": \"Dessin retouché : il est sur le mur.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3, \"refId\": $state.capRef}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}])) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": null}]) : $action.type = \"dessin:retoucher\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"drawing\"}, \"erreur\": \"Retouche : ton dessin est rouvert, trait par trait.\"}]) : $action.type = \"capture:ref\" ? $merge([$state, {\"capRef\": $p.value}]) : $action.type = \"texte:retoucher\" ? $merge([$state, {\"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"text\"}, \"retoucheTexte\": $p.text, \"retoucheOuvert\": \"oui\"}]) : $action.type = \"texte:enregistrer\" ? ($r := $state.retouche; $t := $trim($state.retoucheTexte ? $state.retoucheTexte : \"\"); $t = \"\" ? $merge([$state, {\"erreur\": \"Le message ne peut pas être vide.\"}]) : $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rt-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"message\": $t}} : {\"id\": \"rt-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"text\": $t}]), \"retouche\": null, \"retoucheOuvert\": \"non\", \"erreur\": \"Message modifié.\"}])) : $action.type = \"retouche:fermer\" ? $merge([$state, {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}]) : $action.type = \"balise:supprimer\" ? $merge([$state, {\"aSupprimer\": $p, \"confirmBalise\": \"oui\"}]) : $action.type = \"balise:supprimerOk\" ? ($it := $state.items[id = $state.aSupprimer]; $merge([$state, {\"items\": [$state.items[id != $state.aSupprimer]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $state.aSupprimer, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob, \"aSupprimer\": null, \"confirmBalise\": \"non\", \"fil\": $state.fil = $it.placeId ? null : $state.fil, \"panneau\": $state.fil = $it.placeId ? \"non\" : $state.panneau, \"erreur\": \"Balise supprimée.\"}])) : $action.type = \"msg:retirer\" ? $merge([$state, {\"aRetirer\": $p, \"confirmRetrait\": \"oui\"}]) : $action.type = \"msg:retirerOk\" ? ($state.fil and $state.aRetirer ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"dm-\" & $state.aRetirer, \"op\": \"deleteMessage\", \"place\": $state.fil, \"message\": $state.aRetirer}]), \"aRetirer\": null, \"confirmRetrait\": \"non\", \"erreur\": \"Retiré : une trace reste dans la discussion.\"}]) : $state) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\", \"retouche\": null}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : ($p.op = \"addRoute\" ? \"Parcours publié !\" : \"\"))}, $p.op = \"addRoute\" ? {\"pv\": $p.routeId, \"pvOuvert\": \"oui\", \"ceEtapes\": [], \"ceTitre\": \"\", \"ceDesc\": \"\"} : {}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $action.type = \"parcours:liste\" ? $merge([$state, {\"pListe\": \"oui\", \"pvOuvert\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:listeFermer\" ? $merge([$state, {\"pListe\": \"non\"}]) : $action.type = \"parcours:voir\" ? $merge([$state, {\"pv\": $p, \"pvOuvert\": \"oui\", \"pListe\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:voirSuivi\" ? $merge([$state, {\"pv\": $state.suivi.id, \"pvOuvert\": \"oui\"}]) : $action.type = \"parcours:fermer\" ? $merge([$state, {\"pvOuvert\": \"non\"}]) : $action.type = \"parcours:signaler\" ? ($state.pv ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rr-\" & $state.pv, \"op\": \"reportRoute\", \"route\": $state.pv}]), \"pvOuvert\": \"non\", \"erreur\": \"Merci, parcours signalé.\"}]) : $state) : $action.type = \"suivi:demarrer\" ? ($rid := $type($p) = \"string\" ? $p : $state.pv; $rid ? $merge([$state, {\"suivi\": {\"id\": $rid, \"faits\": [], \"joue\": 0, \"step\": null, \"poche\": \"non\"}, \"pv\": $rid, \"pvOuvert\": \"non\", \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1, \"erreur\": \"C'est parti : avance vers la première étape.\"}]) : $state) : $action.type = \"suivi:arreter\" ? $merge([$state, {\"suivi\": null, \"wakeR\": ($state.wakeR ? $state.wakeR : 0) + 1, \"pvOuvert\": \"non\", \"erreur\": \"Parcours arrêté.\"}]) : $action.type = \"suivi:arrive\" ? ($i := $p.value - 1; $state.suivi.id and $not($i in $state.suivi.faits) ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"faits\": $append($state.suivi.faits, [$i]), \"joue\": $state.suivi.joue + 1, \"step\": $i}]), \"erreur\": \"Étape \" & $string($p.value) & \" : vise le mur pour la découvrir.\"}]) : $state) : $action.type = \"poche:on\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"oui\"}]), \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1}]) : $state) : $action.type = \"poche:off\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"non\"}])}]) : $state) : $action.type = \"ce:debut\" ? $merge([$state, {\"cree\": \"oui\", \"ceForm\": \"non\", \"pListe\": \"non\", \"ceEtapes\": [], \"ceOrdre\": \"oui\", \"ceMode\": \"etape\", \"erreur\": \"Touche une balise sur la carte puis « Ajouter au parcours ».\"}]) : $action.type = \"ce:annuler\" ? $merge([$state, {\"cree\": \"non\", \"ceForm\": \"non\", \"ceEtapes\": [], \"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:ouvrir\" ? $merge([$state, {\"ceForm\": \"oui\"}]) : $action.type = \"ce:fermerForm\" ? $merge([$state, {\"ceForm\": \"non\"}]) : $action.type = \"ce:ajouter\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $count($e) >= 30 ? $merge([$state, {\"erreur\": \"30 étapes au plus.\"}]) : ($e[-1].place = $p.place ? $state : $merge([$state, {\"ceEtapes\": $append($e, [{\"place\": $p.place, \"titre\": $p.titre, \"radius\": 30, \"sound\": \"balise\"}]), \"erreur\": \"Étape \" & $string($count($e) + 1) & \" ajoutée.\"}]))) : $action.type = \"ce:retirer\" ? $merge([$state, {\"ceEtapes\": [$filter($state.ceEtapes, function($x, $k){ $k != $p })]}]) : $action.type = \"ce:monter\" or $action.type = \"ce:descendre\" ? ($e := $state.ceEtapes; $j := $action.type = \"ce:monter\" ? $p - 1 : $p + 1; $j < 0 or $j >= $count($e) ? $state : $merge([$state, {\"ceEtapes\": [$map($e, function($x, $k){ $k = $p ? $e[$j] : ($k = $j ? $e[$p] : $x) })]}])) : $action.type = \"ce:rayon\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"radius\": $p.r}]) : $x })]}]) : $action.type = \"ce:son\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"sound\": $p.s, \"media\": null}]) : $x })]}]) : $action.type = \"ce:enreg\" ? $merge([$state, {\"ceCible\": $p, \"ceEnreg\": \"oui\", \"ceImport\": \"non\"}]) : $action.type = \"ce:importer\" ? $merge([$state, {\"ceCible\": $p, \"ceImport\": \"oui\", \"ceEnreg\": \"non\"}]) : $action.type = \"ce:enregFermer\" ? $merge([$state, {\"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:garder\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $state.ceCible ? $merge([$x, {\"sound\": \"propre\", \"media\": $p}]) : $x })], \"ceEnreg\": \"non\", \"ceImport\": \"non\", \"erreur\": \"Son gardé pour l'étape \" & $string($state.ceCible + 1) & \".\"}]) : $action.type = \"ce:publier\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $t := $trim($state.ceTitre ? $state.ceTitre : \"\"); $count($e) < 2 ? $merge([$state, {\"erreur\": \"Il faut au moins deux étapes.\"}]) : $t = \"\" ? $merge([$state, {\"erreur\": \"Donne un titre à ton parcours.\"}]) : $e[sound = \"propre\" and $not(media)] ? $merge([$state, {\"erreur\": \"Une étape attend encore son son à part.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"p-\" & $string($millis()), \"op\": \"addRoute\", \"data\": {\"title\": $t, \"description\": $state.ceDesc ? $state.ceDesc : \"\", \"ordered\": $state.ceOrdre != \"non\", \"mode\": $state.ceMode = \"ambiance\" ? \"ambiance\" : \"etape\", \"steps\": [$e.{\"place\": place, \"radius\": radius, \"sound\": sound, \"media\": media}]}}]), \"cree\": \"non\", \"ceForm\": \"non\", \"erreur\": \"Publication du parcours…\"}])) : $state)",
             "persist": "balises",
             "max-state-bytes": "1200000"
           }
@@ -810,7 +810,7 @@
                                                 "type": "default",
                                                 "size": "md",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
+                                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                                                 "id": "capteurs3",
                                                 "aria-label": "Carte des balises",
                                                 "title": "Carte des balises"
@@ -906,7 +906,7 @@
                                                 "type": "default",
                                                 "size": "md",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
+                                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                                                 "aria-label": "Mes balises",
                                                 "title": "Mes balises"
                                               },
@@ -960,7 +960,7 @@
                                                         "type": "primary",
                                                         "size": "xl",
                                                         "id": "capteurs",
-                                                        "style": "--sc-btn-rounded:999px;--sc-btn-px:1.6rem;--sc-primary:#ffffff;--sc-primary-content:#1c1e24"
+                                                        "style": "--sc-btn-rounded:999px;--sc-btn-px:1.6rem"
                                                       },
                                                       "nodes": [
                                                         {
@@ -1127,8 +1127,7 @@
                                                                   "tagName": "sonic-button",
                                                                   "attributes": {
                                                                     "size": "md",
-                                                                    "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24;box-shadow:0 8px 24px rgba(0,0,0,.35);border-radius:999px;--sc-btn-height:3rem",
-                                                                    "type": "primary"
+                                                                    "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.35);--sc-btn-height:3rem"
                                                                   },
                                                                   "nodes": [
                                                                     {
@@ -1182,7 +1181,7 @@
                                                                             "size": "md",
                                                                             "aria-label": "Vocaux lancés tout seuls : couper",
                                                                             "title": "Vocaux lancés tout seuls : couper",
-                                                                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                                                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                                                                           },
                                                                           "nodes": [
                                                                             {
@@ -1209,7 +1208,7 @@
                                                                             "size": "md",
                                                                             "aria-label": "Vocaux à la demande : les lancer tout seuls",
                                                                             "title": "Vocaux à la demande : les lancer tout seuls",
-                                                                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                                                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                                                                           },
                                                                           "nodes": [
                                                                             {
@@ -1287,7 +1286,7 @@
                                                             "value": "photo",
                                                             "type": "primary",
                                                             "size": "lg",
-                                                            "style": "--sc-btn-rounded:999px;--sc-btn-px:1.4rem;box-shadow:0 8px 24px rgba(0,0,0,.35);border-radius:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24"
+                                                            "style": "--sc-btn-rounded:999px;--sc-btn-px:1.4rem;box-shadow:0 8px 24px rgba(0,0,0,.35);border-radius:999px"
                                                           },
                                                           "nodes": [
                                                             {
@@ -1345,7 +1344,7 @@
                                                                         "size": "md",
                                                                         "aria-label": "Signaler cette balise",
                                                                         "title": "Signaler cette balise",
-                                                                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                                                                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                                                                       },
                                                                       "nodes": [
                                                                         {
@@ -1431,7 +1430,7 @@
                                                 "type": "default",
                                                 "size": "md",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
+                                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                                                 "aria-label": "Annuler",
                                                 "title": "Annuler"
                                               },
@@ -1522,10 +1521,9 @@
                         "name": "ecran",
                         "value": "photo",
                         "type": "default",
-                        "size": "sm",
+                        "size": "md",
                         "shape": "circle",
-                        "style": "--sc-btn-rounded:999px",
-                        "variant": "outline",
+                        "style": "--sc-btn-rounded:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                         "aria-label": "Retour",
                         "title": "Retour"
                       },
@@ -1542,7 +1540,7 @@
                     {
                       "tagName": "h1",
                       "attributes": {
-                        "style": "margin:0;font-size:1.35rem;line-height:1.15;font-weight:800;letter-spacing:-.01em"
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
                       },
                       "textContent": "Ajuste la surface"
                     },
@@ -1796,10 +1794,9 @@
                         "name": "ecran",
                         "value": "zone",
                         "type": "default",
-                        "size": "sm",
+                        "size": "md",
                         "shape": "circle",
-                        "style": "--sc-btn-rounded:999px",
-                        "variant": "outline",
+                        "style": "--sc-btn-rounded:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                         "aria-label": "Retour",
                         "title": "Retour"
                       },
@@ -1816,7 +1813,7 @@
                     {
                       "tagName": "h1",
                       "attributes": {
-                        "style": "margin:0;font-size:1.35rem;line-height:1.15;font-weight:800;letter-spacing:-.01em"
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
                       },
                       "textContent": "Que verra-t-on ici ?"
                     },
@@ -1860,7 +1857,6 @@
                         "radio": true,
                         "name": "effet",
                         "value": "message",
-                        "variant": "outline",
                         "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
@@ -1884,7 +1880,6 @@
                         "radio": true,
                         "name": "effet",
                         "value": "dessin",
-                        "variant": "outline",
                         "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
@@ -1981,7 +1976,6 @@
                                     "name": "color",
                                     "value": "#ff3d7f",
                                     "size": "sm",
-                                    "variant": "outline",
                                     "shape": "circle",
                                     "aria-label": "Rose",
                                     "title": "Rose",
@@ -2003,7 +1997,6 @@
                                     "name": "color",
                                     "value": "#ffd84a",
                                     "size": "sm",
-                                    "variant": "outline",
                                     "shape": "circle",
                                     "aria-label": "Jaune",
                                     "title": "Jaune",
@@ -2025,7 +2018,6 @@
                                     "name": "color",
                                     "value": "#22d3a6",
                                     "size": "sm",
-                                    "variant": "outline",
                                     "shape": "circle",
                                     "aria-label": "Vert",
                                     "title": "Vert",
@@ -2047,7 +2039,6 @@
                                     "name": "color",
                                     "value": "#ffffff",
                                     "size": "sm",
-                                    "variant": "outline",
                                     "shape": "circle",
                                     "aria-label": "Blanc",
                                     "title": "Blanc",
@@ -2069,7 +2060,6 @@
                                     "name": "color",
                                     "value": "#111111",
                                     "size": "sm",
-                                    "variant": "outline",
                                     "shape": "circle",
                                     "aria-label": "Noir",
                                     "title": "Noir",
@@ -2257,7 +2247,7 @@
                     {
                       "tagName": "h1",
                       "attributes": {
-                        "style": "margin:0;font-size:1.35rem;line-height:1.15;font-weight:800;letter-spacing:-.01em"
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
                       },
                       "textContent": "Balise posée"
                     },
@@ -2301,10 +2291,9 @@
                             "name": "ecran",
                             "value": "chercher",
                             "type": "default",
-                            "size": "sm",
+                            "size": "md",
                             "shape": "circle",
-                            "style": "--sc-btn-rounded:999px",
-                            "variant": "outline",
+                            "style": "--sc-btn-rounded:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                             "aria-label": "Fermer",
                             "title": "Fermer"
                           },
@@ -2329,7 +2318,8 @@
                     "image-provider": "etiquetteImg",
                     "caption": "Une balise est cachée ici\nScanne puis vise le mur",
                     "size": "140",
-                    "ecc": "M"
+                    "ecc": "M",
+                    "style": "position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none"
                   }
                 },
                 {
@@ -2352,7 +2342,7 @@
                 {
                   "tagName": "div",
                   "attributes": {
-                    "style": "display:flex;justify-content:center;padding:1rem;border-radius:1rem;background:#f2f2f5"
+                    "style": "display:flex;justify-content:center;padding:16px;border-radius:16px;background:#f2f3f6"
                   },
                   "nodes": [
                     {
@@ -2372,14 +2362,14 @@
                 {
                   "tagName": "div",
                   "attributes": {
-                    "style": "display:flex;gap:.6rem;flex-wrap:wrap"
+                    "style": "display:flex;flex-direction:column;gap:8px"
                   },
                   "nodes": [
                     {
                       "tagName": "sonic-button",
                       "attributes": {
                         "id": "connecter",
-                        "variant": "outline",
+                        "shape": "block",
                         "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
@@ -2401,7 +2391,7 @@
                       "tagName": "sonic-button",
                       "attributes": {
                         "id": "imprimer",
-                        "variant": "outline",
+                        "shape": "block",
                         "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
@@ -2423,7 +2413,7 @@
                       "tagName": "sonic-button",
                       "attributes": {
                         "id": "partager",
-                        "variant": "outline",
+                        "shape": "block",
                         "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
@@ -2512,10 +2502,9 @@
                         "name": "ecran",
                         "value": "chercher",
                         "type": "default",
-                        "size": "sm",
+                        "size": "md",
                         "shape": "circle",
-                        "style": "--sc-btn-rounded:999px",
-                        "variant": "outline",
+                        "style": "--sc-btn-rounded:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                         "aria-label": "Retour",
                         "title": "Retour"
                       },
@@ -2532,7 +2521,7 @@
                     {
                       "tagName": "h1",
                       "attributes": {
-                        "style": "margin:0;font-size:1.35rem;line-height:1.15;font-weight:800;letter-spacing:-.01em"
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
                       },
                       "textContent": "Mes balises"
                     }
@@ -2543,7 +2532,7 @@
                   "attributes": {
                     "inputProvider": "balises",
                     "outputProvider": "listeBalises",
-                    "expression": "$append([], $reverse($input.items).{\"id\": id, \"titre\": effet = \"dessin\" ? \"Dessin\" : message, \"quand\": $substring(createdAt, 8, 2) & \"/\" & $substring(createdAt, 5, 2) & \" à \" & $substring(createdAt, 11, 5), \"partage\": placeId ? \"partagée\" : (lat ? \"envoi en cours\" : \"sur ce téléphone\")})"
+                    "expression": "$append([], $reverse($input.items).{\"id\": id, \"placeId\": placeId, \"ouvrable\": placeId ? \"oui\" : \"non\", \"type\": effet = \"dessin\" ? \"dessin\" : \"message\", \"titre\": effet = \"dessin\" ? \"Dessin\" : message, \"quand\": $substring(createdAt, 8, 2) & \"/\" & $substring(createdAt, 5, 2) & \" à \" & $substring(createdAt, 11, 5), \"partage\": placeId ? \"partagée\" : (lat ? \"envoi en cours\" : \"sur ce téléphone\")})"
                   }
                 },
                 {
@@ -2558,61 +2547,191 @@
                         {
                           "tagName": "div",
                           "attributes": {
-                            "style": "display:flex;gap:.8rem;align-items:center;padding:.85rem 0;border-bottom:1px solid #ececf0"
+                            "style": "display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #e6e7ec"
                           },
                           "nodes": [
                             {
-                              "tagName": "div",
+                              "tagName": "sonic-if",
                               "attributes": {
-                                "style": "width:2.6rem;height:2.6rem;flex:none;border-radius:.8rem;background:#ff3d7f;display:flex;align-items:center;justify-content:center;color:#fff"
-                              },
-                              "nodes": [
-                                {
-                                  "tagName": "sonic-icon",
-                                  "attributes": {
-                                    "library": "iconoir",
-                                    "name": "pin-alt"
-                                  }
-                                }
-                              ]
-                            },
-                            {
-                              "tagName": "div",
-                              "attributes": {
+                                "key": "ouvrable",
+                                "equals": "oui",
                                 "style": "flex:1;min-width:0"
                               },
                               "nodes": [
                                 {
-                                  "tagName": "strong",
+                                  "tagName": "sonic-action",
                                   "attributes": {
-                                    "style": "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:1.02rem"
+                                    "target": "balises",
+                                    "type": "fil:ouvrir",
+                                    "data-bind": "",
+                                    "::payload": "$placeId",
+                                    "style": "display:block"
                                   },
                                   "nodes": [
                                     {
-                                      "tagName": "sonic-value",
+                                      "tagName": "div",
                                       "attributes": {
-                                        "key": "titre"
-                                      }
+                                        "style": "display:flex;gap:12px;align-items:center;cursor:pointer"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-if",
+                                          "attributes": {
+                                            "key": "type",
+                                            "equals": "dessin"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "div",
+                                              "attributes": {
+                                                "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ff3d7f;display:flex;align-items:center;justify-content:center;color:#fff"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-icon",
+                                                  "attributes": {
+                                                    "library": "iconoir",
+                                                    "name": "design-pencil"
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-if",
+                                          "attributes": {
+                                            "key": "type",
+                                            "equals": "message"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "div",
+                                              "attributes": {
+                                                "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ff3d7f;display:flex;align-items:center;justify-content:center;color:#fff"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-icon",
+                                                  "attributes": {
+                                                    "library": "iconoir",
+                                                    "name": "chat-bubble"
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "div",
+                                          "attributes": {
+                                            "style": "flex:1;min-width:0;text-align:left"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "strong",
+                                              "attributes": {
+                                                "style": "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:1rem"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-value",
+                                                  "attributes": {
+                                                    "key": "titre"
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "div",
+                                              "attributes": {
+                                                "data-bind": "",
+                                                "::text-content": "$quand · $partage",
+                                                "style": "font-size:.85rem;color:#5b5e68"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-icon",
+                                          "attributes": {
+                                            "library": "iconoir",
+                                            "name": "nav-arrow-right"
+                                          }
+                                        }
+                                      ]
                                     }
                                   ]
-                                },
-                                {
-                                  "tagName": "div",
-                                  "attributes": {
-                                    "data-bind": "",
-                                    "::text-content": "$quand · $partage",
-                                    "style": "font-size:.88rem;color:#5b5e68"
-                                  }
                                 }
                               ]
                             },
                             {
-                              "tagName": "sonic-action",
+                              "tagName": "sonic-if",
                               "attributes": {
-                                "target": "balises",
-                                "type": "remove",
-                                "data-bind": "",
-                                "::payload": "$id"
+                                "key": "ouvrable",
+                                "equals": "non",
+                                "style": "flex:1;min-width:0"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "display:flex;gap:12px;align-items:center;opacity:.75"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ff3d7f;display:flex;align-items:center;justify-content:center;color:#fff"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-icon",
+                                          "attributes": {
+                                            "library": "iconoir",
+                                            "name": "pin-alt"
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "style": "flex:1;min-width:0;text-align:left"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "strong",
+                                          "attributes": {
+                                            "style": "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:1rem"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-value",
+                                              "attributes": {
+                                                "key": "titre"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "div",
+                                          "attributes": {
+                                            "data-bind": "",
+                                            "::text-content": "$quand · $partage",
+                                            "style": "font-size:.85rem;color:#5b5e68"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-pop",
+                              "attributes": {
+                                "placement": "bottom-end"
                               },
                               "nodes": [
                                 {
@@ -2620,18 +2739,58 @@
                                   "attributes": {
                                     "variant": "ghost",
                                     "shape": "circle",
-                                    "size": "sm",
-                                    "aria-label": "Supprimer",
-                                    "title": "Supprimer",
-                                    "style": "--sc-btn-rounded:999px"
+                                    "size": "md",
+                                    "aria-label": "Actions sur cette balise",
+                                    "title": "Actions sur cette balise",
+                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                   },
                                   "nodes": [
                                     {
                                       "tagName": "sonic-icon",
                                       "attributes": {
                                         "library": "iconoir",
-                                        "name": "trash"
+                                        "name": "more-horiz"
                                       }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-menu",
+                                  "attributes": {
+                                    "slot": "content",
+                                    "direction": "column",
+                                    "align": "left",
+                                    "size": "sm",
+                                    "style": "min-width:13rem"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-action",
+                                      "attributes": {
+                                        "target": "balises",
+                                        "type": "balise:supprimer",
+                                        "data-bind": "",
+                                        "::payload": "$id"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-menu-item",
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "trash",
+                                                "slot": "prefix"
+                                              }
+                                            },
+                                            {
+                                              "tagName": "span",
+                                              "textContent": "Supprimer la balise"
+                                            }
+                                          ]
+                                        }
+                                      ]
                                     }
                                   ]
                                 }
@@ -2767,7 +2926,7 @@
                             "type": "default",
                             "size": "md",
                             "shape": "circle",
-                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                             "aria-label": "Revenir à la caméra",
                             "title": "Revenir à la caméra"
                           },
@@ -2820,7 +2979,7 @@
                                     "size": "md",
                                     "aria-label": "Parcours de la zone",
                                     "title": "Parcours de la zone",
-                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                                    "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                                   },
                                   "nodes": [
                                     {
@@ -2847,7 +3006,7 @@
                                     "size": "md",
                                     "aria-label": "Filtres",
                                     "title": "Filtres",
-                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                                    "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                                   },
                                   "nodes": [
                                     {
@@ -3084,13 +3243,6 @@
                                     {
                                       "tagName": "div",
                                       "attributes": {
-                                        "style": "margin-top:.3rem;font-size:.92rem;color:#5b5e68"
-                                      },
-                                      "textContent": "Va sur place et vise le mur pour la voir."
-                                    },
-                                    {
-                                      "tagName": "div",
-                                      "attributes": {
                                         "style": "margin-top:.7rem;display:flex;gap:.5rem;flex-wrap:wrap"
                                       },
                                       "nodes": [
@@ -3195,8 +3347,7 @@
                                                     "value": "photo",
                                                     "type": "default",
                                                     "size": "sm",
-                                                    "style": "--sc-btn-rounded:999px",
-                                                    "variant": "outline"
+                                                    "style": "--sc-btn-rounded:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color)"
                                                   },
                                                   "nodes": [
                                                     {
@@ -3266,26 +3417,32 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:72svh;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:.9rem 1rem max(.8rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:12px 16px max(16px,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto;z-index:30;max-height:72svh"
               },
               "nodes": [
                 {
                   "tagName": "div",
                   "attributes": {
-                    "style": "display:flex;align-items:center;gap:.6rem"
+                    "style": "align-self:center;width:36px;height:4px;border-radius:2px;background:#e6e7ec;margin:-4px 0 4px;flex:none"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;gap:8px"
                   },
                   "nodes": [
                     {
                       "tagName": "h2",
                       "attributes": {
-                        "style": "margin:0;font-size:1.15rem;font-weight:800"
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
                       },
                       "textContent": "Discussion"
                     },
                     {
                       "tagName": "span",
                       "attributes": {
-                        "style": "font-size:.9rem;color:#5b5e68"
+                        "style": "padding:2px 8px;border-radius:999px;background:#f2f3f6;font-size:.85rem;font-weight:600;font-variant-numeric:tabular-nums"
                       },
                       "nodes": [
                         {
@@ -3300,7 +3457,7 @@
                     {
                       "tagName": "div",
                       "attributes": {
-                        "style": "margin-left:auto;display:flex;gap:.4rem"
+                        "style": "margin-left:auto;display:flex;gap:8px"
                       },
                       "nodes": [
                         {
@@ -3327,10 +3484,10 @@
                                       "tagName": "sonic-button",
                                       "attributes": {
                                         "shape": "circle",
-                                        "size": "sm",
+                                        "size": "md",
                                         "aria-label": "Vocaux lancés tout seuls : couper",
                                         "title": "Vocaux lancés tout seuls : couper",
-                                        "style": "--sc-btn-rounded:999px"
+                                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                       },
                                       "nodes": [
                                         {
@@ -3354,10 +3511,10 @@
                                       "tagName": "sonic-button",
                                       "attributes": {
                                         "shape": "circle",
-                                        "size": "sm",
+                                        "size": "md",
                                         "aria-label": "Vocaux à la demande : les lancer tout seuls",
                                         "title": "Vocaux à la demande : les lancer tout seuls",
-                                        "style": "--sc-btn-rounded:999px"
+                                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                       },
                                       "nodes": [
                                         {
@@ -3386,11 +3543,10 @@
                               "tagName": "sonic-button",
                               "attributes": {
                                 "shape": "circle",
-                                "size": "sm",
-                                "variant": "outline",
+                                "size": "md",
                                 "aria-label": "Fermer la discussion",
                                 "title": "Fermer la discussion",
-                                "style": "--sc-btn-rounded:999px"
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -4086,7 +4242,6 @@
                                                   "tagName": "sonic-button",
                                                   "attributes": {
                                                     "size": "sm",
-                                                    "variant": "outline",
                                                     "style": "--sc-btn-rounded:999px"
                                                   },
                                                   "nodes": [
@@ -4182,7 +4337,6 @@
                                         "name": "saisie",
                                         "value": "texte",
                                         "size": "sm",
-                                        "variant": "outline",
                                         "style": "--sc-btn-rounded:999px"
                                       },
                                       "nodes": [
@@ -4207,7 +4361,6 @@
                                         "name": "saisie",
                                         "value": "vocal",
                                         "size": "sm",
-                                        "variant": "outline",
                                         "style": "--sc-btn-rounded:999px"
                                       },
                                       "nodes": [
@@ -4232,7 +4385,6 @@
                                         "name": "saisie",
                                         "value": "dessin",
                                         "size": "sm",
-                                        "variant": "outline",
                                         "style": "--sc-btn-rounded:999px"
                                       },
                                       "nodes": [
@@ -4591,58 +4743,36 @@
                                   ]
                                 },
                                 {
-                                  "tagName": "div",
+                                  "tagName": "sonic-action",
                                   "attributes": {
-                                    "style": "display:flex;align-items:center;gap:.6rem;font-size:.9rem;line-height:1.3"
+                                    "target": "balises",
+                                    "type": "fil:fermer"
                                   },
                                   "nodes": [
                                     {
-                                      "tagName": "sonic-icon",
+                                      "tagName": "sonic-button",
                                       "attributes": {
-                                        "library": "iconoir",
-                                        "name": "pin-alt"
-                                      }
-                                    },
-                                    {
-                                      "tagName": "span",
-                                      "attributes": {
-                                        "style": "flex:1"
-                                      },
-                                      "textContent": "Vocal, dessin et partage se font sur place, en visant le mur."
-                                    },
-                                    {
-                                      "tagName": "sonic-action",
-                                      "attributes": {
-                                        "target": "balises",
-                                        "type": "fil:fermer"
+                                        "radio": true,
+                                        "formDataProvider": "ui",
+                                        "name": "ecran",
+                                        "value": "chercher",
+                                        "type": "default",
+                                        "size": "md",
+                                        "shape": "block",
+                                        "style": "--sc-btn-rounded:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem"
                                       },
                                       "nodes": [
                                         {
-                                          "tagName": "sonic-button",
+                                          "tagName": "sonic-icon",
                                           "attributes": {
-                                            "radio": true,
-                                            "formDataProvider": "ui",
-                                            "name": "ecran",
-                                            "value": "chercher",
-                                            "type": "default",
-                                            "size": "sm",
-                                            "style": "--sc-btn-rounded:999px",
-                                            "variant": "outline"
-                                          },
-                                          "nodes": [
-                                            {
-                                              "tagName": "sonic-icon",
-                                              "attributes": {
-                                                "library": "iconoir",
-                                                "name": "camera",
-                                                "slot": "prefix"
-                                              }
-                                            },
-                                            {
-                                              "tagName": "span",
-                                              "textContent": "Viser"
-                                            }
-                                          ]
+                                            "library": "iconoir",
+                                            "name": "camera",
+                                            "slot": "prefix"
+                                          }
+                                        },
+                                        {
+                                          "tagName": "span",
+                                          "textContent": "Viser le mur pour ajouter un vocal ou un dessin"
                                         }
                                       ]
                                     }
@@ -4671,9 +4801,15 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:35;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:12px 16px max(16px,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto;z-index:35;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;gap:12px"
               },
               "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "align-self:center;width:36px;height:4px;border-radius:2px;background:#e6e7ec;margin:-4px 0 4px;flex:none"
+                  }
+                },
                 {
                   "tagName": "div",
                   "attributes": {
@@ -4683,7 +4819,7 @@
                     {
                       "tagName": "h2",
                       "attributes": {
-                        "style": "margin:0;font-size:1.15rem;font-weight:800"
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
                       },
                       "textContent": "Modifier ton message"
                     },
@@ -4704,11 +4840,10 @@
                               "tagName": "sonic-button",
                               "attributes": {
                                 "shape": "circle",
-                                "size": "sm",
-                                "variant": "outline",
+                                "size": "md",
                                 "aria-label": "Fermer",
                                 "title": "Fermer",
-                                "style": "--sc-btn-rounded:999px"
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -4751,7 +4886,6 @@
                         {
                           "tagName": "sonic-button",
                           "attributes": {
-                            "variant": "outline",
                             "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                           },
                           "nodes": [
@@ -4810,9 +4944,15 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:35;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:12px 16px max(16px,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto;z-index:35;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;gap:12px"
               },
               "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "align-self:center;width:36px;height:4px;border-radius:2px;background:#e6e7ec;margin:-4px 0 4px;flex:none"
+                  }
+                },
                 {
                   "tagName": "div",
                   "attributes": {
@@ -4822,7 +4962,7 @@
                     {
                       "tagName": "h2",
                       "attributes": {
-                        "style": "margin:0;font-size:1.15rem;font-weight:800"
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
                       },
                       "textContent": "Retirer ce message ?"
                     },
@@ -4843,11 +4983,10 @@
                               "tagName": "sonic-button",
                               "attributes": {
                                 "shape": "circle",
-                                "size": "sm",
-                                "variant": "outline",
+                                "size": "md",
                                 "aria-label": "Fermer",
                                 "title": "Fermer",
-                                "style": "--sc-btn-rounded:999px"
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -4888,7 +5027,6 @@
                         {
                           "tagName": "sonic-button",
                           "attributes": {
-                            "variant": "outline",
                             "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                           },
                           "nodes": [
@@ -4925,6 +5063,147 @@
                             {
                               "tagName": "span",
                               "textContent": "Retirer"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "balises",
+            "key": "confirmBalise",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:12px 16px max(16px,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto;z-index:35;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;gap:12px"
+              },
+              "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "align-self:center;width:36px;height:4px;border-radius:2px;background:#e6e7ec;margin:-4px 0 4px;flex:none"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;gap:.6rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "h2",
+                      "attributes": {
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
+                      },
+                      "textContent": "Supprimer cette balise ?"
+                    },
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "margin-left:auto"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "balises",
+                            "type": "retouche:fermer"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "shape": "circle",
+                                "size": "md",
+                                "aria-label": "Fermer",
+                                "title": "Fermer",
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "cancel"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "p",
+                  "attributes": {
+                    "style": "margin:0;font-size:1rem;line-height:1.4"
+                  },
+                  "textContent": "Elle disparaît de la carte et du mur, avec sa discussion."
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;justify-content:flex-end;gap:8px"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "balises",
+                        "type": "retouche:fermer"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "span",
+                              "textContent": "Garder"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "balises",
+                        "type": "balise:supprimerOk"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "type": "danger",
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "trash",
+                                "slot": "prefix"
+                              }
+                            },
+                            {
+                              "tagName": "span",
+                              "textContent": "Supprimer"
                             }
                           ]
                         }
@@ -5046,7 +5325,7 @@
                         "size": "sm",
                         "aria-label": "Voir le parcours",
                         "title": "Voir le parcours",
-                        "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
                       },
                       "nodes": [
                         {
@@ -5074,7 +5353,7 @@
                         "size": "sm",
                         "aria-label": "Mode poche",
                         "title": "Mode poche : écran noir, sons et vibrations",
-                        "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
                       },
                       "nodes": [
                         {
@@ -5154,7 +5433,7 @@
                         "size": "sm",
                         "aria-label": "Abandonner",
                         "title": "Abandonner",
-                        "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
                       },
                       "nodes": [
                         {
@@ -5206,9 +5485,15 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:12px 16px max(16px,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto;z-index:30;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;gap:12px"
               },
               "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "align-self:center;width:36px;height:4px;border-radius:2px;background:#e6e7ec;margin:-4px 0 4px;flex:none"
+                  }
+                },
                 {
                   "tagName": "div",
                   "attributes": {
@@ -5218,7 +5503,7 @@
                     {
                       "tagName": "h2",
                       "attributes": {
-                        "style": "margin:0;font-size:1.15rem;font-weight:800"
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
                       },
                       "textContent": "Parcours dans cette zone"
                     },
@@ -5239,11 +5524,10 @@
                               "tagName": "sonic-button",
                               "attributes": {
                                 "shape": "circle",
-                                "size": "sm",
-                                "variant": "outline",
+                                "size": "md",
                                 "aria-label": "Fermer",
                                 "title": "Fermer",
-                                "style": "--sc-btn-rounded:999px"
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -5401,9 +5685,15 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:12px 16px max(16px,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto;z-index:30;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;gap:12px"
               },
               "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "align-self:center;width:36px;height:4px;border-radius:2px;background:#e6e7ec;margin:-4px 0 4px;flex:none"
+                  }
+                },
                 {
                   "tagName": "sonic-jsonata",
                   "attributes": {
@@ -5483,11 +5773,10 @@
                               "tagName": "sonic-button",
                               "attributes": {
                                 "shape": "circle",
-                                "size": "sm",
-                                "variant": "outline",
+                                "size": "md",
                                 "aria-label": "Fermer",
                                 "title": "Fermer",
-                                "style": "--sc-btn-rounded:999px"
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -5679,7 +5968,6 @@
                                   "tagName": "sonic-button",
                                   "attributes": {
                                     "size": "lg",
-                                    "variant": "outline",
                                     "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
                                   },
                                   "nodes": [
@@ -5720,11 +6008,11 @@
                               "tagName": "sonic-button",
                               "attributes": {
                                 "shape": "circle",
-                                "size": "sm",
-                                "variant": "ghost",
+                                "size": "md",
                                 "aria-label": "Signaler ce parcours",
                                 "title": "Signaler ce parcours",
-                                "style": "--sc-btn-rounded:999px"
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
+                                "variant": "ghost"
                               },
                               "nodes": [
                                 {
@@ -5757,9 +6045,15 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:12px 16px max(16px,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto;z-index:30;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;gap:12px"
               },
               "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "align-self:center;width:36px;height:4px;border-radius:2px;background:#e6e7ec;margin:-4px 0 4px;flex:none"
+                  }
+                },
                 {
                   "tagName": "div",
                   "attributes": {
@@ -5769,7 +6063,7 @@
                     {
                       "tagName": "h2",
                       "attributes": {
-                        "style": "margin:0;font-size:1.15rem;font-weight:800"
+                        "style": "margin:0;font-size:1.25rem;line-height:1.2;font-weight:800;letter-spacing:-.01em"
                       },
                       "textContent": "Ton parcours"
                     },
@@ -5790,11 +6084,10 @@
                               "tagName": "sonic-button",
                               "attributes": {
                                 "shape": "circle",
-                                "size": "sm",
-                                "variant": "outline",
+                                "size": "md",
                                 "aria-label": "Fermer",
                                 "title": "Fermer",
-                                "style": "--sc-btn-rounded:999px"
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -5854,7 +6147,6 @@
                             "name": "ceOrdre",
                             "value": "oui",
                             "size": "sm",
-                            "variant": "outline",
                             "style": "--sc-btn-rounded:999px"
                           },
                           "nodes": [
@@ -5871,7 +6163,6 @@
                             "name": "ceOrdre",
                             "value": "non",
                             "size": "sm",
-                            "variant": "outline",
                             "style": "--sc-btn-rounded:999px"
                           },
                           "nodes": [
@@ -5896,7 +6187,6 @@
                             "name": "ceMode",
                             "value": "etape",
                             "size": "sm",
-                            "variant": "outline",
                             "style": "--sc-btn-rounded:999px"
                           },
                           "nodes": [
@@ -5913,7 +6203,6 @@
                             "name": "ceMode",
                             "value": "ambiance",
                             "size": "sm",
-                            "variant": "outline",
                             "style": "--sc-btn-rounded:999px"
                           },
                           "nodes": [
@@ -5980,11 +6269,11 @@
                                           "tagName": "sonic-button",
                                           "attributes": {
                                             "shape": "circle",
-                                            "size": "sm",
-                                            "variant": "ghost",
+                                            "size": "md",
                                             "aria-label": "Monter",
                                             "title": "Monter",
-                                            "style": "--sc-btn-rounded:999px"
+                                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
+                                            "variant": "ghost"
                                           },
                                           "nodes": [
                                             {
@@ -6011,11 +6300,11 @@
                                           "tagName": "sonic-button",
                                           "attributes": {
                                             "shape": "circle",
-                                            "size": "sm",
-                                            "variant": "ghost",
+                                            "size": "md",
                                             "aria-label": "Descendre",
                                             "title": "Descendre",
-                                            "style": "--sc-btn-rounded:999px"
+                                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
+                                            "variant": "ghost"
                                           },
                                           "nodes": [
                                             {
@@ -6042,11 +6331,11 @@
                                           "tagName": "sonic-button",
                                           "attributes": {
                                             "shape": "circle",
-                                            "size": "sm",
-                                            "variant": "ghost",
+                                            "size": "md",
                                             "aria-label": "Retirer l'étape",
                                             "title": "Retirer l'étape",
-                                            "style": "--sc-btn-rounded:999px"
+                                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
+                                            "variant": "ghost"
                                           },
                                           "nodes": [
                                             {
@@ -6078,7 +6367,6 @@
                                           "tagName": "sonic-button",
                                           "attributes": {
                                             "size": "sm",
-                                            "variant": "outline",
                                             "style": "--sc-btn-rounded:999px"
                                           },
                                           "nodes": [
@@ -6197,7 +6485,6 @@
                                           "tagName": "sonic-button",
                                           "attributes": {
                                             "size": "sm",
-                                            "variant": "outline",
                                             "style": "--sc-btn-rounded:999px"
                                           },
                                           "nodes": [
@@ -6724,7 +7011,7 @@
                                 "shape": "circle",
                                 "aria-label": "Fermer sans envoyer",
                                 "title": "Fermer sans envoyer",
-                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -6785,7 +7072,7 @@
                               "attributes": {
                                 "type": "primary",
                                 "size": "md",
-                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24;--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-primary:#ff3d7f;--sc-primary-content:#fff;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -6827,7 +7114,7 @@
                             "shape": "circle",
                             "aria-label": "Couleur",
                             "title": "Couleur",
-                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -7082,7 +7369,7 @@
                             "shape": "circle",
                             "aria-label": "Taille du pinceau",
                             "title": "Taille du pinceau",
-                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -7211,7 +7498,7 @@
                             "shape": "circle",
                             "aria-label": "Opacité et dureté",
                             "title": "Opacité et dureté",
-                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -7355,7 +7642,7 @@
                             "shape": "circle",
                             "aria-label": "Fusion avec le mur",
                             "title": "Fusion avec le mur",
-                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -7544,7 +7831,7 @@
                                 "shape": "circle",
                                 "aria-label": "Annuler le dernier trait",
                                 "title": "Annuler le dernier trait",
-                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -7572,7 +7859,7 @@
                                 "shape": "circle",
                                 "aria-label": "Rétablir",
                                 "title": "Rétablir",
-                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -7694,7 +7981,7 @@
                                 "shape": "circle",
                                 "aria-label": "Revoir tout le mur",
                                 "title": "Revoir tout le mur",
-                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -7815,7 +8102,6 @@
                           "tagName": "sonic-button",
                           "attributes": {
                             "size": "sm",
-                            "variant": "outline",
                             "style": "--sc-btn-rounded:999px;--sc-base-content:#5c5f66"
                           },
                           "nodes": [
