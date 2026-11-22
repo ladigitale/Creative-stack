@@ -1,6 +1,7 @@
 import {
   boolean,
   flatten,
+  inRing,
   multiArea,
   multiBBox,
   parsePath,
@@ -235,13 +236,44 @@ function shapePath(el: Element): { d: string; closed: boolean } | null {
   return null;
 }
 
+/**
+ * Pair-impair par imbrication : chaque contour à profondeur paire est un extérieur, ses enfants directs (profondeur
+ * impaire) ses trous. Exact pour des contours qui ne se croisent pas (tracé d'une image, sortie de `sonic-vectorize`),
+ * sans opération booléenne.
+ */
+export function evenOddByNesting(rs: Ring[]): Multi {
+  const box = rs.map((r) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of r) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    return [x0, y0, x1, y1];
+  });
+  const area = rs.map((r) => Math.abs(signedArea(r)));
+  const parents = rs.map((r, i) => rs.map((_, j) => j).filter((j) => j !== i && area[j] > area[i] &&
+    box[i][0] >= box[j][0] && box[i][2] <= box[j][2] && box[i][1] >= box[j][1] && box[i][3] <= box[j][3] && inRing(r[0], rs[j])));
+  const depth = parents.map((p) => p.length);
+  const polys = new Map<number, Poly>();
+  rs.forEach((r, i) => { if (depth[i] % 2 === 0) polys.set(i, [r]); });
+  rs.forEach((r, i) => {
+    if (depth[i] % 2 === 0) return;
+    const outer = parents[i].filter((j) => depth[j] === depth[i] - 1).sort((a, b) => area[a] - area[b])[0];
+    if (outer !== undefined) polys.get(outer)?.push(r);
+  });
+  return [...polys.values()];
+}
+
 /** Remplissage d'un ensemble de contours selon la règle : `evenodd` = ou exclusif des contours ; `nonzero` = union des contours de même sens, moins les autres. */
 function fillShape(rings: Ring[], rule: string): Multi {
   const rs = rings.filter((r) => r.length >= 3);
   if (!rs.length) return [];
   if (rs.length === 1) return ringsToMulti(rs);
   try {
-    if (rule === "evenodd") return boolean("xor", [[rs[0]]], ...rs.slice(1).map((r): Multi => [[r]]));
+    if (rule === "evenodd") {
+      // Le ou exclusif de polygon-clipping peut échouer ou rendre un résultat vide sur de nombreux contours très
+      // détaillés : l'imbrication prend alors le relais (même résultat quand les contours ne se croisent pas).
+      let xor: Multi = [];
+      try { xor = boolean("xor", [[rs[0]]], ...rs.slice(1).map((r): Multi => [[r]])); } catch { xor = []; }
+      return xor.length && multiArea(xor) > 0 ? xor : evenOddByNesting(rs);
+    }
     const main = rs.reduce((a, b) => (Math.abs(signedArea(b)) > Math.abs(signedArea(a)) ? b : a));
     const sign = Math.sign(signedArea(main));
     const pos = rs.filter((r) => Math.sign(signedArea(r)) === sign).map((r): Poly => [r]);

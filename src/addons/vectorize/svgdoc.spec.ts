@@ -80,3 +80,14 @@ describe("lecture d'un SVG (formes exactes)", () => {
     expect(parseCssColor("navy")).toEqual(["#000080", 1]);
   });
 });
+
+describe("pair-impair par imbrication", () => {
+  it("extérieur, trou, île dans le trou : comme la règle pair-impair", async () => {
+    const { evenOddByNesting } = await import("./svgdoc");
+    const sq = (x: number, s: number): [number, number][] => [[x, x], [x + s, x], [x + s, x + s], [x, x + s]];
+    const m = evenOddByNesting([sq(0, 100), sq(10, 80), sq(40, 20), sq(200, 10)]);
+    const area = (p: [number, number][][]) => p.reduce((n, r, i) => n + (i ? -1 : 1) * Math.abs(r.reduce((a, q, k) => a + q[0] * r[(k + 1) % r.length][1] - r[(k + 1) % r.length][0] * q[1], 0) / 2), 0);
+    expect(m.length).toBe(3);
+    expect(m.map(area).reduce((a, b) => a + b, 0)).toBeCloseTo(10000 - 6400 + 400 + 100, 6);
+  });
+});

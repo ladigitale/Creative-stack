@@ -315,4 +315,17 @@ describe("sonic-vectorize : palette imposée et fond retiré sur un SVG lu", () 
     el.remove();
     vi.unstubAllGlobals();
   });
+
+  it("mode trait : réglages bornés, résolution plus fine permise, attribut blur", async () => {
+    const el = document.createElement("sonic-vectorize") as HTMLElement & { settings: () => Record<string, unknown> };
+    el.setAttribute("params", "vz.lart");
+    el.setAttribute("blur", "2.5");
+    set("vz.lart", { mode: "lineart", maxSize: 2600, threshold: 300, adaptive: 40, sensitivity: 80, corner: 5, ink: "#E11D48" });
+    document.body.append(el);
+    await (el as unknown as { updateComplete: Promise<unknown> }).updateComplete;
+    expect(el.settings()).toMatchObject({ mode: "lineart", maxSize: 2600, threshold: 255, adaptive: 40, sensitivity: 50, corner: 10, ink: "#e11d48", blur: 2.5 });
+    set("vz.lart", { mode: "colors", maxSize: 2600 });
+    expect(el.settings().maxSize).toBe(1400);
+    el.remove();
+  });
 });

@@ -27,7 +27,17 @@ Store `vec` piloté par des `sonic-action` : `{ "n": 0, "colors": 8, "tolerance"
 | `denoise` | `denoise` | Passes de filtre majoritaire 3×3 (0 à 3, défaut 1) ; retire aussi les liserés d'un pixel laissés par l'anticrénelage. `0` garde les traits fins |
 | `curves` | `curves` | Courbes lisses ; les coins nets (virage fort) restent vifs |
 | `flat` | `flat` | Sans empilement : chaque couleur seule, avec trous (peut laisser des fentes) |
-| `max-size` | `maxSize` | Côté maximal analysé en pixels (16 à 1400, défaut 512) |
+| `max-size` | `maxSize` | Côté maximal analysé en pixels (16 à 1400, défaut 512 ; jusqu'à 3000 en `lineart`) |
+| `mode` | `mode` | `colors` (défaut : aplats de couleurs) ou `lineart` (dessin au trait, voir plus bas) |
+| `threshold` | `threshold` | Trait : seuil 0..255, `-1` (défaut) = automatique (Otsu) |
+| `adaptive` | `adaptive` | Trait : rayon en px du seuil local (éclairage inégal, ombre sur la feuille) ; 0 = seuil global |
+| `sensitivity` | `sensitivity` | Trait : un pixel est de l'encre s'il est plus sombre que la moyenne locale de ce % (0..50, défaut 12) |
+| `blur` | `blur` | Trait : flou avant seuil contre le grain du papier (0..4 px, défaut 1) |
+| `min-hole` | `minHole` | Trait : trous plus petits bouchés (px², défaut 4) ; `min-area` retire les taches d'encre |
+| `corner` | `corner` | Trait : virage (°) à partir duquel un sommet reste un coin vif (défaut 55) |
+| `invert` | `invert` | Trait : encre claire sur fond sombre |
+| `ink` | `ink` | Trait : couleur de l'encre dans le résultat (défaut `#000000`) |
+| `clear-border` | `clearBorder` | Trait : ignore ce qui touche le bord de l'image (table, ombre, dessin voisin coupé) |
 | `hidden-preview` | — | N'affiche pas le dessin |
 | `main-thread` | — | Calcule sur le fil principal au lieu d'un Web Worker (débogage) |
 
@@ -75,3 +85,19 @@ Lu : `path`, `rect` (coins arrondis), `circle`, `ellipse`, `polygon`, `polyline`
 `keep-colors` ajoute `keepColors: true` à l'état : `sonic-sketch` garde alors les couleurs d'origine même avec `import-colors-from`.
 
 Réglages qui s'appliquent aussi au SVG lu (dans `params` ou `control`, ou en attribut) : `palette` ramène chaque couleur à la plus proche de la palette (comme pour une image tracée), `dropBase` (`drop-base`) retire la couche du dessous — le fond : rectangle de fond d'un SVG, papier d'une photo. Les changer republie le résultat sans relire le fichier : l'aperçu du composant montre exactement ce qui sera importé.
+
+## Dessin au trait (`mode: "lineart"`)
+
+Pour un plan, une gravure, un pochoir ou un dessin noir et blanc photographié : une seule couche d'encre, des contours qui suivent le bord réel du trait (pas l'escalier des pixels).
+
+1. Luminance, flou gaussien (`blur`) contre le grain du papier.
+2. Seuil : global (Otsu, ou `threshold`) ou local (`adaptive` = rayon, `sensitivity`) quand l'éclairage est inégal ; le seuil local reste borné autour du seuil global, pour qu'un grand aplat noir reste de l'encre et qu'une ombre sur le papier reste du papier.
+3. Carrés marchants sur l'écart au seuil, interpolé entre les centres de pixels : précision sous-pixel.
+4. Taches (`minArea`) et trous (`minHole`) retirés séparément ; `clearBorder` retire ce qui touche le bord de l'image.
+5. Simplification (`tolerance`, 0,5 conseillé), puis courbes (Catmull-Rom en cubiques) avec coins vifs au-delà de `corner` degrés.
+
+```json
+{ "tagName": "sonic-vectorize", "attributes": { "id": "trace", "source": "#photo", "auto": true, "mode": "lineart", "max-size": 2200, "adaptive": 40, "blur": 1, "min-area": 24, "min-hole": 16, "tolerance": 0.5, "curves": true, "clear-border": true, "ink": "#e11d48", "out-data-provider": "traceState" } }
+```
+
+Le résultat (`traceState.svg`, couche `paths[0]`) se donne tel quel à `sonic-gcode svg-from` (découpe du contour) ou à `sonic-sketch import-from` (retouche forme par forme).

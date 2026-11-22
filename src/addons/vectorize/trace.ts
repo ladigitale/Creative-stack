@@ -1,6 +1,7 @@
 import { ringsToMulti, multiArea, ringArea, type Multi, type Pt, type Ring } from "../vector/geometry";
 import { simplifyRing } from "../vector/ops";
 import { ringsToPath } from "../vector/svgpath";
+import { traceLineArt, type LineArtOptions } from "./lineart";
 
 /**
  * Vectorisation d'une image par quantification des couleurs puis suivi de contours :
@@ -30,12 +31,21 @@ export type TraceOptions = {
    * calculée (`colors` est alors ignoré). Pour vectoriser sur une palette d'harmonie.
    */
   palette?: string[];
+  /**
+   * `colors` (défaut) : aplats de couleurs. `lineart` : dessin au trait (plan, gravure, pochoir photographié) —
+   * seuil global ou local, contours à précision sous-pixel, courbes à coins vifs ; une seule couche d'encre.
+   */
+  mode?: "colors" | "lineart";
+  /** Réglages du mode `lineart` (encre : `ink`, défaut noir). */
+  lineart?: LineArtOptions;
 };
 
 export type Layer = { color: string; d: string; area: number };
 export type TraceResult = { width: number; height: number; layers: Layer[]; palette: string[]; truncated: boolean };
 
 export const MAX_PIXELS = 2_000_000;
+/** Mode `lineart` : une seule couche, on peut analyser plus fin. */
+export const MAX_LINEART_PIXELS = 9_000_000;
 
 const hex = (c: number[]) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
 
@@ -282,6 +292,14 @@ export function parsePalette(list: unknown): number[][] {
 /** Image → couches SVG (de la plus étendue, dessous, à la plus petite, dessus). */
 export function trace(img: RGBA, opts: TraceOptions = {}): TraceResult {
   const { width: w, height: h } = img;
+  if (opts.mode === "lineart") {
+    if (!(w > 0 && h > 0) || w * h > MAX_LINEART_PIXELS) throw new Error("taille d'image invalide ou trop grande");
+    const ink = parsePalette([opts.lineart?.ink ?? "#000000"])[0] ?? [0, 0, 0];
+    const r = traceLineArt(img, { tolerance: opts.tolerance, minArea: opts.minArea, curves: opts.curves, ...opts.lineart });
+    const color = hex(ink);
+    const truncated = r.d.length > (opts.maxChars ?? 4_000_000);
+    return { width: w, height: h, layers: r.d && !truncated ? [{ color, d: r.d, area: r.area }] : [], palette: [color, "#ffffff"], truncated };
+  }
   if (!(w > 0 && h > 0) || w * h > MAX_PIXELS) throw new Error("taille d'image invalide ou trop grande");
   const k = Math.max(2, Math.min(32, Math.round(opts.colors ?? 8)));
   const tol = Math.max(0.1, opts.tolerance ?? 1);
