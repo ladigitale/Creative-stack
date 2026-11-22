@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { morseNormalize } from "./morse";
-import { FastDecoder, buildFastTable, defaultFastTable, fastPlan, fastSigns, fastSymbols, fastTimeline } from "./fastcode";
+import { FAST_START_EXTRA, FastDecoder, buildFastTable, defaultFastTable, fastPlan, fastSigns, fastSymbols, fastTimeline } from "./fastcode";
 
 const table = defaultFastTable();
 
@@ -14,7 +14,7 @@ function replay(text: string, opts: { unit?: number; bias?: number; jitter?: (i:
   let result = "more";
   steps.forEach((s, i) => {
     const ms = s.ms + (s.on ? bias : -bias) + (opts.jitter?.(i) ?? 0);
-    if (i === 0) dec.start(ms, start);
+    if (i === 0) dec.start(ms, start + FAST_START_EXTRA);
     else if (result === "more") result = dec.feed(s.on, ms);
   });
   return { dec, result };
@@ -89,7 +89,7 @@ describe("émission et réception", () => {
 
   it("chronologie : éclat de début, silence de 3 unités, intervalles alternés", () => {
     const steps = fastTimeline("oui", 100, 0, 5, table);
-    expect(steps[0]).toMatchObject({ on: true, ms: 500 });
+    expect(steps[0]).toMatchObject({ on: true, ms: 700 });
     expect(steps[1]).toMatchObject({ on: false, ms: 300 });
     steps.slice(2).forEach((s, i) => {
       expect(s.on).toBe(i % 2 === 0);
@@ -111,7 +111,7 @@ describe("émission et réception", () => {
     const plain = fastTimeline("salut", 300, 0, 5, table);
     const trimmed = fastTimeline("salut", 300, 40, 5, table);
     expect(sum(plain) - sum(trimmed)).toBe(40);
-    expect(trimmed[0].ms).toBe(1460);
+    expect(trimmed[0].ms).toBe(2060);
     expect(trimmed[1].ms).toBe(940);
   });
 
@@ -128,7 +128,7 @@ describe("émission et réception", () => {
   it("suit un émetteur d'une autre unité : l'étalonnage vient de l'éclat de début", () => {
     const dec = new FastDecoder(table);
     const steps = fastTimeline("bonjour a toi", 200, 0, 5, table);
-    steps.forEach((s, i) => (i === 0 ? dec.start(s.ms, 5) : dec.feed(s.on, s.ms)));
+    steps.forEach((s, i) => (i === 0 ? dec.start(s.ms, 7) : dec.feed(s.on, s.ms)));
     expect(dec.ok).toBe(true);
     expect(Math.round(dec.unit)).toBe(200);
   });
@@ -143,7 +143,7 @@ describe("émission et réception", () => {
       const steps = fastTimeline(m, 300, 0, 5, table);
       let r = "more";
       steps.forEach((s, i) => {
-        if (i === 0) dec.start(s.ms, 5);
+        if (i === 0) dec.start(s.ms, 7);
         else if (r === "more") r = dec.feed(s.on, i === hit ? (s.ms > 450 ? s.ms - 300 : s.ms + 300) : s.ms);
       });
       if (r === "done") wrong += dec.text === morseNormalize(m) ? 0 : 1;
@@ -160,7 +160,7 @@ describe("émission et réception", () => {
     const steps = fastTimeline("tout va bien", 300, 0, 5, table);
     let r = "more";
     steps.forEach((s, i) => {
-      if (i === 0) dec.start(s.ms, 5);
+      if (i === 0) dec.start(s.ms, 7);
       else if (r === "more") r = dec.feed(s.on, s.ms);
     });
     expect(r).not.toBe("done");
@@ -169,7 +169,7 @@ describe("émission et réception", () => {
   it("étalonnage invalide : un silence trop court ou trop long après l'éclat de début est rejeté", () => {
     for (const gap of [200, 2000]) {
       const dec = new FastDecoder(table);
-      dec.start(1500, 5);
+      dec.start(2100, 7);
       expect(dec.feed(false, gap)).toBe("error");
       expect(dec.error).toBe("étalonnage");
     }
@@ -177,7 +177,7 @@ describe("émission et réception", () => {
 
   it("alternance rompue (front manqué) : rejeté", () => {
     const dec = new FastDecoder(table);
-    dec.start(1500, 5);
+    dec.start(2100, 7);
     dec.feed(false, 900);
     expect(dec.feed(false, 300)).toBe("error");
     expect(dec.error).toBe("alternance");
@@ -190,12 +190,65 @@ describe("émission et réception", () => {
 });
 
 describe("gain sur le morse", () => {
-  it("une phrase de la table va au moins deux fois plus vite, attente de fin du morse comprise", async () => {
+  it("une phrase de la table va presque deux fois plus vite, attente de fin du morse comprise", async () => {
     const { morseTimeline } = await import("./morse");
     const sum = (s: { ms: number }[]) => s.reduce((a, x) => a + x.ms, 0);
     for (const m of ["merci", "salut ca va ?", "j'arrive"]) {
       const morse = sum(morseTimeline(m, 300, 0, 5)) + 12 * 300;
-      expect(morse / sum(fastTimeline(m, 300, 0, 5, table))).toBeGreaterThan(2);
+      expect(morse / sum(fastTimeline(m, 300, 0, 5, table))).toBeGreaterThan(1.8);
     }
+  });
+});
+
+describe("identifiant de l'émetteur", () => {
+  const roster = ["Renard", "Loup", "Aigle"];
+  const t = buildFastTable(undefined, roster);
+  const play = (text: string, speaker: string, dec = new FastDecoder(t)) => {
+    const steps = fastTimeline(text, 300, 0, 5, t, speaker);
+    let r = "more";
+    steps.forEach((s, i) => (i === 0 ? dec.start(s.ms, 7) : r === "more" ? (r = dec.feed(s.on, s.ms)) : 0));
+    return { dec, r };
+  };
+
+  it("le pseudo fait l'aller-retour avec le message", () => {
+    for (const who of roster) {
+      const { dec, r } = play("je suis la", who);
+      expect(r).toBe("done");
+      expect(dec.text).toBe("JE SUIS LA");
+      expect(dec.speaker).toBe(who.toUpperCase());
+    }
+  });
+
+  it("pseudo inconnu ou absent : anonyme, message reçu", () => {
+    for (const who of ["", "Ours"]) {
+      const { dec, r } = play("merci", who);
+      expect(r).toBe("done");
+      expect(dec.speaker).toBe("");
+    }
+  });
+
+  it("deux intervalles de plus pour jusqu'à 8 pseudos, trois au-delà (± l'éclat de fermeture)", () => {
+    const base = fastPlan("merci", t).intervals.length; // identifiant 0 : en-tête déjà compté
+    expect(fastPlan("merci", t, "loup").intervals.length).toBe(base);
+    const none = fastPlan("merci").intervals.length;
+    expect(base - none).toBeGreaterThanOrEqual(2);
+    expect(base - none).toBeLessThanOrEqual(3);
+    const big = buildFastTable(undefined, Array.from({ length: 12 }, (_, i) => `P${i}`));
+    expect(fastPlan("merci", big, "p11").intervals.length - none).toBeGreaterThanOrEqual(3);
+  });
+
+  it("un autre pseudo dans l'en-tête est rejeté (le contrôle couvre l'identité)", () => {
+    const steps = fastTimeline("merci", 300, 0, 5, t, "Loup");
+    const forged = fastTimeline("merci", 300, 0, 5, t, "Aigle");
+    expect(forged[2].ms === steps[2].ms && forged[3].ms === steps[3].ms).toBe(false);
+    const dec = new FastDecoder(t);
+    let r = "more";
+    const mix = steps.map((s, i) => (i === 2 || i === 3 ? forged[i] : s));
+    mix.forEach((s, i) => (i === 0 ? dec.start(s.ms, 7) : r === "more" ? (r = dec.feed(s.on, s.ms)) : 0));
+    expect(r).toBe("error");
+  });
+
+  it("sans liste, rien ne change", () => {
+    expect(fastPlan("merci", defaultFastTable(), "loup").intervals).toEqual(fastPlan("merci").intervals);
   });
 });

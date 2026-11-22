@@ -5,7 +5,9 @@
  * allumé ou éteint, porte une information, et un seul arbre de code (préfixe, durées 1/2/3) couvre les
  * caractères, une fin de message et une table de phrases : « OUI » est un seul symbole.
  *
- * Message : éclat de début (`startUnits`), silence de 3 unités (étalonnage), symboles, fin de message,
+ * Message : éclat de début (`startUnits` + 2 : le récepteur reconnaît ainsi le code, voir `FAST_START_EXTRA`),
+ * silence de 3 unités (étalonnage), identifiant de l'émetteur (2 ou 3 intervalles, seulement si une liste
+ * de pseudos `roster` est configurée ; 0 = anonyme), symboles, fin de message,
  * 3 chiffres de contrôle (base 3). Si le dernier intervalle est un silence, un éclat d'une unité le
  * referme. Le récepteur sait où le message finit : pas de silence à attendre.
  *
@@ -19,6 +21,14 @@ export const FAST_VERSION = 1;
 
 /** Part de chaque durée (1, 2, 3 unités) dans un code optimal : racine de x⁻¹ + x⁻² + x⁻³ = 1. */
 const SHARE = [0, 0.5437, 0.2956, 0.1607];
+
+/**
+ * Unités ajoutées à l'éclat de début du morse pour celui du code rapide. Le premier silence qui suit vaut
+ * 3 unités dans les deux codes : éclat de début / silence = S/3 en morse, (S+2)/3 en rapide, soit 1,67 et
+ * 2,33 pour S = 5. Le rapport ne dépend pas de l'unité, le récepteur reconnaît le code d'un message sans
+ * rien connaître de l'émetteur.
+ */
+export const FAST_START_EXTRA = 2;
 
 /** Nombre de chiffres de contrôle (base 3) en fin de message. */
 const CHECK_TRITS = 3;
@@ -46,7 +56,14 @@ export const FAST_PHRASES: [string, number][] = [
 
 type Node = { sym?: number; kids: (Node | undefined)[] };
 
+/** Nombre maximal de pseudos de la liste d'identifiants. */
+export const FAST_MAX_ROSTER = 26;
+
 export type FastTable = {
+  /** Pseudos des émetteurs (liste partagée) ; l'identifiant d'un message est leur rang + 1, 0 = anonyme. */
+  roster: string[];
+  /** Intervalles de l'identifiant en tête de message : 0 sans liste, 2 jusqu'à 8 pseudos, 3 au-delà. */
+  idTrits: number;
   /** Texte de chaque symbole : caractère, ou phrase. */
   texts: string[];
   /** Symbole de fin de message. */
@@ -122,7 +139,7 @@ function walk(node: Node, path: number[], codes: number[][]): void {
 const cache = new Map<string, FastTable>();
 
 /** Table de code. `phrases` remplace la table par défaut (textes ramenés à l'alphabet du morse). */
-export function buildFastTable(phrases?: readonly (string | [string, number])[]): FastTable {
+export function buildFastTable(phrases?: readonly (string | [string, number])[], roster?: readonly string[]): FastTable {
   const list: [string, number][] = [];
   const seen = new Set<string>();
   for (const p of phrases ?? FAST_PHRASES) {
@@ -133,7 +150,12 @@ export function buildFastTable(phrases?: readonly (string | [string, number])[])
     seen.add(text);
     list.push([text, Number.isFinite(w) && w > 0 ? w : 100]);
   }
-  const key = list.map(([t, w]) => `${t}=${w}`).join("|");
+  const names: string[] = [];
+  for (const r of roster ?? []) {
+    const n = morseNormalize(String(r));
+    if (n && !names.includes(n) && names.length < FAST_MAX_ROSTER) names.push(n);
+  }
+  const key = list.map(([t, w]) => `${t}=${w}`).join("|") + (names.length ? `@${names.join("|")}` : "");
   const hit = cache.get(key);
   if (hit) return hit;
 
@@ -165,6 +187,8 @@ export function buildFastTable(phrases?: readonly (string | [string, number])[])
   const avgUnits = chars.reduce((a, it) => a + it.w * codes[it.id].reduce((x, k) => x + k, 0), 0) / mass;
 
   const table: FastTable = {
+    roster: names,
+    idTrits: names.length === 0 ? 0 : names.length <= 8 ? 2 : 3,
     texts,
     eot,
     codes,
@@ -214,8 +238,8 @@ export function fastSymbols(text: string, table: FastTable = defaultFastTable())
 }
 
 /** Chiffres de contrôle (0..2) d'une suite de symboles. */
-function checkTrits(ids: number[], table: FastTable): number[] {
-  const c = fnv(`${table.hash}:${ids.join(",")}`) % 3 ** CHECK_TRITS;
+function checkTrits(ids: number[], table: FastTable, speaker = 0): number[] {
+  const c = fnv(`${table.hash}:${speaker}:${ids.join(",")}`) % 3 ** CHECK_TRITS;
   const out: number[] = [];
   for (let i = CHECK_TRITS - 1; i >= 0; i--) out.push(Math.floor(c / 3 ** i) % 3);
   return out;
@@ -231,12 +255,19 @@ export type FastPlan = {
 };
 
 /** Message → intervalles (symboles, fin de message, contrôle, éclat de fermeture éventuel). */
-export function fastPlan(text: string, table: FastTable = defaultFastTable()): FastPlan {
+export function fastPlan(text: string, table: FastTable = defaultFastTable(), speaker = ""): FastPlan {
   const clean = morseNormalize(text);
   const ids = clean ? fastSymbols(clean, table) : [];
   const intervals: number[] = [];
   const chars: number[] = [];
   let done = 0;
+  const who = table.idTrits ? table.roster.indexOf(morseNormalize(speaker)) + 1 : 0;
+  if (ids.length) {
+    for (let i = table.idTrits - 1; i >= 0; i--) {
+      intervals.push((Math.floor(who / 3 ** i) % 3) + 1);
+      chars.push(0);
+    }
+  }
   for (const id of ids) {
     const code = table.codes[id];
     done += table.texts[id].length;
@@ -250,7 +281,7 @@ export function fastPlan(text: string, table: FastTable = defaultFastTable()): F
     intervals.push(k);
     chars.push(done);
   }
-  for (const t of checkTrits(ids, table)) {
+  for (const t of checkTrits(ids, table, who)) {
     intervals.push(t + 1);
     chars.push(done);
   }
@@ -263,17 +294,17 @@ export function fastPlan(text: string, table: FastTable = defaultFastTable()): F
 }
 
 /** Durées des intervalles, en chiffres (« 1321 »), pour l'affichage. */
-export function fastSigns(text: string, table: FastTable = defaultFastTable()): string {
-  return fastPlan(text, table).intervals.join("");
+export function fastSigns(text: string, table: FastTable = defaultFastTable(), speaker = ""): string {
+  return fastPlan(text, table, speaker).intervals.join("");
 }
 
 /** Chronologie d'émission ; mêmes réglages que `morseTimeline`. */
-export function fastTimeline(text: string, unit: number, trim = 0, startUnits = 5, table: FastTable = defaultFastTable()): MorseStep[] {
-  const plan = fastPlan(text, table);
+export function fastTimeline(text: string, unit: number, trim = 0, startUnits = 5, table: FastTable = defaultFastTable(), speaker = ""): MorseStep[] {
+  const plan = fastPlan(text, table, speaker);
   if (!plan.intervals.length) return [];
   const u = Math.max(1, unit);
   const cut = Math.min(Math.max(0, trim), u * 0.8);
-  const start = Math.max(4, startUnits || 5);
+  const start = Math.max(4, startUnits || 5) + FAST_START_EXTRA;
   const steps: MorseStep[] = [
     { on: true, ms: start * u - cut, chars: 0 },
     { on: false, ms: 3 * u + cut, chars: 0 },
@@ -289,7 +320,8 @@ export type FastResult = "more" | "done" | "error";
 
 /**
  * Décode des intervalles mesurés. `start(ms, units)` : l'éclat de début vient de finir ;
- * `feed(lit, ms)` : un intervalle vient de finir. L'étalonnage vient de l'éclat de début et du silence
+ * `feed(lit, ms)` : un intervalle vient de finir (`startUnits` : durée réelle de l'éclat de début, soit
+ * celle du morse + `FAST_START_EXTRA`). L'étalonnage vient de l'éclat de début et du silence
  * qui le suit : un émetteur d'une autre unité est suivi, les durées sont relatives.
  */
 export class FastDecoder {
@@ -297,11 +329,15 @@ export class FastDecoder {
   text = "";
   /** Unité estimée sur l'éclat de début, en ms. */
   unit = 0;
+  /** Pseudo de l'émetteur, dès que son identifiant est lu (vide : anonyme ou pas encore lu). */
+  speaker = "";
   /** Raison du dernier rejet. */
   error = "";
   /** Message complet et contrôle bon. */
   ok = false;
-  private state: "idle" | "gap" | "data" | "check" | "end" = "idle";
+  private state: "idle" | "gap" | "id" | "data" | "check" | "end" = "idle";
+  private who = 0;
+  private idRead = 0;
   private node: Node;
   private ids: number[] = [];
   private trits: number[] = [];
@@ -320,6 +356,9 @@ export class FastDecoder {
 
   reset(): void {
     this.text = "";
+    this.speaker = "";
+    this.who = 0;
+    this.idRead = 0;
     this.error = "";
     this.ok = false;
     this.state = "idle";
@@ -354,7 +393,7 @@ export class FastDecoder {
       const ratio = ms / this.unitLit;
       if (ratio < 2 || ratio > 4.5) return this.fail("étalonnage");
       this.unitDark = ms / 3;
-      this.state = "data";
+      this.state = this.table.idTrits ? "id" : "data";
       this.expectLit = true;
       return "more";
     }
@@ -364,10 +403,19 @@ export class FastDecoder {
     if (r < 0.5 || r > 4.5) return this.fail("durée");
     const k = r < 1.5 ? 1 : r < 2.5 ? 2 : 3;
 
+    if (this.state === "id") {
+      this.who = this.who * 3 + (k - 1);
+      if (++this.idRead < this.table.idTrits) return "more";
+      if (this.who > this.table.roster.length) return this.fail("identité");
+      this.speaker = this.who ? this.table.roster[this.who - 1] : "";
+      this.state = "data";
+      return "more";
+    }
+
     if (this.state === "check") {
       this.trits.push(k - 1);
       if (this.trits.length < CHECK_TRITS) return "more";
-      const want = checkTrits(this.ids, this.table);
+      const want = checkTrits(this.ids, this.table, this.who);
       if (want.some((t, i) => t !== this.trits[i])) return this.fail("contrôle");
       this.ok = true;
       this.state = "end";
