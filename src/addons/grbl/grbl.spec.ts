@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import "./index";
 import {
   analyzeGcode, checkLine, cleanLine, cleanOp, GrblLink, hatch, hexColor, num, orderPaths, parseGrblLine, parseStatus, prepareJob, rasterToGcode, RT, RX_BUFFER,
@@ -537,6 +537,36 @@ describe("sonic-gcode", () => {
     expect(el.getGcode()).toBeNull();
     expect(await el.run("build")).toBe(false);
     expect(el.getState()).toMatchObject({ ready: false, lines: 0 });
+  });
+
+  it("source vectorielle (dessin) : la vue qui bouge ne relance pas le calcul, le contenu oui", async () => {
+    vi.useFakeTimers();
+    try {
+      // Source factice : image (frameSeq, avance à chaque affichage) et SVG (contentSeq, avance au contenu).
+      const src = Object.assign(document.createElement("div"), {
+        frameSeq: 0, contentSeq: "a:1",
+        getFrameCanvas: () => document.createElement("canvas"),
+        toSvg: () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10Z" fill="none" stroke="#000"/></svg>',
+      });
+      src.id = "dessinVue";
+      document.body.appendChild(src);
+      document.body.insertAdjacentHTML("beforeend", '<sonic-gcode id="progVue" source="#dessinVue" auto></sonic-gcode>');
+      const el = document.getElementById("progVue") as unknown as SonicGcode;
+      await el.updateComplete;
+      await vi.advanceTimersByTimeAsync(900);
+      const first = el.gcodeSeq;
+      expect(first).toBeGreaterThan(0);
+      // Zoom, déplacement : seules les images changent.
+      src.frameSeq += 30;
+      await vi.advanceTimersByTimeAsync(900);
+      expect(el.gcodeSeq).toBe(first);
+      src.contentSeq = "a:2";
+      await vi.advanceTimersByTimeAsync(900);
+      expect(el.gcodeSeq).toBe(first + 1);
+      el.remove(); src.remove();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("dit quand il n'y a rien à tracer", async () => {

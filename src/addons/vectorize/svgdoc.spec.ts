@@ -90,4 +90,13 @@ describe("pair-impair par imbrication", () => {
     expect(m.length).toBe(3);
     expect(m.map(area).reduce((a, b) => a + b, 0)).toBeCloseTo(10000 - 6400 + 400 + 100, 6);
   });
+  it("liseré d'affichage (non-scaling-stroke de la couleur du remplissage) : la forme n'est pas élargie", () => {
+    const sq = '<path d="M0 0H10V10H0Z" fill="#ff0000" stroke="#ff0000" stroke-width="2" vector-effect="non-scaling-stroke"/>';
+    const r = parseSvgDocument(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">${sq}</svg>`);
+    expect(r.paths).toHaveLength(1);
+    expect(r.paths[0].area).toBeCloseTo(100, 0);
+    // Un vrai contour (épaisseur dans le dessin) élargit toujours la forme.
+    const r2 = parseSvgDocument('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M0 0H10V10H0Z" fill="#ff0000" stroke="#ff0000" stroke-width="2"/></svg>');
+    expect(r2.paths).toHaveLength(2);
+  });
 });

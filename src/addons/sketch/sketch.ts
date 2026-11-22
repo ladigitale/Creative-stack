@@ -524,6 +524,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private libToken = 0;
 
   get frameSeq(): number { return this.seq; }
+  /**
+   * Révision du contenu exporté (`toSvg`) : change quand le dessin ou le fond change, pas quand la vue bouge.
+   * Un lecteur vectoriel (`sonic-gcode`) s'y fie plutôt qu'à `frameSeq`, qui avance à chaque image affichée.
+   */
+  get contentSeq(): string { return `${this.doc.serial}:${this.doc.rev}:${this.background}`; }
   getFrameCanvas(): HTMLCanvasElement | null { return this.canvasEl ?? null; }
   registerFrameConsumer(token: object = {}): void { this.consumers.add(token); }
   unregisterFrameConsumer(token: object = {}): void { this.consumers.delete(token); }

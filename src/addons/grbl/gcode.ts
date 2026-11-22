@@ -154,7 +154,7 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
   private watch: ReturnType<typeof setInterval> | null = null;
   private building = false;
   private dirty = false;
-  private lastSourceSeq = -1;
+  private lastSourceSeq: number | string = -1;
 
   private initial(): GcodeState {
     return {
@@ -311,10 +311,21 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
     return (root as unknown as Document).getElementById?.(id) ?? document.getElementById(id);
   }
 
+  /**
+   * Version de la source à suivre : son contenu (`contentSeq`, ex. un dessin) quand on la lit en SVG — zoomer ou
+   * déplacer la vue d'un dessin ne relance pas le calcul —, sinon chaque nouvelle image (`frameSeq`).
+   */
+  private sourceSeq(src: SonicFrameSource): number | string {
+    const c = (src as unknown as { contentSeq?: unknown }).contentSeq;
+    const input = (this.live ?? {}).input ?? this.input;
+    const vector = input !== "image" && hasSvg(src) && (typeof c === "string" || typeof c === "number");
+    return vector ? (c as string | number) : src.frameSeq;
+  }
+
   private tick(): void {
     if (!this.auto || this.building) return;
     const src = this.byId(this.source);
-    if (isFrameSource(src) && src.frameSeq !== this.lastSourceSeq) this.dirty = true;
+    if (isFrameSource(src) && this.sourceSeq(src) !== this.lastSourceSeq) this.dirty = true;
     if (this.dirty) void this.build(true);
   }
 
@@ -359,7 +370,7 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
     const issues: string[] = [];
     const s = this.settings(issues);
     const src = this.byId(this.source);
-    if (isFrameSource(src)) this.lastSourceSeq = src.frameSeq;
+    if (isFrameSource(src)) this.lastSourceSeq = this.sourceSeq(src);
     const tp: ToolpathSettings = { ...TOOLPATH_DEFAULTS, ...s, ops: s.ops };
 
     let svg: string | null = null;

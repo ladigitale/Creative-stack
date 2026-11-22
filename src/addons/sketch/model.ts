@@ -233,8 +233,14 @@ type Op =
   | { t: "clear"; strokes: Stroke[] };
 
 /** Les traits et l'historique annuler / rétablir (opérations inversibles, bornées). */
+let docSerial = 0;
+
 export class Doc {
   strokes: Stroke[] = [];
+  /** Révision du contenu : change à chaque modification (ajout, remplacement, retrait, effacement, annulation). */
+  rev = 0;
+  /** Identifiant de ce document (un document rechargé ou nouveau n'a pas le même). */
+  readonly serial = ++docSerial;
   private past: Op[] = [];
   private future: Op[] = [];
   nextId = 1;
@@ -251,6 +257,7 @@ export class Doc {
   }
 
   private record(op: Op): void {
+    this.rev++;
     this.past.push(op);
     this.future = [];
     if (this.past.length > this.maxOps) this.past.shift();
@@ -304,6 +311,7 @@ export class Doc {
     else if (op.t === "replace") this.strokes = op.before;
     else if (op.t === "remove") for (const it of op.items) this.strokes.splice(it.index, 0, it.stroke);
     else this.strokes = op.strokes;
+    this.rev++;
     this.future.push(op);
     return true;
   }
@@ -315,6 +323,7 @@ export class Doc {
     else if (op.t === "replace") this.strokes = op.after;
     else if (op.t === "remove") { const ids = new Set(op.items.map((i) => i.stroke.id)); this.strokes = this.strokes.filter((s) => !ids.has(s.id)); }
     else this.strokes = [];
+    this.rev++;
     this.past.push(op);
     return true;
   }
