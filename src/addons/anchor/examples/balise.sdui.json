@@ -50,8 +50,8 @@
           "tagName": "sonic-store",
           "attributes": {
             "id": "balises",
-            "initial": "{\"items\": [], \"outbox\": [], \"panneau\": \"non\", \"fil\": null, \"saisie\": \"\", \"dessin\": 0}",
-            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $p}]) : $ob}]) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($state.ici = $p.value ? $state : $merge([$state, {\"ici\": $p.value, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($state.fil and $p.url ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}]) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\"}]) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\"}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : \"\")}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $state)",
+            "initial": "{\"items\": [], \"outbox\": [], \"panneau\": \"non\", \"fil\": null, \"saisie\": \"\", \"dessin\": 0, \"fType\": \"tout\", \"fDepuis\": \"tout\", \"fQui\": \"tous\", \"fParcours\": \"oui\", \"vus\": []}",
+            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $merge([$p, {\"aVoix\": $p.voix ? true : false}])}]) : $ob}]) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($v := [$distinct($append($state.vus ? $state.vus : [], [$p.value]))][[-300..-1]]; $state.ici = $p.value ? $merge([$state, {\"vus\": $v}]) : $merge([$state, {\"ici\": $p.value, \"vus\": $v, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($state.fil and $p.url ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}]) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\"}]) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\"}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : ($p.op = \"addRoute\" ? \"Parcours publié !\" : \"\"))}, $p.op = \"addRoute\" ? {\"pv\": $p.routeId, \"pvOuvert\": \"oui\", \"ceEtapes\": [], \"ceTitre\": \"\", \"ceDesc\": \"\"} : {}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $action.type = \"parcours:liste\" ? $merge([$state, {\"pListe\": \"oui\", \"pvOuvert\": \"non\"}]) : $action.type = \"parcours:listeFermer\" ? $merge([$state, {\"pListe\": \"non\"}]) : $action.type = \"parcours:voir\" ? $merge([$state, {\"pv\": $p, \"pvOuvert\": \"oui\", \"pListe\": \"non\"}]) : $action.type = \"parcours:voirSuivi\" ? $merge([$state, {\"pv\": $state.suivi.id, \"pvOuvert\": \"oui\"}]) : $action.type = \"parcours:fermer\" ? $merge([$state, {\"pvOuvert\": \"non\"}]) : $action.type = \"parcours:signaler\" ? ($state.pv ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rr-\" & $state.pv, \"op\": \"reportRoute\", \"route\": $state.pv}]), \"pvOuvert\": \"non\", \"erreur\": \"Merci, parcours signalé.\"}]) : $state) : $action.type = \"suivi:demarrer\" ? ($rid := $type($p) = \"string\" ? $p : $state.pv; $rid ? $merge([$state, {\"suivi\": {\"id\": $rid, \"faits\": [], \"joue\": 0, \"step\": null, \"poche\": \"non\"}, \"pv\": $rid, \"pvOuvert\": \"non\", \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1, \"erreur\": \"C'est parti : avance vers la première étape.\"}]) : $state) : $action.type = \"suivi:arreter\" ? $merge([$state, {\"suivi\": null, \"wakeR\": ($state.wakeR ? $state.wakeR : 0) + 1, \"pvOuvert\": \"non\", \"erreur\": \"Parcours arrêté.\"}]) : $action.type = \"suivi:arrive\" ? ($i := $p.value - 1; $state.suivi.id and $not($i in $state.suivi.faits) ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"faits\": $append($state.suivi.faits, [$i]), \"joue\": $state.suivi.joue + 1, \"step\": $i}]), \"erreur\": \"Étape \" & $string($p.value) & \" : vise le mur pour la découvrir.\"}]) : $state) : $action.type = \"poche:on\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"oui\"}]), \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1}]) : $state) : $action.type = \"poche:off\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"non\"}])}]) : $state) : $action.type = \"ce:debut\" ? $merge([$state, {\"cree\": \"oui\", \"ceForm\": \"non\", \"pListe\": \"non\", \"ceEtapes\": [], \"ceOrdre\": \"oui\", \"ceMode\": \"etape\", \"erreur\": \"Touche une balise sur la carte puis « Ajouter au parcours ».\"}]) : $action.type = \"ce:annuler\" ? $merge([$state, {\"cree\": \"non\", \"ceForm\": \"non\", \"ceEtapes\": [], \"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:ouvrir\" ? $merge([$state, {\"ceForm\": \"oui\"}]) : $action.type = \"ce:fermerForm\" ? $merge([$state, {\"ceForm\": \"non\"}]) : $action.type = \"ce:ajouter\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $count($e) >= 30 ? $merge([$state, {\"erreur\": \"30 étapes au plus.\"}]) : ($e[-1].place = $p.place ? $state : $merge([$state, {\"ceEtapes\": $append($e, [{\"place\": $p.place, \"titre\": $p.titre, \"radius\": 30, \"sound\": \"balise\"}]), \"erreur\": \"Étape \" & $string($count($e) + 1) & \" ajoutée.\"}]))) : $action.type = \"ce:retirer\" ? $merge([$state, {\"ceEtapes\": [$filter($state.ceEtapes, function($x, $k){ $k != $p })]}]) : $action.type = \"ce:monter\" or $action.type = \"ce:descendre\" ? ($e := $state.ceEtapes; $j := $action.type = \"ce:monter\" ? $p - 1 : $p + 1; $j < 0 or $j >= $count($e) ? $state : $merge([$state, {\"ceEtapes\": [$map($e, function($x, $k){ $k = $p ? $e[$j] : ($k = $j ? $e[$p] : $x) })]}])) : $action.type = \"ce:rayon\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"radius\": $p.r}]) : $x })]}]) : $action.type = \"ce:son\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"sound\": $p.s, \"media\": null}]) : $x })]}]) : $action.type = \"ce:enreg\" ? $merge([$state, {\"ceCible\": $p, \"ceEnreg\": \"oui\", \"ceImport\": \"non\"}]) : $action.type = \"ce:importer\" ? $merge([$state, {\"ceCible\": $p, \"ceImport\": \"oui\", \"ceEnreg\": \"non\"}]) : $action.type = \"ce:enregFermer\" ? $merge([$state, {\"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:garder\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $state.ceCible ? $merge([$x, {\"sound\": \"propre\", \"media\": $p}]) : $x })], \"ceEnreg\": \"non\", \"ceImport\": \"non\", \"erreur\": \"Son gardé pour l'étape \" & $string($state.ceCible + 1) & \".\"}]) : $action.type = \"ce:publier\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $t := $trim($state.ceTitre ? $state.ceTitre : \"\"); $count($e) < 2 ? $merge([$state, {\"erreur\": \"Il faut au moins deux étapes.\"}]) : $t = \"\" ? $merge([$state, {\"erreur\": \"Donne un titre à ton parcours.\"}]) : $e[sound = \"propre\" and $not(media)] ? $merge([$state, {\"erreur\": \"Une étape attend encore son son à part.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"p-\" & $string($millis()), \"op\": \"addRoute\", \"data\": {\"title\": $t, \"description\": $state.ceDesc ? $state.ceDesc : \"\", \"ordered\": $state.ceOrdre != \"non\", \"mode\": $state.ceMode = \"ambiance\" ? \"ambiance\" : \"etape\", \"steps\": [$e.{\"place\": place, \"radius\": radius, \"sound\": sound, \"media\": media}]}}]), \"cree\": \"non\", \"ceForm\": \"non\", \"erreur\": \"Publication du parcours…\"}])) : $state)",
             "persist": "balises",
             "max-state-bytes": "1200000"
           }
@@ -106,6 +106,16 @@
             "formDataProvider": "balises",
             "outputProvider": "toutes",
             "expression": "{\"items\": $append($items ? $items : [], $input.items[ref and $not(id in $items.placeId)])}"
+          }
+        },
+        {
+          "tagName": "sonic-audio-recorder",
+          "attributes": {
+            "id": "voixParcours",
+            "source": "#micro",
+            "max-s": "60",
+            "max-takes": "1",
+            "control": "enregParcours"
           }
         },
         {
@@ -231,6 +241,156 @@
             "inputProvider": "croquisEtat",
             "outputProvider": "croquisPlein",
             "expression": "$input.full ? \"500 traits : c'est le maximum pour un dessin. Annule ou gomme pour continuer.\" : \"\""
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "balises",
+            "outputProvider": "parcoursCible",
+            "expression": "{\"id\": $input.suivi.id ? $input.suivi.id : $input.pv}"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "parcoursRoute",
+            "formDataProvider": "balises",
+            "outputProvider": "parcoursEtapes",
+            "expression": "($r := $input.route; $ok := $suivi.id and $r.id = $suivi.id; $ok ? {\"id\": $r.id, \"titre\": $r.title, \"steps\": $r.steps, \"sounds\": $input.sounds, \"ordered\": $r.ordered, \"mode\": $r.mode, \"faits\": $suivi.faits ? $suivi.faits : [], \"step\": $suivi.step, \"joue\": $suivi.joue ? $suivi.joue : 0} : {\"id\": null, \"steps\": [], \"faits\": [], \"joue\": 0})"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "geoState",
+            "formDataProvider": "parcoursEtapes",
+            "outputProvider": "parcoursPos",
+            "expression": "($cosr := function($x){ ($y := $x * 0.017453292519943295; 1 - $y*$y/2 + $y*$y*$y*$y/24 - $y*$y*$y*$y*$y*$y/720) }; $dist := function($a, $b, $c, $d){ ($dy := ($c - $a) * 111195; $dx := ($d - $b) * 111195 * $cosr(($a + $c) / 2); $sqrt($dx*$dx + $dy*$dy)) }; $lat := $input.lat; $lon := $input.lon; $acc := $input.accuracy ? ($input.accuracy > 30 ? 30 : $input.accuracy) : 15; $f := $faits; $n := $count($steps); $e := [$steps.($d := $lat ? $round($dist($lat, $lon, lat, lon)) : null; {\"i\": index, \"n\": index + 1, \"place\": place, \"radius\": radius, \"d\": $d, \"fait\": index in $f ? \"oui\" : \"non\", \"dedans\": $d != null and $d <= radius + $acc})]; $reste := [$e[fait = \"non\"]]; $next := $ordered ? $reste[0] : $reste^(d)[0]; $arr := $ordered ? ($next.dedans ? $next.n : null) : ($reste[dedans]^(d)[0]).n; {\"actif\": $id ? \"oui\" : \"non\", \"titre\": $titre, \"etapes\": $e, \"total\": $n, \"faits\": $count($f), \"prochaine\": $next.n, \"distance\": $next.d, \"distanceTxt\": $next.d = null ? \"position…\" : ($next.d >= 1000 ? $replace($formatNumber($next.d / 1000, \"0.0\"), \".\", \",\") & \" km\" : $string($next.d) & \" m\"), \"arrive\": $arr ? $arr : null, \"fini\": $n > 0 and $count($f) >= $n ? \"oui\" : \"non\", \"mode\": $mode})"
+          }
+        },
+        {
+          "tagName": "sonic-trigger",
+          "attributes": {
+            "source": "parcoursPos",
+            "key": "arrive",
+            "truthy": true,
+            "mode": "edge",
+            "hold-ms": "1500",
+            "target": "balises",
+            "type": "suivi:arrive"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "toutes",
+            "formDataProvider": "parcoursEtapes",
+            "outputProvider": "parcoursRefs",
+            "expression": "($it := $input.items; {\"refs\": $merge([{}, $steps.( $s := $; {$string(index): sound = \"propre\" ? ($u := $lookup($sounds, $string(index)); $u ? {\"url\": $u} : null) : sound = \"balise\" ? ($it[(placeId ? placeId : id) = $s.place].voix)[0] : null} )]), \"step\": $step, \"joue\": $joue, \"mode\": $mode})"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "parcoursRefs",
+            "outputProvider": "parcoursSon",
+            "expression": "($r := $input.step != null ? $lookup($input.refs, $string($input.step)) : null; {\"s\": $r, \"n\": $input.mode = \"ambiance\" or $not($r) ? 0 : $input.joue, \"ev\": [{\"sample\": \"s\"}]})"
+          }
+        },
+        {
+          "tagName": "sonic-sampler",
+          "attributes": {
+            "id": "parcoursLecteur",
+            "samples": "{\"s\": {\"ref\": \"parcoursSon.s\"}}",
+            "events": "parcoursSon.ev",
+            "trigger": "parcoursSon.n"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "parcoursPos",
+            "formDataProvider": "parcoursRefs",
+            "outputProvider": "parcoursAmb",
+            "expression": "($on := $input.actif = \"oui\" and $input.mode = \"ambiance\"; $c := $on ? [$input.etapes[d != null and $lookup($refs, $string(i))]^(d)][[0..2]] : []; $slot := function($k){ ($e := $c[$k]; $e ? {\"s\": $lookup($refs, $string($e.i)), \"g\": {\"gain\": ($g := 1 - $e.d / ($e.radius * 3); $g < 0 ? 0 : $g * $g)}, \"t\": $e.n} : {\"s\": null, \"g\": {\"gain\": 0}, \"t\": 0}) }; {\"a0\": $slot(0), \"a1\": $slot(1), \"a2\": $slot(2), \"ev\": [{\"sample\": \"a\"}]})"
+          }
+        },
+        {
+          "tagName": "sonic-sampler",
+          "attributes": {
+            "id": "parcoursAmb0",
+            "samples": "{\"a\": {\"ref\": \"parcoursAmb.a0.s\", \"loop\": true}}",
+            "control": "parcoursAmb.a0.g",
+            "events": "parcoursAmb.ev",
+            "trigger": "parcoursAmb.a0.t"
+          }
+        },
+        {
+          "tagName": "sonic-sampler",
+          "attributes": {
+            "id": "parcoursAmb1",
+            "samples": "{\"a\": {\"ref\": \"parcoursAmb.a1.s\", \"loop\": true}}",
+            "control": "parcoursAmb.a1.g",
+            "events": "parcoursAmb.ev",
+            "trigger": "parcoursAmb.a1.t"
+          }
+        },
+        {
+          "tagName": "sonic-sampler",
+          "attributes": {
+            "id": "parcoursAmb2",
+            "samples": "{\"a\": {\"ref\": \"parcoursAmb.a2.s\", \"loop\": true}}",
+            "control": "parcoursAmb.a2.g",
+            "events": "parcoursAmb.ev",
+            "trigger": "parcoursAmb.a2.t"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "balises",
+            "outputProvider": "parcoursMat",
+            "expression": "{\"vib\": {\"vibrate\": {\"n\": $input.suivi.joue ? $input.suivi.joue : 0, \"pattern\": \"180,90,180\"}}, \"wake\": {\"acquire\": $input.wakeA ? $input.wakeA : 0, \"release\": $input.wakeR ? $input.wakeR : 0}, \"poche\": $input.suivi.poche = \"oui\" ? \"oui\" : \"non\", \"suivi\": $input.suivi.id ? \"oui\" : \"non\"}"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "balises",
+            "outputProvider": "ceVue",
+            "expression": "($e := $input.ceEtapes ? $input.ceEtapes : []; {\"nb\": $count($e)})"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "balises",
+            "outputProvider": "ceVueEtapes",
+            "expression": "($e := $input.ceEtapes ? $input.ceEtapes : []; [$map($e, function($x, $k){ {\"i\": $k, \"n\": $k + 1, \"titre\": $x.titre, \"rayonTxt\": \"Rayon \" & $string($x.radius) & \" m\", \"sonTxt\": $x.sound = \"propre\" ? ($x.media ? \"Son à part ✓\" : \"Son à part : à ajouter\") : ($x.sound = \"aucun\" ? \"Sans son\" : \"Son de la balise\"), \"r15\": {\"i\": $k, \"r\": 15}, \"r30\": {\"i\": $k, \"r\": 30}, \"r60\": {\"i\": $k, \"r\": 60}, \"r100\": {\"i\": $k, \"r\": 100}, \"r200\": {\"i\": $k, \"r\": 200}, \"sBalise\": {\"i\": $k, \"s\": \"balise\"}, \"sAucun\": {\"i\": $k, \"s\": \"aucun\"}} })])"
+          }
+        },
+        {
+          "tagName": "sonic-vibrate",
+          "attributes": {
+            "id": "parcoursVib",
+            "control": "parcoursMat.vib"
+          }
+        },
+        {
+          "tagName": "sonic-wake-lock",
+          "attributes": {
+            "id": "parcoursEveil",
+            "control": "parcoursMat.wake"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "parcoursRoutes",
+            "formDataProvider": "balises",
+            "outputProvider": "carteFond",
+            "expression": "($base := {\"style\": \"https://tiles.openfreemap.org/styles/positron\", \"pointStyle\": {\"paint\": {\"circle-color\": \"#ff3d7f\", \"circle-stroke-color\": \"#ffffff\", \"circle-stroke-width\": 2.5, \"circle-radius\": [\"case\", [\"has\", \"count\"], [\"min\", 30, [\"+\", 10, [\"*\", 2, [\"sqrt\", [\"get\", \"count\"]]]]], [\"boolean\", [\"feature-state\", \"selected\"], false], 11, 8]}}}; $sel := $suivi.id ? $suivi.id : ($pv ? $pv : \"\"); $clear := [{\"op\": \"removeLayer\", \"id\": \"parcours-choisi\"}, {\"op\": \"removeLayer\", \"id\": \"parcours-ligne\"}, {\"op\": \"removeSource\", \"id\": \"parcours\"}]; $fParcours = \"non\" ? $merge([$base, {\"patches\": $clear}]) : $merge([$base, {\"patches\": $append($clear, [{\"op\": \"addSource\", \"id\": \"parcours\", \"source\": {\"type\": \"geojson\", \"data\": $input.lines ? $input.lines : {\"type\": \"FeatureCollection\", \"features\": []}}}, {\"op\": \"addLayer\", \"layer\": {\"id\": \"parcours-ligne\", \"type\": \"line\", \"source\": \"parcours\", \"layout\": {\"line-cap\": \"round\", \"line-join\": \"round\"}, \"paint\": {\"line-color\": \"#ffd84a\", \"line-width\": 4, \"line-opacity\": 0.85, \"line-dasharray\": [1.4, 1.2]}}}, {\"op\": \"addLayer\", \"layer\": {\"id\": \"parcours-choisi\", \"type\": \"line\", \"source\": \"parcours\", \"filter\": [\"==\", [\"get\", \"id\"], $sel], \"layout\": {\"line-cap\": \"round\", \"line-join\": \"round\"}, \"paint\": {\"line-color\": \"#ff3d7f\", \"line-width\": 7}}}])}]))"
           }
         },
         {
@@ -2499,16 +2659,9 @@
                   "tagName": "sonic-jsonata",
                   "attributes": {
                     "inputProvider": "carte",
+                    "formDataProvider": "balises",
                     "outputProvider": "cartePoints",
-                    "expression": "$exists($input.points) ? [$input.points] : []"
-                  }
-                },
-                {
-                  "tagName": "sonic-jsonata",
-                  "attributes": {
-                    "inputProvider": "ui",
-                    "outputProvider": "carteFond",
-                    "expression": "{\"style\": \"https://tiles.openfreemap.org/styles/positron\", \"pointStyle\": {\"paint\": {\"circle-color\": \"#ff3d7f\", \"circle-stroke-color\": \"#ffffff\", \"circle-stroke-width\": 2.5, \"circle-radius\": [\"case\", [\"has\", \"count\"], [\"min\", 30, [\"+\", 10, [\"*\", 2, [\"sqrt\", [\"get\", \"count\"]]]]], [\"boolean\", [\"feature-state\", \"selected\"], false], 11, 8]}}}"
+                    "expression": "($t := $fType ? $fType : \"tout\"; $q := $fQui ? $fQui : \"tous\"; $d := $fDepuis = \"jour\" ? 86400000 : ($fDepuis = \"semaine\" ? 604800000 : ($fDepuis = \"mois\" ? 2592000000 : 0)); $min := $millis() - $d; $mine := $items.placeId; $actif := $t != \"tout\" or $d > 0 or $q != \"tous\"; $pts := $input.points[groupe ? $not($actif) : (($t = \"message\" ? effet != \"dessin\" : ($t = \"dessin\" ? effet = \"dessin\" : ($t = \"vocal\" ? aVoix = true : true))) and ($d = 0 or (createdAt and $toMillis(createdAt) >= $min)) and ($q != \"miens\" or id in $mine) and ($q != \"passes\" or id in $vus))]; $exists($pts) ? [$pts] : [])"
                   }
                 },
                 {
@@ -2574,15 +2727,235 @@
                             },
                             {
                               "tagName": "span",
-                              "textContent": "balises dans cette zone"
+                              "textContent": "balises"
                             }
                           ]
                         },
                         {
                           "tagName": "div",
                           "attributes": {
-                            "style": "width:2.6rem"
-                          }
+                            "style": "display:flex;gap:.4rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-action",
+                              "attributes": {
+                                "target": "balises",
+                                "type": "parcours:liste"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "shape": "circle",
+                                    "size": "md",
+                                    "aria-label": "Parcours de la zone",
+                                    "title": "Parcours de la zone",
+                                    "style": "--sc-btn-rounded:999px"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-icon",
+                                      "attributes": {
+                                        "library": "iconoir",
+                                        "name": "maps-arrow"
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-pop",
+                              "attributes": {
+                                "placement": "bottom-end"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "shape": "circle",
+                                    "size": "md",
+                                    "aria-label": "Filtres",
+                                    "title": "Filtres",
+                                    "style": "--sc-btn-rounded:999px"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-icon",
+                                      "attributes": {
+                                        "library": "iconoir",
+                                        "name": "filter"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-menu",
+                                  "attributes": {
+                                    "slot": "content",
+                                    "direction": "column",
+                                    "align": "left",
+                                    "size": "sm",
+                                    "style": "min-width:15rem;max-height:70svh;overflow-y:auto"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "padding:.3rem .8rem;font-weight:700"
+                                      },
+                                      "textContent": "Quoi"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fType",
+                                        "value": "tout"
+                                      },
+                                      "textContent": "Toutes les balises"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fType",
+                                        "value": "message"
+                                      },
+                                      "textContent": "Messages"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fType",
+                                        "value": "dessin"
+                                      },
+                                      "textContent": "Dessins"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fType",
+                                        "value": "vocal"
+                                      },
+                                      "textContent": "Avec un vocal"
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "padding:.6rem .8rem .3rem;font-weight:700"
+                                      },
+                                      "textContent": "Depuis"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fDepuis",
+                                        "value": "tout"
+                                      },
+                                      "textContent": "Toujours"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fDepuis",
+                                        "value": "jour"
+                                      },
+                                      "textContent": "24 heures"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fDepuis",
+                                        "value": "semaine"
+                                      },
+                                      "textContent": "7 jours"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fDepuis",
+                                        "value": "mois"
+                                      },
+                                      "textContent": "30 jours"
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "padding:.6rem .8rem .3rem;font-weight:700"
+                                      },
+                                      "textContent": "Montrer"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fQui",
+                                        "value": "tous"
+                                      },
+                                      "textContent": "Celles de tout le monde"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fQui",
+                                        "value": "miens"
+                                      },
+                                      "textContent": "Mes balises"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fQui",
+                                        "value": "passes"
+                                      },
+                                      "textContent": "Là où je suis passé"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fParcours",
+                                        "value": "oui"
+                                      },
+                                      "textContent": "Parcours affichés"
+                                    },
+                                    {
+                                      "tagName": "sonic-menu-item",
+                                      "attributes": {
+                                        "radio": true,
+                                        "formDataProvider": "balises",
+                                        "name": "fParcours",
+                                        "value": "non"
+                                      },
+                                      "textContent": "Parcours masqués"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
@@ -2607,7 +2980,7 @@
                             "inputProvider": "geoState",
                             "formDataProvider": "carteSelBrut",
                             "outputProvider": "carteSel",
-                            "expression": "$id ? [{\"id\": $id, \"titre\": $titre, \"proche\": $id in $append($input.nearby.placeId, $input.nearby.id) ? \"oui\" : \"non\"}] : []"
+                            "expression": "$id ? [{\"id\": $id, \"titre\": $titre, \"ajout\": {\"place\": $id, \"titre\": $titre}, \"proche\": $id in $append($input.nearby.placeId, $input.nearby.id) ? \"oui\" : \"non\"}] : []"
                           }
                         },
                         {
@@ -2680,6 +3053,49 @@
                                                 {
                                                   "tagName": "span",
                                                   "textContent": "Discussion"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-if",
+                                          "attributes": {
+                                            "dataProvider": "balises",
+                                            "key": "cree",
+                                            "equals": "oui"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:ajouter",
+                                                "data-bind": "",
+                                                "::payload": "$ajout"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-button",
+                                                  "attributes": {
+                                                    "size": "sm",
+                                                    "type": "primary",
+                                                    "style": "--sc-btn-rounded:999px;--sc-primary:#ff3d7f"
+                                                  },
+                                                  "nodes": [
+                                                    {
+                                                      "tagName": "sonic-icon",
+                                                      "attributes": {
+                                                        "library": "iconoir",
+                                                        "name": "plus",
+                                                        "slot": "prefix"
+                                                      }
+                                                    },
+                                                    {
+                                                      "tagName": "span",
+                                                      "textContent": "Ajouter au parcours"
+                                                    }
+                                                  ]
                                                 }
                                               ]
                                             }
@@ -3754,6 +4170,1729 @@
         {
           "tagName": "sonic-if",
           "attributes": {
+            "dataProvider": "parcoursMat",
+            "key": "suivi",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;left:.7rem;right:.7rem;top:max(4rem,calc(env(safe-area-inset-top) + 3.4rem));z-index:15;display:flex;align-items:center;gap:.6rem;padding:.55rem .6rem .55rem .9rem;border-radius:999px;background:#1c1e24;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.35);max-width:36rem;margin:0 auto"
+              },
+              "nodes": [
+                {
+                  "tagName": "sonic-icon",
+                  "attributes": {
+                    "library": "iconoir",
+                    "name": "walking"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.15"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "strong",
+                      "attributes": {
+                        "style": "font-size:.92rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "parcoursPos",
+                            "key": "titre"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "span",
+                      "attributes": {
+                        "style": "font-size:.82rem;opacity:.85"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "span",
+                          "textContent": "Étape "
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "parcoursPos",
+                            "key": "prochaine"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": " · "
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "parcoursPos",
+                            "key": "distanceTxt"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": " · "
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "parcoursPos",
+                            "key": "faits"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "/"
+                        },
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "parcoursPos",
+                            "key": "total"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-action",
+                  "attributes": {
+                    "target": "balises",
+                    "type": "parcours:voirSuivi"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "shape": "circle",
+                        "size": "sm",
+                        "aria-label": "Voir le parcours",
+                        "title": "Voir le parcours",
+                        "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "list"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-action",
+                  "attributes": {
+                    "target": "balises",
+                    "type": "poche:on"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "shape": "circle",
+                        "size": "sm",
+                        "aria-label": "Mode poche",
+                        "title": "Mode poche : écran noir, sons et vibrations",
+                        "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "pocket"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "balises",
+            "key": "cree",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;left:.7rem;right:.7rem;bottom:max(1rem,env(safe-area-inset-bottom));z-index:16;display:flex;align-items:center;gap:.6rem;padding:.6rem .6rem .6rem 1rem;border-radius:1.2rem;background:#1c1e24;color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.35);max-width:36rem;margin:0 auto"
+              },
+              "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "flex:1;display:flex;flex-direction:column;line-height:1.2"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "strong",
+                      "attributes": {
+                        "style": "font-size:.95rem"
+                      },
+                      "textContent": "Nouveau parcours"
+                    },
+                    {
+                      "tagName": "span",
+                      "attributes": {
+                        "style": "font-size:.82rem;opacity:.85"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "ceVue",
+                            "key": "nb"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": " étapes · touche une balise puis « Ajouter »"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-action",
+                  "attributes": {
+                    "target": "balises",
+                    "type": "ce:annuler"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "shape": "circle",
+                        "size": "sm",
+                        "aria-label": "Abandonner",
+                        "title": "Abandonner",
+                        "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "cancel"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-action",
+                  "attributes": {
+                    "target": "balises",
+                    "type": "ce:ouvrir"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "size": "sm",
+                        "type": "primary",
+                        "style": "--sc-btn-rounded:999px;--sc-primary:#fff;--sc-primary-content:#1c1e24"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "span",
+                          "textContent": "Terminer"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "balises",
+            "key": "pListe",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;left:0;right:0;bottom:0;z-index:24;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+              },
+              "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;gap:.6rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "h2",
+                      "attributes": {
+                        "style": "margin:0;font-size:1.15rem;font-weight:800"
+                      },
+                      "textContent": "Parcours dans cette zone"
+                    },
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "margin-left:auto"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "balises",
+                            "type": "parcours:listeFermer"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "shape": "circle",
+                                "size": "sm",
+                                "variant": "outline",
+                                "aria-label": "Fermer",
+                                "title": "Fermer",
+                                "style": "--sc-btn-rounded:999px"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "cancel"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-jsonata",
+                  "attributes": {
+                    "inputProvider": "parcoursRoutes",
+                    "outputProvider": "parcoursListe",
+                    "expression": "[$input.items.{\"id\": id, \"title\": title, \"resume\": $string(count) & \" étapes · \" & (length >= 1000 ? $replace($formatNumber(length / 1000, \"0.0\"), \".\", \",\") & \" km\" : $string(length) & \" m\") & \" · \" & $string(minutes) & \" min\" & (pseudo ? \" · \" & pseudo : \"\")}]"
+                  }
+                },
+                {
+                  "tagName": "sonic-list",
+                  "attributes": {
+                    "dataProvider": "parcoursListe"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "template",
+                      "nodes": [
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "display:flex;align-items:center;gap:.7rem;padding:.75rem 0;border-bottom:1px solid #ececf0"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "div",
+                              "attributes": {
+                                "style": "flex:1;min-width:0;display:flex;flex-direction:column;gap:.15rem"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "strong",
+                                  "attributes": {
+                                    "data-bind": "",
+                                    "::text-content": "$title",
+                                    "style": "font-size:1.02rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "data-bind": "",
+                                    "::text-content": "$resume",
+                                    "style": "font-size:.85rem;color:#5b5e68"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-action",
+                              "attributes": {
+                                "target": "balises",
+                                "type": "parcours:voir",
+                                "data-bind": "",
+                                "::payload": "$id"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "size": "sm",
+                                    "type": "primary",
+                                    "style": "--sc-btn-rounded:999px"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "textContent": "Voir"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "template",
+                      "attributes": {
+                        "data-value": "no-item"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "p",
+                          "attributes": {
+                            "style": "margin:.3rem 0;font-size:1rem"
+                          },
+                          "textContent": "Aucun parcours ici pour l'instant. Relie quelques balises et crée le premier !"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-action",
+                  "attributes": {
+                    "target": "balises",
+                    "type": "ce:debut"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "type": "primary",
+                        "size": "lg",
+                        "shape": "block",
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "plus",
+                            "slot": "prefix"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "Créer un parcours"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "balises",
+            "key": "pvOuvert",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;left:0;right:0;bottom:0;z-index:24;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+              },
+              "nodes": [
+                {
+                  "tagName": "sonic-jsonata",
+                  "attributes": {
+                    "inputProvider": "parcoursRoute",
+                    "formDataProvider": "parcoursPos",
+                    "outputProvider": "parcoursVue",
+                    "expression": "($r := $input.route; $suiv := $actif = \"oui\"; $son := function($s){ $s = \"propre\" ? \"son du parcours\" : ($s = \"aucun\" ? \"sans son\" : \"son de la balise\") }; {\"id\": $r.id, \"titre\": $r.title, \"description\": $r.description ? $r.description : \"\", \"resume\": $r ? $string($r.count) & \" étapes · \" & ($r.length >= 1000 ? $replace($formatNumber($r.length / 1000, \"0.0\"), \".\", \",\") & \" km\" : $string($r.length) & \" m\") & \" · \" & $string($r.minutes) & \" min à pied\" : \"\", \"regles\": $r ? ($r.ordered ? \"Dans l'ordre\" : \"Dans le désordre\") & \" · \" & ($r.mode = \"ambiance\" ? \"ambiance sonore\" : \"un son par étape\") & ($r.pseudo ? \" · par \" & $r.pseudo : \"\") : \"\", \"suivi\": $suiv ? \"oui\" : \"non\"})"
+                  }
+                },
+                {
+                  "tagName": "sonic-jsonata",
+                  "attributes": {
+                    "inputProvider": "parcoursRoute",
+                    "formDataProvider": "parcoursPos",
+                    "outputProvider": "parcoursVueEtapes",
+                    "expression": "($r := $input.route; $son := function($s){ $s = \"propre\" ? \"son du parcours\" : ($s = \"aucun\" ? \"sans son\" : \"son de la balise\") }; [$r.steps.( $i := index; $e := $etapes[i = $i]; {\"n\": index + 1, \"titre\": missing ? \"Balise retirée\" : (summary.effet = \"dessin\" ? \"Un dessin\" : (summary.message ? summary.message : \"Une balise\")), \"info\": \"rayon \" & $string(radius) & \" m · \" & $son(sound) & ($e.d != null ? \" · à \" & ($e.d >= 1000 ? $replace($formatNumber($e.d / 1000, \"0.0\"), \".\", \",\") & \" km\" : $string($e.d) & \" m\") : \"\"), \"fait\": $e.fait = \"oui\" ? \"oui\" : \"non\"} )])"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;gap:.6rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "display:flex;flex-direction:column;gap:.15rem;min-width:0"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "h2",
+                          "attributes": {
+                            "style": "margin:0;font-size:1.2rem;font-weight:800"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-value",
+                              "attributes": {
+                                "dataProvider": "parcoursVue",
+                                "key": "titre"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "span",
+                          "attributes": {
+                            "style": "font-size:.88rem;color:#5b5e68"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-value",
+                              "attributes": {
+                                "dataProvider": "parcoursVue",
+                                "key": "resume"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "margin-left:auto"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "balises",
+                            "type": "parcours:fermer"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "shape": "circle",
+                                "size": "sm",
+                                "variant": "outline",
+                                "aria-label": "Fermer",
+                                "title": "Fermer",
+                                "style": "--sc-btn-rounded:999px"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "cancel"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "span",
+                  "attributes": {
+                    "style": "font-size:.9rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "parcoursVue",
+                        "key": "regles"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "tagName": "span",
+                  "attributes": {
+                    "style": "font-size:.95rem;line-height:1.4"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "parcoursVue",
+                        "key": "description"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "nodes": [
+                    {
+                      "tagName": "sonic-list",
+                      "attributes": {
+                        "dataProvider": "parcoursVueEtapes"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "template",
+                          "nodes": [
+                            {
+                              "tagName": "div",
+                              "attributes": {
+                                "style": "display:flex;align-items:center;gap:.7rem;padding:.75rem 0;border-bottom:1px solid #ececf0"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "data-bind": "",
+                                    "::text-content": "$n",
+                                    "style": "flex:none;display:grid;place-items:center;width:1.8rem;height:1.8rem;border-radius:50%;background:#1c1e24;color:#fff;font-weight:700;font-size:.9rem"
+                                  }
+                                },
+                                {
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "flex:1;min-width:0;display:flex;flex-direction:column;gap:.1rem"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "data-bind": "",
+                                        "::text-content": "$titre",
+                                        "style": "font-size:.98rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "data-bind": "",
+                                        "::text-content": "$info",
+                                        "style": "font-size:.82rem;color:#5b5e68"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-if",
+                                  "attributes": {
+                                    "key": "fait",
+                                    "equals": "oui"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-icon",
+                                      "attributes": {
+                                        "library": "iconoir",
+                                        "name": "check-circled-outline",
+                                        "style": "color:#ff3d7f;font-size:1.3rem"
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;gap:.5rem;flex-wrap:wrap"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-states",
+                      "attributes": {
+                        "dataProvider": "parcoursVue",
+                        "data-path": "suivi"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "template",
+                          "attributes": {
+                            "data-value": "^non$"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-action",
+                              "attributes": {
+                                "target": "balises",
+                                "type": "suivi:demarrer"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "type": "primary",
+                                    "size": "lg",
+                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-icon",
+                                      "attributes": {
+                                        "library": "iconoir",
+                                        "name": "walking",
+                                        "slot": "prefix"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "textContent": "Démarrer le parcours"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "template",
+                          "attributes": {
+                            "data-value": "^oui$"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-action",
+                              "attributes": {
+                                "target": "balises",
+                                "type": "suivi:arreter"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "size": "lg",
+                                    "variant": "outline",
+                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-icon",
+                                      "attributes": {
+                                        "library": "iconoir",
+                                        "name": "pause-outline",
+                                        "slot": "prefix"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "textContent": "Arrêter le parcours"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "margin-left:auto"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "balises",
+                            "type": "parcours:signaler"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "shape": "circle",
+                                "size": "sm",
+                                "variant": "ghost",
+                                "aria-label": "Signaler ce parcours",
+                                "title": "Signaler ce parcours",
+                                "style": "--sc-btn-rounded:999px"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "warning-triangle-outline"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "balises",
+            "key": "ceForm",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;left:0;right:0;bottom:0;z-index:24;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+              },
+              "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;gap:.6rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "h2",
+                      "attributes": {
+                        "style": "margin:0;font-size:1.15rem;font-weight:800"
+                      },
+                      "textContent": "Ton parcours"
+                    },
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "margin-left:auto"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "balises",
+                            "type": "ce:fermerForm"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "shape": "circle",
+                                "size": "sm",
+                                "variant": "outline",
+                                "aria-label": "Fermer",
+                                "title": "Fermer",
+                                "style": "--sc-btn-rounded:999px"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "cancel"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-form-layout",
+                  "nodes": [
+                    {
+                      "tagName": "sonic-input",
+                      "attributes": {
+                        "formDataProvider": "balises",
+                        "name": "ceTitre",
+                        "label": "Titre",
+                        "maxlength": "80"
+                      }
+                    },
+                    {
+                      "tagName": "sonic-input",
+                      "attributes": {
+                        "formDataProvider": "balises",
+                        "name": "ceDesc",
+                        "label": "Quelques mots (facultatif)",
+                        "maxlength": "500"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;flex-direction:column;gap:.4rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-group",
+                      "attributes": {
+                        "formDataProvider": "balises"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "radio": true,
+                            "name": "ceOrdre",
+                            "value": "oui",
+                            "size": "sm",
+                            "variant": "outline",
+                            "style": "--sc-btn-rounded:999px"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "span",
+                              "textContent": "Dans l'ordre"
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "radio": true,
+                            "name": "ceOrdre",
+                            "value": "non",
+                            "size": "sm",
+                            "variant": "outline",
+                            "style": "--sc-btn-rounded:999px"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "span",
+                              "textContent": "Dans le désordre"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-group",
+                      "attributes": {
+                        "formDataProvider": "balises"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "radio": true,
+                            "name": "ceMode",
+                            "value": "etape",
+                            "size": "sm",
+                            "variant": "outline",
+                            "style": "--sc-btn-rounded:999px"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "span",
+                              "textContent": "Un son par étape"
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "radio": true,
+                            "name": "ceMode",
+                            "value": "ambiance",
+                            "size": "sm",
+                            "variant": "outline",
+                            "style": "--sc-btn-rounded:999px"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "span",
+                              "textContent": "Ambiance qui se mélange"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "nodes": [
+                    {
+                      "tagName": "sonic-list",
+                      "attributes": {
+                        "dataProvider": "ceVueEtapes"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "template",
+                          "nodes": [
+                            {
+                              "tagName": "div",
+                              "attributes": {
+                                "style": "display:flex;align-items:center;gap:.7rem;padding:.75rem 0;border-bottom:1px solid #ececf0;flex-wrap:wrap"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "data-bind": "",
+                                    "::text-content": "$n",
+                                    "style": "flex:none;display:grid;place-items:center;width:1.8rem;height:1.8rem;border-radius:50%;background:#ff3d7f;color:#fff;font-weight:700;font-size:.9rem"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "data-bind": "",
+                                    "::text-content": "$titre",
+                                    "style": "flex:1;min-width:6rem;font-size:.98rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                                  }
+                                },
+                                {
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "display:flex;gap:.3rem"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-action",
+                                      "attributes": {
+                                        "target": "balises",
+                                        "type": "ce:monter",
+                                        "data-bind": "",
+                                        "::payload": "$i"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "shape": "circle",
+                                            "size": "sm",
+                                            "variant": "ghost",
+                                            "aria-label": "Monter",
+                                            "title": "Monter",
+                                            "style": "--sc-btn-rounded:999px"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "nav-arrow-up"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tagName": "sonic-action",
+                                      "attributes": {
+                                        "target": "balises",
+                                        "type": "ce:descendre",
+                                        "data-bind": "",
+                                        "::payload": "$i"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "shape": "circle",
+                                            "size": "sm",
+                                            "variant": "ghost",
+                                            "aria-label": "Descendre",
+                                            "title": "Descendre",
+                                            "style": "--sc-btn-rounded:999px"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "nav-arrow-down"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tagName": "sonic-action",
+                                      "attributes": {
+                                        "target": "balises",
+                                        "type": "ce:retirer",
+                                        "data-bind": "",
+                                        "::payload": "$i"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "shape": "circle",
+                                            "size": "sm",
+                                            "variant": "ghost",
+                                            "aria-label": "Retirer l'étape",
+                                            "title": "Retirer l'étape",
+                                            "style": "--sc-btn-rounded:999px"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "trash"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "width:100%;display:flex;gap:.4rem;flex-wrap:wrap;padding-left:2.5rem"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-pop",
+                                      "attributes": {
+                                        "placement": "bottom-start"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "size": "sm",
+                                            "variant": "outline",
+                                            "style": "--sc-btn-rounded:999px"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "span",
+                                              "attributes": {
+                                                "data-bind": "",
+                                                "::text-content": "$rayonTxt"
+                                              }
+                                            },
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "nav-arrow-down",
+                                                "slot": "suffix"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-menu",
+                                          "attributes": {
+                                            "slot": "content",
+                                            "direction": "column",
+                                            "align": "left",
+                                            "size": "sm"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:rayon",
+                                                "data-bind": "",
+                                                "::payload": "$r15"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-menu-item",
+                                                  "textContent": "Rayon 15 m"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:rayon",
+                                                "data-bind": "",
+                                                "::payload": "$r30"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-menu-item",
+                                                  "textContent": "Rayon 30 m"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:rayon",
+                                                "data-bind": "",
+                                                "::payload": "$r60"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-menu-item",
+                                                  "textContent": "Rayon 60 m"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:rayon",
+                                                "data-bind": "",
+                                                "::payload": "$r100"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-menu-item",
+                                                  "textContent": "Rayon 100 m"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:rayon",
+                                                "data-bind": "",
+                                                "::payload": "$r200"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-menu-item",
+                                                  "textContent": "Rayon 200 m"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tagName": "sonic-pop",
+                                      "attributes": {
+                                        "placement": "bottom-start"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "size": "sm",
+                                            "variant": "outline",
+                                            "style": "--sc-btn-rounded:999px"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "span",
+                                              "attributes": {
+                                                "data-bind": "",
+                                                "::text-content": "$sonTxt"
+                                              }
+                                            },
+                                            {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "nav-arrow-down",
+                                                "slot": "suffix"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-menu",
+                                          "attributes": {
+                                            "slot": "content",
+                                            "direction": "column",
+                                            "align": "left",
+                                            "size": "sm"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:son",
+                                                "data-bind": "",
+                                                "::payload": "$sBalise"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-menu-item",
+                                                  "textContent": "Son de la balise"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:enreg",
+                                                "data-bind": "",
+                                                "::payload": "$i"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-menu-item",
+                                                  "textContent": "Son à part : l'enregistrer"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:importer",
+                                                "data-bind": "",
+                                                "::payload": "$i"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-menu-item",
+                                                  "textContent": "Son à part : un fichier"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "ce:son",
+                                                "data-bind": "",
+                                                "::payload": "$sAucun"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-menu-item",
+                                                  "textContent": "Sans son"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-if",
+                  "attributes": {
+                    "dataProvider": "balises",
+                    "key": "ceEnreg",
+                    "equals": "oui"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "display:flex;flex-direction:column;gap:.6rem;padding:1rem;border-radius:1rem;background:#f4f4f7"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "strong",
+                          "textContent": "Son à part pour l'étape"
+                        },
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "display:flex;align-items:center;gap:.5rem;flex-wrap:wrap"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-audio-unlock",
+                              "attributes": {
+                                "start": "micro",
+                                "label": "Activer le micro"
+                              }
+                            },
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "formDataProvider": "enregParcours",
+                                "name": "recording",
+                                "value": "on",
+                                "unique": true,
+                                "type": "danger",
+                                "style": "--sc-btn-rounded:999px"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "sound-high",
+                                    "slot": "prefix"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "swap": "off"
+                                  },
+                                  "textContent": "Enregistrer"
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "swap": "on"
+                                  },
+                                  "textContent": "Arrêter"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "span",
+                              "attributes": {
+                                "style": "font-variant-numeric:tabular-nums;font-weight:600"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-value",
+                                  "attributes": {
+                                    "dataProvider": "voixParcoursState",
+                                    "key": "elapsedS"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "textContent": " s"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-jsonata",
+                          "attributes": {
+                            "inputProvider": "voixParcoursState",
+                            "outputProvider": "sonParcoursPret",
+                            "expression": "$input.last.url and $not($input.recording) ? [{\"url\": $input.last.url}] : []"
+                          }
+                        },
+                        {
+                          "tagName": "sonic-list",
+                          "attributes": {
+                            "dataProvider": "sonParcoursPret"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "template",
+                              "nodes": [
+                                {
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "display:flex;align-items:center;gap:.5rem;width:100%"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-audio-player",
+                                      "attributes": {
+                                        "data-bind": "",
+                                        "::media": "$url",
+                                        "label": "Son de l'étape",
+                                        "style": "flex:1;--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "sonic-action",
+                                      "attributes": {
+                                        "target": "balises",
+                                        "type": "ce:garder",
+                                        "data-bind": "",
+                                        "::payload": "$url"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "type": "primary",
+                                            "size": "sm",
+                                            "style": "--sc-btn-rounded:999px"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "span",
+                                              "textContent": "Garder"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "template",
+                              "attributes": {
+                                "data-value": "no-item"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "display:flex;gap:.5rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-action",
+                              "attributes": {
+                                "target": "balises",
+                                "type": "ce:enregFermer"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "size": "sm",
+                                    "variant": "ghost",
+                                    "style": "--sc-btn-rounded:999px"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "textContent": "Annuler"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-if",
+                  "attributes": {
+                    "dataProvider": "balises",
+                    "key": "ceImport",
+                    "equals": "oui"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "display:flex;flex-direction:column;gap:.6rem;padding:1rem;border-radius:1rem;background:#f4f4f7"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "strong",
+                          "textContent": "Son à part : choisir un fichier"
+                        },
+                        {
+                          "tagName": "sonic-file-open",
+                          "attributes": {
+                            "accept": "audio/*",
+                            "label": "Choisir un son",
+                            "ref-provider": "fichierParcours",
+                            "out-data-provider": "fichierParcoursEtat"
+                          }
+                        },
+                        {
+                          "tagName": "sonic-jsonata",
+                          "attributes": {
+                            "inputProvider": "fichierParcours",
+                            "outputProvider": "fichierParcoursPret",
+                            "expression": "$input.url ? [{\"url\": $input.url}] : []"
+                          }
+                        },
+                        {
+                          "tagName": "sonic-list",
+                          "attributes": {
+                            "dataProvider": "fichierParcoursPret"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "template",
+                              "nodes": [
+                                {
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "display:flex;align-items:center;gap:.5rem;width:100%"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-audio-player",
+                                      "attributes": {
+                                        "data-bind": "",
+                                        "::media": "$url",
+                                        "label": "Son de l'étape",
+                                        "style": "flex:1;--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "sonic-action",
+                                      "attributes": {
+                                        "target": "balises",
+                                        "type": "ce:garder",
+                                        "data-bind": "",
+                                        "::payload": "$url"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-button",
+                                          "attributes": {
+                                            "type": "primary",
+                                            "size": "sm",
+                                            "style": "--sc-btn-rounded:999px"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "span",
+                                              "textContent": "Garder"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "template",
+                              "attributes": {
+                                "data-value": "no-item"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "display:flex;gap:.5rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-action",
+                              "attributes": {
+                                "target": "balises",
+                                "type": "ce:enregFermer"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "size": "sm",
+                                    "variant": "ghost",
+                                    "style": "--sc-btn-rounded:999px"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "textContent": "Annuler"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-action",
+                  "attributes": {
+                    "target": "balises",
+                    "type": "ce:publier"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "type": "primary",
+                        "size": "lg",
+                        "shape": "block",
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-icon",
+                          "attributes": {
+                            "library": "iconoir",
+                            "name": "maps-arrow",
+                            "slot": "prefix"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": "Publier le parcours"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
             "dataProvider": "editeurEtat",
             "key": "v",
             "equals": "oui"
@@ -4767,6 +6906,123 @@
                                   "textContent": "Luminosité"
                                 }
                               ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "parcoursMat",
+            "key": "poche",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;inset:0;z-index:70;background:#000;color:#5c5f66;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;text-align:center;padding:2rem"
+              },
+              "nodes": [
+                {
+                  "tagName": "sonic-icon",
+                  "attributes": {
+                    "library": "iconoir",
+                    "name": "pocket",
+                    "style": "font-size:2.4rem"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "font-size:1.05rem;line-height:1.5"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "span",
+                      "textContent": "Étape "
+                    },
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "parcoursPos",
+                        "key": "prochaine"
+                      }
+                    },
+                    {
+                      "tagName": "span",
+                      "textContent": " · "
+                    },
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "parcoursPos",
+                        "key": "distanceTxt"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "font-size:.95rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "parcoursPos",
+                        "key": "faits"
+                      }
+                    },
+                    {
+                      "tagName": "span",
+                      "textContent": " / "
+                    },
+                    {
+                      "tagName": "sonic-value",
+                      "attributes": {
+                        "dataProvider": "parcoursPos",
+                        "key": "total"
+                      }
+                    },
+                    {
+                      "tagName": "span",
+                      "textContent": " étapes"
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "margin-top:3rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "balises",
+                        "type": "poche:off"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "size": "sm",
+                            "variant": "outline",
+                            "style": "--sc-btn-rounded:999px;--sc-base-content:#5c5f66"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "span",
+                              "textContent": "Sortir du mode poche"
                             }
                           ]
                         }
