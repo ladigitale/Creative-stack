@@ -14,6 +14,9 @@ const CONSOLE_LINES = 30;
 const MAX_GCODE_CHARS = 20_000_000;
 /** Puissance maximale du cadrage faisceau allumé, en %. */
 const MAX_FRAME_POWER = 5;
+/** Pointeur (focus, visée) : faisceau allumé sur place, très faible, éteint seul au bout de quelques secondes. */
+const MAX_POINTER_POWER = 2;
+const MAX_POINTER_S = 30;
 const MAX_JOG_MM = 1000;
 
 export type GrblJob = {
@@ -67,6 +70,8 @@ export type GrblState = DeviceBaseState & {
    * `resumeAt` = ligne de reprise conseillée (`run: {n, from: resumeAt}`), `null` après une tâche menée au bout.
    */
   lastStop: { kind: "job" | "dry"; line: number; resumeAt: number; total: number; reason: string } | null;
+  /** Pointeur allumé (faisceau faible sur place, pour le focus et la visée) : puissance en %, ou `null`. */
+  pointer: number | null;
   /** Tâches terminées (utilisable comme `trigger`). */
   jobs: number;
   /** Remarques adressées à l'auteur du document ou à l'utilisateur. */
@@ -136,7 +141,7 @@ export class SonicGrbl extends DeviceElement<GrblState> {
       connected: false, firmware: null, machine: getMachine(this.machine) ? this.machine : "auto", machineState: "unknown", alarm: null,
       pos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, feed: 0, power: 0,
       area: profile.area ? { x: profile.area[0], y: profile.area[1] } : null, maxS: profile.maxS, laserMode: null, homing: null,
-      settings: {}, job: null, lastStop: null, jobs: 0, issues: [], console: [],
+      settings: {}, job: null, lastStop: null, pointer: null, jobs: 0, issues: [], console: [],
     };
   }
 
@@ -155,6 +160,7 @@ export class SonicGrbl extends DeviceElement<GrblState> {
       jog: (a) => this.jog(a, false),
       goto: (a) => this.jog(a, true),
       jogCancel: () => this.realtime(RT.JOG_CANCEL),
+      pointer: (a) => this.pointer(a),
       setOrigin: () => this.simple("G92X0Y0"),
       clearOrigin: () => this.simple("G92.1"),
       home: () => this.home(),
@@ -183,6 +189,8 @@ export class SonicGrbl extends DeviceElement<GrblState> {
 
   /** Page fermée ou composant retiré pendant une tâche : arrêt immédiat (la position peut être perdue). */
   private emergency = (): void => {
+    // Pointeur allumé : la réinitialisation coupe le faisceau.
+    if (this.state.pointer !== null) this.link?.realtime(RT.RESET);
     const link = this.link;
     if (!link || !link.busy) return;
     link.stopFeeding();
@@ -420,8 +428,55 @@ export class SonicGrbl extends DeviceElement<GrblState> {
     return this.realtime(RT.RESUME);
   }
 
+  private pointerTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Pointeur pour le focus et la visée : `pointer {n, on: true, power (0,1..2 %), seconds (1..30)}` allume le faisceau
+   * sur place (M3 puissance constante, sans mouvement), `{on: false}` l'éteint. Geste de l'utilisateur requis ;
+   * éteint de lui-même au bout de `seconds` (15 par défaut) et par toute autre commande, arrêt ou départ de la page.
+   */
+  private async pointer(arg: CommandArg): Promise<boolean> {
+    const on = !(arg.on === false || arg.on === "false" || arg.on === 0 || arg.on === "0");
+    if (!on) return this.pointerOff();
+    if (!this.idle("pointeur")) return false;
+    if (this.tool !== "laser") {
+      this.patch({ error: "pointeur : réservé au laser" });
+      return false;
+    }
+    if (!this.gesture()) {
+      this.patch({ error: "geste de l'utilisateur requis pour allumer le faisceau" });
+      return false;
+    }
+    const power = Math.min(MAX_POINTER_POWER, Math.max(0.1, Number(arg.power) || 1));
+    const seconds = Math.min(MAX_POINTER_S, Math.max(1, Number(arg.seconds) || 15));
+    const s = Math.max(1, Math.round((this.state.maxS * power) / 100));
+    const a = await this.command(`M3S${s}`);
+    const b = a.ok ? await this.command("G1F1000") : a;
+    if (!a.ok || !b.ok) {
+      await this.command("M5");
+      const failed = (a.ok ? b : a) as { message?: string };
+      this.patch({ error: `pointeur : ${failed.message ?? "refusé"}`, pointer: null });
+      return false;
+    }
+    if (this.pointerTimer) clearTimeout(this.pointerTimer);
+    this.pointerTimer = setTimeout(() => void this.pointerOff(), seconds * 1000);
+    this.patch({ pointer: power, error: null });
+    return true;
+  }
+
+  private async pointerOff(): Promise<boolean> {
+    if (this.pointerTimer) clearTimeout(this.pointerTimer);
+    this.pointerTimer = null;
+    if (this.state.pointer === null) return true;
+    this.patch({ pointer: null });
+    if (!this.link) return true;
+    const ack = await this.command("M5");
+    return ack.ok;
+  }
+
   /** Déplacement manuel, faisceau éteint : relatif (`jog {x, y}`) ou vers un point de travail (`goto {x, y}`). */
   private async jog(arg: CommandArg, absolute: boolean): Promise<boolean> {
+    await this.pointerOff();
     if (!this.idle("déplacement manuel")) return false;
     const has = (k: string): boolean => arg[k] !== undefined && arg[k] !== null && arg[k] !== "" && Number.isFinite(Number(arg[k]));
     if (!has("x") && !has("y")) {
@@ -469,6 +524,7 @@ export class SonicGrbl extends DeviceElement<GrblState> {
 
   /** Lance le programme (`job`), son essai à vide (`dry`) ou le tour de son emprise (`frame`). */
   private async runJob(arg: CommandArg, kind: "job" | "frame" | "dry"): Promise<boolean> {
+    await this.pointerOff();
     if (!this.idle(kind === "frame" ? "cadrage" : kind === "dry" ? "essai à vide" : "lancement")) return false;
     const link = this.link as GrblLink;
     const refuse = (error: string): boolean => {
@@ -600,6 +656,7 @@ export class SonicGrbl extends DeviceElement<GrblState> {
     if (!link) return false;
     if (!link.busy) {
       link.realtime(RT.JOG_CANCEL);
+      await this.pointerOff();
       return true;
     }
     this.stopping = true;

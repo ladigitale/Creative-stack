@@ -126,6 +126,7 @@ Les rendus en traits (`hatch`, `waves`, `spiral`, `isolines`, `stipple`) utilise
 | `dryRun {n, speed, from}` | Essai à vide : mêmes mouvements, faisceau coupé (M3/M4 → M5, mots S retirés) ; `speed` 1 à 4 accélère (plafond 6000 mm/min). Ne compte pas dans `jobs` |
 | `hold`, `resume` | Pause (le faisceau se coupe), reprise |
 | `stop` | Arrêt : pause, attente de l'arrêt du mouvement, remise à zéro. La position est gardée |
+| `pointer {n, on, power, seconds}` | Pointeur pour le focus et la visée : faisceau allumé sur place (M3, sans mouvement), `power` 0,1 à 2 % (défaut 1), `seconds` 1 à 30 (défaut 15) puis éteint de lui-même ; `{n, on: false}` l'éteint. Geste requis ; éteint aussi par tout déplacement, tâche, arrêt ou départ de la page. État `pointer` (puissance en % ou `null`) |
 | `frame {n, power, feed, shape, loops}` | Tour de l'emprise du programme (points brûlés). `shape: "hull"` : contour réel du dessin (enveloppe convexe) au lieu du rectangle ; `loops` 1 à 5. `power` 0 (défaut, faisceau éteint) à 5 % |
 | `jog {n, x, y, feed}` | Déplacement relatif en mm, faisceau éteint |
 | `goto {n, x, y, feed}` | Déplacement vers un point de travail |

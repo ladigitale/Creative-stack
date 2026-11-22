@@ -298,7 +298,11 @@ export function trace(img: RGBA, opts: TraceOptions = {}): TraceResult {
     const r = traceLineArt(img, { tolerance: opts.tolerance, minArea: opts.minArea, curves: opts.curves, ...opts.lineart });
     const color = hex(ink);
     const truncated = r.d.length > (opts.maxChars ?? 4_000_000);
-    return { width: w, height: h, layers: r.d && !truncated ? [{ color, d: r.d, area: r.area }] : [], palette: [color, "#ffffff"], truncated };
+    const paper = opts.lineart?.paper ? hex(parsePalette([opts.lineart.paper])[0] ?? [255, 255, 255]) : "";
+    const layers = r.d && !truncated ? [{ color, d: r.d, area: r.area }] : [];
+    // Papier dessous, encre (avec ses jours en pair-impair) par-dessus.
+    if (layers.length && paper && r.paperD) layers.unshift({ color: paper, d: r.paperD, area: r.paperArea ?? 0 });
+    return { width: w, height: h, layers, palette: [color, paper || "#ffffff"], truncated };
   }
   if (!(w > 0 && h > 0) || w * h > MAX_PIXELS) throw new Error("taille d'image invalide ou trop grande");
   const k = Math.max(2, Math.min(32, Math.round(opts.colors ?? 8)));

@@ -368,6 +368,24 @@ describe("sonic-grbl", () => {
     expect(el.getState().error).toContain("au-delà de la fin");
   });
 
+  it("pointeur : faisceau faible sur place, plafonné, éteint par un déplacement ou tout seul", async () => {
+    const sim = simulator();
+    const el = await mountGrbl(sim);
+    await wait(150);
+    sim.lines.length = 0;
+    expect(await el.run("pointer", { on: true, power: 9, seconds: 1 })).toBe(true);
+    expect(sim.lines).toEqual(["M3S20", "G1F1000"]);
+    expect(el.getState().pointer).toBe(2);
+    expect(await el.run("jog", { x: 1 })).toBe(true);
+    expect(sim.lines.slice(2, 3)).toEqual(["M5"]);
+    expect(el.getState().pointer).toBeNull();
+    sim.lines.length = 0;
+    expect(await el.run("pointer", { on: true, seconds: 1 })).toBe(true);
+    await wait(1200);
+    expect(sim.lines).toEqual(["M3S10", "G1F1000", "M5"]);
+    expect(el.getState().pointer).toBeNull();
+  });
+
   it("cadre le contour réel du dessin (enveloppe) et plusieurs tours", async () => {
     const sim = simulator();
     const el = await mountGrbl(sim);
