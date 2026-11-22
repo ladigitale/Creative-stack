@@ -26,6 +26,13 @@ export type StillState = {
  * Origines : https, blob:, data:image, chemins relatifs (voir `safeMediaUrl`). Une image
  * https doit autoriser CORS pour rester lisible (sinon l'affichage marche, pas l'analyse).
  */
+/** SVG (data:, extension .svg ou type déclaré) : redessiné net à toute taille. */
+export function isVector(url: string, mime?: string | null): boolean {
+  if (mime && /^image\/svg\+xml\b/i.test(mime)) return true;
+  if (/^data:image\/svg\+xml[;,]/i.test(url)) return true;
+  return /^[^?#]*\.svg(?:[?#]|$)/i.test(url) && !/^(data|blob):/i.test(url);
+}
+
 @customElement(tagName)
 export class SonicStill extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
   static styles = css`
@@ -71,6 +78,13 @@ export class SonicStill extends LitElement implements SonicFrameSource, SonicFra
   /** Côté max (px) de l'image décodée ; l'image plus grande est réduite. */
   @property({ type: Number, attribute: "max-size" })
   maxSize = 4096;
+
+  /**
+   * Image vectorielle (SVG) : côté long (px) auquel la pixelliser, pour rester nette quand elle est affichée
+   * en grand (plan AR, plein écran). 0 = sa taille nominale (`width`/`height` du SVG). Plafonné par `max-size`.
+   */
+  @property({ type: Number, attribute: "vector-size" })
+  vectorSize = 0;
 
   @property({ type: String })
   fit = "contain";
@@ -156,12 +170,12 @@ export class SonicStill extends LitElement implements SonicFrameSource, SonicFra
   }
 
   /** Charge une URL (soumise à `safeMediaUrl`). */
-  async loadUrl(url: string): Promise<boolean> {
+  async loadUrl(url: string, mime?: string): Promise<boolean> {
     if (!safeMediaUrl(url, "image")) {
       this.fail("adresse d'image refusée (https, blob:, data:image ou chemin relatif)");
       return false;
     }
-    return this.decode(url, {}, null);
+    return this.decode(url, mime ? { mime } : {}, null);
   }
 
   /** Charge un `SonicMediaRef` ou une URL (forme DataProvider). */
@@ -171,7 +185,7 @@ export class SonicStill extends LitElement implements SonicFrameSource, SonicFra
     const r = value as SonicMediaRef;
     if (r.blob instanceof Blob) return this.loadFile(r.blob);
     const url = r.url || r.blobUrl;
-    return url ? this.loadUrl(url) : false;
+    return url ? this.loadUrl(url, typeof r.mime === "string" ? r.mime : undefined) : false;
   }
 
   private async decode(url: string, extra: Partial<SonicMediaRef>, owned: string | null): Promise<boolean> {
@@ -196,13 +210,20 @@ export class SonicStill extends LitElement implements SonicFrameSource, SonicFra
       this.fail("image vide");
       return false;
     }
-    const k = Math.min(1, Math.max(16, this.maxSize) / Math.max(nw, nh));
+    const cap = Math.max(16, this.maxSize);
+    const vec = Math.min(cap, Math.max(0, Number(this.vectorSize) || 0));
+    const k = vec > 0 && isVector(url, extra.mime) ? vec / Math.max(nw, nh) : Math.min(1, cap / Math.max(nw, nh));
     const w = Math.max(1, Math.round(nw * k));
     const h = Math.max(1, Math.round(nh * k));
     const c = this.canvasEl;
     c.width = w;
     c.height = h;
-    c.getContext("2d")?.drawImage(img, 0, 0, w, h);
+    const ctx = c.getContext("2d");
+    if (ctx) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, w, h);
+    }
     this.releaseOwned();
     this.ownedUrl = owned;
     this.seq++;

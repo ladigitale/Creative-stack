@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./index";
 import { fileKind, type SonicFileOpen } from "./file-open";
-import type { SonicStill } from "./still";
+import { isVector, type SonicStill } from "./still";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const settle = async () => {
@@ -54,6 +54,30 @@ describe("sonic-still", () => {
     expect(await el.loadUrl("javascript:alert(1)")).toBe(false);
     expect(await el.loadUrl("http://x.test/a.png")).toBe(false);
     expect(el.getState().status).toBe("error");
+  });
+
+  it("pixellise un SVG au côté long de vector-size (plafonné par max-size), pas une image bitmap", async () => {
+    stubImage(380, 285);
+    const el = document.createElement("sonic-still") as SonicStill;
+    el.setAttribute("vector-size", "2880");
+    document.body.append(el);
+    await el.loadUrl("data:image/svg+xml;base64,PHN2Zy8+");
+    expect(el.getState()).toMatchObject({ width: 2880, height: 2160 });
+    await el.loadRef({ url: "blob:http://x.test/1", mime: "image/svg+xml" });
+    expect(el.getState().width).toBe(2880);
+    await el.loadUrl("/a.png");
+    expect(el.getState()).toMatchObject({ width: 380, height: 285 });
+    el.maxSize = 1000;
+    await el.loadUrl("/b.svg?v=2");
+    expect(el.getState()).toMatchObject({ width: 1000, height: 750 });
+  });
+
+  it("isVector reconnaît data:image/svg+xml, .svg et le type déclaré", () => {
+    expect(isVector("data:image/svg+xml;utf8,<svg/>")).toBe(true);
+    expect(isVector("/d/a.svg#x")).toBe(true);
+    expect(isVector("blob:http://x/1", "image/svg+xml")).toBe(true);
+    expect(isVector("data:image/png;base64,AA")).toBe(false);
+    expect(isVector("/a.svg.png")).toBe(false);
   });
 
   it("signale une image illisible", async () => {

@@ -132,7 +132,7 @@ describe("empreintes", () => {
 describe("export SVG", () => {
   it("trait net opaque : un tracé", () => {
     const svg = exportSvg([stroke([[0, 0], [50, 10], [100, 0]])]);
-    expect(svg).toMatch(/^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" viewBox="/);
+    expect(svg).toMatch(/^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" width="[^"]+" height="[^"]+" viewBox="/);
     expect((svg.match(/<path /g) ?? []).length).toBe(1);
     expect(svg).toContain('stroke-linecap="round"');
   });

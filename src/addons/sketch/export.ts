@@ -24,7 +24,14 @@ export type SvgOptions = {
   maxStamps?: number;
   /** Marge autour de la zone, en fraction de son grand côté. Défaut 0.02 (aucune pour une zone de vue). */
   margin?: number;
+  /** Traits d'origine embarqués (voir `encodeSource`) : le SVG peut être rouvert trait par trait. */
+  source?: SvgSource;
 };
+
+/** Traits d'origine d'un SVG : JSON compressé (gzip, base64) ou JSON brut. */
+export type SvgSource = { format: "gz64" | "json"; data: string };
+
+export const SOURCE_ID = "sonic-sketch-source";
 
 /** Trait « plein » : disque net, opaque, sans variation → un seul tracé lissé au lieu d'une empreinte par pas. */
 function isPlainLine(s: Stroke): boolean {
@@ -162,7 +169,10 @@ export function exportSvg(strokes: Stroke[], opts: SvgOptions = {}): string {
 
   joinPaths(body);
   const bg = opts.background && opts.background !== "transparent" ? `<rect x="${f(vb.x)}" y="${f(vb.y)}" width="${f(vb.w)}" height="${f(vb.h)}" fill="${esc(opts.background)}"/>` : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(vb.x)} ${f(vb.y)} ${f(vb.w)} ${f(vb.h)}">${defs.length ? `<defs>${defs.join("")}</defs>` : ""}${bg}${body.join("")}</svg>`;
+  const src = opts.source ? `<metadata id="${SOURCE_ID}" data-format="${opts.source.format}">${esc(opts.source.data)}</metadata>` : "";
+  // width/height : taille nominale du dessin (sans elles, un SVG n'a qu'un rapport et les navigateurs le
+  // pixellisent à 200×150 ou refusent de le dessiner dans un canvas).
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${f(vb.w)}" height="${f(vb.h)}" viewBox="${f(vb.x)} ${f(vb.y)} ${f(vb.w)} ${f(vb.h)}">${src}${defs.length ? `<defs>${defs.join("")}</defs>` : ""}${bg}${body.join("")}</svg>`;
 }
 
 const PLAIN_PATH = /^<path d="([^"]+)" (fill="none" stroke="[^"]*" stroke-width="[^"]*" stroke-linecap="round" stroke-linejoin="round")\/>$/;
