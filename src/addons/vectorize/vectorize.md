@@ -38,6 +38,7 @@ Store `vec` piloté par des `sonic-action` : `{ "n": 0, "colors": 8, "tolerance"
 | `invert` | `invert` | Trait : encre claire sur fond sombre |
 | `ink` | `ink` | Trait : couleur de l'encre dans le résultat (défaut `#000000`) |
 | `clear-border` | `clearBorder` | Trait : ignore ce qui touche le bord de l'image (table, ombre, dessin voisin coupé) |
+| `paper` | `paper` | Trait : couleur des zones fermées par l'encre (jours, vitres, trous), sorties en formes pleines sous l'encre : une retouche (`sonic-sketch import-from`) peut les choisir et les recolorer une à une. Vide (défaut) : aucune |
 | `hidden-preview` | — | N'affiche pas le dessin |
 | `main-thread` | — | Calcule sur le fil principal au lieu d'un Web Worker (débogage) |
 
@@ -93,7 +94,7 @@ Pour un plan, une gravure, un pochoir ou un dessin noir et blanc photographié :
 1. Luminance, flou gaussien (`blur`) contre le grain du papier.
 2. Seuil : global (Otsu, ou `threshold`) ou local (`adaptive` = rayon, `sensitivity`) quand l'éclairage est inégal ; le seuil local reste borné autour du seuil global, pour qu'un grand aplat noir reste de l'encre et qu'une ombre sur le papier reste du papier.
 3. Carrés marchants sur l'écart au seuil, interpolé entre les centres de pixels : précision sous-pixel.
-4. Taches (`minArea`) et trous (`minHole`) retirés séparément ; `clearBorder` retire ce qui touche le bord de l'image.
+4. Taches (`minArea`) et trous (`minHole`) retirés séparément ; `clearBorder` retire ce qui touche le bord de l'image ; avec `paper`, chaque trou gardé sort aussi en forme pleine de cette couleur (couche du dessous).
 5. Simplification (`tolerance`, 0,5 conseillé), puis courbes (Catmull-Rom en cubiques) avec coins vifs au-delà de `corner` degrés.
 
 ```json

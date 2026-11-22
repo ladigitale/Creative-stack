@@ -42,6 +42,8 @@ export type VectorizeSettings = {
   ink: string;
   /** Trait : ignore ce qui touche le bord de l'image (table, ombre autour de la feuille). */
   clearBorder: boolean;
+  /** Trait : couleur des zones fermées par l'encre, rendues en formes à part ; vide = aucune. */
+  paper: string;
 };
 
 export type VectorizeState = {
@@ -88,7 +90,7 @@ export type VectorizeState = {
 
 const DEFAULTS: VectorizeSettings = {
   colors: 8, tolerance: 1, minArea: 4, denoise: 1, curves: false, flat: false, maxSize: 512, palette: [], dropBase: false,
-  mode: "colors", threshold: -1, adaptive: 0, sensitivity: 12, blur: 1, minHole: 4, corner: 55, invert: false, ink: "#000000", clearBorder: false,
+  mode: "colors", threshold: -1, adaptive: 0, sensitivity: 12, blur: 1, minHole: 4, corner: 55, invert: false, ink: "#000000", clearBorder: false, paper: "",
 };
 /** Côté maximal analysé : aplats de couleurs (plusieurs couches) / dessin au trait (une couche). */
 const MAX_SIDE = { colors: 1400, lineart: 3000 } as const;
@@ -171,6 +173,8 @@ export class SonicVectorize extends LitElement {
   @property({ type: Boolean }) invert = DEFAULTS.invert;
   @property({ type: String }) ink = DEFAULTS.ink;
   @property({ type: Boolean, attribute: "clear-border" }) clearBorder = DEFAULTS.clearBorder;
+  /** Trait : couleur (ex. `#ffffff`) des zones fermées par l'encre, sorties en formes pleines sous l'encre. */
+  @property({ type: String }) paper = DEFAULTS.paper;
   /** Palette imposée : couleurs séparées par des virgules (ou clé DP `palette`, tableau ou chaîne). */
   @property({ type: String }) palette = "";
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
@@ -242,7 +246,7 @@ export class SonicVectorize extends LitElement {
   protected updated(c: Map<string | number | symbol, unknown>): void {
     if (c.has("control") || c.has("params") || c.has("svgFrom")) this.listen();
     if (c.has("auto") || c.has("interval") || c.has("source")) this.syncAuto();
-    if (["colors", "tolerance", "minArea", "denoise", "curves", "flat", "maxSize", "palette", "dropBase", "mode", "threshold", "adaptive", "sensitivity", "blurRadius", "minHole", "corner", "invert", "ink", "clearBorder"].some((k) => c.has(k)) && (this.image || this.svgParsed)) this.schedule();
+    if (["colors", "tolerance", "minArea", "denoise", "curves", "flat", "maxSize", "palette", "dropBase", "mode", "threshold", "adaptive", "sensitivity", "blurRadius", "minHole", "corner", "invert", "ink", "clearBorder", "paper"].some((k) => c.has(k)) && (this.image || this.svgParsed)) this.schedule();
   }
 
   private listen(): void {
@@ -299,7 +303,7 @@ export class SonicVectorize extends LitElement {
       colors: this.colors, tolerance: this.tolerance, minArea: this.minArea, denoise: this.denoise,
       curves: this.curves, flat: this.flat, maxSize: this.maxSize, palette: paletteList(this.palette), dropBase: this.dropBase,
       mode: this.mode, threshold: this.threshold, adaptive: this.adaptive, sensitivity: this.sensitivity, blur: this.blurRadius,
-      minHole: this.minHole, corner: this.corner, invert: this.invert, ink: this.ink, clearBorder: this.clearBorder,
+      minHole: this.minHole, corner: this.corner, invert: this.invert, ink: this.ink, clearBorder: this.clearBorder, paper: this.paper,
       ...this.fromControl, ...this.fromParams,
     };
     const mode = s.mode === "lineart" ? "lineart" : "colors";
@@ -324,6 +328,7 @@ export class SonicVectorize extends LitElement {
       invert: !!s.invert,
       ink: ink ? "#" + ink.map((v) => v.toString(16).padStart(2, "0")).join("") : DEFAULTS.ink,
       clearBorder: !!s.clearBorder,
+      paper: paperOf(s.paper),
     };
   }
 
@@ -474,7 +479,7 @@ export class SonicVectorize extends LitElement {
     let res: TraceResult;
     try {
       res = await runner.run(img, s.mode === "lineart"
-        ? { mode: "lineart", tolerance: s.tolerance, minArea: s.minArea, curves: s.curves, lineart: { threshold: s.threshold, adaptive: s.adaptive, sensitivity: s.sensitivity, blur: s.blur, minHole: s.minHole, corner: s.corner, invert: s.invert, ink: s.ink, clearBorder: s.clearBorder } }
+        ? { mode: "lineart", tolerance: s.tolerance, minArea: s.minArea, curves: s.curves, lineart: { threshold: s.threshold, adaptive: s.adaptive, sensitivity: s.sensitivity, blur: s.blur, minHole: s.minHole, corner: s.corner, invert: s.invert, ink: s.ink, clearBorder: s.clearBorder, paper: s.paper || undefined } }
         : { colors: s.colors, tolerance: s.tolerance, minArea: s.minArea, denoise: s.denoise, curves: s.curves, stack: !s.flat, palette: s.palette });
     } catch (e) {
       if (e instanceof SupersededError || job !== this.job) return;
@@ -534,6 +539,7 @@ export function readSettings(v: unknown): Partial<VectorizeSettings> {
   n("corner", "corner", 10, 175);
   if (p.mode === "lineart" || p.mode === "colors") o.mode = p.mode;
   if (typeof p.ink === "string") o.ink = p.ink;
+  if (typeof p.paper === "string") o.paper = p.paper;
   const pal = p.palette;
   if (Array.isArray(pal) || typeof pal === "string" || (pal && typeof pal === "object")) o.palette = paletteList(pal);
   if (p.dropBase !== undefined || p["drop-base"] !== undefined) {
@@ -566,3 +572,9 @@ const clamp = (v: unknown, a: number, b: number, d: number) => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.min(b, Math.max(a, n)) : d;
 };
+
+/** Couleur de papier normalisée (`#rrggbb`), ou vide. */
+function paperOf(v: unknown): string {
+  const c = typeof v === "string" && v.trim() ? parsePalette([v])[0] : undefined;
+  return c ? "#" + c.map((x) => x.toString(16).padStart(2, "0")).join("") : "";
+}

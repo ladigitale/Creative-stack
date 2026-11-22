@@ -80,4 +80,22 @@ describe("tracé au trait", () => {
     expect(traceLineArt(im, { threshold: 128 }).rings).toBe(2);
     expect(traceLineArt(im, { threshold: 128, clearBorder: true }).rings).toBe(1);
   });
+  it("papier : chaque zone fermée par l'encre devient une forme pleine, posée sous l'encre", () => {
+    // Fenêtre : un cadre d'encre à deux jours, et un îlot d'encre dans le premier jour.
+    const im = img(60, 40, (x, y) => {
+      const inFrame = x >= 5 && x < 55 && y >= 5 && y < 35;
+      const pane1 = x >= 9 && x < 28 && y >= 9 && y < 31, pane2 = x >= 32 && x < 51 && y >= 9 && y < 31;
+      const islet = x >= 15 && x < 21 && y >= 16 && y < 24;
+      return inFrame && (!(pane1 || pane2) || islet) ? 0 : 255;
+    });
+    const sans = traceLineArt(im, { threshold: 128, blur: 0, minArea: 2, minHole: 2 });
+    expect(sans.paperD).toBeUndefined();
+    const r = traceLineArt(im, { threshold: 128, blur: 0, minArea: 2, minHole: 2, paper: "#ffffff" });
+    expect(r.d).toBe(sans.d);
+    expect((r.paperD ?? "").match(/M/g)).toHaveLength(2);
+    expect(r.paperArea).toBeGreaterThan(2 * 18 * 21);
+    const t = trace(im, { mode: "lineart", lineart: { threshold: 128, blur: 0, minHole: 2, ink: "#e11d48", paper: "#fff" } });
+    expect(t.layers.map((l) => l.color)).toEqual(["#ffffff", "#e11d48"]);
+    expect(trace(im, { mode: "lineart", lineart: { threshold: 128, blur: 0, minHole: 2 } }).layers).toHaveLength(1);
+  });
 });

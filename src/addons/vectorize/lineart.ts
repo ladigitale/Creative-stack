@@ -34,9 +34,14 @@ export type LineArtOptions = {
   ink?: string;
   /** Retire les taches qui touchent le bord de l'image (table, ombre, bord de la feuille autour du dessin). */
   clearBorder?: boolean;
+  /**
+   * Couleur du papier : chaque zone fermée par l'encre (trou, jour, vitre…) devient aussi une forme pleine de cette
+   * couleur (`paperD`), sélectionnable et recolorable à part dans une retouche. Vide (défaut) : pas de formes papier.
+   */
+  paper?: string;
 };
 
-export type LineArtResult = { width: number; height: number; d: string; area: number; rings: number; threshold: number };
+export type LineArtResult = { width: number; height: number; d: string; area: number; rings: number; threshold: number; paperD?: string; paperArea?: number };
 
 /** Seuil d'Otsu d'un histogramme 256 niveaux. */
 export function otsu(hist: ArrayLike<number>): number {
@@ -258,10 +263,16 @@ export function traceLineArt(img: { data: ArrayLike<number>; width: number; heig
   });
   const tol = Math.max(0.05, o.tolerance ?? 0.5);
   const corner = Math.max(10, Math.min(175, o.corner ?? 55));
-  const rings = [...outers.map((x) => x.r), ...keptHoles.map((x) => x.r)].map((r) => simplifyRing(r, tol)).filter((r) => r.length >= 3);
-  const d = rings.map((r) => (o.curves === false ? polyPath(r) : smoothPath(r, corner))).join("");
-  const area = outers.reduce((s, x) => s + x.a, 0) - keptHoles.reduce((s, x) => s + x.a, 0);
-  return { width: w, height: h, d, area, rings: rings.length, threshold };
+  const toPath = (r: Ring) => (o.curves === false ? polyPath(r) : smoothPath(r, corner));
+  const outerRings = outers.map((x) => simplifyRing(x.r, tol)).filter((r) => r.length >= 3);
+  const holeRings = keptHoles.map((x) => simplifyRing(x.r, tol)).filter((r) => r.length >= 3);
+  const d = [...outerRings, ...holeRings].map(toPath).join("");
+  const holeArea = keptHoles.reduce((s, x) => s + x.a, 0);
+  const area = outers.reduce((s, x) => s + x.a, 0) - holeArea;
+  const res: LineArtResult = { width: w, height: h, d, area, rings: outerRings.length + holeRings.length, threshold };
+  // Zones fermées : un sous-chemin par trou, plein (les îlots d'encre qu'il contient se posent par-dessus).
+  if (o.paper && holeRings.length) { res.paperD = holeRings.map(toPath).join(""); res.paperArea = holeArea; }
+  return res;
 }
 
 function bbox(r: Ring): number[] {
