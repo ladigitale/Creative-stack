@@ -7,7 +7,8 @@ import { CounterTrigger } from "../../shared/media/control";
 import { dispatch } from "../interactive";
 import { extractFeatures, type Features } from "./core/features";
 import { orderQuad, referenceFromFeatures, zoneMask, type AnchorReference } from "./core/reference";
-import { apply, squareToQuad, type Pt } from "./core/homography";
+import { type Pt } from "./core/homography";
+import { rectify } from "./core/rectify";
 import { grabGray, resolveSource, upFromOrientation } from "./frame";
 
 export type AnchorRefState = {
@@ -332,42 +333,9 @@ export class SonicAnchorRef extends LitElement {
   /** La zone vue de face (homographie inverse), plus `zone-pad` autour, au plus 960 px de côté, en JPEG data:. */
   private rectify(zone: Pt[]): AnchorRefState["zoneImage"] {
     const photo = this.photo;
-    if (!photo || zone.length !== 4) return null;
-    try {
-      const pad = Math.max(0, Math.min(2, Number(this.zonePad) || 0));
-      const q = zone.map((p) => ({ x: p.x * photo.width, y: p.y * photo.height }));
-      const d = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
-      const aspect = Math.max(0.2, Math.min(5, (d(q[0], q[1]) + d(q[3], q[2])) / Math.max(1, d(q[0], q[3]) + d(q[1], q[2]))));
-      const side = pad > 0 ? 960 : 800;
-      const W = Math.round(aspect >= 1 ? side : side * aspect), H = Math.round(aspect >= 1 ? side / aspect : side);
-      const H2 = squareToQuad(q);
-      if (!H2) return null;
-      const src = photo.getContext("2d")!.getImageData(0, 0, photo.width, photo.height).data;
-      const out = document.createElement("canvas");
-      out.width = W; out.height = H;
-      const ctx = out.getContext("2d")!;
-      const img = ctx.createImageData(W, H);
-      const span = 1 + 2 * pad;
-      const wc = H2[6] * 0.5 + H2[7] * 0.5 + H2[8];
-      for (let y = 0; y < H; y++) {
-        for (let x = 0; x < W; x++) {
-          const o = (y * W + x) * 4;
-          const u = ((x + 0.5) / W) * span - pad, v = ((y + 0.5) / H) * span - pad;
-          const p = (H2[6] * u + H2[7] * v + H2[8]) * wc > 0 ? apply(H2, u, v) : null;
-          if (!p || p.x < 0 || p.y < 0 || p.x >= photo.width || p.y >= photo.height) {
-            // Hors de la photo (ou derrière l'horizon du plan) : gris neutre.
-            img.data[o] = img.data[o + 1] = img.data[o + 2] = 40; img.data[o + 3] = 255;
-            continue;
-          }
-          const i = ((p.y | 0) * photo.width + (p.x | 0)) * 4;
-          img.data[o] = src[i]; img.data[o + 1] = src[i + 1]; img.data[o + 2] = src[i + 2]; img.data[o + 3] = 255;
-        }
-      }
-      ctx.putImageData(img, 0, 0);
-      return { url: out.toDataURL("image/jpeg", 0.8), width: W, height: H, mime: "image/jpeg", pad };
-    } catch {
-      return null;
-    }
+    if (!photo) return null;
+    const pad = Math.max(0, Math.min(2, Number(this.zonePad) || 0));
+    return rectify(photo, zone, pad, pad > 0 ? 960 : 800);
   }
 
   private publish(publishZone = true): void {

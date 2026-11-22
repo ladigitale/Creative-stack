@@ -84,6 +84,10 @@ Garder `balises` d'une visite à l'autre : `data.persist = {providers: ["balises
 
 `debug` dessine la zone par-dessus la caméra (même `fit`).
 
+## Dessiner sur le mur tel qu'il est (prise de vue)
+
+La commande `capture` de `control` (`{"capture": n}`, compteur) prend la zone suivie dans l'image en couleur, redressée de face, avec `capture-pad` fois sa taille autour (défaut 1 : trois fois la zone en largeur et en hauteur, gris hors de la photo) et `capture-size` px au plus. Elle arrive dans `capture` de l'état : `{url, width, height, mime, pad, refId, seq}`, ou `{error, seq}` si la zone n'était pas suivie. Posée en `backdrop-from` d'un `sonic-sketch` (`background="transparent"`, mêmes proportions, `export-area="page"`), elle permet de dessiner plein écran et zoomé, au-delà de la zone ; le SVG exporté couvre tout le cadre et se replace sur le mur en le projetant `pad` fois plus grand autour de la zone.
+
 ## Image et contenu synchrones
 
 L'analyse prend 50 à 200 ms : posé sur l'image *courante* de la caméra, le contenu traîne derrière la vidéo quand on bouge. `sonic-anchor` publie `frameSeq` (numéro de l'image analysée) et `latencyMs` ; `sonic-frame-sync` (addon media) garde les dernières images et montre exactement celle-là. La caméra n'affiche plus rien elle-même :
