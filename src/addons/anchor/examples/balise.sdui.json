@@ -2871,7 +2871,7 @@
                                 {
                                   "tagName": "div",
                                   "attributes": {
-                                    "style": "display:flex;flex-direction:column;gap:.25rem;padding:.55rem .85rem;margin-left:1.4rem;border-radius:1rem;border:1.5px dashed #cfd0d8"
+                                    "style": "display:flex;flex-direction:column;gap:.25rem;padding:.55rem .85rem;margin:0 0 .6rem 1.4rem;border-radius:1rem;border:1.5px dashed #cfd0d8"
                                   },
                                   "nodes": [
                                     {
@@ -2981,7 +2981,7 @@
                                 {
                                   "tagName": "div",
                                   "attributes": {
-                                    "style": "display:flex;flex-direction:column;gap:.35rem;padding:.7rem .85rem;border-radius:1rem;background:#f4f4f7"
+                                    "style": "display:flex;flex-direction:column;gap:.35rem;padding:.7rem .85rem;margin-bottom:.6rem;border-radius:1rem;background:#f4f4f7"
                                   },
                                   "nodes": [
                                     {
