@@ -72,7 +72,7 @@
   },
   "peerDependencies": {
     "@huggingface/transformers": "4.3.0",
-    "@supersoniks/concorde": ">=5.0.4 <7",
+    "@supersoniks/concorde": ">=5.0.4 <8",
     "lit": "^3.1.3",
     "maplibre-gl": "5.24.0",
     "pixi.js": "8.19.0",
@@ -105,18 +105,22 @@
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.0",
-    "@supersoniks/concorde": "^6.0.0",
+    "@supersoniks/concorde": "^7.0.1",
     "@types/node": "^24.5.2",
     "@types/three": "0.180.0",
     "@webgpu/types": "^0.1.74",
+    "esbuild": "0.28.2",
     "jsdom": "^26.0.0",
     "lit": "^3.1.3",
     "maplibre-gl": "5.24.0",
     "pixi.js": "8.19.0",
     "three": "0.180.0",
     "typescript": "^5.4.3",
-    "vite": "^7.1.5",
-    "vitest": "^3.2.4"
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
   },
-  "packageManager": "yarn@1.22.22"
+  "packageManager": "yarn@1.22.22",
+  "engines": {
+    "node": ">=22.12"
+  }
 }
