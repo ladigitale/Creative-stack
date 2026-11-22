@@ -304,7 +304,7 @@ Mesure, image par image, la luminosité d'une source d'images et détecte les fr
 - Actions vers `target` : `{type: "morse:sent", payload: {text}}` à la fin d'une émission, `{type: "morse:message", payload: {text, unit}}` à la fin d'un message reçu.
 - État (`out-data-provider`, défaut `<id>State`) : `{status: idle|sending|receiving, on, tx: {text, signs, done, rest, chars, total, progress, percent, queue}, rx: {text, signs, unit}, lastReceived, lastSent, sent, received, dropped, settings}`. `rx.text` et `rx.signs` suivent le message en cours de réception.
 - Progression de l'émission : `tx.done` est la partie du texte déjà émise, `tx.rest` ce qui reste, `tx.percent` l'avancement de 0 à 100 (pour un `sonic-progress` : `sonic-jsonata` qui publie `{value: $input.tx.percent, max: 100}`).
-- `params` : `{codec, unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits}` en direct. `control` : `{cancel: compteur}` arrête l'émission et vide la file. Événements DOM `morse-sent`, `morse-message`.
+- `params` : `{codec, unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits, identity, roster}` en direct. `control` : `{cancel: compteur}` arrête l'émission et vide la file. Événements DOM `morse-sent`, `morse-message`.
 
 ### Code rapide (`codec="fast"`)
 
