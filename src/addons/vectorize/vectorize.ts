@@ -22,6 +22,26 @@ export type VectorizeSettings = {
   palette: string[];
   /** Retire la couche du dessous (le fond : papier d'une photo, rectangle de fond d'un SVG). */
   dropBase: boolean;
+  /** `colors` : aplats de couleurs ; `lineart` : dessin au trait (une couche d'encre, contours sous-pixel). */
+  mode: "colors" | "lineart";
+  /** Trait : seuil 0..255, `-1` = automatique (Otsu). */
+  threshold: number;
+  /** Trait : rayon du seuil local en px de l'image analysée (0 = seuil global). */
+  adaptive: number;
+  /** Trait : écart à la moyenne locale pour être de l'encre, en % (0..50). */
+  sensitivity: number;
+  /** Trait : flou avant seuil (écart-type en px, 0..4). */
+  blur: number;
+  /** Trait : trous plus petits bouchés (px²). */
+  minHole: number;
+  /** Trait : virage (degrés) à partir duquel un sommet reste un coin vif. */
+  corner: number;
+  /** Trait : encre claire sur fond sombre. */
+  invert: boolean;
+  /** Trait : couleur de l'encre dans le résultat. */
+  ink: string;
+  /** Trait : ignore ce qui touche le bord de l'image (table, ombre autour de la feuille). */
+  clearBorder: boolean;
 };
 
 export type VectorizeState = {
@@ -66,7 +86,12 @@ export type VectorizeState = {
   skipped: Record<string, number>;
 };
 
-const DEFAULTS: VectorizeSettings = { colors: 8, tolerance: 1, minArea: 4, denoise: 1, curves: false, flat: false, maxSize: 512, palette: [], dropBase: false };
+const DEFAULTS: VectorizeSettings = {
+  colors: 8, tolerance: 1, minArea: 4, denoise: 1, curves: false, flat: false, maxSize: 512, palette: [], dropBase: false,
+  mode: "colors", threshold: -1, adaptive: 0, sensitivity: 12, blur: 1, minHole: 4, corner: 55, invert: false, ink: "#000000", clearBorder: false,
+};
+/** Côté maximal analysé : aplats de couleurs (plusieurs couches) / dessin au trait (une couche). */
+const MAX_SIDE = { colors: 1400, lineart: 3000 } as const;
 const IDLE: VectorizeState = {
   status: "idle", error: null, width: 0, height: 0, sourceWidth: 0, sourceHeight: 0, layers: 0, paths: [], palette: [],
   svg: "", file: null, bytes: 0, ms: 0, engine: "main", runs: 0, truncated: false, settings: { ...DEFAULTS }, frame: null,
@@ -134,6 +159,18 @@ export class SonicVectorize extends LitElement {
   @property({ type: Boolean, attribute: "drop-base" }) dropBase = DEFAULTS.dropBase;
   /** Côté max (px) de l'image analysée : borne le temps de calcul. */
   @property({ type: Number, attribute: "max-size" }) maxSize = DEFAULTS.maxSize;
+  /** `colors` (défaut) ou `lineart` (dessin au trait : plan, gravure, pochoir photographié). */
+  @property({ type: String }) mode: "colors" | "lineart" = DEFAULTS.mode;
+  @property({ type: Number }) threshold = DEFAULTS.threshold;
+  @property({ type: Number }) adaptive = DEFAULTS.adaptive;
+  @property({ type: Number }) sensitivity = DEFAULTS.sensitivity;
+  /** Attribut `blur` (la propriété ne peut pas s'appeler `blur` : méthode des éléments HTML). */
+  @property({ type: Number, attribute: "blur" }) blurRadius = DEFAULTS.blur;
+  @property({ type: Number, attribute: "min-hole" }) minHole = DEFAULTS.minHole;
+  @property({ type: Number }) corner = DEFAULTS.corner;
+  @property({ type: Boolean }) invert = DEFAULTS.invert;
+  @property({ type: String }) ink = DEFAULTS.ink;
+  @property({ type: Boolean, attribute: "clear-border" }) clearBorder = DEFAULTS.clearBorder;
   /** Palette imposée : couleurs séparées par des virgules (ou clé DP `palette`, tableau ou chaîne). */
   @property({ type: String }) palette = "";
   @property({ type: Boolean, attribute: "hidden-preview" }) hiddenPreview = false;
@@ -205,7 +242,7 @@ export class SonicVectorize extends LitElement {
   protected updated(c: Map<string | number | symbol, unknown>): void {
     if (c.has("control") || c.has("params") || c.has("svgFrom")) this.listen();
     if (c.has("auto") || c.has("interval") || c.has("source")) this.syncAuto();
-    if (["colors", "tolerance", "minArea", "denoise", "curves", "flat", "maxSize", "palette", "dropBase"].some((k) => c.has(k)) && (this.image || this.svgParsed)) this.schedule();
+    if (["colors", "tolerance", "minArea", "denoise", "curves", "flat", "maxSize", "palette", "dropBase", "mode", "threshold", "adaptive", "sensitivity", "blurRadius", "minHole", "corner", "invert", "ink", "clearBorder"].some((k) => c.has(k)) && (this.image || this.svgParsed)) this.schedule();
   }
 
   private listen(): void {
@@ -261,8 +298,12 @@ export class SonicVectorize extends LitElement {
     const s = {
       colors: this.colors, tolerance: this.tolerance, minArea: this.minArea, denoise: this.denoise,
       curves: this.curves, flat: this.flat, maxSize: this.maxSize, palette: paletteList(this.palette), dropBase: this.dropBase,
+      mode: this.mode, threshold: this.threshold, adaptive: this.adaptive, sensitivity: this.sensitivity, blur: this.blurRadius,
+      minHole: this.minHole, corner: this.corner, invert: this.invert, ink: this.ink, clearBorder: this.clearBorder,
       ...this.fromControl, ...this.fromParams,
     };
+    const mode = s.mode === "lineart" ? "lineart" : "colors";
+    const ink = parsePalette([String(s.ink ?? "")])[0];
     return {
       colors: Math.round(clamp(s.colors, 2, 32, DEFAULTS.colors)),
       tolerance: clamp(s.tolerance, 0.1, 10, DEFAULTS.tolerance),
@@ -270,9 +311,19 @@ export class SonicVectorize extends LitElement {
       denoise: Math.round(clamp(s.denoise, 0, 3, DEFAULTS.denoise)),
       curves: !!s.curves,
       flat: !!s.flat,
-      maxSize: Math.round(clamp(s.maxSize, 16, 1400, DEFAULTS.maxSize)),
+      maxSize: Math.round(clamp(s.maxSize, 16, MAX_SIDE[mode], DEFAULTS.maxSize)),
       palette: parsePalette(s.palette).map((c) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("")),
       dropBase: !!s.dropBase,
+      mode,
+      threshold: Math.round(clamp(s.threshold, -1, 255, DEFAULTS.threshold)),
+      adaptive: Math.round(clamp(s.adaptive, 0, 400, DEFAULTS.adaptive)),
+      sensitivity: clamp(s.sensitivity, 0, 50, DEFAULTS.sensitivity),
+      blur: clamp(s.blur, 0, 4, DEFAULTS.blur),
+      minHole: clamp(s.minHole, 0, 1e6, DEFAULTS.minHole),
+      corner: clamp(s.corner, 10, 175, DEFAULTS.corner),
+      invert: !!s.invert,
+      ink: ink ? "#" + ink.map((v) => v.toString(16).padStart(2, "0")).join("") : DEFAULTS.ink,
+      clearBorder: !!s.clearBorder,
     };
   }
 
@@ -422,7 +473,9 @@ export class SonicVectorize extends LitElement {
     const t0 = performance.now();
     let res: TraceResult;
     try {
-      res = await runner.run(img, { colors: s.colors, tolerance: s.tolerance, minArea: s.minArea, denoise: s.denoise, curves: s.curves, stack: !s.flat, palette: s.palette });
+      res = await runner.run(img, s.mode === "lineart"
+        ? { mode: "lineart", tolerance: s.tolerance, minArea: s.minArea, curves: s.curves, lineart: { threshold: s.threshold, adaptive: s.adaptive, sensitivity: s.sensitivity, blur: s.blur, minHole: s.minHole, corner: s.corner, invert: s.invert, ink: s.ink, clearBorder: s.clearBorder } }
+        : { colors: s.colors, tolerance: s.tolerance, minArea: s.minArea, denoise: s.denoise, curves: s.curves, stack: !s.flat, palette: s.palette });
     } catch (e) {
       if (e instanceof SupersededError || job !== this.job) return;
       this.fail(e instanceof Error ? e.message : "échec de la vectorisation");
@@ -472,14 +525,22 @@ export function readSettings(v: unknown): Partial<VectorizeSettings> {
   n("tolerance", "tolerance", 0.1, 10);
   n("minArea", "min-area", 0, 1e6);
   n("denoise", "denoise", 0, 3);
-  n("maxSize", "max-size", 16, 1400);
+  n("maxSize", "max-size", 16, MAX_SIDE.lineart);
+  n("threshold", "threshold", -1, 255);
+  n("adaptive", "adaptive", 0, 400);
+  n("sensitivity", "sensitivity", 0, 50);
+  n("blur", "blur", 0, 4);
+  n("minHole", "min-hole", 0, 1e6);
+  n("corner", "corner", 10, 175);
+  if (p.mode === "lineart" || p.mode === "colors") o.mode = p.mode;
+  if (typeof p.ink === "string") o.ink = p.ink;
   const pal = p.palette;
   if (Array.isArray(pal) || typeof pal === "string" || (pal && typeof pal === "object")) o.palette = paletteList(pal);
   if (p.dropBase !== undefined || p["drop-base"] !== undefined) {
     const x = p.dropBase ?? p["drop-base"];
     o.dropBase = typeof x === "boolean" ? x : typeof x === "number" ? x !== 0 : x === "true" || x === "oui";
   }
-  for (const key of ["curves", "flat"] as const) {
+  for (const key of ["curves", "flat", "invert", "clearBorder"] as const) {
     const x = p[key];
     if (typeof x === "boolean") o[key] = x;
     else if (typeof x === "number") o[key] = x !== 0;

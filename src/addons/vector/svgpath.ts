@@ -12,7 +12,8 @@ export type Seg =
   | { t: "Q"; c: Pt; p: Pt }
   | { t: "Z" };
 
-export const MAX_PATH_CHARS = 400_000;
+/** Un chemin (attribut `d`) : un tracé fin de photo de plan dépasse facilement quelques centaines de milliers de caractères. */
+export const MAX_PATH_CHARS = 2_000_000;
 export const MAX_SEGMENTS = 100_000;
 
 const ARGS: Record<string, number> = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0 };
