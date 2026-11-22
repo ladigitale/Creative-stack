@@ -90,4 +90,11 @@ describe("sonic-sketch : plafond de traits, photo de fond, export du cadre", () 
     expect(el.getState().zoom).toBeCloseTo(360 / 1200, 5);
     el.remove();
   });
+  it("backdrop-from : une photo déjà dans le DP au montage est prise (sans open-from)", async () => {
+    set("skBack2", { url: "data:image/png;base64,iVBORw0KGgo=" });
+    const { el, inner } = await mount({ "backdrop-from": "skBack2" });
+    await wait(5);
+    expect(inner.backdropUrl).toBe("data:image/png;base64,iVBORw0KGgo=");
+    el.remove();
+  });
 });

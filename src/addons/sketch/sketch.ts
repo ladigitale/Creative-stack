@@ -673,8 +673,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.unsubs.push(listenDp(dp, (v) => this.onSettingsValue(dp, v)));
     }
     if (this.backdropFrom) this.unsubs.push(listenDp(this.backdropFrom, (v) => this.setBackdrop(v)));
-    if (this.openFrom) this.unsubs.push(listenDp(this.openFrom, (v) => void this.openSvg(v)));
     else this.setBackdrop(null);
+    if (this.openFrom) this.unsubs.push(listenDp(this.openFrom, (v) => void this.openSvg(v)));
     if (this.brushFrom) this.unsubs.push(listenDp(this.brushFrom, (v) => {
       const before = this.live.color;
       this.live = { ...(v && typeof v === "object" ? (v as Record<string, unknown>) : {}), ...(this.live.tip !== undefined && this.tipFrom ? { tip: this.live.tip } : {}) };
