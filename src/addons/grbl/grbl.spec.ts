@@ -5,6 +5,7 @@ import {
   svgToGcode, TOOLPATH_DEFAULTS, type GrblMessage,
 } from "./index";
 import { FakePipe } from "../../shared/pipe/fake-pipe";
+import { burnPoints, convexHull, dryRunLines, frameLines, modalAt, resumeHint, resumeLines } from "./jobs";
 import type { SonicGrbl } from "./grbl";
 import type { SonicGcode } from "./gcode";
 
@@ -318,6 +319,65 @@ describe("sonic-grbl", () => {
     expect(el.getState().console.some((l) => l.startsWith("> $J="))).toBe(true);
   });
 
+  it("essai à vide : mêmes mouvements, faisceau coupé, vitesse accélérée ; ne compte pas comme gravure", async () => {
+    const sim = simulator();
+    const el = await mountGrbl(sim, 'laser-mode=""');
+    await wait(150);
+    sim.lines.length = 0;
+    expect(await el.run("dryRun", { gcode: "G90\nM4 S0\nG0 X0 Y0\nG1 X10 Y0 S800 F600\nG1 X10 Y10", speed: 2 })).toBe(true);
+    await wait(50);
+    expect(sim.lines).toEqual(["M5", "G90", "M5", "G0X0Y0", "G1X10Y0F1200", "G1X10Y10", "M5", "G4P0.01"]);
+    expect(sim.lines.some((l) => /M[34]|S[1-9]/.test(l))).toBe(false);
+    expect(el.getState()).toMatchObject({ job: null, jobs: 0, error: null });
+  });
+
+  it("note la ligne d'arrêt et reprend à une ligne avec l'état modal rétabli", async () => {
+    const sim = simulator();
+    const pipe = sim.pipe;
+    const respond = pipe.respond;
+    let ackUntil = 3;
+    let seen = 0;
+    pipe.respond = (data) => {
+      const t = dec(data);
+      if (/^G1X/.test(t)) {
+        seen++;
+        if (seen > ackUntil) return null;
+      }
+      return respond(data);
+    };
+    const el = await mountGrbl(sim);
+    await wait(150);
+    const prog = ["G90", "M4", "G0X0Y0", "G1X1Y0S300F500"];
+    for (let i = 2; i <= 40; i++) prog.push(`G1X${i}Y0`);
+    expect(await el.run("run", { gcode: prog.join("\n") })).toBe(true);
+    await wait(50);
+    expect(el.getState().job).toMatchObject({ kind: "job", from: 0, total: prog.length });
+    expect(await el.run("stop")).toBe(true);
+    const stop = el.getState().lastStop;
+    expect(stop).toMatchObject({ kind: "job", total: prog.length, reason: "arrêt demandé" });
+    expect(stop!.line).toBeGreaterThan(3);
+    expect(stop!.resumeAt).toBe(Math.max(0, stop!.line - 16));
+
+    ackUntil = 1e9;
+    sim.lines.length = 0;
+    expect(await el.run("run", { gcode: prog.join("\n"), from: 30 })).toBe(true);
+    await wait(50);
+    expect(sim.lines.slice(0, 9)).toEqual(["G21", "G90", "M5", "G0X27Y0", "F500", "S300", "M4", "G1", prog[30]]);
+    expect(el.getState()).toMatchObject({ job: null, lastStop: null, jobs: 1 });
+    expect(await el.run("run", { gcode: prog.join("\n"), from: 999 })).toBe(false);
+    expect(el.getState().error).toContain("au-delà de la fin");
+  });
+
+  it("cadre le contour réel du dessin (enveloppe) et plusieurs tours", async () => {
+    const sim = simulator();
+    const el = await mountGrbl(sim);
+    await wait(150);
+    sim.lines.length = 0;
+    expect(await el.run("frame", { gcode: "G90\nG0X0Y0\nM4\nG1X10Y0S500F600\nG1X5Y8\nG1X0Y0\nG0X50Y50", shape: "hull", loops: 2 })).toBe(true);
+    await wait(50);
+    expect(sim.lines).toEqual(["G90", "G21", "M5", "G0X0Y0", "M5", "G1F3000", "G1X10Y0", "G1X5Y8", "G1X0Y0", "G1X10Y0", "G1X5Y8", "G1X0Y0", "M5", "G4P0.01"]);
+  });
+
   it("arrête la machine si le composant est retiré pendant une tâche", async () => {
     const sim = simulator();
     const respond = sim.pipe.respond;
@@ -468,5 +528,34 @@ describe("sonic-gcode", () => {
     expect(await el.run("build")).toBe(false);
     expect(el.getState().error).toContain("aucune source");
     expect(await el.run("download")).toBe(false);
+  });
+});
+
+describe("tâches (essai, reprise, cadrage)", () => {
+  it("lit l'état modal avant une ligne", () => {
+    const st = modalAt(["G21", "G90", "M4", "G0X5Y5", "G1X10Y5S400F900", "G91", "G1X2"], 7);
+    expect(st).toMatchObject({ abs: false, motion: 1, feed: 900, s: 400, laser: "M4", x: 12, y: 5 });
+    expect(modalAt(["G1X1"], 0)).toMatchObject({ x: 0, y: 0, laser: "M5" });
+  });
+
+  it("refuse une reprise en relatif ou hors programme, laisse le programme entier à la ligne 0", () => {
+    expect(resumeLines(["G91", "G1X1", "G1X2"], 2).error).toContain("relatives");
+    expect(resumeLines(["G1X1"], 5).error).toContain("au-delà");
+    expect(resumeLines(["G1X1", "G1X2"], 0)).toEqual({ lines: ["G1X1", "G1X2"], preamble: 0, error: null });
+    expect(resumeHint(10)).toBe(0);
+    expect(resumeHint(100)).toBe(84);
+  });
+
+  it("essai à vide : retire M3/M4 et S, borne l'accélération à 4× et 6000 mm/min", () => {
+    expect(dryRunLines(["M3S500", "G1X1F2000S900", "G1X2"], 10)).toEqual(["M5", "M5", "G1X1F6000", "G1X2"]);
+    expect(dryRunLines(["G1X1F100"], 1)).toEqual(["M5", "G1X1F100"]);
+  });
+
+  it("points brûlés et enveloppe convexe", () => {
+    const pts = burnPoints(["G90", "M4", "G0X0Y0", "G1X10Y0S100F500", "G1X10Y10", "G1X5Y5", "G0X100Y100"]);
+    expect(pts).toContainEqual([10, 10]);
+    expect(pts).not.toContainEqual([100, 100]);
+    expect(convexHull(pts)).toEqual([[0, 0], [10, 0], [10, 10]]);
+    expect(frameLines(["G0X1Y1"], { feed: 1000, sValue: 0 })).toBeNull();
   });
 });

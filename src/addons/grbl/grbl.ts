@@ -3,6 +3,7 @@ import { DeviceElement, type CommandArg, type CommandMap, type DeviceBaseState }
 import { isBytePipe, type SonicBytePipe } from "../../shared/pipe/pipe";
 import { sleep } from "../../shared/pipe/queue";
 import { analyzeGcode, checkLine, cleanLine, num, prepareJob, RT, type GcodeStats, type GrblMessage, type GrblReport, type Vec3 } from "./codec";
+import { dryRunLines, frameLines, resumeHint, resumeLines } from "./jobs";
 import { GrblLink, type JobEnd } from "./link";
 import { getMachine, isGcodeSource, MACHINES, type MachineProfile } from "./machines";
 
@@ -16,7 +17,14 @@ const MAX_FRAME_POWER = 5;
 const MAX_JOG_MM = 1000;
 
 export type GrblJob = {
-  kind: "job" | "frame";
+  /** `job` : gravure ; `dry` : essai à vide (mêmes mouvements, faisceau coupé) ; `frame` : tour de l'emprise. */
+  kind: "job" | "frame" | "dry";
+  /** Ligne du programme (préparé) où la tâche a commencé : 0, ou la ligne de reprise. */
+  from: number;
+  /** Lignes du programme préparé (sans le préambule de reprise). */
+  total: number;
+  /** Dernière ligne du programme entrée dans le planificateur de GRBL. */
+  line: number;
   lines: number;
   sent: number;
   acked: number;
@@ -54,6 +62,11 @@ export type GrblState = DeviceBaseState & {
   /** Réglages lus (`$$`) : `{ "30": 1000, "32": 1, "130": 410… }`. */
   settings: Record<string, number>;
   job: GrblJob | null;
+  /**
+   * Dernière gravure ou dernier essai interrompu (arrêt, erreur, alarme) : `line` = dernière ligne acquittée,
+   * `resumeAt` = ligne de reprise conseillée (`run: {n, from: resumeAt}`), `null` après une tâche menée au bout.
+   */
+  lastStop: { kind: "job" | "dry"; line: number; resumeAt: number; total: number; reason: string } | null;
   /** Tâches terminées (utilisable comme `trigger`). */
   jobs: number;
   /** Remarques adressées à l'auteur du document ou à l'utilisateur. */
@@ -123,7 +136,7 @@ export class SonicGrbl extends DeviceElement<GrblState> {
       connected: false, firmware: null, machine: getMachine(this.machine) ? this.machine : "auto", machineState: "unknown", alarm: null,
       pos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, feed: 0, power: 0,
       area: profile.area ? { x: profile.area[0], y: profile.area[1] } : null, maxS: profile.maxS, laserMode: null, homing: null,
-      settings: {}, job: null, jobs: 0, issues: [], console: [],
+      settings: {}, job: null, lastStop: null, jobs: 0, issues: [], console: [],
     };
   }
 
@@ -133,7 +146,8 @@ export class SonicGrbl extends DeviceElement<GrblState> {
 
   protected commands(): CommandMap {
     return {
-      run: (a) => this.runJob(a, "job"),
+      run: (a) => this.runJob(a, a.dry === true ? "dry" : "job"),
+      dryRun: (a) => this.runJob(a, "dry"),
       frame: (a) => this.runJob(a, "frame"),
       hold: () => this.hold(),
       resume: () => this.resume(),
@@ -453,9 +467,9 @@ export class SonicGrbl extends DeviceElement<GrblState> {
     return isGcodeSource(src) ? src.getGcode() : null;
   }
 
-  /** Lance le programme (`job`) ou le tour de son emprise (`frame`). */
-  private async runJob(arg: CommandArg, kind: "job" | "frame"): Promise<boolean> {
-    if (!this.idle(kind === "job" ? "lancement" : "cadrage")) return false;
+  /** Lance le programme (`job`), son essai à vide (`dry`) ou le tour de son emprise (`frame`). */
+  private async runJob(arg: CommandArg, kind: "job" | "frame" | "dry"): Promise<boolean> {
+    if (!this.idle(kind === "frame" ? "cadrage" : kind === "dry" ? "essai à vide" : "lancement")) return false;
     const link = this.link as GrblLink;
     const refuse = (error: string): boolean => {
       this.patch({ error });
@@ -463,7 +477,7 @@ export class SonicGrbl extends DeviceElement<GrblState> {
     };
     if (this.state.machineState !== "Idle") return refuse(`machine pas au repos (${this.state.machineState}) : attendre, ou déverrouiller après une alarme`);
     const laser = this.tool !== "pen";
-    if (laser && this.state.laserMode === false) return refuse("mode laser désactivé ($32=0) : tâche refusée, le faisceau ne se couperait pas à l'arrêt");
+    if (laser && kind === "job" && this.state.laserMode === false) return refuse("mode laser désactivé ($32=0) : tâche refusée, le faisceau ne se couperait pas à l'arrêt");
     const source = this.program(arg);
     if (!source) return refuse(this.source || typeof arg.gcode === "string" ? "programme vide ou pas encore prêt" : "aucun programme : source=\"#id\" d'un sonic-gcode, ou run {gcode}");
     const cap = this.maxPower > 0 && this.maxPower < 100 ? Math.round((this.state.maxS * this.maxPower) / 100) : 0;
@@ -485,30 +499,49 @@ export class SonicGrbl extends DeviceElement<GrblState> {
     }
 
     let lines = prepared.lines;
+    let from = 0, preamble = 0;
     if (kind === "frame") {
       if (!stats.bbox || stats.relative) return refuse("cadrage impossible : programme sans emprise connue (coordonnées relatives)");
       const power = Math.min(MAX_FRAME_POWER, Math.max(0, Number(arg.power) || 0));
       const feed = Math.min(6000, Math.max(100, Number(arg.feed) || 3000));
-      const b = stats.bbox;
-      const corners: [number, number][] = [[b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h], [b.x, b.y]];
       const lit = laser && power > 0;
-      lines = ["G90", "G21", "M5", `G0X${num(b.x)}Y${num(b.y)}`, lit ? `M4S${num((this.state.maxS * power) / 100)}` : "M5", `G1F${num(feed)}`];
-      for (const [x, y] of corners) lines.push(`G1X${num(x)}Y${num(y)}`);
+      const framed = frameLines(prepared.lines, { shape: arg.shape === "hull" ? "hull" : "box", feed, sValue: lit ? (this.state.maxS * power) / 100 : 0, loops: Number(arg.loops) || 1 });
+      if (!framed) return refuse("cadrage impossible : rien à graver dans ce programme");
+      lines = framed;
       if (lit && !this.gesture()) return refuse("geste de l'utilisateur requis pour allumer le faisceau");
-    } else if (!this.gesture()) return refuse("geste de l'utilisateur requis pour lancer une tâche");
+    } else {
+      if (!this.gesture()) return refuse(`geste de l'utilisateur requis pour lancer ${kind === "dry" ? "un essai" : "une tâche"}`);
+      if (arg.from !== undefined && arg.from !== null && arg.from !== "") {
+        const plan = resumeLines(prepared.lines, Number(arg.from));
+        if (plan.error) return refuse(plan.error);
+        from = Math.max(0, Math.floor(Number(arg.from)) || 0);
+        preamble = plan.preamble;
+        lines = plan.lines;
+      }
+      if (kind === "dry") {
+        const before = lines.length;
+        lines = dryRunLines(lines, Number(arg.speed) || 1);
+        preamble += lines.length - before;
+      }
+    }
     // Fin de programme : faisceau coupé, puis une temporisation que GRBL n'acquitte qu'une fois tout exécuté.
     lines = [...lines, "M5", "G4P0.01"];
 
     this.stopping = false;
     this.jobStart = Date.now();
-    const job: GrblJob = { kind, lines: lines.length, sent: 0, acked: 0, progress: 0, running: true, paused: false, elapsedS: 0, estimateS: kind === "job" ? stats.estimateS : 0, bbox: stats.bbox };
+    const total = prepared.lines.length;
+    const share = kind === "frame" ? 1 : Math.max(0, (total - from) / total);
+    const job: GrblJob = { kind, from, total, line: from, lines: lines.length, sent: 0, acked: 0, progress: 0, running: true, paused: false, elapsedS: 0, estimateS: kind === "frame" ? 0 : Math.round(stats.estimateS * share), bbox: stats.bbox };
     this.patch({ job, error: null, issues });
     void this.requestWakeLock();
     const started = link.startJob(
       lines,
       (acked, sent) => {
         const current = this.state.job;
-        if (current) this.patch({ job: { ...current, acked, sent, progress: Math.round((acked / current.lines) * 1000) / 1000 } }, false);
+        if (current) {
+          const line = current.kind === "frame" ? 0 : Math.min(current.total, Math.max(current.from, current.from + acked - preamble));
+          this.patch({ job: { ...current, acked, sent, line, progress: Math.round((acked / current.lines) * 1000) / 1000 } }, false);
+        }
       },
       (end) => void this.onJobEnd(link, kind, end),
     );
@@ -520,21 +553,29 @@ export class SonicGrbl extends DeviceElement<GrblState> {
     return true;
   }
 
-  private async onJobEnd(link: GrblLink, kind: "job" | "frame", end: JobEnd): Promise<void> {
+  /** Arrêt avant la fin d'une gravure ou d'un essai : où reprendre. */
+  private stopNote(reason: string): GrblState["lastStop"] {
+    const job = this.state.job;
+    if (!job || job.kind === "frame") return this.state.lastStop;
+    return { kind: job.kind, line: job.line, resumeAt: Math.max(job.from, resumeHint(job.line)), total: job.total, reason };
+  }
+
+  private async onJobEnd(link: GrblLink, kind: "job" | "frame" | "dry", end: JobEnd): Promise<void> {
     if (this.link !== link) return;
     this.releaseWakeLock();
     if (this.stopping) return;
     if (!end) {
-      this.patch({ job: null, jobs: this.state.jobs + (kind === "job" ? 1 : 0), error: null });
+      this.patch({ job: null, lastStop: kind === "job" ? null : this.state.lastStop, jobs: this.state.jobs + (kind === "job" ? 1 : 0), error: null });
       this.emit("sonic-grbl-done", { kind });
       return;
     }
     // Erreur en cours de tâche : on arrête proprement ce que la machine a encore en tampon.
     const alarm = this.state.alarm;
+    const lastStop = this.stopNote(alarm ? alarm.message : end.message);
     await this.halt(link);
     if (this.link !== link) return;
     const error = alarm ? `tâche interrompue : ${alarm.message}` : `tâche interrompue à la ligne ${end.line} : ${end.message}`;
-    this.patch({ job: null, error });
+    this.patch({ job: null, lastStop, error });
     this.emit("sonic-grbl-error", { kind, line: end.line, message: end.message });
   }
 
@@ -562,11 +603,12 @@ export class SonicGrbl extends DeviceElement<GrblState> {
       return true;
     }
     this.stopping = true;
+    const lastStop = this.stopNote("arrêt demandé");
     await this.halt(link);
     this.stopping = false;
     if (this.link !== link) return false;
     this.releaseWakeLock();
-    this.patch({ job: null, error: null });
+    this.patch({ job: null, lastStop, error: null });
     this.emit("sonic-grbl-stop", {});
     return true;
   }

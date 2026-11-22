@@ -1,4 +1,4 @@
-import { LitElement, css, html } from "lit";
+import { LitElement, css, html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { revokeMediaUrls, type SonicMediaRef } from "../../shared/mediaRef";
@@ -52,6 +52,13 @@ export class SonicFileOpen extends LitElement {
 
   @property({ type: String })
   label = "Ouvrir un fichier";
+
+  /**
+   * Sur téléphone, ouvre directement l'appareil photo (`environment` : caméra arrière, `user` : avant) au lieu du
+   * choix de fichier ; sans effet sur ordinateur. Vide : choix habituel.
+   */
+  @property({ type: String })
+  capture = "";
 
   @property({ type: Boolean })
   drop = false;
@@ -170,7 +177,8 @@ export class SonicFileOpen extends LitElement {
   }
 
   render() {
-    return html`<input type="file" accept=${this.accept} @change=${this.onChange} /><slot @click=${() => this.pick()}><button type="button" part="button">${this.label}</button></slot>${this.state.error ? html`<span part="error" role="alert">${this.state.error}</span>` : ""}`;
+    const capture = this.capture === "environment" || this.capture === "user" ? this.capture : nothing;
+    return html`<input type="file" accept=${this.accept} capture=${capture} @change=${this.onChange} /><slot @click=${() => this.pick()}><button type="button" part="button">${this.label}</button></slot>${this.state.error ? html`<span part="error" role="alert">${this.state.error}</span>` : ""}`;
   }
 }
 

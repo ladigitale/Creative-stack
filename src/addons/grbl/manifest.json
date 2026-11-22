@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-grbl",
-      "description": "Machine GRBL 1.1 derrière un sonic-serial (transport=\"#id\", profil ch340 ou grbl). Lit version et réglages à la connexion. Commandes control {run:n | {n, gcode} (programme de source=\"#id\" d'un sonic-gcode, ou texte G-code), hold:n, resume:n, stop:n (pause, attente de l'arrêt, remise à zéro : position gardée), frame:n | {n, power (0..5 %), feed} (tour de l'emprise du programme, faisceau éteint par défaut), jog:{n, x, y, feed} (relatif, mm), goto:{n, x, y, feed} (point de travail), jogCancel:n, setOrigin:n (l'origine de travail devient la position courante), clearOrigin:n, home:n (si la machine a des fins de course), unlock:n (après une alarme), reset:n, refresh:n, send:{n, line} (console ; écriture de réglages $n= refusée sans allow-settings)}. for=\"idBouton\" lance run. État <id>State {status, error, active, connected, firmware, machine, machineState (Idle|Run|Hold|Jog|Alarm|Door|Check|Home|Sleep|unknown), alarm{code, message}, pos{x,y,z} (travail), mpos{x,y,z}, feed, power (S en cours), area{x,y} mm, maxS ($30), laserMode ($32), homing ($22), settings{\"30\":1000…}, job{kind job|frame, lines, sent, acked, progress 0..1, running, paused, elapsedS, estimateS, bbox{x,y,w,h}}, jobs (compteur), issues[], console[] (dernières lignes échangées)}. Événements sonic-grbl-ready, sonic-grbl-start, sonic-grbl-done, sonic-grbl-stop, sonic-grbl-error {line, message}. Sécurité : run et le cadrage faisceau allumé exigent un geste ; en tool=laser, M3 est remplacé par M4 et une machine en $32=0 est refusée ; max-power plafonne S ; la tâche est arrêtée à la fermeture de la page. Non validé sur matériel",
+      "description": "Machine GRBL 1.1 derrière un sonic-serial (transport=\"#id\", profil ch340 ou grbl). Lit version et réglages à la connexion. Commandes control {run:n | {n, gcode (sinon programme de source=\"#id\" d'un sonic-gcode), from (reprise à une ligne), dry}, dryRun:{n, speed 1..4} (essai à vide, faisceau coupé) hold:n, resume:n, stop:n (pause, attente de l'arrêt, remise à zéro : position gardée), frame:n | {n, power (0..5 %), feed, shape box|hull (contour réel), loops} (tour de l'emprise du programme, faisceau éteint par défaut), jog:{n, x, y, feed} (relatif, mm), goto:{n, x, y, feed} (point de travail), jogCancel:n, setOrigin:n (l'origine de travail devient la position courante), clearOrigin:n, home:n (si la machine a des fins de course), unlock:n (après une alarme), reset:n, refresh:n, send:{n, line} (console ; écriture de réglages $n= refusée sans allow-settings)}. for=\"idBouton\" lance run. État <id>State {status, error, active, connected, firmware, machine, machineState (Idle|Run|Hold|Jog|Alarm|Door|Check|Home|Sleep|unknown), alarm{code, message}, pos{x,y,z} (travail), mpos{x,y,z}, feed, power (S en cours), area{x,y} mm, maxS ($30), laserMode ($32), homing ($22), settings{\"30\":1000…}, job{kind job|frame, lines, sent, acked, progress 0..1, running, paused, elapsedS, estimateS, bbox{x,y,w,h}}, jobs (compteur), issues[], console[] (dernières lignes échangées)}. Événements sonic-grbl-ready, sonic-grbl-start, sonic-grbl-done, sonic-grbl-stop, sonic-grbl-error {line, message}. Sécurité : run et le cadrage faisceau allumé exigent un geste ; en tool=laser, M3 est remplacé par M4 et une machine en $32=0 est refusée ; max-power plafonne S ; la tâche est arrêtée à la fermeture de la page. Non validé sur matériel Après un arrêt ou une erreur, état lastStop {line, resumeAt} : reprendre par run {n, from: resumeAt}.",
       "props": {
         "transport": {
           "type": "string",
@@ -192,6 +192,60 @@
         "control": {
           "type": "string",
           "description": "DP {pattern, params} prioritaire"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        }
+      }
+    },
+    {
+      "name": "sonic-gcode-view",
+      "description": "Contrôle du programme réel avant gravure, sans JS : parcours de source=\"#id\" (sonic-gcode) à zoom libre (molette, pincement, glisser, double-clic = tout voir, boutons intégrés) avec repère en millimètres : grille adaptée au zoom, règles cotées, axes et origine du travail, plateau de la machine (machine ou bed), emprise cotée, coordonnées du pointeur, trait à la largeur du faisceau. state-from = état d'un sonic-grbl : tête, origine posée, avancement de la tâche. control {fit, bed, zoomIn, zoomOut (compteurs), upTo 0..1 (simulation), travel (déplacements à vide)}. drag-job + target : glisser l'emprise envoie {type: \"place\", payload: {dx, dy}} en mm au store. État {status, pointer, zoom, bbox, segments, lines, bed}.",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "#id du sonic-gcode"
+        },
+        "machine": {
+          "type": "string",
+          "description": "Profil de machine pour le plateau (atomstack-a5-pro)"
+        },
+        "bed": {
+          "type": "string",
+          "description": "Plateau en mm : \"410 400\""
+        },
+        "state-from": {
+          "type": "string",
+          "description": "DP d'état du sonic-grbl"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP {fit, bed, zoomIn, zoomOut, upTo, travel, beamMm}"
+        },
+        "drag-job": {
+          "type": "boolean",
+          "description": "Glisser l'emprise pour la placer"
+        },
+        "target": {
+          "type": "string",
+          "description": "Store qui reçoit l'action place {dx, dy}"
+        },
+        "show-travel": {
+          "type": "boolean",
+          "description": "Déplacements à vide en pointillés"
+        },
+        "beam-mm": {
+          "type": "number",
+          "description": "Largeur du faisceau en mm (0.1)"
+        },
+        "no-controls": {
+          "type": "boolean",
+          "description": "Masque les boutons de zoom intégrés"
+        },
+        "gestures": {
+          "type": "string",
+          "description": "auto, capture ou cooperative"
         },
         "out-data-provider": {
           "type": "string",
