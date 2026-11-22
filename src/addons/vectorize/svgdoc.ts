@@ -456,7 +456,11 @@ export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgI
     const stroke = paint(st.stroke, st);
     const sw = parseFloat(st["stroke-width"] ?? "1") * k;
     opts.raw?.({ lines, fill: fill ? fill[0] : null, stroke: stroke && sw > 0 ? stroke[0] : null, strokeWidth: stroke && sw > 0 ? sw : 0 });
-    if (stroke && sw > 0) {
+    // Liseré d'affichage (trait de la couleur du remplissage, épaisseur fixe à l'écran : `vector-effect=
+    // "non-scaling-stroke"`, ex. un export de sonic-sketch qui scelle les bords communs) : sans épaisseur réelle,
+    // il n'élargit pas la forme (et sa fusion, coûteuse, est évitée).
+    const seal = !!stroke && !!fill && stroke[0] === fill[0] && (el.getAttribute("vector-effect") ?? "").trim() === "non-scaling-stroke";
+    if (stroke && sw > 0 && !seal) {
       const so = parseFloat(st["stroke-opacity"] ?? "1");
       const opacity = a * stroke[1] * (Number.isFinite(so) ? Math.max(0, Math.min(1, so)) : 1);
       try {

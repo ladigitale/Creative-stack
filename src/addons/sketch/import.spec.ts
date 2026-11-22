@@ -161,6 +161,20 @@ describe("sonic-sketch : import de formes vectorisées", () => {
     expect(fine).toBeGreaterThan(coarse * 2);
   });
 
+  it("contentSeq suit le contenu (import, annulation), pas la vue", async () => {
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport13", control: "skCtl13", "out-data-provider": "skState13" });
+    const c0 = el.contentSeq;
+    set("vecImport13", result(1, [{ color: "#ff0000", d: sq(0, 0, 40) }]));
+    set("skCtl13", { import: 1 });
+    const c1 = el.contentSeq;
+    expect(c1).not.toBe(c0);
+    set("skCtl13", { import: 1, zoomIn: 1 });
+    expect(el.contentSeq).toBe(c1);
+    el.undo();
+    expect(el.contentSeq).not.toBe(c1);
+    el.remove();
+  });
+
   it("import-skip ne retire rien d'un SVG lu tel quel (keepColors) : le noir est gardé", async () => {
     const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport7", "import-skip": "#000000", control: "skCtl7", "out-data-provider": "skState7" });
     set("vecImport7", { ...result(1, [{ color: "#000000", d: sq(0, 0, 40) }, { color: "#ff0000", d: sq(50, 0, 30) }]), keepColors: true });
