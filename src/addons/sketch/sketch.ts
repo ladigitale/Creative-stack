@@ -335,6 +335,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    */
   @property({ type: String, attribute: "import-skip" }) importSkip = "background";
   /**
+   * L'import remplace tout le dessin (une seule étape d'annulation) au lieu de se poser par-dessus : un import
+   * redemandé ne s'empile pas sur le précédent. Aussi `importReplace: true` dans `control`, pour un seul import.
+   */
+  @property({ type: Boolean, attribute: "import-replace" }) importReplace = false;
+  /**
    * Recoloration à l'import : DP d'une palette (liste, chaîne « #a, #b » ou état de `sonic-palette` `{colors}`).
    * Les couleurs distinctes de la source, de la plus étendue à la plus rare, prennent tour à tour les couleurs
    * de la palette. Pour poser les formes d'un shader générateur (couleurs arbitraires) dans l'harmonie du dessin.
@@ -721,7 +726,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
           if (first) { first = false; this.importRuns.set(path, runs); return; }
           if (o.status !== "ready" || runs === this.importRuns.get(path)) return;
           this.importRuns.set(path, runs);
-          if (this.importAuto) this.importShapes(v);
+          if (this.importAuto) this.importShapes(v, this.importReplace);
         });
       }));
     }
@@ -767,7 +772,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         // seulement sur demande, hors de `import-from`).
         if ("import" in c && this.trigger("import").feed(c.import)) {
           const src = typeof c.importSource === "string" && c.importSource.trim() ? c.importSource.trim() : "";
-          this.importShapes(src ? plain(get(src)) : undefined);
+          this.importShapes(src ? plain(get(src)) : undefined, this.importReplace || c.importReplace === true);
         }
         if (typeof c.exportScale === "number" || typeof c.exportScale === "string") this.liveExport.scale = Number(c.exportScale);
         if (c.exportArea === "view" || c.exportArea === "content" || c.exportArea === "page") this.liveExport.area = c.exportArea;
@@ -1640,7 +1645,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   }
 
   /** Importe `state` (un état de `sonic-vectorize`), à défaut le dernier résultat reçu d'une des sources. */
-  importShapes(state?: unknown): number {
+  importShapes(state?: unknown, replace = false): number {
     const t0 = performance.now();
     const fail = (error: string) => { this.imported = { error }; this.publish(); return 0; };
     if (state !== undefined) this.importState = state;
@@ -1708,8 +1713,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       const all = layers.map((l) => multiBBox(l.shape));
       const x0 = Math.min(...all.map((b) => b.x)), y0 = Math.min(...all.map((b) => b.y));
       const ob = { x: x0, y: y0, w: Math.max(...all.map((b) => b.x + b.w)) - x0, h: Math.max(...all.map((b) => b.y + b.h)) - y0 };
-      const strokes = this.doc.strokes;
-      const index = this.targetFlat(ob);
+      // `replace` : on repart d'un dessin vide (le précédent import ne reste pas dessous).
+      const strokes = replace ? [] : this.doc.strokes;
+      const index = replace ? 0 : this.targetFlat(ob);
       const top = index < strokes.length ? strokes[index] : null;
       const back = this.backdropAt(index);
       let regions = top ? top.flat! : [];
@@ -1721,6 +1727,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       const brush = { ...BRUSH_DEFAULTS, hardness: 1, opacity: 1, pressure: false, blend: undefined };
       const item: Stroke = { id, brush, pts: [], seed: 1, flat: regions, bbox: flatBBox(regions) };
       this.doc.replace([...strokes.slice(0, index), ...(regions.length ? [item] : []), ...strokes.slice(index + (top ? 1 : 0))]);
+      if (replace && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
       this.imported = { layers: layers.length, regions: regions.length, ms: Math.round(performance.now() - t0) };
       this.invalidate();
       this.dispatchEvent(new CustomEvent("sketch-import", { detail: this.imported, bubbles: true, composed: true }));
