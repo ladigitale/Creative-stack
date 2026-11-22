@@ -340,6 +340,12 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    */
   @property({ type: Boolean, attribute: "import-replace" }) importReplace = false;
   /**
+   * Précision de l'import en pixels de la source (ex. 0,1 pour un tracé au trait fin) : les courbes sont aplaties
+   * et simplifiées à cette tolérance, quelle que soit la taille de la toile à l'écran. 0 (défaut) : `simplify` px
+   * d'écran, adapté à une source affichée à sa taille.
+   */
+  @property({ type: Number, attribute: "import-tolerance" }) importTolerance = 0;
+  /**
    * Recoloration à l'import : DP d'une palette (liste, chaîne « #a, #b » ou état de `sonic-palette` `{colors}`).
    * Les couleurs distinctes de la source, de la plus étendue à la plus rare, prennent tour à tour les couleurs
    * de la palette. Pour poser les formes d'un shader générateur (couleurs arbitraires) dans l'harmonie du dessin.
@@ -1684,6 +1690,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     // Tolérance : `simplify` px d'écran, ramenés aux pixels de l'image (courbes aplaties) puis au monde.
     const pxPerImage = Math.hypot(m[0], m[1]) * (w / cr.width) || 1;
     const tolPx = Math.max(0.25, Math.min(8, Number(this.simplify) || 0.35));
+    // `import-tolerance` : tolérance fixée en pixels de la source (bornée 0,02..8), indépendante de l'écran.
+    const it = Number(this.importTolerance);
+    const srcTol = Number.isFinite(it) && it > 0 ? Math.max(0.02, Math.min(8, it)) : 0;
     // `import-skip` vise les sources tracées (fond d'un générateur) : un SVG lu tel quel (`keepColors`) garde
     // toutes ses couleurs, noir compris.
     const skip = v.keepColors === true ? [] : this.skipColors();
@@ -1701,10 +1710,10 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
         const c = recolor[rank.get(key)! % recolor.length];
         rgba[0] = c[0]; rgba[1] = c[1]; rgba[2] = c[2];
       }
-      const local = pathToMulti(p.d, tolPx / pxPerImage);
+      const local = pathToMulti(p.d, srcTol > 0 ? srcTol : tolPx / pxPerImage);
       if (!local?.length) continue;
       const world = local.map((poly) => poly.map((ring) => ring.map(([x, y]) => toW(x, y))));
-      const shape = simplifyMulti(world, tolPx / this.view.zoom);
+      const shape = simplifyMulti(world, srcTol > 0 ? (srcTol * pxPerImage) / this.view.zoom : tolPx / this.view.zoom);
       const alpha = typeof p.opacity === "number" && Number.isFinite(p.opacity) ? Math.max(0, Math.min(1, p.opacity)) : 1;
       if (shape.length && alpha > 0) layers.push({ rgba: [rgba[0], rgba[1], rgba[2], 1], shape, alpha });
     }
