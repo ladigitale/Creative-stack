@@ -304,7 +304,18 @@ Mesure, image par image, la luminosité d'une source d'images et détecte les fr
 - Actions vers `target` : `{type: "morse:sent", payload: {text}}` à la fin d'une émission, `{type: "morse:message", payload: {text, unit}}` à la fin d'un message reçu.
 - État (`out-data-provider`, défaut `<id>State`) : `{status: idle|sending|receiving, on, tx: {text, signs, done, rest, chars, total, progress, percent, queue}, rx: {text, signs, unit}, lastReceived, lastSent, sent, received, dropped, settings}`. `rx.text` et `rx.signs` suivent le message en cours de réception.
 - Progression de l'émission : `tx.done` est la partie du texte déjà émise, `tx.rest` ce qui reste, `tx.percent` l'avancement de 0 à 100 (pour un `sonic-progress` : `sonic-jsonata` qui publie `{value: $input.tx.percent, max: 100}`).
-- `params` : `{unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits}` en direct. `control` : `{cancel: compteur}` arrête l'émission et vide la file. Événements DOM `morse-sent`, `morse-message`.
+- `params` : `{codec, unit, trim, autoUnit, endUnits, guardMs, minChars, startUnits}` en direct. `control` : `{cancel: compteur}` arrête l'émission et vide la file. Événements DOM `morse-sent`, `morse-message`.
+
+### Code rapide (`codec="fast"`)
+
+Le morse ne code que dans les éclats ; les silences ne font que séparer. Le code rapide fait porter de l'information à chaque intervalle, allumé ou éteint, de 1, 2 ou 3 unités :
+
+- Un arbre de code unique, calé sur les fréquences du français, couvre les caractères, la fin de message et une **table de phrases** : « OUI », « CA VA ? », « J'ARRIVE » sont un seul symbole. `phrases` (tableau JSON de textes, ou de couples `[texte, poids]`) remplace la table par défaut ; elle doit être identique sur les deux appareils.
+- Message : éclat de début (`start-units`), silence de 3 unités qui **étalonne** le récepteur (il suit un émetteur d'une autre unité), symboles, fin de message, 3 chiffres de contrôle en base 3 (calculés sur les symboles et l'empreinte de la table). Si le dernier intervalle est un silence, un éclat d'une unité le referme.
+- Le message est livré dès qu'il est complet : pas de silence de `end-units` à attendre. Un contrôle faux, un front manqué, une durée illisible ou un silence en plein message rejettent le message (`errors`) ; un message venu d'une autre table de phrases est rejeté de même au lieu d'être mal lu.
+- Même `codec`, `unit` et `start-units` des deux côtés ; `start-units="0"` n'est pas permis (le signal de début est l'étalonnage). Un récepteur rapide ignore un message morse et inversement.
+- Durées à `unit=300`, attente de fin de message du morse comprise : « oui » 15 s en morse, 9 s en rapide ; « ca va ? » 26 s contre 9 s ; « salut ca va ? » 41 s contre 11 s ; texte libre « je suis devant la porte » 61 s contre 43 s. Le gros du gain vient des phrases ; l'en-tête (début, étalonnage, fin, contrôle) pèse sur les messages très courts. `unit=250` gagne encore un sixième.
+- État : `codec`, `tx.signs` (durées en chiffres), `rx.text` (lecture provisoire, valable une fois le message livré), `errors`.
 
 ## `sonic-media-start`
 
