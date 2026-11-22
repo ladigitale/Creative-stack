@@ -18,8 +18,16 @@
           "tagName": "sonic-store",
           "attributes": {
             "id": "croquisFilCtl",
-            "initial": "{\"save\": 0, \"exportArea\": \"view\"}",
-            "reducer": "$action.type = \"envoyer\" ? $merge([$state, {\"save\": $state.save + 1, \"exportArea\": \"view\"}]) : $state"
+            "initial": "{\"save\": 0, \"undo\": 0, \"redo\": 0, \"reset\": 0, \"exportArea\": \"page\"}",
+            "reducer": "$action.type = \"envoyer\" ? $merge([$state, {\"save\": $state.save + 1, \"exportArea\": \"page\"}]) : $action.type = \"annuler\" ? $merge([$state, {\"undo\": $state.undo + 1}]) : $action.type = \"refaire\" ? $merge([$state, {\"redo\": $state.redo + 1}]) : $action.type = \"recadrer\" ? $merge([$state, {\"reset\": $state.reset + 1}]) : $state"
+          }
+        },
+        {
+          "tagName": "sonic-store",
+          "attributes": {
+            "id": "pinceau",
+            "initial": "{\"tool\": \"paint\", \"color\": \"#ff3d7f\", \"size\": \"12\", \"opacity\": \"1\", \"hardness\": \"1\", \"blend\": \"normal\"}",
+            "reducer": "$state"
           }
         },
         {
@@ -43,7 +51,7 @@
           "attributes": {
             "id": "balises",
             "initial": "{\"items\": [], \"outbox\": [], \"panneau\": \"non\", \"fil\": null, \"saisie\": \"\", \"dessin\": 0}",
-            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $p}]) : $ob}]) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($state.ici = $p.value ? $state : $merge([$state, {\"ici\": $p.value, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($state.fil and $p.url ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true}]), \"dessin\": -1, \"erreur\": \"Dessin envoyé.\"}]) : $state) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : \"\")}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $state)",
+            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $p}]) : $ob}]) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($state.ici = $p.value ? $state : $merge([$state, {\"ici\": $p.value, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($state.fil and $p.url ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}]) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\"}]) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\"}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : \"\")}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $state)",
             "persist": "balises",
             "max-state-bytes": "1200000"
           }
@@ -184,6 +192,48 @@
           }
         },
         {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "croquisFilCtl",
+            "formDataProvider": "balises",
+            "outputProvider": "croquisCmd",
+            "expression": "$merge([$input, {\"clear\": $capture ? $capture : 0}])"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "balises",
+            "outputProvider": "ancreCtl",
+            "expression": "{\"capture\": $input.capture ? $input.capture : 0}"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "ancreState",
+            "formDataProvider": "balises",
+            "outputProvider": "editeurEtat",
+            "expression": "{\"v\": ($editeur = \"oui\" and $exists($input.capture.url)) ? \"oui\" : \"non\"}"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "ancreState",
+            "outputProvider": "captureErreur",
+            "expression": "$input.capture.error ? $input.capture.error : \"\""
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "croquisEtat",
+            "outputProvider": "croquisPlein",
+            "expression": "$input.full ? \"500 traits : c'est le maximum pour un dessin. Annule ou gomme pour continuer.\" : \"\""
+          }
+        },
+        {
           "tagName": "sonic-notify",
           "attributes": {
             "watch": "poseState.error",
@@ -252,6 +302,22 @@
             "watch": "voixFilState.error",
             "status": "error",
             "label": "Micro"
+          }
+        },
+        {
+          "tagName": "sonic-notify",
+          "attributes": {
+            "watch": "captureErreur",
+            "status": "warning",
+            "label": "Dessin"
+          }
+        },
+        {
+          "tagName": "sonic-notify",
+          "attributes": {
+            "watch": "croquisPlein",
+            "status": "warning",
+            "label": "Dessin"
           }
         },
         {
@@ -332,6 +398,9 @@
                                   "tagName": "sonic-anchor",
                                   "attributes": {
                                     "id": "ancre",
+                                    "control": "ancreCtl",
+                                    "capture-pad": "1",
+                                    "capture-size": "1440",
                                     "source": "#cam",
                                     "reference": "toutes.items",
                                     "within": "geoState",
@@ -3502,185 +3571,36 @@
                                         {
                                           "tagName": "div",
                                           "attributes": {
-                                            "style": "display:flex;flex-direction:column;gap:.5rem"
+                                            "style": "display:flex;flex-direction:column;gap:.5rem;align-items:stretch"
                                           },
                                           "nodes": [
                                             {
-                                              "tagName": "div",
+                                              "tagName": "sonic-action",
                                               "attributes": {
-                                                "style": "position:relative;aspect-ratio:4/3;border-radius:1rem;overflow:hidden;background:#16181d"
+                                                "target": "balises",
+                                                "type": "dessin:ouvrir"
                                               },
                                               "nodes": [
                                                 {
-                                                  "tagName": "sonic-sketch",
+                                                  "tagName": "sonic-button",
                                                   "attributes": {
-                                                    "id": "croquisFil",
-                                                    "width": "800",
-                                                    "height": "600",
-                                                    "background": "transparent",
-                                                    "color": "#ff3d7f",
-                                                    "size": "10",
-                                                    "brush-from": "pinceau",
-                                                    "control": "croquisFilCtl",
-                                                    "export-to": "balises",
-                                                    "export-action": "fil:dessin",
-                                                    "export-area": "view",
-                                                    "style": "position:absolute;inset:0;width:100%;height:100%"
-                                                  }
-                                                }
-                                              ]
-                                            },
-                                            {
-                                              "tagName": "div",
-                                              "attributes": {
-                                                "style": "display:flex;gap:.5rem;align-items:center;justify-content:space-between"
-                                              },
-                                              "nodes": [
-                                                {
-                                                  "tagName": "sonic-group",
-                                                  "attributes": {
-                                                    "formDataProvider": "pinceau"
+                                                    "type": "primary",
+                                                    "size": "lg",
+                                                    "shape": "block",
+                                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
                                                   },
                                                   "nodes": [
                                                     {
-                                                      "tagName": "sonic-button",
+                                                      "tagName": "sonic-icon",
                                                       "attributes": {
-                                                        "radio": true,
-                                                        "name": "color",
-                                                        "value": "#ff3d7f",
-                                                        "size": "sm",
-                                                        "variant": "outline",
-                                                        "shape": "circle",
-                                                        "aria-label": "Rose",
-                                                        "title": "Rose",
-                                                        "style": "--sc-btn-rounded:999px"
-                                                      },
-                                                      "nodes": [
-                                                        {
-                                                          "tagName": "span",
-                                                          "attributes": {
-                                                            "style": "display:inline-block;width:1.05rem;height:1.05rem;border-radius:50%;background:#ff3d7f;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)"
-                                                          }
-                                                        }
-                                                      ]
+                                                        "library": "iconoir",
+                                                        "name": "design-pencil",
+                                                        "slot": "prefix"
+                                                      }
                                                     },
                                                     {
-                                                      "tagName": "sonic-button",
-                                                      "attributes": {
-                                                        "radio": true,
-                                                        "name": "color",
-                                                        "value": "#ffd84a",
-                                                        "size": "sm",
-                                                        "variant": "outline",
-                                                        "shape": "circle",
-                                                        "aria-label": "Jaune",
-                                                        "title": "Jaune",
-                                                        "style": "--sc-btn-rounded:999px"
-                                                      },
-                                                      "nodes": [
-                                                        {
-                                                          "tagName": "span",
-                                                          "attributes": {
-                                                            "style": "display:inline-block;width:1.05rem;height:1.05rem;border-radius:50%;background:#ffd84a;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)"
-                                                          }
-                                                        }
-                                                      ]
-                                                    },
-                                                    {
-                                                      "tagName": "sonic-button",
-                                                      "attributes": {
-                                                        "radio": true,
-                                                        "name": "color",
-                                                        "value": "#22d3a6",
-                                                        "size": "sm",
-                                                        "variant": "outline",
-                                                        "shape": "circle",
-                                                        "aria-label": "Vert",
-                                                        "title": "Vert",
-                                                        "style": "--sc-btn-rounded:999px"
-                                                      },
-                                                      "nodes": [
-                                                        {
-                                                          "tagName": "span",
-                                                          "attributes": {
-                                                            "style": "display:inline-block;width:1.05rem;height:1.05rem;border-radius:50%;background:#22d3a6;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)"
-                                                          }
-                                                        }
-                                                      ]
-                                                    },
-                                                    {
-                                                      "tagName": "sonic-button",
-                                                      "attributes": {
-                                                        "radio": true,
-                                                        "name": "color",
-                                                        "value": "#ffffff",
-                                                        "size": "sm",
-                                                        "variant": "outline",
-                                                        "shape": "circle",
-                                                        "aria-label": "Blanc",
-                                                        "title": "Blanc",
-                                                        "style": "--sc-btn-rounded:999px"
-                                                      },
-                                                      "nodes": [
-                                                        {
-                                                          "tagName": "span",
-                                                          "attributes": {
-                                                            "style": "display:inline-block;width:1.05rem;height:1.05rem;border-radius:50%;background:#ffffff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)"
-                                                          }
-                                                        }
-                                                      ]
-                                                    },
-                                                    {
-                                                      "tagName": "sonic-button",
-                                                      "attributes": {
-                                                        "radio": true,
-                                                        "name": "color",
-                                                        "value": "#111111",
-                                                        "size": "sm",
-                                                        "variant": "outline",
-                                                        "shape": "circle",
-                                                        "aria-label": "Noir",
-                                                        "title": "Noir",
-                                                        "style": "--sc-btn-rounded:999px"
-                                                      },
-                                                      "nodes": [
-                                                        {
-                                                          "tagName": "span",
-                                                          "attributes": {
-                                                            "style": "display:inline-block;width:1.05rem;height:1.05rem;border-radius:50%;background:#111111;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)"
-                                                          }
-                                                        }
-                                                      ]
-                                                    }
-                                                  ]
-                                                },
-                                                {
-                                                  "tagName": "sonic-action",
-                                                  "attributes": {
-                                                    "target": "croquisFilCtl",
-                                                    "type": "envoyer"
-                                                  },
-                                                  "nodes": [
-                                                    {
-                                                      "tagName": "sonic-button",
-                                                      "attributes": {
-                                                        "type": "primary",
-                                                        "style": "--sc-btn-rounded:999px"
-                                                      },
-                                                      "nodes": [
-                                                        {
-                                                          "tagName": "sonic-icon",
-                                                          "attributes": {
-                                                            "library": "iconoir",
-                                                            "name": "arrow-right",
-                                                            "slot": "prefix"
-                                                          }
-                                                        },
-                                                        {
-                                                          "tagName": "span",
-                                                          "textContent": "Envoyer"
-                                                        }
-                                                      ]
+                                                      "tagName": "span",
+                                                      "textContent": "Dessiner sur le mur"
                                                     }
                                                   ]
                                                 }
@@ -3818,6 +3738,1033 @@
                                       ]
                                     }
                                   ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "editeurEtat",
+            "key": "v",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;inset:0;z-index:40;background:#0b0c0f;color:#fff;display:flex;flex-direction:column;--sc-base:#0b0c0f;--sc-base-content:#ffffff;--sc-primary:#ffffff;--sc-primary-content:#1c1e24"
+              },
+              "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;gap:.5rem;padding:max(.7rem,env(safe-area-inset-top)) .8rem .6rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "balises",
+                        "type": "dessin:fermer"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Fermer sans envoyer",
+                            "title": "Fermer sans envoyer",
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "cancel"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "span",
+                      "attributes": {
+                        "style": "font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap;font-size:.95rem;opacity:.85"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-value",
+                          "attributes": {
+                            "dataProvider": "croquisEtat",
+                            "key": "strokes"
+                          }
+                        },
+                        {
+                          "tagName": "span",
+                          "textContent": " / 500"
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "margin-left:auto"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "croquisFilCtl",
+                            "type": "envoyer"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "type": "primary",
+                                "size": "md",
+                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "arrow-right",
+                                    "slot": "prefix"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Poser sur le mur"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:0 .4rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-sketch",
+                      "attributes": {
+                        "id": "croquisFil",
+                        "width": "1200",
+                        "height": "900",
+                        "checker": "#16181d #1d2026",
+                        "checker-size": "14",
+                        "background": "transparent",
+                        "backdrop-from": "ancreState.capture",
+                        "max-strokes": "500",
+                        "color": "#ff3d7f",
+                        "size": "12",
+                        "brush-from": "pinceau",
+                        "control": "croquisCmd",
+                        "out-data-provider": "croquisEtat",
+                        "export-to": "balises",
+                        "export-action": "fil:dessin",
+                        "export-area": "page",
+                        "style": "width:min(100%, calc((100svh - 12rem) * 4 / 3));border-radius:.6rem;overflow:hidden"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;justify-content:center;gap:.45rem;padding:.6rem .8rem 0"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "croquisFilCtl",
+                        "type": "annuler"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Annuler le dernier trait",
+                            "title": "Annuler le dernier trait",
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "undo"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "croquisFilCtl",
+                        "type": "refaire"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Rétablir",
+                            "title": "Rétablir",
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "redo"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "croquisFilCtl",
+                        "type": "recadrer"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Revoir tout le mur",
+                            "title": "Revoir tout le mur",
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "frame-alt-empty"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "span",
+                      "attributes": {
+                        "style": "width:1px;height:1.6rem;background:rgba(255,255,255,.2);margin:0 .2rem"
+                      }
+                    },
+                    {
+                      "tagName": "sonic-group",
+                      "attributes": {
+                        "formDataProvider": "pinceau"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "radio": true,
+                            "name": "tool",
+                            "value": "paint",
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Pinceau",
+                            "title": "Pinceau",
+                            "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24",
+                            "variant": "outline"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "design-pencil"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "radio": true,
+                            "name": "tool",
+                            "value": "erase",
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Gomme",
+                            "title": "Gomme",
+                            "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24",
+                            "variant": "outline"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "erase"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "radio": true,
+                            "name": "tool",
+                            "value": "hand",
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Déplacer",
+                            "title": "Déplacer",
+                            "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24",
+                            "variant": "outline"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "drag-hand-gesture"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;justify-content:center;gap:.45rem;padding:.5rem .8rem max(.8rem,env(safe-area-inset-bottom))"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-pop",
+                      "attributes": {
+                        "placement": "top"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Couleur",
+                            "title": "Couleur",
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "color-picker"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-menu",
+                          "attributes": {
+                            "slot": "content",
+                            "direction": "column",
+                            "align": "left",
+                            "size": "sm",
+                            "style": "min-width:12rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "color",
+                                "value": "#ff3d7f"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#ff3d7f;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "margin-left:.5rem"
+                                  },
+                                  "textContent": "Rose"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "color",
+                                "value": "#ffd84a"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#ffd84a;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "margin-left:.5rem"
+                                  },
+                                  "textContent": "Jaune"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "color",
+                                "value": "#22d3a6"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#22d3a6;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "margin-left:.5rem"
+                                  },
+                                  "textContent": "Vert"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "color",
+                                "value": "#4da3ff"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#4da3ff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "margin-left:.5rem"
+                                  },
+                                  "textContent": "Bleu"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "color",
+                                "value": "#9b5cff"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#9b5cff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "margin-left:.5rem"
+                                  },
+                                  "textContent": "Violet"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "color",
+                                "value": "#ff6a2b"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#ff6a2b;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "margin-left:.5rem"
+                                  },
+                                  "textContent": "Orange"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "color",
+                                "value": "#ffffff"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#ffffff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "margin-left:.5rem"
+                                  },
+                                  "textContent": "Blanc"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "color",
+                                "value": "#8a8f99"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#8a8f99;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "margin-left:.5rem"
+                                  },
+                                  "textContent": "Gris"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "color",
+                                "value": "#111111"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#111111;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                  }
+                                },
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "margin-left:.5rem"
+                                  },
+                                  "textContent": "Noir"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-pop",
+                      "attributes": {
+                        "placement": "top"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Taille du pinceau",
+                            "title": "Taille du pinceau",
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "line-space"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-menu",
+                          "attributes": {
+                            "slot": "content",
+                            "direction": "column",
+                            "align": "left",
+                            "size": "sm",
+                            "style": "min-width:12rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "size",
+                                "value": "3"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Très fin"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "size",
+                                "value": "7"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Fin"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "size",
+                                "value": "12"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Moyen"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "size",
+                                "value": "24"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Gros"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "size",
+                                "value": "48"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Très gros"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "size",
+                                "value": "96"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Énorme"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-pop",
+                      "attributes": {
+                        "placement": "top"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Opacité et dureté",
+                            "title": "Opacité et dureté",
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "half-moon"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-menu",
+                          "attributes": {
+                            "slot": "content",
+                            "direction": "column",
+                            "align": "left",
+                            "size": "sm",
+                            "style": "min-width:12rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "opacity",
+                                "value": "1"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Opaque"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "opacity",
+                                "value": "0.7"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Opacité 70 %"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "opacity",
+                                "value": "0.4"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Opacité 40 %"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "opacity",
+                                "value": "0.15"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Voile 15 %"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "hardness",
+                                "value": "1"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Bord net"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "hardness",
+                                "value": "0.5"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Bord doux"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "hardness",
+                                "value": "0.1"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Bord très flou"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-pop",
+                      "attributes": {
+                        "placement": "top"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "size": "md",
+                            "shape": "circle",
+                            "aria-label": "Fusion avec le mur",
+                            "title": "Fusion avec le mur",
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "union"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "tagName": "sonic-menu",
+                          "attributes": {
+                            "slot": "content",
+                            "direction": "column",
+                            "align": "left",
+                            "size": "sm",
+                            "style": "min-width:14rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "blend",
+                                "value": "normal"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Normal"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "blend",
+                                "value": "multiply"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Produit (assombrit)"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "blend",
+                                "value": "screen"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Écran (éclaircit)"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "blend",
+                                "value": "overlay"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Incrustation"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "blend",
+                                "value": "soft-light"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Lumière douce"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "blend",
+                                "value": "color-dodge"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Densité couleur −"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "blend",
+                                "value": "difference"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Différence"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "blend",
+                                "value": "color"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Couleur"
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-menu-item",
+                              "attributes": {
+                                "radio": true,
+                                "formDataProvider": "pinceau",
+                                "name": "blend",
+                                "value": "luminosity"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "textContent": "Luminosité"
                                 }
                               ]
                             }
