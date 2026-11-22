@@ -10,6 +10,7 @@ import type { EngineResult } from "./core/engine";
 import { EngineRunner } from "./runner";
 import type { Pt } from "./core/homography";
 import { rectify, type Rectified } from "./core/rectify";
+import { steadyCorners, type Corners } from "./core/steady";
 import { grabGray, resolveSource, upFromOrientation } from "./frame";
 
 export type AnchorStatus = "idle" | "searching" | "tracking" | "holding" | "error";
@@ -56,7 +57,7 @@ export type AnchorState = {
    * Dernière prise de vue (commande `capture`) : la zone suivie vue de face dans l'image en couleur, plus
    * `capture-pad` fois sa taille autour (JPEG data:), avec `refId` et `seq` ; `{error}` si la zone était perdue.
    */
-  capture: (Rectified & { refId: string | null; seq: number }) | { error: string; seq: number } | null;
+  capture: (Rectified & { refId: string | null; seq: number; steady?: boolean }) | { error: string; seq: number } | null;
 };
 
 const IDLE: AnchorState = {
@@ -143,6 +144,13 @@ export class SonicAnchor extends LitElement {
   private cursor = 0;
   private misses = 0;
   private smoothed: Pt[] | null = null;
+  /**
+   * Prise de vue en attente : chaque image analysée est gardée en couleur avec les coins mesurés DESSUS (sans
+   * lissage) ; on prend la photo quand la zone ne bouge plus (3 mesures concordantes), sinon au bout de 1,5 s.
+   */
+  private pendingCapture: { seq: number; t0: number; shots: { frame: HTMLCanvasElement; corners: Corners; refId: string | null }[] } | null = null;
+  /** Copie couleur de l'image en cours d'analyse (seulement pendant une prise de vue). */
+  private analysedColor: HTMLCanvasElement | null = null;
   private filters: OneEuro[] = [];
   private foundCount = 0;
   private runner: EngineRunner | null = null;
@@ -193,6 +201,11 @@ export class SonicAnchor extends LitElement {
    */
   capture(): void {
     const seq = ((this.stateValue.capture?.seq) ?? 0) + 1;
+    if (this.running) {
+      // Photo calée sur l'image même où la zone a été mesurée, une fois la zone immobile (voir handle).
+      this.pendingCapture = { seq, t0: performance.now(), shots: [] };
+      return;
+    }
     const s = this.stateValue;
     const el = resolveSource(this, this.source) as (Element & { getFrameCanvas?: () => HTMLCanvasElement | null }) | null;
     const frame = el?.getFrameCanvas?.() ?? null;
@@ -264,6 +277,7 @@ export class SonicAnchor extends LitElement {
       this.publish({ ...this.stateValue, status: "error", error: e instanceof Error ? e.message : "échec de l'analyse" });
     }).finally(() => {
       if (!this.running) return;
+      this.settleCapture();
       const spent = performance.now() - t0;
       // Zone suivie : à chaque nouvelle image (le suivi est léger). Recherche : au rythme de `interval`.
       const wait = this.current >= 0 ? 8 : Math.max(16, this.interval) - spent;
@@ -282,6 +296,7 @@ export class SonicAnchor extends LitElement {
     const grabbedAt = performance.now();
     const grab = grabGray(el, this.maxSize);
     if (!grab) return;
+    this.analysedColor = this.pendingCapture ? copyColor(el, Math.max(256, Math.min(2048, this.captureSize)) * (1 + 2 * Math.max(0, Math.min(2, Number(this.capturePad) || 0)))) : null;
     // Lu après la copie : getFrameCanvas() peut avoir avancé la source d'une image.
     const seq = el.frameSeq;
     this.lastSeq = seq;
@@ -292,6 +307,7 @@ export class SonicAnchor extends LitElement {
     });
     if (!this.running) return;
     this.handle(r, seq, grabbedAt, width, height, runner.engine);
+    this.settleCapture();
   }
 
   private handle(r: EngineResult, seq: number, grabbedAt: number, width: number, height: number, engine: "worker" | "main"): void {
@@ -308,6 +324,10 @@ export class SonicAnchor extends LitElement {
     if (r.found && r.corners) {
       this.misses = 0;
       const norm = r.corners.map((p) => ({ x: p.x / width, y: p.y / height }));
+      if (this.pendingCapture && this.analysedColor) {
+        this.pendingCapture.shots.push({ frame: this.analysedColor, corners: norm, refId: this.refs[r.index]?.id ?? null });
+        if (this.pendingCapture.shots.length > 6) this.pendingCapture.shots.shift();
+      }
       if (r.index !== this.current || !this.smoothed || jump(this.smoothed, norm) > 0.15 || this.smoothing <= 0) {
         this.filters = [];
         this.smoothed = norm;
@@ -337,6 +357,24 @@ export class SonicAnchor extends LitElement {
     this.smoothed = null;
     this.filters = [];
     this.publish({ ...IDLE, ...base, status: "searching", matches: r.matches, inliers: r.inliers });
+  }
+
+  /** Prise de vue en attente : photo dès que la zone est immobile, ou la dernière mesure au bout de 1,5 s. */
+  private settleCapture(): void {
+    const p = this.pendingCapture;
+    if (!p) return;
+    const shots = p.shots;
+    // Une seule surface : les mesures d'une autre référence ne se mélangent pas.
+    const same = shots.filter((s) => s.refId === shots[shots.length - 1]?.refId);
+    const steady = steadyCorners(same.map((s) => s.corners));
+    const late = performance.now() - p.t0 > 1500;
+    if (!steady && !late) return;
+    this.pendingCapture = null;
+    this.analysedColor = null;
+    const side = Math.max(256, Math.min(2048, this.captureSize));
+    const last = same[same.length - 1];
+    const shot = steady ? rectify(same[steady.index].frame, steady.corners, this.capturePad, side) : last ? rectify(last.frame, last.corners, this.capturePad, side) : null;
+    this.publish({ ...this.stateValue, capture: shot ? { ...shot, refId: last?.refId ?? null, seq: p.seq, steady: !!steady } : { error: last ? "prise de vue impossible" : "vise le mur pour le prendre en photo", seq: p.seq } });
   }
 
   private bestSimilarity: number | null = null;
@@ -423,3 +461,17 @@ function jump(a: Pt[], b: Pt[]): number {
 }
 
 const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
+
+/** Copie couleur de l'image courante d'une source (côté long `maxSide` au plus), pour la prise de vue. */
+function copyColor(el: Element, maxSide: number): HTMLCanvasElement | null {
+  const src = (el as Element & { getFrameCanvas?: () => HTMLCanvasElement | null }).getFrameCanvas?.() ?? null;
+  if (!src || !src.width || !src.height) return null;
+  const k = Math.min(1, Math.min(4096, maxSide) / Math.max(src.width, src.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(src.width * k));
+  c.height = Math.max(1, Math.round(src.height * k));
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
