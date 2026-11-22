@@ -63,7 +63,7 @@ Entrées :
 | `auto` | Reconstruit le programme à chaque changement de source ou de réglage |
 | `show-preview` | Affiche les parcours ; le composant est alors aussi une source d'images |
 
-Ordre d'exécution : les hachures d'abord, puis les traits ; les couleurs sans réglage propre avant celles de `ops`, puis `ops` dans l'ordre donné (mettre la découpe en dernier). Dans une même passe, les contours intérieurs passent avant ceux qui les entourent, puis au plus proche. Le blanc (`#ffffff`) ne brûle pas.
+Ordre d'exécution : les hachures d'abord, puis les traits ; les couleurs sans réglage propre avant celles de `ops`, puis `ops` dans l'ordre donné (mettre la découpe en dernier). Dans une même passe, les contours intérieurs passent avant ceux qui les entourent, puis au plus proche (recherche gloutonne bornée par les emprises, puis 2-opt sous budget de temps) ; un contour fermé est entamé au sommet le plus proche de la tête, un trait ouvert par son bout le plus proche. Les hachures sont faites île par île (une forme et ses trous, en serpentin), les îles enchaînées au plus proche. Avec plusieurs passes, chaque contour est repassé sur place avant le suivant (un trait ouvert repart dans l'autre sens) : pas de trajet entre les passes. La tête part de là où la passe précédente l'a laissée (`travelMm` de l'état : trajet à vide total). Le blanc (`#ffffff`) ne brûle pas.
 
 Commandes : `build` (défaut de `for`), `download` (enregistre le fichier `.gcode`, utilisable dans un autre logiciel), `clear`.
 
