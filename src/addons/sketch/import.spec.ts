@@ -144,6 +144,23 @@ describe("sonic-sketch : import de formes vectorisées", () => {
     el.remove();
   });
 
+  it("import-tolerance : précision fixée en pixels de la source, plus fine que les px d'écran d'une petite toile", async () => {
+    // Cercle de rayon 400 px (source 1000 px) posé dans la vue d'une toile de 200 px : réduit d'un facteur ~5.
+    const circle = "M900 500A400 400 0 1 1 100 500A400 400 0 1 1 900 500Z";
+    const verts = async (extra: Record<string, string>, n: number) => {
+      const el = await mount({ width: "200", height: "200", background: "#ffffff", "import-from": `vecImport12${n}`, "import-place": "view", control: `skCtl12${n}`, "out-data-provider": `skState12${n}`, ...extra });
+      set(`vecImport12${n}`, { ...result(1, [{ color: "#ff0000", d: circle }]), width: 1000, height: 1000 });
+      set(`skCtl12${n}`, { import: 1 });
+      const svg = el.toSvg() ?? "";
+      el.remove();
+      return (svg.match(/L/g) ?? []).length;
+    };
+    const coarse = await verts({}, 1);
+    const fine = await verts({ "import-tolerance": "0.1" }, 2);
+    expect(coarse).toBeGreaterThan(8);
+    expect(fine).toBeGreaterThan(coarse * 2);
+  });
+
   it("import-skip ne retire rien d'un SVG lu tel quel (keepColors) : le noir est gardé", async () => {
     const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport7", "import-skip": "#000000", control: "skCtl7", "out-data-provider": "skState7" });
     set("vecImport7", { ...result(1, [{ color: "#000000", d: sq(0, 0, 40) }, { color: "#ff0000", d: sq(50, 0, 30) }]), keepColors: true });

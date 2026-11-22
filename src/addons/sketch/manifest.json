@@ -109,6 +109,10 @@
           "type": "boolean",
           "description": "Un import remplace tout le dessin au lieu de s'empiler (aussi importReplace: true dans control)"
         },
+        "import-tolerance": {
+          "type": "number",
+          "description": "Précision de l'import en px de la source (ex. 0.1), indépendante de la taille de la toile ; 0 = simplify px d'écran"
+        },
         "import-colors-from": {
           "type": "string"
         },
