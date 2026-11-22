@@ -51,7 +51,7 @@
           "attributes": {
             "id": "balises",
             "initial": "{\"items\": [], \"outbox\": [], \"panneau\": \"non\", \"fil\": null, \"saisie\": \"\", \"dessin\": 0, \"fType\": \"tout\", \"fDepuis\": \"tout\", \"fQui\": \"tous\", \"fParcours\": \"oui\", \"vus\": []}",
-            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $merge([$p, {\"aVoix\": $p.voix ? true : false}])}]) : $ob}]) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($v := [$distinct($append($state.vus ? $state.vus : [], [$p.value]))][[-300..-1]]; $state.ici = $p.value ? $merge([$state, {\"vus\": $v}]) : $merge([$state, {\"ici\": $p.value, \"vus\": $v, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($state.fil and $p.url ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}]) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\"}]) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\"}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : ($p.op = \"addRoute\" ? \"Parcours publié !\" : \"\"))}, $p.op = \"addRoute\" ? {\"pv\": $p.routeId, \"pvOuvert\": \"oui\", \"ceEtapes\": [], \"ceTitre\": \"\", \"ceDesc\": \"\"} : {}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $action.type = \"parcours:liste\" ? $merge([$state, {\"pListe\": \"oui\", \"pvOuvert\": \"non\"}]) : $action.type = \"parcours:listeFermer\" ? $merge([$state, {\"pListe\": \"non\"}]) : $action.type = \"parcours:voir\" ? $merge([$state, {\"pv\": $p, \"pvOuvert\": \"oui\", \"pListe\": \"non\"}]) : $action.type = \"parcours:voirSuivi\" ? $merge([$state, {\"pv\": $state.suivi.id, \"pvOuvert\": \"oui\"}]) : $action.type = \"parcours:fermer\" ? $merge([$state, {\"pvOuvert\": \"non\"}]) : $action.type = \"parcours:signaler\" ? ($state.pv ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rr-\" & $state.pv, \"op\": \"reportRoute\", \"route\": $state.pv}]), \"pvOuvert\": \"non\", \"erreur\": \"Merci, parcours signalé.\"}]) : $state) : $action.type = \"suivi:demarrer\" ? ($rid := $type($p) = \"string\" ? $p : $state.pv; $rid ? $merge([$state, {\"suivi\": {\"id\": $rid, \"faits\": [], \"joue\": 0, \"step\": null, \"poche\": \"non\"}, \"pv\": $rid, \"pvOuvert\": \"non\", \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1, \"erreur\": \"C'est parti : avance vers la première étape.\"}]) : $state) : $action.type = \"suivi:arreter\" ? $merge([$state, {\"suivi\": null, \"wakeR\": ($state.wakeR ? $state.wakeR : 0) + 1, \"pvOuvert\": \"non\", \"erreur\": \"Parcours arrêté.\"}]) : $action.type = \"suivi:arrive\" ? ($i := $p.value - 1; $state.suivi.id and $not($i in $state.suivi.faits) ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"faits\": $append($state.suivi.faits, [$i]), \"joue\": $state.suivi.joue + 1, \"step\": $i}]), \"erreur\": \"Étape \" & $string($p.value) & \" : vise le mur pour la découvrir.\"}]) : $state) : $action.type = \"poche:on\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"oui\"}]), \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1}]) : $state) : $action.type = \"poche:off\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"non\"}])}]) : $state) : $action.type = \"ce:debut\" ? $merge([$state, {\"cree\": \"oui\", \"ceForm\": \"non\", \"pListe\": \"non\", \"ceEtapes\": [], \"ceOrdre\": \"oui\", \"ceMode\": \"etape\", \"erreur\": \"Touche une balise sur la carte puis « Ajouter au parcours ».\"}]) : $action.type = \"ce:annuler\" ? $merge([$state, {\"cree\": \"non\", \"ceForm\": \"non\", \"ceEtapes\": [], \"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:ouvrir\" ? $merge([$state, {\"ceForm\": \"oui\"}]) : $action.type = \"ce:fermerForm\" ? $merge([$state, {\"ceForm\": \"non\"}]) : $action.type = \"ce:ajouter\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $count($e) >= 30 ? $merge([$state, {\"erreur\": \"30 étapes au plus.\"}]) : ($e[-1].place = $p.place ? $state : $merge([$state, {\"ceEtapes\": $append($e, [{\"place\": $p.place, \"titre\": $p.titre, \"radius\": 30, \"sound\": \"balise\"}]), \"erreur\": \"Étape \" & $string($count($e) + 1) & \" ajoutée.\"}]))) : $action.type = \"ce:retirer\" ? $merge([$state, {\"ceEtapes\": [$filter($state.ceEtapes, function($x, $k){ $k != $p })]}]) : $action.type = \"ce:monter\" or $action.type = \"ce:descendre\" ? ($e := $state.ceEtapes; $j := $action.type = \"ce:monter\" ? $p - 1 : $p + 1; $j < 0 or $j >= $count($e) ? $state : $merge([$state, {\"ceEtapes\": [$map($e, function($x, $k){ $k = $p ? $e[$j] : ($k = $j ? $e[$p] : $x) })]}])) : $action.type = \"ce:rayon\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"radius\": $p.r}]) : $x })]}]) : $action.type = \"ce:son\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"sound\": $p.s, \"media\": null}]) : $x })]}]) : $action.type = \"ce:enreg\" ? $merge([$state, {\"ceCible\": $p, \"ceEnreg\": \"oui\", \"ceImport\": \"non\"}]) : $action.type = \"ce:importer\" ? $merge([$state, {\"ceCible\": $p, \"ceImport\": \"oui\", \"ceEnreg\": \"non\"}]) : $action.type = \"ce:enregFermer\" ? $merge([$state, {\"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:garder\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $state.ceCible ? $merge([$x, {\"sound\": \"propre\", \"media\": $p}]) : $x })], \"ceEnreg\": \"non\", \"ceImport\": \"non\", \"erreur\": \"Son gardé pour l'étape \" & $string($state.ceCible + 1) & \".\"}]) : $action.type = \"ce:publier\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $t := $trim($state.ceTitre ? $state.ceTitre : \"\"); $count($e) < 2 ? $merge([$state, {\"erreur\": \"Il faut au moins deux étapes.\"}]) : $t = \"\" ? $merge([$state, {\"erreur\": \"Donne un titre à ton parcours.\"}]) : $e[sound = \"propre\" and $not(media)] ? $merge([$state, {\"erreur\": \"Une étape attend encore son son à part.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"p-\" & $string($millis()), \"op\": \"addRoute\", \"data\": {\"title\": $t, \"description\": $state.ceDesc ? $state.ceDesc : \"\", \"ordered\": $state.ceOrdre != \"non\", \"mode\": $state.ceMode = \"ambiance\" ? \"ambiance\" : \"etape\", \"steps\": [$e.{\"place\": place, \"radius\": radius, \"sound\": sound, \"media\": media}]}}]), \"cree\": \"non\", \"ceForm\": \"non\", \"erreur\": \"Publication du parcours…\"}])) : $state)",
+            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $merge([$p, {\"aVoix\": $p.voix ? true : false}])}]) : $ob}]) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\", \"pListe\": \"non\", \"pvOuvert\": \"non\", \"ceForm\": \"non\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\" or $action.type = \"dessin:retoucher\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($v := [$distinct($append($state.vus ? $state.vus : [], [$p.value]))][[-300..-1]]; $state.ici = $p.value ? $merge([$state, {\"vus\": $v}]) : $merge([$state, {\"ici\": $p.value, \"vus\": $v, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($r := $state.retouche; $state.fil and $p.url ? ($r.kind = \"drawing\" ? $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rd-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"dessin\": $p.url, \"cadreDessin\": \"3\"}, \"seen\": true} : {\"id\": \"rd-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"media\": $p.url, \"cadre\": 3, \"seen\": true, \"refId\": $state.capRef}]), \"retouche\": null, \"editeur\": \"non\", \"erreur\": \"Dessin retouché : il est sur le mur.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3, \"refId\": $state.capRef}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}])) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": null}]) : $action.type = \"dessin:retoucher\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"drawing\"}, \"erreur\": \"Retouche : ton dessin est rouvert, trait par trait.\"}]) : $action.type = \"capture:ref\" ? $merge([$state, {\"capRef\": $p.value}]) : $action.type = \"texte:retoucher\" ? $merge([$state, {\"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"text\"}, \"retoucheTexte\": $p.text, \"retoucheOuvert\": \"oui\"}]) : $action.type = \"texte:enregistrer\" ? ($r := $state.retouche; $t := $trim($state.retoucheTexte ? $state.retoucheTexte : \"\"); $t = \"\" ? $merge([$state, {\"erreur\": \"Le message ne peut pas être vide.\"}]) : $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rt-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"message\": $t}} : {\"id\": \"rt-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"text\": $t}]), \"retouche\": null, \"retoucheOuvert\": \"non\", \"erreur\": \"Message modifié.\"}])) : $action.type = \"retouche:fermer\" ? $merge([$state, {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\"}]) : $action.type = \"msg:retirer\" ? $merge([$state, {\"aRetirer\": $p, \"confirmRetrait\": \"oui\"}]) : $action.type = \"msg:retirerOk\" ? ($state.fil and $state.aRetirer ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"dm-\" & $state.aRetirer, \"op\": \"deleteMessage\", \"place\": $state.fil, \"message\": $state.aRetirer}]), \"aRetirer\": null, \"confirmRetrait\": \"non\", \"erreur\": \"Retiré : une trace reste dans la discussion.\"}]) : $state) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\", \"retouche\": null}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : ($p.op = \"addRoute\" ? \"Parcours publié !\" : \"\"))}, $p.op = \"addRoute\" ? {\"pv\": $p.routeId, \"pvOuvert\": \"oui\", \"ceEtapes\": [], \"ceTitre\": \"\", \"ceDesc\": \"\"} : {}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $action.type = \"parcours:liste\" ? $merge([$state, {\"pListe\": \"oui\", \"pvOuvert\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:listeFermer\" ? $merge([$state, {\"pListe\": \"non\"}]) : $action.type = \"parcours:voir\" ? $merge([$state, {\"pv\": $p, \"pvOuvert\": \"oui\", \"pListe\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:voirSuivi\" ? $merge([$state, {\"pv\": $state.suivi.id, \"pvOuvert\": \"oui\"}]) : $action.type = \"parcours:fermer\" ? $merge([$state, {\"pvOuvert\": \"non\"}]) : $action.type = \"parcours:signaler\" ? ($state.pv ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rr-\" & $state.pv, \"op\": \"reportRoute\", \"route\": $state.pv}]), \"pvOuvert\": \"non\", \"erreur\": \"Merci, parcours signalé.\"}]) : $state) : $action.type = \"suivi:demarrer\" ? ($rid := $type($p) = \"string\" ? $p : $state.pv; $rid ? $merge([$state, {\"suivi\": {\"id\": $rid, \"faits\": [], \"joue\": 0, \"step\": null, \"poche\": \"non\"}, \"pv\": $rid, \"pvOuvert\": \"non\", \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1, \"erreur\": \"C'est parti : avance vers la première étape.\"}]) : $state) : $action.type = \"suivi:arreter\" ? $merge([$state, {\"suivi\": null, \"wakeR\": ($state.wakeR ? $state.wakeR : 0) + 1, \"pvOuvert\": \"non\", \"erreur\": \"Parcours arrêté.\"}]) : $action.type = \"suivi:arrive\" ? ($i := $p.value - 1; $state.suivi.id and $not($i in $state.suivi.faits) ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"faits\": $append($state.suivi.faits, [$i]), \"joue\": $state.suivi.joue + 1, \"step\": $i}]), \"erreur\": \"Étape \" & $string($p.value) & \" : vise le mur pour la découvrir.\"}]) : $state) : $action.type = \"poche:on\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"oui\"}]), \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1}]) : $state) : $action.type = \"poche:off\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"non\"}])}]) : $state) : $action.type = \"ce:debut\" ? $merge([$state, {\"cree\": \"oui\", \"ceForm\": \"non\", \"pListe\": \"non\", \"ceEtapes\": [], \"ceOrdre\": \"oui\", \"ceMode\": \"etape\", \"erreur\": \"Touche une balise sur la carte puis « Ajouter au parcours ».\"}]) : $action.type = \"ce:annuler\" ? $merge([$state, {\"cree\": \"non\", \"ceForm\": \"non\", \"ceEtapes\": [], \"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:ouvrir\" ? $merge([$state, {\"ceForm\": \"oui\"}]) : $action.type = \"ce:fermerForm\" ? $merge([$state, {\"ceForm\": \"non\"}]) : $action.type = \"ce:ajouter\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $count($e) >= 30 ? $merge([$state, {\"erreur\": \"30 étapes au plus.\"}]) : ($e[-1].place = $p.place ? $state : $merge([$state, {\"ceEtapes\": $append($e, [{\"place\": $p.place, \"titre\": $p.titre, \"radius\": 30, \"sound\": \"balise\"}]), \"erreur\": \"Étape \" & $string($count($e) + 1) & \" ajoutée.\"}]))) : $action.type = \"ce:retirer\" ? $merge([$state, {\"ceEtapes\": [$filter($state.ceEtapes, function($x, $k){ $k != $p })]}]) : $action.type = \"ce:monter\" or $action.type = \"ce:descendre\" ? ($e := $state.ceEtapes; $j := $action.type = \"ce:monter\" ? $p - 1 : $p + 1; $j < 0 or $j >= $count($e) ? $state : $merge([$state, {\"ceEtapes\": [$map($e, function($x, $k){ $k = $p ? $e[$j] : ($k = $j ? $e[$p] : $x) })]}])) : $action.type = \"ce:rayon\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"radius\": $p.r}]) : $x })]}]) : $action.type = \"ce:son\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"sound\": $p.s, \"media\": null}]) : $x })]}]) : $action.type = \"ce:enreg\" ? $merge([$state, {\"ceCible\": $p, \"ceEnreg\": \"oui\", \"ceImport\": \"non\"}]) : $action.type = \"ce:importer\" ? $merge([$state, {\"ceCible\": $p, \"ceImport\": \"oui\", \"ceEnreg\": \"non\"}]) : $action.type = \"ce:enregFermer\" ? $merge([$state, {\"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:garder\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $state.ceCible ? $merge([$x, {\"sound\": \"propre\", \"media\": $p}]) : $x })], \"ceEnreg\": \"non\", \"ceImport\": \"non\", \"erreur\": \"Son gardé pour l'étape \" & $string($state.ceCible + 1) & \".\"}]) : $action.type = \"ce:publier\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $t := $trim($state.ceTitre ? $state.ceTitre : \"\"); $count($e) < 2 ? $merge([$state, {\"erreur\": \"Il faut au moins deux étapes.\"}]) : $t = \"\" ? $merge([$state, {\"erreur\": \"Donne un titre à ton parcours.\"}]) : $e[sound = \"propre\" and $not(media)] ? $merge([$state, {\"erreur\": \"Une étape attend encore son son à part.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"p-\" & $string($millis()), \"op\": \"addRoute\", \"data\": {\"title\": $t, \"description\": $state.ceDesc ? $state.ceDesc : \"\", \"ordered\": $state.ceOrdre != \"non\", \"mode\": $state.ceMode = \"ambiance\" ? \"ambiance\" : \"etape\", \"steps\": [$e.{\"place\": place, \"radius\": radius, \"sound\": sound, \"media\": media}]}}]), \"cree\": \"non\", \"ceForm\": \"non\", \"erreur\": \"Publication du parcours…\"}])) : $state)",
             "persist": "balises",
             "max-state-bytes": "1200000"
           }
@@ -196,6 +196,43 @@
           "tagName": "sonic-jsonata",
           "attributes": {
             "inputProvider": "publiquesFil",
+            "formDataProvider": "balises",
+            "outputProvider": "dessinARetoucher",
+            "expression": "($r := $retouche; $m := $r.kind = \"drawing\" ? $input.messages[id = $r.id] : null; $m.media ? {\"url\": $m.media} : {})"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "ancreState",
+            "formDataProvider": "balises",
+            "outputProvider": "captureRef",
+            "expression": "{\"r\": ($editeur = \"oui\" and $input.capture.refId) ? $input.capture.refId : null}"
+          }
+        },
+        {
+          "tagName": "sonic-trigger",
+          "attributes": {
+            "source": "captureRef",
+            "key": "r",
+            "cooldown-ms": "0",
+            "target": "balises",
+            "type": "capture:ref"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "publiquesFil",
+            "formDataProvider": "ancreState",
+            "outputProvider": "filCale",
+            "expression": "{\"drawings\": [$input.drawings[refId ? refId = $refId : true]]}"
+          }
+        },
+        {
+          "tagName": "sonic-jsonata",
+          "attributes": {
+            "inputProvider": "filCale",
             "formDataProvider": "balises",
             "outputProvider": "dessinVu",
             "expression": "($d := $input.drawings; $n := $count($d); $n = 0 ? {\"has\": \"non\", \"plusieurs\": \"non\"} : ($k := ($dessin ? $dessin : 0); $i := (($k % $n) + $n) % $n; $e := $d[$i]; {\"has\": \"oui\", \"url\": $e.media, \"cadre\": $e.cadre ? $string($e.cadre) : \"1\", \"i\": $i + 1, \"n\": $n, \"plusieurs\": $n > 1 ? \"oui\" : \"non\"}))"
@@ -481,6 +518,14 @@
           }
         },
         {
+          "tagName": "sonic-notify",
+          "attributes": {
+            "watch": "croquisEtat.opened.error",
+            "status": "warning",
+            "label": "Retouche"
+          }
+        },
+        {
           "tagName": "sonic-if",
           "attributes": {
             "dataProvider": "ui",
@@ -746,7 +791,7 @@
                                     {
                                       "tagName": "div",
                                       "attributes": {
-                                        "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:2"
+                                        "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:10"
                                       },
                                       "nodes": [
                                         {
@@ -765,7 +810,7 @@
                                                 "type": "default",
                                                 "size": "md",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px",
+                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
                                                 "id": "capteurs3",
                                                 "aria-label": "Carte des balises",
                                                 "title": "Carte des balises"
@@ -861,7 +906,7 @@
                                                 "type": "default",
                                                 "size": "md",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px",
+                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
                                                 "aria-label": "Mes balises",
                                                 "title": "Mes balises"
                                               },
@@ -1082,7 +1127,7 @@
                                                                   "tagName": "sonic-button",
                                                                   "attributes": {
                                                                     "size": "md",
-                                                                    "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24;box-shadow:0 8px 24px rgba(0,0,0,.35);border-radius:999px",
+                                                                    "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24;box-shadow:0 8px 24px rgba(0,0,0,.35);border-radius:999px;--sc-btn-height:3rem",
                                                                     "type": "primary"
                                                                   },
                                                                   "nodes": [
@@ -1137,7 +1182,7 @@
                                                                             "size": "md",
                                                                             "aria-label": "Vocaux lancés tout seuls : couper",
                                                                             "title": "Vocaux lancés tout seuls : couper",
-                                                                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                                                                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                                                                           },
                                                                           "nodes": [
                                                                             {
@@ -1164,7 +1209,7 @@
                                                                             "size": "md",
                                                                             "aria-label": "Vocaux à la demande : les lancer tout seuls",
                                                                             "title": "Vocaux à la demande : les lancer tout seuls",
-                                                                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                                                                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                                                                           },
                                                                           "nodes": [
                                                                             {
@@ -1300,7 +1345,7 @@
                                                                         "size": "md",
                                                                         "aria-label": "Signaler cette balise",
                                                                         "title": "Signaler cette balise",
-                                                                        "style": "--sc-btn-rounded:999px"
+                                                                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                                                       },
                                                                       "nodes": [
                                                                         {
@@ -1347,7 +1392,7 @@
                                     {
                                       "tagName": "div",
                                       "attributes": {
-                                        "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:2"
+                                        "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:10"
                                       },
                                       "nodes": [
                                         {
@@ -1386,7 +1431,7 @@
                                                 "type": "default",
                                                 "size": "md",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px",
+                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
                                                 "aria-label": "Annuler",
                                                 "title": "Annuler"
                                               },
@@ -1816,7 +1861,7 @@
                         "name": "effet",
                         "value": "message",
                         "variant": "outline",
-                        "style": "--sc-btn-rounded:999px"
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
                         {
@@ -1840,7 +1885,7 @@
                         "name": "effet",
                         "value": "dessin",
                         "variant": "outline",
-                        "style": "--sc-btn-rounded:999px"
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
                         {
@@ -2081,7 +2126,7 @@
                             "value": "on",
                             "unique": true,
                             "type": "danger",
-                            "style": "--sc-btn-rounded:999px"
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -2335,7 +2380,7 @@
                       "attributes": {
                         "id": "connecter",
                         "variant": "outline",
-                        "style": "--sc-btn-rounded:999px"
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
                         {
@@ -2357,7 +2402,7 @@
                       "attributes": {
                         "id": "imprimer",
                         "variant": "outline",
-                        "style": "--sc-btn-rounded:999px"
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
                         {
@@ -2379,7 +2424,7 @@
                       "attributes": {
                         "id": "partager",
                         "variant": "outline",
-                        "style": "--sc-btn-rounded:999px"
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                       },
                       "nodes": [
                         {
@@ -2624,7 +2669,7 @@
                                 "value": "photo",
                                 "type": "primary",
                                 "size": "md",
-                                "style": "--sc-btn-rounded:999px"
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -2703,7 +2748,7 @@
                 {
                   "tagName": "div",
                   "attributes": {
-                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:2"
+                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:10"
                   },
                   "nodes": [
                     {
@@ -2722,7 +2767,7 @@
                             "type": "default",
                             "size": "md",
                             "shape": "circle",
-                            "style": "--sc-btn-rounded:999px",
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem",
                             "aria-label": "Revenir à la caméra",
                             "title": "Revenir à la caméra"
                           },
@@ -2775,7 +2820,7 @@
                                     "size": "md",
                                     "aria-label": "Parcours de la zone",
                                     "title": "Parcours de la zone",
-                                    "style": "--sc-btn-rounded:999px"
+                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                   },
                                   "nodes": [
                                     {
@@ -2802,7 +2847,7 @@
                                     "size": "md",
                                     "aria-label": "Filtres",
                                     "title": "Filtres",
-                                    "style": "--sc-btn-rounded:999px"
+                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                   },
                                   "nodes": [
                                     {
@@ -3221,7 +3266,7 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:20;max-height:72svh;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:.9rem 1rem max(.8rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:72svh;display:flex;flex-direction:column;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:.9rem 1rem max(.8rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
               },
               "nodes": [
                 {
@@ -3367,8 +3412,9 @@
                   "tagName": "sonic-jsonata",
                   "attributes": {
                     "inputProvider": "publiquesFil",
+                    "formDataProvider": "balises",
                     "outputProvider": "filListe",
-                    "expression": "($ds := $input.drawings.id; $pos := function($v){ $reduce($ds, function($a, $x){ $a.f ? $a : ($x = $v ? {\"i\": $a.i, \"f\": true} : {\"i\": $a.i + 1, \"f\": false}) }, {\"i\": 0, \"f\": false}).i }; $reverse($append([], $input.messages.{\"id\": id, \"text\": text, \"qui\": origin ? \"Posé avec la balise\" : (pseudo ? pseudo : (mine ? \"Toi\" : \"Quelqu'un\")), \"quand\": $substring(at, 8, 2) & \"/\" & $substring(at, 5, 2) & \" à \" & $substring(at, 11, 5), \"url\": media, \"kind\": media ? kind : \"text\", \"i\": kind = \"drawing\" ? $pos(id) : -1, \"aTexte\": text ? \"oui\" : \"non\", \"signal\": origin ? \"non\" : \"oui\", \"loin\": onSite = false ? \"oui\" : \"non\"})))"
+                    "expression": "($ds := $input.drawings.id; $pos := function($v){ $reduce($ds, function($a, $x){ $a.f ? $a : ($x = $v ? {\"i\": $a.i, \"f\": true} : {\"i\": $a.i + 1, \"f\": false}) }, {\"i\": 0, \"f\": false}).i }; $miens := $items[placeId = $fil] ? true : false; $lib := {\"auteur\": \"Retiré par son auteur\", \"moderation\": \"Retiré par la modération\", \"signalements\": \"Masqué après des signalements\"}; $reverse($append([], $input.messages.($moi := deleted ? false : (origin ? $miens : mine = true); {\"id\": id, \"text\": text, \"qui\": origin ? \"Posé avec la balise\" : (pseudo ? pseudo : (mine ? \"Toi\" : \"Quelqu'un\")), \"quand\": $substring(at, 8, 2) & \"/\" & $substring(at, 5, 2) & \" à \" & $substring(at, 11, 5), \"url\": media, \"kind\": media ? kind : \"text\", \"i\": kind = \"drawing\" ? $pos(id) : -1, \"aTexte\": text ? \"oui\" : \"non\", \"signal\": (origin or deleted) ? \"non\" : \"oui\", \"loin\": onSite = false ? \"oui\" : \"non\", \"estSuppr\": deleted ? \"oui\" : \"non\", \"suppr\": deleted ? $lookup($lib, deleted) : \"\", \"modif\": editedAt ? \"oui\" : \"non\", \"moi\": $moi ? \"oui\" : \"non\", \"editTexte\": ($moi and kind = \"text\") ? \"oui\" : \"non\", \"editDessin\": ($moi and kind = \"drawing\") ? \"oui\" : \"non\", \"retirable\": ($moi and (origin ? false : true)) ? \"oui\" : \"non\", \"rt\": {\"id\": id, \"text\": text, \"origin\": origin ? \"oui\" : \"non\"}, \"rd\": {\"id\": id, \"origin\": origin ? \"oui\" : \"non\"}}))))"
                   }
                 },
                 {
@@ -3389,108 +3435,44 @@
                             {
                               "tagName": "sonic-if",
                               "attributes": {
-                                "key": "loin",
+                                "key": "estSuppr",
                                 "equals": "oui"
                               },
                               "nodes": [
                                 {
                                   "tagName": "div",
                                   "attributes": {
-                                    "style": "display:flex;flex-direction:column;gap:.25rem;padding:.55rem .85rem;margin:0 0 .6rem 1.4rem;border-radius:1rem;border:1.5px dashed #cfd0d8"
+                                    "style": "display:flex;align-items:center;gap:.45rem;padding:.5rem .85rem;margin-bottom:.6rem;border-radius:1rem;border:1.5px dashed #d9dae0;color:#7a7d87;font-size:.85rem;font-style:italic"
                                   },
                                   "nodes": [
                                     {
-                                      "tagName": "div",
+                                      "tagName": "sonic-icon",
                                       "attributes": {
-                                        "style": "display:flex;align-items:center;gap:.45rem;font-size:.78rem;color:#5b5e68"
+                                        "library": "iconoir",
+                                        "name": "trash"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "data-bind": "",
+                                        "::text-content": "$suppr"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "margin-left:auto;font-style:normal"
                                       },
                                       "nodes": [
-                                        {
-                                          "tagName": "sonic-icon",
-                                          "attributes": {
-                                            "library": "iconoir",
-                                            "name": "globe"
-                                          }
-                                        },
-                                        {
-                                          "tagName": "strong",
-                                          "attributes": {
-                                            "data-bind": "",
-                                            "::text-content": "$qui",
-                                            "style": "color:#1c1e24"
-                                          }
-                                        },
-                                        {
-                                          "tagName": "span",
-                                          "attributes": {
-                                            "style": "padding:.05rem .45rem;border-radius:999px;background:#ececf0;color:#1c1e24"
-                                          },
-                                          "textContent": "à distance"
-                                        },
                                         {
                                           "tagName": "span",
                                           "attributes": {
                                             "data-bind": "",
                                             "::text-content": "$quand"
                                           }
-                                        },
-                                        {
-                                          "tagName": "div",
-                                          "attributes": {
-                                            "style": "margin-left:auto"
-                                          },
-                                          "nodes": [
-                                            {
-                                              "tagName": "sonic-if",
-                                              "attributes": {
-                                                "key": "signal",
-                                                "equals": "oui"
-                                              },
-                                              "nodes": [
-                                                {
-                                                  "tagName": "sonic-action",
-                                                  "attributes": {
-                                                    "target": "balises",
-                                                    "type": "fil:signaler",
-                                                    "data-bind": "",
-                                                    "::payload": "$id"
-                                                  },
-                                                  "nodes": [
-                                                    {
-                                                      "tagName": "sonic-button",
-                                                      "attributes": {
-                                                        "variant": "ghost",
-                                                        "shape": "circle",
-                                                        "size": "xs",
-                                                        "aria-label": "Signaler ce message",
-                                                        "title": "Signaler ce message",
-                                                        "style": "--sc-btn-rounded:999px"
-                                                      },
-                                                      "nodes": [
-                                                        {
-                                                          "tagName": "sonic-icon",
-                                                          "attributes": {
-                                                            "library": "iconoir",
-                                                            "name": "warning-triangle-outline"
-                                                          }
-                                                        }
-                                                      ]
-                                                    }
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
                                         }
                                       ]
-                                    },
-                                    {
-                                      "tagName": "div",
-                                      "attributes": {
-                                        "data-bind": "",
-                                        "::text-content": "$text",
-                                        "style": "font-size:.95rem;line-height:1.35;font-style:italic;white-space:pre-wrap;overflow-wrap:anywhere"
-                                      }
                                     }
                                   ]
                                 }
@@ -3499,76 +3481,275 @@
                             {
                               "tagName": "sonic-if",
                               "attributes": {
-                                "key": "loin",
+                                "key": "estSuppr",
                                 "equals": "non"
                               },
                               "nodes": [
                                 {
-                                  "tagName": "div",
+                                  "tagName": "sonic-if",
                                   "attributes": {
-                                    "style": "display:flex;flex-direction:column;gap:.35rem;padding:.7rem .85rem;margin-bottom:.6rem;border-radius:1rem;background:#f4f4f7"
+                                    "key": "loin",
+                                    "equals": "oui"
                                   },
                                   "nodes": [
                                     {
                                       "tagName": "div",
                                       "attributes": {
-                                        "style": "display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:#5b5e68"
+                                        "style": "display:flex;flex-direction:column;gap:.25rem;padding:.55rem .85rem;margin:0 0 .6rem 1.4rem;border-radius:1rem;border:1.5px dashed #cfd0d8"
                                       },
                                       "nodes": [
                                         {
-                                          "tagName": "strong",
-                                          "attributes": {
-                                            "data-bind": "",
-                                            "::text-content": "$qui",
-                                            "style": "color:#1c1e24"
-                                          }
-                                        },
-                                        {
-                                          "tagName": "span",
-                                          "attributes": {
-                                            "data-bind": "",
-                                            "::text-content": "$quand"
-                                          }
-                                        },
-                                        {
                                           "tagName": "div",
                                           "attributes": {
-                                            "style": "margin-left:auto"
+                                            "style": "display:flex;align-items:center;gap:.45rem;font-size:.78rem;color:#5b5e68"
                                           },
                                           "nodes": [
                                             {
+                                              "tagName": "sonic-icon",
+                                              "attributes": {
+                                                "library": "iconoir",
+                                                "name": "globe"
+                                              }
+                                            },
+                                            {
+                                              "tagName": "strong",
+                                              "attributes": {
+                                                "data-bind": "",
+                                                "::text-content": "$qui",
+                                                "style": "color:#1c1e24"
+                                              }
+                                            },
+                                            {
+                                              "tagName": "span",
+                                              "attributes": {
+                                                "style": "padding:.05rem .45rem;border-radius:999px;background:#ececf0;color:#1c1e24"
+                                              },
+                                              "textContent": "à distance"
+                                            },
+                                            {
+                                              "tagName": "span",
+                                              "attributes": {
+                                                "data-bind": "",
+                                                "::text-content": "$quand"
+                                              }
+                                            },
+                                            {
                                               "tagName": "sonic-if",
                                               "attributes": {
-                                                "key": "signal",
+                                                "key": "modif",
                                                 "equals": "oui"
                                               },
                                               "nodes": [
                                                 {
-                                                  "tagName": "sonic-action",
+                                                  "tagName": "span",
                                                   "attributes": {
-                                                    "target": "balises",
-                                                    "type": "fil:signaler",
-                                                    "data-bind": "",
-                                                    "::payload": "$id"
+                                                    "style": "padding:.02rem .4rem;border-radius:999px;background:#ececf0;color:#1c1e24"
+                                                  },
+                                                  "textContent": "modifié"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "div",
+                                              "attributes": {
+                                                "style": "margin-left:auto;display:flex;align-items:center;gap:.2rem"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-if",
+                                                  "attributes": {
+                                                    "key": "signal",
+                                                    "equals": "oui"
                                                   },
                                                   "nodes": [
                                                     {
-                                                      "tagName": "sonic-button",
+                                                      "tagName": "sonic-action",
                                                       "attributes": {
-                                                        "variant": "ghost",
-                                                        "shape": "circle",
-                                                        "size": "xs",
-                                                        "aria-label": "Signaler ce message",
-                                                        "title": "Signaler ce message",
-                                                        "style": "--sc-btn-rounded:999px"
+                                                        "target": "balises",
+                                                        "type": "fil:signaler",
+                                                        "data-bind": "",
+                                                        "::payload": "$id"
                                                       },
                                                       "nodes": [
                                                         {
-                                                          "tagName": "sonic-icon",
+                                                          "tagName": "sonic-button",
                                                           "attributes": {
-                                                            "library": "iconoir",
-                                                            "name": "warning-triangle-outline"
-                                                          }
+                                                            "variant": "ghost",
+                                                            "shape": "circle",
+                                                            "size": "xs",
+                                                            "aria-label": "Signaler ce message",
+                                                            "title": "Signaler ce message",
+                                                            "style": "--sc-btn-rounded:999px"
+                                                          },
+                                                          "nodes": [
+                                                            {
+                                                              "tagName": "sonic-icon",
+                                                              "attributes": {
+                                                                "library": "iconoir",
+                                                                "name": "warning-triangle-outline"
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                },
+                                                {
+                                                  "tagName": "sonic-if",
+                                                  "attributes": {
+                                                    "key": "moi",
+                                                    "equals": "oui"
+                                                  },
+                                                  "nodes": [
+                                                    {
+                                                      "tagName": "sonic-pop",
+                                                      "attributes": {
+                                                        "placement": "bottom-end"
+                                                      },
+                                                      "nodes": [
+                                                        {
+                                                          "tagName": "sonic-button",
+                                                          "attributes": {
+                                                            "variant": "ghost",
+                                                            "shape": "circle",
+                                                            "size": "xs",
+                                                            "aria-label": "Mes actions sur ce message",
+                                                            "title": "Mes actions sur ce message",
+                                                            "style": "--sc-btn-rounded:999px"
+                                                          },
+                                                          "nodes": [
+                                                            {
+                                                              "tagName": "sonic-icon",
+                                                              "attributes": {
+                                                                "library": "iconoir",
+                                                                "name": "more-horiz"
+                                                              }
+                                                            }
+                                                          ]
+                                                        },
+                                                        {
+                                                          "tagName": "sonic-menu",
+                                                          "attributes": {
+                                                            "slot": "content",
+                                                            "direction": "column",
+                                                            "align": "left",
+                                                            "size": "sm",
+                                                            "style": "min-width:13rem"
+                                                          },
+                                                          "nodes": [
+                                                            {
+                                                              "tagName": "sonic-if",
+                                                              "attributes": {
+                                                                "key": "editTexte",
+                                                                "equals": "oui"
+                                                              },
+                                                              "nodes": [
+                                                                {
+                                                                  "tagName": "sonic-action",
+                                                                  "attributes": {
+                                                                    "target": "balises",
+                                                                    "type": "texte:retoucher",
+                                                                    "data-bind": "",
+                                                                    "::payload": "$rt"
+                                                                  },
+                                                                  "nodes": [
+                                                                    {
+                                                                      "tagName": "sonic-menu-item",
+                                                                      "nodes": [
+                                                                        {
+                                                                          "tagName": "sonic-icon",
+                                                                          "attributes": {
+                                                                            "library": "iconoir",
+                                                                            "name": "edit-pencil",
+                                                                            "slot": "prefix"
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "tagName": "span",
+                                                                          "textContent": "Modifier le texte"
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            },
+                                                            {
+                                                              "tagName": "sonic-if",
+                                                              "attributes": {
+                                                                "key": "editDessin",
+                                                                "equals": "oui"
+                                                              },
+                                                              "nodes": [
+                                                                {
+                                                                  "tagName": "sonic-action",
+                                                                  "attributes": {
+                                                                    "target": "balises",
+                                                                    "type": "dessin:retoucher",
+                                                                    "data-bind": "",
+                                                                    "::payload": "$rd"
+                                                                  },
+                                                                  "nodes": [
+                                                                    {
+                                                                      "tagName": "sonic-menu-item",
+                                                                      "nodes": [
+                                                                        {
+                                                                          "tagName": "sonic-icon",
+                                                                          "attributes": {
+                                                                            "library": "iconoir",
+                                                                            "name": "design-pencil",
+                                                                            "slot": "prefix"
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "tagName": "span",
+                                                                          "textContent": "Retoucher le dessin"
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            },
+                                                            {
+                                                              "tagName": "sonic-if",
+                                                              "attributes": {
+                                                                "key": "retirable",
+                                                                "equals": "oui"
+                                                              },
+                                                              "nodes": [
+                                                                {
+                                                                  "tagName": "sonic-action",
+                                                                  "attributes": {
+                                                                    "target": "balises",
+                                                                    "type": "msg:retirer",
+                                                                    "data-bind": "",
+                                                                    "::payload": "$id"
+                                                                  },
+                                                                  "nodes": [
+                                                                    {
+                                                                      "tagName": "sonic-menu-item",
+                                                                      "nodes": [
+                                                                        {
+                                                                          "tagName": "sonic-icon",
+                                                                          "attributes": {
+                                                                            "library": "iconoir",
+                                                                            "name": "trash",
+                                                                            "slot": "prefix"
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "tagName": "span",
+                                                                          "textContent": "Retirer"
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            }
+                                                          ]
                                                         }
                                                       ]
                                                     }
@@ -3577,79 +3758,351 @@
                                               ]
                                             }
                                           ]
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "tagName": "sonic-if",
-                                      "attributes": {
-                                        "key": "aTexte",
-                                        "equals": "oui"
-                                      },
-                                      "nodes": [
+                                        },
                                         {
                                           "tagName": "div",
                                           "attributes": {
                                             "data-bind": "",
                                             "::text-content": "$text",
-                                            "style": "font-size:1rem;line-height:1.35;white-space:pre-wrap;overflow-wrap:anywhere"
+                                            "style": "font-size:.95rem;line-height:1.35;font-style:italic;white-space:pre-wrap;overflow-wrap:anywhere"
                                           }
                                         }
                                       ]
-                                    },
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-if",
+                                  "attributes": {
+                                    "key": "loin",
+                                    "equals": "non"
+                                  },
+                                  "nodes": [
                                     {
-                                      "tagName": "sonic-if",
+                                      "tagName": "div",
                                       "attributes": {
-                                        "key": "kind",
-                                        "equals": "voice"
+                                        "style": "display:flex;flex-direction:column;gap:.35rem;padding:.7rem .85rem;margin-bottom:.6rem;border-radius:1rem;background:#f4f4f7"
                                       },
                                       "nodes": [
                                         {
-                                          "tagName": "sonic-audio-player",
+                                          "tagName": "div",
                                           "attributes": {
-                                            "data-bind": "",
-                                            "::media": "$url",
-                                            "label": "Vocal",
-                                            "style": "--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
-                                          }
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "tagName": "sonic-if",
-                                      "attributes": {
-                                        "key": "kind",
-                                        "equals": "drawing"
-                                      },
-                                      "nodes": [
-                                        {
-                                          "tagName": "sonic-action",
-                                          "attributes": {
-                                            "target": "balises",
-                                            "type": "dessin:voir",
-                                            "data-bind": "",
-                                            "::payload": "$i"
+                                            "style": "display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:#5b5e68"
                                           },
                                           "nodes": [
                                             {
-                                              "tagName": "sonic-button",
+                                              "tagName": "strong",
                                               "attributes": {
-                                                "size": "sm",
-                                                "variant": "outline",
-                                                "style": "--sc-btn-rounded:999px"
+                                                "data-bind": "",
+                                                "::text-content": "$qui",
+                                                "style": "color:#1c1e24"
+                                              }
+                                            },
+                                            {
+                                              "tagName": "span",
+                                              "attributes": {
+                                                "data-bind": "",
+                                                "::text-content": "$quand"
+                                              }
+                                            },
+                                            {
+                                              "tagName": "sonic-if",
+                                              "attributes": {
+                                                "key": "modif",
+                                                "equals": "oui"
                                               },
                                               "nodes": [
                                                 {
-                                                  "tagName": "sonic-icon",
+                                                  "tagName": "span",
                                                   "attributes": {
-                                                    "library": "iconoir",
-                                                    "name": "design-pencil",
-                                                    "slot": "prefix"
-                                                  }
+                                                    "style": "padding:.02rem .4rem;border-radius:999px;background:#ececf0;color:#1c1e24"
+                                                  },
+                                                  "textContent": "modifié"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "tagName": "div",
+                                              "attributes": {
+                                                "style": "margin-left:auto;display:flex;align-items:center;gap:.2rem"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-if",
+                                                  "attributes": {
+                                                    "key": "signal",
+                                                    "equals": "oui"
+                                                  },
+                                                  "nodes": [
+                                                    {
+                                                      "tagName": "sonic-action",
+                                                      "attributes": {
+                                                        "target": "balises",
+                                                        "type": "fil:signaler",
+                                                        "data-bind": "",
+                                                        "::payload": "$id"
+                                                      },
+                                                      "nodes": [
+                                                        {
+                                                          "tagName": "sonic-button",
+                                                          "attributes": {
+                                                            "variant": "ghost",
+                                                            "shape": "circle",
+                                                            "size": "xs",
+                                                            "aria-label": "Signaler ce message",
+                                                            "title": "Signaler ce message",
+                                                            "style": "--sc-btn-rounded:999px"
+                                                          },
+                                                          "nodes": [
+                                                            {
+                                                              "tagName": "sonic-icon",
+                                                              "attributes": {
+                                                                "library": "iconoir",
+                                                                "name": "warning-triangle-outline"
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
                                                 },
                                                 {
-                                                  "tagName": "span",
-                                                  "textContent": "Voir ce dessin sur le mur"
+                                                  "tagName": "sonic-if",
+                                                  "attributes": {
+                                                    "key": "moi",
+                                                    "equals": "oui"
+                                                  },
+                                                  "nodes": [
+                                                    {
+                                                      "tagName": "sonic-pop",
+                                                      "attributes": {
+                                                        "placement": "bottom-end"
+                                                      },
+                                                      "nodes": [
+                                                        {
+                                                          "tagName": "sonic-button",
+                                                          "attributes": {
+                                                            "variant": "ghost",
+                                                            "shape": "circle",
+                                                            "size": "xs",
+                                                            "aria-label": "Mes actions sur ce message",
+                                                            "title": "Mes actions sur ce message",
+                                                            "style": "--sc-btn-rounded:999px"
+                                                          },
+                                                          "nodes": [
+                                                            {
+                                                              "tagName": "sonic-icon",
+                                                              "attributes": {
+                                                                "library": "iconoir",
+                                                                "name": "more-horiz"
+                                                              }
+                                                            }
+                                                          ]
+                                                        },
+                                                        {
+                                                          "tagName": "sonic-menu",
+                                                          "attributes": {
+                                                            "slot": "content",
+                                                            "direction": "column",
+                                                            "align": "left",
+                                                            "size": "sm",
+                                                            "style": "min-width:13rem"
+                                                          },
+                                                          "nodes": [
+                                                            {
+                                                              "tagName": "sonic-if",
+                                                              "attributes": {
+                                                                "key": "editTexte",
+                                                                "equals": "oui"
+                                                              },
+                                                              "nodes": [
+                                                                {
+                                                                  "tagName": "sonic-action",
+                                                                  "attributes": {
+                                                                    "target": "balises",
+                                                                    "type": "texte:retoucher",
+                                                                    "data-bind": "",
+                                                                    "::payload": "$rt"
+                                                                  },
+                                                                  "nodes": [
+                                                                    {
+                                                                      "tagName": "sonic-menu-item",
+                                                                      "nodes": [
+                                                                        {
+                                                                          "tagName": "sonic-icon",
+                                                                          "attributes": {
+                                                                            "library": "iconoir",
+                                                                            "name": "edit-pencil",
+                                                                            "slot": "prefix"
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "tagName": "span",
+                                                                          "textContent": "Modifier le texte"
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            },
+                                                            {
+                                                              "tagName": "sonic-if",
+                                                              "attributes": {
+                                                                "key": "editDessin",
+                                                                "equals": "oui"
+                                                              },
+                                                              "nodes": [
+                                                                {
+                                                                  "tagName": "sonic-action",
+                                                                  "attributes": {
+                                                                    "target": "balises",
+                                                                    "type": "dessin:retoucher",
+                                                                    "data-bind": "",
+                                                                    "::payload": "$rd"
+                                                                  },
+                                                                  "nodes": [
+                                                                    {
+                                                                      "tagName": "sonic-menu-item",
+                                                                      "nodes": [
+                                                                        {
+                                                                          "tagName": "sonic-icon",
+                                                                          "attributes": {
+                                                                            "library": "iconoir",
+                                                                            "name": "design-pencil",
+                                                                            "slot": "prefix"
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "tagName": "span",
+                                                                          "textContent": "Retoucher le dessin"
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            },
+                                                            {
+                                                              "tagName": "sonic-if",
+                                                              "attributes": {
+                                                                "key": "retirable",
+                                                                "equals": "oui"
+                                                              },
+                                                              "nodes": [
+                                                                {
+                                                                  "tagName": "sonic-action",
+                                                                  "attributes": {
+                                                                    "target": "balises",
+                                                                    "type": "msg:retirer",
+                                                                    "data-bind": "",
+                                                                    "::payload": "$id"
+                                                                  },
+                                                                  "nodes": [
+                                                                    {
+                                                                      "tagName": "sonic-menu-item",
+                                                                      "nodes": [
+                                                                        {
+                                                                          "tagName": "sonic-icon",
+                                                                          "attributes": {
+                                                                            "library": "iconoir",
+                                                                            "name": "trash",
+                                                                            "slot": "prefix"
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "tagName": "span",
+                                                                          "textContent": "Retirer"
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-if",
+                                          "attributes": {
+                                            "key": "aTexte",
+                                            "equals": "oui"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "div",
+                                              "attributes": {
+                                                "data-bind": "",
+                                                "::text-content": "$text",
+                                                "style": "font-size:1rem;line-height:1.35;white-space:pre-wrap;overflow-wrap:anywhere"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-if",
+                                          "attributes": {
+                                            "key": "kind",
+                                            "equals": "voice"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-audio-player",
+                                              "attributes": {
+                                                "data-bind": "",
+                                                "::media": "$url",
+                                                "label": "Vocal",
+                                                "style": "--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-if",
+                                          "attributes": {
+                                            "key": "kind",
+                                            "equals": "drawing"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-action",
+                                              "attributes": {
+                                                "target": "balises",
+                                                "type": "dessin:voir",
+                                                "data-bind": "",
+                                                "::payload": "$i"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-button",
+                                                  "attributes": {
+                                                    "size": "sm",
+                                                    "variant": "outline",
+                                                    "style": "--sc-btn-rounded:999px"
+                                                  },
+                                                  "nodes": [
+                                                    {
+                                                      "tagName": "sonic-icon",
+                                                      "attributes": {
+                                                        "library": "iconoir",
+                                                        "name": "design-pencil",
+                                                        "slot": "prefix"
+                                                      }
+                                                    },
+                                                    {
+                                                      "tagName": "span",
+                                                      "textContent": "Voir ce dessin sur le mur"
+                                                    }
+                                                  ]
                                                 }
                                               ]
                                             }
@@ -3849,7 +4302,7 @@
                                                     "shape": "circle",
                                                     "aria-label": "Envoyer",
                                                     "title": "Envoyer",
-                                                    "style": "--sc-btn-rounded:999px"
+                                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                                   },
                                                   "nodes": [
                                                     {
@@ -3894,7 +4347,7 @@
                                                 "value": "on",
                                                 "unique": true,
                                                 "type": "danger",
-                                                "style": "--sc-btn-rounded:999px"
+                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                               },
                                               "nodes": [
                                                 {
@@ -3988,7 +4441,7 @@
                                                                 "shape": "circle",
                                                                 "aria-label": "Envoyer le vocal",
                                                                 "title": "Envoyer le vocal",
-                                                                "style": "--sc-btn-rounded:999px"
+                                                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                                               },
                                                               "nodes": [
                                                                 {
@@ -4121,7 +4574,7 @@
                                             "shape": "circle",
                                             "aria-label": "Envoyer le commentaire",
                                             "title": "Envoyer le commentaire",
-                                            "style": "--sc-btn-rounded:999px"
+                                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                           },
                                           "nodes": [
                                             {
@@ -4210,6 +4663,282 @@
         {
           "tagName": "sonic-if",
           "attributes": {
+            "dataProvider": "balises",
+            "key": "retoucheOuvert",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;left:0;right:0;bottom:0;z-index:35;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+              },
+              "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;gap:.6rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "h2",
+                      "attributes": {
+                        "style": "margin:0;font-size:1.15rem;font-weight:800"
+                      },
+                      "textContent": "Modifier ton message"
+                    },
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "margin-left:auto"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "balises",
+                            "type": "retouche:fermer"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "shape": "circle",
+                                "size": "sm",
+                                "variant": "outline",
+                                "aria-label": "Fermer",
+                                "title": "Fermer",
+                                "style": "--sc-btn-rounded:999px"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "cancel"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "sonic-input",
+                  "attributes": {
+                    "formDataProvider": "balises",
+                    "name": "retoucheTexte",
+                    "label": "Ton message",
+                    "maxlength": "500"
+                  }
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;justify-content:flex-end;gap:.5rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "balises",
+                        "type": "retouche:fermer"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "variant": "outline",
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "span",
+                              "textContent": "Annuler"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "balises",
+                        "type": "texte:enregistrer"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "type": "primary",
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "check",
+                                "slot": "prefix"
+                              }
+                            },
+                            {
+                              "tagName": "span",
+                              "textContent": "Enregistrer"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
+            "dataProvider": "balises",
+            "key": "confirmRetrait",
+            "equals": "oui"
+          },
+          "nodes": [
+            {
+              "tagName": "div",
+              "attributes": {
+                "style": "position:fixed;left:0;right:0;bottom:0;z-index:35;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+              },
+              "nodes": [
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;align-items:center;gap:.6rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "h2",
+                      "attributes": {
+                        "style": "margin:0;font-size:1.15rem;font-weight:800"
+                      },
+                      "textContent": "Retirer ce message ?"
+                    },
+                    {
+                      "tagName": "div",
+                      "attributes": {
+                        "style": "margin-left:auto"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-action",
+                          "attributes": {
+                            "target": "balises",
+                            "type": "retouche:fermer"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-button",
+                              "attributes": {
+                                "shape": "circle",
+                                "size": "sm",
+                                "variant": "outline",
+                                "aria-label": "Fermer",
+                                "title": "Fermer",
+                                "style": "--sc-btn-rounded:999px"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-icon",
+                                  "attributes": {
+                                    "library": "iconoir",
+                                    "name": "cancel"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tagName": "p",
+                  "attributes": {
+                    "style": "margin:0;font-size:1rem;line-height:1.4"
+                  },
+                  "textContent": "Son contenu disparaît pour tout le monde. Une trace « retiré par son auteur » reste dans la discussion."
+                },
+                {
+                  "tagName": "div",
+                  "attributes": {
+                    "style": "display:flex;justify-content:flex-end;gap:.5rem"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "balises",
+                        "type": "retouche:fermer"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "variant": "outline",
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "span",
+                              "textContent": "Garder"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-action",
+                      "attributes": {
+                        "target": "balises",
+                        "type": "msg:retirerOk"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "sonic-button",
+                          "attributes": {
+                            "type": "danger",
+                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "trash",
+                                "slot": "prefix"
+                              }
+                            },
+                            {
+                              "tagName": "span",
+                              "textContent": "Retirer"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-if",
+          "attributes": {
             "dataProvider": "parcoursMat",
             "key": "suivi",
             "equals": "oui"
@@ -4218,7 +4947,7 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:.7rem;right:.7rem;top:max(4rem,calc(env(safe-area-inset-top) + 3.4rem));z-index:15;display:flex;align-items:center;gap:.6rem;padding:.55rem .6rem .55rem .9rem;border-radius:999px;background:#1c1e24;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.35);max-width:36rem;margin:0 auto"
+                "style": "position:fixed;left:.7rem;right:.7rem;top:calc(max(env(safe-area-inset-top),.9rem) + 3rem + 12px);z-index:20;display:flex;align-items:center;gap:.6rem;padding:.55rem .6rem .55rem .9rem;border-radius:999px;background:#1c1e24;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.35);max-width:36rem;margin:0 auto"
               },
               "nodes": [
                 {
@@ -4374,7 +5103,7 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:.7rem;right:.7rem;bottom:max(1rem,env(safe-area-inset-bottom));z-index:16;display:flex;align-items:center;gap:.6rem;padding:.6rem .6rem .6rem 1rem;border-radius:1.2rem;background:#1c1e24;color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.35);max-width:36rem;margin:0 auto"
+                "style": "position:fixed;left:.7rem;right:.7rem;bottom:max(1rem,env(safe-area-inset-bottom));z-index:20;display:flex;align-items:center;gap:.6rem;padding:.6rem .6rem .6rem 1rem;border-radius:1.2rem;background:#1c1e24;color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.35);max-width:36rem;margin:0 auto"
               },
               "nodes": [
                 {
@@ -4477,7 +5206,7 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:24;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
               },
               "nodes": [
                 {
@@ -4672,7 +5401,7 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:24;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
               },
               "nodes": [
                 {
@@ -5028,7 +5757,7 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;left:0;right:0;bottom:0;z-index:24;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
+                "style": "position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:80svh;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.8rem;background:#ffffff;color:#1c1e24;border-radius:1.3rem 1.3rem 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.35);padding:1rem 1.1rem max(.9rem,env(safe-area-inset-bottom));box-sizing:border-box;max-width:38rem;margin:0 auto"
               },
               "nodes": [
                 {
@@ -5611,7 +6340,7 @@
                                 "value": "on",
                                 "unique": true,
                                 "type": "danger",
-                                "style": "--sc-btn-rounded:999px"
+                                "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -5965,6 +6694,7 @@
                     "export-action": "fil:dessin",
                     "export-area": "page",
                     "export-source": true,
+                    "open-from": "dessinARetoucher",
                     "style": "position:absolute;inset:0;width:100%;height:100%"
                   }
                 },
@@ -5994,7 +6724,7 @@
                                 "shape": "circle",
                                 "aria-label": "Fermer sans envoyer",
                                 "title": "Fermer sans envoyer",
-                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -6055,7 +6785,7 @@
                               "attributes": {
                                 "type": "primary",
                                 "size": "md",
-                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24"
+                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -6097,7 +6827,7 @@
                             "shape": "circle",
                             "aria-label": "Couleur",
                             "title": "Couleur",
-                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -6352,7 +7082,7 @@
                             "shape": "circle",
                             "aria-label": "Taille du pinceau",
                             "title": "Taille du pinceau",
-                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -6481,7 +7211,7 @@
                             "shape": "circle",
                             "aria-label": "Opacité et dureté",
                             "title": "Opacité et dureté",
-                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -6625,7 +7355,7 @@
                             "shape": "circle",
                             "aria-label": "Fusion avec le mur",
                             "title": "Fusion avec le mur",
-                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                            "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -6814,7 +7544,7 @@
                                 "shape": "circle",
                                 "aria-label": "Annuler le dernier trait",
                                 "title": "Annuler le dernier trait",
-                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -6842,7 +7572,7 @@
                                 "shape": "circle",
                                 "aria-label": "Rétablir",
                                 "title": "Rétablir",
-                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -6881,7 +7611,7 @@
                                 "shape": "circle",
                                 "aria-label": "Pinceau",
                                 "title": "Pinceau",
-                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24",
+                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24;--sc-btn-height:3rem",
                                 "variant": "outline"
                               },
                               "nodes": [
@@ -6904,7 +7634,7 @@
                                 "shape": "circle",
                                 "aria-label": "Gomme",
                                 "title": "Gomme",
-                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24",
+                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24;--sc-btn-height:3rem",
                                 "variant": "outline"
                               },
                               "nodes": [
@@ -6927,7 +7657,7 @@
                                 "shape": "circle",
                                 "aria-label": "Déplacer",
                                 "title": "Déplacer",
-                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24",
+                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffffff;--sc-primary-content:#1c1e24;--sc-btn-height:3rem",
                                 "variant": "outline"
                               },
                               "nodes": [
@@ -6964,7 +7694,7 @@
                                 "shape": "circle",
                                 "aria-label": "Revoir tout le mur",
                                 "title": "Revoir tout le mur",
-                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                                "style": "--sc-btn-rounded:999px;background:rgba(22,24,29,.6);border-radius:999px;color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -6997,7 +7727,7 @@
             {
               "tagName": "div",
               "attributes": {
-                "style": "position:fixed;inset:0;z-index:70;background:#000;color:#5c5f66;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;text-align:center;padding:2rem"
+                "style": "position:fixed;inset:0;z-index:60;background:#000;color:#5c5f66;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;text-align:center;padding:2rem"
               },
               "nodes": [
                 {
