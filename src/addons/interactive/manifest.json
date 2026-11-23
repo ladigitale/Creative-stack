@@ -403,6 +403,16 @@
           "description": "montrer aussi la valeur présente au branchement"
         }
       }
+    },
+    {
+      "name": "sonic-css-vars",
+      "description": "Thème de l'artefact : applique à ses enfants des variables --sc-* (couleurs) lues dans le DP source, par héritage CSS (display: contents). Pour un thème sombre / clair / perso choisi dans des réglages. Seuls les noms --sc-* et des valeurs de couleur (#hex, rgb, hsl, nom, var(--sc-*), color-mix(in srgb, …)) sont appliqués, jamais de style libre ni d'URL.",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "chemin DP d'un objet {\"--sc-base\": \"#150a2e\", \"--sc-primary\": \"#ff7a1a\", …} (souvent la sortie d'un sonic-jsonata), color-scheme light|dark accepté"
+        }
+      }
     }
   ]
 }
