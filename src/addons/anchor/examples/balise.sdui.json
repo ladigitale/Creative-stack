@@ -67,7 +67,7 @@
           "attributes": {
             "id": "balises",
             "initial": "{\"items\": [], \"outbox\": [], \"panneau\": \"non\", \"fil\": null, \"saisie\": \"\", \"dessin\": 0, \"fType\": \"tout\", \"fDepuis\": \"tout\", \"fQui\": \"tous\", \"fParcours\": \"oui\", \"vus\": []}",
-            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? $merge([$state, {\"items\": $append($state.items, [$p]), \"outbox\": $p.lat ? $append($ob, [{\"id\": $p.id, \"op\": \"add\", \"lat\": $p.lat, \"lon\": $p.lon, \"data\": $merge([$p, {\"aVoix\": $p.voix ? true : false}])}]) : $ob}]) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\", \"pListe\": \"non\", \"pvOuvert\": \"non\", \"ceForm\": \"non\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\" or $action.type = \"dessin:retoucher\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($v := [$distinct($append($state.vus ? $state.vus : [], [$p.value]))][[-300..-1]]; $state.ici = $p.value ? $merge([$state, {\"vus\": $v}]) : $merge([$state, {\"ici\": $p.value, \"vus\": $v, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($r := $state.retouche; $state.fil and $p.url ? ($r.kind = \"drawing\" ? $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rd-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"dessin\": $p.url, \"cadreDessin\": \"3\"}, \"seen\": true} : {\"id\": \"rd-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"media\": $p.url, \"cadre\": 3, \"seen\": true, \"refId\": $state.capRef}]), \"retouche\": null, \"editeur\": \"non\", \"erreur\": \"Dessin retouché : il est sur le mur.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3, \"refId\": $state.capRef}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}])) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": null}]) : $action.type = \"dessin:retoucher\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"drawing\"}, \"erreur\": \"Retouche : ton dessin est rouvert, trait par trait.\"}]) : $action.type = \"capture:ref\" ? $merge([$state, {\"capRef\": $p.value}]) : $action.type = \"texte:retoucher\" ? $merge([$state, {\"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"text\"}, \"retoucheTexte\": $p.text, \"retoucheOuvert\": \"oui\"}]) : $action.type = \"texte:enregistrer\" ? ($r := $state.retouche; $t := $trim($state.retoucheTexte ? $state.retoucheTexte : \"\"); $t = \"\" ? $merge([$state, {\"erreur\": \"Le message ne peut pas être vide.\"}]) : $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rt-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"message\": $t}} : {\"id\": \"rt-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"text\": $t}]), \"retouche\": null, \"retoucheOuvert\": \"non\", \"erreur\": \"Message modifié.\"}])) : $action.type = \"tag:go\" ? ($state.fil ? ($state.profil = \"oui\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"tg-\" & $string($millis()), \"op\": \"tag\", \"place\": $state.fil, \"seen\": $state.ici = $state.fil}]), \"erreur\": \"Tagué : ton blaze est sur le mur.\"}]) : $merge([$state, {\"blazeOuvert\": \"oui\", \"blazeTag\": \"oui\"}])) : $state) : $action.type = \"tag:profil\" ? $merge([$state, {\"blazeOuvert\": \"oui\", \"blazeTag\": \"non\"}]) : $action.type = \"avatar:pret\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"av-\" & $string($millis()), \"op\": \"visitor\", \"pseudo\": $trim($state.blaze ? $state.blaze : \"\"), \"avatar\": $p.url}]), \"tagApres\": ($state.blazeTag = \"oui\" and $state.fil) ? {\"place\": $state.fil, \"seen\": $state.ici = $state.fil} : null, \"profil\": \"oui\", \"blazeOuvert\": \"non\", \"erreur\": ($state.blazeTag = \"oui\" and $state.fil) ? \"Envoi de ton blaze…\" : \"Blaze enregistré.\"}]) : $action.type = \"place:ok\" and $p.op = \"visitor\" and $state.tagApres ? $merge([$state, {\"outbox\": $append([$ob[id != $p.id]], [{\"id\": \"tg-\" & $string($millis()), \"op\": \"tag\", \"place\": $state.tagApres.place, \"seen\": $state.tagApres.seen}]), \"tagApres\": null, \"erreur\": \"Tagué : ton blaze est sur le mur.\"}]) : $action.type = \"place:error\" and $p.op = \"visitor\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"tagApres\": null, \"profil\": null, \"erreur\": \"Blaze non enregistré : \" & $p.error}]) : $action.type = \"fiche:fermee\" ? ($lookup($state, $p) = \"oui\" ? $merge([$state, $lookup({\"panneau\": {\"panneau\": \"non\", \"fil\": null}, \"pListe\": {\"pListe\": \"non\"}, \"pvOuvert\": {\"pvOuvert\": \"non\"}, \"ceForm\": {\"ceForm\": \"non\"}, \"retoucheOuvert\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"confirmBalise\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"confirmRetrait\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"blazeOuvert\": {\"blazeOuvert\": \"non\"}}, $p)]) : $state) : $action.type = \"retouche:fermer\" ? $merge([$state, {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}]) : $action.type = \"balise:supprimer\" ? $merge([$state, {\"aSupprimer\": $p, \"confirmBalise\": \"oui\"}]) : $action.type = \"balise:supprimerOk\" ? ($it := $state.items[id = $state.aSupprimer]; $merge([$state, {\"items\": [$state.items[id != $state.aSupprimer]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $state.aSupprimer, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob, \"aSupprimer\": null, \"confirmBalise\": \"non\", \"fil\": $state.fil = $it.placeId ? null : $state.fil, \"panneau\": $state.fil = $it.placeId ? \"non\" : $state.panneau, \"erreur\": \"Balise supprimée.\"}])) : $action.type = \"msg:retirer\" ? $merge([$state, {\"aRetirer\": $p, \"confirmRetrait\": \"oui\"}]) : $action.type = \"msg:retirerOk\" ? ($state.fil and $state.aRetirer ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"dm-\" & $state.aRetirer, \"op\": \"deleteMessage\", \"place\": $state.fil, \"message\": $state.aRetirer}]), \"aRetirer\": null, \"confirmRetrait\": \"non\", \"erreur\": \"Retiré : une trace reste dans la discussion.\"}]) : $state) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\", \"retouche\": null}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : ($p.op = \"addRoute\" ? \"Parcours publié !\" : \"\"))}, $p.op = \"addRoute\" ? {\"pv\": $p.routeId, \"pvOuvert\": \"oui\", \"ceEtapes\": [], \"ceTitre\": \"\", \"ceDesc\": \"\"} : {}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $action.type = \"parcours:liste\" ? $merge([$state, {\"pListe\": \"oui\", \"pvOuvert\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:listeFermer\" ? $merge([$state, {\"pListe\": \"non\"}]) : $action.type = \"parcours:voir\" ? $merge([$state, {\"pv\": $p, \"pvOuvert\": \"oui\", \"pListe\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:voirSuivi\" ? $merge([$state, {\"pv\": $state.suivi.id, \"pvOuvert\": \"oui\"}]) : $action.type = \"parcours:fermer\" ? $merge([$state, {\"pvOuvert\": \"non\"}]) : $action.type = \"parcours:signaler\" ? ($state.pv ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rr-\" & $state.pv, \"op\": \"reportRoute\", \"route\": $state.pv}]), \"pvOuvert\": \"non\", \"erreur\": \"Merci, parcours signalé.\"}]) : $state) : $action.type = \"suivi:demarrer\" ? ($rid := $type($p) = \"string\" ? $p : $state.pv; $rid ? $merge([$state, {\"suivi\": {\"id\": $rid, \"faits\": [], \"joue\": 0, \"step\": null, \"poche\": \"non\"}, \"pv\": $rid, \"pvOuvert\": \"non\", \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1, \"erreur\": \"C'est parti : avance vers la première étape.\"}]) : $state) : $action.type = \"suivi:arreter\" ? $merge([$state, {\"suivi\": null, \"wakeR\": ($state.wakeR ? $state.wakeR : 0) + 1, \"pvOuvert\": \"non\", \"erreur\": \"Parcours arrêté.\"}]) : $action.type = \"suivi:arrive\" ? ($i := $p.value - 1; $state.suivi.id and $not($i in $state.suivi.faits) ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"faits\": $append($state.suivi.faits, [$i]), \"joue\": $state.suivi.joue + 1, \"step\": $i}]), \"erreur\": \"Étape \" & $string($p.value) & \" : vise le mur pour la découvrir.\"}]) : $state) : $action.type = \"poche:on\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"oui\"}]), \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1}]) : $state) : $action.type = \"poche:off\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"non\"}])}]) : $state) : $action.type = \"ce:debut\" ? $merge([$state, {\"cree\": \"oui\", \"ceForm\": \"non\", \"pListe\": \"non\", \"ceEtapes\": [], \"ceOrdre\": \"oui\", \"ceMode\": \"etape\", \"erreur\": \"Touche une balise sur la carte puis « Ajouter au parcours ».\"}]) : $action.type = \"ce:annuler\" ? $merge([$state, {\"cree\": \"non\", \"ceForm\": \"non\", \"ceEtapes\": [], \"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:ouvrir\" ? $merge([$state, {\"ceForm\": \"oui\"}]) : $action.type = \"ce:fermerForm\" ? $merge([$state, {\"ceForm\": \"non\"}]) : $action.type = \"ce:ajouter\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $count($e) >= 30 ? $merge([$state, {\"erreur\": \"30 étapes au plus.\"}]) : ($e[-1].place = $p.place ? $state : $merge([$state, {\"ceEtapes\": $append($e, [{\"place\": $p.place, \"titre\": $p.titre, \"radius\": 30, \"sound\": \"balise\"}]), \"erreur\": \"Étape \" & $string($count($e) + 1) & \" ajoutée.\"}]))) : $action.type = \"ce:retirer\" ? $merge([$state, {\"ceEtapes\": [$filter($state.ceEtapes, function($x, $k){ $k != $p })]}]) : $action.type = \"ce:monter\" or $action.type = \"ce:descendre\" ? ($e := $state.ceEtapes; $j := $action.type = \"ce:monter\" ? $p - 1 : $p + 1; $j < 0 or $j >= $count($e) ? $state : $merge([$state, {\"ceEtapes\": [$map($e, function($x, $k){ $k = $p ? $e[$j] : ($k = $j ? $e[$p] : $x) })]}])) : $action.type = \"ce:rayon\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"radius\": $p.r}]) : $x })]}]) : $action.type = \"ce:son\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"sound\": $p.s, \"media\": null}]) : $x })]}]) : $action.type = \"ce:enreg\" ? $merge([$state, {\"ceCible\": $p, \"ceEnreg\": \"oui\", \"ceImport\": \"non\"}]) : $action.type = \"ce:importer\" ? $merge([$state, {\"ceCible\": $p, \"ceImport\": \"oui\", \"ceEnreg\": \"non\"}]) : $action.type = \"ce:enregFermer\" ? $merge([$state, {\"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:garder\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $state.ceCible ? $merge([$x, {\"sound\": \"propre\", \"media\": $p}]) : $x })], \"ceEnreg\": \"non\", \"ceImport\": \"non\", \"erreur\": \"Son gardé pour l'étape \" & $string($state.ceCible + 1) & \".\"}]) : $action.type = \"ce:publier\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $t := $trim($state.ceTitre ? $state.ceTitre : \"\"); $count($e) < 2 ? $merge([$state, {\"erreur\": \"Il faut au moins deux étapes.\"}]) : $t = \"\" ? $merge([$state, {\"erreur\": \"Donne un titre à ton parcours.\"}]) : $e[sound = \"propre\" and $not(media)] ? $merge([$state, {\"erreur\": \"Une étape attend encore son son à part.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"p-\" & $string($millis()), \"op\": \"addRoute\", \"data\": {\"title\": $t, \"description\": $state.ceDesc ? $state.ceDesc : \"\", \"ordered\": $state.ceOrdre != \"non\", \"mode\": $state.ceMode = \"ambiance\" ? \"ambiance\" : \"etape\", \"steps\": [$e.{\"place\": place, \"radius\": radius, \"sound\": sound, \"media\": media}]}}]), \"cree\": \"non\", \"ceForm\": \"non\", \"erreur\": \"Publication du parcours…\"}])) : $state)",
+            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? ($e := $p.effet ? $p.effet : \"message\"; $c := $sift($p, function($v, $k){ ($k = \"voix\" and $e != \"vocal\") or ($k = \"message\" and $e != \"message\") or (($k = \"dessin\" or $k = \"cadreDessin\") and $e != \"dessin\") ? false : true }); $merge([$state, {\"items\": $append($state.items, [$c]), \"outbox\": $c.lat ? $append($ob, [{\"id\": $c.id, \"op\": \"add\", \"lat\": $c.lat, \"lon\": $c.lon, \"data\": $merge([$c, {\"aVoix\": $c.voix ? true : false}])}]) : $ob}])) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\", \"pListe\": \"non\", \"pvOuvert\": \"non\", \"ceForm\": \"non\"}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\" or $action.type = \"dessin:retoucher\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($v := [$distinct($append($state.vus ? $state.vus : [], [$p.value]))][[-300..-1]]; $state.ici = $p.value ? $merge([$state, {\"vus\": $v}]) : $merge([$state, {\"ici\": $p.value, \"vus\": $v, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($r := $state.retouche; $state.fil and $p.url ? ($r.kind = \"drawing\" ? $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rd-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"dessin\": $p.url, \"cadreDessin\": \"3\"}, \"seen\": true} : {\"id\": \"rd-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"media\": $p.url, \"cadre\": 3, \"seen\": true, \"refId\": $state.capRef}]), \"retouche\": null, \"editeur\": \"non\", \"erreur\": \"Dessin retouché : il est sur le mur.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3, \"refId\": $state.capRef}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}])) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": null}]) : $action.type = \"dessin:retoucher\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"drawing\"}, \"erreur\": \"Retouche : ton dessin est rouvert, trait par trait.\"}]) : $action.type = \"capture:ref\" ? $merge([$state, {\"capRef\": $p.value}]) : $action.type = \"texte:retoucher\" ? $merge([$state, {\"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"text\"}, \"retoucheTexte\": $p.text, \"retoucheOuvert\": \"oui\"}]) : $action.type = \"texte:enregistrer\" ? ($r := $state.retouche; $t := $trim($state.retoucheTexte ? $state.retoucheTexte : \"\"); $t = \"\" ? $merge([$state, {\"erreur\": \"Le message ne peut pas être vide.\"}]) : $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rt-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"message\": $t}} : {\"id\": \"rt-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"text\": $t}]), \"retouche\": null, \"retoucheOuvert\": \"non\", \"erreur\": \"Message modifié.\"}])) : $action.type = \"tag:go\" ? ($state.fil ? ($state.profil = \"oui\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"tg-\" & $string($millis()), \"op\": \"tag\", \"place\": $state.fil, \"seen\": $state.ici = $state.fil}]), \"erreur\": \"Tagué : ton blaze est sur le mur.\"}]) : $merge([$state, {\"blazeOuvert\": \"oui\", \"blazeTag\": \"oui\"}])) : $state) : $action.type = \"tag:profil\" ? $merge([$state, {\"blazeOuvert\": \"oui\", \"blazeTag\": \"non\"}]) : $action.type = \"avatar:pret\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"av-\" & $string($millis()), \"op\": \"visitor\", \"pseudo\": $trim($state.blaze ? $state.blaze : \"\"), \"avatar\": $p.url}]), \"tagApres\": ($state.blazeTag = \"oui\" and $state.fil) ? {\"place\": $state.fil, \"seen\": $state.ici = $state.fil} : null, \"profil\": \"oui\", \"blazeOuvert\": \"non\", \"erreur\": ($state.blazeTag = \"oui\" and $state.fil) ? \"Envoi de ton blaze…\" : \"Blaze enregistré.\"}]) : $action.type = \"place:ok\" and $p.op = \"visitor\" and $state.tagApres ? $merge([$state, {\"outbox\": $append([$ob[id != $p.id]], [{\"id\": \"tg-\" & $string($millis()), \"op\": \"tag\", \"place\": $state.tagApres.place, \"seen\": $state.tagApres.seen}]), \"tagApres\": null, \"erreur\": \"Tagué : ton blaze est sur le mur.\"}]) : $action.type = \"place:error\" and $p.op = \"visitor\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"tagApres\": null, \"profil\": null, \"erreur\": \"Blaze non enregistré : \" & $p.error}]) : $action.type = \"fiche:fermee\" ? ($lookup($state, $p) = \"oui\" ? $merge([$state, $lookup({\"panneau\": {\"panneau\": \"non\", \"fil\": null}, \"pListe\": {\"pListe\": \"non\"}, \"pvOuvert\": {\"pvOuvert\": \"non\"}, \"ceForm\": {\"ceForm\": \"non\"}, \"retoucheOuvert\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"confirmBalise\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"confirmRetrait\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"blazeOuvert\": {\"blazeOuvert\": \"non\"}}, $p)]) : $state) : $action.type = \"retouche:fermer\" ? $merge([$state, {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}]) : $action.type = \"balise:supprimer\" ? $merge([$state, {\"aSupprimer\": $p, \"confirmBalise\": \"oui\"}]) : $action.type = \"balise:supprimerOk\" ? ($it := $state.items[id = $state.aSupprimer]; $merge([$state, {\"items\": [$state.items[id != $state.aSupprimer]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $state.aSupprimer, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob, \"aSupprimer\": null, \"confirmBalise\": \"non\", \"fil\": $state.fil = $it.placeId ? null : $state.fil, \"panneau\": $state.fil = $it.placeId ? \"non\" : $state.panneau, \"erreur\": \"Balise supprimée.\"}])) : $action.type = \"msg:retirer\" ? $merge([$state, {\"aRetirer\": $p, \"confirmRetrait\": \"oui\"}]) : $action.type = \"msg:retirerOk\" ? ($state.fil and $state.aRetirer ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"dm-\" & $state.aRetirer, \"op\": \"deleteMessage\", \"place\": $state.fil, \"message\": $state.aRetirer}]), \"aRetirer\": null, \"confirmRetrait\": \"non\", \"erreur\": \"Retiré : une trace reste dans la discussion.\"}]) : $state) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\", \"retouche\": null}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : ($p.op = \"addRoute\" ? \"Parcours publié !\" : \"\"))}, $p.op = \"addRoute\" ? {\"pv\": $p.routeId, \"pvOuvert\": \"oui\", \"ceEtapes\": [], \"ceTitre\": \"\", \"ceDesc\": \"\"} : {}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $action.type = \"parcours:liste\" ? $merge([$state, {\"pListe\": \"oui\", \"pvOuvert\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:listeFermer\" ? $merge([$state, {\"pListe\": \"non\"}]) : $action.type = \"parcours:voir\" ? $merge([$state, {\"pv\": $p, \"pvOuvert\": \"oui\", \"pListe\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:voirSuivi\" ? $merge([$state, {\"pv\": $state.suivi.id, \"pvOuvert\": \"oui\"}]) : $action.type = \"parcours:fermer\" ? $merge([$state, {\"pvOuvert\": \"non\"}]) : $action.type = \"parcours:signaler\" ? ($state.pv ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rr-\" & $state.pv, \"op\": \"reportRoute\", \"route\": $state.pv}]), \"pvOuvert\": \"non\", \"erreur\": \"Merci, parcours signalé.\"}]) : $state) : $action.type = \"suivi:demarrer\" ? ($rid := $type($p) = \"string\" ? $p : $state.pv; $rid ? $merge([$state, {\"suivi\": {\"id\": $rid, \"faits\": [], \"joue\": 0, \"step\": null, \"poche\": \"non\"}, \"pv\": $rid, \"pvOuvert\": \"non\", \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1, \"erreur\": \"C'est parti : avance vers la première étape.\"}]) : $state) : $action.type = \"suivi:arreter\" ? $merge([$state, {\"suivi\": null, \"wakeR\": ($state.wakeR ? $state.wakeR : 0) + 1, \"pvOuvert\": \"non\", \"erreur\": \"Parcours arrêté.\"}]) : $action.type = \"suivi:arrive\" ? ($i := $p.value - 1; $state.suivi.id and $not($i in $state.suivi.faits) ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"faits\": $append($state.suivi.faits, [$i]), \"joue\": $state.suivi.joue + 1, \"step\": $i}]), \"erreur\": \"Étape \" & $string($p.value) & \" : vise le mur pour la découvrir.\"}]) : $state) : $action.type = \"poche:on\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"oui\"}]), \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1}]) : $state) : $action.type = \"poche:off\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"non\"}])}]) : $state) : $action.type = \"ce:debut\" ? $merge([$state, {\"cree\": \"oui\", \"ceForm\": \"non\", \"pListe\": \"non\", \"ceEtapes\": [], \"ceOrdre\": \"oui\", \"ceMode\": \"etape\", \"erreur\": \"Touche une balise sur la carte puis « Ajouter au parcours ».\"}]) : $action.type = \"ce:annuler\" ? $merge([$state, {\"cree\": \"non\", \"ceForm\": \"non\", \"ceEtapes\": [], \"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:ouvrir\" ? $merge([$state, {\"ceForm\": \"oui\"}]) : $action.type = \"ce:fermerForm\" ? $merge([$state, {\"ceForm\": \"non\"}]) : $action.type = \"ce:ajouter\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $count($e) >= 30 ? $merge([$state, {\"erreur\": \"30 étapes au plus.\"}]) : ($e[-1].place = $p.place ? $state : $merge([$state, {\"ceEtapes\": $append($e, [{\"place\": $p.place, \"titre\": $p.titre, \"radius\": 30, \"sound\": \"balise\"}]), \"erreur\": \"Étape \" & $string($count($e) + 1) & \" ajoutée.\"}]))) : $action.type = \"ce:retirer\" ? $merge([$state, {\"ceEtapes\": [$filter($state.ceEtapes, function($x, $k){ $k != $p })]}]) : $action.type = \"ce:monter\" or $action.type = \"ce:descendre\" ? ($e := $state.ceEtapes; $j := $action.type = \"ce:monter\" ? $p - 1 : $p + 1; $j < 0 or $j >= $count($e) ? $state : $merge([$state, {\"ceEtapes\": [$map($e, function($x, $k){ $k = $p ? $e[$j] : ($k = $j ? $e[$p] : $x) })]}])) : $action.type = \"ce:rayon\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"radius\": $p.r}]) : $x })]}]) : $action.type = \"ce:son\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"sound\": $p.s, \"media\": null}]) : $x })]}]) : $action.type = \"ce:enreg\" ? $merge([$state, {\"ceCible\": $p, \"ceEnreg\": \"oui\", \"ceImport\": \"non\"}]) : $action.type = \"ce:importer\" ? $merge([$state, {\"ceCible\": $p, \"ceImport\": \"oui\", \"ceEnreg\": \"non\"}]) : $action.type = \"ce:enregFermer\" ? $merge([$state, {\"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:garder\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $state.ceCible ? $merge([$x, {\"sound\": \"propre\", \"media\": $p}]) : $x })], \"ceEnreg\": \"non\", \"ceImport\": \"non\", \"erreur\": \"Son gardé pour l'étape \" & $string($state.ceCible + 1) & \".\"}]) : $action.type = \"ce:publier\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $t := $trim($state.ceTitre ? $state.ceTitre : \"\"); $count($e) < 2 ? $merge([$state, {\"erreur\": \"Il faut au moins deux étapes.\"}]) : $t = \"\" ? $merge([$state, {\"erreur\": \"Donne un titre à ton parcours.\"}]) : $e[sound = \"propre\" and $not(media)] ? $merge([$state, {\"erreur\": \"Une étape attend encore son son à part.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"p-\" & $string($millis()), \"op\": \"addRoute\", \"data\": {\"title\": $t, \"description\": $state.ceDesc ? $state.ceDesc : \"\", \"ordered\": $state.ceOrdre != \"non\", \"mode\": $state.ceMode = \"ambiance\" ? \"ambiance\" : \"etape\", \"steps\": [$e.{\"place\": place, \"radius\": radius, \"sound\": sound, \"media\": media}]}}]), \"cree\": \"non\", \"ceForm\": \"non\", \"erreur\": \"Publication du parcours…\"}])) : $state)",
             "persist": "balises",
             "max-state-bytes": "1200000"
           }
@@ -797,6 +797,35 @@
                                                       }
                                                     }
                                                   ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-if",
+                                          "attributes": {
+                                            "dataProvider": "ancreState",
+                                            "key": "item.effet",
+                                            "equals": "vocal"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "div",
+                                              "attributes": {
+                                                "style": "position:absolute;left:4%;top:4%;display:flex;align-items:center;gap:14px;padding:22px 28px;border-radius:34px 34px 34px 8px;background:#ffffff;color:#16181d;box-shadow:0 10px 40px rgba(0,0,0,.35);font:700 40px/1.15 system-ui,sans-serif"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "span",
+                                                  "attributes": {
+                                                    "style": "flex:none;font-size:44px"
+                                                  },
+                                                  "textContent": "🔊"
+                                                },
+                                                {
+                                                  "tagName": "span",
+                                                  "textContent": "Message vocal"
                                                 }
                                               ]
                                             }
@@ -1982,7 +2011,8 @@
                 {
                   "tagName": "sonic-group",
                   "attributes": {
-                    "formDataProvider": "brouillon"
+                    "formDataProvider": "brouillon",
+                    "style": "display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem"
                   },
                   "nodes": [
                     {
@@ -1991,20 +2021,29 @@
                         "radio": true,
                         "name": "effet",
                         "value": "message",
-                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                        "shape": "block",
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:4.6rem;--sc-btn-fs:1rem"
                       },
                       "nodes": [
                         {
-                          "tagName": "sonic-icon",
+                          "tagName": "div",
                           "attributes": {
-                            "library": "iconoir",
-                            "name": "text",
-                            "slot": "prefix"
-                          }
-                        },
-                        {
-                          "tagName": "span",
-                          "textContent": "Message"
+                            "style": "display:flex;flex-direction:column;align-items:center;gap:.25rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "text",
+                                "size": "lg"
+                              }
+                            },
+                            {
+                              "tagName": "span",
+                              "textContent": "Message"
+                            }
+                          ]
                         }
                       ]
                     },
@@ -2014,20 +2053,61 @@
                         "radio": true,
                         "name": "effet",
                         "value": "dessin",
-                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                        "shape": "block",
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:4.6rem;--sc-btn-fs:1rem"
                       },
                       "nodes": [
                         {
-                          "tagName": "sonic-icon",
+                          "tagName": "div",
                           "attributes": {
-                            "library": "iconoir",
-                            "name": "design-pencil",
-                            "slot": "prefix"
-                          }
-                        },
+                            "style": "display:flex;flex-direction:column;align-items:center;gap:.25rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "design-pencil",
+                                "size": "lg"
+                              }
+                            },
+                            {
+                              "tagName": "span",
+                              "textContent": "Dessin"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-button",
+                      "attributes": {
+                        "radio": true,
+                        "name": "effet",
+                        "value": "vocal",
+                        "shape": "block",
+                        "style": "--sc-btn-rounded:999px;--sc-btn-height:4.6rem;--sc-btn-fs:1rem"
+                      },
+                      "nodes": [
                         {
-                          "tagName": "span",
-                          "textContent": "Dessin"
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "display:flex;flex-direction:column;align-items:center;gap:.25rem"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "sonic-icon",
+                              "attributes": {
+                                "library": "iconoir",
+                                "name": "sound-high",
+                                "size": "lg"
+                              }
+                            },
+                            {
+                              "tagName": "span",
+                              "textContent": "Vocal"
+                            }
+                          ]
                         }
                       ]
                     }
@@ -2040,6 +2120,109 @@
                     "data-path": "effet"
                   },
                   "nodes": [
+                    {
+                      "tagName": "template",
+                      "attributes": {
+                        "data-value": "^vocal$"
+                      },
+                      "nodes": [
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "display:flex;flex-direction:column;gap:.7rem;padding:1rem;border-radius:1rem;background:#f4f4f7"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "div",
+                              "attributes": {
+                                "style": "display:flex;align-items:center;gap:.6rem;flex-wrap:wrap"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-audio-unlock",
+                                  "attributes": {
+                                    "start": "micro",
+                                    "label": "Activer le micro"
+                                  }
+                                },
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "formDataProvider": "enreg",
+                                    "name": "recording",
+                                    "value": "on",
+                                    "unique": true,
+                                    "type": "danger",
+                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-icon",
+                                      "attributes": {
+                                        "library": "iconoir",
+                                        "name": "sound-high",
+                                        "slot": "prefix"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "swap": "off"
+                                      },
+                                      "textContent": "Enregistrer"
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "swap": "on"
+                                      },
+                                      "textContent": "Arrêter"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "font-variant-numeric:tabular-nums;font-weight:600"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-value",
+                                      "attributes": {
+                                        "dataProvider": "voixState",
+                                        "key": "elapsedS"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "textContent": " s / 15 s"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-if",
+                              "attributes": {
+                                "dataProvider": "voixState",
+                                "key": "last.url",
+                                "truthy": true
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-audio-player",
+                                  "attributes": {
+                                    "src-from": "voixState.last",
+                                    "label": "Ta voix",
+                                    "style": "--sonic-player-accent:#1c1e24;--sonic-player-text:#1c1e24"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
                     {
                       "tagName": "template",
                       "attributes": {
@@ -2211,108 +2394,6 @@
                               ]
                             }
                           ]
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "tagName": "div",
-                  "attributes": {
-                    "style": "display:flex;flex-direction:column;gap:.7rem;padding:1rem;border-radius:1rem;background:#f4f4f7"
-                  },
-                  "nodes": [
-                    {
-                      "tagName": "strong",
-                      "attributes": {
-                        "style": "font-size:1rem"
-                      },
-                      "textContent": "Ajouter ta voix"
-                    },
-                    {
-                      "tagName": "div",
-                      "attributes": {
-                        "style": "display:flex;align-items:center;gap:.6rem;flex-wrap:wrap"
-                      },
-                      "nodes": [
-                        {
-                          "tagName": "sonic-audio-unlock",
-                          "attributes": {
-                            "start": "micro",
-                            "label": "Activer le micro"
-                          }
-                        },
-                        {
-                          "tagName": "sonic-button",
-                          "attributes": {
-                            "formDataProvider": "enreg",
-                            "name": "recording",
-                            "value": "on",
-                            "unique": true,
-                            "type": "danger",
-                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
-                          },
-                          "nodes": [
-                            {
-                              "tagName": "sonic-icon",
-                              "attributes": {
-                                "library": "iconoir",
-                                "name": "sound-high",
-                                "slot": "prefix"
-                              }
-                            },
-                            {
-                              "tagName": "span",
-                              "attributes": {
-                                "swap": "off"
-                              },
-                              "textContent": "Enregistrer"
-                            },
-                            {
-                              "tagName": "span",
-                              "attributes": {
-                                "swap": "on"
-                              },
-                              "textContent": "Arrêter"
-                            }
-                          ]
-                        },
-                        {
-                          "tagName": "div",
-                          "attributes": {
-                            "style": "font-variant-numeric:tabular-nums;font-weight:600"
-                          },
-                          "nodes": [
-                            {
-                              "tagName": "sonic-value",
-                              "attributes": {
-                                "dataProvider": "voixState",
-                                "key": "elapsedS"
-                              }
-                            },
-                            {
-                              "tagName": "span",
-                              "textContent": " s"
-                            }
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "tagName": "sonic-if",
-                      "attributes": {
-                        "dataProvider": "voixState",
-                        "key": "last.url",
-                        "truthy": true
-                      },
-                      "nodes": [
-                        {
-                          "tagName": "sonic-audio-player",
-                          "attributes": {
-                            "src-from": "voixState.last",
-                            "label": "Ta voix",
-                            "style": "--sonic-player-accent:#1c1e24;--sonic-player-text:#1c1e24"
-                          }
                         }
                       ]
                     }
@@ -2666,7 +2747,7 @@
                   "attributes": {
                     "inputProvider": "balises",
                     "outputProvider": "listeBalises",
-                    "expression": "$append([], $reverse($input.items).{\"id\": id, \"placeId\": placeId, \"ouvrable\": placeId ? \"oui\" : \"non\", \"type\": effet = \"dessin\" ? \"dessin\" : \"message\", \"titre\": effet = \"dessin\" ? \"Dessin\" : message, \"quand\": $substring(createdAt, 8, 2) & \"/\" & $substring(createdAt, 5, 2) & \" à \" & $substring(createdAt, 11, 5), \"partage\": placeId ? \"partagée\" : (lat ? \"envoi en cours\" : \"sur ce téléphone\")})"
+                    "expression": "$append([], $reverse($input.items).{\"id\": id, \"placeId\": placeId, \"ouvrable\": placeId ? \"oui\" : \"non\", \"type\": effet = \"dessin\" ? \"dessin\" : (effet = \"vocal\" ? \"vocal\" : \"message\"), \"titre\": effet = \"dessin\" ? \"Dessin\" : (effet = \"vocal\" ? \"Message vocal\" : message), \"quand\": $substring(createdAt, 8, 2) & \"/\" & $substring(createdAt, 5, 2) & \" à \" & $substring(createdAt, 11, 5), \"partage\": placeId ? \"partagée\" : (lat ? \"envoi en cours\" : \"sur ce téléphone\")})"
                   }
                 },
                 {
@@ -2750,6 +2831,30 @@
                                                   "attributes": {
                                                     "library": "iconoir",
                                                     "name": "chat-bubble"
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "sonic-if",
+                                          "attributes": {
+                                            "key": "type",
+                                            "equals": "vocal"
+                                          },
+                                          "nodes": [
+                                            {
+                                              "tagName": "div",
+                                              "attributes": {
+                                                "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ffd23a;display:flex;align-items:center;justify-content:center;color:#16181d"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-icon",
+                                                  "attributes": {
+                                                    "library": "iconoir",
+                                                    "name": "sound-high"
                                                   }
                                                 }
                                               ]
@@ -7692,6 +7797,7 @@
                     "auto-size": true,
                     "page-width": "1200",
                     "page-height": "900",
+                    "page-fit": "cover",
                     "checker": "#16181d #1d2026",
                     "checker-size": "14",
                     "background": "transparent",
