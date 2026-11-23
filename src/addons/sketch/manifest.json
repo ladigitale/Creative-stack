@@ -254,6 +254,7 @@
           "description": "Cadre (avec page-height, unités du dessin, centré) : photo de fond, export-area page et vue d'origine s'y rapportent, ajusté à la toile"
         },
         "page-height": {
+        "page-fit": { "type": "string", "enum": ["contain", "cover"], "description": "Vue d'origine du cadre : contain (défaut, cadre entier) ou cover (remplit la toile comme une vidéo plein écran ; la photo de fond suit la vue)" },
           "type": "number",
           "description": "Voir page-width"
         },
