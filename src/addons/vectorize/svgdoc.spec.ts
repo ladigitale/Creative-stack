@@ -95,6 +95,10 @@ describe("pair-impair par imbrication", () => {
     const r = parseSvgDocument(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">${sq}</svg>`);
     expect(r.paths).toHaveLength(1);
     expect(r.paths[0].area).toBeCloseTo(100, 0);
+    // Pas un contour à tracer non plus (laser : la forme n'est pas suivie une seconde fois).
+    const raw: { stroke: string | null }[] = [];
+    parseSvgDocument(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">${sq}</svg>`, { raw: (x) => raw.push(x) });
+    expect(raw[0].stroke).toBeNull();
     // Un vrai contour (épaisseur dans le dessin) élargit toujours la forme.
     const r2 = parseSvgDocument('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M0 0H10V10H0Z" fill="#ff0000" stroke="#ff0000" stroke-width="2"/></svg>');
     expect(r2.paths).toHaveLength(2);
