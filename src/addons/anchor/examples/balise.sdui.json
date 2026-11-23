@@ -3,7 +3,7 @@
     {
       "tagName": "div",
       "attributes": {
-        "style": "position:relative;min-height:100svh;background:#16181d;--sc-primary:#ff3d7f;--sc-primary-content:#fff;--sc-base-100:#f2f3f6;--sc-input-bg:#f2f3f6"
+        "style": "position:relative;min-height:100svh;background:#16181d;--sc-primary:#ffd23a;--sc-primary-content:#16181d;--sc-base-100:#f2f3f6;--sc-input-bg:#f2f3f6"
       },
       "nodes": [
         {
@@ -26,7 +26,7 @@
           "tagName": "sonic-store",
           "attributes": {
             "id": "pinceau",
-            "initial": "{\"tool\": \"paint\", \"color\": \"#ff3d7f\", \"size\": \"12\", \"opacity\": \"1\", \"hardness\": \"1\", \"blend\": \"normal\"}",
+            "initial": "{\"tool\": \"paint\", \"color\": \"#ffd23a\", \"size\": \"12\", \"opacity\": \"1\", \"hardness\": \"1\", \"blend\": \"normal\"}",
             "reducer": "$state"
           }
         },
@@ -427,7 +427,7 @@
             "inputProvider": "parcoursRoutes",
             "formDataProvider": "balises",
             "outputProvider": "carteFond",
-            "expression": "($base := {\"style\": \"https://tiles.openfreemap.org/styles/positron\", \"pointStyle\": {\"paint\": {\"circle-color\": \"#ff3d7f\", \"circle-stroke-color\": \"#ffffff\", \"circle-stroke-width\": 2.5, \"circle-radius\": [\"case\", [\"has\", \"count\"], [\"min\", 30, [\"+\", 10, [\"*\", 2, [\"sqrt\", [\"get\", \"count\"]]]]], [\"boolean\", [\"feature-state\", \"selected\"], false], 11, 8]}}}; $sel := $suivi.id ? $suivi.id : ($pv ? $pv : \"\"); $clear := [{\"op\": \"removeLayer\", \"id\": \"parcours-choisi\"}, {\"op\": \"removeLayer\", \"id\": \"parcours-ligne\"}, {\"op\": \"removeSource\", \"id\": \"parcours\"}]; $fParcours = \"non\" ? $merge([$base, {\"patches\": $clear}]) : $merge([$base, {\"patches\": $append($clear, [{\"op\": \"addSource\", \"id\": \"parcours\", \"source\": {\"type\": \"geojson\", \"data\": $input.lines ? $input.lines : {\"type\": \"FeatureCollection\", \"features\": []}}}, {\"op\": \"addLayer\", \"layer\": {\"id\": \"parcours-ligne\", \"type\": \"line\", \"source\": \"parcours\", \"layout\": {\"line-cap\": \"round\", \"line-join\": \"round\"}, \"paint\": {\"line-color\": \"#ffd84a\", \"line-width\": 4, \"line-opacity\": 0.85, \"line-dasharray\": [1.4, 1.2]}}}, {\"op\": \"addLayer\", \"layer\": {\"id\": \"parcours-choisi\", \"type\": \"line\", \"source\": \"parcours\", \"filter\": [\"==\", [\"get\", \"id\"], $sel], \"layout\": {\"line-cap\": \"round\", \"line-join\": \"round\"}, \"paint\": {\"line-color\": \"#ff3d7f\", \"line-width\": 7}}}])}]))"
+            "expression": "($base := {\"style\": \"https://tiles.openfreemap.org/styles/positron\", \"pointStyle\": {\"paint\": {\"circle-color\": \"#ffd23a\", \"circle-stroke-color\": \"#16181d\", \"circle-stroke-width\": 2.5, \"circle-radius\": [\"case\", [\"has\", \"count\"], [\"min\", 30, [\"+\", 10, [\"*\", 2, [\"sqrt\", [\"get\", \"count\"]]]]], [\"boolean\", [\"feature-state\", \"selected\"], false], 11, 8]}}}; $sel := $suivi.id ? $suivi.id : ($pv ? $pv : \"\"); $clear := [{\"op\": \"removeLayer\", \"id\": \"parcours-choisi\"}, {\"op\": \"removeLayer\", \"id\": \"parcours-ligne\"}, {\"op\": \"removeSource\", \"id\": \"parcours\"}]; $fParcours = \"non\" ? $merge([$base, {\"patches\": $clear}]) : $merge([$base, {\"patches\": $append($clear, [{\"op\": \"addSource\", \"id\": \"parcours\", \"source\": {\"type\": \"geojson\", \"data\": $input.lines ? $input.lines : {\"type\": \"FeatureCollection\", \"features\": []}}}, {\"op\": \"addLayer\", \"layer\": {\"id\": \"parcours-ligne\", \"type\": \"line\", \"source\": \"parcours\", \"layout\": {\"line-cap\": \"round\", \"line-join\": \"round\"}, \"paint\": {\"line-color\": \"#16181d\", \"line-width\": 4, \"line-opacity\": 0.55, \"line-dasharray\": [1.4, 1.2]}}}, {\"op\": \"addLayer\", \"layer\": {\"id\": \"parcours-choisi\", \"type\": \"line\", \"source\": \"parcours\", \"filter\": [\"==\", [\"get\", \"id\"], $sel], \"layout\": {\"line-cap\": \"round\", \"line-join\": \"round\"}, \"paint\": {\"line-color\": \"#a87b00\", \"line-width\": 7}}}])}]))"
           }
         },
         {
@@ -851,7 +851,7 @@
                                                     {
                                                       "tagName": "div",
                                                       "attributes": {
-                                                        "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#ffd84a;color:#1c1e24;font-size:.95rem;font-weight:600;pointer-events:auto"
+                                                        "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#ffd23a;color:#1c1e24;font-size:.95rem;font-weight:600;pointer-events:auto"
                                                       },
                                                       "nodes": [
                                                         {
@@ -1563,7 +1563,7 @@
                         {
                           "tagName": "span",
                           "attributes": {
-                            "style": "width:.55rem;height:.55rem;border-radius:50%;background:#ff3d7f"
+                            "style": "width:.55rem;height:.55rem;border-radius:50%;background:#16181d"
                           }
                         },
                         {
@@ -1842,7 +1842,7 @@
                         {
                           "tagName": "span",
                           "attributes": {
-                            "style": "width:.55rem;height:.55rem;border-radius:50%;background:#ff3d7f"
+                            "style": "width:.55rem;height:.55rem;border-radius:50%;background:#16181d"
                           }
                         },
                         {
@@ -1965,7 +1965,7 @@
                                     "width": "800",
                                     "height": "600",
                                     "background": "transparent",
-                                    "color": "#ff3d7f",
+                                    "color": "#ffd23a",
                                     "size": "10",
                                     "brush-from": "pinceau",
                                     "style": "position:absolute;inset:0;width:100%;height:100%"
@@ -1984,28 +1984,7 @@
                                   "attributes": {
                                     "radio": true,
                                     "name": "color",
-                                    "value": "#ff3d7f",
-                                    "size": "sm",
-                                    "shape": "circle",
-                                    "aria-label": "Rose",
-                                    "title": "Rose",
-                                    "style": "--sc-btn-rounded:999px"
-                                  },
-                                  "nodes": [
-                                    {
-                                      "tagName": "span",
-                                      "attributes": {
-                                        "style": "display:inline-block;width:1.05rem;height:1.05rem;border-radius:50%;background:#ff3d7f;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)"
-                                      }
-                                    }
-                                  ]
-                                },
-                                {
-                                  "tagName": "sonic-button",
-                                  "attributes": {
-                                    "radio": true,
-                                    "name": "color",
-                                    "value": "#ffd84a",
+                                    "value": "#ffd23a",
                                     "size": "sm",
                                     "shape": "circle",
                                     "aria-label": "Jaune",
@@ -2016,7 +1995,28 @@
                                     {
                                       "tagName": "span",
                                       "attributes": {
-                                        "style": "display:inline-block;width:1.05rem;height:1.05rem;border-radius:50%;background:#ffd84a;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)"
+                                        "style": "display:inline-block;width:1.05rem;height:1.05rem;border-radius:50%;background:#ffd23a;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-button",
+                                  "attributes": {
+                                    "radio": true,
+                                    "name": "color",
+                                    "value": "#ff4a3d",
+                                    "size": "sm",
+                                    "shape": "circle",
+                                    "aria-label": "Rouge",
+                                    "title": "Rouge",
+                                    "style": "--sc-btn-rounded:999px"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "span",
+                                      "attributes": {
+                                        "style": "display:inline-block;width:1.05rem;height:1.05rem;border-radius:50%;background:#ff4a3d;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)"
                                       }
                                     }
                                   ]
@@ -2187,7 +2187,7 @@
                           "attributes": {
                             "src-from": "voixState.last",
                             "label": "Ta voix",
-                            "style": "--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
+                            "style": "--sonic-player-accent:#1c1e24;--sonic-player-text:#1c1e24"
                           }
                         }
                       ]
@@ -2282,7 +2282,7 @@
                         {
                           "tagName": "span",
                           "attributes": {
-                            "style": "width:.55rem;height:.55rem;border-radius:50%;background:#ff3d7f"
+                            "style": "width:.55rem;height:.55rem;border-radius:50%;background:#16181d"
                           }
                         }
                       ]
@@ -2594,7 +2594,7 @@
                                             {
                                               "tagName": "div",
                                               "attributes": {
-                                                "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ff3d7f;display:flex;align-items:center;justify-content:center;color:#fff"
+                                                "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ffd23a;display:flex;align-items:center;justify-content:center;color:#16181d"
                                               },
                                               "nodes": [
                                                 {
@@ -2618,7 +2618,7 @@
                                             {
                                               "tagName": "div",
                                               "attributes": {
-                                                "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ff3d7f;display:flex;align-items:center;justify-content:center;color:#fff"
+                                                "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ffd23a;display:flex;align-items:center;justify-content:center;color:#16181d"
                                               },
                                               "nodes": [
                                                 {
@@ -2692,7 +2692,7 @@
                                     {
                                       "tagName": "div",
                                       "attributes": {
-                                        "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ff3d7f;display:flex;align-items:center;justify-content:center;color:#fff"
+                                        "style": "width:40px;height:40px;flex:none;border-radius:12px;background:#ffd23a;display:flex;align-items:center;justify-content:center;color:#16181d"
                                       },
                                       "nodes": [
                                         {
@@ -3311,7 +3311,7 @@
                                                   "attributes": {
                                                     "size": "sm",
                                                     "type": "primary",
-                                                    "style": "--sc-btn-rounded:999px;--sc-primary:#ff3d7f"
+                                                    "style": "--sc-btn-rounded:999px;--sc-primary:#ffd23a;--sc-primary-content:#16181d"
                                                   },
                                                   "nodes": [
                                                     {
@@ -4227,7 +4227,7 @@
                                                 "data-bind": "",
                                                 "::media": "$url",
                                                 "label": "Vocal",
-                                                "style": "--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
+                                                "style": "--sonic-player-accent:#1c1e24;--sonic-player-text:#1c1e24"
                                               }
                                             }
                                           ]
@@ -4584,7 +4584,7 @@
                                                             "data-bind": "",
                                                             "::media": "$url",
                                                             "label": "Ton vocal",
-                                                            "style": "flex:1;--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
+                                                            "style": "flex:1;--sonic-player-accent:#1c1e24;--sonic-player-text:#1c1e24"
                                                           }
                                                         },
                                                         {
@@ -5896,7 +5896,7 @@
                                       "attributes": {
                                         "library": "iconoir",
                                         "name": "check-circled-outline",
-                                        "style": "color:#ff3d7f;font-size:1.3rem"
+                                        "style": "color:#a87b00;font-size:1.3rem"
                                       }
                                     }
                                   ]
@@ -6249,7 +6249,7 @@
                                   "attributes": {
                                     "data-bind": "",
                                     "::text-content": "$n",
-                                    "style": "flex:none;display:grid;place-items:center;width:1.8rem;height:1.8rem;border-radius:50%;background:#ff3d7f;color:#fff;font-weight:700;font-size:.9rem"
+                                    "style": "flex:none;display:grid;place-items:center;width:1.8rem;height:1.8rem;border-radius:50%;background:#ffd23a;color:#16181d;font-weight:700;font-size:.9rem"
                                   }
                                 },
                                 {
@@ -6714,7 +6714,7 @@
                                         "data-bind": "",
                                         "::media": "$url",
                                         "label": "Son de l'étape",
-                                        "style": "flex:1;--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
+                                        "style": "flex:1;--sonic-player-accent:#1c1e24;--sonic-player-text:#1c1e24"
                                       }
                                     },
                                     {
@@ -6845,7 +6845,7 @@
                                         "data-bind": "",
                                         "::media": "$url",
                                         "label": "Son de l'étape",
-                                        "style": "flex:1;--sonic-player-accent:#ff3d7f;--sonic-player-text:#1c1e24"
+                                        "style": "flex:1;--sonic-player-accent:#1c1e24;--sonic-player-text:#1c1e24"
                                       }
                                     },
                                     {
@@ -6982,7 +6982,7 @@
                     "background": "transparent",
                     "backdrop-from": "ancreState.capture",
                     "max-strokes": "500",
-                    "color": "#ff3d7f",
+                    "color": "#ffd23a",
                     "size": "12",
                     "brush-from": "pinceau",
                     "control": "croquisCmd",
@@ -7082,7 +7082,7 @@
                               "attributes": {
                                 "type": "primary",
                                 "size": "md",
-                                "style": "--sc-btn-rounded:999px;--sc-primary:#ff3d7f;--sc-primary-content:#fff;--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-primary:#ffd23a;--sc-primary-content:#16181d;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -7152,13 +7152,13 @@
                                 "radio": true,
                                 "formDataProvider": "pinceau",
                                 "name": "color",
-                                "value": "#ff3d7f"
+                                "value": "#ffd23a"
                               },
                               "nodes": [
                                 {
                                   "tagName": "span",
                                   "attributes": {
-                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#ff3d7f;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#ffd23a;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
                                   }
                                 },
                                 {
@@ -7166,7 +7166,7 @@
                                   "attributes": {
                                     "style": "margin-left:.5rem"
                                   },
-                                  "textContent": "Rose"
+                                  "textContent": "Jaune"
                                 }
                               ]
                             },
@@ -7176,13 +7176,13 @@
                                 "radio": true,
                                 "formDataProvider": "pinceau",
                                 "name": "color",
-                                "value": "#ffd84a"
+                                "value": "#ff4a3d"
                               },
                               "nodes": [
                                 {
                                   "tagName": "span",
                                   "attributes": {
-                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#ffd84a;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
+                                    "style": "display:inline-block;width:1.15rem;height:1.15rem;border-radius:50%;background:#ff4a3d;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"
                                   }
                                 },
                                 {
@@ -7190,7 +7190,7 @@
                                   "attributes": {
                                     "style": "margin-left:.5rem"
                                   },
-                                  "textContent": "Jaune"
+                                  "textContent": "Rouge"
                                 }
                               ]
                             },
