@@ -96,6 +96,28 @@ describe("sonic-frame-sync", () => {
     expect(mark(el)).toBeGreaterThan(10);
   });
 
+  it("mode smooth : la vidéo avance à chaque image de la source, retardée de la latence moyenne du tracker", async () => {
+    restore = patchCanvas();
+    const src = mountSource();
+    const el = await mountSync({ for: "src", sync: "trk9", mode: "smooth", "out-data-provider": "fs9" });
+    const shown: (number | undefined)[] = [];
+    PublisherManager.get("trk9").set({ frameSeq: 1, latencyMs: 120 });
+    for (let s = 1; s <= 12; s++) {
+      src.frameSeq = s;
+      el.tick(s * 40);
+      shown.push(mark(el));
+    }
+    // 480 - 120 = 360 → image prise à t ≤ 360 : seq 9 ; et elle a changé à chaque image une fois le tampon rempli.
+    expect(mark(el)).toBe(9);
+    expect(new Set(shown.slice(4)).size).toBe(shown.slice(4).length);
+    expect(PublisherManager.get("fs9").get()).toMatchObject({ mode: "smooth" });
+    // La latence suit une moyenne glissante : un pic isolé ne fait pas sauter l'image.
+    PublisherManager.get("trk9").set({ frameSeq: 10, latencyMs: 600 });
+    src.frameSeq = 13;
+    el.tick(13 * 40);
+    expect(mark(el)).toBeGreaterThanOrEqual(7);
+  });
+
   it("mode delay : retard fixe en ms", async () => {
     restore = patchCanvas();
     const src = mountSource();
