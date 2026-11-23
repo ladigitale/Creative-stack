@@ -978,7 +978,7 @@
                                                 {
                                                   "tagName": "div",
                                                   "attributes": {
-                                                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:10"
+                                                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;gap:14px;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:10"
                                                   },
                                                   "nodes": [
                                                     {
@@ -1696,7 +1696,7 @@
                                                 {
                                                   "tagName": "div",
                                                   "attributes": {
-                                                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:10"
+                                                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;gap:14px;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:10"
                                                   },
                                                   "nodes": [
                                                     {
@@ -4513,7 +4513,7 @@
                 {
                   "tagName": "div",
                   "attributes": {
-                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:10"
+                    "style": "position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;gap:14px;padding:max(.9rem,env(safe-area-inset-top)) .9rem max(1.2rem,env(safe-area-inset-bottom));box-sizing:border-box;pointer-events:none;z-index:10"
                   },
                   "nodes": [
                     {
