@@ -14,7 +14,7 @@
 | `target` | `#id` d'un conteneur défilant ; vide : le plus proche ancêtre qui défile (la visionneuse d'artefacts défile dans son propre conteneur, pas dans la page), sinon la page |
 | `sections` | Sélecteur CSS des sections à suivre (`section`, `[data-etape]`) ; 100 au plus. Un élément sans `id` est nommé `section-1`, `section-2`… |
 | `smooth` | Inertie des valeurs lissées : 1 sans retard, 0,05 très doux (défaut 0,1). Sans effet si l'utilisateur demande moins d'animations (`prefers-reduced-motion`) |
-| `control` | DP de commande `{ to: "#id" \| px, n: compteur }` : fait défiler jusqu'à l'élément ou la position quand `n` augmente (animation douce, sauf `prefers-reduced-motion`) |
+| `control` | DP de commande `{ to: "#id" \| px \| "end", n: compteur }` : fait défiler jusqu'à l'élément ou la position quand `n` augmente (animation douce, sauf `prefers-reduced-motion`) ; `"end"` va tout en bas sans animation et suit le contenu qui s'affiche pendant 900 ms (fil de discussion ouvert sur le plus récent), un geste arrête le suivi |
 | `map` | Clés dérivées ajoutées à l'état, recalculées **à chaque image** : `param0=sections.0.pin; param1=min(abs(velocity)/2000, 1)` (même mini-langage que le `map` des trackers : chemins pointés, `+ - * / %`, comparaisons, `?:`, `min max abs clamp mix pow sqrt floor round log2 sign`) |
 | `out-data-provider` | Reçoit l'état |
 

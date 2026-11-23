@@ -173,8 +173,39 @@ export class SonicScroll extends LitElement {
     if (!this.raf && this.isConnected) this.raf = requestAnimationFrame((t) => this.frame(t));
   };
 
-  /** Fait défiler jusqu'à `#id`/sélecteur (haut de l'élément) ou jusqu'à une position en px. */
+  /** Suivi du bas en cours (`to: "end"`) : jusqu'à cet instant, ou jusqu'au premier geste. */
+  private endUntil = 0;
+  private endRaf = 0;
+  private stopEnd = (): void => { this.endUntil = 0; };
+
+  /**
+   * Bas du conteneur, aussitôt (sans animation : ouvrir un fil sur le plus récent), puis suivi pendant 900 ms : le
+   * contenu qui s'affiche juste après la commande (liste rendue à la publication suivante) est rattrapé. Un geste
+   * (molette, doigt, touche) arrête le suivi.
+   */
+  private followEnd(): void {
+    const s = this.scroller;
+    const down = () => {
+      const { max } = this.metrics();
+      if (s instanceof Element) s.scrollTo({ top: max, behavior: "auto" });
+      else window.scrollTo({ top: max, behavior: "auto" });
+    };
+    const first = this.endUntil === 0;
+    this.endUntil = performance.now() + 900;
+    if (first) for (const e of ["wheel", "touchstart", "keydown", "pointerdown"]) (s ?? window).addEventListener(e, this.stopEnd, { passive: true, once: true });
+    down();
+    cancelAnimationFrame(this.endRaf);
+    const tick = () => {
+      if (!this.endUntil || performance.now() > this.endUntil || !this.isConnected) { this.endUntil = 0; return; }
+      if (this.position() < this.metrics().max - 1) down();
+      this.endRaf = requestAnimationFrame(tick);
+    };
+    this.endRaf = requestAnimationFrame(tick);
+  }
+
+  /** Fait défiler jusqu'à `#id`/sélecteur (haut de l'élément), jusqu'à une position en px, ou tout en bas (`"end"`). */
   scrollTo(to: unknown): void {
+    if (to === "end") { this.followEnd(); return; }
     const behavior: ScrollBehavior = matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
     const s = this.scroller;
     let y: number | null = null;
