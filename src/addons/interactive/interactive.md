@@ -196,6 +196,16 @@ Injected: `$rand`, `$randInt`, `$clamp`, `$range`, `$set`, `$matrix`, `$rotate`.
 <script src="creative-stack-interactive.bundle.js"></script>
 ```
 
+## sonic-css-vars — thème de l'artefact
+
+Applique à ses enfants des variables `--sc-*` (couleurs) lues dans un DataProvider, par héritage CSS (le composant est `display: contents`). Un `sonic-jsonata` compose l'objet depuis des réglages (thème sombre, clair, ou couleurs choisies) :
+
+```html
+<sonic-css-vars source="themeP"> … toute l'interface … </sonic-css-vars>
+```
+
+`themeP` vaut par exemple `{"--sc-base": "#150a2e", "--sc-base-content": "#fff3e4", "--sc-primary": "#ff7a1a", "--sc-base-100": "color-mix(in srgb,var(--sc-base) 88%,var(--sc-base-content))", "color-scheme": "dark"}`. Seuls les noms `--sc-*` et `color-scheme` sont appliqués, avec des valeurs de couleur (#hex, `rgb()`, `hsl()`, nom, `var(--sc-*)`, `color-mix(in srgb, …)`) ; tout le reste (URL, dégradé, `;`, accolades) est ignoré. Une clé retirée de l'objet est retirée des enfants.
+
 ## Out of scope (this pass)
 
 Multiplayer, persistence. Pour le son, voir l’addon `sound` (`sonic-sound` piloté par une sous-clé du store).
