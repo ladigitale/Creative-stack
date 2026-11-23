@@ -156,7 +156,7 @@ describe("sonic-file-open", () => {
     registerStore({ id: "foStore", dispatch: (a: SonicActionMessage) => got.push(a) } as never);
     const el = document.createElement("sonic-file-open") as SonicFileOpen;
     el.target = "foStore";
-    el.action = "go";
+    el.actionType = "go";
     el.payload = '{"e": "type"}';
     document.body.append(el);
     expect(await el.openFile(new File(["x"], "n.txt", { type: "text/plain" }))).toBe(true);

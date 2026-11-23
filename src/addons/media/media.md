@@ -373,7 +373,7 @@ Image fixe vue comme une source d'images : `sonic-shader channel0="#photo"`, tra
 
 Ouvre un fichier du disque (clic, ou dépôt avec `drop`) — ou, avec `capture="environment"` (caméra arrière) ou `"user"`, l'appareil photo du téléphone directement (pas de capacité `camera` à déclarer : c'est le système qui prend la photo ; sans effet sur ordinateur) — et le publie en SonicMediaRef `{ url (blob:), blob, mime, width, height }` dans `ref-provider` : à brancher sur `sonic-still in-data-provider`, un lecteur audio, etc. Les fichiers texte (CSV, JSON) exposent leur contenu dans l'état (`text`, limité par `max-text`). État : `{ name, size, mime, kind: image | audio | video | text | other, text, files, error }`.
 
-Action à l'ouverture : `target` (store) reçoit `{ type: action (défaut `file`), payload: { ...payload (JSON de l'attribut), file: { name, size, mime, kind, width, height } } }` quand un fichier est lu (rien si le fichier est refusé ou si le sélecteur est fermé sans choix). Pour passer à l'écran suivant une fois la photo prise : `target="app" action="go" payload='{"etape": "reglages"}'`.
+Action à l'ouverture : `target` (store) reçoit `{ type: action-type (défaut `file`), payload: { ...payload (JSON de l'attribut), file: { name, size, mime, kind, width, height } } }` quand un fichier est lu (rien si le fichier est refusé ou si le sélecteur est fermé sans choix). Pour passer à l'écran suivant une fois la photo prise : `target="app" action-type="go" payload='{"etape": "reglages"}'`.
 
 ## Démos
 
