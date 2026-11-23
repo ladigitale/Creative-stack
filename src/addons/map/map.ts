@@ -18,7 +18,7 @@ import * as maplibregl from "maplibre-gl";
 import mlCss from "maplibre-gl/dist/maplibre-gl.css?inline";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch } from "../interactive";
-import { firstForbiddenUrl, plain, hostAllowed as hostAllowedCore, readPointsSpec, round, sameCamera, toGeoJSON } from "./map-core";
+import { firstForbiddenUrl, nearestHit, plain, hostAllowed as hostAllowedCore, readPointsSpec, round, sameCamera, toGeoJSON } from "./map-core";
 import { publisherAt } from "../../shared/dp-path";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -86,6 +86,8 @@ export default class SonicMap extends LitElement {
   @property({ type: Number, attribute: "throttle-ms" }) throttleMs = 100;
   /** Si présent, un clic sur un point le sélectionne (publié dans state.selected). */
   @property({ type: Boolean, attribute: "auto-select" }) autoSelect = false;
+  /** Tolérance du toucher (px) : le point le plus proche dans ce rayon est retenu (24 par défaut, 0 = pixel exact). */
+  @property({ type: Number, attribute: "hit-radius" }) hitRadius = 24;
 
   private map: Any = null;
   private subs: Array<() => void> = [];
@@ -473,7 +475,11 @@ export default class SonicMap extends LitElement {
   private pointAt(e: Any) {
     const layers = [L_POINTS, L_CLUSTERS].filter((l) => this.map.getLayer(l));
     if (!layers.length) return null;
-    return this.map.queryRenderedFeatures(e.point, { layers })[0] ?? null;
+    const r = Math.max(0, Math.min(80, Number(this.hitRadius) || 0));
+    if (!r) return this.map.queryRenderedFeatures(e.point, { layers })[0] ?? null;
+    const { x, y } = e.point;
+    const found = this.map.queryRenderedFeatures([[x - r, y - r], [x + r, y + r]], { layers });
+    return nearestHit(found, { x, y }, (c) => this.map.project(c));
   }
 
   private onClick(e: Any) {

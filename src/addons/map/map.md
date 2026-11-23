@@ -44,6 +44,8 @@ Exemple complet (495 entreprises, recherche, région, onglets Carte / Liste, bou
 
 `ready`, `loaded`, `moving`, `origin` (`user` | `data` | `init`), `appliedSeq`, `center`, `zoom`, `bearing`, `pitch`, `bounds`, `projection`, `size`, `pointCount`, `visibleIds`, `visibleCount`, `hover`, `selected`, `click {seq, id, cluster, count, lngLat}`, `errors`. Publication en fin de mouvement (`emit="end"`) ou pendant (`emit="move"`, limité par `throttle-ms`).
 
+Toucher : `hit-radius` (24 px par défaut) élargit la zone de clic et de survol ; le point le plus proche du doigt dans ce rayon est retenu (un groupe ne passe devant un point isolé que s'il est nettement plus près). `0` revient au pixel exact.
+
 ## Règles
 
 - **Sécurité** : toute URL du style (style, tuiles, glyphes, sprites, GeoJSON) doit être `https` sur un hôte de `allowed-hosts` (`data:` et `blob:` permis) ; sinon le style est refusé, l'erreur publiée et le style précédent conservé. Les requêtes de MapLibre sont filtrées de la même façon.
