@@ -184,6 +184,27 @@ describe("sonic-scroll", () => {
     box.remove();
   });
 
+  it("retrouve le conteneur dont le défilement est posé après la connexion", async () => {
+    const box = document.createElement("div");
+    document.body.appendChild(box);
+    let top = 0;
+    Object.defineProperty(box, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
+    Object.defineProperty(box, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(box, "clientHeight", { configurable: true, value: 400 });
+    box.scrollTo = ((o: ScrollToOptions) => { top = o.top ?? 0; }) as typeof box.scrollTo;
+    box.getBoundingClientRect = () => ({ top: 0, bottom: 400, height: 400, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    const scroll = document.createElement("sonic-scroll");
+    scroll.setAttribute("control", "sc6d");
+    box.appendChild(scroll);
+    await wait(40);
+    box.style.overflowY = "auto"; // style posé après coup
+    dp("sc6d").set({ to: "end", n: 0 });
+    dp("sc6d").set({ to: "end", n: 1 });
+    await wait(20);
+    expect(top).toBe(600);
+    box.remove();
+  });
+
   it("ignore les sélecteurs invalides sans planter", async () => {
     setupPage();
     mount({ sections: "section[", "out-data-provider": "sc4" });
