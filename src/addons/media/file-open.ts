@@ -1,3 +1,4 @@
+import { dispatch } from "../interactive";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
@@ -71,6 +72,21 @@ export class SonicFileOpen extends LitElement {
   @property({ type: Number, attribute: "max-text" })
   maxText = 2_000_000;
 
+  /**
+   * Store (`sonic-store`, `data.stores`) qui reçoit une action quand un fichier est ouvert : `{type: action, payload:
+   * {...payload, file: {name, size, mime, kind, width, height}}}`. Ex. passer à l'écran suivant une fois la photo prise.
+   */
+  @property({ type: String })
+  target = "";
+
+  /** Type de l'action envoyée à `target` (défaut `file`). */
+  @property({ type: String })
+  action = "file";
+
+  /** Charge utile JSON (objet) de l'action, complétée par `file`. */
+  @property({ type: String })
+  payload = "";
+
   @property({ type: String, attribute: "ref-provider" })
   refProvider = "";
 
@@ -132,6 +148,10 @@ export class SonicFileOpen extends LitElement {
     this.patch({ name: file.name, size: file.size, mime, kind, text, files: this.state.files + 1, error: null });
     if (this.refProvider) set(this.refProvider, { ...ref });
     this.dispatchEvent(new CustomEvent("sonic-file-open", { detail: this.getState(), bubbles: true, composed: true }));
+    if (this.target.trim()) {
+      const info = { name: file0(file.name), size: file.size, mime, kind, width: ref.width ?? null, height: ref.height ?? null };
+      dispatch(this.target.trim(), { type: (this.action || "file").trim(), payload: { ...parsePayload(this.payload), file: info } });
+    }
     return true;
   }
 
@@ -202,3 +222,19 @@ function imageSize(url: string): Promise<{ width: number; height: number } | nul
 }
 
 export default SonicFileOpen;
+
+/** Charge utile JSON d'un attribut : un objet, sinon rien. */
+function parsePayload(raw: string): Record<string, unknown> {
+  if (!raw?.trim()) return {};
+  try {
+    const v: unknown = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Nom de fichier borné (affichage, état). */
+function file0(name: string): string {
+  return String(name).slice(0, 200);
+}

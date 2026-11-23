@@ -519,8 +519,21 @@
     },
     {
       "name": "sonic-file-open",
-      "description": "Ouvre un fichier du disque (clic ou dépôt : image, audio, vidéo, CSV/JSON) et le publie en SonicMediaRef dans ref-provider ; texte exposé dans l'état",
+      "description": "Ouvre un fichier du disque (clic ou dépôt : image, audio, vidéo, CSV/JSON) et le publie en SonicMediaRef dans ref-provider ; texte exposé dans l'état ; target / action / payload : action vers un store une fois le fichier lu (ex. passer à l'écran suivant)",
       "props": {
+        "target": {
+          "type": "string",
+          "description": "Store qui reçoit une action quand un fichier est ouvert : {type: action, payload: {...payload, file: {name, size, mime, kind, width, height}}}"
+        },
+        "action": {
+          "type": "string",
+          "default": "file",
+          "description": "Type de l'action envoyée à target"
+        },
+        "payload": {
+          "type": "string",
+          "description": "Charge utile JSON (objet) de l'action, complétée par file"
+        },
         "accept": {
           "type": "string"
         },
