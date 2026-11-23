@@ -8,7 +8,7 @@ import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/medi
 
 const tagName = "sonic-frame-sync";
 
-export type FrameSyncMode = "sync" | "delay" | "live";
+export type FrameSyncMode = "sync" | "smooth" | "delay" | "live";
 
 export type FrameSyncState = {
   /** Mode effectivement utilisé à cet instant (`sync` retombe sur `delay` sans tracker). */
@@ -125,6 +125,7 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
   private consumers = new Set<object>();
   private tracker: { seq: number | null; latency: number; at: number } = { seq: null, latency: 0, at: 0 };
   private lastLatency = 0;
+  private smoothLatency = 0;
   private lastPublished = "";
 
   get frameSeq(): number {
@@ -163,7 +164,7 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
       this.controlSource = /^#?[A-Za-z][\w-]{0,63}$/.test(src) ? src : undefined;
       this.controlDelay = o ? num(o.delayMs, 0, 5000) : undefined;
       const m = o?.mode;
-      this.controlMode = m === "auto" || m === "sync" || m === "delay" || m === "live" ? m : undefined;
+      this.controlMode = m === "auto" || m === "sync" || m === "smooth" || m === "delay" || m === "live" ? m : undefined;
     });
   }
 
@@ -204,7 +205,7 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
   /** Mode demandé → mode effectif (hors repli dynamique). */
   resolveMode(): FrameSyncMode {
     const mode = this.controlMode ?? this.mode;
-    if (mode === "sync" || mode === "delay" || mode === "live") return mode;
+    if (mode === "sync" || mode === "smooth" || mode === "delay" || mode === "live") return mode;
     if (this.sync.trim()) return "sync";
     return this.effectiveDelay() > 0 ? "delay" : "live";
   }
@@ -224,7 +225,11 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
       const o = (v ?? {}) as { frameSeq?: unknown; latencyMs?: unknown };
       const seq = typeof o.frameSeq === "number" && Number.isFinite(o.frameSeq) ? o.frameSeq : null;
       const lat = typeof o.latencyMs === "number" && Number.isFinite(o.latencyMs) ? o.latencyMs : 0;
-      if (lat > 0) this.lastLatency = lat;
+      if (lat > 0) {
+        this.lastLatency = lat;
+        // Moyenne glissante : le retard du mode smooth ne saute pas d'une analyse à l'autre.
+        this.smoothLatency = this.smoothLatency > 0 ? this.smoothLatency * 0.85 + lat * 0.15 : lat;
+      }
       this.tracker = { seq, latency: lat, at: performance.now() };
     });
   }
@@ -344,6 +349,10 @@ export class SonicFrameSync extends LitElement implements SonicFrameSource, Soni
         mode = this.lastLatency > 0 ? "delay" : "live";
         slot = this.lastLatency > 0 ? this.ring.byTime(now - this.lastLatency) : newest;
       }
+    } else if (wanted === "smooth") {
+      // Vidéo fluide (rythme de la source) retardée de la latence moyenne du tracker : l'image montrée a l'âge de
+      // celles qu'il analyse ; l'effet a au plus une période d'analyse de retard, sans figer la vidéo entre deux.
+      slot = this.smoothLatency > 0 ? this.ring.byTime(now - this.smoothLatency) : newest;
     } else if (wanted === "delay") {
       slot = this.ring.byTime(now - this.effectiveDelay());
     }

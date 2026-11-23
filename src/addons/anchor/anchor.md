@@ -99,7 +99,7 @@ L'analyse prend 50 à 200 ms : posé sur l'image *courante* de la caméra, le co
 { "tagName": "sonic-anchor", "attributes": { "id": "ancre", "source": "#cam", "...": "…" } }
 ```
 
-`sonic-anchor` lit toujours `#cam` (la source en direct) ; seul l'affichage passe par `#vue`. Contrepartie : la vidéo montrée a le retard de l'analyse et avance au rythme des analyses (`fps` de l'état). Quand la zone est perdue depuis peu (`holding`), l'image du dernier succès reste affichée avec son contenu. `history` doit couvrir la latence : 24 images à 30 i/s = 800 ms.
+`sonic-anchor` lit toujours `#cam` (la source en direct) ; seul l'affichage passe par `#vue`. Contrepartie en `sync` : la vidéo montrée a le retard de l'analyse et avance au rythme des analyses (`fps` de l'état), souvent 5 à 10 images/s sur téléphone, donc saccadée. Sur téléphone, préférer `mode="smooth"` : la vidéo garde le rythme de la caméra, retardée de la latence moyenne de l'analyse, et le contenu a au plus une période d'analyse de retard. Quand la zone est perdue depuis peu (`holding`), l'image du dernier succès reste affichée avec son contenu. `history` doit couvrir la latence : 24 images à 30 i/s = 800 ms.
 
 ## Réglages utiles
 

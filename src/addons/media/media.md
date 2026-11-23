@@ -198,10 +198,11 @@ Le shader lit `#synced` (pas `#cam`) et les valeurs du tracker (`param0..3` via 
 | Mode | Réglage | Comportement | Quand |
 |---|---|---|---|
 | `sync` | `sync="<DP de sortie du tracker>"` | Image exacte (`frameSeq`). Si le tracker ne publie plus depuis `stale-ms` (600) : retard = dernière latence mesurée, sinon direct | Cas normal avec un tracker |
+| `smooth` | `mode="smooth"` + `sync` | Vidéo fluide (rythme de la source) retardée de la latence moyenne du tracker : l'effet a au plus une période d'analyse de retard | Tracker lent (moins de ~15 analyses/s, ancrage sur un mur) : en `sync` la vidéo n'avancerait qu'au rythme des analyses |
 | `delay` | `delay-ms="120"` | Image prise il y a N ms | Source sans numéro d'image, ou latence connue et stable |
 | `live` | rien | Dernière image, aucun tampon utile | Désactiver sans retirer le composant |
 
-`mode="auto"` (défaut) choisit : `sync` si `sync` est renseigné, sinon `delay` si `delay-ms` > 0, sinon `live`. `mode="sync|delay|live"` force.
+`mode="auto"` (défaut) choisit : `sync` si `sync` est renseigné, sinon `delay` si `delay-ms` > 0, sinon `live`. `mode="sync|smooth|delay|live"` force.
 
 ### Attributs
 
@@ -209,7 +210,7 @@ Le shader lit `#synced` (pas `#cam`) et les valeurs du tracker (`param0..3` via 
 |---|---|---|
 | `for` | `#id` de la source (`sonic-camera`, `sonic-video`, `sonic-screen`) : **la même que celle du tracker** | – |
 | `sync` | DP de sortie du tracker (son `outputProvider`, souvent son `id`) | – |
-| `mode` | `auto`, `sync`, `delay`, `live` | `auto` |
+| `mode` | `auto`, `sync`, `smooth`, `delay`, `live` | `auto` |
 | `delay-ms` | Retard fixe (mode `delay`) | `0` |
 | `history` | Images gardées (2–120). Au moins `latence × fps + 2` : 150 ms à 30 fps → 7 | `12` |
 | `max-width` | Largeur max des copies (mémoire) ; 0 = taille de la source | `0` |
