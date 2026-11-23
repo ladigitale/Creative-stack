@@ -138,6 +138,38 @@ describe("sonic-anchor-ref", () => {
     store.remove();
   });
 
+  it("dessin joint : exporte le cadre (page) d'un croquis qui en a un, la vue sinon", async () => {
+    const store = document.createElement("sonic-store");
+    store.id = "balisesPage";
+    store.setAttribute("initial", JSON.stringify({ items: [] }));
+    store.setAttribute("reducer", '$action.type = "save" ? $merge([$state, {"items": $append($state.items, [$action.payload])}]) : $state');
+    document.body.appendChild(store);
+    const areas: string[] = [];
+    const fake = (id: string, page: boolean) => {
+      const d = document.createElement("div") as HTMLDivElement & Record<string, unknown>;
+      d.id = id;
+      d.doc = { strokes: [1] };
+      if (page) { d.pageWidth = 800; d.pageHeight = 600; }
+      d.toSvg = (o: { area: string }) => { areas.push(o.area); return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-400 -300 800 600"></svg>'; };
+      document.body.appendChild(d);
+      return d;
+    };
+    const a = fake("croquisPage", true), b = fake("croquisVue", false);
+    const el = document.createElement("sonic-anchor-ref") as SonicAnchorRef;
+    el.setAttribute("target", "balisesPage");
+    el.setAttribute("attach", "dessin=#croquisPage autre=#croquisVue");
+    document.body.appendChild(el);
+    await tick();
+    const ref = buildReference(texture(200, 150), [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }]);
+    el.stateValue = { ...el.stateValue, reference: ref };
+    expect(el.save()).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(areas.sort()).toEqual(["page", "view"]);
+    const item = (get("balisesPage") as { items: Array<Record<string, { width?: number }>> }).items[0];
+    expect(item.dessin.width).toBe(800);
+    [el, a, b, store].forEach((n) => n.remove());
+  });
+
   it("publie la zone ordonnée sans photo, et refuse de capturer sans source", async () => {
     set("zoneTest", null);
     const el = document.createElement("sonic-anchor-ref") as SonicAnchorRef;

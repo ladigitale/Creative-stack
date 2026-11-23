@@ -229,12 +229,14 @@ export class SonicAnchorRef extends LitElement {
   private async attachment(src: string): Promise<{ url: string; width?: number; height?: number; mime: string; durS?: number } | "too-big" | null> {
     try {
       if (src.startsWith("#")) {
-        const el = resolveSource(this, src) as (Element & { toSvg?: (opts?: { area?: "view" | "content" }) => string | null; doc?: { strokes?: unknown[] } }) | null;
+        const el = resolveSource(this, src) as (Element & { toSvg?: (opts?: { area?: "view" | "content" | "page" }) => string | null; doc?: { strokes?: unknown[] }; pageWidth?: unknown; pageHeight?: unknown }) | null;
         if (!el || typeof el.toSvg !== "function") return null;
         if (Array.isArray(el.doc?.strokes) && !el.doc!.strokes!.length) return null;
-        // Vue affichée : le dessin garde sa place sur la photo de la zone (le contenu seul serait recadré
-        // sur ses traits, donc étiré sur toute la surface).
-        const svg = el.toSvg({ area: "view" });
+        // Le dessin garde sa place sur la photo de la zone (le contenu seul serait recadré sur ses traits, donc
+        // étiré sur toute la surface) : le cadre (`page-width` × `page-height`) s'il y en a un, quels que soient
+        // le zoom et la taille de l'écran ; sinon la vue affichée.
+        const hasPage = Number(el.pageWidth) > 0 && Number(el.pageHeight) > 0;
+        const svg = el.toSvg({ area: hasPage ? "page" : "view" });
         if (!svg) return null;
         const bytes = new TextEncoder().encode(svg);
         if (bytes.length > this.attachMax) return "too-big";
