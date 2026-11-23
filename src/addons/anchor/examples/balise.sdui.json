@@ -587,6 +587,7 @@
                                     "id": "vue",
                                     "for": "cam",
                                     "sync": "ancreState",
+                                    "mode": "smooth",
                                     "history": "24",
                                     "max-width": "960"
                                   }
@@ -810,7 +811,7 @@
                                                 "type": "default",
                                                 "size": "md",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
+                                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                                                 "id": "capteurs3",
                                                 "aria-label": "Carte des balises",
                                                 "title": "Carte des balises"
@@ -841,7 +842,7 @@
                                                     {
                                                       "tagName": "div",
                                                       "attributes": {
-                                                        "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#ffd84a;color:#1c1e24;font-size:.95rem;font-weight:600;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:auto"
+                                                        "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#ffd84a;color:#1c1e24;font-size:.95rem;font-weight:600;pointer-events:auto"
                                                       },
                                                       "nodes": [
                                                         {
@@ -868,7 +869,7 @@
                                                     {
                                                       "tagName": "div",
                                                       "attributes": {
-                                                        "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:rgba(22,24,29,.6);color:#fff;font-size:.95rem;font-weight:600;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:auto"
+                                                        "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:rgba(22,24,29,.78);color:#fff;font-size:.95rem;font-weight:600;pointer-events:auto"
                                                       },
                                                       "nodes": [
                                                         {
@@ -906,7 +907,7 @@
                                                 "type": "default",
                                                 "size": "md",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
+                                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                                                 "aria-label": "Mes balises",
                                                 "title": "Mes balises"
                                               },
@@ -1008,7 +1009,7 @@
                                                     {
                                                       "tagName": "div",
                                                       "attributes": {
-                                                        "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:rgba(22,24,29,.6);color:#fff;font-size:.95rem;font-weight:600;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:auto"
+                                                        "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:rgba(22,24,29,.78);color:#fff;font-size:.95rem;font-weight:600;pointer-events:auto"
                                                       },
                                                       "nodes": [
                                                         {
@@ -1127,7 +1128,7 @@
                                                                   "tagName": "sonic-button",
                                                                   "attributes": {
                                                                     "size": "md",
-                                                                    "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.35);--sc-btn-height:3rem"
+                                                                    "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,.35);--sc-btn-height:3rem"
                                                                   },
                                                                   "nodes": [
                                                                     {
@@ -1181,7 +1182,7 @@
                                                                             "size": "md",
                                                                             "aria-label": "Vocaux lancés tout seuls : couper",
                                                                             "title": "Vocaux lancés tout seuls : couper",
-                                                                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                                                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                                                                           },
                                                                           "nodes": [
                                                                             {
@@ -1208,7 +1209,7 @@
                                                                             "size": "md",
                                                                             "aria-label": "Vocaux à la demande : les lancer tout seuls",
                                                                             "title": "Vocaux à la demande : les lancer tout seuls",
-                                                                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                                                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                                                                           },
                                                                           "nodes": [
                                                                             {
@@ -1344,7 +1345,7 @@
                                                                         "size": "md",
                                                                         "aria-label": "Signaler cette balise",
                                                                         "title": "Signaler cette balise",
-                                                                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                                                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                                                                       },
                                                                       "nodes": [
                                                                         {
@@ -1403,7 +1404,7 @@
                                             {
                                               "tagName": "div",
                                               "attributes": {
-                                                "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:rgba(22,24,29,.6);color:#fff;font-size:.95rem;font-weight:600;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:auto"
+                                                "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:rgba(22,24,29,.78);color:#fff;font-size:.95rem;font-weight:600;pointer-events:auto"
                                               },
                                               "nodes": [
                                                 {
@@ -1430,7 +1431,7 @@
                                                 "type": "default",
                                                 "size": "md",
                                                 "shape": "circle",
-                                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
+                                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                                                 "aria-label": "Annuler",
                                                 "title": "Annuler"
                                               },
@@ -1605,7 +1606,7 @@
                         {
                           "tagName": "div",
                           "attributes": {
-                            "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#e3f7ec;color:#0d6b3c;font-size:.95rem;font-weight:600;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:auto"
+                            "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#e3f7ec;color:#0d6b3c;font-size:.95rem;font-weight:600;pointer-events:auto"
                           },
                           "nodes": [
                             {
@@ -1632,7 +1633,7 @@
                         {
                           "tagName": "div",
                           "attributes": {
-                            "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#eef2f7;color:#1c1e24;font-size:.95rem;font-weight:600;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:auto"
+                            "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#eef2f7;color:#1c1e24;font-size:.95rem;font-weight:600;pointer-events:auto"
                           },
                           "nodes": [
                             {
@@ -1659,7 +1660,7 @@
                         {
                           "tagName": "div",
                           "attributes": {
-                            "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#fff4d6;color:#7a5200;font-size:.95rem;font-weight:600;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:auto"
+                            "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#fff4d6;color:#7a5200;font-size:.95rem;font-weight:600;pointer-events:auto"
                           },
                           "nodes": [
                             {
@@ -2926,7 +2927,7 @@
                             "type": "default",
                             "size": "md",
                             "shape": "circle",
-                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-active-bg:var(--btn-bg);--sc-btn-active-color:var(--btn-color);--sc-btn-height:3rem",
                             "aria-label": "Revenir à la caméra",
                             "title": "Revenir à la caméra"
                           },
@@ -2943,7 +2944,7 @@
                         {
                           "tagName": "div",
                           "attributes": {
-                            "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:rgba(22,24,29,.6);color:#fff;font-size:.95rem;font-weight:600;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:auto"
+                            "style": "display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:rgba(22,24,29,.78);color:#fff;font-size:.95rem;font-weight:600;pointer-events:auto"
                           },
                           "nodes": [
                             {
@@ -2979,7 +2980,7 @@
                                     "size": "md",
                                     "aria-label": "Parcours de la zone",
                                     "title": "Parcours de la zone",
-                                    "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                    "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                                   },
                                   "nodes": [
                                     {
@@ -3006,7 +3007,7 @@
                                     "size": "md",
                                     "aria-label": "Filtres",
                                     "title": "Filtres",
-                                    "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                    "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                                   },
                                   "nodes": [
                                     {
@@ -5325,7 +5326,7 @@
                         "size": "sm",
                         "aria-label": "Voir le parcours",
                         "title": "Voir le parcours",
-                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px"
                       },
                       "nodes": [
                         {
@@ -5353,7 +5354,7 @@
                         "size": "sm",
                         "aria-label": "Mode poche",
                         "title": "Mode poche : écran noir, sons et vibrations",
-                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px"
                       },
                       "nodes": [
                         {
@@ -5433,7 +5434,7 @@
                         "size": "sm",
                         "aria-label": "Abandonner",
                         "title": "Abandonner",
-                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"
+                        "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px"
                       },
                       "nodes": [
                         {
@@ -7011,7 +7012,7 @@
                                 "shape": "circle",
                                 "aria-label": "Fermer sans envoyer",
                                 "title": "Fermer sans envoyer",
-                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -7114,7 +7115,7 @@
                             "shape": "circle",
                             "aria-label": "Couleur",
                             "title": "Couleur",
-                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -7369,7 +7370,7 @@
                             "shape": "circle",
                             "aria-label": "Taille du pinceau",
                             "title": "Taille du pinceau",
-                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -7498,7 +7499,7 @@
                             "shape": "circle",
                             "aria-label": "Opacité et dureté",
                             "title": "Opacité et dureté",
-                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -7642,7 +7643,7 @@
                             "shape": "circle",
                             "aria-label": "Fusion avec le mur",
                             "title": "Fusion avec le mur",
-                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                            "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                           },
                           "nodes": [
                             {
@@ -7831,7 +7832,7 @@
                                 "shape": "circle",
                                 "aria-label": "Annuler le dernier trait",
                                 "title": "Annuler le dernier trait",
-                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -7859,7 +7860,7 @@
                                 "shape": "circle",
                                 "aria-label": "Rétablir",
                                 "title": "Rétablir",
-                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
@@ -7981,7 +7982,7 @@
                                 "shape": "circle",
                                 "aria-label": "Revoir tout le mur",
                                 "title": "Revoir tout le mur",
-                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.6);--sc-base-content:#fff;border-radius:999px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);--sc-btn-height:3rem"
+                                "style": "--sc-btn-rounded:999px;--sc-base-100:rgba(22,24,29,.78);--sc-base-content:#fff;border-radius:999px;--sc-btn-height:3rem"
                               },
                               "nodes": [
                                 {
