@@ -582,11 +582,20 @@
                                   }
                                 },
                                 {
+                                  "tagName": "sonic-jsonata",
+                                  "attributes": {
+                                    "inputProvider": "ancreState",
+                                    "outputProvider": "vueCtl",
+                                    "expression": "{\"mode\": $input.found ? \"sync\" : \"smooth\"}"
+                                  }
+                                },
+                                {
                                   "tagName": "sonic-frame-sync",
                                   "attributes": {
                                     "id": "vue",
                                     "for": "cam",
                                     "sync": "ancreState",
+                                    "control": "vueCtl",
                                     "mode": "smooth",
                                     "history": "24",
                                     "max-width": "960"
