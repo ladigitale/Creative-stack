@@ -160,6 +160,30 @@ describe("sonic-scroll", () => {
     host.remove();
   });
 
+  it("to: \"end\" : bas du conteneur aussitôt, puis rattrape le contenu qui arrive juste après", async () => {
+    const box = document.createElement("div");
+    box.style.overflowY = "auto";
+    document.body.appendChild(box);
+    let top = 0, height = 1000;
+    Object.defineProperty(box, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
+    Object.defineProperty(box, "scrollHeight", { configurable: true, get: () => height });
+    Object.defineProperty(box, "clientHeight", { configurable: true, value: 400 });
+    box.scrollTo = ((o: ScrollToOptions) => { top = Math.min(o.top ?? 0, height - 400); }) as typeof box.scrollTo;
+    box.getBoundingClientRect = () => ({ top: 0, bottom: 400, height: 400, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    const scroll = document.createElement("sonic-scroll");
+    scroll.setAttribute("control", "sc6c");
+    box.appendChild(scroll);
+    await wait(40);
+    dp("sc6c").set({ to: "end", n: 0 });
+    dp("sc6c").set({ to: "end", n: 1 });
+    await wait(20);
+    expect(top).toBe(600);
+    height = 1800; // la liste finit de s'afficher
+    await wait(120);
+    expect(top).toBe(1400);
+    box.remove();
+  });
+
   it("ignore les sélecteurs invalides sans planter", async () => {
     setupPage();
     mount({ sections: "section[", "out-data-provider": "sc4" });
