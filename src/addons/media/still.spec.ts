@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { dp, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./index";
 import { fileKind, type SonicFileOpen } from "./file-open";
+import { registerStore, unregisterStore, type SonicActionMessage } from "../interactive/registry";
 import { isVector, type SonicStill } from "./still";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -146,6 +147,26 @@ describe("sonic-file-open", () => {
     expect(ok).toBe(true);
     expect(el.getState()).toMatchObject({ name: "d.csv", kind: "text", text: "a,b\n1,2" });
     expect((dp("fileRef").get() as { url: string }).url).toBe("blob:test/1");
+  });
+
+  it("target : envoie une action au store quand le fichier est ouvert (payload complétée par file)", async () => {
+    URL.createObjectURL = vi.fn(() => "blob:test/2");
+    URL.revokeObjectURL = vi.fn();
+    const got: SonicActionMessage[] = [];
+    registerStore({ id: "foStore", dispatch: (a: SonicActionMessage) => got.push(a) } as never);
+    const el = document.createElement("sonic-file-open") as SonicFileOpen;
+    el.target = "foStore";
+    el.action = "go";
+    el.payload = '{"e": "type"}';
+    document.body.append(el);
+    expect(await el.openFile(new File(["x"], "n.txt", { type: "text/plain" }))).toBe(true);
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatchObject({ type: "go", payload: { e: "type", file: { name: "n.txt", kind: "text" } } });
+    // Refusé : aucune action.
+    el.maxBytes = 0;
+    expect(await el.openFile(new File(["xy"], "m.txt", { type: "text/plain" }))).toBe(false);
+    expect(got).toHaveLength(1);
+    unregisterStore("foStore");
   });
 
   it("refuse un fichier trop gros", async () => {
