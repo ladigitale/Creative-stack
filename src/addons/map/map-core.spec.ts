@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstForbiddenUrl, hostAllowed, plain, readPointsSpec, sameCamera, styleUrls, toGeoJSON } from "./map-core";
+import { firstForbiddenUrl, hostAllowed, nearestHit, plain, readPointsSpec, sameCamera, styleUrls, toGeoJSON } from "./map-core";
 
 const ORIGIN = "https://artifacts.tadaaa.space/x";
 
@@ -69,5 +69,22 @@ describe("plain", () => {
     expect(structuredClone(out)).toEqual(style);
     expect(plain("https://x/style.json")).toBe("https://x/style.json");
     expect(plain(null)).toBeNull();
+  });
+});
+
+describe("nearestHit", () => {
+  const pt = (id: number, x: number, y: number, extra: Record<string, unknown> = {}) => ({ geometry: { type: "Point", coordinates: [x, y] }, properties: { id, ...extra } });
+  const project = (c: [number, number]) => ({ x: c[0], y: c[1] });
+  it("retient le point le plus proche du doigt", () => {
+    const f = nearestHit([pt(1, 20, 0), pt(2, 5, 5), pt(3, -18, 3)], { x: 0, y: 0 }, project);
+    expect(f?.properties.id).toBe(2);
+  });
+  it("préfère un point isolé à un groupe à peine plus proche", () => {
+    const f = nearestHit([pt(1, 10, 0, { point_count: 4 }), pt(2, 12, 0)], { x: 0, y: 0 }, project);
+    expect(f?.properties.id).toBe(2);
+  });
+  it("rien trouvé : null ; géométrie invalide ignorée", () => {
+    expect(nearestHit([], { x: 0, y: 0 }, project)).toBeNull();
+    expect(nearestHit([{ geometry: { type: "LineString", coordinates: [] }, properties: {} }], { x: 0, y: 0 }, project)).toBeNull();
   });
 });

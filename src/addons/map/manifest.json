@@ -21,6 +21,7 @@
         "target": { "type": "string", "description": "Id du store qui reçoit les clics sur un point" },
         "pick-action-type": { "type": "string", "description": "Type d'action envoyé à target (défaut select)" },
         "auto-select": { "type": "boolean", "description": "Un clic sur un point le sélectionne (state.selected)" },
+        "hit-radius": { "type": "number", "description": "Tolérance du toucher en px : le point le plus proche dans ce rayon est retenu (24 par défaut, 0 = pixel exact)" },
         "allowed-hosts": { "type": "string", "description": "Hôtes https autorisés pour tuiles, glyphes et sprites, séparés par des espaces" },
         "emit": { "type": "string", "values": ["end", "move"], "description": "Publication de l'état : fin de mouvement (défaut) ou continue" },
         "throttle-ms": { "type": "number", "description": "Intervalle minimal entre deux publications en mode move (défaut 100)" }

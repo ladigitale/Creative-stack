@@ -103,3 +103,24 @@ export const round = (n: number, d: number) => Math.round(n * 10 ** d) / 10 ** d
 export function plain<T>(v: T): T {
   return v && typeof v === "object" ? (JSON.parse(JSON.stringify(v)) as T) : v;
 }
+
+type HitFeature = { geometry?: { type?: string; coordinates?: unknown }; properties?: Record<string, unknown> | null };
+
+/**
+ * Point visé par un toucher : parmi les objets trouvés dans le carré de tolérance, le plus proche du doigt
+ * (distance écran). `project` convertit [lng, lat] en pixels. Un groupe (cluster) ne passe devant un point
+ * isolé que s'il est franchement plus près.
+ */
+export function nearestHit<T extends HitFeature>(features: readonly T[], at: { x: number; y: number }, project: (c: [number, number]) => { x: number; y: number }): T | null {
+  let best: T | null = null;
+  let bestD = Infinity;
+  for (const f of features) {
+    const c = f?.geometry?.type === "Point" ? (f.geometry.coordinates as number[]) : null;
+    if (!c || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
+    const p = project([c[0], c[1]]);
+    const cluster = !!(f.properties && f.properties.point_count);
+    const d = Math.hypot(p.x - at.x, p.y - at.y) * (cluster ? 1.5 : 1);
+    if (d < bestD) { bestD = d; best = f; }
+  }
+  return best;
+}
