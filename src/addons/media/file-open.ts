@@ -73,15 +73,15 @@ export class SonicFileOpen extends LitElement {
   maxText = 2_000_000;
 
   /**
-   * Store (`sonic-store`, `data.stores`) qui reçoit une action quand un fichier est ouvert : `{type: action, payload:
+   * Store (`sonic-store`, `data.stores`) qui reçoit une action quand un fichier est ouvert : `{type: action-type, payload:
    * {...payload, file: {name, size, mime, kind, width, height}}}`. Ex. passer à l'écran suivant une fois la photo prise.
    */
   @property({ type: String })
   target = "";
 
-  /** Type de l'action envoyée à `target` (défaut `file`). */
-  @property({ type: String })
-  action = "file";
+  /** Type de l'action envoyée à `target` (défaut `file`). Attribut `action-type` (`action` est réservé aux URL). */
+  @property({ type: String, attribute: "action-type" })
+  actionType = "file";
 
   /** Charge utile JSON (objet) de l'action, complétée par `file`. */
   @property({ type: String })
@@ -150,7 +150,7 @@ export class SonicFileOpen extends LitElement {
     this.dispatchEvent(new CustomEvent("sonic-file-open", { detail: this.getState(), bubbles: true, composed: true }));
     if (this.target.trim()) {
       const info = { name: file0(file.name), size: file.size, mime, kind, width: ref.width ?? null, height: ref.height ?? null };
-      dispatch(this.target.trim(), { type: (this.action || "file").trim(), payload: { ...parsePayload(this.payload), file: info } });
+      dispatch(this.target.trim(), { type: (this.actionType || "file").trim(), payload: { ...parsePayload(this.payload), file: info } });
     }
     return true;
   }
