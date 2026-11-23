@@ -76,6 +76,17 @@ describe("sonic-sketch : plafond de traits, photo de fond, export du cadre", () 
     el.remove();
   });
 
+  it("page-fit=cover : le cadre remplit la toile (zoom du plus grand rapport), reset y revient", async () => {
+    const { el } = await mount({ width: "390", height: "700", "page-width": "1200", "page-height": "900", "page-fit": "cover" });
+    expect(el.getState().zoom).toBeCloseTo(700 / 900, 5);
+    expect([el.getState().x, el.getState().y]).toEqual([0, 0]);
+    el.zoomIn();
+    await wait(5);
+    el.reset();
+    expect(el.getState().zoom).toBeCloseTo(700 / 900, 5);
+    el.remove();
+  });
+
   it("auto-size : la toile prend la taille de la boîte de l'élément", async () => {
     const el = document.createElement("sonic-sketch") as SonicSketch;
     el.setAttribute("auto-size", "");

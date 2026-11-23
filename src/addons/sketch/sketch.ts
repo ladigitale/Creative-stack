@@ -199,6 +199,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   @property({ type: String, attribute: "open-from" }) openFrom = "";
   @property({ type: Number, attribute: "page-width" }) pageWidth = 0;
   @property({ type: Number, attribute: "page-height" }) pageHeight = 0;
+  /**
+   * Vue d'origine du cadre : `contain` (défaut) le montre en entier ; `cover` remplit la toile comme une vidéo
+   * plein écran (le cadre déborde, on zoome et on se déplace dedans). La photo de fond suit toujours la vue.
+   */
+  @property({ type: String, attribute: "page-fit" }) pageFit: "contain" | "cover" = "contain";
   @property({ type: String }) background = "#ffffff";
   /**
    * Photo de fond (DP : URL ou `{url}` d'une image — data:image, blob:, https) posée sous le dessin dans le cadre
@@ -625,7 +630,13 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private homeView(rotation = 0): View {
     if (!(Number(this.pageWidth) > 0 && Number(this.pageHeight) > 0)) return { ...DEFAULT_VIEW, rotation };
     const { w, h } = this.dims();
-    return fitView(this.pageRect(), w, h, 0, rotation);
+    const page = this.pageRect();
+    const v = fitView(page, w, h, 0, rotation);
+    if (this.pageFit !== "cover" || !(w > 0 && h > 0)) return v;
+    // Remplir : du plus petit au plus grand des deux rapports toile / cadre, même centre.
+    const sx = w / page.w, sy = h / page.h;
+    const k = Math.max(sx, sy) / Math.min(sx, sy);
+    return sanitizeView({ ...v, zoom: Math.min(MAX_ZOOM, v.zoom * k) });
   }
 
   /** Vue d'origine posée par le composant (et pas par un geste) : refaite si la toile change de taille. */
@@ -662,7 +673,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (c.has("control") || c.has("backdropFrom") || c.has("openFrom") || c.has("brushFrom") || c.has("tipFrom") || c.has("viewFrom") || c.has("viewSync") || c.has("importFrom") || c.has("gesturesFrom") || c.has("settingsFrom") || c.has("prefsFrom") || c.has("renderFrom")) this.listen();
     if (c.has("renderMode") || c.has("liveRender") || c.has("noGpu") || c.has("noWorker")) this.renderChanged();
     if (c.has("autoSize")) this.observeSize();
-    if (c.has("width") || c.has("height") || c.has("pageWidth") || c.has("pageHeight")) {
+    if (c.has("width") || c.has("height") || c.has("pageWidth") || c.has("pageHeight") || c.has("pageFit")) {
       if (this.atHome) { this.view = this.homeView(this.view.rotation); this.layerView = { ...this.view }; this.sync?.write(this.view); }
       this.layer = null; this.layerDirty = true; this.compose(); this.publish();
     }
