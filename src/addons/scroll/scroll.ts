@@ -205,6 +205,8 @@ export class SonicScroll extends LitElement {
 
   /** Fait défiler jusqu'à `#id`/sélecteur (haut de l'élément), jusqu'à une position en px, ou tout en bas (`"end"`). */
   scrollTo(to: unknown): void {
+    // Conteneur résolu à la connexion : son style (overflow) peut être posé après (SDUI, modale) ; on le recherche ici.
+    if (this.scroller && (this.element() ?? window) !== this.scroller) { this.detach(); this.attach(); }
     if (to === "end") { this.followEnd(); return; }
     const behavior: ScrollBehavior = matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
     const s = this.scroller;
