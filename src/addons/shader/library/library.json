@@ -601,6 +601,56 @@
           "default": 0
         }
       ]
+    },
+    {
+      "id": "glitch",
+      "kind": "shader",
+      "file": "glitch.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Glitch",
+      "description": "Bandes décalées, canaux RVB séparés, blocs corrompus et balayage sur l'image du canal 0 ; animé (vitesse) ou figé. Quantité à 0 : image propre, pratique pour une rafale au démarrage ou à un évènement.",
+      "tags": [
+        "effet",
+        "caméra",
+        "image",
+        "rétro",
+        "glitch",
+        "transition"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Quantité",
+          "min": 0,
+          "max": 1,
+          "default": 0.35
+        },
+        {
+          "name": "uParam1",
+          "label": "Bandes",
+          "min": 4,
+          "max": 80,
+          "default": 24
+        },
+        {
+          "name": "uParam2",
+          "label": "Décalage RVB (px)",
+          "min": 0,
+          "max": 40,
+          "default": 6
+        },
+        {
+          "name": "uParam3",
+          "label": "Vitesse",
+          "min": 0,
+          "max": 3,
+          "default": 1
+        }
+      ]
     }
   ]
 }
