@@ -602,12 +602,22 @@
                                   }
                                 },
                                 {
-                                  "tagName": "sonic-shader",
+                                  "tagName": "sonic-if",
                                   "attributes": {
-                                    "channel0": "#vue",
-                                    "image": "void mainImage(out vec4 o, in vec2 f){\n  vec2 tex = iChannelResolution[0].xy;\n  if (tex.x < 1.0) { o = vec4(0.04, 0.05, 0.08, 1.0); return; }\n  vec2 uv = f / iResolution.xy;\n  float ra = iResolution.x / iResolution.y, ta = tex.x / tex.y;\n  vec2 s = ra > ta ? vec2(1.0, ta / ra) : vec2(ra / ta, 1.0);\n  o = vec4(texture(iChannel0, (uv - 0.5) * s + 0.5).rgb, 1.0);\n}",
-                                    "style": "position:absolute;inset:0;width:100%;height:100%;display:block"
-                                  }
+                                    "dataProvider": "camState",
+                                    "key": "status",
+                                    "equals": "ready"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-shader",
+                                      "attributes": {
+                                        "channel0": "#vue",
+                                        "image": "// Caméra plein cadre (cover) ; au démarrage, une rafale de glitch (bibliothèque : glitch) qui s'éteint en ~1,3 s.\nfloat gh12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }\nvoid mainImage(out vec4 o, in vec2 f){\n  vec2 tex = iChannelResolution[0].xy;\n  if (tex.x < 1.0) { o = vec4(0.086, 0.094, 0.114, 1.0); return; }\n  vec2 uv = f / iResolution.xy;\n  float ra = iResolution.x / iResolution.y, ta = tex.x / tex.y;\n  vec2 sc = ra > ta ? vec2(1.0, ta / ra) : vec2(ra / ta, 1.0);\n  float amount = 0.95 * (1.0 - smoothstep(0.25, 1.3, iTime));\n  if (amount < 0.002) { o = vec4(texture(iChannel0, (uv - 0.5) * sc + 0.5).rgb, 1.0); return; }\n  float bands = 24.0;\n  float t = floor(iTime * 10.0);\n  float by = floor(uv.y * bands);\n  float on = step(1.0 - amount * 0.6, gh12(vec2(by, t)));\n  float shift = (gh12(vec2(by * 1.7, t + 5.1)) - 0.5) * 0.2 * on * amount;\n  float bb = floor(uv.y * bands * 0.25);\n  float big = step(1.0 - amount * 0.25, gh12(vec2(bb, t + 2.0)));\n  shift += (gh12(vec2(bb, t + 9.0)) - 0.5) * 0.12 * big;\n  vec2 u = vec2(fract(uv.x + shift), uv.y);\n  vec2 s = vec2(12.0 / iResolution.x, 0.0) * (0.35 + on + big) * amount;\n  vec2 m = (u - 0.5) * sc + 0.5;\n  vec3 col = vec3(texture(iChannel0, m + s).r, texture(iChannel0, m).g, texture(iChannel0, m - s).b);\n  vec2 blk = floor(uv * vec2(bands * 0.5, bands));\n  if (gh12(blk + t * 1.3) > 1.0 - amount * 0.07) {\n    vec2 g = vec2(48.0, 32.0);\n    col = texture(iChannel0, (floor(m * g) + 0.5) / g).brg;\n  }\n  // Teinte de marquage au sol dans les bandes décalées.\n  col = mix(col, col * vec3(1.0, 0.82, 0.23) * 1.4, 0.5 * on * amount);\n  o = vec4(col * (1.0 - 0.22 * on * step(0.5, fract(f.y * 0.5))), 1.0);\n}",
+                                        "style": "position:absolute;inset:0;width:100%;height:100%;display:block"
+                                      }
+                                    }
+                                  ]
                                 },
                                 {
                                   "tagName": "sonic-anchor",
