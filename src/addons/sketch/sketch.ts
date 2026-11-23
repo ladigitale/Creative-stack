@@ -35,7 +35,7 @@ import {
 import { ViewSync } from "../../shared/view-sync";
 import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
 import { safeMediaUrl } from "../../shared/media/urls";
-import { multiArea, multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt } from "../vector";
+import { centerline, multiArea, multiBBox, pathToMulti, simplifyMulti, type Multi, type Pt } from "../vector";
 import { applyAffine } from "../../shared/frame-geometry";
 
 /** Exports dont l’URL `blob:` reste valide (`last` et les précédents). */
@@ -55,8 +55,8 @@ const SAVE_IDLE_MS = 2000;
 const THUMB_EVERY_MS = 30_000;
 
 /** Retouches : formes (flat.ts) et conversions de couleurs vers la palette (colormap.ts). */
-export type SketchEdit = FlatEdit | "palette" | "levels" | "gradient";
-export const SKETCH_EDITS: readonly SketchEdit[] = [...FLAT_EDITS, "palette", "levels", "gradient"];
+export type SketchEdit = FlatEdit | "palette" | "levels" | "gradient" | "centerline";
+export const SKETCH_EDITS: readonly SketchEdit[] = [...FLAT_EDITS, "palette", "levels", "gradient", "centerline"];
 const COLOR_EDIT_MODE: Record<"palette" | "levels" | "gradient", ColorMapMode> = { palette: "nearest", levels: "levels", gradient: "gradient" };
 const isColorEdit = (op: SketchEdit): op is "palette" | "levels" | "gradient" => op in COLOR_EDIT_MODE;
 
@@ -2222,6 +2222,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       let strokes: Stroke[];
       if (isColorEdit(op)) {
         strokes = this.mapColors(base, targets, COLOR_EDIT_MODE[op], Math.max(0, Math.min(100, amount)) / 100, global, fresh);
+      } else if (op === "centerline") {
+        strokes = this.centerlines(base, targets, Math.max(0, Math.min(400, Math.abs(amount))) / this.view.zoom, global);
       } else {
         const px = op === "grow" ? Math.max(-400, Math.min(400, amount)) : Math.max(0.1, Math.min(400, Math.abs(amount)));
         const world = px / this.view.zoom;
@@ -2241,6 +2243,44 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.compose();
     this.publish();
     return !!this.pending;
+  }
+
+  /**
+   * Ligne du milieu : chaque région visée devient un trait simple (sa couleur, son épaisseur médiane) qui suit son
+   * squelette, au lieu d'une forme à deux contours. `prune` (unités du monde) : longueur ajoutée au seuil
+   * d'ébarbage des petites branches. Sur tout le dessin (`global`), les zones couleur du papier sont gardées.
+   */
+  private centerlines(base: Stroke[], targets0: Set<Region>, prune: number, global = false): Stroke[] {
+    // Tout le dessin : les zones de la couleur du papier (jours, fond) restent des zones.
+    const paper = parseColor(this.background);
+    const isPaper = (r: Region) => !!paper && paper[3] > 0 && r.rgba[0] === paper[0] && r.rgba[1] === paper[1] && r.rgba[2] === paper[2];
+    const targets = global && paper ? new Set([...targets0].filter((r) => !isPaper(r))) : targets0;
+    const out: Stroke[] = [];
+    const lines: Stroke[] = [];
+    let budget = MAX_POINTS_PER_STROKE * 40;
+    for (const s of base) {
+      if (!s.flat || !s.flat.some((r) => targets.has(r))) { out.push(s); continue; }
+      const rest = s.flat.filter((r) => !targets.has(r));
+      if (rest.length) out.push({ ...s, flat: rest, bbox: flatBBox(rest) });
+      for (const r of s.flat) {
+        if (!targets.has(r)) continue;
+        const res = centerline(r.shape, { maxSide: 1600, prune });
+        if (!res.lines.length) continue;
+        const brush = makeBrush(
+          { ...this.brush(), color: toCss([r.rgba[0], r.rgba[1], r.rgba[2], 1]), hardness: 1, opacity: 1, pressure: false, tip: "", scatter: 0, sizeJitter: 0, roundness: 1, angleJitter: 0 },
+          res.width, r.blend ?? "normal",
+        );
+        for (const line of res.lines) {
+          const n = Math.min(line.length, MAX_POINTS_PER_STROKE);
+          if (n < 2 || (budget -= n) < 0) continue;
+          const pts: number[] = [];
+          for (let i = 0; i < n; i++) pts.push(line[i][0], line[i][1], 1);
+          lines.push({ id: this.doc.nextId++, brush, pts, curve: true, seed: (Math.random() * 4294967296) >>> 0, bbox: strokeBBox(pts, res.width / 2) });
+        }
+      }
+    }
+    // Les traits passent au-dessus des aplats.
+    return [...out, ...lines];
   }
 
   /** Palette des conversions (`palette-from`, sinon `import-colors-from`). */

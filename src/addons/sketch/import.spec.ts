@@ -175,6 +175,23 @@ describe("sonic-sketch : import de formes vectorisées", () => {
     el.remove();
   });
 
+  it("ligne du milieu : une forme épaisse devient un trait simple (un seul tracé à la découpe)", async () => {
+    const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport14", control: "skCtl14" });
+    set("vecImport14", { ...result(1, [{ color: "#ffffff", d: "M10 40H60V90H10Z" }, { color: "#ff0000", d: "M10 10H210V22H10Z" }]), keepColors: true });
+    set("skCtl14", { import: 1 });
+    expect(el.previewEdit("centerline", 2)).toBe(true);
+    expect(el.applyEdit()).toBe(true);
+    const svg = el.toSvg() ?? "";
+    // Plus de forme remplie rouge : un trait rouge, sans remplissage.
+    expect(svg).not.toMatch(/fill="#ff0000"/);
+    expect(svg).toMatch(/fill="none" stroke="#ff0000"/);
+    // Tout le dessin : la zone couleur du papier reste une zone.
+    expect(svg).toMatch(/fill="#ffffff"/);
+    el.undo();
+    expect(el.toSvg() ?? "").toMatch(/fill="#ff0000"/);
+    el.remove();
+  });
+
   it("import-skip ne retire rien d'un SVG lu tel quel (keepColors) : le noir est gardé", async () => {
     const el = await mount({ width: "400", height: "300", background: "#ffffff", "import-from": "vecImport7", "import-skip": "#000000", control: "skCtl7", "out-data-provider": "skState7" });
     set("vecImport7", { ...result(1, [{ color: "#000000", d: sq(0, 0, 40) }, { color: "#ff0000", d: sq(50, 0, 30) }]), keepColors: true });
