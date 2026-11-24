@@ -5,7 +5,7 @@
  */
 import type { LaserOp } from "./toolpath";
 import { optimizeStrokes, type Polyline } from "./lineart";
-import { clipToCircle, clipToRect, coral, fitLines, flowField, guilloche, harmonograph, maze, repeatTiles, REPEATS, rosette as rosetteLines, spirograph, TILE_SHAPES, tree, truchet, waves } from "./generative";
+import { clipToCircle, clipToRect, coral, fitLines, flowField, guilloche, harmonograph, LEAF_FILLS, maze, repeatTiles, REPEATS, subdivide, SUBDIV_MODES, rosette as rosetteLines, spirograph, TILE_SHAPES, tree, truchet, waves } from "./generative";
 
 export const ENGRAVE = "#16130f";
 export const MARK = "#2563eb";
@@ -340,7 +340,25 @@ function strokes(raw: Polyline[], p: Record<string, number>, o: { fit?: boolean;
   return { svg: svgDoc(w, h, body), widthMm: w, heightMm: h, notes: [`${opt.length} tracés gravés au trait.`, ...(o.notes ?? [])] };
 }
 
+/** Zone utile (mm) d'un motif selon son cadre : la marge laissée au cadre, et le format carré d'un disque. */
+function zone(p: Record<string, number>): { w: number; h: number; m: number } {
+  const round = p.cadre === 2 || p.cadre === 4;
+  const D = Math.min(p.largeur, p.hauteur);
+  const m = p.cadre ? Math.max(2, D * 0.04) : 0;
+  return { w: (round ? D : p.largeur) - 2 * m, h: (round ? D : p.hauteur) - 2 * m, m };
+}
+const shift = (lines: Polyline[], m: number): Polyline[] => (m ? lines.map((l) => l.map(([x, y]) => [x + m, y + m] as [number, number])) : lines);
+
 const MOTIFS: PatternDef[] = [
+  { id: "subdivision", family: "motifs", label: "Subdivision", description: "L'espace découpé récursivement en sous-espaces enfants : coupes, quadtree, triangles, polygones, cercles dans les cercles ; feuilles remplies.",
+    params: [...FORMAT, C("mode", "Découpage", SUBDIV_MODES, 0), P("profondeur", "Profondeur max.", 1, 12, 1, 6), P("minimum", "Profondeur min.", 0, 12, 1, 2),
+      P("chance", "Chance de se diviser", 0, 100, 1, 70, "%"), P("irregularite", "Irrégularité des coupes", 0, 100, 1, 60, "%"), P("enfants", "Enfants (cercles, triangles)", 2, 12, 1, 4),
+      P("retrait", "Marge entre enfants", 0, 10, 0.1, 0, "mm"), C("remplissage", "Remplissage des feuilles", LEAF_FILLS, 0), P("pas", "Pas du remplissage", 0.3, 10, 0.1, 1.5, "mm"), GRAINE, ECART],
+    build: (p) => {
+      const z = zone(p);
+      return strokes(shift(subdivide({ mode: p.mode, depth: p.profondeur, minDepth: Math.min(p.minimum, p.profondeur), chance: p.chance, ratio: p.irregularite, inset: p.retrait,
+        leaf: p.remplissage, leafStep: p.pas, children: p.enfants, w: z.w, h: z.h, seed: p.graine }), z.m), p, { fit: false });
+    } },
   { id: "arbre", family: "motifs", label: "Arbre", description: "Branches récursives et courbes ; chaque jonction n'est brûlée qu'une fois.",
     params: [...FORMAT, P("profondeur", "Profondeur", 1, 12, 1, 8), P("branches", "Branches", 1, 5, 1, 2), P("angle", "Ouverture", 5, 90, 1, 24, "°"),
       P("rapport", "Raccourcissement", 0.5, 0.92, 0.01, 0.74), P("courbure", "Courbure", 0, 100, 1, 30), P("gravite", "Gravité", -100, 100, 1, 0),

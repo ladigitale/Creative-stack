@@ -78,7 +78,7 @@ describe("sonic-laser-pattern", () => {
 });
 
 describe("motifs génératifs", () => {
-  const ids = ["arbre", "corail", "spirographe", "guilloche", "rosace", "truchet", "labyrinthe", "flux", "harmonographe", "ondes", "repetition"];
+  const ids = ["subdivision", "arbre", "corail", "spirographe", "guilloche", "rosace", "truchet", "labyrinthe", "flux", "harmonographe", "ondes", "repetition"];
   for (const id of ids) {
     it(`${id} : SVG gravé au trait, cadré, en moins d'une seconde`, () => {
       const def = getPattern(id)!;
@@ -109,5 +109,30 @@ describe("motifs génératifs", () => {
     const rep = def.params.find((s) => s.key === "repetition")!;
     expect(rep.options?.length).toBe(rep.max + 1);
     for (let i = 0; i <= rep.max; i++) expect(def.build(patternParams(def, { repetition: i })).svg).toContain("<path");
+  });
+});
+
+describe("subdivision", () => {
+  it("chaque découpage, avec retrait et remplissages, reste dans le format", () => {
+    const def = getPattern("subdivision")!;
+    for (let mode = 0; mode < 5; mode++) for (const extra of [{}, { retrait: 1, remplissage: 5 }]) {
+      const out = def.build(patternParams(def, { mode, ...extra }));
+      const nums = [...out.svg.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+      expect(nums.length, `mode ${mode}`).toBeGreaterThan(8);
+      for (const [x, y] of nums) { expect(x).toBeGreaterThanOrEqual(-0.01); expect(x).toBeLessThanOrEqual(100.01); expect(y).toBeGreaterThanOrEqual(-0.01); expect(y).toBeLessThanOrEqual(100.01); }
+    }
+  });
+
+  it("profondeur forcée : un quadtree complet a 4^n feuilles et ses bords communs ne sont tracés qu'une fois", () => {
+    const def = getPattern("subdivision")!;
+    const out = def.build(patternParams(def, { mode: 1, profondeur: 3, minimum: 3, irregularite: 0, ecart: 0 }));
+    // Grille 8 × 8 sur 100 mm : 9 lignes et 9 colonnes de 100 mm = 1 800 mm de trait.
+    const len = [...out.svg.matchAll(/d="([^"]+)"/g)].flatMap((m) => m[1].split("M").filter(Boolean)).reduce((s, sub) => {
+      const pts = sub.split("L").map((p) => p.trim().split(" ").map(Number));
+      let l = 0;
+      for (let i = 1; i < pts.length; i++) l += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      return s + l;
+    }, 0);
+    expect(len).toBeCloseTo(1800, 0);
   });
 });
