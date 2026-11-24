@@ -63,6 +63,14 @@ function heading(level: number, id: string, content: unknown, ctx: RenderCtx): T
   }
 }
 
+/** Cellule courte (nombre, nom, date) : gardée sur une ligne pour qu'un tableau étroit défile au lieu d'écraser ses colonnes. */
+export const SHORT_CELL = 24;
+
+function cellClass(n: Node): string | typeof nothing {
+  const len = n.kids.reduce((sum, k) => sum + String(k.t.content ?? "").length, 0);
+  return len > 0 && len <= SHORT_CELL ? "short" : nothing;
+}
+
 function align(t: Token): string | typeof nothing {
   const m = /text-align:\s*(left|right|center)/.exec(String(t.attrGet("style") ?? ""));
   return m ? `text-align:${m[1]}` : nothing;
@@ -211,9 +219,9 @@ function blockNode(n: Node, ctx: RenderCtx): unknown {
     case "tr_open":
       return html`<tr>${kids()}</tr>`;
     case "th_open":
-      return html`<th scope="col" style=${align(t)}>${kids()}</th>`;
+      return html`<th scope="col" class=${cellClass(n)} style=${align(t)}>${kids()}</th>`;
     case "td_open":
-      return html`<td style=${align(t)}>${kids()}</td>`;
+      return html`<td class=${cellClass(n)} style=${align(t)}>${kids()}</td>`;
     case "hr":
       return html`<hr />`;
     case "fence":

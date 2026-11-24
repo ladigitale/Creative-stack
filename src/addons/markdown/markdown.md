@@ -119,7 +119,7 @@ Seul le dernier bloc (paragraphe, liste, bloc de code…) est ré-analysé à ch
 
 ## Style
 
-Tokens Concorde (`--sc-base-content`, `--sc-primary`, `--sc-base`, `--sc-font-family-*`, `--sc-rounded-*`…). Largeur de lecture : `--sc-markdown-measure` (défaut `72ch`). Parties stylables : `::part(root)`, `::part(heading)` (et `h1`…`h6`), `::part(code)`, `::part(code-inline)`, `::part(copy-button)`, `::part(table)`, `::part(blockquote)`, `::part(var)`, `::part(toc)`, `::part(image)`, `::part(math)`, `::part(footnotes)`.
+Tokens Concorde (`--sc-base-content`, `--sc-primary`, `--sc-base`, `--sc-font-family-*`, `--sc-rounded-*`…). Largeur de lecture : `--sc-markdown-measure` (défaut `72ch`). Marge au-dessus d'un titre atteint par `scroll-to` ou le sommaire : `--sc-markdown-scroll-offset` (défaut `1rem` ; la hauteur d'une barre collante au-dessus du texte). Blocs de code : `--sc-markdown-code-wrap: pre-wrap` replie les longues lignes au lieu de les faire défiler (avec `--sc-markdown-code-break: anywhere` pour couper aussi les mots sans espace), `--sc-markdown-code-radius` règle l'arrondi (défaut : `--sc-rounded-lg` plafonné à 10 px). Les mots ne sont jamais coupés dans une cellule de tableau (le tableau défile en largeur) ; les cellules courtes (24 caractères au plus : nombres, noms, dates) restent sur une ligne, les longues reviennent à la ligne entre les mots. Sur écran étroit (≤ 34rem), titres, retraits et marges sont resserrés. Parties stylables : `::part(root)`, `::part(heading)` (et `h1`…`h6`), `::part(code)`, `::part(code-inline)`, `::part(copy-button)`, `::part(table)`, `::part(blockquote)`, `::part(var)`, `::part(toc)`, `::part(image)`, `::part(math)`, `::part(footnotes)`.
 
 ## Accessibilité
 
