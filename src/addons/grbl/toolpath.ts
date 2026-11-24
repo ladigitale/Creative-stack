@@ -133,7 +133,7 @@ export type SvgShapes = { shapes: SvgRawShape[]; width: number; height: number; 
 /** Formes d'un document SVG, et le nombre de millimètres par unité du document. */
 export function readSvgShapes(text: string): SvgShapes {
   const shapes: SvgRawShape[] = [];
-  const doc = parseSvgDocument(text, { raw: (s) => shapes.push(s), precision: 8000 });
+  const doc = parseSvgDocument(text, { raw: (s) => shapes.push(s), precision: 8000, rawOnly: true });
   // Taille réelle : `width` avec unité rapportée au viewBox ; à défaut, 96 unités par pouce.
   const w = doc.physical?.widthMm, h = doc.physical?.heightMm;
   const unitMm = w && doc.width > 0 ? w / doc.width : h && doc.height > 0 ? h / doc.height : 25.4 / 96;

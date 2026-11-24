@@ -4,6 +4,8 @@
  * couleur. Fonctions pures, testées sans DOM.
  */
 import type { LaserOp } from "./toolpath";
+import { optimizeStrokes, type Polyline } from "./lineart";
+import { clipToCircle, clipToRect, coral, fitLines, flowField, guilloche, harmonograph, maze, repeatTiles, REPEATS, rosette as rosetteLines, spirograph, TILE_SHAPES, tree, truchet, waves } from "./generative";
 
 export const ENGRAVE = "#16130f";
 export const MARK = "#2563eb";
@@ -11,8 +13,14 @@ export const CUT = "#e11d48";
 
 type Pt = [number, number];
 export type Pattern = { svg: string; widthMm: number; heightMm: number; ops?: LaserOp[]; notes: string[] };
-export type ParamSpec = { key: string; label: string; min: number; max: number; step: number; default: number; unit?: string };
-export type PatternDef = { id: string; label: string; description: string; params: ParamSpec[]; build: (p: Record<string, number>) => Pattern };
+/** `options` : paramètre à choix (valeur = index du libellé), à présenter en liste plutôt qu'en curseur. */
+export type ParamSpec = { key: string; label: string; min: number; max: number; step: number; default: number; unit?: string; options?: string[] };
+/** Familles du catalogue : objets découpés, motifs gravés, plaques, essais. */
+export type PatternFamily = "objets" | "motifs" | "plaques" | "essais";
+export type PatternDef = { id: string; label: string; description: string; family?: PatternFamily; params: ParamSpec[]; build: (p: Record<string, number>) => Pattern };
+export const FAMILIES: { id: PatternFamily; label: string }[] = [
+  { id: "motifs", label: "Motifs gravés" }, { id: "objets", label: "Objets découpés" }, { id: "plaques", label: "Plaques" }, { id: "essais", label: "Essais" },
+];
 
 const f = (v: number): string => {
   const s = (Math.round(v * 100) / 100).toFixed(2).replace(/\.?0+$/, "");
@@ -299,34 +307,123 @@ function testGrid(p: Record<string, number>): Pattern {
 }
 
 const P = (key: string, label: string, min: number, max: number, step: number, def: number, unit?: string): ParamSpec => ({ key, label, min, max, step, default: def, unit });
-const MOTIF = P("motif", "Motif (0 aucun, 1 cœur, 2 étoile, 3 fleur, 4 rosace)", 0, 4, 1, 1);
+/** Paramètre à choix : valeur = index dans `options`. */
+const C = (key: string, label: string, options: readonly string[], def = 0): ParamSpec => ({ key, label, min: 0, max: options.length - 1, step: 1, default: def, options: [...options] });
+const OUI_NON = ["Non", "Oui"];
+const MOTIF = C("motif", "Motif", ["Aucun", "Cœur", "Étoile", "Fleur", "Rosace"], 1);
+
+// ─── Motifs génératifs gravés au trait ───────────────────────────────────────────────────────────────────────
+const CADRES = ["Aucun", "Rectangle découpé", "Disque découpé", "Rectangle marqué", "Disque marqué"];
+const FORMAT = [P("largeur", "Largeur", 20, 400, 1, 100, "mm"), P("hauteur", "Hauteur", 20, 400, 1, 100, "mm"), C("cadre", "Cadre", CADRES, 0)];
+const ECART = P("ecart", "Écart aux croisements", 0, 0.6, 0.05, 0.15, "mm");
+const GRAINE = P("graine", "Variante", 1, 999, 1, 1);
+
+/**
+ * Tracés (repère quelconque) → modèle : cadrés dans largeur × hauteur (ou le disque), coupés au cadre,
+ * optimisés pour un seul passage par point (`ecart`), gravés au trait ; cadre découpé ou marqué.
+ */
+function strokes(raw: Polyline[], p: Record<string, number>, o: { fit?: boolean; notes?: string[] } = {}): Pattern {
+  const W = p.largeur, H = p.hauteur, cadre = p.cadre ?? 0;
+  const round = cadre === 2 || cadre === 4;
+  const D = Math.min(W, H);
+  const margin = cadre ? Math.max(2, D * 0.04) : 0;
+  let lines = o.fit === false ? raw : fitLines(raw, round ? D : W, round ? D : H, margin);
+  if (round) lines = clipToCircle(lines, D / 2, D / 2, D / 2 - margin);
+  else if (o.fit === false) lines = clipToRect(lines, margin, margin, W - margin, H - margin);
+  const opt = optimizeStrokes(lines, { gap: p.ecart ?? 0.15, snap: 0.01 });
+  // Un seul chemin à sous-chemins : des milliers de morceaux restent légers à lire.
+  const d = opt.filter((l) => l.length >= 2).map((l) => poly(l, false)).join("");
+  let body = d ? line(d, ENGRAVE) : "";
+  const w = round ? D : W, h = round ? D : H;
+  if (cadre === 1 || cadre === 3) body += line(`M0 0 H${f(w)} V${f(h)} H0 Z`, cadre === 1 ? CUT : MARK);
+  if (round) body += circle(D / 2, D / 2, D / 2 - (cadre === 4 ? 0.5 : 0), cadre === 2 ? CUT : MARK);
+  return { svg: svgDoc(w, h, body), widthMm: w, heightMm: h, notes: [`${opt.length} tracés gravés au trait.`, ...(o.notes ?? [])] };
+}
+
+const MOTIFS: PatternDef[] = [
+  { id: "arbre", family: "motifs", label: "Arbre", description: "Branches récursives et courbes ; chaque jonction n'est brûlée qu'une fois.",
+    params: [...FORMAT, P("profondeur", "Profondeur", 1, 12, 1, 8), P("branches", "Branches", 1, 5, 1, 2), P("angle", "Ouverture", 5, 90, 1, 24, "°"),
+      P("rapport", "Raccourcissement", 0.5, 0.92, 0.01, 0.74), P("courbure", "Courbure", 0, 100, 1, 30), P("gravite", "Gravité", -100, 100, 1, 0),
+      P("alea", "Irrégularité", 0, 100, 1, 25), P("evase", "Évasement", 0, 100, 1, 0), GRAINE, ECART],
+    build: (p) => strokes(tree({ depth: p.profondeur, branches: p.branches, angle: p.angle, ratio: p.rapport, bend: p.courbure, gravity: p.gravite, jitter: p.alea, spread: p.evase, taper: 0, seed: p.graine }), p) },
+  { id: "corail", family: "motifs", label: "Corail", description: "Croissance vers des points attracteurs (colonisation de l'espace) : corail, racines, lichen.",
+    params: [...FORMAT, C("forme", "Forme", ["Disque", "Buisson", "Carré"], 0), P("points", "Densité", 100, 2000, 50, 600), P("pas", "Pas de croissance", 0.5, 5, 0.1, 1.6),
+      P("portee", "Portée", 5, 60, 1, 20), P("germes", "Germes", 1, 12, 1, 1), GRAINE, ECART],
+    build: (p) => strokes(coral({ attractors: p.points, step: p.pas, kill: p.pas * 1.6, reach: p.portee, seeds: p.germes, seed: p.graine, shape: p.forme }), p) },
+  { id: "spirographe", family: "motifs", label: "Spirographe", description: "Roue qui tourne dans (ou autour d') un anneau, en couches décalées.",
+    params: [...FORMAT, P("anneau", "Dents de l'anneau", 20, 150, 1, 105), P("roue", "Dents de la roue", 5, 120, 1, 38), P("crayon", "Position du crayon", 0.1, 1.5, 0.05, 0.8),
+      C("dehors", "Roue", ["Dedans", "Dehors"], 0), P("couches", "Couches", 1, 12, 1, 1), P("decalage", "Décalage des couches", 0, 360, 1, 30, "°"), ECART],
+    build: (p) => strokes(spirograph({ ring: p.anneau, wheel: p.roue, pen: p.crayon, layers: p.couches, outside: p.dehors, turnLayers: p.decalage * p.couches }), p) },
+  { id: "guilloche", family: "motifs", label: "Guilloché", description: "Anneaux ondulés déphasés, comme un cadran de montre ou un billet.",
+    params: [...FORMAT, P("anneaux", "Anneaux", 2, 80, 1, 24), P("ondes", "Ondulations", 2, 60, 1, 18), P("amplitude", "Amplitude", 0, 30, 0.5, 6),
+      P("phase", "Déphasage", 0, 90, 1, 12, "°"), P("centre", "Centre vide", 0, 80, 1, 15, "%"), P("torsion", "Torsion", 0, 12, 1, 1), ECART],
+    build: (p) => strokes(guilloche({ rings: p.anneaux, waves: p.ondes, amp: p.amplitude, phase: p.phase, inner: p.centre, twist: p.torsion }), p) },
+  { id: "rosace", family: "motifs", label: "Rosace", description: "Pétales en couches alternées.",
+    params: [...FORMAT, P("petales", "Pétales", 3, 48, 1, 12), P("couches", "Couches", 1, 10, 1, 3), P("largeur_p", "Largeur des pétales", 20, 200, 5, 90, "%"),
+      P("alterne", "Alternance", 0, 100, 5, 50, "%"), P("coeur", "Cœur", 0, 60, 1, 12, "%"), C("bombe", "Pétales", ["Pointus", "Bombés"], 0), ECART],
+    build: (p) => strokes(rosetteLines({ petals: p.petales, layers: p.couches, width: p.largeur_p, offset: p.alterne, inner: p.coeur, heart: p.bombe }), p) },
+  { id: "truchet", family: "motifs", label: "Truchet", description: "Tuiles tournées au hasard qui forment des chemins continus.",
+    params: [...FORMAT, P("colonnes", "Colonnes", 2, 60, 1, 12), P("lignes", "Lignes", 2, 60, 1, 12), C("style", "Tuiles", ["Arcs", "Diagonales", "Traits"], 0), GRAINE, ECART],
+    build: (p) => strokes(truchet({ cols: p.colonnes, rows: p.lignes, style: p.style, seed: p.graine }), p) },
+  { id: "labyrinthe", family: "motifs", label: "Labyrinthe", description: "Labyrinthe parfait (un seul chemin), entrée en haut à gauche, sortie en bas à droite.",
+    params: [...FORMAT, P("colonnes", "Colonnes", 3, 80, 1, 16), P("lignes", "Lignes", 3, 80, 1, 16), GRAINE, ECART],
+    build: (p) => strokes(maze({ cols: p.colonnes, rows: p.lignes, seed: p.graine }), p) },
+  { id: "flux", family: "motifs", label: "Champ de flux", description: "Lignes qui suivent un courant, régulièrement espacées : elles ne se croisent jamais.",
+    params: [...FORMAT, P("espacement", "Espacement", 0.5, 10, 0.1, 2, "mm"), P("echelle", "Taille des tourbillons", 5, 200, 1, 40, "mm"),
+      P("tourbillon", "Spirale", -100, 100, 1, 0), P("longueur", "Longueur max.", 5, 600, 5, 200, "mm"), GRAINE, ECART],
+    build: (p) => {
+      const w = p.cadre === 2 || p.cadre === 4 ? Math.min(p.largeur, p.hauteur) : p.largeur, h = p.cadre === 2 || p.cadre === 4 ? Math.min(p.largeur, p.hauteur) : p.hauteur;
+      return strokes(flowField({ w, h, sep: p.espacement, scale: p.echelle, swirl: p.tourbillon, maxLen: p.longueur, seed: p.graine }), p, { fit: false });
+    } },
+  { id: "harmonographe", family: "motifs", label: "Harmonographe", description: "Tracé de deux pendules amortis ; beaucoup de croisements, interrompus pour ne pas brûler.",
+    params: [...FORMAT, P("f1", "Fréquence 1", 1, 8, 0.01, 2), P("f2", "Fréquence 2", 1, 8, 0.01, 3.01), P("f3", "Fréquence 3", 1, 8, 0.01, 3), P("f4", "Fréquence 4", 1, 8, 0.01, 2.005),
+      P("amorti", "Amortissement", 0, 100, 1, 20), P("phase", "Déphasage", 0, 360, 1, 90, "°"), P("duree", "Durée", 10, 150, 1, 60), GRAINE, { ...ECART, default: 0.1 }],
+    build: (p) => strokes(harmonograph({ f1: p.f1, f2: p.f2, f3: p.f3, f4: p.f4, damping: p.amorti, phase: p.phase, length: p.duree, seed: p.graine }), p) },
+  { id: "ondes", family: "motifs", label: "Ondes", description: "Lignes empilées en relief, faces cachées : aucune ne croise celle de devant.",
+    params: [...FORMAT, P("lignes", "Lignes", 5, 200, 1, 60), P("amplitude", "Hauteur des vagues", 1, 100, 1, 18, "mm"), P("echelle", "Largeur des vagues", 2, 100, 1, 12, "mm"),
+      P("pic", "Relief central", 0, 100, 1, 60, "%"), GRAINE, ECART],
+    build: (p) => strokes(waves({ w: p.largeur, h: p.hauteur, lines: p.lignes, amp: p.amplitude, scale: p.echelle, peak: p.pic, seed: p.graine }), p, { fit: false }) },
+  { id: "repetition", family: "motifs", label: "Motif répété", description: "Une tuile (forme de base, imbriquée) répétée en grille, quinconce, hexagones, rosace, miroir ou anneaux.",
+    params: [...FORMAT, C("forme", "Tuile", TILE_SHAPES, 2), P("cotes", "Côtés / branches", 3, 16, 1, 6), P("creux", "Creux", 0.1, 1, 0.05, 0.45),
+      P("imbrication", "Contours imbriqués", 1, 8, 1, 1), P("taille", "Taille de la tuile", 2, 100, 0.5, 12, "mm"), C("repetition", "Répétition", REPEATS, 0),
+      P("ecartX", "Écart horizontal", -50, 50, 0.5, 2, "mm"), P("ecartY", "Écart vertical", -50, 50, 0.5, 2, "mm"), P("nombre", "Copies (rosace)", 3, 72, 1, 12),
+      P("anneaux", "Anneaux", 1, 12, 1, 4), P("rotation", "Rotation", 0, 360, 1, 0, "°"), P("pasRotation", "Rotation progressive", -45, 45, 0.5, 0, "°"),
+      P("pasEchelle", "Échelle progressive", -10, 10, 0.5, 0, "%"), ECART],
+    build: (p) => {
+      const round = p.cadre === 2 || p.cadre === 4;
+      const w = round ? Math.min(p.largeur, p.hauteur) : p.largeur, h = round ? Math.min(p.largeur, p.hauteur) : p.hauteur;
+      return strokes(repeatTiles({ shape: p.forme, sides: p.cotes, inner: p.creux, size: p.taille, repeat: p.repetition, count: p.nombre, rings: p.anneaux, gapX: p.ecartX, gapY: p.ecartY,
+        rotate: p.rotation, rotStep: p.pasRotation, scaleStep: p.pasEchelle, nested: p.imbrication, w, h }), p, { fit: false });
+    } },
+];
 
 export const PATTERNS: PatternDef[] = [
-  { id: "grille", label: "Grille d'essais", description: "Puissance × vitesse, une case par réglage : à graver avant toute nouvelle matière.", build: testGrid,
+  { id: "grille", family: "essais", label: "Grille d'essais", description: "Puissance × vitesse, une case par réglage : à graver avant toute nouvelle matière.", build: testGrid,
     params: [P("puissances", "Puissances", 2, 8, 1, 5), P("pmin", "Puissance min.", 5, 100, 5, 20, "%"), P("pmax", "Puissance max.", 5, 100, 5, 100, "%"),
       P("vitesses", "Vitesses", 2, 8, 1, 4), P("vmin", "Vitesse min.", 100, 6000, 100, 600, "mm/min"), P("vmax", "Vitesse max.", 100, 6000, 100, 3000, "mm/min"),
-      P("case", "Case", 4, 20, 1, 8, "mm"), P("decoupe", "Découper le cadre (0/1)", 0, 1, 1, 0)] },
-  { id: "boite", label: "Boîte à encoches", description: "Six panneaux qui s'emboîtent, couvercle gravé.", build: box,
+      P("case", "Case", 4, 20, 1, 8, "mm"), C("decoupe", "Découper le cadre", OUI_NON, 0)] },
+  { id: "boite", family: "objets", label: "Boîte à encoches", description: "Six panneaux qui s'emboîtent, couvercle gravé.", build: box,
     params: [P("largeur", "Largeur", 20, 300, 5, 60, "mm"), P("profondeur", "Profondeur", 20, 300, 5, 40, "mm"), P("hauteur", "Hauteur", 10, 200, 5, 30, "mm"),
-      P("epaisseur", "Épaisseur", 1, 10, 0.1, 3, "mm"), P("creneau", "Créneau", 3, 30, 1, 8, "mm"), P("couvercle", "Couvercle (0/1)", 0, 1, 1, 1), MOTIF] },
-  { id: "engrenages", label: "Engrenages", description: "Deux roues dentées qui engrènent, avec axe et évidements.", build: gears,
+      P("epaisseur", "Épaisseur", 1, 10, 0.1, 3, "mm"), P("creneau", "Créneau", 3, 30, 1, 8, "mm"), C("couvercle", "Couvercle", OUI_NON, 1), MOTIF] },
+  { id: "engrenages", family: "objets", label: "Engrenages", description: "Deux roues dentées qui engrènent, avec axe et évidements.", build: gears,
     params: [P("dents1", "Dents (grande)", 8, 80, 1, 24), P("dents2", "Dents (petite, 0 = aucune)", 0, 60, 1, 12), P("module", "Module", 1, 5, 0.5, 2, "mm"),
       P("axe", "Axe", 1, 20, 0.5, 5, "mm"), P("rayons", "Rayons (0 = plein)", 0, 8, 1, 5)] },
-  { id: "puzzle", label: "Puzzle", description: "Pièces à tenons, motif gravé à travers les pièces.", build: jigsaw,
+  { id: "puzzle", family: "objets", label: "Puzzle", description: "Pièces à tenons, motif gravé à travers les pièces.", build: jigsaw,
     params: [P("colonnes", "Colonnes", 2, 12, 1, 4), P("lignes", "Lignes", 2, 12, 1, 3), P("piece", "Pièce", 10, 50, 1, 20, "mm"), P("coins", "Coins arrondis", 0, 10, 1, 2, "mm"),
       P("graine", "Variante", 1, 99, 1, 1), MOTIF] },
-  { id: "tampon", label: "Tampon", description: "Fond creusé, motif en relief et en miroir.", build: stamp,
-    params: [P("taille", "Taille", 15, 100, 1, 40, "mm"), P("forme", "Forme (0 étoile, 1 cœur, 2 fleur)", 0, 2, 1, 0), P("branches", "Branches de l'étoile", 4, 12, 1, 6),
-      P("anneau", "Anneau (0/1)", 0, 1, 1, 1), P("miroir", "Miroir (0/1)", 0, 1, 1, 1)] },
-  { id: "porte-cles", label: "Porte-clés", description: "Plaque arrondie, trou, bordure marquée, motif gravé.", build: keychain,
+  { id: "tampon", family: "objets", label: "Tampon", description: "Fond creusé, motif en relief et en miroir.", build: stamp,
+    params: [P("taille", "Taille", 15, 100, 1, 40, "mm"), C("forme", "Forme", ["Étoile", "Cœur", "Fleur"], 0), P("branches", "Branches de l'étoile", 4, 12, 1, 6),
+      C("anneau", "Anneau", OUI_NON, 1), C("miroir", "Miroir", OUI_NON, 1)] },
+  { id: "porte-cles", family: "objets", label: "Porte-clés", description: "Plaque arrondie, trou, bordure marquée, motif gravé.", build: keychain,
     params: [P("largeur", "Largeur", 20, 120, 1, 60, "mm"), P("hauteur", "Hauteur", 10, 60, 1, 26, "mm"), P("rayon", "Rayon des coins", 0, 20, 1, 6, "mm"),
-      P("trou", "Trou", 2, 10, 0.5, 5, "mm"), P("bordure", "Bordure (0/1)", 0, 1, 1, 1), { ...MOTIF, default: 2 }] },
-  { id: "pendentif", label: "Pendentif", description: "Disque, bélière, anneau marqué, motif gravé.", build: pendant,
-    params: [P("diametre", "Diamètre", 15, 100, 1, 38, "mm"), P("trou", "Bélière", 1, 8, 0.5, 2.8, "mm"), P("bordure", "Anneau (0/1)", 0, 1, 1, 1), MOTIF] },
-  { id: "dessous", label: "Dessous de verre", description: "Disque découpé, anneaux marqués, rosace gravée.", build: coaster,
+      P("trou", "Trou", 2, 10, 0.5, 5, "mm"), C("bordure", "Bordure", OUI_NON, 1), { ...MOTIF, default: 2 }] },
+  { id: "pendentif", family: "objets", label: "Pendentif", description: "Disque, bélière, anneau marqué, motif gravé.", build: pendant,
+    params: [P("diametre", "Diamètre", 15, 100, 1, 38, "mm"), P("trou", "Bélière", 1, 8, 0.5, 2.8, "mm"), C("bordure", "Anneau", OUI_NON, 1), MOTIF] },
+  { id: "dessous", family: "objets", label: "Dessous de verre", description: "Disque découpé, anneaux marqués, rosace gravée.", build: coaster,
     params: [P("diametre", "Diamètre", 50, 150, 1, 90, "mm"), P("anneaux", "Anneaux", 0, 4, 1, 2), { ...MOTIF, default: 4 }] },
-  { id: "regle", label: "Règle", description: "Graduations au millimètre marquées, repères gravés, contour découpé.", build: ruler,
+  { id: "regle", family: "objets", label: "Règle", description: "Graduations au millimètre marquées, repères gravés, contour découpé.", build: ruler,
     params: [P("longueur", "Longueur", 5, 40, 1, 15, "cm"), P("largeur", "Largeur", 15, 50, 1, 25, "mm")] },
+  ...MOTIFS,
 ];
 
 export function getPattern(id: string): PatternDef | null {

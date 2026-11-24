@@ -101,6 +101,8 @@ export type SketchState = {
   drawing: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  /** Le dessin a changé depuis le dernier import (`import`) : retouché à la main, retouche appliquée, effacé… */
+  modified: boolean;
   tool: string;
   color: string;
   size: number;
@@ -344,6 +346,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
    * redemandé ne s'empile pas sur le précédent. Aussi `importReplace: true` dans `control`, pour un seul import.
    */
   @property({ type: Boolean, attribute: "import-replace" }) importReplace = false;
+  /** Document et révision juste après le dernier import (état `modified`). */
+  private importMark = { serial: -1, rev: 0 };
   /**
    * Précision de l'import en pixels de la source (ex. 0,1 pour un tracé au trait fin) : les courbes sont aplaties
    * et simplifiées à cette tolérance, quelle que soit la taille de la toile à l'écran. 0 (défaut) : `simplify` px
@@ -1752,6 +1756,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       const brush = { ...BRUSH_DEFAULTS, hardness: 1, opacity: 1, pressure: false, blend: undefined };
       const item: Stroke = { id, brush, pts: [], seed: 1, flat: regions, bbox: flatBBox(regions) };
       this.doc.replace([...strokes.slice(0, index), ...(regions.length ? [item] : []), ...strokes.slice(index + (top ? 1 : 0))]);
+      this.importMark = { serial: this.doc.serial, rev: this.doc.rev };
       if (replace && this.selected.size) { this.selected.clear(); this.drawOverlay(); }
       this.imported = { layers: layers.length, regions: regions.length, ms: Math.round(performance.now() - t0) };
       this.invalidate();
@@ -3021,6 +3026,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     return {
       status: this.error ? "error" : "ready", error: this.error, zoom: this.view.zoom, x: this.view.x, y: this.view.y, rotation: this.view.rotation,
       strokes: this.doc.strokes.length, maxStrokes: this.strokeCap(), full: this.isFull(), points: this.doc.totalPoints, lastStroke: { ...this.lastCompaction }, ...this.flatStats(), drawing: this.mode === "draw", canUndo: this.doc.canUndo, canRedo: this.doc.canRedo,
+      modified: this.doc.rev > (this.importMark.serial === this.doc.serial ? this.importMark.rev : 0),
       tool: this.currentTool(), color: b.color, picked: this.picked, sampled: this.sampled, imported: this.imported, opened: this.opened, gestures: this.gestureState, selection: selectionInfo(this.selected), size: b.size, blend: this.currentBlend(), bbox: contentBBox(this.doc.strokes), last: this.last,
       edit: { op: this.editOp(), preview: !!this.pending, error: this.editError, scope: this.selected.size ? "selection" : "all" },
       render: this.renderState(),

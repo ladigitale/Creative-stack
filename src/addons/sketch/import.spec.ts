@@ -141,6 +141,12 @@ describe("sonic-sketch : import de formes vectorisées", () => {
     set("skCtl11", { import: 4 });
     expect(el.getState().colors).toBe(1);
     expect(el.toSvg() ?? "").toMatch(/#00ff00/);
+    // `modified` : faux juste après un import, vrai dès qu'on touche au dessin.
+    expect(el.getState().modified).toBe(false);
+    el.undo();
+    expect(el.getState().modified).toBe(true);
+    set("skCtl11", { import: 5 });
+    expect(el.getState().modified).toBe(false);
     el.remove();
   });
 
