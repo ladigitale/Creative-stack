@@ -32,6 +32,10 @@ export type CharacterInput = {
   yaw: number;
   params: Record<string, unknown>;
   blink: number;
+  /** Bouche ouverte 0 … 1 (parole, mâche, cri de joie). */
+  talk?: number;
+  /** Point regardé (monde) ou "camera" (regard vers le spectateur) ; absent : les yeux suivent la tête. */
+  gaze?: V3 | "camera" | null;
   time: number;
   speed: number;
 };
@@ -622,8 +626,18 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         const q = S(onHead(s * 0.62, -0.32));
         em.add(new Pen().ellipse(q[0], q[1], eyeR * 0.8 * v, eyeR * 0.45), "accent", { stroke: null, alpha: 0.3 });
       }
-    // yeux
-    const gaze = pr.vec(hFwd)[0];
+    // yeux : regard porté par la tête, ou tourné vers une cible (direction à l'écran)
+    let gaze = pr.vec(hFwd)[0], gazeY = 0;
+    if (c.gaze === "camera") gaze = 0;
+    else if (c.gaze) {
+      const a0 = S(hc), b0 = S(c.gaze);
+      const dx = b0[0] - a0[0], dy = b0[1] - a0[1], L = Math.hypot(dx, dy);
+      if (L > 1e-6) {
+        const k = clamp(L / (headW * 2), 0, 1);
+        gaze = clamp((dx / L) * k, -1, 1);
+        gazeY = clamp((dy / L) * k, -1, 1);
+      }
+    }
     for (const s of [-1, 1]) {
       const lon = s * (toony ? 0.42 : 0.46), lat = toony ? -0.08 : -0.02;
       const v = vis(lon, lat);
@@ -638,7 +652,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         strokeVar(lid, [[q[0] - ex, q[1]], [q[0], q[1] - ey * (mood === "sleepy" ? 0.15 : 0.35)], [q[0] + ex, q[1]]], [eyeR * 0.06, eyeR * 0.14, eyeR * 0.06]);
         if (mood === "sleepy" && !blink) {
           em.add(new Pen().ellipse(q[0], q[1] - ey * 0.25, ex * 0.9, ey * 0.55), "eyeWhite", { stroke: null });
-          em.add(new Pen().ellipse(q[0] + gaze * ex * 0.2, q[1] - ey * 0.3, ex * 0.5, ey * 0.45), "eye", { stroke: null });
+          em.add(new Pen().ellipse(q[0] + gaze * ex * 0.2, q[1] - ey * 0.3 + gazeY * ey * 0.1, ex * 0.5, ey * 0.45), "eye", { stroke: null });
           em.add(new Pen().M(q[0] - ex * 1.05, q[1]).L(q[0] + ex * 1.05, q[1]).L(q[0] + ex * 1.05, q[1] + ey).L(q[0] - ex * 1.05, q[1] + ey).Z(), "skin", { tone: -1, stroke: null });
         }
         em.add(lid, "ink", { stroke: null });
@@ -646,7 +660,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       }
       em.add(new Pen().ellipse(q[0], q[1], ex, ey), "eyeWhite", { stroke: null });
       const ir = (mood === "surprised" ? 0.48 : toony ? 0.66 : 0.62);
-      const ix = q[0] + gaze * ex * 0.3, iy = q[1] - ey * 0.04;
+      const ix = q[0] + gaze * ex * 0.3, iy = q[1] - ey * 0.04 + gazeY * ey * 0.22;
       em.add(new Pen().ellipse(ix, iy, ex * ir, ey * ir * 1.05), "eye", { stroke: null });
       em.add(new Pen().ellipse(ix - ex * 0.22, iy + ey * 0.28, ex * 0.2, ey * 0.2), "eyeWhite", { tone: 1, stroke: null });
       // paupière supérieure (trait de cils), plissée selon l'humeur
@@ -694,9 +708,22 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         const t = i / 6, x = (t - 0.5) * 2;
         pts.push(S(onHead(x * mw, lat0 + curve * (x * x) - curve * 0.3, 1.0)));
       }
+      const talk = clamp(c.talk ?? 0, 0, 1);
       if (mood === "surprised") {
         const q = S(onHead(0, lat0 - 0.02));
-        em.add(new Pen().ellipse(q[0], q[1], eyeR * 0.45 * Math.max(0.3, mv), eyeR * 0.6), "mouth", { tone: -1, width: 0.5 });
+        em.add(new Pen().ellipse(q[0], q[1], eyeR * 0.45 * Math.max(0.3, mv), eyeR * (0.6 + talk * 0.15)), "mouth", { tone: -1, width: 0.5 });
+      } else if (talk > 0.08) {
+        // parole : lèvre basse qui s'abaisse, intérieur sombre, langue
+        const low: P2[] = [];
+        for (let i = 6; i >= 0; i--) {
+          const t = i / 6, x = (t - 0.5) * 2;
+          low.push(S(onHead(x * mw * 0.92, lat0 + curve * (x * x) - curve * 0.3 - (0.03 + talk * 0.12) * (1 - x * x), 1.0)));
+        }
+        em.add(new Pen().smooth(pts, false, true).raw("").smooth([pts[pts.length - 1], ...low], false, false).Z(), "mouth", { tone: -1, width: 0.5 });
+        if (talk > 0.3) {
+          const tongue = S(onHead(0, lat0 - 0.02 - talk * 0.09));
+          em.add(new Pen().ellipse(tongue[0], tongue[1], eyeR * 0.3 * Math.max(0.3, mv), eyeR * 0.12 * talk), "accent", { stroke: null, alpha: 0.8 });
+        }
       } else if (mood === "happy" && toony) {
         const low: P2[] = [];
         for (let i = 6; i >= 0; i--) {

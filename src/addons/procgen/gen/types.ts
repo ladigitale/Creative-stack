@@ -60,6 +60,11 @@ export type Asset = {
   colors?: Partial<Record<Role, string>>;
   /** Morph de clignement présent (personnages). */
   blink?: boolean;
+  /**
+   * Morphs d'expression du visage (personnages) : sommets `base … base + count - 1` du maillage ; `data` donne, par canal
+   * (`channels`) puis par sommet, le décalage xyz en repère de repos. Voir `gen/character/face.ts`.
+   */
+  expr?: { base: number; count: number; channels: readonly string[]; data: Float32Array };
   /** Pièces souples simulées en 3D (absentes du maillage `mesh`). */
   soft?: SoftPiece[];
   /** Les mêmes, figées dans leur drapé de repos (repère de l'objet) : repli quand le plafond de tissus est atteint. */

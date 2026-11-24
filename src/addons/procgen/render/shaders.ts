@@ -13,6 +13,9 @@ import { HERBE_MAX_PUSH, herbeBendGLSL } from "../../../shared/monde/herbes";
 export const MEADOW_FLOWERS = 8;
 
 export const MAX_BONES = 32;
+/** Canaux d'expression au plus (par 4) et largeur de la texture des morphs d'expression. */
+export const EXPR_SLOTS = 3;
+export const EXPR_TEX_W = 1024;
 
 const COMMON = /* glsl */ `
 float hash13(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
@@ -28,6 +31,8 @@ float fbm3(vec3 p) { return vnoise(p) * 0.55 + vnoise(p * 2.07 + 7.1) * 0.3 + vn
 
 export const VERTEX = /* glsl */ `
 precision highp float;
+#define EXPR_SLOTS ${EXPR_SLOTS}
+#define EXPR_TEX_W ${EXPR_TEX_W}
 in float aRole;
 in float aAO;
 in float aObj;
@@ -44,6 +49,12 @@ in float aInstObj;
 uniform float uSkinned;
 uniform vec4 uDQ[${MAX_BONES * 2}];
 uniform float uBlink;
+#ifndef BLADE
+// morphs d'expression (visage) : texture de décalages lue par numéro de sommet, poids par canal
+uniform highp sampler2D uExprTex;
+uniform vec4 uExprW[EXPR_SLOTS];
+uniform vec2 uExprRange;
+#endif
 uniform float uTime;
 uniform float uWind;
 uniform vec2 uWindDir;
@@ -99,6 +110,16 @@ void main() {
   #ifndef BLADE
   if (uSkinned > 0.5) {
     p += aMorph * uBlink;
+    float ei = float(gl_VertexID) - uExprRange.x;
+    if (ei >= 0.0 && ei < uExprRange.y) {
+      int iv = int(ei), cnt = int(uExprRange.y);
+      for (int c = 0; c < EXPR_SLOTS * 4; c++) {
+        float w = uExprW[c / 4][c % 4];
+        if (w == 0.0) continue;
+        int t = c * cnt + iv;
+        p += texelFetch(uExprTex, ivec2(t % EXPR_TEX_W, t / EXPR_TEX_W), 0).xyz * w;
+      }
+    }
     vec4 r, d;
     dqBlend(r, d);
     vec3 t = 2.0 * (r.w * d.xyz - d.w * r.xyz + cross(r.xyz, d.xyz));
