@@ -286,9 +286,14 @@ export class SonicGcodeView extends LitElement {
     if (src.gcodeSeq === this.progSeq) return;
     this.progSeq = src.gcodeSeq;
     const lines = src.getGcode();
+    const before = this.prog?.bbox ?? null;
     this.prog = lines && lines.length ? parseProgram(lines) : null;
     this.paths = null;
-    if (this.prog?.bbox && (!this.fitted || !this.visible(this.prog.bbox))) this.fit();
+    // Recadrer sur le travail quand il apparaît, change nettement de taille (nouvelle source, autre largeur) ou sort
+    // de la vue ; un simple réglage (puissance, trame) garde le cadrage de l'utilisateur.
+    const b = this.prog?.bbox;
+    const resized = !before || (b && (Math.abs(b.w - before.w) > 0.2 * Math.max(before.w, 1) || Math.abs(b.h - before.h) > 0.2 * Math.max(before.h, 1)));
+    if (b && (!this.fitted || resized || !this.visible(b))) this.fit();
     this.publishState();
     this.schedule();
   }

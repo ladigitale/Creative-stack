@@ -58,7 +58,7 @@ export const TOOLPATH_DEFAULTS: ToolpathSettings = {
   penS: 1000, penDwellS: 0.15,
 };
 
-export const MAX_GCODE_LINES = 400_000;
+export const MAX_GCODE_LINES = 1_200_000;
 const MAX_KERF_POINTS = 4000;
 
 export type ToolPath = { pts: Pt[]; closed: boolean };

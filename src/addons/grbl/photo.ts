@@ -94,9 +94,13 @@ function waveBurns(dark: Sampler, W: number, H: number, spacing: number, s: numb
 }
 
 /** Spirale d'Archimède depuis le centre ; la puissance suit l'obscurité, les zones blanches sont sautées. */
+const SPIRAL_MAX_POINTS = 900_000;
+
 function spiralBurns(dark: Sampler, W: number, H: number, spacing: number, s: number, step: number, minS: number): Burn[] {
   const cx = W / 2, cy = H / 2;
   const rMax = Math.hypot(W, H) / 2;
+  // Pas allongé en grand format pour que la spirale entière tienne (sinon elle s'arrêterait avant les bords).
+  step = Math.max(step, (Math.PI * rMax * rMax) / (spacing * SPIRAL_MAX_POINTS));
   const out: Burn[] = [];
   let pts: [number, number][] = [];
   let pw: number[] = [];
@@ -109,7 +113,7 @@ function spiralBurns(dark: Sampler, W: number, H: number, spacing: number, s: nu
   let total = 0;
   for (;;) {
     const r = (spacing * theta) / (2 * Math.PI);
-    if (r > rMax || total > 400_000) break;
+    if (r > rMax || total > SPIRAL_MAX_POINTS) break;
     const x = cx + r * Math.cos(theta), y = cy + r * Math.sin(theta);
     const inside = x >= 0 && y >= 0 && x <= W && y <= H;
     const d = inside ? dark(x, y) : 0;
