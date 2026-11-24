@@ -320,6 +320,11 @@ export type ParseSvgOptions = {
   precision?: number;
   /** Reçoit chaque forme telle que dessinée (lignes, remplissage, contour), dans l'ordre du document. */
   raw?: (shape: SvgRawShape) => void;
+  /**
+   * Seules les formes brutes (`raw`) intéressent l'appelant : les surfaces pleines (fusion des contours épais,
+   * coûteuse) ne sont pas calculées et `paths` reste vide ; sans viewBox ni taille, le cadre est la boîte des traits.
+   */
+  rawOnly?: boolean;
 };
 
 export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgImport {
@@ -340,6 +345,7 @@ export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgI
   const span = vbox ? Math.max(vbox.w, vbox.h) : Math.max(sizeW || 0, sizeH || 0) || 1000;
   const tol = opts.tol && opts.tol > 0 ? opts.tol : span / (opts.precision && opts.precision > 0 ? opts.precision : 500);
 
+  const rawBox = [Infinity, Infinity, -Infinity, -Infinity];
   const byId = new Map<string, Element>();
   const rules: Rule[] = [];
   let count = 0;
@@ -446,7 +452,15 @@ export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgI
 
     // Remplissage (défaut : noir), sauf pour une ligne.
     const fill = tag === "line" ? null : paint(st.fill ?? "#000000", st);
-    if (fill) {
+    if (opts.rawOnly) {
+      for (const l of lines) for (const p of l.ring) {
+        if (p[0] < rawBox[0]) rawBox[0] = p[0];
+        if (p[1] < rawBox[1]) rawBox[1] = p[1];
+        if (p[0] > rawBox[2]) rawBox[2] = p[0];
+        if (p[1] > rawBox[3]) rawBox[3] = p[1];
+      }
+    }
+    if (fill && !opts.rawOnly) {
       const fo = parseFloat(st["fill-opacity"] ?? "1");
       const opacity = a * fill[1] * (Number.isFinite(fo) ? Math.max(0, Math.min(1, fo)) : 1);
       const shape = fillShape(lines.map((l) => l.ring), (st["fill-rule"] ?? "nonzero").toLowerCase());
@@ -461,7 +475,7 @@ export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgI
     const seal = !!stroke && !!fill && stroke[0] === fill[0] && (el.getAttribute("vector-effect") ?? "").trim() === "non-scaling-stroke";
     const drawn = !!stroke && sw > 0 && !seal;
     opts.raw?.({ lines, fill: fill ? fill[0] : null, stroke: drawn ? stroke![0] : null, strokeWidth: drawn ? sw : 0 });
-    if (stroke && sw > 0 && !seal) {
+    if (stroke && sw > 0 && !seal && !opts.rawOnly) {
       const so = parseFloat(st["stroke-opacity"] ?? "1");
       const opacity = a * stroke[1] * (Number.isFinite(so) ? Math.max(0, Math.min(1, so)) : 1);
       try {
@@ -475,6 +489,10 @@ export function parseSvgDocument(text: string, opts: ParseSvgOptions = {}): SvgI
   };
 
   for (const c of Array.from(root.children)) walk(c, {}, base, 1, 1, 0);
+  if (opts.rawOnly) {
+    const ok = rawBox[2] >= rawBox[0];
+    return { width: vbox?.w ?? (sizeW || (ok ? rawBox[2] - rawBox[0] : 0)), height: vbox?.h ?? (sizeH || (ok ? rawBox[3] - rawBox[1] : 0)), paths: [], skipped, truncated, physical };
+  }
   if (!layers.length) return { width: vbox?.w ?? (sizeW || 0), height: vbox?.h ?? (sizeH || 0), paths: [], skipped, truncated, physical };
 
   let width = vbox?.w ?? sizeW, height = vbox?.h ?? sizeH;

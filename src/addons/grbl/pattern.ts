@@ -3,7 +3,7 @@ import { get } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { DeviceElement, type CommandMap, type DeviceBaseState } from "../../shared/device/base";
 import { listenDp, plain } from "../../shared/audio/dp";
 import type { LaserOp } from "./toolpath";
-import { getPattern, patternParams, PATTERNS, type ParamSpec } from "./patterns";
+import { FAMILIES, getPattern, patternParams, PATTERNS, type ParamSpec } from "./patterns";
 
 const tagName = "sonic-laser-pattern";
 
@@ -22,13 +22,15 @@ export type PatternState = DeviceBaseState & {
   ops: LaserOp[] | null;
   notes: string[];
   seq: number;
-  /** Modèles disponibles. */
-  catalog: { id: string; label: string; description: string }[];
+  /** Modèles disponibles, avec leur famille (`families` : libellés). */
+  catalog: { id: string; label: string; description: string; family: string }[];
+  families: { id: string; label: string }[];
 };
 
 /**
- * Modèle paramétrique pour la découpe et la gravure laser : boîte à encoches, engrenages, puzzle, tampon,
- * porte-clés, pendentif, dessous de verre, règle, grille d'essais. Publie un SVG en millimètres réels
+ * Modèle paramétrique pour la découpe et la gravure laser : objets (boîte à encoches, engrenages, puzzle, tampon,
+ * porte-clés, pendentif, dessous de verre, règle), motifs génératifs gravés au trait (arbre, corail, spirographe,
+ * guilloché, rosace, Truchet, labyrinthe, champ de flux, harmonographe, ondes, motif répété), grille d'essais. Publie un SVG en millimètres réels
  * (noir = gravure, bleu = marquage, rouge = découpe) dans son état, lu par `sonic-gcode svg-from`.
  *
  * - `pattern` : identifiant du modèle ; `params` (DP) : `{ largeur: 60, … }` ; `control` (DP) : `{ pattern, params }`
@@ -44,7 +46,8 @@ export class SonicLaserPattern extends DeviceElement<PatternState> {
   protected state: PatternState = {
     status: "idle", error: null, supported: true, allowed: "unknown", active: false,
     pattern: "", label: "", description: "", params: {}, specs: [], svg: "", widthMm: 0, heightMm: 0, ops: null, notes: [], seq: 0,
-    catalog: PATTERNS.map((p) => ({ id: p.id, label: p.label, description: p.description })),
+    catalog: PATTERNS.map((p) => ({ id: p.id, label: p.label, description: p.description, family: p.family ?? "objets" })),
+    families: FAMILIES,
   };
 
   private live: { pattern?: string; params?: Record<string, unknown> } = {};

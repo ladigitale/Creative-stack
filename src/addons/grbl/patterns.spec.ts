@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./index";
-import { getPattern, patternParams, PATTERNS } from "./patterns";
+import { CUT, ENGRAVE, getPattern, patternParams, PATTERNS } from "./patterns";
 import { analyzeGcode, prepareJob } from "./codec";
 import { readSvgShapes, svgToGcode, TOOLPATH_DEFAULTS, type LaserOp } from "./toolpath";
 import type { SonicLaserPattern } from "./pattern";
@@ -74,5 +74,40 @@ describe("sonic-laser-pattern", () => {
     set("patCtl", { pattern: "inconnu" });
     await wait(80);
     expect(el.getState().error).toContain("modèle inconnu");
+  });
+});
+
+describe("motifs génératifs", () => {
+  const ids = ["arbre", "corail", "spirographe", "guilloche", "rosace", "truchet", "labyrinthe", "flux", "harmonographe", "ondes", "repetition"];
+  for (const id of ids) {
+    it(`${id} : SVG gravé au trait, cadré, en moins d'une seconde`, () => {
+      const def = getPattern(id)!;
+      expect(def.family).toBe("motifs");
+      const t = performance.now();
+      const out = def.build(patternParams(def, {}));
+      expect(performance.now() - t).toBeLessThan(1500);
+      expect(out.svg).toContain(`stroke="${ENGRAVE}"`);
+      expect(out.widthMm).toBe(100);
+      // Tout tient dans le format.
+      const nums = [...out.svg.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+      expect(nums.length).toBeGreaterThan(10);
+      for (const [x, y] of nums) { expect(x).toBeGreaterThanOrEqual(-0.01); expect(y).toBeGreaterThanOrEqual(-0.01); expect(x).toBeLessThanOrEqual(100.01); expect(y).toBeLessThanOrEqual(100.01); }
+    });
+  }
+
+  it("cadre disque : tout dans le cercle, contour découpé ; la graine change le motif", () => {
+    const def = getPattern("arbre")!;
+    const a = def.build(patternParams(def, { cadre: 2, largeur: 80, hauteur: 120 }));
+    expect(a.widthMm).toBe(80);
+    expect(a.svg).toContain(`stroke="${CUT}"`);
+    const b = def.build(patternParams(def, { cadre: 2, largeur: 80, hauteur: 120, graine: 2 }));
+    expect(b.svg).not.toBe(a.svg);
+  });
+
+  it("paramètres à choix : options exposées, valeur = index", () => {
+    const def = getPattern("repetition")!;
+    const rep = def.params.find((s) => s.key === "repetition")!;
+    expect(rep.options?.length).toBe(rep.max + 1);
+    for (let i = 0; i <= rep.max; i++) expect(def.build(patternParams(def, { repetition: i })).svg).toContain("<path");
   });
 });

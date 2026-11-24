@@ -49,7 +49,8 @@ describe("sonic-sketch : SVG avec traits d'origine", () => {
     set("ouvrir", null);
     const { el: b } = await mount({ "open-from": "ouvrir", "max-strokes": "500" });
     set("ouvrir", "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg))));
-    await wait(30);
+    // Décompression asynchrone : sous charge (suite complète en parallèle), 30 ms ne suffisent pas toujours.
+    for (let t = 0; t < 100 && b.getState().strokes !== 2; t++) await wait(20);
     expect(b.getState().strokes).toBe(2);
     expect(b.getState().opened).toEqual({ strokes: 2 });
     expect(b.getState().canUndo).toBe(false);
