@@ -57,3 +57,26 @@ Les boutons Enregistrer / Annuler restent ceux de la modale (`control.save`).
 ```
 
 `suggestPalette({ colors, locked, rule, anchor, variant })` (export de l'addon) fait le même calcul hors composant.
+
+## sonic-theme-colors — thème d'interface depuis une couleur de fond
+
+Une seule couleur choisie, une interface lisible et harmonieuse. `sonic-theme-colors` calcule en OKLCH tout un thème `--sc-*` depuis un fond et un mode (sombre ou clair) et le publie dans `out-data-provider` ; `sonic-css-vars source="…"` (addon `interactive`) l'applique à toute l'interface.
+
+```html
+<sonic-theme-colors params="reglages" out-data-provider="themeP"></sonic-theme-colors>
+<sonic-css-vars source="themeP"> … toute l'interface … </sonic-css-vars>
+```
+
+`reglages` est un store `{ mode: "dark", baseDark: "#150a2e", baseLight: "#fff7ee" }` : deux boutons radio `mode`, un `sonic-input type="color"` par mode (`baseDark`, `baseLight`) ; chaque mode garde son fond. Sans `params` : attributs `mode`, `base`, `base-dark`, `base-light`, `rule`.
+
+| Variable | Calcul |
+|---|---|
+| `--sc-base` | le fond choisi, ramené dans la plage du mode (sombre : clarté 0,12 à 0,30 ; clair : 0,92 à 0,975) et saturation plafonnée |
+| `--sc-base-content` | teinte du fond, clarté poussée jusqu'à 7:1 sur le fond (AAA) |
+| `--sc-primary`, `--sc-secondary` | harmonie de la teinte du fond (`rule`, `split` par défaut : ±150°), clarté poussée jusqu'à 4,5:1 sur le fond |
+| `--sc-*-content` | presque noir ou presque blanc teinté : au moins 4,5:1 sur la couleur |
+| `--sc-info`, `-success`, `-warning`, `-danger` | teintes fixes (230°, 145°, 85°, 25°), au moins 3:1 sur le fond |
+| `--sc-base-50` … `-900` | du fond vers le texte, interpolé en OKLCH |
+| `color-scheme` | `dark` ou `light` |
+
+Les contrastes sont vérifiés par les tests sur un jeu de fonds (noir, blanc, gris, primaires, pastels, sombres saturés), dans les deux modes et les quatre règles. Fonctions pures exportées : `deriveTheme({ base, mode, rule })` (résultat : `mode`, `base` effectif, `vars`, `ratios`), `contrastRatio(a, b)`, `luminance(hex)`. Pour un outil de dessin, `deriveTheme` donne aussi les couleurs de l'interface (barres, boutons, états) à partir du fond de la toile.
