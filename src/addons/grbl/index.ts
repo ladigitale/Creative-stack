@@ -19,6 +19,8 @@ export {
 export { SonicLaserPattern, type PatternState } from "./pattern";
 export { SonicGcodeView, parseProgram, gridSteps, formatDuration, SIM_RATES, type ParsedProgram, type GcodeViewState } from "./gcode-view";
 export { dryRunLines, modalAt, resumeLines, burnPoints, convexHull, frameLines, resumeHint, PLANNER_LOOKBACK, type ModalState, type ResumePlan } from "./jobs";
-export { PATTERNS, getPattern, patternParams, heartPath, starPath, roundRect, gridColor, type PatternDef, type ParamSpec, type Pattern } from "./patterns";
+export { PATTERNS, FAMILIES, getPattern, patternParams, heartPath, starPath, roundRect, gridColor, type PatternDef, type ParamSpec, type Pattern, type PatternFamily } from "./patterns";
+export { optimizeStrokes, strokeLength, type Polyline, type StrokeOptions } from "./lineart";
+export { subdivide, tree, coral, spirograph, guilloche, rosette, truchet, maze, flowField, harmonograph, waves, repeatTiles, fitLines, noise2, SUBDIV_MODES, LEAF_FILLS, TILE_SHAPES, REPEATS } from "./generative";
 export { LINE_STYLES, photoBurns, burnsToGcode, type LineStyle, type Burn, type PhotoTrace } from "./photo";
 export { colorsOf, type FoundColor } from "./toolpath";

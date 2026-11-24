@@ -180,7 +180,7 @@ Modèles paramétriques, sans JS : le SVG (millimètres réels, noir = gravure, 
 { "tagName": "sonic-gcode", "attributes": { "id": "prog", "svg-from": "modeleState", "auto": true, "ops": "…" } }
 ```
 
-`control` = `{ pattern: "boite", params: { largeur: 80, epaisseur: 3 } }` ; l'état publie `specs` (libellé, bornes, pas, unité de chaque paramètre) pour construire le formulaire, et `catalog` (les modèles). La grille d'essais publie aussi `ops` : une opération par case (puissance × vitesse), à passer telle quelle à `sonic-gcode`.
+`control` = `{ pattern: "boite", params: { largeur: 80, epaisseur: 3 } }` ; l'état publie `specs` (libellé, bornes, pas, unité de chaque paramètre ; `options` pour un paramètre à choix, valeur = index du libellé) pour construire le formulaire, `catalog` (les modèles et leur `family`) et `families` (`motifs`, `objets`, `essais`). La grille d'essais publie aussi `ops` : une opération par case (puissance × vitesse), à passer telle quelle à `sonic-gcode`.
 
 | Modèle | Paramètres |
 |---|---|
@@ -188,13 +188,34 @@ Modèles paramétriques, sans JS : le SVG (millimètres réels, noir = gravure, 
 | `boite` | `largeur`, `profondeur`, `hauteur`, `epaisseur`, `creneau`, `couvercle`, `motif` |
 | `engrenages` | `dents1`, `dents2`, `module`, `axe`, `rayons` |
 | `puzzle` | `colonnes`, `lignes`, `piece`, `coins`, `graine`, `motif` |
-| `tampon` | `taille`, `forme` (0 étoile, 1 cœur, 2 fleur), `branches`, `anneau`, `miroir` |
+| `tampon` | `taille`, `forme` (étoile, cœur, fleur), `branches`, `anneau`, `miroir` |
 | `porte-cles` | `largeur`, `hauteur`, `rayon`, `trou`, `bordure`, `motif` |
 | `pendentif` | `diametre`, `trou`, `bordure`, `motif` |
 | `dessous` | `diametre`, `anneaux`, `motif` |
 | `regle` | `longueur` (cm), `largeur` |
 
-`motif` : 0 aucun, 1 cœur, 2 étoile, 3 fleur, 4 rosace.
+`motif` : aucun, cœur, étoile, fleur, rosace (index 0 à 4).
+
+### Motifs génératifs (famille `motifs`)
+
+Gravés au trait (noir, en contour), reproductibles par `graine`. Paramètres communs : `largeur`, `hauteur`, `cadre` (aucun, rectangle découpé, disque découpé, rectangle marqué, disque marqué), `ecart` (mm).
+
+| Modèle | Paramètres propres |
+|---|---|
+| `subdivision` | `mode` (rectangles par coupes, quadtree, triangles, polygones, cercles dans les cercles), `profondeur`, `minimum`, `chance` (%), `irregularite` (%), `enfants`, `retrait` (mm entre enfants), `remplissage` des feuilles (contours concentriques, hachures, cercle inscrit, diagonales, au hasard), `pas` |
+| `arbre` | `profondeur`, `branches`, `angle`, `rapport`, `courbure`, `gravite`, `alea`, `evase` |
+| `corail` | `forme`, `points`, `pas`, `portee`, `germes` (colonisation de l'espace) |
+| `spirographe` | `anneau`, `roue`, `crayon`, `dehors`, `couches`, `decalage` |
+| `guilloche` | `anneaux`, `ondes`, `amplitude`, `phase`, `centre`, `torsion` |
+| `rosace` | `petales`, `couches`, `largeur_p`, `alterne`, `coeur`, `bombe` |
+| `truchet` | `colonnes`, `lignes`, `style` (arcs, diagonales, traits) |
+| `labyrinthe` | `colonnes`, `lignes` |
+| `flux` | `espacement`, `echelle`, `tourbillon`, `longueur` (lignes qui ne se croisent pas) |
+| `harmonographe` | `f1`…`f4`, `amorti`, `phase`, `duree` |
+| `ondes` | `lignes`, `amplitude`, `echelle`, `pic` (faces cachées) |
+| `repetition` | `forme` (tuile), `cotes`, `creux`, `imbrication`, `taille`, `repetition` (grille, quinconce, hexagones, rosace, miroir, anneaux), `ecartX`, `ecartY`, `nombre`, `anneaux`, `rotation`, `pasRotation`, `pasEchelle` |
+
+**Un point n'est brûlé qu'une fois** (`optimizeStrokes`, exporté) : traits superposés et bords communs fusionnés ; à une jonction, seuls les deux traits les mieux alignés passent, les autres s'arrêtent à `ecart` mm ; à un croisement, le trait le plus récent est interrompu de part et d'autre ; les morceaux sont recousus en longs tracés. `ecart` = 0 garde les croisements.
 
 Pour des illustrations plus riches (personnages, arbres, bâtiments, blasons…), `sonic-procgen` en rendu vectoriel publie son SVG (`control.exportSvg`, état `svg`) : même branchement sur `svg-from`, et une opération par couleur.
 

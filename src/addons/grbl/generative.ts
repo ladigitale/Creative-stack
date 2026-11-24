@@ -547,3 +547,209 @@ export function repeatTiles(o: RepeatOpts): Polyline[] {
   }
   return out;
 }
+
+// ─── Subdivision récursive de l'espace en sous-espaces enfants ───────────────────────────────────────────────
+export const SUBDIV_MODES = ["Rectangles (coupes)", "Quadrillage (quadtree)", "Triangles", "Polygones (coupes libres)", "Cercles dans les cercles"] as const;
+export const LEAF_FILLS = ["Aucun", "Contours concentriques", "Hachures", "Cercle inscrit", "Diagonales", "Au hasard"] as const;
+
+export type SubdivOpts = {
+  mode: number; depth: number; minDepth: number; chance: number; ratio: number; inset: number; leaf: number; leafStep: number;
+  children: number; w: number; h: number; seed: number;
+};
+
+type Poly = P2[];
+const area = (p: Poly) => { let s = 0; for (let i = 0, j = p.length - 1; i < p.length; j = i++) s += (p[j][0] + p[i][0]) * (p[j][1] - p[i][1]); return s / 2; };
+const centroid = (p: Poly): P2 => { let x = 0, y = 0; for (const q of p) { x += q[0]; y += q[1]; } return [x / p.length, y / p.length]; };
+
+/** Coupe un polygone convexe par la droite (point, direction) : les deux côtés. */
+function splitConvex(p: Poly, o: P2, d: P2): [Poly, Poly] {
+  const side = (q: P2) => (q[0] - o[0]) * d[1] - (q[1] - o[1]) * d[0];
+  const a: Poly = [], b: Poly = [];
+  for (let i = 0; i < p.length; i++) {
+    const P = p[i], Q = p[(i + 1) % p.length];
+    const sp = side(P), sq = side(Q);
+    (sp >= 0 ? a : b).push(P);
+    if ((sp > 0 && sq < 0) || (sp < 0 && sq > 0)) {
+      const t = sp / (sp - sq);
+      const X: P2 = [P[0] + (Q[0] - P[0]) * t, P[1] + (Q[1] - P[1]) * t];
+      a.push(X);
+      b.push(X);
+    }
+  }
+  return [dedupe(a), dedupe(b)];
+}
+
+/** Retire les sommets confondus (une coupe qui passe par un sommet en ajoute un double). */
+function dedupe(p: Poly): Poly {
+  const out: Poly = [];
+  for (const q of p) {
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(q[0] - last[0], q[1] - last[1]) > 1e-6) out.push(q);
+  }
+  while (out.length > 1 && Math.hypot(out[0][0] - out[out.length - 1][0], out[0][1] - out[out.length - 1][1]) <= 1e-6) out.pop();
+  return out;
+}
+
+/** Retrait d'un polygone convexe de `d` mm vers l'intérieur ; `null` s'il disparaît. */
+export function insetConvex(p: Poly, d: number): Poly | null {
+  if (d <= 0) return p;
+  const s = area(p) > 0 ? 1 : -1;
+  const n = p.length;
+  const lines = p.map((P, i) => {
+    const Q = p[(i + 1) % n];
+    const ex = Q[0] - P[0], ey = Q[1] - P[1], L = Math.hypot(ex, ey) || 1;
+    // Normale intérieure (sens du polygone pris en compte).
+    const nx = (-ey / L) * s, ny = (ex / L) * s;
+    return { p: [P[0] - nx * d, P[1] - ny * d] as P2, d: [ex, ey] as P2 };
+  });
+  const out: Poly = [];
+  for (let i = 0; i < n; i++) {
+    const A = lines[(i + n - 1) % n], B = lines[i];
+    const den = A.d[0] * B.d[1] - A.d[1] * B.d[0];
+    if (Math.abs(den) < 1e-12) { out.push(B.p); continue; }
+    const t = ((B.p[0] - A.p[0]) * B.d[1] - (B.p[1] - A.p[1]) * B.d[0]) / den;
+    out.push([A.p[0] + A.d[0] * t, A.p[1] + A.d[1] * t]);
+  }
+  // Retourné ou trop petit : disparu.
+  return area(out) * area(p) > 0 && Math.abs(area(out)) < Math.abs(area(p)) ? out : null;
+}
+
+const closeRing = (p: Poly): Polyline => [...p, p[0]];
+
+/** Lignes parallèles (angle en radians, écart en mm) coupées dans un polygone convexe. */
+function hatchConvex(p: Poly, angle: number, step: number): Polyline[] {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  // Repère tourné : on balaie selon v = -x s + y c.
+  const vs = p.map(([x, y]) => -x * s + y * c);
+  const v0 = Math.min(...vs), v1 = Math.max(...vs);
+  const out: Polyline[] = [];
+  let k = 0;
+  for (let v = v0 + step / 2; v < v1; v += step, k++) {
+    const hits: P2[] = [];
+    for (let i = 0; i < p.length; i++) {
+      const P = p[i], Q = p[(i + 1) % p.length], a = vs[i], b = vs[(i + 1) % p.length];
+      if ((a - v) * (b - v) < 0) { const t = (v - a) / (b - a); hits.push([P[0] + (Q[0] - P[0]) * t, P[1] + (Q[1] - P[1]) * t]); }
+    }
+    if (hits.length >= 2) out.push(k % 2 ? [hits[0], hits[1]] : [hits[1], hits[0]]);
+  }
+  return out;
+}
+
+function leafFill(p: Poly, kind: number, step: number, r: () => number): Polyline[] {
+  if (kind === 5) kind = 1 + Math.floor(r() * 4);
+  const out: Polyline[] = [];
+  if (kind === 1) {
+    let q: Poly | null = insetConvex(p, step);
+    for (let k = 0; q && k < 200; k++) { out.push(closeRing(q)); q = insetConvex(q, step); }
+  } else if (kind === 2) out.push(...hatchConvex(p, Math.floor(r() * 4) * (Math.PI / 4), step));
+  else if (kind === 3) {
+    // Cercle inscrit approché : centre = centroïde, rayon = distance au bord la plus courte.
+    const [cx, cy] = centroid(p);
+    let rr = Infinity;
+    for (let i = 0; i < p.length; i++) {
+      const P = p[i], Q = p[(i + 1) % p.length], ex = Q[0] - P[0], ey = Q[1] - P[1];
+      rr = Math.min(rr, Math.abs((cx - P[0]) * ey - (cy - P[1]) * ex) / (Math.hypot(ex, ey) || 1));
+    }
+    for (let k = 0; rr - k * step > step * 0.5 && k < 60; k++) {
+      const R = rr - k * step - step * 0.5;
+      out.push(Array.from({ length: 65 }, (_, i) => [cx + Math.cos((i / 64) * TAU) * R, cy + Math.sin((i / 64) * TAU) * R] as P2));
+      if (k === 0 && step <= 0) break;
+    }
+  } else if (kind === 4) {
+    const [cx, cy] = centroid(p);
+    for (const q of p) out.push([q, [cx, cy]]);
+  }
+  return out;
+}
+
+/** Subdivision récursive : chaque région se coupe en enfants, jusqu'à la profondeur voulue (ou au hasard). */
+export function subdivide(o: SubdivOpts): Polyline[] {
+  const r = rng(o.seed);
+  const out: Polyline[] = [];
+  const minSize = Math.max(0.6, o.inset * 2 + 0.3);
+  const jit = () => 0.5 + (r() * 2 - 1) * (o.ratio / 100) * 0.45;
+  const leaf = (p: Poly) => { if (o.leaf) out.push(...leafFill(p, o.leaf, o.leafStep, r)); };
+  const goOn = (level: number) => level < o.minDepth || (level < o.depth && r() * 100 < o.chance);
+
+  const polyRec = (p: Poly, level: number) => {
+    out.push(closeRing(p));
+    const inner = level > 0 ? insetConvex(p, o.inset) : p;
+    if (!inner) return;
+    if (inner !== p) out.push(closeRing(inner));
+    const xs = inner.map((q) => q[0]), ys = inner.map((q) => q[1]);
+    const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+    if (!goOn(level) || Math.min(w, h) < minSize * 2) return leaf(inner);
+    let kids: Poly[] = [];
+    if (o.mode === 0) {
+      // Coupe perpendiculaire au grand côté (ou au hasard si presque carré).
+      const vertical = w > h * 1.15 ? true : h > w * 1.15 ? false : r() < 0.5;
+      const x0 = Math.min(...xs), y0 = Math.min(...ys);
+      const at: P2 = vertical ? [x0 + w * jit(), 0] : [0, y0 + h * jit()];
+      kids = splitConvex(inner, at, vertical ? [0, 1] : [1, 0]);
+    } else if (o.mode === 1) {
+      const x0 = Math.min(...xs), y0 = Math.min(...ys);
+      const mx = x0 + w * jit(), my = y0 + h * jit();
+      for (const half of splitConvex(inner, [mx, 0], [0, 1])) kids.push(...splitConvex(half, [0, my], [1, 0]));
+    } else if (o.mode === 2) {
+      if (inner.length === 3 && o.children >= 4) {
+        const [a, b, c] = inner;
+        const m = (u: P2, v: P2, t: number): P2 => [u[0] + (v[0] - u[0]) * t, u[1] + (v[1] - u[1]) * t];
+        const ab = m(a, b, jit()), bc = m(b, c, jit()), ca = m(c, a, jit());
+        kids = [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]];
+      } else {
+        // Coupe du plus long côté vers le sommet opposé (ou par le milieu pour un non-triangle).
+        let best = 0, bl = -1;
+        for (let i = 0; i < inner.length; i++) { const P = inner[i], Q = inner[(i + 1) % inner.length], L = Math.hypot(Q[0] - P[0], Q[1] - P[1]); if (L > bl) { bl = L; best = i; } }
+        const P = inner[best], Q = inner[(best + 1) % inner.length], t = jit();
+        const M: P2 = [P[0] + (Q[0] - P[0]) * t, P[1] + (Q[1] - P[1]) * t];
+        const opp = inner.length === 3 ? inner[(best + 2) % 3] : centroid(inner);
+        kids = splitConvex(inner, M, [opp[0] - M[0], opp[1] - M[1]]);
+      }
+    } else {
+      // Coupe à travers la plus grande longueur (paire de sommets la plus éloignée), inclinée au hasard :
+      // des éclats équilibrés plutôt que des lamelles.
+      let A = inner[0], B = inner[1], best = -1;
+      for (let i = 0; i < inner.length; i++) for (let j = i + 1; j < inner.length; j++) {
+        const d = (inner[i][0] - inner[j][0]) ** 2 + (inner[i][1] - inner[j][1]) ** 2;
+        if (d > best) { best = d; A = inner[i]; B = inner[j]; }
+      }
+      const t = jit();
+      const M: P2 = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+      const a = Math.atan2(B[1] - A[1], B[0] - A[0]) + Math.PI / 2 + (r() * 2 - 1) * (o.ratio / 100) * (Math.PI / 4);
+      kids = splitConvex(inner, M, [Math.cos(a), Math.sin(a)]);
+    }
+    kids = kids.filter((k) => k.length >= 3 && Math.abs(area(k)) > 1e-6);
+    if (!kids.length) return leaf(inner);
+    for (const k of kids) polyRec(k, level + 1);
+  };
+
+  const circleRec = (cx: number, cy: number, R: number, level: number) => {
+    const nSeg = Math.max(24, Math.min(180, Math.round(R * 4)));
+    out.push(Array.from({ length: nSeg + 1 }, (_, i) => [cx + Math.cos((i / nSeg) * TAU) * R, cy + Math.sin((i / nSeg) * TAU) * R] as P2));
+    const inner = R - o.inset;
+    if (inner < minSize || !goOn(level)) {
+      if (o.leaf && inner > 0) leaf(Array.from({ length: 24 }, (_, i) => [cx + Math.cos((i / 24) * TAU) * inner, cy + Math.sin((i / 24) * TAU) * inner] as P2));
+      return;
+    }
+    // Enfants : disques sans chevauchement dans le parent, du plus grand au plus petit.
+    const kids: [number, number, number][] = [];
+    const target = Math.max(2, o.children);
+    for (let tries = 0; tries < target * 60 && kids.length < target; tries++) {
+      const rr = inner * (0.18 + 0.4 * r() * (1 - kids.length / (target + 1))) * (1 - (o.ratio / 100) * 0.3 * r());
+      const a = r() * TAU, d = r() * (inner - rr);
+      const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+      if (kids.every(([kx, ky, kr]) => Math.hypot(kx - x, ky - y) >= kr + rr + o.inset)) kids.push([x, y, rr]);
+    }
+    for (const [x, y, rr] of kids) circleRec(x, y, rr, level + 1);
+  };
+
+  if (o.mode === 4) circleRec(o.w / 2, o.h / 2, Math.min(o.w, o.h) / 2 - 0.05, 0);
+  else if (o.mode === 2) {
+    // Triangles : le format coupé par une diagonale.
+    const diag = r() < 0.5;
+    const A: P2 = [0, 0], B: P2 = [o.w, 0], C: P2 = [o.w, o.h], D: P2 = [0, o.h];
+    out.push(closeRing([A, B, C, D]));
+    for (const t of diag ? [[A, B, C], [A, C, D]] : [[A, B, D], [B, C, D]]) polyRec(t as Poly, 1);
+  } else polyRec([[0, 0], [o.w, 0], [o.w, o.h], [0, o.h]], 0);
+  return out;
+}
