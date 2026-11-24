@@ -129,14 +129,15 @@ function twoOpt(seq: OrderPath[], from: Pt, budgetMs: number): OrderPath[] {
 }
 
 /**
- * Ordonne des contours et traits : intérieurs d'abord, puis au plus proche, 2-opt dans chaque niveau.
- * `from` : position de la tête au départ. Au-delà de `MAX_ORDER` tracés, seul le glouton par niveaux s'applique.
+ * Ordonne des contours et traits : intérieurs d'abord (sauf `insideFirst` faux), puis au plus proche, 2-opt dans
+ * chaque niveau. `from` : position de la tête au départ. Au-delà de `MAX_ORDER` tracés, seul le glouton par niveaux
+ * s'applique.
  */
-export function orderPaths(paths: OrderPath[], from: Pt = [0, 0], budgetMs = 120): OrderPath[] {
+export function orderPaths(paths: OrderPath[], from: Pt = [0, 0], budgetMs = 120, insideFirst = true): OrderPath[] {
   if (paths.length < 2) return paths;
   if (paths.length > MAX_ORDER) return paths;
   const boxes = paths.map((p) => boxOf(p.pts));
-  const depth = paths.length <= MAX_DEPTH_PATHS ? depths(paths, boxes) : paths.map(() => 0);
+  const depth = insideFirst && paths.length <= MAX_DEPTH_PATHS ? depths(paths, boxes) : paths.map(() => 0);
   const levels = [...new Set(depth)].sort((a, b) => b - a);
   const out: OrderPath[] = [];
   let at = from;

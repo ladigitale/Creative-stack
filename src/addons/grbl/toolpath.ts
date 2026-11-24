@@ -10,12 +10,15 @@ import { burnsToGcode, LINE_STYLES, photoBurns, type LineStyle } from "./photo";
  * à ligne). Fonctions pures, en millimètres, origine en bas à gauche (axe Y vers le fond de la machine).
  */
 
-export type LaserMode = "auto" | "line" | "fill" | "skip";
+export type LaserMode = "auto" | "line" | "fill" | "both" | "skip";
 
 export type LaserOp = {
   /** Couleur visée (`#rrggbb`) ; absente pour les réglages par défaut. */
   color?: string;
-  /** `line` suit le trait ou le contour, `fill` hachure la surface, `auto` : trait pour un contour, hachures pour un remplissage. */
+  /**
+   * `line` suit le trait ou le contour, `fill` hachure la surface, `both` hachure la surface puis suit son contour,
+   * `auto` : trait pour un contour, hachures pour un remplissage.
+   */
   mode: LaserMode;
   /** Puissance en % de la pleine puissance. */
   power: number;
@@ -26,6 +29,23 @@ export type LaserOp = {
   interval: number;
   /** Décalage du contour en mm (positif : vers l'extérieur) pour compenser la largeur du trait de coupe. */
   kerf: number;
+  /** Hachures : angle en degrés (0 = horizontales), croisées (deuxième jeu à +90°), dans un seul sens. */
+  angle?: number;
+  cross?: boolean;
+  oneWay?: boolean;
+  /** Hachures : dépassement faisceau coupé en bout de ligne, en mm (la tête est à vitesse quand elle grave). */
+  overscan?: number;
+  /** Contours fermés : attaches laissées non coupées (nombre par contour, largeur en mm) pour tenir la pièce. */
+  tabs?: number;
+  tabMm?: number;
+  /** Contours : les intérieurs d'abord (défaut), sinon au plus proche seulement. */
+  insideFirst?: boolean;
+  /** Contours fermés : amorce tangentielle en mm (le faisceau s'allume avant le contour, dans son prolongement). */
+  leadMm?: number;
+  /** Puissance de la dernière passe en % (les passes intermédiaires vont de `power` à `powerEnd`). */
+  powerEnd?: number;
+  /** Assistance d'air (M8 … M9) pendant l'opération. */
+  air?: boolean;
   /**
    * Rendu des surfaces remplies : absent = hachures vectorielles ; sinon la surface est balayée comme une image
    * (gris = clarté de la couleur de remplissage) avec un tramage (`DITHER_MODES`, `gray`) ou tracée en traits
@@ -111,8 +131,30 @@ export function cleanOp(raw: Record<string, unknown>, base: LaserOp): LaserOp {
     const v = raw[k];
     return v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v)) ? clamp(Number(v), min, max) : (base[k] as number);
   };
-  const mode = ["auto", "line", "fill", "skip"].includes(raw.mode as string) ? (raw.mode as LaserMode) : base.mode;
+  const mode = ["auto", "line", "fill", "both", "skip"].includes(raw.mode as string) ? (raw.mode as LaserMode) : base.mode;
   const op: LaserOp = { mode, power: n("power", 0, 100), speed: n("speed", 10, 20000), passes: Math.round(n("passes", 1, 50)), interval: n("interval", 0.03, 10), kerf: n("kerf", -5, 5) };
+  // Réglages facultatifs : posés seulement s'ils sont donnés (ou hérités), pour garder des opérations simples.
+  const opt = (k: keyof LaserOp, min: number, max: number, round = false): void => {
+    const v = raw[k] ?? base[k];
+    if (v === undefined || v === null || v === "" || !Number.isFinite(Number(v))) return;
+    const x = clamp(Number(v), min, max);
+    (op as Record<string, unknown>)[k] = round ? Math.round(x) : x;
+  };
+  const flag = (k: keyof LaserOp): void => {
+    const v = raw[k] ?? base[k];
+    if (v === undefined || v === null || v === "") return;
+    (op as Record<string, unknown>)[k] = v === true || v === "true" || v === "oui" || v === 1 || v === "1";
+  };
+  opt("angle", -180, 180);
+  opt("overscan", 0, 20);
+  opt("tabs", 0, 24, true);
+  opt("tabMm", 0.1, 20);
+  opt("leadMm", 0, 20);
+  opt("powerEnd", 0, 100);
+  flag("cross");
+  flag("oneWay");
+  flag("insideFirst");
+  flag("air");
   const color = hexColor(raw.color);
   if (color) op.color = color;
   const render = typeof raw.render === "string" ? raw.render : base.render;
@@ -141,8 +183,18 @@ export function readSvgShapes(text: string): SvgShapes {
 }
 
 // ─── Hachures ────────────────────────────────────────────────────────────────────────────────────────────────────
-/** Remplit des contours (règle pair-impair) de segments horizontaux espacés de `interval`, en serpentin. */
-export function hatch(rings: Ring[], interval: number): [Pt, Pt][] {
+/**
+ * Remplit des contours (règle pair-impair) de segments espacés de `interval`, en serpentin (ou tous dans le même
+ * sens si `oneWay`), inclinés de `angle` degrés (0 = horizontaux).
+ */
+export function hatch(rings: Ring[], interval: number, angle = 0, oneWay = false): [Pt, Pt][] {
+  const a = ((angle % 180) + 180) % 180;
+  if (a > 1e-9) {
+    // Hachures inclinées : contours tournés de −angle, hachures horizontales, segments tournés de +angle.
+    const t = (a * Math.PI) / 180, c = Math.cos(t), sn = Math.sin(t);
+    const rot = (p: Pt, k: number): Pt => [p[0] * c + k * p[1] * sn, -k * p[0] * sn + p[1] * c];
+    return hatch(rings.map((r) => r.map((p) => rot(p, 1))), interval, 0, oneWay).map(([p, q]) => [rot(p, -1), rot(q, -1)]);
+  }
   let minY = Infinity, maxY = -Infinity;
   for (const r of rings) for (const p of r) { if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1]; }
   const out: [Pt, Pt][] = [];
@@ -162,15 +214,58 @@ export function hatch(rings: Ring[], interval: number): [Pt, Pt][] {
     if (!row.length) continue;
     if (flip) for (let i = row.length - 1; i >= 0; i--) out.push([row[i][1], row[i][0]]);
     else out.push(...row);
-    flip = !flip;
+    if (!oneWay) flip = !flip;
   }
   return out;
 }
 
 // ─── Ordre des parcours ──────────────────────────────────────────────────────────────────────────────────────────
 /** Intérieurs d'abord, puis au plus proche (voir `order.ts`). */
-export function orderPaths(paths: ToolPath[], from: Pt = [0, 0]): ToolPath[] {
-  return order(paths, from);
+export function orderPaths(paths: ToolPath[], from: Pt = [0, 0], insideFirst = true): ToolPath[] {
+  return order(paths, from, 120, insideFirst);
+}
+
+/**
+ * Attaches d'un contour fermé : `n` ponts de `w` mm répartis sur le périmètre. Retourne des morceaux à parcourir
+ * d'affilée, faisceau allumé (`on`) ou coupé ; contour trop court : un seul morceau allumé.
+ */
+export function withTabs(pts: Pt[], n: number, w: number): { pts: Pt[]; on: boolean }[] {
+  const ring = [...pts, pts[0]];
+  const lens: number[] = [];
+  let total = 0;
+  for (let i = 1; i < ring.length; i++) { const l = Math.hypot(ring[i][0] - ring[i - 1][0], ring[i][1] - ring[i - 1][1]); lens.push(l); total += l; }
+  if (n < 1 || w <= 0 || total < n * w * 3) return [{ pts: ring, on: true }];
+  // Bornes des attaches le long du périmètre (centrées sur des points équidistants, décalées d'une demi-période).
+  const cuts: { at: number; on: boolean }[] = [];
+  for (let k = 0; k < n; k++) {
+    const mid = ((k + 0.5) * total) / n;
+    cuts.push({ at: mid - w / 2, on: false }, { at: mid + w / 2, on: true });
+  }
+  const pointAt = (d: number): Pt => {
+    let acc = 0;
+    for (let i = 0; i < lens.length; i++) {
+      if (acc + lens[i] >= d) { const t = lens[i] ? (d - acc) / lens[i] : 0; return [ring[i][0] + (ring[i + 1][0] - ring[i][0]) * t, ring[i][1] + (ring[i + 1][1] - ring[i][1]) * t]; }
+      acc += lens[i];
+    }
+    return ring[ring.length - 1];
+  };
+  const out: { pts: Pt[]; on: boolean }[] = [];
+  let cur: { pts: Pt[]; on: boolean } = { pts: [ring[0]], on: true };
+  let acc = 0, c = 0;
+  for (let i = 1; i < ring.length; i++) {
+    const end = acc + lens[i - 1];
+    while (c < cuts.length && cuts[c].at <= end) {
+      const p = pointAt(cuts[c].at);
+      cur.pts.push(p);
+      out.push(cur);
+      cur = { pts: [p], on: cuts[c].on };
+      c++;
+    }
+    cur.pts.push(ring[i]);
+    acc = end;
+  }
+  out.push(cur);
+  return out.filter((m) => m.pts.length >= 2);
 }
 
 // ─── Du SVG aux passes ───────────────────────────────────────────────────────────────────────────────────────────
@@ -194,7 +289,11 @@ export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolP
     if (shape.fill && !white(shape.fill)) {
       const op = opFor(shape.fill, s);
       if (op.mode === "line") items.push({ op, kind: "line", lines: shape.lines.map((l) => ({ ring: l.ring, closed: true })), key: `line${shape.fill}` });
-      else if (op.mode !== "skip") items.push({ op, kind: "fill", lines: shape.lines, key: `fill${shape.fill}`, color: shape.fill });
+      else if (op.mode !== "skip") {
+        items.push({ op, kind: "fill", lines: shape.lines, key: `fill${shape.fill}`, color: shape.fill });
+        // Hachures puis contour : la surface gravée garde un bord net.
+        if (op.mode === "both") items.push({ op, kind: "line", lines: shape.lines.map((l) => ({ ring: l.ring, closed: true })), key: `line${shape.fill}` });
+      }
     }
   }
   if (!items.length) return { passes: [], rasters: [], issues, sizeMm: null };
@@ -238,8 +337,13 @@ export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolP
     if (it.kind === "fill") {
       // Une île (forme et ses trous) à la fois, en serpentin : la tête ne traverse pas tout le dessin à chaque ligne.
       for (const island of islands(lines.map((l) => l.ring).filter((r) => r.length >= 3))) {
-        const segs = hatch(island, it.op.interval).map(([a, b]) => ({ pts: [a, b], closed: false }));
+        const angle = it.op.angle ?? 0;
+        const segs = hatch(island, it.op.interval, angle, it.op.oneWay).map(([a, b]) => ({ pts: [a, b], closed: false }));
         if (segs.length) blocks.push(segs);
+        if (it.op.cross) {
+          const crossed = hatch(island, it.op.interval, angle + 90, it.op.oneWay).map(([a, b]) => ({ pts: [a, b], closed: false }));
+          if (crossed.length) blocks.push(crossed);
+        }
       }
       continue;
     }
@@ -258,16 +362,17 @@ export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolP
   }
   if (kerfSkipped) issues.push("compensation du trait (kerf) ignorée : forme trop détaillée");
 
-  // Ordre : hachures d'abord, puis traits ; à l'intérieur, les couleurs sans réglage propre puis l'ordre de `ops`.
+  // Ordre : les couleurs sans réglage propre, puis l'ordre de `ops` (la découpe en dernier) ; dans une opération,
+  // les hachures avant les contours.
   const rank = (p: ToolPass): number => {
     const at = p.op.color ? s.ops.findIndex((o) => o.color === p.op.color) : -1;
-    return (p.kind === "fill" ? 0 : 1000) + at + 1;
+    return (at + 1) * 2 + (p.kind === "fill" ? 0 : 1);
   };
   // Ordre dans chaque passe, la tête partant de là où la passe précédente l'a laissée.
   const passes = [...groups.values()];
   let at: Pt = [0, 0];
   const ordered = passes.sort((a, b) => rank(a) - rank(b)).map((p) => {
-    p.paths = p.kind === "fill" ? orderBlocks(fillBlocks.get(p) ?? [], at) : orderPaths(p.paths, at);
+    p.paths = p.kind === "fill" ? orderBlocks(fillBlocks.get(p) ?? [], at) : orderPaths(p.paths, at, p.op.insideFirst !== false);
     const last = p.paths[p.paths.length - 1];
     if (last) at = last.closed ? last.pts[0] : last.pts[last.pts.length - 1];
     return p;
@@ -345,8 +450,9 @@ export function rasterFillToGcode(fill: RasterFill, s: ToolpathSettings, maxLine
     : rasterToGcode(img.gray, img.cols, img.rows, { widthMm: img.cols * img.px, xMm: img.x, yMm: img.y, dither: style as DitherMode | "gray", threshold: 128, power: op.power, minPower: 0, speed: op.speed, maxS: s.maxS, returnHome: false });
   if (!block) return null;
   // Pas de push(...block) : un balayage dépasse vite la taille de pile d'un appel à arguments étalés.
-  let out: string[] = [];
+  let out: string[] = op.air ? ["M8"] : [];
   for (let p = 0; p < Math.max(1, op.passes); p++) out = out.concat(block);
+  if (op.air) out.push("M9");
   return out.length > maxLines ? null : out;
 }
 
@@ -358,16 +464,59 @@ export function emitPasses(passes: ToolPass[], s: ToolpathSettings): string[] | 
   const out: string[] = ["G90", "G21", "M5"];
   if (!pen) out.push("M4S0");
   const dwell = `G4P${num(clamp(s.penDwellS, 0, 5))}`;
+  let air = false;
   for (const pass of passes) {
+    const op = pass.op;
     // Commentaire lu par l'aperçu (couleur de l'opération) ; retiré avant l'envoi à la machine.
-    if (pass.op.color) out.push(`;op ${pass.op.color}`);
-    const power = `S${num(Math.round((clamp(pass.op.power, 0, 100) / 100) * s.maxS))}`;
-    const feed = `F${num(pass.op.speed)}`;
-    const trace = (path: ToolPath): void => {
-      out.push(`G0${xy(path.pts[0])}`);
+    if (op.color) out.push(`;op ${op.color}`);
+    if (!pen && !!op.air !== air) { air = !!op.air; out.push(air ? "M8" : "M9"); }
+    // Puissance de chaque passe : de `power` à `powerEnd` (si donnée), en ligne droite.
+    const powerOf = (rep: number): string => {
+      const end = op.powerEnd ?? op.power;
+      const pc = op.passes > 1 ? op.power + ((end - op.power) * rep) / (op.passes - 1) : op.power;
+      return `S${num(Math.round((clamp(pc, 0, 100) / 100) * s.maxS))}`;
+    };
+    const feed = `F${num(op.speed)}`;
+    const over = pass.kind === "fill" && !pen ? clamp(op.overscan ?? 0, 0, 20) : 0;
+    const tabs = pass.kind === "line" && !pen ? op.tabs ?? 0 : 0;
+    const lead = pass.kind === "line" && !pen ? clamp(op.leadMm ?? 0, 0, 20) : 0;
+    const trace = (path: ToolPath, rep: number): void => {
+      const power = pen ? "" : powerOf(rep);
+      if (over > 0 && path.pts.length === 2) {
+        // Dépassement : la tête prend sa vitesse faisceau coupé, grave, puis ralentit au-delà du bord.
+        const [a, b] = path.pts;
+        const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        const ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L;
+        out.push(`G0${xy([a[0] - ux * over, a[1] - uy * over])}`, `G1${xy(a)}S0${feed}`, `G1${xy(b)}${power}`, `G1${xy([b[0] + ux * over, b[1] + uy * over])}S0`);
+        return;
+      }
+      if (path.closed && tabs > 0) {
+        // Attaches : le contour est parcouru d'un trait, faisceau coupé sur les ponts.
+        const parts = withTabs(path.pts, tabs, op.tabMm ?? 1);
+        out.push(`G0${xy(parts[0].pts[0])}`);
+        let first = true;
+        for (const part of parts) {
+          const sw = part.on ? power : "S0";
+          for (let i = 1; i < part.pts.length; i++) {
+            out.push(`G1${xy(part.pts[i])}${i === 1 ? sw : ""}${first ? feed : ""}`);
+            first = false;
+          }
+        }
+        return;
+      }
+      let start = path.pts[0];
+      if (path.closed && lead > 0 && path.pts.length >= 2) {
+        // Amorce : départ dans le prolongement du premier côté, faisceau déjà allumé en arrivant sur le contour.
+        const nx = path.pts[1][0] - start[0], ny = path.pts[1][1] - start[1], L = Math.hypot(nx, ny) || 1;
+        start = [start[0] - (nx / L) * lead, start[1] - (ny / L) * lead];
+        out.push(`G0${xy(start)}`, `G1${xy(path.pts[0])}${power}${feed}`);
+        for (const p of [...path.pts.slice(1), path.pts[0]]) out.push(`G1${xy(p)}`);
+        return;
+      }
+      out.push(`G0${xy(start)}`);
       if (pen) out.push(`M3S${num(s.penS)}`, dwell);
       const pts = path.closed ? [...path.pts.slice(1), path.pts[0]] : path.pts.slice(1);
-      for (let i = 0; i < pts.length; i++) out.push(i === 0 ? `G1${xy(pts[i])}${pen ? "" : power}${feed}` : `G1${xy(pts[i])}`);
+      for (let i = 0; i < pts.length; i++) out.push(i === 0 ? `G1${xy(pts[i])}${power}${feed}` : `G1${xy(pts[i])}`);
       if (pen) out.push("M5", dwell);
     };
     if (pass.kind === "line") {
@@ -375,19 +524,20 @@ export function emitPasses(passes: ToolPass[], s: ToolpathSettings): string[] | 
       // l'autre sens) ; le G0 de reprise est sur place.
       for (const path of pass.paths) {
         if (path.pts.length < 2) continue;
-        for (let rep = 0; rep < pass.op.passes; rep++) trace(path.closed || rep % 2 === 0 ? path : { pts: [...path.pts].reverse(), closed: false });
+        for (let rep = 0; rep < op.passes; rep++) trace(path.closed || rep % 2 === 0 ? path : { pts: [...path.pts].reverse(), closed: false }, rep);
         if (out.length > MAX_GCODE_LINES) return null;
       }
       continue;
     }
-    for (let rep = 0; rep < pass.op.passes; rep++) {
+    for (let rep = 0; rep < op.passes; rep++) {
       for (const path of pass.paths) {
         if (path.pts.length < 2) continue;
-        trace(path);
+        trace(path, rep);
         if (out.length > MAX_GCODE_LINES) return null;
       }
     }
   }
+  if (air) out.push("M9");
   out.push("M5");
   if (s.returnHome) out.push("G0X0Y0");
   return out;

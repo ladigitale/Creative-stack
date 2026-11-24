@@ -105,7 +105,7 @@
         },
         "ops": {
           "type": "string",
-          "description": "JSON [{color, mode, power, speed, passes, interval, kerf, render?, spacing?, levels?}] : réglages par couleur, dans l'ordre d'exécution ; render (gray, un tramage, ou hatch | waves | spiral | isolines | stipple) balaie ou trace les surfaces de cette couleur comme une image (gris = clarté d'un remplissage gris, couleur franche = noir ; interval = définition, spacing = écart des traits) au lieu des hachures vectorielles"
+          "description": "JSON [{color, mode (auto | line | fill | both | skip), power, speed, passes, interval, kerf, angle?, cross?, oneWay?, overscan?, tabs?, tabMm?, insideFirst?, leadMm?, powerEnd?, air?, render?, spacing?, levels?}] : réglages par couleur, dans l'ordre d'exécution (hachures : angle, croisées, sens unique, dépassement mm ; découpe : attaches nombre / largeur mm, intérieurs d'abord, amorce mm ; puissance de la dernière passe, air M8) ; render (gray, un tramage, ou hatch | waves | spiral | isolines | stipple) balaie ou trace les surfaces de cette couleur comme une image (gris = clarté d'un remplissage gris, couleur franche = noir ; interval = définition, spacing = écart des traits) au lieu des hachures vectorielles"
         },
         "width-mm": {
           "type": "number",
@@ -242,6 +242,14 @@
         "no-controls": {
           "type": "boolean",
           "description": "Masque les boutons de zoom intégrés"
+        },
+        "player": {
+          "type": "boolean",
+          "description": "Lecteur de simulation : lecture / pause, retour, barre, temps, vitesse ×1 à ×100 (aussi control.player)"
+        },
+        "rapid": {
+          "type": "number",
+          "description": "Vitesse des déplacements à vide (G0) pour la durée simulée, en mm/min (3000)"
         },
         "gestures": {
           "type": "string",

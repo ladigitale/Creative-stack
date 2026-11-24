@@ -21,6 +21,10 @@ export type ParsedProgram = {
   level: Int8Array;
   /** Ligne du programme préparé (lignes vides et commentaires retirés, comme `sonic-grbl`) de chaque segment. */
   line: Uint32Array;
+  /** Instant de fin de chaque segment, en secondes depuis le début (vitesses du programme ; G0 à `rapid`). */
+  tEnd: Float64Array;
+  /** Durée totale estimée en secondes. */
+  total: number;
   count: number;
   colors: string[];
   /** Emprise des segments brûlés (sinon de tous les mouvements). */
@@ -31,10 +35,15 @@ export type ParsedProgram = {
 const WORD = /([GXYSMF])([+-]?(?:\d+\.?\d*|\.\d+))/g;
 const MAX_SEGMENTS = 1_500_000;
 
-/** Lit un programme G-code (absolu ou relatif, mm) en segments typés. Pur, testable. */
-export function parseProgram(source: string[], maxS = 1000): ParsedProgram {
+/**
+ * Lit un programme G-code (absolu ou relatif, mm) en segments typés, avec l'instant de fin de chacun (vitesse F des
+ * mouvements de travail, `rapid` mm/min pour les G0, sans les accélérations). Pur, testable.
+ */
+export function parseProgram(source: string[], maxS = 1000, rapid = 3000): ParsedProgram {
   let cap = 4096;
   let xy = new Float32Array(cap * 4), color = new Uint16Array(cap), level = new Int8Array(cap), line = new Uint32Array(cap);
+  let tEnd = new Float64Array(cap);
+  let t = 0, feed = 1000;
   const colors: string[] = ["#141414"];
   let current = 0, count = 0, prepared = 0;
   let x = 0, y = 0, abs = true, motion = 0, s = 0, on = false;
@@ -46,6 +55,7 @@ export function parseProgram(source: string[], maxS = 1000): ParsedProgram {
     const nc = new Uint16Array(cap); nc.set(color); color = nc;
     const nl = new Int8Array(cap); nl.set(level); level = nl;
     const nn = new Uint32Array(cap); nn.set(line); line = nn;
+    const nt = new Float64Array(cap); nt.set(tEnd); tEnd = nt;
   };
   for (const raw of source) {
     const text = String(raw);
@@ -69,6 +79,7 @@ export function parseProgram(source: string[], maxS = 1000): ParsedProgram {
       if (m[1] === "G") { if (v >= 0 && v <= 3) motion = v; else if (v === 90) abs = true; else if (v === 91) abs = false; }
       else if (m[1] === "M") { if (v === 3 || v === 4) on = true; else if (v === 5) on = false; }
       else if (m[1] === "S") s = v;
+      else if (m[1] === "F" && v > 0) feed = v;
       else if (m[1] === "X") nx = v;
       else if (m[1] === "Y") ny = v;
     }
@@ -82,6 +93,8 @@ export function parseProgram(source: string[], maxS = 1000): ParsedProgram {
       color[count] = current;
       level[count] = burn ? Math.min(3, Math.floor((s / Math.max(1, maxS)) * 4)) : -1;
       line[count] = index;
+      t += Math.hypot(tx - x, ty - y) / (Math.max(1, motion === 0 ? rapid : feed) / 60);
+      tEnd[count] = t;
       count++;
       if (burn) {
         bMinX = Math.min(bMinX, x, tx); bMaxX = Math.max(bMaxX, x, tx);
@@ -97,7 +110,7 @@ export function parseProgram(source: string[], maxS = 1000): ParsedProgram {
   }
   const bbox = Number.isFinite(bMinX) ? { x: bMinX, y: bMinY, w: bMaxX - bMinX, h: bMaxY - bMinY }
     : Number.isFinite(aMinX) ? { x: aMinX, y: aMinY, w: aMaxX - aMinX, h: aMaxY - aMinY } : null;
-  return { xy, color, level, line, count, colors, bbox, lines: prepared };
+  return { xy, color, level, line, tEnd, total: t, count, colors, bbox, lines: prepared };
 }
 
 /** Pas de grille « rond » (1, 2, 5 × 10ⁿ mm) d'au moins `minPx` pixels à ce zoom, et sa subdivision. */
@@ -122,8 +135,21 @@ export type GcodeViewState = {
   lines: number;
   /** Plateau de la machine dans le repère du travail (origine posée prise en compte), si connu. */
   bed: Box | null;
+  /** Lecture simulée : instant `t` et durée `total` en secondes, lecture en cours, vitesse (× temps réel). */
+  sim: { t: number; total: number; playing: boolean; rate: number };
   seq: number;
 };
+
+/** Vitesses proposées par le lecteur (× temps réel). */
+export const SIM_RATES = [1, 2, 5, 10, 25, 50, 100] as const;
+
+/** Durée lisible : 42 s, 3 min 05 s, 1 h 02 min. */
+export function formatDuration(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`;
+  return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min`;
+}
 
 /**
  * Vue du programme réel (`sonic-gcode`) à zoom libre, avec repère en millimètres : grille, règles cotées,
@@ -133,10 +159,15 @@ export type GcodeViewState = {
  *   ou `bed="410 400"` : plateau en mm ; `state-from` : état d'un `sonic-grbl` (tête, origine posée, tâche en cours).
  * - Gestes : molette ou pincement = zoom sous le pointeur, glisser = déplacer, double-clic = tout voir ;
  *   + − 0 au clavier. Boutons intégrés (zoom, cadrer, plateau) sauf `no-controls`.
- * - `control` (DP) : `{fit: n, bed: n, zoomIn: n, zoomOut: n, upTo: 0..1 (simulation : tracé jusque-là, tête au
- *   point atteint ; 1 ou vide = tout le tracé), travel: bool (déplacements à vide en pointillés), beamMm}`.
+ * - `control` (DP) : `{fit: n, bed: n, zoomIn: n, zoomOut: n, upTo: 0..1 (simulation : tracé jusqu'à cette part de la
+ *   durée, tête au point atteint ; 1 ou vide = tout le tracé), travel: bool (déplacements à vide en pointillés), beamMm,
+ *   player: bool (lecteur affiché), play: n / pause: n / rewind: n (compteurs), rate: 1..100 (× temps réel)}`.
+ * - `player` : lecteur intégré (lecture / pause, retour au début, barre de défilement, temps écoulé / durée, vitesse
+ *   ×1 à ×100) qui rejoue le parcours au rythme des vitesses du programme (G0 à `rapid` mm/min, accélérations non
+ *   comptées). Espace : lecture / pause. Masqué pendant une vraie tâche.
  * - `drag-job` + `target` (store) : glisser l'emprise envoie `{type: "place", payload: {dx, dy}}` (mm) au lâcher.
- * - État `out-data-provider` (défaut `<id>State`) : `{status, pointer, zoom, bbox, segments, lines, bed, seq}`.
+ * - État `out-data-provider` (défaut `<id>State`) : `{status, pointer, zoom, bbox, segments, lines, bed, sim: {t, total,
+ *   playing, rate}, seq}`.
  */
 @customElement(tagName)
 export class SonicGcodeView extends LitElement {
@@ -152,6 +183,14 @@ export class SonicGcodeView extends LitElement {
     .readout { position: absolute; left: 26px; bottom: 6px; padding: 3px 7px; border-radius: 6px; background: rgb(255 255 255 / .92);
       box-shadow: 0 0 0 1px rgb(0 0 0 / .12); pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
     :host([no-controls]) .tools { display: none; }
+    .player { position: absolute; left: 26px; right: 8px; bottom: 30px; display: flex; align-items: center; gap: 6px; padding: 5px 8px;
+      border-radius: 10px; background: rgb(255 255 255 / .94); box-shadow: 0 0 0 1px rgb(0 0 0 / .14), 0 2px 8px rgb(0 0 0 / .12); }
+    .player button { width: 30px; height: 30px; box-shadow: none; background: transparent; }
+    .player button:hover { background: rgb(0 0 0 / .06); }
+    .player button.rate { width: auto; padding: 0 8px; font: 600 12px/1 ui-monospace, Menlo, monospace; box-shadow: 0 0 0 1px rgb(0 0 0 / .16); }
+    .player input { flex: 1; min-width: 60px; accent-color: #2563eb; margin: 0; }
+    .player .time { font-variant-numeric: tabular-nums; white-space: nowrap; font: 11px/1 ui-monospace, Menlo, monospace; }
+    @media (max-width: 420px) { .player .time .total { display: none; } }
   `;
 
   @property({ type: String }) source = "";
@@ -167,6 +206,10 @@ export class SonicGcodeView extends LitElement {
   @property({ type: String }) gestures = "auto";
   @property({ type: String, attribute: "out-data-provider" }) outDataProvider = "";
   @property({ type: String, attribute: "aria-label", reflect: true }) ariaLabelText = "Parcours du laser, en millimètres";
+  /** Lecteur de simulation intégré (aussi pilotable par `control.player`). */
+  @property({ type: Boolean }) player = false;
+  /** Vitesse des déplacements à vide (G0) pour la durée simulée, en mm/min. */
+  @property({ type: Number }) rapid = 3000;
 
   private canvas: HTMLCanvasElement | null = null;
   private readout: HTMLElement | null = null;
@@ -179,7 +222,14 @@ export class SonicGcodeView extends LitElement {
   private prog: ParsedProgram | null = null;
   private progSeq = -1;
   private paths: { done: Map<string, Path2D>; rest: Map<string, Path2D>; travel: Path2D | null; cut: number } | null = null;
-  private live: { upTo: number | null; travel: boolean | null; beamMm: number | null } = { upTo: null, travel: null, beamMm: null };
+  private live: { upTo: number | null; travel: boolean | null; beamMm: number | null; player: boolean | null } = { upTo: null, travel: null, beamMm: null, player: null };
+  /** Lecture simulée : instant courant (null = pas de simulation, tout le tracé), lecture, vitesse. */
+  private simT: number | null = null;
+  private playing = false;
+  private rate = 10;
+  private lastTick = 0;
+  private lastBuild = 0;
+  private simPublished = 0;
   private machineState: { pos: [number, number] | null; wco: [number, number]; area: [number, number] | null; running: boolean; line: number | null } = { pos: null, wco: [0, 0], area: null, running: false, line: null };
   private pointer: { x: number; y: number } | null = null;
   private coop = false;
@@ -287,7 +337,8 @@ export class SonicGcodeView extends LitElement {
     this.progSeq = src.gcodeSeq;
     const lines = src.getGcode();
     const before = this.prog?.bbox ?? null;
-    this.prog = lines && lines.length ? parseProgram(lines) : null;
+    this.prog = lines && lines.length ? parseProgram(lines, 1000, this.rapid > 0 ? this.rapid : 3000) : null;
+    if (this.simT !== null && this.prog) this.simT = Math.min(this.simT, this.prog.total);
     this.paths = null;
     // Recadrer sur le travail quand il apparaît, change nettement de taille (nouvelle source, autre largeur) ou sort
     // de la vue ; un simple réglage (puissance, trame) garde le cadrage de l'utilisateur.
@@ -295,12 +346,13 @@ export class SonicGcodeView extends LitElement {
     const resized = !before || (b && (Math.abs(b.w - before.w) > 0.2 * Math.max(before.w, 1) || Math.abs(b.h - before.h) > 0.2 * Math.max(before.h, 1)));
     if (b && (!this.fitted || resized || !this.visible(b))) this.fit();
     this.publishState();
+    this.requestUpdate();
     this.schedule();
   }
 
   private readControl(v: unknown): void {
     const o = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
-    for (const k of ["fit", "bed", "zoomIn", "zoomOut"]) {
+    for (const k of ["fit", "bed", "zoomIn", "zoomOut", "play", "pause", "rewind"]) {
       const raw = o[k];
       if (raw === undefined || raw === null) continue;
       const key = JSON.stringify(raw);
@@ -309,14 +361,28 @@ export class SonicGcodeView extends LitElement {
       if (prev === undefined || prev === key) continue;
       if (k === "fit") this.fit();
       else if (k === "bed") this.fitBed();
+      else if (k === "play") this.play();
+      else if (k === "pause") this.pause();
+      else if (k === "rewind") this.seek(0);
       else this.gestureCtl.zoomBy(k === "zoomIn" ? 1.6 : 1 / 1.6);
     }
     const up = Number(o.upTo);
+    const upTo = o.upTo === undefined || o.upTo === null || o.upTo === "" || !Number.isFinite(up) ? null : Math.min(1, Math.max(0, up));
+    // Curseur externe déplacé : la simulation va à cette part de la durée (à fond : tout le tracé).
+    if (upTo !== this.live.upTo) {
+      if (upTo === null || upTo >= 1) { if (!this.playing) this.simT = null; }
+      else if (this.prog) this.simT = upTo * this.prog.total;
+    }
+    const rate = Number(o.rate);
+    if (Number.isFinite(rate) && rate > 0) this.rate = Math.min(100, rate);
     this.live = {
-      upTo: o.upTo === undefined || o.upTo === null || o.upTo === "" || !Number.isFinite(up) ? null : Math.min(1, Math.max(0, up)),
+      upTo,
       travel: typeof o.travel === "boolean" ? o.travel : null,
       beamMm: Number.isFinite(Number(o.beamMm)) && Number(o.beamMm) > 0 ? Number(o.beamMm) : null,
+      player: typeof o.player === "boolean" ? o.player : null,
     };
+    this.requestUpdate();
+    this.publishState();
     this.schedule();
   }
 
@@ -336,6 +402,8 @@ export class SonicGcodeView extends LitElement {
       running: !!job?.running,
       line: job && job.kind !== "frame" && Number.isFinite(Number(job.line)) ? Number(job.line) : null,
     };
+    if (this.machineState.running && this.playing) this.playing = false;
+    this.requestUpdate();
     this.publishState();
     this.schedule();
   }
@@ -365,6 +433,7 @@ export class SonicGcodeView extends LitElement {
       segments: this.prog?.count ?? 0,
       lines: this.prog?.lines ?? 0,
       bed: bed ? { x: r(bed.x), y: r(bed.y), w: r(bed.w), h: r(bed.h) } : null,
+      sim: { t: r(this.simT ?? this.prog?.total ?? 0), total: r(this.prog?.total ?? 0), playing: this.playing, rate: this.rate },
       seq: this.seq,
     };
     const json = JSON.stringify(state);
@@ -438,7 +507,9 @@ export class SonicGcodeView extends LitElement {
     if (this.raf || typeof requestAnimationFrame === "undefined") return;
     this.raf = requestAnimationFrame(() => {
       this.raf = 0;
+      this.tick();
       this.draw();
+      if (this.playing) this.schedule();
     });
   }
 
@@ -457,9 +528,84 @@ export class SonicGcodeView extends LitElement {
       }
       return lo;
     }
-    // Curseur à fond = pas de simulation (tout le tracé, sans tête).
-    if (this.live.upTo !== null && this.live.upTo < 1) return Math.round(this.live.upTo * p.count);
-    return null;
+    // Simulation : premier segment pas encore fini à l'instant simulé (null = tout le tracé, sans tête).
+    if (this.simT === null) return null;
+    return this.segmentAt(this.simT);
+  }
+
+  /** Index du premier segment qui finit après `t` (nombre de segments terminés). */
+  private segmentAt(t: number): number {
+    const p = this.prog;
+    if (!p) return 0;
+    let lo = 0, hi = p.count;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (p.tEnd[mid] <= t) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  /** Position simulée de la tête à l'instant `t` (interpolée dans le segment en cours). */
+  private simHead(t: number): [number, number] | null {
+    const p = this.prog;
+    if (!p || !p.count) return null;
+    const i = this.segmentAt(t);
+    if (i >= p.count) return [p.xy[(p.count - 1) * 4 + 2], p.xy[(p.count - 1) * 4 + 3]];
+    const t0 = i ? p.tEnd[i - 1] : 0, t1 = p.tEnd[i];
+    const k = t1 > t0 ? Math.min(1, Math.max(0, (t - t0) / (t1 - t0))) : 1;
+    const o = i * 4;
+    return [p.xy[o] + (p.xy[o + 2] - p.xy[o]) * k, p.xy[o + 1] + (p.xy[o + 3] - p.xy[o + 1]) * k];
+  }
+
+  // ─── Lecteur ──────────────────────────────────────────────────────────────────────────────────────────────────
+  private get playerShown(): boolean {
+    return (this.live.player ?? this.player) && !!this.prog && this.prog.total > 0 && !this.machineState.running;
+  }
+
+  play(): void {
+    const p = this.prog;
+    if (!p || !(p.total > 0)) return;
+    if (this.simT === null || this.simT >= p.total) this.simT = 0;
+    this.playing = true;
+    this.lastTick = performance.now();
+    this.afterSim(true);
+  }
+
+  pause(): void {
+    if (!this.playing) return;
+    this.playing = false;
+    this.afterSim(true);
+  }
+
+  seek(t: number): void {
+    const p = this.prog;
+    if (!p) return;
+    this.simT = Math.min(p.total, Math.max(0, t));
+    this.lastTick = performance.now();
+    this.afterSim(true);
+  }
+
+  private afterSim(now: boolean): void {
+    this.requestUpdate();
+    this.schedule();
+    const at = performance.now();
+    if (now || at - this.simPublished > 250) {
+      this.simPublished = at;
+      this.publishState();
+    }
+  }
+
+  /** Avance la lecture d'une image ; s'arrête à la fin, tête posée sur le dernier point. */
+  private tick(): void {
+    const p = this.prog;
+    if (!this.playing || !p) return;
+    const now = performance.now();
+    const dt = Math.min(0.25, (now - this.lastTick) / 1000);
+    this.lastTick = now;
+    this.simT = Math.min(p.total, (this.simT ?? 0) + dt * this.rate);
+    if (this.simT >= p.total) this.playing = false;
+    this.afterSim(!this.playing);
   }
 
   private buildPaths(cut: number | null): void {
@@ -555,7 +701,14 @@ export class SonicGcodeView extends LitElement {
     const p = this.prog;
     if (p) {
       const cut = this.cutIndex();
-      this.buildPaths(cut);
+      // En lecture, le tracé fait n'est reconstruit qu'à un rythme qui dépend de la taille du programme (la tête,
+      // elle, avance à chaque image).
+      const now = performance.now();
+      const every = this.playing ? Math.min(250, Math.max(33, p.count / 2000)) : 0;
+      if (!this.paths || now - this.lastBuild >= every) {
+        this.buildPaths(cut);
+        this.lastBuild = now;
+      }
       const paths = this.paths;
       if (paths) {
         const m = viewMatrix(v, w, h);
@@ -616,11 +769,10 @@ export class SonicGcodeView extends LitElement {
         }
       }
 
-      // Tête simulée (upTo).
-      const sim = this.cutIndex();
-      if (sim !== null && !this.machineState.running && sim > 0) {
-        const i = Math.min(p.count - 1, sim - 1) * 4;
-        this.head(ctx, ...W(p.xy[i + 2], p.xy[i + 3]), "#2563eb");
+      // Tête simulée.
+      if (this.simT !== null && !this.machineState.running) {
+        const hp = this.simHead(this.simT);
+        if (hp) this.head(ctx, ...W(hp[0], hp[1]), "#2563eb");
       }
     }
 
@@ -802,6 +954,12 @@ export class SonicGcodeView extends LitElement {
 
   private onKey = (e: KeyboardEvent): void => {
     if (e.key === "r" || e.key === "R") return;
+    if (e.key === " " && this.playerShown && e.target === this) {
+      e.preventDefault();
+      if (this.playing) this.pause();
+      else this.play();
+      return;
+    }
     if (this.gestureCtl.key(e)) e.preventDefault();
   };
 
@@ -823,7 +981,27 @@ export class SonicGcodeView extends LitElement {
         <button type="button" aria-label="Voir tout le travail" title="Voir le travail (0)" @click=${() => this.fit()}>${icon("M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5")}</button>
         <button type="button" aria-label="Voir le plateau" title="Voir tout le plateau" @click=${() => this.fitBed()}>${icon("M3 5h18v14H3zM3 10h18M8 5v14")}</button>
       </div>
-      <div class="readout" aria-live="off"></div>`;
+      <div class="readout" aria-live="off"></div>
+      ${this.playerShown ? this.renderPlayer(icon) : null}`;
+  }
+
+  private renderPlayer(icon: (d: string) => unknown) {
+    const p = this.prog as ParsedProgram;
+    const t = this.simT ?? p.total;
+    const next = SIM_RATES[(SIM_RATES.indexOf(this.rate as (typeof SIM_RATES)[number]) + 1) % SIM_RATES.length] ?? SIM_RATES[0];
+    return html`<div class="player" role="group" aria-label="Lecture de la simulation" @pointerdown=${(e: Event) => e.stopPropagation()}>
+      <button type="button" aria-label=${this.playing ? "Pause" : "Lire la simulation"} title=${this.playing ? "Pause (espace)" : "Lire (espace)"}
+        @click=${() => (this.playing ? this.pause() : this.play())}>
+        ${this.playing ? icon("M8 5v14M16 5v14") : icon("M7 4l13 8-13 8z")}
+      </button>
+      <button type="button" aria-label="Revenir au début" title="Revenir au début" @click=${() => this.seek(0)}>${icon("M6 5v14M19 5l-10 7 10 7z")}</button>
+      <input type="range" min="0" max=${p.total} step="any" .value=${String(t)} aria-label="Avancement de la simulation"
+        aria-valuetext=${`${formatDuration(t)} sur ${formatDuration(p.total)}`}
+        @input=${(e: Event) => this.seek(Number((e.target as HTMLInputElement).value))} />
+      <span class="time">${formatDuration(t)}<span class="total"> / ${formatDuration(p.total)}</span></span>
+      <button type="button" class="rate" aria-label=${`Vitesse de lecture ×${this.rate}, passer à ×${next}`} title="Vitesse de lecture"
+        @click=${() => { this.rate = next; this.afterSim(true); }}>×${this.rate}</button>
+    </div>`;
   }
 }
 

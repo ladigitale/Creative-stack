@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import "./index";
 import {
   analyzeGcode, checkLine, cleanLine, cleanOp, GrblLink, hatch, hexColor, num, orderPaths, parseGrblLine, parseStatus, prepareJob, rasterToGcode, RT, RX_BUFFER,
-  svgToGcode, TOOLPATH_DEFAULTS, type GrblMessage,
+  svgToGcode, TOOLPATH_DEFAULTS, withTabs, type GrblMessage,
 } from "./index";
 import { FakePipe } from "../../shared/pipe/fake-pipe";
 import { burnPoints, convexHull, dryRunLines, frameLines, modalAt, resumeHint, resumeLines } from "./jobs";
@@ -427,6 +427,60 @@ describe("parcours", () => {
     const ring = (x: number, y: number, s: number) => ({ pts: [[x, y], [x + s, y], [x + s, y + s], [x, y + s]] as [number, number][], closed: true });
     const outer = ring(0, 0, 100), inner = ring(40, 40, 10), far = { pts: [[200, 0], [210, 0]] as [number, number][], closed: false };
     expect(orderPaths([outer, far, inner])[0]).toBe(inner);
+  });
+
+  it("hachures inclinées, croisées, dans un seul sens", () => {
+    const square: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
+    const v = hatch([square], 1, 90);
+    expect(v.length).toBe(10);
+    for (const [p, q] of v) expect(Math.abs(p[0] - q[0])).toBeLessThan(1e-6); // verticales
+    const one = hatch([square], 1, 0, true);
+    expect(one.every(([p, q]) => q[0] > p[0])).toBe(true);
+    const diag = hatch([square], 1, 45);
+    expect(diag.length).toBeGreaterThan(12);
+  });
+
+  it("attaches : ponts faisceau coupé répartis sur le contour", () => {
+    const ring: [number, number][] = [[0, 0], [40, 0], [40, 40], [0, 40]];
+    const parts = withTabs(ring, 4, 2);
+    expect(parts.filter((p) => !p.on).length).toBe(4);
+    const len = (pts: [number, number][]) => pts.slice(1).reduce((n, p, i) => n + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0);
+    for (const p of parts.filter((x) => !x.on)) expect(len(p.pts as [number, number][])).toBeCloseTo(2, 5);
+    expect(parts.reduce((n, p) => n + len(p.pts as [number, number][]), 0)).toBeCloseTo(160, 5);
+    expect(withTabs(ring, 4, 20)).toHaveLength(1); // contour trop court pour ces attaches
+  });
+
+  it("réglages d'opération : ordre, surface + contour, dépassement, attaches, amorce, puissance par passe, air", () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <rect x="10" y="10" width="30" height="30" fill="#000000"/>
+      <rect x="0" y="0" width="100" height="100" fill="none" stroke="#ff0000"/>
+    </svg>`;
+    const cut = { color: "#ff0000", mode: "line" as const, power: 100, speed: 300, passes: 3, interval: 0.1, kerf: 0, tabs: 2, tabMm: 3, powerEnd: 70, air: true };
+    const engrave = { color: "#000000", mode: "both" as const, power: 20, speed: 2000, passes: 1, interval: 1, kerf: 0, overscan: 2 };
+    // Découpe d'abord si l'utilisateur la met en premier.
+    const first = svgToGcode(svg, { ...TOOLPATH_DEFAULTS, widthMm: 100, ops: [cut, engrave] }).lines;
+    const firstCut = first.findIndex((l) => l.includes("S1000")), firstFill = first.findIndex((l) => l.includes("S200"));
+    expect(firstCut).toBeGreaterThan(0);
+    expect(firstCut).toBeLessThan(firstFill);
+    const lines = svgToGcode(svg, { ...TOOLPATH_DEFAULTS, widthMm: 100, ops: [engrave, cut] }).lines;
+    // Gravure : hachures avec dépassement (S0 de part et d'autre), puis contour du carré.
+    const fillAt = lines.findIndex((l) => l.includes("S200"));
+    expect(lines[fillAt - 1]).toMatch(/S0F2000$/);
+    expect(lines[fillAt + 1]).toMatch(/S0$/);
+    // Air : M8 avant la découpe, M9 à la fin.
+    expect(lines.indexOf("M8")).toBeGreaterThan(fillAt);
+    expect(lines.lastIndexOf("M9")).toBeGreaterThan(lines.indexOf("M8"));
+    // Puissance par passe : 100 %, 85 %, 70 %.
+    expect(lines.some((l) => l.includes("S1000"))).toBe(true);
+    expect(lines.some((l) => l.includes("S850"))).toBe(true);
+    expect(lines.some((l) => l.includes("S700"))).toBe(true);
+    // Attaches : 2 ponts par passe faisceau coupé, sur le contour.
+    const afterM8 = lines.slice(lines.indexOf("M8"));
+    expect(afterM8.filter((l) => /^G1.*S0/.test(l)).length).toBe(6);
+    // Amorce : le contour commence en dehors du cadre, dans le prolongement du premier côté.
+    const lead = svgToGcode(svg, { ...TOOLPATH_DEFAULTS, widthMm: 100, ops: [{ ...cut, tabs: 0, passes: 1, leadMm: 2 }] }).lines;
+    const g0 = lead.filter((l) => l.startsWith("G0")).map((l) => l.match(/X(-?[\d.]+)Y(-?[\d.]+)/)).filter(Boolean) as RegExpMatchArray[];
+    expect(g0.some((m) => Number(m[1]) < 0 || Number(m[2]) < 0 || Number(m[1]) > 100 || Number(m[2]) > 100)).toBe(true);
   });
 
   it("lit les couleurs et borne les réglages", () => {

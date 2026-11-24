@@ -54,6 +54,10 @@ Entrées :
 | `kerf` | Compensation du trait de coupe : décalage des contours fermés, en mm (positif vers l'extérieur) |
 | `render` (dans `ops`) | Surfaces de cette couleur rendues comme une image plutôt qu'hachurées : `gray`, un tramage (`floyd`, `jarvis`, `bayer`…) ou des traits (`hatch`, `waves`, `spiral`, `isolines`, `stipple`, écart `spacing` mm). Le gris vient de la clarté d'un remplissage gris (une couleur franche compte comme du noir) ; `interval` = définition. Balayées en premier, avant hachures et traits. Ignoré au stylo |
 | `ops` | Réglages par couleur, dans l'ordre d'exécution : `[{"color":"#000000","mode":"fill","power":20,"speed":3000},{"color":"#ff0000","mode":"line","power":90,"speed":300,"passes":2}]` |
+| `mode: "both"` (dans `ops`) | Surface hachurée puis contournée (bord net) |
+| `angle`, `cross`, `oneWay`, `overscan` (dans `ops`) | Hachures : angle en degrés (0 = horizontales), croisées (deuxième jeu à +90°), toutes dans le même sens (au lieu du serpentin), dépassement faisceau coupé en bout de ligne en mm (la tête est à vitesse quand elle grave) |
+| `tabs`, `tabMm`, `insideFirst`, `leadMm` (dans `ops`) | Découpe : attaches non coupées (nombre par contour fermé, largeur en mm) pour que la pièce tienne, contours intérieurs d'abord (défaut `true`), amorce tangentielle en mm (faisceau allumé avant d'arriver sur le contour, dans le prolongement du premier côté) |
+| `powerEnd`, `air` (dans `ops`) | Puissance de la dernière passe en % (les passes vont de `power` à `powerEnd` en ligne droite) ; assistance d'air `M8` … `M9` pendant l'opération |
 | `width-mm`, `height-mm` | Taille voulue, proportions gardées. Sans elles : taille réelle du SVG (unités `mm`, `in`… ou 96 points par pouce), 50 mm de large pour une image |
 | `x-mm`, `y-mm` | Position du coin bas gauche par rapport à l'origine de travail |
 | `frame` | `content` (défaut : le cadre est l'emprise des formes) ou `document` (la page du SVG) |
@@ -64,7 +68,7 @@ Entrées :
 | `auto` | Reconstruit le programme à chaque changement de source ou de réglage |
 | `show-preview` | Affiche les parcours ; le composant est alors aussi une source d'images |
 
-Ordre d'exécution : les hachures d'abord, puis les traits ; les couleurs sans réglage propre avant celles de `ops`, puis `ops` dans l'ordre donné (mettre la découpe en dernier). Dans une même passe, les contours intérieurs passent avant ceux qui les entourent, puis au plus proche (recherche gloutonne bornée par les emprises, puis 2-opt sous budget de temps) ; un contour fermé est entamé au sommet le plus proche de la tête, un trait ouvert par son bout le plus proche. Les hachures sont faites île par île (une forme et ses trous, en serpentin), les îles enchaînées au plus proche. Avec plusieurs passes, chaque contour est repassé sur place avant le suivant (un trait ouvert repart dans l'autre sens) : pas de trajet entre les passes. La tête part de là où la passe précédente l'a laissée (`travelMm` de l'état : trajet à vide total). Le blanc (`#ffffff`) ne brûle pas.
+Ordre d'exécution : les couleurs sans réglage propre d'abord, puis `ops` dans l'ordre donné (mettre la découpe en dernier) ; dans une opération, les hachures avant les contours. Dans une même passe, les contours intérieurs passent avant ceux qui les entourent (sauf `insideFirst: false`), puis au plus proche (recherche gloutonne bornée par les emprises, puis 2-opt sous budget de temps) ; un contour fermé est entamé au sommet le plus proche de la tête, un trait ouvert par son bout le plus proche. Les hachures sont faites île par île (une forme et ses trous, en serpentin), les îles enchaînées au plus proche. Avec plusieurs passes, chaque contour est repassé sur place avant le suivant (un trait ouvert repart dans l'autre sens) : pas de trajet entre les passes. La tête part de là où la passe précédente l'a laissée (`travelMm` de l'état : trajet à vide total). Le blanc (`#ffffff`) ne brûle pas.
 
 Commandes : `build` (défaut de `for`), `download` (enregistre le fichier `.gcode`, utilisable dans un autre logiciel), `clear`.
 
@@ -207,10 +211,11 @@ Le programme réel (celui que recevra la machine), à zoom libre : molette ou pi
 | `source` | `#id` du `sonic-gcode` |
 | `machine`, `bed` | Plateau (profil, ou `"largeur hauteur"` en mm) |
 | `state-from` | État du `sonic-grbl` : tête (croix), origine posée (le plateau se décale d'autant), tâche en cours (le fait en plein, le reste estompé) |
-| `control` | `{fit: n, bed: n, zoomIn: n, zoomOut: n, upTo: 0..1, travel: bool, beamMm}` : `upTo` simule l'avancement (tracé jusque-là, tête bleue au point atteint ; 1 ou vide : tout le tracé) ; `travel` montre les déplacements à vide en pointillés |
+| `control` | `{fit: n, bed: n, zoomIn: n, zoomOut: n, upTo: 0..1, travel: bool, beamMm, player: bool, play: n, pause: n, rewind: n, rate}` : `upTo` simule l'avancement en part de la durée (tracé jusque-là, tête bleue au point atteint ; 1 ou vide : tout le tracé) ; `travel` montre les déplacements à vide en pointillés ; `player` affiche le lecteur, `play` / `pause` / `rewind` le pilotent (compteurs), `rate` = vitesse (×1 à ×100) |
+| `player`, `rapid` | Lecteur de simulation intégré : lecture / pause (aussi Espace), retour au début, barre de défilement, temps écoulé / durée, vitesse ×1, 2, 5, 10, 25, 50, 100. Le parcours est rejoué au rythme des vitesses du programme (F des mouvements de travail, `rapid` mm/min pour les G0, 3000 ; accélérations non comptées). Masqué pendant une vraie tâche |
 | `drag-job` + `target` | Glisser l'emprise envoie `{type: "place", payload: {dx, dy}}` (mm, pas de 0,1 à 1 selon le zoom) au store au lâcher : le réducteur ajoute dx, dy au décalage `xMm`, `yMm` du `sonic-gcode` |
 | `show-travel`, `beam-mm`, `gestures` | Déplacements à vide, largeur du faisceau, cohabitation avec le défilement (`auto`, `capture`, `cooperative`) |
 
-État (`out-data-provider`, défaut `<id>State`) : `{status: empty | ready, pointer {x, y} | null, zoom (px/mm), bbox, segments, lines, bed, seq}`.
+État (`out-data-provider`, défaut `<id>State`) : `{status: empty | ready, pointer {x, y} | null, zoom (px/mm), bbox, segments, lines, bed, sim {t, total, playing, rate}, seq}` (`sim` en secondes).
 
 **Avant de lancer** : placer (glisser l'emprise, ou décalage et ancrage dans le store), cadrer (`frame`, `shape: "hull"`), essai à vide (`dryRun`, `speed: 2`), puis `run`. Arrêt : `stop` ; reprise : `run {from: lastStop.resumeAt}`.
