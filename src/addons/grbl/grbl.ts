@@ -11,7 +11,7 @@ const tagName = "sonic-grbl";
 
 const CONSOLE_LINES = 30;
 /** Texte G-code au plus pour une tâche passée en argument (`run {gcode}`). */
-const MAX_GCODE_CHARS = 20_000_000;
+const MAX_GCODE_CHARS = 40_000_000;
 /** Puissance maximale du cadrage faisceau allumé, en %. */
 const MAX_FRAME_POWER = 5;
 /** Pointeur (focus, visée) : faisceau allumé sur place, très faible, éteint seul au bout de quelques secondes. */

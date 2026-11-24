@@ -412,32 +412,41 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
       if (!(s.widthMm > 0 || s.heightMm > 0)) issues.push("taille non donnée : 50 mm de large (width-mm)");
       const lineStyle = (LINE_STYLES as readonly string[]).includes(s.dither);
       // Les rendus en traits échantillonnent l'image au plus fin de leur pas, sans dépasser 1 600 points de large.
-      const res = lineStyle ? Math.max(s.interval, Math.min(s.lineSpacing / 3, widthMm / 1600)) : s.interval;
-      const cols = Math.max(1, Math.round(widthMm / res));
-      const rows = Math.max(1, Math.round((cols * canvas.height) / canvas.width));
-      if (cols * rows > MAX_RASTER_PIXELS) return this.giveUp("image trop fine pour cette taille : augmenter interval ou réduire width-mm", issues, quiet);
-      let gray: Float32Array;
-      try {
-        const work = document.createElement("canvas");
-        work.width = cols;
-        work.height = rows;
-        const ctx = work.getContext("2d", { willReadFrequently: true });
-        if (!ctx) throw new Error("canvas 2D indisponible");
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, cols, rows);
-        ctx.drawImage(canvas, 0, 0, cols, rows);
-        gray = toGray(ctx.getImageData(0, 0, cols, rows).data, cols, rows);
-      } catch (e) {
-        return this.giveUp(e instanceof Error && e.name === "SecurityError" ? "image non lisible (CORS)" : "lecture de l'image impossible", issues, quiet);
+      const asked = lineStyle ? Math.max(s.interval, Math.min(s.lineSpacing / 3, widthMm / 1600)) : s.interval;
+      // Grand format : la définition demandée est ramenée à ce que le navigateur et le programme supportent, plutôt
+      // que d'abandonner (300 mm à 0,1 mm = 9 Mpx).
+      const ratio = canvas.height / canvas.width;
+      let res = Math.max(asked, Math.sqrt((widthMm * widthMm * ratio) / MAX_RASTER_PIXELS));
+      let heightMm = 0;
+      lines = null;
+      for (let attempt = 0; attempt < 4 && !lines; attempt++, res *= 1.5) {
+        const cols = Math.max(1, Math.round(widthMm / res));
+        const rows = Math.max(1, Math.round(cols * ratio));
+        if (cols * rows > MAX_RASTER_PIXELS) continue;
+        let gray: Float32Array;
+        try {
+          const work = document.createElement("canvas");
+          work.width = cols;
+          work.height = rows;
+          const ctx = work.getContext("2d", { willReadFrequently: true });
+          if (!ctx) throw new Error("canvas 2D indisponible");
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(0, 0, cols, rows);
+          ctx.drawImage(canvas, 0, 0, cols, rows);
+          gray = toGray(ctx.getImageData(0, 0, cols, rows).data, cols, rows);
+        } catch (e) {
+          return this.giveUp(e instanceof Error && e.name === "SecurityError" ? "image non lisible (CORS)" : "lecture de l'image impossible", issues, quiet);
+        }
+        heightMm = rows * (widthMm / cols);
+        const fullS = Math.round((s.power / 100) * s.maxS);
+        lines = lineStyle
+          ? burnsToGcode(
+              photoBurns(gray, cols, rows, { style: s.dither as LineStyle, widthMm, heightMm, spacing: s.lineSpacing, step: Math.max(res, 0.05), s: fullS, minS: Math.round((s.minPower / 100) * s.maxS), levels: s.levels, seed: 7 }),
+              { xMm: s.xMm, yMm: s.yMm, speed: s.speed, returnHome: true, maxLines: MAX_GCODE_LINES },
+            )
+          : rasterToGcode(gray, cols, rows, { widthMm, xMm: s.xMm, yMm: s.yMm, dither: s.dither as DitherMode | "gray", threshold: s.threshold, power: s.power, minPower: s.minPower, speed: s.speed, maxS: s.maxS, returnHome: true });
+        if (lines && res > asked * 1.01) issues.push(`définition ramenée à ${Math.round(res * 100) / 100} mm pour cette taille`);
       }
-      const heightMm = rows * (widthMm / cols);
-      const fullS = Math.round((s.power / 100) * s.maxS);
-      lines = lineStyle
-        ? burnsToGcode(
-            photoBurns(gray, cols, rows, { style: s.dither as LineStyle, widthMm, heightMm, spacing: s.lineSpacing, step: Math.max(res, 0.05), s: fullS, minS: Math.round((s.minPower / 100) * s.maxS), levels: s.levels, seed: 7 }),
-            { xMm: s.xMm, yMm: s.yMm, speed: s.speed, returnHome: true, maxLines: MAX_GCODE_LINES },
-          )
-        : rasterToGcode(gray, cols, rows, { widthMm, xMm: s.xMm, yMm: s.yMm, dither: s.dither as DitherMode | "gray", threshold: s.threshold, power: s.power, minPower: s.minPower, speed: s.speed, maxS: s.maxS, returnHome: true });
       if (lines && !lines.length) return this.giveUp("image entièrement blanche : rien à graver", issues, quiet);
       sizeMm = { w: Math.round(widthMm * 100) / 100, h: Math.round(heightMm * 100) / 100 };
     }

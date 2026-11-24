@@ -206,6 +206,19 @@ Applique à ses enfants des variables `--sc-*` (couleurs) lues dans un DataProvi
 
 `themeP` vaut par exemple `{"--sc-base": "#150a2e", "--sc-base-content": "#fff3e4", "--sc-primary": "#ff7a1a", "--sc-base-100": "color-mix(in srgb,var(--sc-base) 88%,var(--sc-base-content))", "color-scheme": "dark"}`. Seuls les noms `--sc-*` et `color-scheme` sont appliqués, avec des valeurs de couleur (#hex, `rgb()`, `hsl()`, nom, `var(--sc-*)`, `color-mix(in srgb, …)`) ; tout le reste (URL, dégradé, `;`, accolades) est ignoré. Une clé retirée de l'objet est retirée des enfants.
 
+## sonic-slider — curseur de réglage
+
+Une valeur continue (luminosité, puissance, vitesse, tolérance…) se règle à la glissière plutôt qu'avec des boutons −/+ :
+
+```json
+{ "tagName": "sonic-slider", "attributes": { "formDataProvider": "job", "name": "photo.lum", "label": "Luminosité", "min": "-100", "max": "100", "step": "5", "unit": "%" } }
+```
+
+- Écrit un **nombre** (pas une chaîne comme `sonic-input type="range"`) au chemin `formDataProvider.name` : réducteurs et JSONata calculent dessus sans `$number()`.
+- Suit la valeur si elle change ailleurs (préréglage, annulation) ; borne à `min..max`.
+- Libellé à gauche, valeur (format français, décimales du pas, `unit`) à droite, glissière pleine largeur aux couleurs `--sc-primary`.
+- Événement `sonic-slider` `{value}` à chaque mouvement.
+
 ## Out of scope (this pass)
 
 Multiplayer, persistence. Pour le son, voir l’addon `sound` (`sonic-sound` piloté par une sous-clé du store).

@@ -42,6 +42,14 @@ describe("rendus en traits", () => {
   const W = 20, H = 10, w = 100, h = 50;
   const base = { widthMm: W, heightMm: H, spacing: 1, step: 0.2, s: 800, minS: 0, levels: 6, seed: 3 };
 
+  it("la spirale couvre tout un grand format (300 mm) sans s'arrêter en route", () => {
+    const dark = new Float32Array(60 * 60).fill(0);
+    const burns = photoBurns(dark, 60, 60, { ...base, widthMm: 300, heightMm: 300, spacing: 0.6, step: 0.15, style: "spiral" });
+    let rMax = 0;
+    for (const b of burns) for (const [x, y] of b.pts) rMax = Math.max(rMax, Math.hypot(x - 150, y - 150));
+    expect(rMax).toBeGreaterThan(200);
+  });
+
   for (const style of LINE_STYLES.filter((x) => x !== "isolines")) {
     it(`${style} : plus de matière à gauche (sombre) qu'à droite, dans le cadre`, () => {
       const burns = photoBurns(ramp(w, h), w, h, { ...base, style });

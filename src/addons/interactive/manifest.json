@@ -413,6 +413,49 @@
           "description": "chemin DP d'un objet {\"--sc-base\": \"#150a2e\", \"--sc-primary\": \"#ff7a1a\", …} (souvent la sortie d'un sonic-jsonata), color-scheme light|dark accepté"
         }
       }
+    },
+    {
+      "name": "sonic-slider",
+      "description": "Curseur de réglage : libellé, valeur affichée avec unité, glissière qui écrit un NOMBRE dans formDataProvider + name (chemin pointé accepté, ex. name=\"photo.lum\") et suit la valeur si elle change ailleurs. À préférer à sonic-input type=\"range\" (qui écrit une chaîne) et aux boutons −/+ pour une valeur continue.",
+      "props": {
+        "formDataProvider": {
+          "type": "string",
+          "description": "DataProvider écrit (défaut : formDataProvider / dataProvider d'un ancêtre)"
+        },
+        "name": {
+          "type": "string",
+          "description": "clé écrite, chemin pointé accepté"
+        },
+        "label": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "min": {
+          "type": "number",
+          "default": 0
+        },
+        "max": {
+          "type": "number",
+          "default": 100
+        },
+        "step": {
+          "type": "number",
+          "default": 1
+        },
+        "decimals": {
+          "type": "number",
+          "description": "décimales affichées (défaut : celles du pas)"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "value": {
+          "type": "number",
+          "description": "valeur montrée tant que le DP n'en a pas (défaut d'un paramètre jamais réglé)"
+        }
+      }
     }
   ]
 }
