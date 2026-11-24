@@ -13,41 +13,133 @@
       "name": "sonic-palette",
       "description": "Palette d'harmonie : base (#rrggbb), rule mono|analogous|complementary|split|triadic|tetradic|square|custom (palette libre : colors, liste JSON ou #a, #b… ou params.colors, 12 au plus ; random / rotate en tournent toutes les teintes, write-base les écrit dans params.colors), count 1..12 (0 = nombre de teintes de la règle, puis nuances plus claires / plus sombres), spread (° des teintes voisines), step (écart de clarté des nuances) ; pastilles cliquables (direction row|column|grid, columns, shape circle|square, swatch-size ; flèches au clavier) : le choix part vers un store comme sonic-action (target, action défaut set, key défaut color, payload JSON ajouté) ; selected = rang choisi au départ, follow (défaut vrai) renvoie la couleur au même rang quand la palette change ; headless = calcul seul ; params {base, rule, colors, count, spread, step, selected} en direct ; control {random, rotate} compteurs (teinte au hasard, +30°) ; write-base (la base tirée par random / rotate est aussi écrite dans params, action set : toute la palette tient dans ce store, enregistrable) ; état {base, rule, count, spread, step, colors[], items[{hex, hue, l, c, role base|harmony|shade|custom}], selected, selectedIndex}",
       "props": {
-        "base": { "type": "string" },
-        "colors": { "type": "string" },
-        "rule": { "type": "string" },
-        "count": { "type": "number" },
-        "spread": { "type": "number" },
-        "step": { "type": "number" },
-        "selected": { "type": "number" },
-        "target": { "type": "string" },
-        "action": { "type": "string" },
-        "key": { "type": "string" },
-        "payload": { "type": "string" },
-        "follow": { "type": "boolean" },
-        "direction": { "type": "string" },
-        "columns": { "type": "number" },
-        "shape": { "type": "string" },
-        "swatch-size": { "type": "number" },
-        "headless": { "type": "boolean" },
-        "params": { "type": "string" },
-        "control": { "type": "string" },
-        "write-base": { "type": "boolean" },
-        "out-data-provider": { "type": "string" }
+        "base": {
+          "type": "string"
+        },
+        "colors": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "count": {
+          "type": "number"
+        },
+        "spread": {
+          "type": "number"
+        },
+        "step": {
+          "type": "number"
+        },
+        "selected": {
+          "type": "number"
+        },
+        "target": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "string"
+        },
+        "follow": {
+          "type": "boolean"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "columns": {
+          "type": "number"
+        },
+        "shape": {
+          "type": "string"
+        },
+        "swatch-size": {
+          "type": "number"
+        },
+        "headless": {
+          "type": "boolean"
+        },
+        "params": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "write-base": {
+          "type": "boolean"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
       }
     },
     {
       "name": "sonic-palette-editor",
       "description": "Éditeur de palette (modale de configuration) : bande des couleurs (clic = sélection, cadenas = verrou, + = ajouter), carré clarté × saturation OKLCH à la teinte courante et bande des teintes (glisser ou flèches), code hex, nombre 1..12, nom ; aide d'harmonie : règle (mono|analogous|complementary|split|triadic|tetradic|square) et bouton Proposer qui remplit les couleurs non verrouillées (la 1re verrouillée sert de base, sinon la sélectionnée ; chaque demande donne une variante). params = dp ou dp.clé d'un objet {id, name, colors, locked, rule} (rechargé quand il change) ; colors / name / rule en attributs sans params ; control {suggest, save, add, remove} compteurs ; save envoie {type: save-action (défaut savePalette), payload: {id, name, colors}} au store save-to ; état out-data-provider {id, name, colors, locked, count, selected, rule, lockedCount}",
       "props": {
-        "params": { "type": "string" },
-        "control": { "type": "string" },
-        "colors": { "type": "string" },
-        "name": { "type": "string" },
-        "rule": { "type": "string" },
-        "save-to": { "type": "string" },
-        "save-action": { "type": "string" },
-        "out-data-provider": { "type": "string" }
+        "params": {
+          "type": "string"
+        },
+        "control": {
+          "type": "string"
+        },
+        "colors": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "save-to": {
+          "type": "string"
+        },
+        "save-action": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-theme-colors",
+      "description": "Thème d'interface calculé depuis UNE couleur de fond : publie dans out-data-provider les variables --sc-* (fond, texte, accents par harmonie, états info/succès/alerte/danger, échelle base-50..900, color-scheme) en OKLCH, avec contraste garanti (texte ≥ 7:1, accents ≥ 4,5:1). Le fond choisi est ramené dans la plage du mode (sombre ou clair). À brancher sur sonic-css-vars source=… pour habiller l'interface ; mode sombre / clair et fond de chaque mode au choix de la personne.",
+      "props": {
+        "mode": {
+          "type": "string",
+          "description": "dark | light (ou sombre | clair) ; sans valeur, déduit de la clarté du fond"
+        },
+        "base": {
+          "type": "string",
+          "description": "#rrggbb : fond du mode courant"
+        },
+        "base-dark": {
+          "type": "string",
+          "description": "#rrggbb : fond du mode sombre (mémorisé quand on passe en clair)"
+        },
+        "base-light": {
+          "type": "string",
+          "description": "#rrggbb : fond du mode clair"
+        },
+        "rule": {
+          "type": "string",
+          "description": "harmonie des accents : split (défaut) | complementary | analogous | triadic"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP objet { mode, base, baseDark, baseLight, rule } prioritaire sur les attributs (par exemple le store des réglages)"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP qui reçoit { \"--sc-base\": \"#…\", \"--sc-primary\": \"#…\", …, \"color-scheme\", base, mode }"
+        }
       }
     }
   ]
