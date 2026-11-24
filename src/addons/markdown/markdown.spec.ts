@@ -189,12 +189,19 @@ describe("rendu GFM", () => {
     const ths = [...r.querySelectorAll("th")];
     expect(ths.map((t) => t.getAttribute("style"))).toEqual(["text-align:left", "text-align:center", "text-align:right"]);
     expect(ths[0].getAttribute("scope")).toBe("col");
+    expect(ths.every((t) => t.classList.contains("short"))).toBe(true);
     expect(r.querySelector("code.language-ts")!.textContent).toBe("const x: number = 1;");
     expect([...r.querySelectorAll("pre code")].map((c) => c.textContent)).toContain("code indenté");
     expect(r.querySelector("hr")).not.toBeNull();
     expect(r.querySelector('a[href="https://auto.example.org"]')).not.toBeNull();
     expect(r.querySelector("sup.footnote-ref a")!.getAttribute("href")).toBe("#doc-fn1");
     expect(r.querySelector("section.footnotes li")!.id).toBe("doc-fn1");
+  });
+
+  it("cellules : courtes sur une ligne, longues repliables", async () => {
+    const el = await mount({ text: "| Région | Commentaire |\n|---|---|\n| Auvergne-Rhône-Alpes | Hausse portée par les nouvelles adhésions |" });
+    const tds = [...root(el).querySelectorAll("td")];
+    expect(tds.map((t) => t.classList.contains("short"))).toEqual([true, false]);
   });
 
   it("sortie DataProvider complète", async () => {

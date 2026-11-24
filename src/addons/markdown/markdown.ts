@@ -178,7 +178,7 @@ export class SonicMarkdown extends LitElement {
       font-family: var(--sc-font-family-headings, inherit);
       line-height: 1.25;
       margin: 1.6em 0 0.6em;
-      scroll-margin-top: 1rem;
+      scroll-margin-top: var(--sc-markdown-scroll-offset, 1rem);
     }
     h1 { font-size: 2em; } h2 { font-size: 1.5em; } h3 { font-size: 1.25em; } h4 { font-size: 1.05em; }
     h5, h6 { font-size: 1em; }
@@ -208,7 +208,7 @@ export class SonicMarkdown extends LitElement {
       background: color-mix(in oklab, var(--sc-base-content, #1f2937) 8%, transparent);
     }
     .code {
-      border-radius: var(--sc-rounded-lg, 8px);
+      border-radius: var(--sc-markdown-code-radius, min(var(--sc-rounded-lg, 8px), 10px));
       background: color-mix(in oklab, var(--sc-base-content, #1f2937) 5%, var(--sc-base, #fff));
       border: 1px solid color-mix(in oklab, var(--sc-base-content, #1f2937) 10%, transparent);
       overflow: hidden;
@@ -220,7 +220,8 @@ export class SonicMarkdown extends LitElement {
       color: var(--sc-base-500, #6b7280);
       border-bottom: 1px solid color-mix(in oklab, var(--sc-base-content, #1f2937) 8%, transparent);
     }
-    pre { margin: 0; padding: 0.9em; overflow-x: auto; line-height: 1.5; tab-size: 2; }
+    pre { margin: 0; padding: 0.9em; overflow-x: auto; overscroll-behavior-x: contain; line-height: 1.5; tab-size: 2; white-space: var(--sc-markdown-code-wrap, pre); }
+    pre code { overflow-wrap: var(--sc-markdown-code-break, normal); }
     .copy {
       font: inherit; cursor: pointer; border: 0; background: transparent; color: inherit;
       padding: 0.25em 0.5em; border-radius: var(--sc-rounded-sm, 4px);
@@ -228,9 +229,12 @@ export class SonicMarkdown extends LitElement {
     .copy:hover, .copy:focus-visible { background: color-mix(in oklab, var(--sc-base-content, #1f2937) 10%, transparent); color: var(--sc-base-content, #1f2937); }
     .copy .l-done, .copy[data-copied] .l-copy { display: none; }
     .copy[data-copied] .l-done { display: inline; color: var(--sc-primary, #2563eb); }
-    .table { overflow-x: auto; }
+    .table { overflow-x: auto; overscroll-behavior-x: contain; }
     table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
     th, td { padding: 0.45em 0.75em; border-bottom: 1px solid color-mix(in oklab, var(--sc-base-content, #1f2937) 12%, transparent); text-align: left; vertical-align: top; }
+    /* Pas de mot coupé dans une cellule : le tableau défile plutôt que d'écraser ses colonnes. */
+    th, td { overflow-wrap: normal; word-break: normal; hyphens: manual; }
+    th.short, td.short { white-space: nowrap; }
     th { font-weight: 600; border-bottom-width: 2px; }
     .var {
       padding: 0 0.3em; border-radius: var(--sc-rounded-sm, 4px);
@@ -263,6 +267,14 @@ export class SonicMarkdown extends LitElement {
     .token.attr-name, .token.property, .token.variable { color: color-mix(in oklab, var(--sc-primary, #2563eb) 60%, var(--sc-base-content, #1f2937)); }
     .token.operator, .token.entity, .token.url { color: inherit; }
     .token.bold { font-weight: 600; } .token.italic { font-style: italic; }
+    /* Écran étroit (téléphone) : titres, retraits et marges resserrés. */
+    @media (max-width: 34rem) {
+      h1 { font-size: 1.65em; } h2 { font-size: 1.35em; } h3 { font-size: 1.15em; }
+      ul, ol { padding-left: 1.2em; }
+      th, td { padding: 0.4em 0.55em; }
+      pre { padding: 0.7em 0.75em; font-size: 0.85em; }
+      blockquote { padding: 0.2em 0.75em; }
+    }
     @media (prefers-reduced-motion: reduce) { .anchor { transition: none; } }
   `;
 
