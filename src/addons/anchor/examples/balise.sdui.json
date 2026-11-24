@@ -67,7 +67,7 @@
           "attributes": {
             "id": "balises",
             "initial": "{\"items\": [], \"outbox\": [], \"panneau\": \"non\", \"fil\": null, \"saisie\": \"\", \"dessin\": 0, \"fType\": \"tout\", \"fDepuis\": \"tout\", \"fQui\": \"tous\", \"fParcours\": \"oui\", \"vus\": []}",
-            "reducer": "($r := ($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? ($e := $p.effet ? $p.effet : \"message\"; $c := $sift($p, function($v, $k){ ($k = \"voix\" and $e != \"vocal\") or ($k = \"message\" and $e != \"message\") or (($k = \"dessin\" or $k = \"cadreDessin\") and $e != \"dessin\") ? false : true }); $merge([$state, {\"items\": $append($state.items, [$c]), \"outbox\": $c.lat ? $append($ob, [{\"id\": $c.id, \"op\": \"add\", \"lat\": $c.lat, \"lon\": $c.lon, \"data\": $merge([$c, {\"aVoix\": $c.voix ? true : false}])}]) : $ob}])) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\", \"pListe\": \"non\", \"pvOuvert\": \"non\", \"ceForm\": \"non\", \"defile\": ($state.defile ? $state.defile : 0) + 1}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\" or $action.type = \"dessin:retoucher\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($v := [$distinct($append($state.vus ? $state.vus : [], [$p.value]))][[-300..-1]]; $state.ici = $p.value ? $merge([$state, {\"vus\": $v}]) : $merge([$state, {\"ici\": $p.value, \"vus\": $v, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($r := $state.retouche; $state.fil and $p.url ? ($r.kind = \"drawing\" ? $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rd-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"dessin\": $p.url, \"cadreDessin\": \"3\"}, \"seen\": true} : {\"id\": \"rd-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"media\": $p.url, \"cadre\": 3, \"seen\": true, \"refId\": $state.capRef}]), \"retouche\": null, \"editeur\": \"non\", \"erreur\": \"Dessin retouché : il est sur le mur.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3, \"refId\": $state.capRef}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}])) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": null}]) : $action.type = \"dessin:retoucher\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"drawing\"}, \"erreur\": \"Retouche : ton dessin est rouvert, trait par trait.\"}]) : $action.type = \"capture:ref\" ? $merge([$state, {\"capRef\": $p.value}]) : $action.type = \"texte:retoucher\" ? $merge([$state, {\"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"text\"}, \"retoucheTexte\": $p.text, \"retoucheOuvert\": \"oui\"}]) : $action.type = \"texte:enregistrer\" ? ($r := $state.retouche; $t := $trim($state.retoucheTexte ? $state.retoucheTexte : \"\"); $t = \"\" ? $merge([$state, {\"erreur\": \"Le message ne peut pas être vide.\"}]) : $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rt-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"message\": $t}} : {\"id\": \"rt-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"text\": $t}]), \"retouche\": null, \"retoucheOuvert\": \"non\", \"erreur\": \"Message modifié.\"}])) : $action.type = \"tag:go\" ? ($state.fil ? ($state.profil = \"oui\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"tg-\" & $string($millis()), \"op\": \"tag\", \"place\": $state.fil, \"seen\": $state.ici = $state.fil}]), \"erreur\": \"Tagué : ton blaze est sur le mur.\"}]) : $merge([$state, {\"blazeOuvert\": \"oui\", \"blazeTag\": \"oui\"}])) : $state) : $action.type = \"tag:pose\" ? ($it := $state.items[-1]; $it ? ($state.profil = \"oui\" ? ($it.placeId ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"tg-\" & $string($millis()), \"op\": \"tag\", \"place\": $it.placeId, \"seen\": true}]), \"erreur\": \"Tagué : ton blaze est sur le mur.\"}]) : $merge([$state, {\"tagPose\": $it.id, \"erreur\": \"Ton tag partira dès que la balise sera en ligne.\"}])) : $merge([$state, {\"tagPose\": $it.id, \"blazeOuvert\": \"oui\", \"blazeTag\": \"pose\"}])) : $state) : $action.type = \"tag:profil\" ? $merge([$state, {\"blazeOuvert\": \"oui\", \"blazeTag\": \"non\"}]) : $action.type = \"avatar:pret\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"av-\" & $string($millis()), \"op\": \"visitor\", \"pseudo\": $trim($state.blaze ? $state.blaze : \"\"), \"avatar\": $p.url}]), \"tagApres\": ($state.blazeTag = \"oui\" and $state.fil) ? {\"place\": $state.fil, \"seen\": $state.ici = $state.fil} : (($state.blazeTag = \"pose\" and $state.items[id = $state.tagPose].placeId) ? {\"place\": $state.items[id = $state.tagPose].placeId, \"seen\": true} : null), \"profil\": \"oui\", \"blazeOuvert\": \"non\", \"tagPose\": ($state.blazeTag = \"pose\" and $state.items[id = $state.tagPose].placeId) ? null : $state.tagPose, \"erreur\": ($state.blazeTag = \"oui\" and $state.fil) or $state.blazeTag = \"pose\" ? \"Envoi de ton blaze…\" : \"Blaze enregistré.\"}]) : $action.type = \"place:ok\" and $p.op = \"visitor\" and $state.tagApres ? $merge([$state, {\"outbox\": $append([$ob[id != $p.id]], [{\"id\": \"tg-\" & $string($millis()), \"op\": \"tag\", \"place\": $state.tagApres.place, \"seen\": $state.tagApres.seen}]), \"tagApres\": null, \"erreur\": \"Tagué : ton blaze est sur le mur.\"}]) : $action.type = \"place:error\" and $p.op = \"visitor\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"tagApres\": null, \"profil\": null, \"erreur\": \"Blaze non enregistré : \" & $p.error}]) : $action.type = \"fiche:fermee\" ? ($lookup($state, $p) = \"oui\" ? $merge([$state, $lookup({\"panneau\": {\"panneau\": \"non\", \"fil\": null}, \"pListe\": {\"pListe\": \"non\"}, \"pvOuvert\": {\"pvOuvert\": \"non\"}, \"ceForm\": {\"ceForm\": \"non\"}, \"retoucheOuvert\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"confirmBalise\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"confirmRetrait\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"blazeOuvert\": {\"blazeOuvert\": \"non\"}}, $p)]) : $state) : $action.type = \"retouche:fermer\" ? $merge([$state, {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}]) : $action.type = \"balise:supprimer\" ? $merge([$state, {\"aSupprimer\": $p, \"confirmBalise\": \"oui\"}]) : $action.type = \"balise:supprimerOk\" ? ($it := $state.items[id = $state.aSupprimer]; $merge([$state, {\"items\": [$state.items[id != $state.aSupprimer]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $state.aSupprimer, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob, \"aSupprimer\": null, \"confirmBalise\": \"non\", \"fil\": $state.fil = $it.placeId ? null : $state.fil, \"panneau\": $state.fil = $it.placeId ? \"non\" : $state.panneau, \"erreur\": \"Balise supprimée.\"}])) : $action.type = \"msg:retirer\" ? $merge([$state, {\"aRetirer\": $p, \"confirmRetrait\": \"oui\"}]) : $action.type = \"msg:retirerOk\" ? ($state.fil and $state.aRetirer ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"dm-\" & $state.aRetirer, \"op\": \"deleteMessage\", \"place\": $state.fil, \"message\": $state.aRetirer}]), \"aRetirer\": null, \"confirmRetrait\": \"non\", \"erreur\": \"Retiré : une trace reste dans la discussion.\"}]) : $state) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\", \"retouche\": null}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : ($p.op = \"addRoute\" ? \"Parcours publié !\" : \"\"))}, $p.op = \"addRoute\" ? {\"pv\": $p.routeId, \"pvOuvert\": \"oui\", \"ceEtapes\": [], \"ceTitre\": \"\", \"ceDesc\": \"\"} : {}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $action.type = \"parcours:liste\" ? $merge([$state, {\"pListe\": \"oui\", \"pvOuvert\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:listeFermer\" ? $merge([$state, {\"pListe\": \"non\"}]) : $action.type = \"parcours:voir\" ? $merge([$state, {\"pv\": $p, \"pvOuvert\": \"oui\", \"pListe\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:voirSuivi\" ? $merge([$state, {\"pv\": $state.suivi.id, \"pvOuvert\": \"oui\"}]) : $action.type = \"parcours:fermer\" ? $merge([$state, {\"pvOuvert\": \"non\"}]) : $action.type = \"parcours:signaler\" ? ($state.pv ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rr-\" & $state.pv, \"op\": \"reportRoute\", \"route\": $state.pv}]), \"pvOuvert\": \"non\", \"erreur\": \"Merci, parcours signalé.\"}]) : $state) : $action.type = \"suivi:demarrer\" ? ($rid := $type($p) = \"string\" ? $p : $state.pv; $rid ? $merge([$state, {\"suivi\": {\"id\": $rid, \"faits\": [], \"joue\": 0, \"step\": null, \"poche\": \"non\"}, \"pv\": $rid, \"pvOuvert\": \"non\", \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1, \"erreur\": \"C'est parti : avance vers la première étape.\"}]) : $state) : $action.type = \"suivi:arreter\" ? $merge([$state, {\"suivi\": null, \"wakeR\": ($state.wakeR ? $state.wakeR : 0) + 1, \"pvOuvert\": \"non\", \"erreur\": \"Parcours arrêté.\"}]) : $action.type = \"suivi:arrive\" ? ($i := $p.value - 1; $state.suivi.id and $not($i in $state.suivi.faits) ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"faits\": $append($state.suivi.faits, [$i]), \"joue\": $state.suivi.joue + 1, \"step\": $i}]), \"erreur\": \"Étape \" & $string($p.value) & \" : vise le mur pour la découvrir.\"}]) : $state) : $action.type = \"poche:on\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"oui\"}]), \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1}]) : $state) : $action.type = \"poche:off\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"non\"}])}]) : $state) : $action.type = \"ce:debut\" ? $merge([$state, {\"cree\": \"oui\", \"ceForm\": \"non\", \"pListe\": \"non\", \"ceEtapes\": [], \"ceOrdre\": \"oui\", \"ceMode\": \"etape\", \"erreur\": \"Touche une balise sur la carte puis « Ajouter au parcours ».\"}]) : $action.type = \"ce:annuler\" ? $merge([$state, {\"cree\": \"non\", \"ceForm\": \"non\", \"ceEtapes\": [], \"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:ouvrir\" ? $merge([$state, {\"ceForm\": \"oui\"}]) : $action.type = \"ce:fermerForm\" ? $merge([$state, {\"ceForm\": \"non\"}]) : $action.type = \"ce:ajouter\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $count($e) >= 30 ? $merge([$state, {\"erreur\": \"30 étapes au plus.\"}]) : ($e[-1].place = $p.place ? $state : $merge([$state, {\"ceEtapes\": $append($e, [{\"place\": $p.place, \"titre\": $p.titre, \"radius\": 30, \"sound\": \"balise\"}]), \"erreur\": \"Étape \" & $string($count($e) + 1) & \" ajoutée.\"}]))) : $action.type = \"ce:retirer\" ? $merge([$state, {\"ceEtapes\": [$filter($state.ceEtapes, function($x, $k){ $k != $p })]}]) : $action.type = \"ce:monter\" or $action.type = \"ce:descendre\" ? ($e := $state.ceEtapes; $j := $action.type = \"ce:monter\" ? $p - 1 : $p + 1; $j < 0 or $j >= $count($e) ? $state : $merge([$state, {\"ceEtapes\": [$map($e, function($x, $k){ $k = $p ? $e[$j] : ($k = $j ? $e[$p] : $x) })]}])) : $action.type = \"ce:rayon\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"radius\": $p.r}]) : $x })]}]) : $action.type = \"ce:son\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"sound\": $p.s, \"media\": null}]) : $x })]}]) : $action.type = \"ce:enreg\" ? $merge([$state, {\"ceCible\": $p, \"ceEnreg\": \"oui\", \"ceImport\": \"non\"}]) : $action.type = \"ce:importer\" ? $merge([$state, {\"ceCible\": $p, \"ceImport\": \"oui\", \"ceEnreg\": \"non\"}]) : $action.type = \"ce:enregFermer\" ? $merge([$state, {\"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:garder\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $state.ceCible ? $merge([$x, {\"sound\": \"propre\", \"media\": $p}]) : $x })], \"ceEnreg\": \"non\", \"ceImport\": \"non\", \"erreur\": \"Son gardé pour l'étape \" & $string($state.ceCible + 1) & \".\"}]) : $action.type = \"ce:publier\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $t := $trim($state.ceTitre ? $state.ceTitre : \"\"); $count($e) < 2 ? $merge([$state, {\"erreur\": \"Il faut au moins deux étapes.\"}]) : $t = \"\" ? $merge([$state, {\"erreur\": \"Donne un titre à ton parcours.\"}]) : $e[sound = \"propre\" and $not(media)] ? $merge([$state, {\"erreur\": \"Une étape attend encore son son à part.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"p-\" & $string($millis()), \"op\": \"addRoute\", \"data\": {\"title\": $t, \"description\": $state.ceDesc ? $state.ceDesc : \"\", \"ordered\": $state.ceOrdre != \"non\", \"mode\": $state.ceMode = \"ambiance\" ? \"ambiance\" : \"etape\", \"steps\": [$e.{\"place\": place, \"radius\": radius, \"sound\": sound, \"media\": media}]}}]), \"cree\": \"non\", \"ceForm\": \"non\", \"erreur\": \"Publication du parcours…\"}])) : $state); $p := $action.payload; ($action.type = \"place:ok\" and $p.op = \"add\" and $r.tagPose = $p.id and $r.profil = \"oui\") ? $merge([$r, {\"outbox\": $append($r.outbox, [{\"id\": \"tg-\" & $string($millis()), \"op\": \"tag\", \"place\": $p.placeId, \"seen\": true}]), \"tagPose\": null, \"erreur\": \"Tagué : ton blaze est sur le mur.\"}]) : $r)",
+            "reducer": "($p := $action.payload; $ob := $state.outbox ? $state.outbox : []; $action.type = \"save\" and $state.maj ? $merge([$state, {\"maj\": null, \"outbox\": $append($ob, [{\"id\": \"m-\" & $p.id, \"op\": \"addRef\", \"place\": $state.maj, \"ref\": $p.ref}]), \"items\": [$state.items.(placeId = $state.maj ? $merge([$, {\"refs\": $append(refs ? refs : [], [$p.ref])}]) : $)], \"erreur\": \"Envoi de la nouvelle surface…\"}]) : $action.type = \"save\" ? ($e := $p.effet ? $p.effet : \"message\"; $c := $sift($p, function($v, $k){ ($k = \"voix\" and $e != \"vocal\") or ($k = \"message\" and $e != \"message\") or (($k = \"dessin\" or $k = \"cadreDessin\") and $e != \"dessin\") ? false : true }); $merge([$state, {\"items\": $append($state.items, [$c]), \"outbox\": $c.lat ? $append($ob, [{\"id\": $c.id, \"op\": \"add\", \"lat\": $c.lat, \"lon\": $c.lon, \"data\": $merge([$c, {\"aVoix\": $c.voix ? true : false}])}]) : $ob}])) : $action.type = \"fil:ouvrir\" ? $merge([$state, {\"fil\": $p, \"panneau\": \"oui\", \"pListe\": \"non\", \"pvOuvert\": \"non\", \"ceForm\": \"non\", \"defile\": ($state.defile ? $state.defile : 0) + 1}]) : $action.type = \"fil:fermer\" ? $merge([$state, {\"fil\": null, \"panneau\": \"non\"}]) : $action.type = \"fil:texte\" ? ($t := $trim($state.saisie ? $state.saisie : \"\"); $state.fil and $t ? $merge([$state, {\"saisie\": \"\", \"outbox\": $append($ob, [{\"id\": \"t-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"text\": $t, \"seen\": $state.ici = $state.fil}])}]) : $state) : ($action.type = \"fil:vocal\" or $action.type = \"fil:dessin\" or $action.type = \"dessin:ouvrir\" or $action.type = \"dessin:retoucher\") and ($state.ici ? $state.ici : \"\") != $state.fil ? $merge([$state, {\"erreur\": \"Vocal et dessin : sur place, en visant le mur.\"}]) : $action.type = \"lieu:ok\" ? ($v := [$distinct($append($state.vus ? $state.vus : [], [$p.value]))][[-300..-1]]; $state.ici = $p.value ? $merge([$state, {\"vus\": $v}]) : $merge([$state, {\"ici\": $p.value, \"vus\": $v, \"erreur\": \"Tu es sur place : vocal et dessin débloqués.\"}])) : $action.type = \"auto:basculer\" ? $merge([$state, {\"auto\": $state.auto = \"non\" ? \"oui\" : \"non\", \"erreur\": $state.auto = \"non\" ? \"Les vocaux se lanceront tout seuls.\" : \"Les vocaux attendront que tu appuies sur lecture.\"}]) : $action.type = \"fil:vocal\" ? ($state.fil and $p ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"v-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p, \"seen\": true}]), \"erreur\": \"Vocal envoyé.\"}]) : $state) : $action.type = \"fil:dessin\" ? ($r := $state.retouche; $state.fil and $p.url ? ($r.kind = \"drawing\" ? $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rd-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"dessin\": $p.url, \"cadreDessin\": \"3\"}, \"seen\": true} : {\"id\": \"rd-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"media\": $p.url, \"cadre\": 3, \"seen\": true, \"refId\": $state.capRef}]), \"retouche\": null, \"editeur\": \"non\", \"erreur\": \"Dessin retouché : il est sur le mur.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"s-\" & $string($millis()), \"op\": \"message\", \"place\": $state.fil, \"media\": $p.url, \"seen\": true, \"cadre\": 3, \"refId\": $state.capRef}]), \"dessin\": -1, \"editeur\": \"non\", \"erreur\": \"Dessin envoyé : il est sur le mur.\"}])) : $state) : $action.type = \"dessin:ouvrir\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": null}]) : $action.type = \"dessin:retoucher\" ? $merge([$state, {\"capture\": ($state.capture ? $state.capture : 0) + 1, \"editeur\": \"oui\", \"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"drawing\"}, \"erreur\": \"Retouche : ton dessin est rouvert, trait par trait.\"}]) : $action.type = \"capture:ref\" ? $merge([$state, {\"capRef\": $p.value}]) : $action.type = \"texte:retoucher\" ? $merge([$state, {\"retouche\": {\"id\": $p.id, \"origin\": $p.origin, \"kind\": \"text\"}, \"retoucheTexte\": $p.text, \"retoucheOuvert\": \"oui\"}]) : $action.type = \"texte:enregistrer\" ? ($r := $state.retouche; $t := $trim($state.retoucheTexte ? $state.retoucheTexte : \"\"); $t = \"\" ? $merge([$state, {\"erreur\": \"Le message ne peut pas être vide.\"}]) : $merge([$state, {\"outbox\": $append($ob, [$r.origin = \"oui\" ? {\"id\": \"rt-\" & $string($millis()), \"op\": \"edit\", \"place\": $state.fil, \"data\": {\"message\": $t}} : {\"id\": \"rt-\" & $string($millis()), \"op\": \"editMessage\", \"place\": $state.fil, \"message\": $r.id, \"text\": $t}]), \"retouche\": null, \"retoucheOuvert\": \"non\", \"erreur\": \"Message modifié.\"}])) : $action.type = \"blaze:ouvrir\" ? $merge([$state, {\"blazeOuvert\": \"oui\"}]) : $action.type = \"avatar:pret\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"av-\" & $string($millis()), \"op\": \"visitor\", \"pseudo\": $trim($state.blaze ? $state.blaze : \"\"), \"avatar\": $p.url}]), \"blazeOuvert\": \"non\", \"erreur\": \"Blaze enregistré : il signe tes messages.\"}]) : $action.type = \"place:error\" and $p.op = \"visitor\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Blaze non enregistré : \" & $p.error}]) : $action.type = \"compte:connexion\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"cx-\" & $string($millis()), \"op\": \"login\"}])}]) : $action.type = \"compte:deconnexion\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"dx-\" & $string($millis()), \"op\": \"logout\"}]), \"erreur\": \"Déconnecté : ton blaze reste sur ce téléphone.\"}]) : $action.type = \"blaze:voir\" ? ($p.pseudo or $p.avatar ? $merge([$state, {\"blazeVu\": $p, \"blazeVuOuvert\": \"oui\"}]) : $state) : $action.type = \"blaze:signaler\" ? ($state.blazeVu.auteur ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"ra-\" & $state.blazeVu.auteur, \"op\": \"reportAvatar\", \"visitor\": $state.blazeVu.auteur}]), \"blazeVuOuvert\": \"non\", \"erreur\": \"Merci, blaze signalé.\"}]) : $state) : $action.type = \"fiche:fermee\" ? ($lookup($state, $p) = \"oui\" ? $merge([$state, $lookup({\"panneau\": {\"panneau\": \"non\", \"fil\": null}, \"pListe\": {\"pListe\": \"non\"}, \"pvOuvert\": {\"pvOuvert\": \"non\"}, \"ceForm\": {\"ceForm\": \"non\"}, \"retoucheOuvert\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"confirmBalise\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"confirmRetrait\": {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}, \"blazeOuvert\": {\"blazeOuvert\": \"non\"}, \"blazeVuOuvert\": {\"blazeVuOuvert\": \"non\"}}, $p)]) : $state) : $action.type = \"retouche:fermer\" ? $merge([$state, {\"retouche\": null, \"retoucheOuvert\": \"non\", \"confirmRetrait\": \"non\", \"confirmBalise\": \"non\"}]) : $action.type = \"balise:supprimer\" ? $merge([$state, {\"aSupprimer\": $p, \"confirmBalise\": \"oui\"}]) : $action.type = \"balise:supprimerOk\" ? ($it := $state.items[id = $state.aSupprimer]; $merge([$state, {\"items\": [$state.items[id != $state.aSupprimer]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $state.aSupprimer, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob, \"aSupprimer\": null, \"confirmBalise\": \"non\", \"fil\": $state.fil = $it.placeId ? null : $state.fil, \"panneau\": $state.fil = $it.placeId ? \"non\" : $state.panneau, \"erreur\": \"Balise supprimée.\"}])) : $action.type = \"msg:retirer\" ? $merge([$state, {\"aRetirer\": $p, \"confirmRetrait\": \"oui\"}]) : $action.type = \"msg:retirerOk\" ? ($state.fil and $state.aRetirer ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"dm-\" & $state.aRetirer, \"op\": \"deleteMessage\", \"place\": $state.fil, \"message\": $state.aRetirer}]), \"aRetirer\": null, \"confirmRetrait\": \"non\", \"erreur\": \"Retiré : une trace reste dans la discussion.\"}]) : $state) : $action.type = \"dessin:fermer\" ? $merge([$state, {\"editeur\": \"non\", \"retouche\": null}]) : $action.type = \"fil:signaler\" ? ($state.fil ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rm-\" & $p, \"op\": \"reportMessage\", \"place\": $state.fil, \"message\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $state) : $action.type = \"dessin:voir\" ? $merge([$state, {\"dessin\": $p}]) : $action.type = \"dessin:suivant\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) + 1}]) : $action.type = \"dessin:precedent\" ? $merge([$state, {\"dessin\": ($state.dessin ? $state.dessin : 0) - 1}]) : $action.type = \"maj\" ? $merge([$state, {\"maj\": $p}]) : $action.type = \"maj:annuler\" ? $merge([$state, {\"maj\": null}]) : $action.type = \"remove\" ? ($it := $state.items[id = $p]; $merge([$state, {\"items\": [$state.items[id != $p]], \"outbox\": $it.placeId ? $append($ob, [{\"id\": \"d-\" & $p, \"op\": \"delete\", \"place\": $it.placeId}]) : $ob}])) : $action.type = \"report\" ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"r-\" & $p, \"op\": \"report\", \"place\": $p}]), \"erreur\": \"Merci, signalement envoyé.\"}]) : $action.type = \"place:ok\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"items\": [$state.items.($p.op = \"add\" and id = $p.id ? $merge([$, {\"placeId\": $p.placeId}]) : $)], \"erreur\": $p.op = \"report\" ? \"Merci, signalement envoyé.\" : ($p.op = \"addRef\" ? \"Surface mise à jour : la balise sera reconnue sur le nouveau mur.\" : ($p.op = \"addRoute\" ? \"Parcours publié !\" : \"\"))}, $p.op = \"addRoute\" ? {\"pv\": $p.routeId, \"pvOuvert\": \"oui\", \"ceEtapes\": [], \"ceTitre\": \"\", \"ceDesc\": \"\"} : {}]) : $action.type = \"place:error\" ? $merge([$state, {\"outbox\": [$ob[id != $p.id]], \"erreur\": \"Partage impossible : \" & $p.error}]) : $action.type = \"parcours:liste\" ? $merge([$state, {\"pListe\": \"oui\", \"pvOuvert\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:listeFermer\" ? $merge([$state, {\"pListe\": \"non\"}]) : $action.type = \"parcours:voir\" ? $merge([$state, {\"pv\": $p, \"pvOuvert\": \"oui\", \"pListe\": \"non\", \"panneau\": \"non\", \"fil\": null}]) : $action.type = \"parcours:voirSuivi\" ? $merge([$state, {\"pv\": $state.suivi.id, \"pvOuvert\": \"oui\"}]) : $action.type = \"parcours:fermer\" ? $merge([$state, {\"pvOuvert\": \"non\"}]) : $action.type = \"parcours:signaler\" ? ($state.pv ? $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"rr-\" & $state.pv, \"op\": \"reportRoute\", \"route\": $state.pv}]), \"pvOuvert\": \"non\", \"erreur\": \"Merci, parcours signalé.\"}]) : $state) : $action.type = \"suivi:demarrer\" ? ($rid := $type($p) = \"string\" ? $p : $state.pv; $rid ? $merge([$state, {\"suivi\": {\"id\": $rid, \"faits\": [], \"joue\": 0, \"step\": null, \"poche\": \"non\"}, \"pv\": $rid, \"pvOuvert\": \"non\", \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1, \"erreur\": \"C'est parti : avance vers la première étape.\"}]) : $state) : $action.type = \"suivi:arreter\" ? $merge([$state, {\"suivi\": null, \"wakeR\": ($state.wakeR ? $state.wakeR : 0) + 1, \"pvOuvert\": \"non\", \"erreur\": \"Parcours arrêté.\"}]) : $action.type = \"suivi:arrive\" ? ($i := $p.value - 1; $state.suivi.id and $not($i in $state.suivi.faits) ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"faits\": $append($state.suivi.faits, [$i]), \"joue\": $state.suivi.joue + 1, \"step\": $i}]), \"erreur\": \"Étape \" & $string($p.value) & \" : vise le mur pour la découvrir.\"}]) : $state) : $action.type = \"poche:on\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"oui\"}]), \"wakeA\": ($state.wakeA ? $state.wakeA : 0) + 1}]) : $state) : $action.type = \"poche:off\" ? ($state.suivi.id ? $merge([$state, {\"suivi\": $merge([$state.suivi, {\"poche\": \"non\"}])}]) : $state) : $action.type = \"ce:debut\" ? $merge([$state, {\"cree\": \"oui\", \"ceForm\": \"non\", \"pListe\": \"non\", \"ceEtapes\": [], \"ceOrdre\": \"oui\", \"ceMode\": \"etape\", \"erreur\": \"Touche une balise sur la carte puis « Ajouter au parcours ».\"}]) : $action.type = \"ce:annuler\" ? $merge([$state, {\"cree\": \"non\", \"ceForm\": \"non\", \"ceEtapes\": [], \"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:ouvrir\" ? $merge([$state, {\"ceForm\": \"oui\"}]) : $action.type = \"ce:fermerForm\" ? $merge([$state, {\"ceForm\": \"non\"}]) : $action.type = \"ce:ajouter\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $count($e) >= 30 ? $merge([$state, {\"erreur\": \"30 étapes au plus.\"}]) : ($e[-1].place = $p.place ? $state : $merge([$state, {\"ceEtapes\": $append($e, [{\"place\": $p.place, \"titre\": $p.titre, \"radius\": 30, \"sound\": \"balise\"}]), \"erreur\": \"Étape \" & $string($count($e) + 1) & \" ajoutée.\"}]))) : $action.type = \"ce:retirer\" ? $merge([$state, {\"ceEtapes\": [$filter($state.ceEtapes, function($x, $k){ $k != $p })]}]) : $action.type = \"ce:monter\" or $action.type = \"ce:descendre\" ? ($e := $state.ceEtapes; $j := $action.type = \"ce:monter\" ? $p - 1 : $p + 1; $j < 0 or $j >= $count($e) ? $state : $merge([$state, {\"ceEtapes\": [$map($e, function($x, $k){ $k = $p ? $e[$j] : ($k = $j ? $e[$p] : $x) })]}])) : $action.type = \"ce:rayon\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"radius\": $p.r}]) : $x })]}]) : $action.type = \"ce:son\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $p.i ? $merge([$x, {\"sound\": $p.s, \"media\": null}]) : $x })]}]) : $action.type = \"ce:enreg\" ? $merge([$state, {\"ceCible\": $p, \"ceEnreg\": \"oui\", \"ceImport\": \"non\"}]) : $action.type = \"ce:importer\" ? $merge([$state, {\"ceCible\": $p, \"ceImport\": \"oui\", \"ceEnreg\": \"non\"}]) : $action.type = \"ce:enregFermer\" ? $merge([$state, {\"ceEnreg\": \"non\", \"ceImport\": \"non\"}]) : $action.type = \"ce:garder\" ? $merge([$state, {\"ceEtapes\": [$map($state.ceEtapes, function($x, $k){ $k = $state.ceCible ? $merge([$x, {\"sound\": \"propre\", \"media\": $p}]) : $x })], \"ceEnreg\": \"non\", \"ceImport\": \"non\", \"erreur\": \"Son gardé pour l'étape \" & $string($state.ceCible + 1) & \".\"}]) : $action.type = \"ce:publier\" ? ($e := $state.ceEtapes ? $state.ceEtapes : []; $t := $trim($state.ceTitre ? $state.ceTitre : \"\"); $count($e) < 2 ? $merge([$state, {\"erreur\": \"Il faut au moins deux étapes.\"}]) : $t = \"\" ? $merge([$state, {\"erreur\": \"Donne un titre à ton parcours.\"}]) : $e[sound = \"propre\" and $not(media)] ? $merge([$state, {\"erreur\": \"Une étape attend encore son son à part.\"}]) : $merge([$state, {\"outbox\": $append($ob, [{\"id\": \"p-\" & $string($millis()), \"op\": \"addRoute\", \"data\": {\"title\": $t, \"description\": $state.ceDesc ? $state.ceDesc : \"\", \"ordered\": $state.ceOrdre != \"non\", \"mode\": $state.ceMode = \"ambiance\" ? \"ambiance\" : \"etape\", \"steps\": [$e.{\"place\": place, \"radius\": radius, \"sound\": sound, \"media\": media}]}}]), \"cree\": \"non\", \"ceForm\": \"non\", \"erreur\": \"Publication du parcours…\"}])) : $state)",
             "persist": "balises",
             "max-state-bytes": "1200000"
           }
@@ -861,7 +861,7 @@
                                                         "inputProvider": "publiquesFil",
                                                         "formDataProvider": "ancreState",
                                                         "outputProvider": "frise",
-                                                        "expression": "($p := $item.placeId ? $item.placeId : $item.id; $ok := $found and $input.place = $p and $input.tagCount > 0; {\"plus\": $ok and $input.tagCount > 5 ? \"+\" & $string($input.tagCount - 5) : \"\", \"voir\": $ok ? \"oui\" : \"non\"})"
+                                                        "expression": "($p := $item.placeId ? $item.placeId : $item.id; $a := $input.messages[auteur and $not($exists(deleted))]; $u := [$distinct($a.auteur)]; $l := [$map($u, function($id){ $a[auteur = $id][-1] })]; $n := $count($l); $ok := $found and $input.place = $p and $n > 0; {\"plus\": $ok and $n > 5 ? \"+\" & $string($n - 5) : \"\", \"voir\": $ok ? \"oui\" : \"non\"})"
                                                       }
                                                     },
                                                     {
@@ -870,7 +870,7 @@
                                                         "inputProvider": "publiquesFil",
                                                         "formDataProvider": "ancreState",
                                                         "outputProvider": "friseListe",
-                                                        "expression": "($p := $item.placeId ? $item.placeId : $item.id; $ok := $found and $input.place = $p and $input.tagCount > 0; $ok ? [$map($input.tags[[0..4]], function($t, $k){ {\"src\": \"friseListe.\" & $string($k) & \".avatar\", \"initiale\": $uppercase($substring($t.pseudo ? $t.pseudo : \"?\", 0, 1)), \"avatar\": $t.avatar ? $t.avatar : \"\", \"aAvatar\": $t.avatar ? \"oui\" : \"non\"} })] : [])"
+                                                        "expression": "($p := $item.placeId ? $item.placeId : $item.id; $a := $input.messages[auteur and $not($exists(deleted))]; $u := [$distinct($a.auteur)]; $l := [$map($u, function($id){ $a[auteur = $id][-1] })]; $ok := $found and $input.place = $p and $count($l) > 0; $ok ? [$map($l[[0..4]], function($t, $k){ {\"src\": \"friseListe.\" & $string($k) & \".avatar\", \"initiale\": $uppercase($substring($t.pseudo ? $t.pseudo : \"?\", 0, 1)), \"avatar\": $t.avatar ? $t.avatar : \"\", \"aAvatar\": $t.avatar ? \"oui\" : \"non\"} })] : [])"
                                                       }
                                                     },
                                                     {
@@ -1150,7 +1150,7 @@
                                                                   "tagName": "sonic-action",
                                                                   "attributes": {
                                                                     "target": "balises",
-                                                                    "type": "tag:profil"
+                                                                    "type": "blaze:ouvrir"
                                                                   },
                                                                   "nodes": [
                                                                     {
@@ -3929,36 +3929,6 @@
                   }
                 },
                 {
-                  "tagName": "sonic-action",
-                  "attributes": {
-                    "target": "balises",
-                    "type": "tag:pose"
-                  },
-                  "nodes": [
-                    {
-                      "tagName": "sonic-button",
-                      "attributes": {
-                        "shape": "block",
-                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
-                      },
-                      "nodes": [
-                        {
-                          "tagName": "sonic-icon",
-                          "attributes": {
-                            "library": "iconoir",
-                            "name": "edit-pencil",
-                            "slot": "prefix"
-                          }
-                        },
-                        {
-                          "tagName": "span",
-                          "textContent": "Me taguer sur ce mur"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
                   "tagName": "div",
                   "attributes": {
                     "style": "margin-top:auto;position:sticky;bottom:0;display:flex;flex-direction:column;gap:.6rem;padding:.8rem 0 max(.4rem,env(safe-area-inset-bottom));background:linear-gradient(rgba(255,255,255,0),#ffffff 35%)"
@@ -5015,287 +4985,12 @@
                           },
                           "nodes": [
                             {
-                              "tagName": "div",
-                              "attributes": {
-                                "style": "display:flex;flex-direction:column;gap:.55rem;padding-bottom:.7rem;border-bottom:1px solid #ececf0"
-                              },
-                              "nodes": [
-                                {
-                                  "tagName": "sonic-jsonata",
-                                  "attributes": {
-                                    "inputProvider": "publiquesFil",
-                                    "outputProvider": "tagsVue",
-                                    "expression": "[$map($input.tags, function($t, $k){ {\"src\": \"tagsVue.\" & $string($k) & \".avatar\", \"id\": $t.id, \"pseudo\": $t.pseudo ? $t.pseudo : \"Anonyme\", \"initiale\": $uppercase($substring($t.pseudo ? $t.pseudo : \"?\", 0, 1)), \"avatar\": $t.avatar ? $t.avatar : \"\", \"aAvatar\": $t.avatar ? \"oui\" : \"non\", \"moi\": $t.mine ? \"oui\" : \"non\", \"quand\": $t.at ? $substring($t.at, 8, 2) & \"/\" & $substring($t.at, 5, 2) : \"\"} })]"
-                                  }
-                                },
-                                {
-                                  "tagName": "sonic-jsonata",
-                                  "attributes": {
-                                    "inputProvider": "publiquesFil",
-                                    "formDataProvider": "edition",
-                                    "outputProvider": "tagEtat",
-                                    "expression": "{\"ici\": $ok = \"oui\" ? \"oui\" : \"non\", \"fait\": $input.tagMine ? \"oui\" : \"non\", \"quand\": $input.tagMine ? $substring($input.tagMine, 8, 2) & \"/\" & $substring($input.tagMine, 5, 2) : \"\", \"n\": $input.tagCount ? $string($input.tagCount) : \"0\"}"
-                                  }
-                                },
-                                {
-                                  "tagName": "div",
-                                  "attributes": {
-                                    "style": "display:flex;align-items:center;gap:.5rem"
-                                  },
-                                  "nodes": [
-                                    {
-                                      "tagName": "strong",
-                                      "attributes": {
-                                        "style": "font-size:1.02rem"
-                                      },
-                                      "textContent": "Passés par là"
-                                    },
-                                    {
-                                      "tagName": "span",
-                                      "attributes": {
-                                        "style": "padding:2px 8px;border-radius:999px;background:#f2f3f6;font-size:.85rem;font-weight:600;font-variant-numeric:tabular-nums"
-                                      },
-                                      "nodes": [
-                                        {
-                                          "tagName": "sonic-value",
-                                          "attributes": {
-                                            "dataProvider": "tagEtat",
-                                            "key": "n"
-                                          }
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "tagName": "div",
-                                      "attributes": {
-                                        "style": "margin-left:auto;display:flex;gap:.4rem;align-items:center"
-                                      },
-                                      "nodes": [
-                                        {
-                                          "tagName": "sonic-if",
-                                          "attributes": {
-                                            "dataProvider": "tagEtat",
-                                            "key": "ici",
-                                            "equals": "oui"
-                                          },
-                                          "nodes": [
-                                            {
-                                              "tagName": "sonic-if",
-                                              "attributes": {
-                                                "dataProvider": "tagEtat",
-                                                "key": "fait",
-                                                "equals": "non"
-                                              },
-                                              "nodes": [
-                                                {
-                                                  "tagName": "sonic-action",
-                                                  "attributes": {
-                                                    "target": "balises",
-                                                    "type": "tag:go"
-                                                  },
-                                                  "nodes": [
-                                                    {
-                                                      "tagName": "sonic-button",
-                                                      "attributes": {
-                                                        "type": "primary",
-                                                        "size": "sm",
-                                                        "style": "--sc-btn-rounded:999px"
-                                                      },
-                                                      "nodes": [
-                                                        {
-                                                          "tagName": "sonic-icon",
-                                                          "attributes": {
-                                                            "library": "iconoir",
-                                                            "name": "edit-pencil",
-                                                            "slot": "prefix"
-                                                          }
-                                                        },
-                                                        {
-                                                          "tagName": "span",
-                                                          "textContent": "Me taguer"
-                                                        }
-                                                      ]
-                                                    }
-                                                  ]
-                                                }
-                                              ]
-                                            },
-                                            {
-                                              "tagName": "sonic-if",
-                                              "attributes": {
-                                                "dataProvider": "tagEtat",
-                                                "key": "fait",
-                                                "equals": "oui"
-                                              },
-                                              "nodes": [
-                                                {
-                                                  "tagName": "span",
-                                                  "attributes": {
-                                                    "style": "display:inline-flex;align-items:center;gap:.3rem;font-weight:700;color:#a87b00"
-                                                  },
-                                                  "nodes": [
-                                                    {
-                                                      "tagName": "sonic-icon",
-                                                      "attributes": {
-                                                        "library": "iconoir",
-                                                        "name": "check"
-                                                      }
-                                                    },
-                                                    {
-                                                      "tagName": "span",
-                                                      "textContent": "Tagué le "
-                                                    },
-                                                    {
-                                                      "tagName": "sonic-value",
-                                                      "attributes": {
-                                                        "dataProvider": "tagEtat",
-                                                        "key": "quand"
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        },
-                                        {
-                                          "tagName": "sonic-action",
-                                          "attributes": {
-                                            "target": "balises",
-                                            "type": "tag:profil"
-                                          },
-                                          "nodes": [
-                                            {
-                                              "tagName": "sonic-button",
-                                              "attributes": {
-                                                "size": "sm",
-                                                "variant": "ghost",
-                                                "shape": "circle",
-                                                "aria-label": "Mon blaze et mon avatar",
-                                                "title": "Mon blaze et mon avatar",
-                                                "style": "--sc-btn-rounded:999px"
-                                              },
-                                              "nodes": [
-                                                {
-                                                  "tagName": "sonic-icon",
-                                                  "attributes": {
-                                                    "library": "iconoir",
-                                                    "name": "user"
-                                                  }
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                },
-                                {
-                                  "tagName": "div",
-                                  "attributes": {
-                                    "style": "display:flex;gap:.8rem;overflow-x:auto;padding:.2rem .1rem .3rem;scrollbar-width:none"
-                                  },
-                                  "nodes": [
-                                    {
-                                      "tagName": "sonic-list",
-                                      "attributes": {
-                                        "dataProvider": "tagsVue",
-                                        "displayContents": true
-                                      },
-                                      "nodes": [
-                                        {
-                                          "tagName": "template",
-                                          "nodes": [
-                                            {
-                                              "tagName": "div",
-                                              "attributes": {
-                                                "style": "flex:none;width:4.2rem;display:flex;flex-direction:column;align-items:center;gap:.25rem"
-                                              },
-                                              "nodes": [
-                                                {
-                                                  "tagName": "div",
-                                                  "attributes": {
-                                                    "style": "position:relative;flex:none;width:48px;height:48px;border-radius:50%;overflow:hidden;background:#ffd23a;display:grid;place-items:center;box-shadow:0 0 0 2px #ffffff"
-                                                  },
-                                                  "nodes": [
-                                                    {
-                                                      "tagName": "span",
-                                                      "attributes": {
-                                                        "data-bind": "",
-                                                        "::text-content": "$initiale",
-                                                        "style": "font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif;font-size:22px;line-height:1;color:#16181d"
-                                                      }
-                                                    },
-                                                    {
-                                                      "tagName": "sonic-if",
-                                                      "attributes": {
-                                                        "key": "aAvatar",
-                                                        "equals": "oui"
-                                                      },
-                                                      "nodes": [
-                                                        {
-                                                          "tagName": "sonic-still",
-                                                          "attributes": {
-                                                            "data-bind": "",
-                                                            "::in-data-provider": "$src",
-                                                            "fit": "contain",
-                                                            "vector-size": "144",
-                                                            "style": "position:absolute;inset:0;width:100%;height:100%;background:#ffffff"
-                                                          }
-                                                        }
-                                                      ]
-                                                    }
-                                                  ]
-                                                },
-                                                {
-                                                  "tagName": "span",
-                                                  "attributes": {
-                                                    "data-bind": "",
-                                                    "::text-content": "$pseudo",
-                                                    "style": "max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif;font-size:1rem;line-height:1.1;color:#1c1e24"
-                                                  }
-                                                },
-                                                {
-                                                  "tagName": "span",
-                                                  "attributes": {
-                                                    "data-bind": "",
-                                                    "::text-content": "$quand",
-                                                    "style": "font-size:.78rem;color:#5b5e68;font-variant-numeric:tabular-nums"
-                                                  }
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        },
-                                        {
-                                          "tagName": "template",
-                                          "attributes": {
-                                            "data-value": "no-item"
-                                          },
-                                          "nodes": [
-                                            {
-                                              "tagName": "span",
-                                              "attributes": {
-                                                "style": "font-size:.95rem"
-                                              },
-                                              "textContent": "Personne pour l'instant : sois le premier à te taguer ici."
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
                               "tagName": "sonic-jsonata",
                               "attributes": {
                                 "inputProvider": "publiquesFil",
                                 "formDataProvider": "balises",
                                 "outputProvider": "filListe",
-                                "expression": "($ds := $input.drawings.id; $pos := function($v){ $reduce($ds, function($a, $x){ $a.f ? $a : ($x = $v ? {\"i\": $a.i, \"f\": true} : {\"i\": $a.i + 1, \"f\": false}) }, {\"i\": 0, \"f\": false}).i }; $miens := $items[placeId = $fil] ? true : false; $lib := {\"auteur\": \"Retiré par son auteur\", \"moderation\": \"Retiré par la modération\", \"signalements\": \"Masqué après des signalements\"}; $append([], $input.messages.($moi := deleted ? false : (origin ? $miens : mine = true); {\"id\": id, \"text\": text, \"qui\": origin ? \"Posé avec la balise\" : (pseudo ? pseudo : (mine ? \"Toi\" : \"Quelqu'un\")), \"quand\": $substring(at, 8, 2) & \"/\" & $substring(at, 5, 2) & \" à \" & $substring(at, 11, 5), \"url\": media, \"kind\": media ? kind : \"text\", \"i\": kind = \"drawing\" ? $pos(id) : -1, \"aTexte\": text ? \"oui\" : \"non\", \"signal\": (origin or deleted) ? \"non\" : \"oui\", \"loin\": onSite = false ? \"oui\" : \"non\", \"estSuppr\": deleted ? \"oui\" : \"non\", \"suppr\": deleted ? $lookup($lib, deleted) : \"\", \"modif\": editedAt ? \"oui\" : \"non\", \"moi\": $moi ? \"oui\" : \"non\", \"editTexte\": ($moi and kind = \"text\") ? \"oui\" : \"non\", \"editDessin\": ($moi and kind = \"drawing\") ? \"oui\" : \"non\", \"retirable\": ($moi and (origin ? false : true)) ? \"oui\" : \"non\", \"rt\": {\"id\": id, \"text\": text, \"origin\": origin ? \"oui\" : \"non\"}, \"rd\": {\"id\": id, \"origin\": origin ? \"oui\" : \"non\"}})))"
+                                "expression": "($ds := $input.drawings.id; $pos := function($v){ $reduce($ds, function($a, $x){ $a.f ? $a : ($x = $v ? {\"i\": $a.i, \"f\": true} : {\"i\": $a.i + 1, \"f\": false}) }, {\"i\": 0, \"f\": false}).i }; $miens := $items[placeId = $fil] ? true : false; $lib := {\"auteur\": \"Retiré par son auteur\", \"moderation\": \"Retiré par la modération\", \"signalements\": \"Masqué après des signalements\"}; $l := $append([], $input.messages.($moi := deleted ? false : (origin ? $miens : mine = true); $qui := pseudo ? pseudo : (origin ? \"Posé avec la balise\" : (mine ? \"Toi\" : \"Quelqu'un\")); {\"id\": id, \"text\": text, \"qui\": $qui, \"initiale\": $uppercase($substring(pseudo ? pseudo : \"?\", 0, 1)), \"aAvatar\": avatar ? \"oui\" : \"non\", \"blaze\": {\"pseudo\": pseudo, \"avatar\": avatar, \"auteur\": auteur, \"initiale\": $uppercase($substring(pseudo ? pseudo : \"?\", 0, 1)), \"aAvatar\": avatar ? \"oui\" : \"non\", \"signalable\": (auteur and avatar and $not($moi)) ? \"oui\" : \"non\"}, \"quand\": $substring(at, 8, 2) & \"/\" & $substring(at, 5, 2) & \" à \" & $substring(at, 11, 5), \"url\": media, \"kind\": media ? kind : \"text\", \"i\": kind = \"drawing\" ? $pos(id) : -1, \"aTexte\": text ? \"oui\" : \"non\", \"signal\": (origin or deleted) ? \"non\" : \"oui\", \"loin\": onSite = false ? \"oui\" : \"non\", \"estSuppr\": deleted ? \"oui\" : \"non\", \"suppr\": deleted ? $lookup($lib, deleted) : \"\", \"modif\": editedAt ? \"oui\" : \"non\", \"moi\": $moi ? \"oui\" : \"non\", \"editTexte\": ($moi and kind = \"text\") ? \"oui\" : \"non\", \"editDessin\": ($moi and kind = \"drawing\") ? \"oui\" : \"non\", \"retirable\": ($moi and (origin ? false : true)) ? \"oui\" : \"non\", \"rt\": {\"id\": id, \"text\": text, \"origin\": origin ? \"oui\" : \"non\"}, \"rd\": {\"id\": id, \"origin\": origin ? \"oui\" : \"non\"}})); [$map($l, function($x, $k){ $merge([$x, {\"src\": \"filListe.\" & $string($k) & \".blaze.avatar\"}]) })])"
                               }
                             },
                             {
@@ -5409,12 +5104,59 @@
                                                           }
                                                         },
                                                         {
-                                                          "tagName": "strong",
+                                                          "tagName": "sonic-action",
                                                           "attributes": {
+                                                            "target": "balises",
+                                                            "type": "blaze:voir",
                                                             "data-bind": "",
-                                                            "::text-content": "$qui",
-                                                            "style": "color:#1c1e24;font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif;font-weight:400;font-size:1.15rem;line-height:1.1"
-                                                          }
+                                                            "::payload": "$blaze",
+                                                            "style": "display:inline-flex;align-items:center;gap:.45rem;cursor:pointer;min-width:0"
+                                                          },
+                                                          "nodes": [
+                                                            {
+                                                              "tagName": "div",
+                                                              "attributes": {
+                                                                "style": "position:relative;flex:none;width:28px;height:28px;border-radius:50%;overflow:hidden;background:#ffd23a;display:grid;place-items:center;box-shadow:0 0 0 2px #ffffff"
+                                                              },
+                                                              "nodes": [
+                                                                {
+                                                                  "tagName": "span",
+                                                                  "attributes": {
+                                                                    "data-bind": "",
+                                                                    "::text-content": "$initiale",
+                                                                    "style": "font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif;font-size:14px;line-height:1;color:#16181d"
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "tagName": "sonic-if",
+                                                                  "attributes": {
+                                                                    "key": "aAvatar",
+                                                                    "equals": "oui"
+                                                                  },
+                                                                  "nodes": [
+                                                                    {
+                                                                      "tagName": "sonic-still",
+                                                                      "attributes": {
+                                                                        "data-bind": "",
+                                                                        "::in-data-provider": "$src",
+                                                                        "fit": "contain",
+                                                                        "vector-size": "84",
+                                                                        "style": "position:absolute;inset:0;width:100%;height:100%;background:#ffffff"
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            },
+                                                            {
+                                                              "tagName": "strong",
+                                                              "attributes": {
+                                                                "data-bind": "",
+                                                                "::text-content": "$qui",
+                                                                "style": "color:#1c1e24;font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif;font-weight:400;font-size:1.15rem;line-height:1.1"
+                                                              }
+                                                            }
+                                                          ]
                                                         },
                                                         {
                                                           "tagName": "span",
@@ -5688,12 +5430,59 @@
                                                       },
                                                       "nodes": [
                                                         {
-                                                          "tagName": "strong",
+                                                          "tagName": "sonic-action",
                                                           "attributes": {
+                                                            "target": "balises",
+                                                            "type": "blaze:voir",
                                                             "data-bind": "",
-                                                            "::text-content": "$qui",
-                                                            "style": "color:#1c1e24;font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif;font-weight:400;font-size:1.15rem;line-height:1.1"
-                                                          }
+                                                            "::payload": "$blaze",
+                                                            "style": "display:inline-flex;align-items:center;gap:.45rem;cursor:pointer;min-width:0"
+                                                          },
+                                                          "nodes": [
+                                                            {
+                                                              "tagName": "div",
+                                                              "attributes": {
+                                                                "style": "position:relative;flex:none;width:36px;height:36px;border-radius:50%;overflow:hidden;background:#ffd23a;display:grid;place-items:center;box-shadow:0 0 0 2px #ffffff"
+                                                              },
+                                                              "nodes": [
+                                                                {
+                                                                  "tagName": "span",
+                                                                  "attributes": {
+                                                                    "data-bind": "",
+                                                                    "::text-content": "$initiale",
+                                                                    "style": "font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif;font-size:17px;line-height:1;color:#16181d"
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "tagName": "sonic-if",
+                                                                  "attributes": {
+                                                                    "key": "aAvatar",
+                                                                    "equals": "oui"
+                                                                  },
+                                                                  "nodes": [
+                                                                    {
+                                                                      "tagName": "sonic-still",
+                                                                      "attributes": {
+                                                                        "data-bind": "",
+                                                                        "::in-data-provider": "$src",
+                                                                        "fit": "contain",
+                                                                        "vector-size": "108",
+                                                                        "style": "position:absolute;inset:0;width:100%;height:100%;background:#ffffff"
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            },
+                                                            {
+                                                              "tagName": "strong",
+                                                              "attributes": {
+                                                                "data-bind": "",
+                                                                "::text-content": "$qui",
+                                                                "style": "color:#1c1e24;font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif;font-weight:400;font-size:1.15rem;line-height:1.1"
+                                                              }
+                                                            }
+                                                          ]
                                                         },
                                                         {
                                                           "tagName": "span",
@@ -6834,45 +6623,83 @@
                               ]
                             },
                             {
-                              "tagName": "sonic-states",
+                              "tagName": "sonic-action",
                               "attributes": {
-                                "dataProvider": "balises",
-                                "data-path": "blazeTag"
+                                "target": "traitsCtl",
+                                "type": "avatar:envoyer"
                               },
                               "nodes": [
                                 {
-                                  "tagName": "template",
+                                  "tagName": "sonic-button",
                                   "attributes": {
-                                    "data-value": "^oui$"
+                                    "type": "primary",
+                                    "size": "lg",
+                                    "shape": "block",
+                                    "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
                                   },
                                   "nodes": [
                                     {
+                                      "tagName": "sonic-icon",
+                                      "attributes": {
+                                        "library": "iconoir",
+                                        "name": "check",
+                                        "slot": "prefix"
+                                      }
+                                    },
+                                    {
+                                      "tagName": "span",
+                                      "textContent": "Enregistrer mon blaze"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "div",
+                              "attributes": {
+                                "style": "display:flex;flex-direction:column;gap:.5rem;padding-top:.8rem;border-top:1px solid #e6e7ec"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-if",
+                                  "attributes": {
+                                    "dataProvider": "publiquesCompte",
+                                    "key": "connecte",
+                                    "equals": "non"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "strong",
+                                      "attributes": {
+                                        "style": "font-size:1rem"
+                                      },
+                                      "textContent": "Garde ton blaze sur tous tes appareils"
+                                    },
+                                    {
                                       "tagName": "sonic-action",
                                       "attributes": {
-                                        "target": "traitsCtl",
-                                        "type": "avatar:envoyer"
+                                        "target": "balises",
+                                        "type": "compte:connexion"
                                       },
                                       "nodes": [
                                         {
                                           "tagName": "sonic-button",
                                           "attributes": {
-                                            "type": "primary",
-                                            "size": "lg",
                                             "shape": "block",
-                                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
+                                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
                                           },
                                           "nodes": [
                                             {
                                               "tagName": "sonic-icon",
                                               "attributes": {
                                                 "library": "iconoir",
-                                                "name": "edit-pencil",
+                                                "name": "log-in",
                                                 "slot": "prefix"
                                               }
                                             },
                                             {
                                               "tagName": "span",
-                                              "textContent": "Me taguer ici"
+                                              "textContent": "Se connecter à Tadaaa"
                                             }
                                           ]
                                         }
@@ -6881,40 +6708,227 @@
                                   ]
                                 },
                                 {
-                                  "tagName": "template",
+                                  "tagName": "sonic-if",
                                   "attributes": {
-                                    "data-value": "^non$"
+                                    "dataProvider": "publiquesCompte",
+                                    "key": "connecte",
+                                    "equals": "oui"
                                   },
                                   "nodes": [
                                     {
-                                      "tagName": "sonic-action",
+                                      "tagName": "div",
                                       "attributes": {
-                                        "target": "traitsCtl",
-                                        "type": "avatar:envoyer"
+                                        "style": "display:flex;align-items:center;gap:.5rem;flex-wrap:wrap"
                                       },
                                       "nodes": [
                                         {
-                                          "tagName": "sonic-button",
+                                          "tagName": "sonic-icon",
                                           "attributes": {
-                                            "type": "primary",
-                                            "size": "lg",
-                                            "shape": "block",
-                                            "style": "--sc-btn-rounded:999px;--sc-btn-height:3.2rem;--sc-btn-fs:1.05rem"
+                                            "library": "iconoir",
+                                            "name": "check-circled-outline"
+                                          }
+                                        },
+                                        {
+                                          "tagName": "span",
+                                          "textContent": "Blaze lié à "
+                                        },
+                                        {
+                                          "tagName": "strong",
+                                          "nodes": [
+                                            {
+                                              "tagName": "sonic-value",
+                                              "attributes": {
+                                                "dataProvider": "publiquesCompte",
+                                                "key": "email"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "tagName": "span",
+                                          "attributes": {
+                                            "style": "margin-left:auto"
                                           },
                                           "nodes": [
                                             {
-                                              "tagName": "sonic-icon",
+                                              "tagName": "sonic-action",
                                               "attributes": {
-                                                "library": "iconoir",
-                                                "name": "check",
-                                                "slot": "prefix"
-                                              }
-                                            },
-                                            {
-                                              "tagName": "span",
-                                              "textContent": "Enregistrer mon blaze"
+                                                "target": "balises",
+                                                "type": "compte:deconnexion"
+                                              },
+                                              "nodes": [
+                                                {
+                                                  "tagName": "sonic-button",
+                                                  "attributes": {
+                                                    "size": "sm",
+                                                    "variant": "ghost",
+                                                    "style": "--sc-btn-rounded:999px"
+                                                  },
+                                                  "nodes": [
+                                                    {
+                                                      "tagName": "span",
+                                                      "textContent": "Se déconnecter"
+                                                    }
+                                                  ]
+                                                }
+                                              ]
                                             }
                                           ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tagName": "sonic-subscriber",
+          "attributes": {
+            "dataProvider": "fiches"
+          },
+          "nodes": [
+            {
+              "tagName": "sonic-action",
+              "attributes": {
+                "trigger": "hide",
+                "target": "balises",
+                "type": "fiche:fermee",
+                "payload": "\"blazeVuOuvert\""
+              },
+              "nodes": [
+                {
+                  "tagName": "sonic-modal",
+                  "attributes": {
+                    "data-bind": "",
+                    "::visible": "$v_blazeVuOuvert",
+                    "maxWidth": "min(100vw, 38rem)",
+                    "maxHeight": "85svh",
+                    "zIndex": "38"
+                  },
+                  "nodes": [
+                    {
+                      "tagName": "sonic-modal-title",
+                      "nodes": [
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "display:flex;align-items:center;gap:.6rem;flex-wrap:wrap"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "h2",
+                              "attributes": {
+                                "style": "margin:0;font-size:1.35rem;line-height:1.1;letter-spacing:.01em;font-family:'Bungee','Arial Black',Impact,system-ui,sans-serif;font-weight:400;font-synthesis:none;font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-value",
+                                  "attributes": {
+                                    "dataProvider": "balises",
+                                    "key": "blazeVu.pseudo"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tagName": "sonic-modal-content",
+                      "nodes": [
+                        {
+                          "tagName": "div",
+                          "attributes": {
+                            "style": "display:flex;flex-direction:column;gap:12px;color:#1c1e24"
+                          },
+                          "nodes": [
+                            {
+                              "tagName": "div",
+                              "attributes": {
+                                "style": "position:relative;width:min(100%,16rem);aspect-ratio:1;align-self:center;border-radius:50%;overflow:hidden;background:#ffd23a;display:grid;place-items:center"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "span",
+                                  "attributes": {
+                                    "style": "font-family:'Sedgwick Ave Display','Barlow Semi Condensed',system-ui,sans-serif;font-size:7rem;line-height:1;color:#16181d"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-value",
+                                      "attributes": {
+                                        "dataProvider": "balises",
+                                        "key": "blazeVu.initiale"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tagName": "sonic-if",
+                                  "attributes": {
+                                    "dataProvider": "balises",
+                                    "key": "blazeVu.aAvatar",
+                                    "equals": "oui"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-still",
+                                      "attributes": {
+                                        "in-data-provider": "balises.blazeVu.avatar",
+                                        "fit": "contain",
+                                        "vector-size": "768",
+                                        "style": "position:absolute;inset:0;width:100%;height:100%;background:#ffffff"
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tagName": "sonic-if",
+                              "attributes": {
+                                "dataProvider": "balises",
+                                "key": "blazeVu.signalable",
+                                "equals": "oui"
+                              },
+                              "nodes": [
+                                {
+                                  "tagName": "sonic-action",
+                                  "attributes": {
+                                    "target": "balises",
+                                    "type": "blaze:signaler"
+                                  },
+                                  "nodes": [
+                                    {
+                                      "tagName": "sonic-button",
+                                      "attributes": {
+                                        "shape": "block",
+                                        "variant": "ghost",
+                                        "style": "--sc-btn-rounded:999px;--sc-btn-height:3rem"
+                                      },
+                                      "nodes": [
+                                        {
+                                          "tagName": "sonic-icon",
+                                          "attributes": {
+                                            "library": "iconoir",
+                                            "name": "warning-triangle-outline",
+                                            "slot": "prefix"
+                                          }
+                                        },
+                                        {
+                                          "tagName": "span",
+                                          "textContent": "Signaler ce blaze"
                                         }
                                       ]
                                     }
@@ -10201,7 +10215,7 @@
           "attributes": {
             "inputProvider": "balises",
             "outputProvider": "fiches",
-            "expression": "{\"v_pListe\": $input.pListe = \"oui\", \"v_pvOuvert\": $input.pvOuvert = \"oui\", \"v_ceForm\": $input.ceForm = \"oui\", \"v_blazeOuvert\": $input.blazeOuvert = \"oui\", \"v_panneau\": $input.panneau = \"oui\", \"v_retoucheOuvert\": $input.retoucheOuvert = \"oui\", \"v_confirmBalise\": $input.confirmBalise = \"oui\", \"v_confirmRetrait\": $input.confirmRetrait = \"oui\"}"
+            "expression": "{\"v_pListe\": $input.pListe = \"oui\", \"v_pvOuvert\": $input.pvOuvert = \"oui\", \"v_ceForm\": $input.ceForm = \"oui\", \"v_blazeOuvert\": $input.blazeOuvert = \"oui\", \"v_blazeVuOuvert\": $input.blazeVuOuvert = \"oui\", \"v_panneau\": $input.panneau = \"oui\", \"v_retoucheOuvert\": $input.retoucheOuvert = \"oui\", \"v_confirmBalise\": $input.confirmBalise = \"oui\", \"v_confirmRetrait\": $input.confirmRetrait = \"oui\"}"
           }
         }
       ]
