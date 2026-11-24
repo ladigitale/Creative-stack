@@ -747,11 +747,13 @@ export class SonicShader extends LitElement {
   private resolveFormProviderId(): string {
     const own = this.dataProvider?.trim();
     if (own) return own;
-    return (
-      HTML.getAncestorAttributeValue(this, "dataProvider") ||
-      HTML.getAncestorAttributeValue(this, "formDataProvider") ||
-      ""
-    );
+    const inherited = (name: string) => {
+      const id = HTML.getAncestorAttributeValue(this, name) || "";
+      // `__subscriber__N` : DP privé qu'un composant Concorde (sonic-sdui…) crée pour ses props. Y publier
+      // l'état du shader réécrit ces props, relance le rendu, recrée le shader qui republie : boucle infinie.
+      return id.startsWith("__subscriber__") ? "" : id;
+    };
+    return inherited("dataProvider") || inherited("formDataProvider");
   }
 
   private unbindFormProvider() {

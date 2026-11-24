@@ -342,6 +342,22 @@ describe("sonic-shader : état publié et pilotage par params", () => {
     expect(el.param0).toBe(0.42);
   });
 
+  it("n'écrit jamais son état dans le DP privé `__subscriber__N` d'un ancêtre (sonic-sdui) : sinon boucle de rendu", async () => {
+    const priv = "__subscriber__shader-test";
+    PublisherManager.get(priv).set({ nodes: [] });
+    const el = TestUtils.bootstrap(`<div dataProvider="${priv}"><sonic-shader style="width:32px;height:32px"></sonic-shader></div>`, true)[0].querySelector("sonic-shader") as SonicShader;
+    await el.updateComplete;
+    await tick();
+    expect(PublisherManager.get(priv).get()).toEqual({ nodes: [] });
+    // Un ancêtre au DP ordinaire reste suivi.
+    const pub = "shader-state-ancestor";
+    PublisherManager.get(pub).set({});
+    const el2 = TestUtils.bootstrap(`<div dataProvider="${pub}"><sonic-shader style="width:32px;height:32px"></sonic-shader></div>`, true)[0].querySelector("sonic-shader") as SonicShader;
+    await el2.updateComplete;
+    await tick();
+    expect(PublisherManager.get(pub).get()).toMatchObject({ status: "idle" });
+  });
+
   it("params : play / playOnHover / mouse / mouseMode / dprMax en direct, prioritaires sur les attributs", async () => {
     const params = "shader-live-params";
     PublisherManager.get(params).set({});

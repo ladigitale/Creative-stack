@@ -316,9 +316,27 @@ Assigne le GLSL via `.image` (et `.bufferA`, …) depuis JS / Lit.
 
 ## Bibliothèque de shaders de base
 
-`src/addons/shader/library/` : shaders prêts à l'emploi, un fichier `.glsl` par shader et un index `library.json` (`id`, `title`, `description`, `tags`, `channels` = ce qu'il attend sur `iChannel0…`, `params` = réglages `uParam0…3` avec `min` / `max` / `default`, `version`, `license`). **Les utiliser avant d'en écrire un nouveau** : copier le source dans l'attribut `image` de `sonic-shader`, relier `param0..3` à un store avec les bornes de l'index, et brancher `channel0="#cam"` pour les effets d'image. Disponibles : `plasma`, `kaleidoscope`, `thermal`, `pixelate`, `glitch`, `smoke` (fonds et effets ; `glitch` = rafale ou fond animé, quantité à 0 pour une image propre ; `smoke` = fumée grise sur noir, à poser en `mix-blend-mode: screen`) ; `sobel`, `harris`, `dither-bayer`, `halftone` (traitement d’image) ; `hough-lines`, `hough-circles` (accumulateurs de Hough).
+`src/addons/shader/library/` : shaders prêts à l'emploi, un fichier `.glsl` par shader et un index `library.json` (`id`, `title`, `description`, `tags`, `channels` = ce qu'il attend sur `iChannel0…`, `params` = réglages `uParam0…3` avec `min` / `max` / `default`, `version`, `license`). **Les utiliser avant d'en écrire un nouveau** : copier le source dans l'attribut `image` de `sonic-shader`, relier `param0..3` à un store avec les bornes de l'index, et brancher `channel0="#cam"` pour les effets d'image. Disponibles : `plasma`, `kaleidoscope`, `thermal`, `pixelate`, `pixel-art` (voir plus bas), `glitch`, `smoke` (fonds et effets ; `glitch` = rafale ou fond animé, quantité à 0 pour une image propre ; `smoke` = fumée grise sur noir, à poser en `mix-blend-mode: screen`) ; `sobel`, `harris`, `dither-bayer`, `halftone` (traitement d’image) ; `hough-lines`, `hough-circles` (accumulateurs de Hough).
 
 **Chaîner pour la vision** : `sonic-shader id="contours"` (sobel, mode 0, `channel0="#cam"`) puis `sonic-shader channel0="#contours"` (hough-lines ou hough-circles). Les Hough sont en force brute, une passe : afficher l’accumulateur en petit (≈ 360 × 240) et sans détection de pics (il faudrait un second passage). Ces shaders ne sont pas calibrés sur une vraie caméra ; les gains et seuils par défaut sont un point de départ. Un shader ajouté doit être testé (`shader-library.spec.ts` vérifie `mainImage`, 4 réglages au plus, bornes cohérentes) ; changer son comportement incrémente `version`.
+
+## Pixel art (`pixel-art`)
+
+Redessine n'importe quelle source d'images (photo, vidéo, caméra, `sonic-3d`, `sonic-2d`, autre `sonic-shader`) en pixel art à palette limitée. Réglages : `param0` lignes de pixels (hauteur de l'image d'art), `param1` palette (0 = couleurs de l'attribut `colors`, 8 au plus, sinon niveaux automatiques ; 1 pico8, 2 gameboy, 3 braise, 4 ocean, 5 terre, 6 pastel, 7 nord, 8 cga, 9 zx, 10 mac), `param2` tramage, `param3` contours.
+
+**Toujours le rendre à la résolution d'art** : `render-size` = taille de l'image d'art (même rapport que l'affichage) et `param0` = sa hauteur, agrandi par le navigateur avec `image-rendering: pixelated`. Chaque pixel du canvas est alors un pixel d'art : c'est des dizaines de fois moins de calcul qu'en pleine résolution (où toutes les cellules d'un même pixel d'art refont le même calcul) et l'agrandissement reste net.
+
+```json
+{ "tagName": "sonic-3d", "attributes": { "id": "scene", "dataProvider": "jeu", "style": "position:absolute;inset:0;opacity:0" } }
+{ "tagName": "sonic-shader", "attributes": { "dataProvider": "pixels", "image": "<pixel-art.glsl>", "channel0": "#scene",
+  "render-size": "192x108", "param0": 108, "param1": 3, "param2": 0.6, "param3": 0.6,
+  "style": "display:block;width:100%;aspect-ratio:16/9;image-rendering:pixelated" } }
+```
+
+- La source n'a pas besoin d'être grande : une scène 3D ou un shader lourd peut lui-même être rendu petit (`render-size` de la source à 2 ou 3 fois la résolution d'art).
+- Palette du document : `param1: 0` et `colors="#1a1c2c #5d275d …"` (jetons du thème acceptés).
+- Le tramage ne touche que les dégradés : un aplat reste uni, un bord ne fait pas de halo ; deux couleurs trop différentes ne sont jamais mélangées en damier.
+- Caméra en mouvement : la grille est fixe à l'écran, les bords scintillent comme dans tout pixel art en mouvement ; une caméra 3D qui se déplace par pas d'un pixel d'art l'évite.
 
 ## Économie de rendu et robustesse
 
