@@ -116,3 +116,25 @@ describe("personnage animal", () => {
     expect(issues.list.some((i) => String(i.path).endsWith("animal"))).toBe(true);
   });
 });
+
+describe("personnage : expressions du visage", () => {
+  const { asset } = build({ archetype: "cartoon", mood: "neutral", hat: "none", beard: "none", mustache: "none" }, "expr-test");
+  const e = asset.expr!;
+
+  it("morphs par canal sur une plage du maillage", () => {
+    expect(e).toBeTruthy();
+    expect(e.base + e.count).toBeLessThanOrEqual(asset.mesh.vertexCount);
+    expect(e.data.length).toBe(e.channels.length * e.count * 3);
+    const amp = (name: string) => {
+      const c = e.channels.indexOf(name);
+      let m = 0;
+      for (let i = 0; i < e.count * 3; i++) m = Math.max(m, Math.abs(e.data[c * e.count * 3 + i]));
+      return m;
+    };
+    // humeur de base : aucun décalage ; les autres canaux déforment le visage
+    expect(amp("neutral")).toBe(0);
+    for (const c of ["happy", "sad", "angry", "surprised", "sleepy", "talk", "gazeX", "gazeY"]) expect(amp(c)).toBeGreaterThan(1e-4);
+    // déformations à l'échelle d'un visage (quelques cm au plus)
+    expect(Math.max(...e.data.map(Math.abs))).toBeLessThan(0.08);
+  });
+});

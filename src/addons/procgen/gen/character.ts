@@ -92,6 +92,6 @@ export const character = defineGenerator({
       cache.set(key, built);
       if (cache.size > 48) cache.delete(cache.keys().next().value as string);
     }
-    return { generator: "character", mesh: built.mesh, skeleton: built.skeleton, anchors: built.anchors, footprint: built.footprint, height: built.height, colors, blink: true, ...(built.soft.length ? { soft: built.soft } : {}), extra: { look } };
+    return { generator: "character", mesh: built.mesh, skeleton: built.skeleton, anchors: built.anchors, footprint: built.footprint, height: built.height, colors, blink: true, ...(built.expr ? { expr: built.expr } : {}), ...(built.soft.length ? { soft: built.soft } : {}), extra: { look } };
   },
 });

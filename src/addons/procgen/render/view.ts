@@ -20,6 +20,7 @@ import type { ProcgenEmitters } from "../scene/emitters";
 import type { Aabb } from "../../../shared/sim/grid";
 import type { Hit } from "../../../shared/sim/emitter";
 import { type M4, type V3, clamp, m4Compose, m4Point, qAxis, qMul, sub } from "../core/math";
+import { FaceState, bindExpr } from "./expr";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
@@ -111,6 +112,9 @@ type ActorRT = {
   wantSpeed: number;
   wanderT: number;
   blinkT: number;
+  /** Visage : poids des morphs d'expression ; cible du regard (`look`). */
+  face: FaceState;
+  look: string;
   turn: number;
   zones: Set<string>;
   hidden: boolean;
@@ -635,11 +639,14 @@ export class ProcgenView {
     const mesh = new THREE.Mesh(geo, mats.color);
     mesh.userData.depth = mats.depth;
     mesh.userData.actor = a.id;
+    bindExpr(mats.uniforms, a.asset);
+    if (a.asset.expr) geo.userData.expr = a.asset.expr;
     this.scene.add(mesh);
     const sk = a.asset.skeleton!;
     const rt: ActorRT = {
       model: a, mesh, mats, mo: motionFor(a.asset), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: Math.random(), action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
-      mood: String(a.params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), turn: 0, zones: new Set(), hidden: false, lastIntent: "",
+      mood: String(a.params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), turn: 0,
+      face: new FaceState(a.asset, baseMoodOf(a), a.seed), look: "", zones: new Set(), hidden: false, lastIntent: "",
       seatY: a.seatY, standAt: a.standAt, reachY: a.reachY,
     };
     this.actors.set(a.id, rt);
@@ -1046,6 +1053,7 @@ export class ProcgenView {
       if (sig === a.lastIntent) continue;
       a.lastIntent = sig;
       if (it.mood) a.mood = String(it.mood);
+      if (it.look !== undefined) a.look = typeof it.look === "string" ? it.look : "";
       // conduite : monter, descendre, conduire (le reste de l'intention est ignoré)
       if (it.action === "board") {
         this.orderBoard(a, it);
@@ -2556,7 +2564,7 @@ export class ProcgenView {
   private updateActor(a: ActorRT, dt: number) {
     const m = this.model!;
     // à bord d'un véhicule : suit sa place ; monture conduite : son allure suit la conduite
-    if (a.ride && this.updateRider(a, dt)) return;
+    if (a.ride && this.updateRider(a, dt)) return void this.updateFace(a, dt);
     const mv = a.mo.kind === "animal" ? this.vehicles.get(a.model.id) : undefined;
     if (mv && (mv.occ.size || mv.route || mv.input || mv.rolling)) return this.updateMount(a, dt);
     const leg = a.mo.legLength;
@@ -2697,6 +2705,52 @@ export class ProcgenView {
       }
     }
     this.poseActor(a, dt);
+    this.updateFace(a, dt);
+  }
+
+  /** Visage : humeur (transition douce), bouche selon l'action, regard vers la cible `look`. */
+  private updateFace(a: ActorRT, dt: number) {
+    if (!a.face.active) return;
+    a.face.step(dt, a.mood, a.action, this.lookAngles(a), a.model.seed);
+    a.face.write(a.mats.uniforms);
+  }
+
+  /** Direction de la cible `look` en repère de la tête : [vers la gauche du personnage, vers le haut] (radians). */
+  private lookAngles(a: ActorRT): [number, number] | null {
+    if (!a.look || a.look === "none" || a.action === "sleep") return null;
+    const W = a.mesh.userData.world as Float64Array[] | undefined;
+    const sk = a.model.asset.skeleton;
+    const hc = a.model.asset.anchors["head.center"];
+    if (!W || !sk || !hc) return null;
+    let tp: THREE.Vector3 | null = null;
+    if (a.look === "camera") tp = this.camera.getWorldPosition(new THREE.Vector3());
+    else {
+      const other = this.actors.get(a.look);
+      if (other && other !== a) {
+        const oh = other.model.asset.anchors["head.center"];
+        const ow = other.mesh.userData.world as Float64Array[] | undefined;
+        if (oh && ow) {
+          const osk = other.model.asset.skeleton!;
+          const ob = osk.index[oh.bone ?? "root"] ?? 0;
+          tp = new THREE.Vector3(...m4Point(ow[ob], sub(oh.pos, osk.bones[ob].head))).applyMatrix4(other.mesh.matrixWorld);
+        } else tp = new THREE.Vector3(other.pos[0], other.pos[1] + other.model.asset.height * 0.9, other.pos[2]);
+      } else {
+        const o = this.model?.objects.find((ob) => ob.id === a.look);
+        if (o) tp = new THREE.Vector3(...(o.anchors.center ?? [o.pos[0], o.pos[1] + Math.min(o.height, 2) * 0.6, o.pos[2]]));
+      }
+    }
+    if (!tp) return null;
+    const hb = sk.index[hc.bone ?? "head"] ?? 0;
+    const Wh = W[hb];
+    a.mesh.updateMatrixWorld();
+    const head = new THREE.Vector3(...m4Point(Wh, sub(hc.pos, sk.bones[hb].head))).applyMatrix4(a.mesh.matrixWorld);
+    // repère de la tête : rotation de l'os puis de l'acteur
+    const R = new THREE.Matrix4().set(Wh[0], Wh[4], Wh[8], 0, Wh[1], Wh[5], Wh[9], 0, Wh[2], Wh[6], Wh[10], 0, 0, 0, 0, 1);
+    R.premultiply(new THREE.Matrix4().extractRotation(a.mesh.matrixWorld));
+    const d = tp.sub(head).applyMatrix4(R.clone().invert()).normalize();
+    // derrière la tête : on ne force pas les yeux
+    if (d.z < 0.15) return null;
+    return [Math.atan2(d.x, d.z), Math.atan2(d.y, Math.hypot(d.x, d.z))];
   }
 
   private poseActor(a: ActorRT, _dt: number) {
@@ -3286,4 +3340,5 @@ export class ProcgenView {
 }
 
 const round = (x: number) => Math.round(x * 100) / 100;
+const baseMoodOf = (a: ActorModel) => String((a.asset.extra?.look as { mood?: string } | undefined)?.mood ?? a.params.mood ?? "neutral");
 const round3 = (x: number) => Math.round(x * 1000) / 1000;

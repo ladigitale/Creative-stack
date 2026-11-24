@@ -94,8 +94,10 @@ export function buildHeadField(k: Kit): HeadField {
   const eyeR = hw * { chibi: 0.12, cartoon: 0.105, stylized: 0.088, heroic: 0.074 }[arch];
   const eyeX = hw * { chibi: 0.24, cartoon: 0.21, stylized: 0.19, heroic: 0.18 }[arch] * (shape === "round" ? 1.04 : shape === "long" ? 0.96 : 1);
   const eyeY = headC[1] + headR[1] * { chibi: -0.12, cartoon: -0.05, stylized: 0.0, heroic: 0.02 }[arch];
-  const mouthY = headC[1] + headR[1] * { chibi: -0.42, cartoon: -0.45, stylized: -0.5, heroic: -0.52 }[arch] * (shape === "long" ? 1.08 : 1);
-  const noseTipY = mix(eyeY, mouthY, chibi ? 0.55 : 0.62);
+  const mouth0 = headC[1] + headR[1] * { chibi: -0.42, cartoon: -0.45, stylized: -0.5, heroic: -0.52 }[arch] * (shape === "long" ? 1.08 : 1);
+  const noseTipY = mix(eyeY, mouth0, chibi ? 0.55 : 0.62);
+  // bouche franchement sous le nez (les nez ronds des styles cartoon descendaient jusqu'aux lèvres)
+  const mouthY = mouth0 - headR[1] * { chibi: 0.14, cartoon: 0.1, stylized: 0.04, heroic: 0.03 }[arch];
   const mouthW = hw * (chibi ? 0.11 : 0.15);
 
   /* ---------- nez ---------- */

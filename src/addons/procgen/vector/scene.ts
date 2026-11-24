@@ -43,7 +43,7 @@ const ANIMATED = (o: ObjectInfo, p: Record<string, unknown>) => (o.generator ===
 /** Ballon en mouvement : centre et rotation courants (simulation `BallWorld`). */
 export type BallPose = { center: V3; spin: [number, number, number, number] };
 
-export type ActorPose = { id: string; obj: number; sk: Skeleton; W: M4[]; pos: V3; yaw: number; params: Record<string, unknown>; blink: number; speed: number; hidden?: boolean; /** Assis sur une assise : ordonné par ses genoux (devant ou derrière le dossier). */ seated?: boolean; colors?: Record<string, string> };
+export type ActorPose = { id: string; obj: number; sk: Skeleton; W: M4[]; pos: V3; yaw: number; params: Record<string, unknown>; blink: number; /** Bouche ouverte (parole, mâche) 0 … 1 ; point regardé. */ talk?: number; gaze?: V3 | "camera" | null; speed: number; hidden?: boolean; /** Assis sur une assise : ordonné par ses genoux (devant ou derrière le dossier). */ seated?: boolean; colors?: Record<string, string> };
 
 export type ViewOpts = { camera: VectorCamera; lift?: number; angle?: number; k?: number };
 
@@ -215,7 +215,7 @@ export class VectorScene {
       const em = new Emitter(out, this.pr.key(kp) + 0.05, this.layerOf(a.pos[2]), a.obj, this.pr.far(a.pos[2]), "ink", a.colors);
       try {
         if (a.sk instanceof AnimalSkeleton) drawAnimal(this.pr, em, { sk: a.sk, W: a.W, pos: a.pos, yaw: a.yaw, params: a.params, blink: a.blink });
-        else drawCharacter(this.pr, em, { sk: a.sk, W: a.W, pos: a.pos, yaw: a.yaw, params: a.params, blink: a.blink, time, speed: a.speed }, shadows, env.ground);
+        else drawCharacter(this.pr, em, { sk: a.sk, W: a.W, pos: a.pos, yaw: a.yaw, params: a.params, blink: a.blink, talk: a.talk, gaze: a.gaze, time, speed: a.speed }, shadows, env.ground);
       } catch {
         /* pose dégénérée : personnage ignoré pour cette image */
       }

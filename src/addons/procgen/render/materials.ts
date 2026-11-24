@@ -6,6 +6,7 @@ import * as THREE from "three";
 import type { Mesh } from "../geom/mesh";
 import { DEPTH_FRAGMENT, FRAGMENT, MAX_BONES, VERTEX } from "./shaders";
 import { ROLES } from "../style/roles";
+import { exprUniforms } from "./expr";
 
 export type Shared = Record<string, THREE.IUniform>;
 
@@ -71,6 +72,7 @@ export function makeMaterials(shared: Shared, roles: { value: Float32Array }, sk
     uSkinned: { value: skinned ? 1 : 0 },
     uDQ: { value: skinned ? Array.from({ length: MAX_BONES * 2 }, (_, i) => new THREE.Vector4(0, 0, 0, i % 2 ? 0 : 1)) : [] },
     uBlink: { value: 0 },
+    ...exprUniforms(),
   };
   if (!skinned) uniforms.uDQ = { value: Array.from({ length: MAX_BONES * 2 }, (_, i) => new THREE.Vector4(0, 0, 0, i % 2 ? 0 : 1)) };
   const color = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: VERTEX, fragmentShader: FRAGMENT, uniforms, side: THREE.DoubleSide });

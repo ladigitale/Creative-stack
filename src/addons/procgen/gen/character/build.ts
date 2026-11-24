@@ -23,7 +23,7 @@ import { buildItem } from "./items";
 import { type Pattern, makeKit } from "./kit";
 import type { Look } from "./look";
 
-export type Built = { mesh: Mesh; skeleton: Skeleton; anchors: Record<string, Anchor>; footprint: Asset["footprint"]; height: number; soft: SoftPiece[] };
+export type Built = { mesh: Mesh; skeleton: Skeleton; anchors: Record<string, Anchor>; footprint: Asset["footprint"]; height: number; soft: SoftPiece[]; expr?: Asset["expr"] };
 
 export function buildCharacter(look: Look, v: Rng): Built {
   const P = proportions({
@@ -181,6 +181,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
 
   /* ---------- assemblage ---------- */
   mesh.append(head);
+  const faceBase = mesh.vertexCount;
   mesh.append(face.mesh);
   for (const h of hands) mesh.append(h);
   if (decalMesh.vertexCount) mesh.append(decalMesh);
@@ -202,7 +203,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
   };
   const bb = mesh.bounds();
   const hx = Math.max(P.shoulderHalf * 1.2, P.hipHalf * 1.4);
-  return { mesh, skeleton: skel, anchors, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: bb.max[1], soft: [...bf.soft, ...hf.soft] };
+  return { mesh, skeleton: skel, anchors, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: bb.max[1], soft: [...bf.soft, ...hf.soft], ...(face.expr ? { expr: { base: faceBase, ...face.expr } } : {}) };
 }
 
 /**

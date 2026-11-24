@@ -97,7 +97,7 @@ const hashRoles = (a: Float32Array, b: Float32Array) => {
 };
 
 /** Pose courante d'un maillage procgen à squelette (quaternions duaux, comme le shader de sommets). */
-export function skinPositions(geo: THREE.BufferGeometry, dq: THREE.Vector4[], blink = 0): { pos: Float32Array; nrm: Float32Array } {
+export function skinPositions(geo: THREE.BufferGeometry, dq: THREE.Vector4[], blink = 0, exprW?: THREE.Vector4[]): { pos: Float32Array; nrm: Float32Array } {
   const P = geo.getAttribute("position").array as ArrayLike<number>;
   const N = geo.getAttribute("normal").array as ArrayLike<number>;
   const I = geo.getAttribute("aSkinIdx").array as ArrayLike<number>;
@@ -106,6 +106,9 @@ export function skinPositions(geo: THREE.BufferGeometry, dq: THREE.Vector4[], bl
   const n = P.length / 3;
   const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3);
   const r = [0, 0, 0, 0], d = [0, 0, 0, 0];
+  // morphs d'expression du visage (mêmes poids que le shader)
+  const E = geo.userData.expr as { base: number; count: number; channels: readonly string[]; data: Float32Array } | undefined;
+  const ew = E && exprW ? E.channels.map((_, c) => exprW[c >> 2]?.getComponent(c & 3) ?? 0) : null;
   const rot = (q: number[], vx: number, vy: number, vz: number, out: Float32Array, o: number) => {
     // v + 2 q.xyz × (q.xyz × v + w v)
     const cx = q[1] * vz - q[2] * vy + q[3] * vx, cy = q[2] * vx - q[0] * vz + q[3] * vy, cz = q[0] * vy - q[1] * vx + q[3] * vz;
@@ -132,6 +135,12 @@ export function skinPositions(geo: THREE.BufferGeometry, dq: THREE.Vector4[], bl
     for (let k = 0; k < 4; k++) (r[k] /= l), (d[k] /= l);
     let px = P[v * 3], py = P[v * 3 + 1], pz = P[v * 3 + 2];
     if (M && blink) (px += M[v * 3] * blink), (py += M[v * 3 + 1] * blink), (pz += M[v * 3 + 2] * blink);
+    if (E && ew && v >= E.base && v < E.base + E.count)
+      for (let c = 0; c < ew.length; c++) {
+        if (!ew[c]) continue;
+        const o = (c * E.count + v - E.base) * 3;
+        (px += E.data[o] * ew[c]), (py += E.data[o + 1] * ew[c]), (pz += E.data[o + 2] * ew[c]);
+      }
     rot(r, px, py, pz, pos, v * 3);
     // t = 2 (r.w d.xyz − d.w r.xyz + r.xyz × d.xyz)
     pos[v * 3] += 2 * (r[3] * d[0] - d[3] * r[0] + (r[1] * d[2] - r[2] * d[1]));
@@ -464,7 +473,7 @@ export class ProcgenPhoto {
       // acteurs : pose courante (jamais en cache) ; sinon découpe gardée tant que la géométrie et le style restent
       let split: Split;
       if (skinned) {
-        split = splitByRole(mesh.geometry, roles, skinPositions(mesh.geometry, U.uDQ.value as THREE.Vector4[], U.uBlink?.value ?? 0));
+        split = splitByRole(mesh.geometry, roles, skinPositions(mesh.geometry, U.uDQ.value as THREE.Vector4[], U.uBlink?.value ?? 0, U.uExprW?.value as THREE.Vector4[] | undefined));
         for (const s of split) this.owned.geos.push(s.geo);
       } else {
         // version des positions : tuile d'un objet glissé, tissu souple réécrits sur place

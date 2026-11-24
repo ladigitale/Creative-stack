@@ -21,6 +21,7 @@ import { resolveGeneratorId } from "./gen/index";
 import type { Asset } from "./gen/types";
 import { sharedUniforms, toGeometry, type Shared } from "./render/materials";
 import { FRAGMENT, MAX_BONES, VERTEX } from "./render/shaders";
+import { FaceState, bindExpr, exprUniforms } from "./render/expr";
 import { ACTIONS, type Action, type MotionState } from "./rig/locomotion";
 import { type Motion, motionFor } from "./rig/motion";
 import { dualQuat } from "./rig/skeleton";
@@ -270,6 +271,7 @@ export class GenKit {
       uSkinned: { value: skinned ? 1 : 0 },
       uDQ: { value: Array.from({ length: MAX_BONES * 2 }, (_, i) => new THREE.Vector4(0, 0, 0, i % 2 ? 0 : 1)) },
       uBlink: { value: 0 },
+      ...exprUniforms(),
       uGlow: { value: 0 },
       uGlowCol: { value: new THREE.Color(1, 1, 1) },
     };
@@ -326,6 +328,8 @@ export class GenKit {
   }
 }
 
+const baseMood = (a: Asset) => String((a.extra?.look as { mood?: string } | undefined)?.mood ?? "neutral");
+
 /** État d'animation fourni par le format à chaque image. */
 export type GenDrive = {
   /** Clip courant du format (locomotion / action du moteur, ou geste en pistes d'os). */
@@ -334,6 +338,8 @@ export type GenDrive = {
   clipSpeed?: number;
   /** Action procgen du clip. */
   action?: string;
+  /** Humeur du visage (neutral, happy, sad, angry, surprised, sleepy) ; défaut : celle du personnage. */
+  mood?: string;
   /** Rotations ajoutées par os (radians, repère du personnage) et décalage de la racine (m). */
   bones: Map<string, [number, number, number]>;
   rootOff: [number, number, number];
@@ -356,6 +362,7 @@ export class GenActor {
   private actionTime = 0;
   private actionWeight = 0;
   private blinkT = 1 + Math.random() * 3;
+  private face: FaceState | null = null;
   private wp = new THREE.Vector3();
   private seed: number;
 
@@ -382,6 +389,11 @@ export class GenActor {
     this.object.add(this.outline, this.mesh);
     this.outline.visible = kit.shared.uOutlinePx.value > 0;
     this.mo = skinned ? motionFor(asset) : null;
+    if (asset.expr) {
+      bindExpr(this.mats.uniforms, asset);
+      this.face = new FaceState(asset, baseMood(asset), this.seed);
+      this.face.write(this.mats.uniforms);
+    }
     if (this.mo) this.pose(null);
   }
 
@@ -476,6 +488,10 @@ export class GenActor {
     if (this.blinkT < 0.14) blink = Math.sin(Math.min(1, Math.max(0, 1 - this.blinkT / 0.14)) * Math.PI);
     if (this.blinkT <= 0) this.blinkT = 2 + ((this.seed * 17.1 + this.time) % 4);
     this.mats.uniforms.uBlink.value = this.asset.blink ? blink : 0;
+    if (this.face) {
+      this.face.step(dt, d.mood ?? baseMood(this.asset), this.action, null, this.seed);
+      this.face.write(this.mats.uniforms);
+    }
     this.pose(d);
   }
 
