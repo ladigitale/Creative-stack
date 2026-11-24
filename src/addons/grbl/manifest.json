@@ -105,7 +105,7 @@
         },
         "ops": {
           "type": "string",
-          "description": "JSON [{color, mode, power, speed, passes, interval, kerf}] : réglages par couleur, dans l'ordre d'exécution"
+          "description": "JSON [{color, mode, power, speed, passes, interval, kerf, render?, spacing?, levels?}] : réglages par couleur, dans l'ordre d'exécution ; render (gray, un tramage, ou hatch | waves | spiral | isolines | stipple) balaie ou trace les surfaces de cette couleur comme une image (gris = clarté d'un remplissage gris, couleur franche = noir ; interval = définition, spacing = écart des traits) au lieu des hachures vectorielles"
         },
         "width-mm": {
           "type": "number",

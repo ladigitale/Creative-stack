@@ -129,3 +129,45 @@ describe("couleurs d'un SVG quelconque", () => {
     expect(ok.lines.filter((l) => l.includes("S900")).length).toBe(1);
   });
 });
+
+describe("surfaces d'un SVG rendues comme une image (op.render)", () => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" width="40mm" height="20mm">
+    <rect x="0" y="0" width="20" height="20" fill="#000000"/><rect x="20" y="0" width="20" height="20" fill="#808080"/>
+    <rect x="2" y="2" width="36" height="16" fill="none" stroke="#ff0000"/></svg>`;
+  const ops = (render?: string) => [
+    { color: "#000000", mode: "fill" as const, power: 50, speed: 2000, passes: 1, interval: 0.2, kerf: 0, ...(render ? { render, spacing: 1 } : {}) },
+    { color: "#808080", mode: "fill" as const, power: 50, speed: 2000, passes: 1, interval: 0.2, kerf: 0, ...(render ? { render, spacing: 1 } : {}) },
+    { color: "#ff0000", mode: "line" as const, power: 90, speed: 300, passes: 1, interval: 0.1, kerf: 0 },
+  ];
+
+  it("tramage : balayage ligne à ligne, le gris moins dense que le noir, traits ensuite", () => {
+    const res = svgToGcode(svg, { ...TOOLPATH_DEFAULTS, widthMm: 40, ops: ops("floyd") });
+    expect(res.error).toBeNull();
+    // Longueur brûlée de part et d'autre de x = 20 mm.
+    const burnAt = (xa: number, xb: number) => {
+      let x = 0, mm = 0;
+      for (const l of res.lines) {
+        const m = /^G([01])X(-?[\d.]+)/.exec(l);
+        if (!m) continue;
+        const nx = Number(m[2]);
+        if (m[1] === "1" && !/S0(\D|$)/.test(l)) mm += Math.max(0, Math.min(Math.max(x, nx), xb) - Math.max(Math.min(x, nx), xa));
+        x = nx;
+      }
+      return mm;
+    };
+    expect(burnAt(0, 20)).toBeGreaterThan(burnAt(20, 40));
+    expect(burnAt(20, 40)).toBeGreaterThan(0);
+    // Le contour rouge (découpe) passe après le balayage.
+    const lastScan = res.lines.lastIndexOf("M4S0");
+    expect(res.lines.slice(lastScan).some((l) => l.includes("F300"))).toBe(true);
+    expect(res.lines.at(-1)).toBe("G0X0Y0");
+  });
+
+  it("rendu en traits (spirale) et hachures vectorielles par défaut", () => {
+    const spiral = svgToGcode(svg, { ...TOOLPATH_DEFAULTS, widthMm: 40, ops: ops("spiral") });
+    expect(spiral.error).toBeNull();
+    const vec = svgToGcode(svg, { ...TOOLPATH_DEFAULTS, widthMm: 40, ops: ops() });
+    expect(vec.error).toBeNull();
+    expect(spiral.lines.join("\n")).not.toBe(vec.lines.join("\n"));
+  });
+});
