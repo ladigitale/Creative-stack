@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import "./index";
 import "../interactive";
-import { gridSteps, parseProgram } from "./index";
+import { formatDuration, gridSteps, parseProgram } from "./index";
 import type { SonicGcodeView } from "./gcode-view";
 import { get } from "@supersoniks/concorde/core/utils/PublisherProxy";
 
@@ -56,5 +56,46 @@ describe("sonic-gcode-view", () => {
     src.remove();
     await wait(300);
     expect((get("vueState") as { status: string }).status).toBe("empty");
+  });
+
+  it("date chaque segment : vitesse F des mouvements de travail, vitesse rapide des G0", () => {
+    const p = parseProgram(["G0X30Y0", "M4", "G1X30Y60S500F600", "G1X0Y60"], 1000, 1800);
+    // G0 de 30 mm à 1800 mm/min = 1 s ; puis 60 mm à 600 mm/min = 6 s ; puis 30 mm = 3 s.
+    expect(Array.from(p.tEnd.slice(0, 3))).toEqual([1, 7, 10]);
+    expect(p.total).toBe(10);
+    expect(formatDuration(42)).toBe("42 s");
+    expect(formatDuration(185)).toBe("3 min 05 s");
+    expect(formatDuration(3720)).toBe("1 h 02 min");
+  });
+
+  it("lecteur : lecture au rythme choisi, pause, retour au début, curseur externe en part de la durée", async () => {
+    const src = Object.assign(document.createElement("div"), { id: "prog2", gcodeSeq: 1, getGcode: () => ["G90", "M4", "G1X100Y0S500F600"] });
+    document.body.append(src);
+    const { set } = await import("@supersoniks/concorde/core/utils/PublisherProxy");
+    set("gvCtl", { player: true, rate: 100 });
+    document.body.insertAdjacentHTML("beforeend", `<sonic-gcode-view id="lect" source="#prog2" control="gvCtl" style="width:400px;height:300px"></sonic-gcode-view>`);
+    const el = document.querySelector("sonic-gcode-view#lect") as SonicGcodeView;
+    await el.updateComplete;
+    await wait(300);
+    const sim = () => (get("lectState") as { sim: { t: number; total: number; playing: boolean; rate: number } }).sim;
+    expect(sim().total).toBe(10);
+    expect(el.shadowRoot?.querySelector(".player")).not.toBeNull();
+    set("gvCtl", { player: true, rate: 100, play: 1 });
+    await wait(10);
+    set("gvCtl", { player: true, rate: 100, play: 2 });
+    await wait(60);
+    expect(sim().playing).toBe(true);
+    await wait(150);
+    // ×100 : les 10 s de la tâche passent en 0,1 s.
+    expect(sim().playing).toBe(false);
+    expect(sim().t).toBe(10);
+    set("gvCtl", { player: true, rate: 100, play: 2, rewind: 1 });
+    await wait(10);
+    set("gvCtl", { player: true, rate: 100, play: 2, rewind: 2 });
+    await wait(20);
+    expect(sim().t).toBe(0);
+    set("gvCtl", { player: true, rate: 100, upTo: 0.25 });
+    await wait(300);
+    expect(sim().t).toBe(2.5);
   });
 });
