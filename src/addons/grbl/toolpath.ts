@@ -1,8 +1,9 @@
 import { offset, ringsToMulti, type Pt, type Ring } from "../vector";
 import { islands, orderBlocks, orderPaths as order } from "./order";
 import { parseSvgDocument, type SvgRawShape } from "../vectorize";
-import { dither, type DitherMode } from "../../shared/raster1bit";
+import { dither, DITHER_MODES, type DitherMode } from "../../shared/raster1bit";
 import { num } from "./codec";
+import { burnsToGcode, LINE_STYLES, photoBurns, type LineStyle } from "./photo";
 
 /**
  * Du dessin au programme G-code : formes d'un SVG (traits suivis, surfaces hachurées) ou image (balayage ligne
@@ -25,6 +26,16 @@ export type LaserOp = {
   interval: number;
   /** Décalage du contour en mm (positif : vers l'extérieur) pour compenser la largeur du trait de coupe. */
   kerf: number;
+  /**
+   * Rendu des surfaces remplies : absent = hachures vectorielles ; sinon la surface est balayée comme une image
+   * (gris = clarté de la couleur de remplissage) avec un tramage (`DITHER_MODES`, `gray`) ou tracée en traits
+   * (`LINE_STYLES` : hachures croisées, ondes, spirale…). `interval` est alors la définition, `spacing` l'écart des traits.
+   */
+  render?: string;
+  /** Écart des traits des rendus en traits, en mm. */
+  spacing?: number;
+  /** Paliers des lignes de niveau. */
+  levels?: number;
 };
 
 export type ToolpathSettings = LaserOp & {
@@ -104,8 +115,17 @@ export function cleanOp(raw: Record<string, unknown>, base: LaserOp): LaserOp {
   const op: LaserOp = { mode, power: n("power", 0, 100), speed: n("speed", 10, 20000), passes: Math.round(n("passes", 1, 50)), interval: n("interval", 0.03, 10), kerf: n("kerf", -5, 5) };
   const color = hexColor(raw.color);
   if (color) op.color = color;
+  const render = typeof raw.render === "string" ? raw.render : base.render;
+  if (render && (RENDERS as readonly string[]).includes(render)) {
+    op.render = render;
+    op.spacing = n("spacing" as keyof LaserOp, 0.1, 10) || base.spacing || 0.6;
+    op.levels = Math.round(n("levels" as keyof LaserOp, 2, 16) || base.levels || 6);
+  }
   return op;
 }
+
+/** Rendus d'une surface balayée : tramages 1 bit, gris, ou traits. */
+export const RENDERS = ["gray", ...DITHER_MODES, ...LINE_STYLES] as const;
 
 // ─── Lecture du SVG ──────────────────────────────────────────────────────────────────────────────────────────────
 export type SvgShapes = { shapes: SvgRawShape[]; width: number; height: number; unitMm: number; skipped: Record<string, number> };
@@ -158,9 +178,12 @@ function opFor(color: string, s: ToolpathSettings): LaserOp {
   return s.ops.find((o) => o.color === color) ?? { mode: s.mode, power: s.power, speed: s.speed, passes: s.passes, interval: s.interval, kerf: s.kerf };
 }
 
-export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolPass[]; issues: string[]; sizeMm: { w: number; h: number } | null } {
+/** Surfaces d'une opération à balayer comme une image : contours en mm (pair-impair) et gris de chacune. */
+export type RasterFill = { op: LaserOp; shapes: { rings: Ring[]; gray: number }[] };
+
+export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolPass[]; rasters: RasterFill[]; issues: string[]; sizeMm: { w: number; h: number } | null } {
   const issues: string[] = [];
-  type Item = { op: LaserOp; kind: "line" | "fill"; lines: { ring: Ring; closed: boolean }[]; key: string };
+  type Item = { op: LaserOp; kind: "line" | "fill"; lines: { ring: Ring; closed: boolean }[]; key: string; color?: string };
   const items: Item[] = [];
   const white = (c: string): boolean => s.skipWhite && c === "#ffffff";
   for (const shape of doc.shapes) {
@@ -171,10 +194,10 @@ export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolP
     if (shape.fill && !white(shape.fill)) {
       const op = opFor(shape.fill, s);
       if (op.mode === "line") items.push({ op, kind: "line", lines: shape.lines.map((l) => ({ ring: l.ring, closed: true })), key: `line${shape.fill}` });
-      else if (op.mode !== "skip") items.push({ op, kind: "fill", lines: shape.lines, key: `fill${shape.fill}` });
+      else if (op.mode !== "skip") items.push({ op, kind: "fill", lines: shape.lines, key: `fill${shape.fill}`, color: shape.fill });
     }
   }
-  if (!items.length) return { passes: [], issues, sizeMm: null };
+  if (!items.length) return { passes: [], rasters: [], issues, sizeMm: null };
 
   // Cadre : emprise des formes retenues, ou page du document.
   let fx = 0, fy = 0, fw = doc.width, fh = doc.height;
@@ -197,7 +220,16 @@ export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolP
   const groups = new Map<string, ToolPass>();
   const fillBlocks = new Map<ToolPass, ToolPath[][]>();
   let kerfSkipped = false;
+  const rasters = new Map<string, RasterFill>();
   for (const it of items) {
+    if (it.kind === "fill" && it.op.render && s.tool !== "pen") {
+      const rk = it.op.color ?? `_${it.op.render}`;
+      let r = rasters.get(rk);
+      if (!r) rasters.set(rk, (r = { op: it.op, shapes: [] }));
+      const rings = it.lines.map((l) => l.ring.map(map)).filter((ring) => ring.length >= 3);
+      if (rings.length) r.shapes.push({ rings, gray: luminance(it.color ?? "#000000") });
+      continue;
+    }
     let pass = groups.get(it.key);
     if (!pass) groups.set(it.key, (pass = { op: it.op, kind: it.kind, paths: [] }));
     let blocks = fillBlocks.get(pass);
@@ -240,7 +272,82 @@ export function planVector(doc: SvgShapes, s: ToolpathSettings): { passes: ToolP
     if (last) at = last.closed ? last.pts[0] : last.pts[last.pts.length - 1];
     return p;
   }).filter((p) => p.paths.length);
-  return { passes: ordered, issues, sizeMm: { w: Math.round(fw * k * 100) / 100, h: Math.round(fh * k * 100) / 100 } };
+  return { passes: ordered, rasters: [...rasters.values()].filter((r) => r.shapes.length), issues, sizeMm: { w: Math.round(fw * k * 100) / 100, h: Math.round(fh * k * 100) / 100 } };
+}
+
+/**
+ * Gris gravé pour une couleur de remplissage (0 noir … 255 blanc) : la clarté d'un gris, mais une couleur franche
+ * (rouge de découpe, bleu de marquage… couleurs de calque d'un dessin) compte comme du noir plein.
+ */
+function luminance(hex: string): number {
+  const v = parseInt(hex.slice(1, 7), 16);
+  if (!Number.isFinite(v)) return 0;
+  const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+  if (Math.max(r, g, b) - Math.min(r, g, b) > 24) return 0;
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+const MAX_FILL_PIXELS = 4_000_000;
+
+/**
+ * Surfaces → image en niveaux de gris (255 = blanc hors des formes), au pas `px` mm, sur leur emprise ; les formes
+ * sont peintes dans l'ordre du dessin (pair-impair par forme). Ligne 0 = haut.
+ */
+export function rasterizeFill(shapes: { rings: Ring[]; gray: number }[], px: number): { gray: Float32Array; cols: number; rows: number; x: number; y: number; px: number } | null {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const sh of shapes) for (const r of sh.rings) for (const p of r) {
+    if (p[0] < x0) x0 = p[0];
+    if (p[0] > x1) x1 = p[0];
+    if (p[1] < y0) y0 = p[1];
+    if (p[1] > y1) y1 = p[1];
+  }
+  if (!(x1 > x0 && y1 > y0)) return null;
+  const w = x1 - x0, h = y1 - y0;
+  const step = Math.max(px, Math.sqrt((w * h) / MAX_FILL_PIXELS));
+  const cols = Math.max(1, Math.ceil(w / step)), rows = Math.max(1, Math.ceil(h / step));
+  const gray = new Float32Array(cols * rows).fill(255);
+  const xs: number[] = [];
+  for (const sh of shapes) {
+    for (let r = 0; r < rows; r++) {
+      const y = y1 - (r + 0.5) * step;
+      xs.length = 0;
+      for (const ring of sh.rings) {
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const a = ring[j], b = ring[i];
+          if ((a[1] > y) !== (b[1] > y)) xs.push(a[0] + ((y - a[1]) * (b[0] - a[0])) / (b[1] - a[1]));
+        }
+      }
+      if (xs.length < 2) continue;
+      xs.sort((p, q) => p - q);
+      for (let i = 0; i + 1 < xs.length; i += 2) {
+        const c0 = Math.max(0, Math.round((xs[i] - x0) / step)), c1 = Math.min(cols, Math.round((xs[i + 1] - x0) / step));
+        for (let c = c0; c < c1; c++) gray[r * cols + c] = sh.gray;
+      }
+    }
+  }
+  return { gray, cols, rows, x: x0, y: y0, px: step };
+}
+
+/** Surfaces d'une opération balayées ou tracées en traits (`op.render`) → G-code, sans retour à l'origine. */
+export function rasterFillToGcode(fill: RasterFill, s: ToolpathSettings, maxLines: number): string[] | null {
+  const op = fill.op;
+  const style = op.render ?? "";
+  const lineStyle = (LINE_STYLES as readonly string[]).includes(style);
+  const spacing = op.spacing ?? 0.6;
+  const img = rasterizeFill(fill.shapes, lineStyle ? Math.max(op.interval, spacing / 3) : op.interval);
+  if (!img) return [];
+  const full = Math.round((op.power / 100) * s.maxS);
+  const block = lineStyle
+    ? burnsToGcode(
+        photoBurns(img.gray, img.cols, img.rows, { style: style as LineStyle, widthMm: img.cols * img.px, heightMm: img.rows * img.px, spacing, step: Math.max(img.px, 0.05), s: full, minS: 0, levels: op.levels ?? 6, seed: 7 }),
+        { xMm: img.x, yMm: img.y, speed: op.speed, returnHome: false, maxLines },
+      )
+    : rasterToGcode(img.gray, img.cols, img.rows, { widthMm: img.cols * img.px, xMm: img.x, yMm: img.y, dither: style as DitherMode | "gray", threshold: 128, power: op.power, minPower: 0, speed: op.speed, maxS: s.maxS, returnHome: false });
+  if (!block) return null;
+  // Pas de push(...block) : un balayage dépasse vite la taille de pile d'un appel à arguments étalés.
+  let out: string[] = [];
+  for (let p = 0; p < Math.max(1, op.passes); p++) out = out.concat(block);
+  return out.length > maxLines ? null : out;
 }
 
 // ─── Écriture du G-code ──────────────────────────────────────────────────────────────────────────────────────────
@@ -296,11 +403,24 @@ export function svgToGcode(text: string, s: ToolpathSettings): ToolpathResult {
   }
   const colors = colorsOf(doc);
   const plan = planVector(doc, s);
-  if (!plan.passes.length) {
+  if (!plan.passes.length && !plan.rasters.length) {
     const error = colors.some((c) => c.color !== "#ffffff") ? "aucune couleur du dessin n'est attribuée à une opération" : "aucune forme à tracer dans ce dessin";
     return { lines: [], issues: plan.issues, error, sizeMm: null, skipped: doc.skipped, colors };
   }
-  const lines = emitPasses(plan.passes, s);
+  // Surfaces balayées d'abord (gravure), puis hachures et traits (marquage, découpe en dernier).
+  let lines: string[] | null = [];
+  for (const r of plan.rasters) {
+    const block: string[] | null = lines ? rasterFillToGcode(r, s, MAX_GCODE_LINES - lines.length) : null;
+    lines = block && lines ? lines.concat(block) : null;
+  }
+  if (lines && plan.passes.length) {
+    const rest = emitPasses(plan.passes, s);
+    lines = rest ? lines.concat(rest) : null;
+  } else if (lines && lines.length) {
+    lines.push("M5");
+    if (s.returnHome) lines.push("G0X0Y0");
+  }
+  if (lines && lines.length > MAX_GCODE_LINES) lines = null;
   if (!lines) return { lines: [], issues: plan.issues, error: `programme trop long (${MAX_GCODE_LINES} lignes au plus) : augmenter interval ou simplifier le dessin`, sizeMm: plan.sizeMm, skipped: doc.skipped, colors };
   return { lines, issues: plan.issues, error: null, sizeMm: plan.sizeMm, skipped: doc.skipped, colors };
 }

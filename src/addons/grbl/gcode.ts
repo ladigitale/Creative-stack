@@ -361,6 +361,9 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
     if (this.control) this.readLive(plain(get(this.control)));
     try {
       return await this.buildNow(quiet);
+    } catch (e) {
+      // Une erreur de calcul ne doit pas laisser l'ancien programme passer pour le nouveau.
+      return this.giveUp(`calcul du programme impossible${e instanceof Error ? ` : ${e.message}` : ""}`, [], false);
     } finally {
       this.building = false;
     }

@@ -52,6 +52,7 @@ Entrées :
 | `mode` | `auto` (trait pour un contour, hachures pour un remplissage), `line`, `fill`, `skip` |
 | `interval` | Écart entre deux lignes de hachure ou de balayage, en mm (0.1) |
 | `kerf` | Compensation du trait de coupe : décalage des contours fermés, en mm (positif vers l'extérieur) |
+| `render` (dans `ops`) | Surfaces de cette couleur rendues comme une image plutôt qu'hachurées : `gray`, un tramage (`floyd`, `jarvis`, `bayer`…) ou des traits (`hatch`, `waves`, `spiral`, `isolines`, `stipple`, écart `spacing` mm). Le gris vient de la clarté d'un remplissage gris (une couleur franche compte comme du noir) ; `interval` = définition. Balayées en premier, avant hachures et traits. Ignoré au stylo |
 | `ops` | Réglages par couleur, dans l'ordre d'exécution : `[{"color":"#000000","mode":"fill","power":20,"speed":3000},{"color":"#ff0000","mode":"line","power":90,"speed":300,"passes":2}]` |
 | `width-mm`, `height-mm` | Taille voulue, proportions gardées. Sans elles : taille réelle du SVG (unités `mm`, `in`… ou 96 points par pouce), 50 mm de large pour une image |
 | `x-mm`, `y-mm` | Position du coin bas gauche par rapport à l'origine de travail |
