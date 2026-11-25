@@ -21,6 +21,8 @@ Le micro (`sonic-mic`) est dans l'addon `audio`.
 | `sonic-frame-sync` | Resynchronise l'image et un résultat de tracker (image exacte analysée, ou retard fixe) |
 | `sonic-luma` | Sonde de luminosité : niveaux et fronts allumé / éteint d'un signal lumineux, horodatés |
 | `sonic-morse` | Morse par la lumière : émet un texte sur un booléen (torche), décode les fronts d'une `sonic-luma` |
+| `sonic-motion-detector` | Détection de mouvement sans modèle : niveau, centre, zones à agiter devant la caméra |
+| `sonic-color-tracker` | Suivi d'un objet par sa couleur, sans modèle (balle, gant, carton coloré) |
 | `sonic-media-start` | Bouton d'invite qui démarre caméra / micro / vidéo, affiche un refus |
 | `sonic-media-recorder` | Export vidéo d'un shader, d'une caméra ou d'une vidéo, avec le son |
 | `sonic-media-download` | Lien de téléchargement d'une prise, d'une photo ou d'un export |
@@ -318,6 +320,45 @@ Le morse ne code que dans les éclats ; les silences ne font que séparer. Le co
 - **Identifiant** : `roster` (tableau JSON de pseudos, 26 au plus, identique sur tous les appareils) et `identity` (le pseudo de cet appareil, aussi réglable par `params`). Chaque message rapide commence alors, après l'étalonnage, par le rang du pseudo codé sur 2 intervalles (jusqu'à 8 pseudos, 3 au-delà : environ 1,2 s de plus à `unit=300`) ; le contrôle le couvre. Le récepteur lit le pseudo (`rx.speaker`, `speaker` dans la charge de `morse:message` et de l'événement `morse-message`, en majuscules) ; pseudo inconnu : anonyme. Sans `roster`, pas d'identifiant. Le morse n'en porte pas.
 - Durées à `unit=300`, attente de fin de message du morse comprise : « oui » 15 s en morse, 9 s en rapide ; « ca va ? » 26 s contre 9 s ; « salut ca va ? » 41 s contre 13 s ; texte libre « je suis devant la porte » 61 s contre 43 s. Le gros du gain vient des phrases ; l'en-tête (début, étalonnage, fin, contrôle) pèse sur les messages très courts. `unit=250` gagne encore un sixième.
 - État : `codec` (émission), `tx.signs` (durées en chiffres), `tx.duration` / `tx.elapsed` (ms), `tx.remaining` (secondes) et `tx.timePercent` (avancement dans le temps, à préférer à `tx.percent` en code rapide, où les phrases sautent d'un coup), `rx.codec`, `rx.speaker`, `rx.text` (lecture provisoire, valable une fois le message livré), `errors`.
+
+## `sonic-motion-detector` : détection de mouvement
+
+Sans modèle à télécharger : chaque image de la source (`source="#cam"`) est réduite à une petite grille (`resolution`, 64 colonnes) et comparée à la précédente ; un pixel « bouge » si sa luminance change de plus de `threshold` (0,08). Léger (≈ 0,1 ms par image), immédiat, insensible aux couleurs ; une caméra qui bouge voit tout bouger.
+
+| Attribut | Rôle |
+|---|---|
+| `source` | `#id` d'une source d'images (`sonic-camera`, `sonic-video`, `sonic-screen`, `sonic-shader`…) |
+| `zones` | boutons invisibles : `[{"name": "gauche", "x": 0, "y": 0.2, "w": 0.25, "h": 0.6}, …]` ou `{"gauche": [0, 0.2, 0.25, 0.6]}` (fractions de l'image), JSON ou chemin DataProvider |
+| `zone-level` | part de la zone qui doit bouger pour l'allumer (0,06) ; elle s'éteint quand le niveau reste sous la moitié pendant `hold-ms` (300) |
+| `mirror` | caméra frontale affichée en miroir : `x` et zones lus comme à l'écran |
+| `target`, `action` | store qui reçoit `{type: "motion:zone", payload: {zone, level, count}}` quand une zone s'allume (aussi évènement DOM `zone`) |
+| `params` | réglages en direct `{threshold, zoneLevel, active}` |
+| `interval` | analyse au plus toutes les `interval` ms (50) |
+| `out-data-provider` | `{status, error, level, x, y, box, zones: {nom: {level, active, count}}, fps}` |
+
+`sonic-motion-detector` est aussi une **source d'images** : `sonic-shader channel0="#mouvement"` lit le masque du mouvement (blanc = bouge), pour des traînées, des particules qui naissent là où l'on bouge, un effet qui ne touche que ce qui bouge.
+
+```json
+{"tagName": "sonic-motion-detector", "attributes": {"id": "mouvement", "source": "#cam", "mirror": "", "target": "jeu",
+  "zones": "{\"gauche\": [0, 0.15, 0.22, 0.5], \"droite\": [0.78, 0.15, 0.22, 0.5]}", "out-data-provider": "geste"}}
+```
+
+## `sonic-color-tracker` : suivi par couleur
+
+Sans modèle : les pixels proches de `color` (écart OKLab, la clarté comptée à moitié pour tolérer ombres et reflets) sont regroupés en taches ; la plus grande donne `x`, `y` (centre, 0..1), `area`, `box`, les suivantes sont dans `blobs` (5 au plus, au-dessus de `min-area`). Idéal pour un objet de couleur vive et franche (balle, gant, bouchon, carton) : une « baguette » à bas coût, une manette sans manette.
+
+| Attribut | Rôle |
+|---|---|
+| `source` | `#id` d'une source d'images |
+| `color` | couleur suivie `#rrggbb` |
+| `tolerance` | écart accepté (0,15 ; 0,05 strict, 0,3 large) |
+| `min-area` | aire minimale d'une tache (0,002 de l'image) |
+| `control` | `{pick: [x, y], n}` : prendre la couleur sous ce point (fractions de l'image, compteur `n`) — un tap sur l'aperçu de la caméra, par un store |
+| `params` | réglages en direct `{color, tolerance, minArea, active}` |
+| `mirror`, `resolution` (96), `interval` (50) | comme `sonic-motion-detector` |
+| `out-data-provider` | `{status, error, color, present, x, y, area, box, blobs}` |
+
+`x` / `y` se branchent tels quels sur une position : `nodes` d'un `sonic-store`, cible `dp:<chemin>` d'un `sonic-swarm`, paramètre d'un shader.
 
 ## `sonic-media-start`
 

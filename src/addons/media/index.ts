@@ -8,6 +8,8 @@ export { SonicVideo, type VideoState, type VideoStatus } from "./video";
 export { SonicFrameSync, type FrameSyncMode, type FrameSyncState } from "./frame-sync";
 export { SonicMorse, type MorseCodec, type MorseSettings, type MorseState } from "./morse";
 export { SonicLuma, type LumaSettings, type LumaState } from "./luma";
+export { SonicMotionDetector, type MotionDetectorState } from "./motion-detector";
+export { SonicColorTracker, type ColorTrackState } from "./color-tracker";
 export { SonicStill, type StillState, type StillStatus } from "./still";
 export { SonicFileOpen, fileKind, type FileOpenState, type FileKind } from "./file-open";
 export { SonicMediaStart } from "./start";
