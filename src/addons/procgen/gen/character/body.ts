@@ -7,7 +7,7 @@
  * dont le signe choisit le rôle : la découpe des triangles en fait des bords nets.
  */
 import { type V3, add, cross, dot, mix, norm, sub } from "../../core/math";
-import type { Blend, FieldPrim } from "../../geom/implicit";
+import { type Blend, Field, type FieldPrim } from "../../geom/implicit";
 import { HUMANOID_BLENDS } from "../../rig/humanoid";
 import { ROLE } from "../../style/roles";
 import { type Kit, type Pattern, PrimSet, inflate } from "./kit";
@@ -34,6 +34,39 @@ export type BodyField = {
 export function buildBodyField(k: Kit): BodyField {
   const { look, P, H, thick, bw, at, rad, B, v } = k;
   const set = new PrimSet(k.skel);
+  /** Silhouette habillée déjà posée (buste, bassin, vêtements ; sans bras, sacs ni ceinture) : pour poser un accessoire dessus. */
+  const outerField = () => {
+    const skip = new Set(["upperarm", "forearm", "hand", "bag", "belt", "tail"]);
+    // rien de ce qui suit les bras (manches de veste, gants…) : la silhouette du buste seule
+    const armBone = (i: number) => /arm|hand|clavicle/.test(k.skel.bones[set.bone[i]]?.name ?? "");
+    return new Field(set.prims.filter((_, i) => !skip.has(set.group[i]) && !armBone(i)));
+  };
+  /**
+   * Ellipse horizontale ajustée à la silhouette habillée à la hauteur de `c` : demi-largeur, demi-profondeur et centre en z
+   * (ventre devant, dos plat), puis agrandie juste assez pour contenir les diagonales.
+   */
+  const fitWaist = (c: V3, rx0: number, rz0: number): { rx: number; rz: number; cz: number } => {
+    const f = outerField();
+    const hits: [number, number][] = [];
+    for (let i = 0; i < 32; i++) {
+      const t = (i / 32) * Math.PI * 2;
+      const d: V3 = [Math.sin(t), 0, Math.cos(t)];
+      // rayons partis d'un peu au-delà de l'estimation : on ne va pas chercher ce qui pend loin du buste
+      const R0 = Math.max(rx0, rz0) * 1.7;
+      const hit = f.raycast(add(c, d.map((x) => x * R0) as V3), d.map((x) => -x) as V3, R0, H * 0.0005);
+      if (hit) hits.push([hit[0] - c[0], hit[2] - c[2]]);
+    }
+    if (hits.length < 8) return { rx: rx0, rz: rz0, cz: c[2] };
+    const xs = hits.map((h) => Math.abs(h[0])), zs = hits.map((h) => h[1]);
+    const zmax = Math.max(...zs), zmin = Math.min(...zs);
+    let rx = Math.max(...xs), rz = (zmax - zmin) / 2;
+    const oz = (zmax + zmin) / 2;
+    let sc = 1;
+    for (const [x, z] of hits) sc = Math.max(sc, Math.hypot(x / rx, (z - oz) / rz));
+    rx *= sc;
+    rz *= sc;
+    return { rx, rz, cz: c[2] + oz };
+  };
   const S = ROLE.skin;
   const C1 = ROLE.cloth1, C2 = ROLE.cloth2, C3 = ROLE.cloth3, LE = ROLE.leather, MT = ROLE.metal;
   const groups: Record<string, number[]> = {};
@@ -380,11 +413,15 @@ export function buildBodyField(k: Kit): BodyField {
     const r0 = (top === "coat" || top === "robe" || top === "tunic" || top === "dress" ? rad("spine", 0.25) * bw : P.hipHalf * 1.3 * bw) + thick * (over === "armor" ? 2.6 : 1.7);
     const rz = (top === "coat" || top === "robe" || top === "tunic" || top === "dress" ? rad("spine", 0.25) * bw * 0.95 : H * 0.07 * torsoD * bw) + thick * (over === "armor" ? 2.6 : 1.7);
     const sash = look.belt === "sash";
-    put("belt", { kind: "ellipsoid", c: waistY, r: [r0, H * (sash ? 0.02 : 0.013), rz], role: sash ? C3 : LE, tag: 0 }, top === "coat" || top === "robe" || top === "tunic" || top === "dress" ? "spine" : "pelvis");
+    // posée sur la surface réelle du vêtement à cette hauteur (manteau, robe, carrure forte : plus de ceinture qui traverse)
+    const fit = fitWaist(waistY, r0, rz);
+    const r0b = fit.rx + H * 0.006, rzb = fit.rz + H * 0.006;
+    const wc: V3 = [waistY[0], waistY[1], fit.cz];
+    put("belt", { kind: "ellipsoid", c: wc, r: [r0b, H * (sash ? 0.02 : 0.013), rzb], role: sash ? C3 : LE, tag: 0 }, top === "coat" || top === "robe" || top === "tunic" || top === "dress" ? "spine" : "pelvis");
     if (sash) {
-      put("belt", { kind: "ellipsoid", c: add(waistY, [r0 * 0.75, -H * 0.004, rz * 0.6]), r: [H * 0.02, H * 0.018, H * 0.016], role: C3, tag: 0 }, "pelvis");
-      put("belt", { kind: "capsule", a: add(waistY, [r0 * 0.78, -H * 0.01, rz * 0.62]), b: add(waistY, [r0 * 0.92, -H * 0.11, rz * 0.5]), ra: H * 0.012, rb: H * 0.009, role: C3, tag: 0 }, "pelvis", { drape: true });
-    } else decals.push({ at: [0, waistY[1], waistY[2] + rz + H * 0.02], dir: [0, 0, 1], kind: "buckle", role: MT, size: H * 0.017 });
+      put("belt", { kind: "ellipsoid", c: add(wc, [r0b * 0.75, -H * 0.004, rzb * 0.6]), r: [H * 0.02, H * 0.018, H * 0.016], role: C3, tag: 0 }, "pelvis");
+      put("belt", { kind: "capsule", a: add(wc, [r0b * 0.78, -H * 0.01, rzb * 0.62]), b: add(wc, [r0b * 0.92, -H * 0.11, rzb * 0.5]), ra: H * 0.012, rb: H * 0.009, role: C3, tag: 0 }, "pelvis", { drape: true });
+    } else decals.push({ at: [0, wc[1], wc[2] + rzb + H * 0.02], dir: [0, 0, 1], kind: "buckle", role: MT, size: H * 0.017 });
   }
   if (look.details === "pockets" || look.details === "full") {
     const shirtish = top === "shirt" || over === "jacket" || top === "coat";
@@ -421,7 +458,24 @@ export function buildBodyField(k: Kit): BodyField {
       for (const sx of [1, -1]) put("bag", { kind: "capsule", a: [sx * chestR[0] * 0.4, chestC[1] + H * 0.07, backZ - H * 0.01], b: add(at(`clavicle.${sx > 0 ? "l" : "r"}`, 0.5), [0, rad("clavicle.l", 0.5) * bw + thick * 1.4, H * 0.01]), ra: H * 0.008, rb: H * 0.008, role: LE, tag: 0 }, "chest");
       break;
     case "satchel":
-      put("bag", { kind: "capsule", a: add(at("clavicle.l", 0.7), [0, thick + rad("clavicle.l", 0.7) * bw * 0.8, 0]), b: [-P.hipHalf * 1.2, P.hipY + H * 0.02, 0], ra: thick * 1.05 + H * 0.006, rb: thick * 1.05 + H * 0.006, role: LE, tag: 0 }, "chest");
+    {
+      // bandoulière en travers : épaule gauche → hanche droite, posée sur la poitrine et sur le dos (rayons vers le buste
+      // habillé), jamais à travers le corps
+      const a = add(at("clavicle.l", 0.7), [0, thick + rad("clavicle.l", 0.7) * bw * 0.8, 0]);
+      const b: V3 = [-P.hipHalf * 1.2, P.hipY + H * 0.02, 0];
+      const ra = thick * 1.05 + H * 0.006;
+      const f = outerField();
+      for (const sz of [1, -1]) {
+        const pts: V3[] = [a];
+        // dernier point sur la face avant / arrière de la hanche (pas sur le flanc, où pend le bras)
+        for (const t of [0.25, 0.5, 0.75, 0.92]) {
+          const m: V3 = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0];
+          const hit = f.raycast([m[0], m[1], sz * H * 0.5], [0, 0, -sz], H * 0.5, H * 0.0005);
+          pts.push(hit ? [hit[0], hit[1], hit[2] + sz * ra * 1.1] : [m[0], m[1], sz * (chestR[2] + thick * 2)]);
+        }
+        for (let i = 0; i + 1 < pts.length; i++) put("bag", { kind: "capsule", a: pts[i], b: pts[i + 1], ra, rb: ra, role: LE, tag: 0 }, i < 2 ? "chest" : "pelvis");
+      }
+    }
       put("bag", { kind: "box", c: [-P.hipHalf * 1.35 * bw - H * 0.025, P.hipY - H * 0.01, H * 0.01], h: [H * 0.025, H * 0.05, H * 0.07], round: H * 0.015, role: LE, tag: 0 }, "pelvis");
       break;
     case "pouch":
