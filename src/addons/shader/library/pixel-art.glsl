@@ -221,7 +221,7 @@ void mainImage(out vec4 o, in vec2 frag){
   if (s > 0.0){
     int cand[4];
     vec3 e = vec3(0.0);
-    float gap = mix(0.22, 0.46, s);
+    float gap = mix(0.2, 0.42, s);
     for (int k = 0; k < 4; k++){
       int ik = nearest(c[0] + e * s);
       if (length(gLab[ik] - c[0]) > gap) ik = i0;
@@ -232,6 +232,16 @@ void mainImage(out vec4 o, in vec2 frag){
     int i2 = i0;
     for (int k = 0; k < 4; k++) if (i2 == i0 && cand[k] != i0) i2 = cand[k];
     for (int k = 0; k < 4; k++) if (cand[k] != i0 && cand[k] != i2) cand[k] = perr(gLab[cand[k]], gLab[i0]) < perr(gLab[cand[k]], gLab[i2]) ? i0 : i2;
+    // Le motif n'est gardé que s'il approche mieux la cible que la couleur seule, son contraste compté
+    // (pénalité de Yliluoma, d'autant plus faible que le tramage est fort) : pas de motif pour rien.
+    int nq = 0;
+    for (int k = 0; k < 4; k++) if (cand[k] == i2 && i2 != i0) nq++;
+    if (nq > 0){
+      float q = float(nq) / 4.0;
+      vec3 d = gLab[i2] - gLab[i0];
+      float pen = 0.08 * pow(40.0, 1.0 - s) * dot(d, d) * q * (1.0 - q);
+      if (perr(c[0], mix(gLab[i0], gLab[i2], q)) + pen >= perr(c[0], gLab[i0])) for (int k = 0; k < 4; k++) cand[k] = i0;
+    }
     for (int a = 0; a < 3; a++){
       for (int b = 0; b < 3; b++){
         if (b >= 3 - a) break;
