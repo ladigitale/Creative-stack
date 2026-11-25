@@ -24,7 +24,7 @@ import { FaceState, bindExpr } from "./expr";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
-import { type Motion, PoseBlend, motionFor } from "../rig/motion";
+import { type Motion, PoseBlend, motionFor, turnToward } from "../rig/motion";
 import { dualQuat } from "../rig/skeleton";
 import { type StyleTokens, resolveColors } from "../style/style";
 import { ROLES } from "../style/roles";
@@ -117,6 +117,9 @@ type ActorRT = {
   look: string;
   /** Fondu entre poses au changement d'état. */
   blend: PoseBlend;
+  /** Cap affiché (lissé vers `yaw`) et vitesse de rotation affichée. */
+  dispYaw: number;
+  turnRate: number;
   turn: number;
   zones: Set<string>;
   hidden: boolean;
@@ -652,7 +655,7 @@ export class ProcgenView {
     const rt: ActorRT = {
       model: a, mesh, mats, mo: motionFor(a.asset), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: Math.random(), action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
       mood: String(a.params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), turn: 0,
-      face: new FaceState(a.asset, baseMoodOf(a), a.seed), look: "", blend: new PoseBlend(), zones: new Set(), hidden: false, lastIntent: "",
+      face: new FaceState(a.asset, baseMoodOf(a), a.seed), look: "", blend: new PoseBlend(), dispYaw: a.yaw, turnRate: 0, zones: new Set(), hidden: false, lastIntent: "",
       seatY: a.seatY, standAt: a.standAt, reachY: a.reachY,
     };
     this.actors.set(a.id, rt);
@@ -2663,7 +2666,8 @@ export class ProcgenView {
       let dy = targetYaw - a.yaw;
       while (dy > Math.PI) dy -= Math.PI * 2;
       while (dy < -Math.PI) dy += Math.PI * 2;
-      const turn = clamp(dy, -dt * 7, dt * 7);
+      // virage de marche : arc plutôt que coin (rotation bornée, approche amortie)
+      const turn = clamp(dy * (1 - Math.exp(-dt * 6)), -dt * 4.5, dt * 4.5);
       a.yaw += turn;
       a.turn = turn / Math.max(dt, 1e-3);
     } else a.turn *= 0.8;
@@ -2709,6 +2713,14 @@ export class ProcgenView {
         a.zones.delete(zn.id);
         this.onEvent({ type: "leave", payload: { zone: zn.id, actor: a.model.id } });
       }
+    }
+    // cap affiché : rejoint le cap logique en douceur ; tourner sur place fait piétiner
+    const tt = turnToward(a.dispYaw, a.yaw, dt);
+    a.dispYaw = tt.yaw;
+    a.turnRate = tt.rate;
+    if (a.speed < 0.3 && Math.abs(tt.rate) > 0.6 && a.action !== "sit" && a.action !== "sleep") {
+      const ps = Math.min(0.6, Math.abs(tt.rate) * 0.18);
+      a.phase += (ps * dt) / (2 * a.mo.stepLength(Math.max(ps, 0.2)));
     }
     this.poseActor(a, dt);
     this.updateFace(a, dt);
@@ -2761,7 +2773,8 @@ export class ProcgenView {
 
   private poseActor(a: ActorRT, _dt: number) {
     const sk = a.model.asset.skeleton!;
-    const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
+    const pivot = a.speed < 0.3 && !a.ride && a.action !== "sit" && a.action !== "sleep" ? Math.min(0.6, Math.abs(a.turnRate) * 0.18) : 0;
+    const st: MotionState = { speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
     const { pose: raw } = a.mo.pose(st);
     // fondu au changement d'action ou d'assise (pas de saut d'une pose à l'autre)
     const pose = a.blend.apply(raw, `${a.action}|${a.mood}|${st.seatY ? 1 : 0}|${a.ride ? 1 : 0}`, _dt);
@@ -2776,7 +2789,8 @@ export class ProcgenView {
       arr[i * 2 + 1].set(d[0], d[1], d[2], d[3]);
     }
     a.mesh.position.set(a.pos[0], a.pos[1], a.pos[2]);
-    a.mesh.rotation.set(0, a.yaw, 0);
+    if (a.ride) a.dispYaw = a.yaw;
+    a.mesh.rotation.set(0, a.dispYaw, 0);
     a.mesh.updateMatrix();
   }
 
