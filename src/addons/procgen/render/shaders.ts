@@ -437,10 +437,12 @@ void main() {
   float brush = (fbm3(vPosW * 6.0) - 0.5) * uBrush;
   if (uShading < 0.5) light = clamp(ndl * 0.5 + 0.5, 0.0, 1.0) * 0.6 + 0.4;        // flat : lumière douce, sans bandes
   else if (uShading < 1.5) {                                                       // toon : bandes à seuil perturbé
-    float x = clamp((ndl + brush) * 0.5 + 0.5, 0.0, 1.0);
+    float x = clamp((ndl + brush * (role == 21 ? 0.4 : 1.0)) * 0.5 + 0.5, 0.0, 1.0);
     x *= mix(1.0, 0.3, (1.0 - sh) * uShadowStrength);
     float k = x * uBands;
-    float q = (floor(k) + smoothstep(1.0 - max(uBandSoft * uBands, 0.001), 1.0, fract(k))) / uBands;
+    // peau : transitions de bandes adoucies (un visage en marches dures paraît grossier)
+    float bsoft = role == 21 ? max(uBandSoft, 0.32) : uBandSoft;
+    float q = (floor(k) + smoothstep(1.0 - max(bsoft * uBands, 0.001), 1.0, fract(k))) / uBands;
     light = clamp(q * uBands / (uBands - 1.0), 0.0, 1.0);
   } else {
     light = clamp(ndl + brush * 0.5, 0.0, 1.0);
@@ -452,7 +454,13 @@ void main() {
   // contact au sol : assombrit le pied des objets
   float contact = 1.0 - (1.0 - smoothstep(0.0, 0.35, vPosW.y - uGroundY)) * 0.18 * uAOStrength * step(0.2, abs(N.y - 1.0));
   vec3 amb = mix(uAmbGround, uAmbSky, N.y * 0.5 + 0.5);
-  vec3 lit = base * (amb * 0.62 * ao * contact + uSun * light * shadow * mix(0.85, 1.0, ao));
+  vec3 lit = base * (amb * (role == 21 ? 0.54 : 0.62) * ao * contact + uSun * light * shadow * mix(0.85, 1.0, ao));
+  if (role == 21) {
+    // peau : diffusion chaude au terminateur (lumière qui traverse la peau), creux un peu plus marqués
+    float term = clamp(light * (1.0 - light) * 4.0, 0.0, 1.0);
+    lit += base * vec3(0.24, 0.07, 0.03) * term * shadow;
+    lit *= mix(1.0, 0.86, 1.0 - ao);
+  }
   lit *= 1.0 + edgeWear * 0.16 * (role >= 21 && role <= 25 ? 0.0 : 1.0);
   // lumières ponctuelles (feux, lampes, fenêtres) : chaudes, surtout la nuit
   vec3 pl = vec3(0.0);
@@ -593,7 +601,15 @@ uniform float uPhotoMix;
 uniform float uPhotoFog;
 uniform vec3 uFogColor;
 uniform vec4 uFogK;
+// occlusion ambiante en espace écran (profondeur linéaire de tData) : force, pixels par mètre (perspective à 1 m,
+// orthographique), distance lointaine de la caméra
+uniform float uAo;
+uniform float uAoFocal;
+uniform float uAoOrtho;
+uniform float uFarP;
 ${COMMON}
+const vec2 AO_DISK[12] = vec2[](vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621), vec2(0.962, -0.195), vec2(0.473, -0.480),
+  vec2(0.519, 0.767), vec2(0.185, -0.893), vec2(0.507, 0.064), vec2(0.896, 0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598));
 
 vec4 dataAt(vec2 uv) { return texture(tData, uv); }
 
@@ -619,6 +635,23 @@ void main() {
   float t = clamp((vUv.y - uHorizonY) / max(1.0 - uHorizonY, 0.1), 0.0, 1.0);
   vec3 sky = uSkyOn > 0.5 ? mix(uSkyHorizon, uSkyTop, pow(t, 0.7)) : uSkyHorizon;
   vec3 col = sky * (1.0 - clamp(c.a, 0.0, 1.0)) + c.rgb;
+  // occlusion ambiante : un voisin plus proche de la caméra de quelques centimètres couvre ce point (plis, aisselles,
+  // cou, jonctions au sol) ; rayon d'environ 20 cm ramené en pixels selon la profondeur
+  if (uAo > 0.0 && !bg && d.w < 0.999) {
+    float zm = d.z * uFarP;
+    float ppm = uAoOrtho > 0.0 ? uAoOrtho : uAoFocal / max(zm, 0.05);
+    float radPx = clamp(0.2 * ppm, 2.0, 48.0);
+    float a = hash13(vec3(gl_FragCoord.xy, 3.0)) * 6.2831;
+    mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));
+    float occ = 0.0;
+    for (int i = 0; i < 12; i++) {
+      vec4 sm = dataAt(uv + R * AO_DISK[i] * radPx * uTexel);
+      if (sm.z <= 0.0 || sm.z >= 0.999) continue;
+      float dz = (d.z - sm.z) * uFarP;
+      occ += smoothstep(0.012, 0.07, dz) * (1.0 - smoothstep(0.3, 0.6, dz));
+    }
+    col *= 1.0 - uAo * 0.55 * (occ / 12.0);
+  }
   // contours : silhouette (profondeur, identifiant) plus épaisse que les plis (normales)
   if (uOutlineStrength > 0.0 && uOutline > 0.0) {
     float edgeS = 0.0, edgeC = 0.0;

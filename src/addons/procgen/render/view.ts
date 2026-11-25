@@ -318,6 +318,7 @@ export class ProcgenView {
         uSkyTop: { value: new THREE.Color() }, uSkyHorizon: { value: new THREE.Color() }, uSkyOn: { value: 1 }, uHorizonY: { value: 0.35 }, uGrain: { value: 0 }, uPaper: { value: 0 }, uVignette: { value: 0 },
         uTime: { value: 0 }, uPixel: { value: 0 }, uResolution: { value: new THREE.Vector2() }, uUvXf: { value: new THREE.Vector4(1, 1, 0, 0) },
         tPhoto: { value: null }, uPhotoMix: { value: 0 }, uPhotoFog: { value: 0 }, uFogColor: { value: new THREE.Color() }, uFogK: { value: new THREE.Vector4() },
+        uAo: { value: 0 }, uAoFocal: { value: 1000 }, uAoOrtho: { value: 0 }, uFarP: { value: 100 },
       },
     });
     this.post = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat);
@@ -957,6 +958,7 @@ export class ProcgenView {
     const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
     pu.uOutline.value = s.outline;
     pu.uOutlineStrength.value = s.outlineStrength;
+    pu.uAo.value = s.ssao;
     const ink = c.roles.slice(27 * 3, 27 * 3 + 3);
     (pu.uInk.value as THREE.Color).setRGB(ink[0], ink[1], ink[2]);
     (pu.uSkyTop.value as THREE.Color).setRGB(...c.skyTop);
@@ -3137,6 +3139,9 @@ export class ProcgenView {
     return out.slice(0, 8);
   }
 
+  /** Zone que la carte d'ombre couvre en scène finie (centre et rayon visibles). */
+  private shadowFocus: { c: THREE.Vector3; r: number } | null = null;
+
   private shadowPass() {
     const m = this.model!;
     const sun = this.shared.uSunDir.value as THREE.Vector3;
@@ -3150,8 +3155,17 @@ export class ProcgenView {
       const q = (2 * R) / this.shadowRT.width;
       c = new THREE.Vector3(Math.round(x / q) * q, this.inf.world.height(x, z), Math.round(z / q) * q);
     }
-    const lc = new THREE.OrthographicCamera(-R, R, R, -R, 0.1, R * 4);
-    lc.position.copy(c).addScaledVector(sun, R * 2);
+    // scène finie : carte cadrée sur ce que montre la caméra quand elle n'en voit qu'une partie (gros plan net) ;
+    // profondeur de la carte gardée à l'échelle de la scène (les ombres venues de hors champ restent)
+    const Rs = R;
+    if (!this.inf && this.shadowFocus && this.shadowFocus.r < R * 0.7) {
+      const f = this.shadowFocus;
+      R = Math.max(1.5, f.r);
+      const q = (2 * R) / this.shadowRT.width;
+      c = new THREE.Vector3(Math.round(f.c.x / q) * q, Math.round(f.c.y / q) * q, Math.round(f.c.z / q) * q);
+    }
+    const lc = new THREE.OrthographicCamera(-R, R, R, -R, 0.1, Math.max(R, Rs) * 4);
+    lc.position.copy(c).addScaledVector(sun, Math.max(R, Rs) * 2);
     lc.lookAt(c);
     lc.updateMatrixWorld();
     lc.updateProjectionMatrix();
@@ -3267,6 +3281,16 @@ export class ProcgenView {
         }
       }
     }
+    {
+      // cadrage de la carte d'ombre : demi-diagonale visible autour de la cible (arrondie : pas de scintillement)
+      const hv = (cam as THREE.PerspectiveCamera).isPerspectiveCamera ? camDist * Math.tan(((cam as THREE.PerspectiveCamera).fov * Math.PI) / 360) : (cam as THREE.OrthographicCamera).top / Math.max(1e-3, (cam as THREE.OrthographicCamera).zoom);
+      const r = Math.pow(1.25, Math.ceil(Math.log(Math.max(0.5, hv * Math.hypot(1, w / h) * 1.35)) / Math.log(1.25)));
+      const prev = this.shadowFocus;
+      if (!prev || prev.r !== r || prev.c.distanceTo(tgt) > r * 0.05) {
+        this.shadowFocus = { c: tgt.clone(), r };
+        this.shadowDirty = true;
+      }
+    }
     if (this.style?.shadows !== false && this.shadowDirty) this.shadowPass();
     for (const d of this.fxMeshes) d.mat.uniforms.uViewH.value = this.rt!.height;
     this.renderer.setRenderTarget(this.rt);
@@ -3293,6 +3317,15 @@ export class ProcgenView {
     // horizon : calé sur la direction de visée horizontale (même hauteur quel que soit le yaw)
     const pu = (this.post.material as THREE.ShaderMaterial).uniforms;
     pu.uHorizonY.value = horizonScreenY(cam, tgt, this.extent);
+    // occlusion en espace écran : pixels par mètre de la cible de rendu
+    pu.uFarP.value = cam.far;
+    if ((cam as THREE.PerspectiveCamera).isPerspectiveCamera) {
+      pu.uAoOrtho.value = 0;
+      pu.uAoFocal.value = this.rt!.height / (2 * Math.tan(((cam as THREE.PerspectiveCamera).fov * Math.PI) / 360));
+    } else {
+      const oc = cam as THREE.OrthographicCamera;
+      pu.uAoOrtho.value = (this.rt!.height * oc.zoom) / Math.max(1e-3, oc.top - oc.bottom);
+    }
     pu.uTime.value = this.time;
     this.present();
   }
