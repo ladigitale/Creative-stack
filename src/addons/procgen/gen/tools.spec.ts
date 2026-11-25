@@ -1,3 +1,4 @@
+import { ROLE } from "../style/roles";
 import { describe, expect, it } from "vitest";
 import { Rng } from "../core/rng";
 import { Issues, resolveParams } from "../core/schema";
@@ -51,7 +52,10 @@ describe("outils à main", () => {
       const plain = resolveParams(character.schema, { item: "none", detail: "crowd" }, { rng: new Rng(kind), vars: {} }, new Issues());
       const a = character.build(p as never, { rng: new Rng(kind), issues, path: "" });
       const b = character.build(plain as never, { rng: new Rng(kind), issues, path: "" });
-      expect(a.mesh.triangleCount, kind).toBeGreaterThan(b.mesh.triangleCount);
+      // l'outil est bien dans le maillage : plus de bois et de métal qu'à mains vides (le nombre total de triangles ne
+      // dit rien : une main libre ouverte compte autant qu'une prise fermée sur un manche fin)
+      const toolish = (m: typeof a.mesh) => m.role.filter((r) => r === ROLE.wood || r === ROLE.metal).length;
+      expect(toolish(a.mesh), kind).toBeGreaterThan(toolish(b.mesh));
     }
   }, 30000);
 

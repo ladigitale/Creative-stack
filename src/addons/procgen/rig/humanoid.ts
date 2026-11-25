@@ -9,10 +9,12 @@ import { type V3, DEG, add, madd, norm, scale } from "../core/math";
 import { type BoneDef, Skeleton } from "./skeleton";
 
 export const ARCHETYPES = {
-  chibi: { heads: 2.6, crotch: 0.27, arm: 0.3, shoulder: 0.15, hip: 0.085, neck: 0.012, hand: 1.55, foot: 1.45, headW: 1.08, headD: 1.0, limb: 1.45, torsoD: 1.15 },
-  cartoon: { heads: 4.5, crotch: 0.4, arm: 0.36, shoulder: 0.13, hip: 0.083, neck: 0.022, hand: 1.3, foot: 1.25, headW: 0.92, headD: 0.98, limb: 1.15, torsoD: 1.05 },
-  stylized: { heads: 6, crotch: 0.46, arm: 0.4, shoulder: 0.125, hip: 0.08, neck: 0.03, hand: 1.15, foot: 1.12, headW: 0.82, headD: 0.95, limb: 1, torsoD: 1 },
-  heroic: { heads: 7.2, crotch: 0.48, arm: 0.43, shoulder: 0.135, hip: 0.076, neck: 0.036, hand: 1.06, foot: 1.02, headW: 0.78, headD: 0.93, limb: 0.95, torsoD: 0.98 },
+  // shoulder : demi-largeur entre les articulations (le deltoïde et la manche s'y ajoutent) ; headW : largeur / hauteur
+  // de la tête (têtes plus rondes qu'un œuf) ; hand : facteur sur une main réelle (≈ 0,3 × bras + avant-bras)
+  chibi: { heads: 2.6, crotch: 0.27, arm: 0.3, shoulder: 0.13, hip: 0.085, neck: 0.012, hand: 1.4, foot: 1.5, headW: 1.12, headD: 1.0, limb: 1.45, torsoD: 1.15 },
+  cartoon: { heads: 4.5, crotch: 0.4, arm: 0.36, shoulder: 0.112, hip: 0.083, neck: 0.022, hand: 1.18, foot: 1.3, headW: 1.0, headD: 0.98, limb: 1.15, torsoD: 1.05 },
+  stylized: { heads: 6, crotch: 0.46, arm: 0.4, shoulder: 0.11, hip: 0.08, neck: 0.03, hand: 1.0, foot: 1.15, headW: 0.9, headD: 0.95, limb: 1, torsoD: 1 },
+  heroic: { heads: 7.2, crotch: 0.48, arm: 0.43, shoulder: 0.114, hip: 0.076, neck: 0.036, hand: 1.0, foot: 1.05, headW: 0.86, headD: 0.93, limb: 0.95, torsoD: 0.98 },
 } as const;
 export type Archetype = keyof typeof ARCHETYPES;
 
@@ -101,7 +103,7 @@ export function proportions(p: BodyParams): Proportions {
     chinY,
     upperArm: armLen * 0.46,
     foreArm: armLen * 0.4,
-    handLen: armLen * 0.14 * a.hand,
+    handLen: armLen * 0.86 * 0.3 * a.hand,
     thigh: legLen * 0.52,
     shin: legLen * 0.48,
     ankleY,
@@ -128,6 +130,8 @@ export function aPoseDirs() {
 
 export function buildHumanoid(P: Proportions): Skeleton {
   const H = P.H;
+  // pied : la longueur suit P.foot, l'épaisseur beaucoup moins (semelle au-dessus du sol, pied allongé plutôt que gonflé)
+  const footR = Math.sqrt(P.foot) * 1.04;
   const d = aPoseDirs();
   const r = (k: number) => k * H * P.limb;
   const bones: BoneDef[] = [];
@@ -148,7 +152,7 @@ export function buildHumanoid(P: Proportions): Skeleton {
     const drop = P.asym * sx * H * 0.006 + Math.max(0, P.posture) * H * 0.004;
     const clav0: V3 = [sx * H * 0.015, P.shoulderY - H * 0.012, H * 0.01 + chestTop[2]];
     const shoulder: V3 = [sx * P.shoulderHalf, P.shoulderY - H * 0.02 - drop, -H * 0.005 + chestTop[2] * 0.9];
-    add_({ name: `clavicle.${s}`, parent: "chest", head: clav0, tail: shoulder, radius: [r(0.03), r(0.035)], swing: 25, twist: [-10, 10] });
+    add_({ name: `clavicle.${s}`, parent: "chest", head: clav0, tail: shoulder, radius: [r(0.03), r(0.031)], swing: 25, twist: [-10, 10] });
     const arm: V3 = [d.arm[0] * sx, d.arm[1], d.arm[2]];
     const fore: V3 = [d.fore[0] * sx, d.fore[1], d.fore[2]];
     const elbow = madd(shoulder, arm, P.upperArm);
@@ -167,8 +171,8 @@ export function buildHumanoid(P: Proportions): Skeleton {
     const toe: V3 = [ankle[0], H * 0.016, ankle[2] + P.footLen * 0.85];
     add_({ name: `thigh.${s}`, parent: "pelvis", head: hip, tail: knee, radius: [r(0.062), r(0.045)], swing: 120, twist: [-40, 40] });
     add_({ name: `shin.${s}`, parent: `thigh.${s}`, head: knee, tail: ankleG, radius: [r(0.042), r(0.028)], swing: 150, twist: [-10, 10] });
-    add_({ name: `foot.${s}`, parent: `shin.${s}`, head: ankleG, tail: ball, radius: [r(0.03) * P.foot, r(0.03) * P.foot], swing: 50, twist: [-15, 15] });
-    add_({ name: `toe.${s}`, parent: `foot.${s}`, head: ball, tail: toe, radius: [r(0.026) * P.foot, r(0.022) * P.foot], swing: 60, twist: [-5, 5] });
+    add_({ name: `foot.${s}`, parent: `shin.${s}`, head: ankleG, tail: ball, radius: [r(0.03) * footR, r(0.03) * footR], swing: 50, twist: [-15, 15] });
+    add_({ name: `toe.${s}`, parent: `foot.${s}`, head: ball, tail: toe, radius: [r(0.026) * footR, r(0.022) * footR], swing: 60, twist: [-5, 5] });
   }
   return new Skeleton(bones);
 }
