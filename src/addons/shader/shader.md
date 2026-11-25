@@ -322,20 +322,22 @@ Assigne le GLSL via `.image` (et `.bufferA`, …) depuis JS / Lit.
 
 ## Pixel art (`pixel-art`)
 
-Redessine n'importe quelle source d'images (photo, vidéo, caméra, `sonic-3d`, `sonic-2d`, autre `sonic-shader`) en pixel art à palette limitée. Réglages : `param0` lignes de pixels (hauteur de l'image d'art), `param1` palette (0 = couleurs de l'attribut `colors`, 8 au plus, sinon niveaux automatiques ; 1 pico8, 2 gameboy, 3 braise, 4 ocean, 5 terre, 6 pastel, 7 nord, 8 cga, 9 zx, 10 mac), `param2` tramage, `param3` contours.
+Redessine n'importe quelle source d'images (photo, vidéo, caméra, `sonic-3d`, `sonic-2d`, autre `sonic-shader`) en pixel art à palette limitée. Réglages : `param0` lignes de pixels (hauteur de l'image d'art) ; `param1` palette **et** lissage : partie entière = palette (0 = couleurs de l'attribut `colors`, 8 au plus, sinon niveaux automatiques ; 1 pico8, 2 gameboy, 3 braise, 4 ocean, 5 terre, 6 pastel, 7 nord, 8 cga, 9 zx, 10 mac), décimales = lissage 0..0,99 (`3.5` = braise, lissage 50 %) ; `param2` tramage ; `param3` contours.
 
-**Toujours le rendre à la résolution d'art** : `render-size` = taille de l'image d'art (même rapport que l'affichage) et `param0` = sa hauteur, agrandi par le navigateur avec `image-rendering: pixelated`. Chaque pixel du canvas est alors un pixel d'art : c'est des dizaines de fois moins de calcul qu'en pleine résolution (où toutes les cellules d'un même pixel d'art refont le même calcul) et l'agrandissement reste net.
+Ordre du traitement : la couleur cible de chaque pixel d'art est calculée d'abord (échantillon le plus proche de la moyenne de la cellule, mêlé selon le lissage à un Kuwahara anisotrope orienté le long des bords, puis étalonnage OKLab), ensuite tout se décide sur les couleurs de la palette : index, nettoyage des pixels isolés sur les index, contour d'un cran plus sombre dans la palette, tramage de Knoll ramené à deux couleurs en motif 2×2. Le même calcul est refait pour les quatre voisins : nettoyage et contours voient les couleurs réellement affichées.
+
+**Toujours le rendre à la résolution d'art** : `render-size` = taille de l'image d'art (même rapport que l'affichage) et `param0` = sa hauteur, agrandi par le navigateur avec `image-rendering: pixelated`. Chaque pixel du canvas est alors un pixel d'art : des dizaines de fois moins de calcul qu'en pleine résolution, et l'agrandissement reste net.
 
 ```json
 { "tagName": "sonic-3d", "attributes": { "id": "scene", "dataProvider": "jeu", "style": "position:absolute;inset:0;opacity:0" } }
 { "tagName": "sonic-shader", "attributes": { "dataProvider": "pixels", "image": "<pixel-art.glsl>", "channel0": "#scene",
-  "render-size": "192x108", "param0": 108, "param1": 3, "param2": 0.6, "param3": 0.6,
+  "render-size": "192x108", "param0": 108, "param1": 3.3, "param2": 0.6, "param3": 0.6,
   "style": "display:block;width:100%;aspect-ratio:16/9;image-rendering:pixelated" } }
 ```
 
-- La source n'a pas besoin d'être grande : une scène 3D ou un shader lourd peut lui-même être rendu petit (`render-size` de la source à 2 ou 3 fois la résolution d'art).
-- Palette du document : `param1: 0` et `colors="#1a1c2c #5d275d …"` (jetons du thème acceptés).
-- Le tramage ne touche que les dégradés : un aplat reste uni, un bord ne fait pas de halo ; deux couleurs trop différentes ne sont jamais mélangées en damier.
+- Lissage : presque inutile sur une scène 3D propre, utile sur une photo ou une caméra (grain, bruit, textures fines) ; il efface aussi les détails d'un pixel, à doser.
+- Palette du document : `param1: 0.3` (palette 0, lissage 30 %) et `colors="#1a1c2c #5d275d …"` (jetons du thème acceptés).
+- Le tramage ne touche que les dégradés (pente qui continue dans le même sens des deux côtés) : un aplat reste uni, un bord ne fait pas de halo, le bruit d'une photo n'est pas tramé ; deux couleurs trop différentes ne sont jamais mélangées.
 - Caméra en mouvement : la grille est fixe à l'écran, les bords scintillent comme dans tout pixel art en mouvement ; une caméra 3D qui se déplace par pas d'un pixel d'art l'évite.
 
 ## Économie de rendu et robustesse
