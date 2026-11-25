@@ -82,12 +82,13 @@ function fitToContent(ctx: FitCtx) {
   ctx.target.copy(center);
 
   const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+  // Le champ le plus étroit décide : sur un écran en portrait, c'est l'horizontal (fov vertical × rapport).
+  const halfTan = Math.tan(((ctx.fov || DEFAULT_FOV) * Math.PI) / 360);
+  const aspect = ctx.perspCam.aspect > 0 && Number.isFinite(ctx.perspCam.aspect) ? ctx.perspCam.aspect : 1;
   const dist =
     ctx.mode === Sonic3dCameraMode.Ortho
       ? maxDim * 1.8
-      : maxDim /
-          (2 * Math.tan(((ctx.fov || DEFAULT_FOV) * Math.PI) / 360)) *
-        1.35;
+      : (maxDim / (2 * halfTan * Math.min(1, aspect))) * 1.35;
 
   const dir = new THREE.Vector3(1, 0.65, 1).normalize();
   ctx.activeCam.position.copy(center).addScaledVector(dir, dist);
@@ -99,8 +100,8 @@ function fitToContent(ctx: FitCtx) {
   }
 
   if (ctx.mode === Sonic3dCameraMode.Ortho) {
-    const aspect = ctx.perspCam.aspect || 1;
-    const frustum = maxDim * 0.75;
+    // en portrait, le cadre s'élargit pour garder toute la largeur du contenu
+    const frustum = (maxDim * 0.75) / Math.min(1, aspect);
     ctx.orthoCam.left = -frustum * aspect;
     ctx.orthoCam.right = frustum * aspect;
     ctx.orthoCam.top = frustum;
