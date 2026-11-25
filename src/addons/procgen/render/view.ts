@@ -281,12 +281,16 @@ export class ProcgenView {
   /** Les tuiles montées ont changé (objets, ids). */
   onTiles: (() => void) | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  /** Images présentées (contrat de source d'images : un `sonic-shader` relit le canvas quand il avance). */
+  frameSeq = 0;
+
+  /** `preserve` : tampon gardé après présentation, pour qu'une autre toile (shader, export) puisse le relire. */
+  constructor(canvas: HTMLCanvasElement, opts: { preserve?: boolean } = {}) {
     this.canvas = canvas;
     // particules dessinées dans la passe de la scène, après les objets opaques (transparentes, sans écriture de profondeur)
     this.fxGroup.name = "procgen~particles";
     this.scene.add(this.fxGroup);
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: !!opts.preserve });
     this.renderer.autoClear = false;
     this.renderer.info.autoReset = false;
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
@@ -3168,6 +3172,12 @@ export class ProcgenView {
 
   /** `jitter` : rang d'une image accumulée du rendu soigné (sous-pixel décalé, soleil décalé dans un cône). */
   render(jitter?: number) {
+    if (!this.model) return;
+    this.draw(jitter);
+    this.frameSeq++;
+  }
+
+  private draw(jitter?: number) {
     if (!this.model) return;
     this.applySize();
     const w = this.canvas.clientWidth || 1, h = this.canvas.clientHeight || 1;
