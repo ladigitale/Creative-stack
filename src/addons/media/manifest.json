@@ -288,7 +288,10 @@
       "props": {
         "codec": {
           "type": "string",
-          "enum": ["morse", "fast"],
+          "enum": [
+            "morse",
+            "fast"
+          ],
           "description": "code utilisé pour émettre : morse (défaut) ou fast (code rapide à durées 1/2/3, table de phrases, contrôle) ; la réception reconnaît seule le code de chaque message"
         },
         "roster": {
@@ -551,6 +554,91 @@
         },
         "ref-provider": {
           "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-motion-detector",
+      "description": "Détection de mouvement sans modèle (différence d'images) d'une source d'images (source=\"#cam\") : état {status, level (part de l'image qui bouge), x, y (centre du mouvement, 0..1), box, zones {nom: {level, active, count}}, fps} ; zones [{name, x, y, w, h}] (fractions) = boutons à agiter devant la caméra, action motion:zone {zone, level, count} vers target quand une zone s'allume ; mirror pour la caméra frontale ; est une source d'images (masque blanc du mouvement) pour sonic-shader channel0=\"#id\"",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "#id d'une source d'images"
+        },
+        "resolution": {
+          "type": "number"
+        },
+        "threshold": {
+          "type": "number"
+        },
+        "interval": {
+          "type": "number"
+        },
+        "zones": {
+          "type": "string",
+          "description": "Zones JSON ou chemin DataProvider"
+        },
+        "zone-level": {
+          "type": "number"
+        },
+        "hold-ms": {
+          "type": "number"
+        },
+        "mirror": {
+          "type": "boolean"
+        },
+        "params": {
+          "type": "string",
+          "description": "Réglages en direct {threshold, zoneLevel, active}"
+        },
+        "target": {
+          "type": "string",
+          "description": "Store qui reçoit motion:zone"
+        },
+        "action": {
+          "type": "string"
+        },
+        "out-data-provider": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-color-tracker",
+      "description": "Suit un objet par sa couleur, sans modèle (balle, gant, carton de couleur vive) dans une source d'images (source=\"#cam\") : color #rrggbb, tolerance (OKLab, 0,15), min-area ; control {pick: [x, y], n} prend la couleur sous un point ; état {status, color, present, x, y (centre 0..1), area, box, blobs [5 plus grandes taches]} ; mirror pour la caméra frontale",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "#id d'une source d'images"
+        },
+        "color": {
+          "type": "string"
+        },
+        "tolerance": {
+          "type": "number"
+        },
+        "min-area": {
+          "type": "number"
+        },
+        "resolution": {
+          "type": "number"
+        },
+        "interval": {
+          "type": "number"
+        },
+        "mirror": {
+          "type": "boolean"
+        },
+        "params": {
+          "type": "string",
+          "description": "Réglages en direct {color, tolerance, minArea, active}"
+        },
+        "control": {
+          "type": "string",
+          "description": "Commandes {pick: [x, y], n}"
         },
         "out-data-provider": {
           "type": "string"

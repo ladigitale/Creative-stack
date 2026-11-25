@@ -702,6 +702,177 @@
           "default": 1
         }
       ]
+    },
+    {
+      "id": "transition",
+      "kind": "shader",
+      "file": "transition.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Transition",
+      "description": "Passage d'une image à une autre (canal 0 → canal 1) piloté par l'avancement : fondu, volet, cercle, dissolution, pixels, glissement, zoom, losanges. Diaporamas, changements de scène, révélations.",
+      "tags": [
+        "transition",
+        "diaporama",
+        "image"
+      ],
+      "channels": [
+        "iChannel0 : image de départ",
+        "iChannel1 : image d'arrivée"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Avancement",
+          "min": 0,
+          "max": 1,
+          "default": 0
+        },
+        {
+          "name": "uParam1",
+          "label": "Type (0 fondu, 1 volet, 2 cercle, 3 dissolution, 4 pixels, 5 glissement, 6 zoom, 7 losanges)",
+          "min": 0,
+          "max": 7,
+          "default": 3
+        },
+        {
+          "name": "uParam2",
+          "label": "Douceur du bord",
+          "min": 0,
+          "max": 0.5,
+          "default": 0.1
+        }
+      ]
+    },
+    {
+      "id": "bloom",
+      "kind": "shader",
+      "file": "bloom.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Bloom",
+      "description": "Halo lumineux autour des zones claires de l'image du canal 0 (néons, soleil, étincelles, scène 3D ou 2D).",
+      "tags": [
+        "lumière",
+        "post-traitement",
+        "image"
+      ],
+      "channels": [
+        "iChannel0 : image / scène / caméra"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Seuil",
+          "min": 0,
+          "max": 1,
+          "default": 0.7
+        },
+        {
+          "name": "uParam1",
+          "label": "Intensité",
+          "min": 0,
+          "max": 3,
+          "default": 1
+        },
+        {
+          "name": "uParam2",
+          "label": "Rayon (millièmes)",
+          "min": 4,
+          "max": 120,
+          "default": 30
+        },
+        {
+          "name": "uParam3",
+          "label": "Teinte du halo (0 origine, 1 blanc chaud)",
+          "min": 0,
+          "max": 1,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "id": "degrade",
+      "kind": "shader",
+      "file": "degrade.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Dégradé vivant",
+      "description": "Fond en dégradé « mesh gradient » aux couleurs du thème (attribut colors : 4 jetons, ex. --sc-base-50 --sc-accent --sc-deco-1 --sc-deco-2), taches qui dérivent lentement, grain léger.",
+      "tags": [
+        "fond",
+        "thème",
+        "dégradé"
+      ],
+      "channels": [],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Vitesse",
+          "min": 0,
+          "max": 3,
+          "default": 1
+        },
+        {
+          "name": "uParam1",
+          "label": "Grain",
+          "min": 0,
+          "max": 0.2,
+          "default": 0.04
+        },
+        {
+          "name": "uParam2",
+          "label": "Étalement",
+          "min": 0.2,
+          "max": 1.5,
+          "default": 0.8
+        }
+      ]
+    },
+    {
+      "id": "feu",
+      "kind": "shader",
+      "file": "feu.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Feu",
+      "description": "Flammes qui montent du bas de l'image sur fond noir, de la braise orange à la flamme bleue ; à poser en fusion screen au-dessus d'une scène.",
+      "tags": [
+        "fond",
+        "effet",
+        "génératif"
+      ],
+      "channels": [],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Vitesse",
+          "min": 0,
+          "max": 3,
+          "default": 1
+        },
+        {
+          "name": "uParam1",
+          "label": "Hauteur",
+          "min": 0.2,
+          "max": 1.2,
+          "default": 0.7
+        },
+        {
+          "name": "uParam2",
+          "label": "Couleur (0 braise, 1 bleu)",
+          "min": 0,
+          "max": 1,
+          "default": 0
+        },
+        {
+          "name": "uParam3",
+          "label": "Largeur du foyer",
+          "min": 0.1,
+          "max": 1,
+          "default": 0.6
+        }
+      ]
     }
   ]
 }
