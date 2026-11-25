@@ -1,4 +1,4 @@
-// Pixel art v2 : l'image du canal 0 redessinée en vrais pixels d'une palette limitée.
+// Pixel art v5 : l'image du canal 0 redessinée en vrais pixels d'une palette limitée.
 // Ordre : couleur cible de chaque pixel d'art, puis tout se décide sur les couleurs de la palette.
 // 1. Grille entière ; le plus léger : render-size = résolution d'art + image-rendering: pixelated.
 // 2. Représentant : échantillon le plus proche de la moyenne, mêlé (lissage) à un Kuwahara anisotrope
@@ -16,7 +16,10 @@
 // colors, 8 au plus, sans colors niveaux automatiques ; 1 pico8, 2 gameboy, 3 braise, 4 ocean, 5 terre,
 // 6 pastel, 7 nord, 8 cga, 9 zx, 10 mac) + lissage (décimales, 0 à 0,99) ; uParam2 tramage : 0..1 après le
 // Kuwahara (tramage final seul), 2..3 avant (pré-tramage seul), 4..5 les deux (force = valeur - 0, - 2 ou - 4) ;
-// uParam3 contours.
+// uParam3 contours. Type de trame (centaines de uParam2 par pas de 6 : type × 6 + valeur ci-dessus) : 0 Knoll 2×2
+// (pixel art, 25/50/75 %), 1 Bayer 4×4, 2 Bayer 8×8 (dégradés fins), 3 bruit bleu (grain régulier sans motif),
+// 4 lignes (balayage horizontal), 5 damier (50 % seulement). Hors Knoll, la part de la 2e couleur vient de la
+// projection de la cible sur le segment des deux couleurs de la palette, seuillée par le motif.
 const vec3 PAL[84] = vec3[](vec3(.0000,.0000,.0000),vec3(.1137,.1686,.3255),vec3(.4941,.1451,.3255),vec3(.0000,.5294,.3176),vec3(.6706,.3216,.2118),vec3(.3725,.3412,.3098),vec3(.7608,.7647,.7804),vec3(1.0000,.9451,.9098),vec3(1.0000,.0000,.3020),vec3(1.0000,.6392,.0000),vec3(1.0000,.9255,.1529),vec3(.0000,.8941,.2118),vec3(.1608,.6784,1.0000),vec3(.5137,.4627,.6118),vec3(1.0000,.4667,.6588),vec3(1.0000,.8000,.6667),vec3(.0588,.2196,.0588),vec3(.1882,.3843,.1882),vec3(.5451,.6745,.0588),vec3(.6078,.7373,.0588),vec3(.0706,.0510,.1020),vec3(.2392,.0824,.1882),vec3(.4784,.1216,.1686),vec3(.7608,.2549,.1765),vec3(.9412,.5412,.1412),vec3(1.0000,.8196,.4000),vec3(1.0000,.9529,.8392),vec3(.0118,.0157,.3686),vec3(.0078,.2431,.5412),vec3(.0000,.4667,.7137),vec3(.0000,.5882,.7804),vec3(.2824,.7922,.8941),vec3(.6784,.9098,.9569),vec3(.9451,.9804,.9333),vec3(.1686,.1137,.0784),vec3(.3569,.2275,.1608),vec3(.5490,.3529,.2353),vec3(.7255,.5098,.3098),vec3(.8510,.7059,.5608),vec3(.9373,.8784,.7843),vec3(.4196,.4392,.3608),vec3(.6471,.6471,.5529),vec3(.2392,.2275,.2941),vec3(.4902,.5176,.6980),vec3(.5608,.6510,.7961),vec3(.8588,.9569,.6549),vec3(.8353,.9765,.8706),vec3(.9686,.8392,.8784),vec3(.9490,.7098,.8314),vec3(.9922,.9647,.9255),vec3(.1804,.2039,.2510),vec3(.2314,.2588,.3216),vec3(.2980,.3373,.4157),vec3(.8471,.8706,.9137),vec3(.9255,.9373,.9569),vec3(.5608,.7373,.7333),vec3(.5333,.7529,.8157),vec3(.3686,.5059,.6745),vec3(.7490,.3804,.4157),vec3(.8157,.5294,.4392),vec3(.9216,.7961,.5451),vec3(.6392,.7451,.5490),vec3(.7059,.5569,.6784),vec3(.0000,.0000,.0000),vec3(.3333,1.0000,1.0000),vec3(1.0000,.3333,1.0000),vec3(1.0000,1.0000,1.0000),vec3(.0000,.0000,.0000),vec3(.0000,.0000,.8431),vec3(.8431,.0000,.0000),vec3(.8431,.0000,.8431),vec3(.0000,.8431,.0000),vec3(.0000,.8431,.8431),vec3(.8431,.8431,.0000),vec3(.8431,.8431,.8431),vec3(.0000,.0000,1.0000),vec3(1.0000,.0000,.0000),vec3(1.0000,.0000,1.0000),vec3(.0000,1.0000,.0000),vec3(.0000,1.0000,1.0000),vec3(1.0000,1.0000,.0000),vec3(1.0000,1.0000,1.0000),vec3(.1059,.1059,.1059),vec3(.9490,.9412,.9020));
 const int PAL_OFF[10] = int[](0,16,20,27,34,42,50,63,67,82);
 const int PAL_CNT[10] = int[](16,4,7,7,8,8,13,4,15,2);
@@ -48,6 +51,23 @@ float bayer4(vec2 p){
   float a = mod(p.x, 2.0), b = mod(p.y, 2.0), c = floor(p.x / 2.0), d = floor(p.y / 2.0);
   return (4.0 * (2.0 * mod(a + b, 2.0) + b) + 2.0 * mod(c + d, 2.0) + d + 0.5) / 16.0;
 }
+// Seuils dans [0, 1) : Bayer 8×8 récursif, bruit bleu procédural (bruit blanc passé-haut), lignes, damier.
+float bay2f(vec2 a){ a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
+float bay8(vec2 a){ a = mod(floor(a), 8.0); return (bay2f(0.25 * a) * 0.25 + bay2f(0.5 * a)) * 0.25 + bay2f(a) + 1.0 / 128.0; }
+float h12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float blueN(vec2 p){
+  p = floor(p);
+  float m = (h12(p + vec2(1.0, 0.0)) + h12(p - vec2(1.0, 0.0)) + h12(p + vec2(0.0, 1.0)) + h12(p - vec2(0.0, 1.0))) * 0.25;
+  return clamp((h12(p) - m) * 0.9 + 0.5, 0.0, 0.999);
+}
+int gType;   // type de trame 0..5
+float trame(vec2 cell){
+  if (gType == 2) return bay8(cell);
+  if (gType == 3) return blueN(cell);
+  if (gType == 4){ float r = mod(floor(cell.y), 4.0); return (r < 0.5 ? 0.5 : r < 1.5 ? 2.5 : r < 2.5 ? 1.5 : 3.5) / 4.0; }
+  if (gType == 5) return mod(floor(cell.x) + floor(cell.y), 2.0) * 0.5 + 0.25;
+  return bayer4(cell);
+}
 // Rang 0..3 du motif 2×2 (0 2 / 3 1) : 1, 2 ou 3 cases sur 4 = 25, 50, 75 %.
 int bayer2(vec2 p){
   p = mod(floor(p), 2.0);
@@ -69,7 +89,7 @@ vec3 src(vec2 uv){ return texture(iChannel0, uv).rgb; }
 vec3 tap(vec2 uv){
   vec3 c = src(uv);
   if (gPre <= 0.0) return c;
-  float t = bayer4(floor(uv * iResolution.xy / gCell)) - 0.5;
+  float t = trame(floor(uv * iResolution.xy / gCell)) - 0.5;
   return clamp(floor(c * 5.0 + 0.5 + t * gPre) / 5.0, 0.0, 1.0);
 }
 // Échantillon (sur 3×3) le plus proche de la moyenne de la cellule : net, sans bouillie de bord.
@@ -163,7 +183,9 @@ void mainImage(out vec4 o, in vec2 frag){
   int p = int(clamp(floor(uParam1 + 0.001), 0.0, 10.0));
   gLis = clamp(fract(uParam1 + 0.001) * 1.0101, 0.0, 1.0);
   // Tramage : la partie paire choisit le moment (0 après, 2 avant, 4 les deux), le reste la force.
-  float tm = clamp(uParam2, 0.0, 5.0);
+  float tm0 = clamp(uParam2, 0.0, 35.99);
+  gType = int(clamp(floor(tm0 / 6.0), 0.0, 5.0));
+  float tm = clamp(tm0 - 6.0 * float(gType), 0.0, 5.0);
   int mode = int(floor(tm * 0.5));
   float force = clamp(tm - 2.0 * float(mode), 0.0, 1.0);
   gPre = mode >= 1 ? force : 0.0;
@@ -188,7 +210,7 @@ void mainImage(out vec4 o, in vec2 frag){
   if (gN < 2){
     // Sans palette : niveaux OKLab (luminance 7 crans, chroma 5) tramés.
     vec3 lv = vec3(6.0, 10.0, 10.0);
-    vec3 q = floor(c[0] * lv + vec3(0.0, 5.0, 5.0) + mix(vec3(0.5), vec3(bayer4(cell)), dith));
+    vec3 q = floor(c[0] * lv + vec3(0.0, 5.0, 5.0) + mix(vec3(0.5), vec3(trame(cell)), dith));
     o = vec4(clamp(fromOklab((q - vec3(0.0, 5.0, 5.0)) / lv), 0.0, 1.0), 1.0);
     return;
   }
@@ -253,11 +275,24 @@ void mainImage(out vec4 o, in vec2 frag){
     // (pénalité de Yliluoma, d'autant plus faible que le tramage est fort) : pas de motif pour rien.
     int nq = 0;
     for (int k = 0; k < 4; k++) if (cand[k] == i2 && i2 != i0) nq++;
+    // Autres trames : part de la 2e couleur par projection de la cible sur le segment des deux couleurs.
+    float qp = 0.0;
+    if (gType != 0 && i2 != i0){
+      vec3 ab = gLab[i2] - gLab[i0];
+      qp = clamp(dot(c[0] - gLab[i0], ab) / max(dot(ab, ab), 1e-6), 0.0, 0.5);
+      if (gType == 4) qp = floor(qp * 4.0 + 0.5) / 4.0;
+      if (gType == 5) qp = qp >= 0.25 ? 0.5 : 0.0;
+      nq = qp > 0.0 ? 1 : 0;
+    }
     if (nq > 0){
-      float q = float(nq) / 4.0;
+      float q = gType != 0 ? qp : float(nq) / 4.0;
       vec3 d = gLab[i2] - gLab[i0];
       float pen = 0.08 * pow(40.0, 1.0 - s) * dot(d, d) * q * (1.0 - q);
-      if (perr(c[0], mix(gLab[i0], gLab[i2], q)) + pen >= perr(c[0], gLab[i0])) for (int k = 0; k < 4; k++) cand[k] = i0;
+      if (perr(c[0], mix(gLab[i0], gLab[i2], q)) + pen >= perr(c[0], gLab[i0])){ for (int k = 0; k < 4; k++) cand[k] = i0; qp = 0.0; }
+    }
+    if (gType != 0){
+      o = vec4(clamp(p >= 1 ? PAL[PAL_OFF[p - 1] + (trame(cell) < qp ? i2 : i0)] : uColor(trame(cell) < qp ? i2 : i0).rgb, 0.0, 1.0), 1.0);
+      return;
     }
     for (int a = 0; a < 3; a++){
       for (int b = 0; b < 3; b++){
