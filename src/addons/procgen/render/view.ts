@@ -2711,7 +2711,7 @@ export class ProcgenView {
   /** Visage : humeur (transition douce), bouche selon l'action, regard vers la cible `look`. */
   private updateFace(a: ActorRT, dt: number) {
     if (!a.face.active) return;
-    a.face.step(dt, a.mood, a.action, this.lookAngles(a), a.model.seed);
+    a.face.step(dt, a.mood, a.action === "idle" && a.speed > 2.5 ? "run" : a.action, this.lookAngles(a), a.model.seed);
     a.face.write(a.mats.uniforms);
   }
 

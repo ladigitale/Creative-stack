@@ -34,6 +34,8 @@ export type CharacterInput = {
   blink: number;
   /** Bouche ouverte 0 … 1 (parole, mâche, cri de joie). */
   talk?: number;
+  /** Poses des mains : poids `fist.l`, `open.r`, `point.r`… (voir `rig/face-motion.ts`). */
+  hands?: Record<string, number>;
   /** Point regardé (monde) ou "camera" (regard vers le spectateur) ; absent : les yeux suivent la tête. */
   gaze?: V3 | "camera" | null;
   time: number;
@@ -170,11 +172,51 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   };
 
   const handItemKey = arms[1].key;
+  /** Pose dominante d'une main libre (poids ≥ 0,5). */
+  const handPoseOf = (side: "l" | "r"): "fist" | "open" | "point" | null => {
+    if (side === "r" && item !== "none") return null;
+    let best: "fist" | "open" | "point" | null = null, bw = 0.5;
+    for (const k of ["fist", "open", "point"] as const) {
+      const w = c.hands?.[`${k}.${side}`] ?? 0;
+      if (w >= bw) (best = k), (bw = w);
+    }
+    return best;
+  };
   const armDraw = (a: Limb) => () => {
     const tone = a.far ? -1 : 0;
     if (a.side === "r" && item !== "none") drawItem(a.far);
     const pts = P2s(a.pts);
-    em.add(strokeVar(new Pen(), pts, a.hw), "skin", { tone });
+    const hp = handPoseOf(a.side);
+    const hw = a.hw.slice();
+    const wr2 = pts[2], tip2 = pts[4];
+    const hl = Math.hypot(tip2[0] - wr2[0], tip2[1] - wr2[1]);
+    if (hp) {
+      // poing (et paume des autres poses) : main raccourcie et arrondie
+      pts[4] = lerp2(pts[3], pts[4], hp === "open" ? 0.25 : 0.3);
+      hw[3] *= hp === "fist" ? 1.12 : 1;
+      hw[4] = hw[3] * 0.95;
+    }
+    em.add(strokeVar(new Pen(), pts, hw), "skin", { tone });
+    if (hp && hp !== "fist") {
+      // main vue en raccourci : doigts dans l'axe de l'avant-bras, longueur minimale
+      const el2 = pts[1], fa = Math.hypot(wr2[0] - el2[0], wr2[1] - el2[1]) || 1;
+      const short = hl < a.hw[3] * 1.6;
+      const u: P2 = short ? [(wr2[0] - el2[0]) / fa, (wr2[1] - el2[1]) / fa] : [(tip2[0] - wr2[0]) / hl, (tip2[1] - wr2[1]) / hl];
+      const hl2 = Math.max(hl, a.hw[3] * 2.4);
+      const rot = (v: P2, a2: number): P2 => [v[0] * Math.cos(a2) - v[1] * Math.sin(a2), v[0] * Math.sin(a2) + v[1] * Math.cos(a2)];
+      const fw = a.hw[4] * 0.42;
+      const finger = (from: P2, dir: P2, l: number, w = fw) => em.add(strokeVar(new Pen(), [from, [from[0] + dir[0] * l, from[1] + dir[1] * l]], [w, w * 0.85]), gloves ? "leather" : "skin", { tone });
+      const base = pts[3];
+      const side = a.side === "l" ? 1 : -1;
+      if (hp === "open") {
+        for (let f = 0; f < 4; f++) {
+          const ang = ((f - 1.5) * 16 * Math.PI) / 180;
+          const off: P2 = [base[0] + rot(u, Math.PI / 2)[0] * (f - 1.5) * fw * 1.5, base[1] + rot(u, Math.PI / 2)[1] * (f - 1.5) * fw * 1.5];
+          finger(off, rot(u, ang), hl2 * (f === 1 ? 0.62 : f === 3 ? 0.45 : 0.56));
+        }
+        finger(lerp2(wr2, base, 0.4), rot(u, side * 1.1), hl2 * 0.42, fw * 1.1);
+      } else finger(base, u, hl2 * 0.7, fw * 1.1);
+    }
     const sleeve = top0 === "dress" ? 0.45 : top === "tee" ? 0.5 : top === "long" || top === "sweater" || top === "coat" ? 1.9 : top === "robe" ? 1.95 : 0;
     if (sleeve > 0) {
       // manche : sous-polyligne épaule → coude (→ avant-bras)

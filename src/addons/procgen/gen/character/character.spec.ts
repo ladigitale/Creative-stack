@@ -118,7 +118,7 @@ describe("personnage animal", () => {
 });
 
 describe("personnage : expressions du visage", () => {
-  const { asset } = build({ archetype: "cartoon", mood: "neutral", hat: "none", beard: "none", mustache: "none" }, "expr-test");
+  const { asset } = build({ archetype: "cartoon", mood: "neutral", hat: "none", beard: "none", mustache: "none", item: "none" }, "expr-test");
   const e = asset.expr!;
 
   it("morphs par canal sur une plage du maillage", () => {
@@ -134,7 +134,22 @@ describe("personnage : expressions du visage", () => {
     // humeur de base : aucun décalage ; les autres canaux déforment le visage
     expect(amp("neutral")).toBe(0);
     for (const c of ["happy", "sad", "angry", "surprised", "sleepy", "talk", "gazeX", "gazeY"]) expect(amp(c)).toBeGreaterThan(1e-4);
-    // déformations à l'échelle d'un visage (quelques cm au plus)
-    expect(Math.max(...e.data.map(Math.abs))).toBeLessThan(0.08);
+    // mains libres : poing, main ouverte, index tendu de chaque côté
+    for (const s of ["l", "r"]) for (const m of ["fist", "open", "point"]) expect(amp(`${m}.${s}`)).toBeGreaterThan(1e-3);
+    // déformations à l'échelle d'un visage ou d'une main (quelques cm)
+    expect(e.data.reduce((m, x) => Math.max(m, Math.abs(x)), 0)).toBeLessThan(0.15);
+  });
+});
+
+describe("personnage : main qui tient un objet", () => {
+  it("la prise reste fermée (pas de morph de main droite)", () => {
+    const { asset } = build({ archetype: "stylized", item: "staff", hat: "none" }, "expr-item");
+    const e = asset.expr!;
+    const c = e.channels.indexOf("open.r");
+    const d = e.data.subarray(c * e.count * 3, (c + 1) * e.count * 3);
+    const amax = (a: Float32Array) => a.reduce((m, x) => Math.max(m, Math.abs(x)), 0);
+    expect(amax(d)).toBe(0);
+    const l = e.channels.indexOf("open.l");
+    expect(amax(e.data.subarray(l * e.count * 3, (l + 1) * e.count * 3))).toBeGreaterThan(1e-3);
   });
 });

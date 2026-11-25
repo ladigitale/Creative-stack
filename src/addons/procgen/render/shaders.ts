@@ -14,7 +14,7 @@ export const MEADOW_FLOWERS = 8;
 
 export const MAX_BONES = 32;
 /** Canaux d'expression au plus (par 4) et largeur de la texture des morphs d'expression. */
-export const EXPR_SLOTS = 3;
+export const EXPR_SLOTS = 4;
 export const EXPR_TEX_W = 1024;
 
 const COMMON = /* glsl */ `

@@ -9,7 +9,7 @@ import { GENERATORS } from "../gen/index";
 import { Rng } from "../core/rng";
 import { Issues, resolveParams } from "../core/schema";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
-import { mouthOpen } from "../rig/face-motion";
+import { handPose, mouthOpen } from "../rig/face-motion";
 import { type Motion, motionFor } from "../rig/motion";
 import { type ActorModel, type SceneModel, groundHeight, reachOf } from "../scene/compose";
 import type { ActorPose } from "./scene";
@@ -411,7 +411,7 @@ export class ActorSim {
   }
 
   poses(): ActorPose[] {
-    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, talk: mouthOpen(a.action, this.time + a.model.seed), gaze: this.gazeOf(a), speed: a.speed, hidden: a.hidden, seated: (a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0, colors: a.model.asset.colors as Record<string, string> | undefined }));
+    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, talk: mouthOpen(a.action, this.time + a.model.seed), hands: handPose(a.action === "idle" && a.speed > 2.5 ? "run" : a.action, this.time + a.model.seed), gaze: this.gazeOf(a), speed: a.speed, hidden: a.hidden, seated: (a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0, colors: a.model.asset.colors as Record<string, string> | undefined }));
   }
 
   state(id: string) {
