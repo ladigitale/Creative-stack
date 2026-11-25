@@ -115,7 +115,7 @@ const COLOR_TOKENS = ["skyHorizon", "skyTop", "sunColor", "ambientColor"] as con
 export const ENVIRONMENTS = ["exterieur", "studio", "aucun"] as const;
 
 export const DEFAULT_STYLE: StyleTokens = {
-  palette: "gouache", hue: 0, chroma: 1, contrast: 1, shading: "toon", bands: 3, bandSoftness: 0.08, brush: 0.35, outline: 1.6, outlineStrength: 0.75,
+  palette: "gouache", hue: 0, chroma: 1, contrast: 1, shading: "toon", bands: 3, bandSoftness: 0.08, brush: 0.35, outline: 0, outlineStrength: 0,
   lightAzimuth: 35, lightElevation: 48, lightIntensity: 1, shadows: true, shadowStrength: 0.75, ao: 0.8, texture: 0.6, fog: 0.5, fogHeight: 0.3,
   night: 0, lamps: 0.6, rim: 0.25, grain: 0.15, paper: 0, vignette: 0.25, pixel: 0, saturation: 1, roles: {}, finishes: {}, sky: true, detail: 1,
   post: [], postQuality: "auto", pixelSnap: true,
@@ -124,22 +124,22 @@ export const DEFAULT_STYLE: StyleTokens = {
 
 export const STYLE_PRESETS: Record<string, Partial<StyleTokens>> = {
   gouache: {},
-  doux: { shading: "soft", outline: 1, outlineStrength: 0.4, brush: 0.15, grain: 0.08 },
+  doux: { shading: "soft", brush: 0.15, grain: 0.08 },
   encre: { palette: "papier", shading: "toon", bands: 2, outline: 2.2, outlineStrength: 1, texture: 0.8, paper: 0.6, grain: 0.2, fog: 0.25, chroma: 0.3 },
   bd: { shading: "toon", bands: 2, bandSoftness: 0.02, outline: 2.4, outlineStrength: 1, brush: 0.1, grain: 0.05, chroma: 1.15, texture: 0.3 },
-  pixel: { detail: 0.3, shading: "toon", bands: 3, bandSoftness: 0, outline: 1, outlineStrength: 0.8, pixel: 4, grain: 0, vignette: 0.1, brush: 0, chroma: 1.15 },
+  pixel: { detail: 0.3, shading: "toon", bands: 3, bandSoftness: 0, pixel: 4, grain: 0, vignette: 0.1, brush: 0, chroma: 1.15 },
   lowpoly: { shading: "flat", outline: 0, outlineStrength: 0, texture: 0.2, brush: 0, detail: 0 },
-  brume: { palette: "brume", fog: 1.1, fogHeight: 0.6, shadowStrength: 0.45, outlineStrength: 0.5 },
+  brume: { palette: "brume", fog: 1.1, fogHeight: 0.6, shadowStrength: 0.45 },
   nuit: { palette: "nuit", night: 1, lamps: 1, fog: 0.7, shadowStrength: 0.5, rim: 0.4 },
-  neon: { palette: "neon", night: 1, lamps: 1.4, fog: 0.8, rim: 0.6, outline: 1.4, saturation: 1.2 },
+  neon: { palette: "neon", night: 1, lamps: 1.4, fog: 0.8, rim: 0.6, saturation: 1.2 },
   crepuscule: { palette: "crepuscule", lightElevation: 14, lightAzimuth: 70, fog: 0.8, rim: 0.5 },
   automne: { palette: "automne" },
   printemps: { palette: "printemps", fog: 0.4 },
   desert: { palette: "desert", lightElevation: 62, fog: 0.6, shadowStrength: 0.85 },
   neige: { palette: "neige", fog: 0.7, shadowStrength: 0.5, lightElevation: 30 },
-  papier: { palette: "papier", shading: "toon", bands: 2, paper: 0.9, grain: 0.25, outline: 1.8, outlineStrength: 0.9, chroma: 0.4 },
+  papier: { palette: "papier", shading: "toon", bands: 2, paper: 0.9, grain: 0.25, chroma: 0.4 },
   abysses: { palette: "abysses", fog: 1.4, fogHeight: 0.2, lightElevation: 70, shadowStrength: 0.4, rim: 0.5 },
-  aquarelle: { shading: "soft", outline: 0.8, outlineStrength: 0.35, brush: 0.6, paper: 0.7, grain: 0.1, chroma: 0.8, texture: 0.9 },
+  aquarelle: { shading: "soft", brush: 0.6, paper: 0.7, grain: 0.1, chroma: 0.8, texture: 0.9 },
 };
 
 /**
@@ -178,6 +178,8 @@ function applyTokens(start: StyleTokens, input: unknown, issues: Issues | undefi
     }
   }
   const s: StyleTokens = { ...start, ...base, roles: { ...start.roles, ...(base.roles ?? {}) }, finishes: { ...start.finishes, ...(base.finishes ?? {}) }, post: [...start.post, ...(base.post ?? [])], meteo: [...start.meteo] };
+  // contours : sur demande seulement ; donner l'épaisseur (`outline`) ou l'intensité (`outlineStrength`) suffit
+  const wantsOutline = over.outline !== undefined || over.outlineStrength !== undefined;
   for (const [k, v] of Object.entries(over)) {
     if (k === "ambiance" && !layered) continue;
     if (!(k in DEFAULT_STYLE) && k !== "matieres") {
@@ -235,6 +237,10 @@ function applyTokens(start: StyleTokens, input: unknown, issues: Issues | undefi
   s.bands = Math.max(2, Math.min(4, Math.round(s.bands)));
   s.pixel = Math.max(0, Math.min(12, Math.round(s.pixel)));
   s.ambient = Math.max(0, Math.min(4, s.ambient));
+  if (wantsOutline) {
+    if (s.outline > 0 && !(s.outlineStrength > 0)) s.outlineStrength = 0.75;
+    if (s.outlineStrength > 0 && !(s.outline > 0)) s.outline = 1.6;
+  }
   return s;
 }
 

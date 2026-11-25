@@ -130,9 +130,10 @@ export const AMBIANCES: Record<string, Preset> = {
     ciel: "#7fc8ff",
     brume: 0,
     palette: { sol: "#62c26a", accent: "#ff5a36", maillot: "#ff3d3d", short: "#2f6bff", pierre: "#b8b2a8", bois: "#b0703a", feuillage: "#3fb84a", eau: "#2fb4ff" },
-    style: "bd",
+    // aplats de BD sans contours (sur demande : `contours`)
+    style: { preset: "bd", outline: 0, outlineStrength: 0 },
     lumiere: { intensite: 1.5, hauteur: 60, ambiante: 0.75 },
-    grade: { occlusion: 0.3, saturation: 1.3, contrast: 1.05, outline: 0.9, outlineColor: "#1c1c28", bloom: 0.08 },
+    grade: { occlusion: 0.3, saturation: 1.3, contrast: 1.05, outlineColor: "#1c1c28", bloom: 0.08 },
   },
   jouet: {
     arrondi: 0.035,
@@ -156,7 +157,7 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#1b1a2a", metal: "#3a3d55", accent: "#ff2fb4", eau: "#26e0ff", pierre: "#2c2b3d", blanc: "#d8e6ff" },
     style: { preset: "neon", matieres: { metal: "chrome", cloth1: "laque", leather: "cuir" } },
     lumiere: { intensite: 1.4, couleur: "#ff5fd0", hauteur: 25, azimut: -60, ambiante: 0.55, couleurAmbiante: "#5a4ab0" },
-    grade: { occlusion: 0.4, saturation: 1.25, contrast: 1.15, tint: "#e0d4ff", outline: 0.8, outlineColor: "#36e6ff", bloom: 0.9, bloomThreshold: 0.5, aberration: 0.35, scanlines: 0.2, vignette: 0.4, grain: 0.04 },
+    grade: { occlusion: 0.4, saturation: 1.25, contrast: 1.15, tint: "#e0d4ff", outlineColor: "#36e6ff", bloom: 0.9, bloomThreshold: 0.5, aberration: 0.35, scanlines: 0.2, vignette: 0.4, grain: 0.04 },
   },
   alien: {
     arrondi: 0.02,
@@ -198,7 +199,7 @@ export const AMBIANCES: Record<string, Preset> = {
     palette: { sol: "#6fbf52", accent: "#ffb43a", pierre: "#a8a29a", bois: "#9c6a3c", feuillage: "#4fae3c", eau: "#3aa0ff" },
     style: "pixel",
     lumiere: { intensite: 1.3, hauteur: 65, azimut: 30, ambiante: 0.8 },
-    grade: { occlusion: 0.5, pixel: 4, posterize: 7, saturation: 1.18, outline: 0.35 },
+    grade: { occlusion: 0.5, pixel: 4, posterize: 7, saturation: 1.18 },
   },
   retro: {
     arrondi: 0,
