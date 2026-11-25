@@ -23,7 +23,7 @@ import { sharedUniforms, toGeometry, type Shared } from "./render/materials";
 import { FRAGMENT, MAX_BONES, VERTEX } from "./render/shaders";
 import { FaceState, bindExpr, exprUniforms } from "./render/expr";
 import { ACTIONS, type Action, type MotionState } from "./rig/locomotion";
-import { type Motion, motionFor } from "./rig/motion";
+import { type Motion, PoseBlend, motionFor } from "./rig/motion";
 import { dualQuat } from "./rig/skeleton";
 import { ROLES } from "./style/roles";
 import { resolveColors, resolveStyle, type StyleTokens } from "./style/style";
@@ -363,6 +363,8 @@ export class GenActor {
   private actionWeight = 0;
   private blinkT = 1 + Math.random() * 3;
   private face: FaceState | null = null;
+  private blend = new PoseBlend();
+  private lastDt = 0;
   private wp = new THREE.Vector3();
   private seed: number;
 
@@ -492,13 +494,14 @@ export class GenActor {
       this.face.step(dt, d.mood ?? baseMood(this.asset), this.action, null, this.seed);
       this.face.write(this.mats.uniforms);
     }
+    this.lastDt = dt;
     this.pose(d);
   }
 
   private pose(d: GenDrive | null) {
     const sk = this.asset.skeleton!;
     const st: MotionState = { speed: this.speed, phase: this.phase, time: this.time + this.seed, action: this.action, actionTime: this.actionTime, actionWeight: this.actionWeight, mood: "neutral", turn: 0, seed: this.seed, seatY: 0 };
-    const { pose } = this.mo!.pose(st);
+    const pose = this.blend.apply(this.mo!.pose(st).pose, this.action, this.lastDt);
     if (d) {
       for (const [bone, r] of d.bones) {
         if (!sk.has(bone)) continue;

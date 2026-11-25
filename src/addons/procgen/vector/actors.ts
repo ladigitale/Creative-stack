@@ -10,7 +10,7 @@ import { Rng } from "../core/rng";
 import { Issues, resolveParams } from "../core/schema";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
 import { handPose, mouthOpen } from "../rig/face-motion";
-import { type Motion, motionFor } from "../rig/motion";
+import { type Motion, PoseBlend, motionFor } from "../rig/motion";
 import { type ActorModel, type SceneModel, groundHeight, reachOf } from "../scene/compose";
 import type { ActorPose } from "./scene";
 
@@ -51,6 +51,8 @@ export type ActorRT = {
   blink: number;
   /** Cible du regard (`look` : acteur, objet, "camera"). */
   look: string;
+  /** Fondu entre poses au changement d'état. */
+  blend: PoseBlend;
   turn: number;
   zones: Set<string>;
   hidden: boolean;
@@ -83,7 +85,7 @@ export class ActorSim {
       const params = look ? { ...a.params, ...look } : a.asset.generator === "animal" ? { ...a.params, ...ex } : (resolveParams(GENERATORS.character?.schema ?? {}, a.params, { rng: new Rng(a.id), vars: {} }, issues) as Record<string, unknown>);
       const rt: ActorRT = {
         model: a, params, mo: motionFor(a.asset), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: (a.seed * 0.618) % 1, action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
-        mood: String(a.params.mood ?? params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), blink: 0, look: "", turn: 0, zones: new Set(), hidden: false, lastIntent: "", W: [],
+        mood: String(a.params.mood ?? params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), blink: 0, look: "", blend: new PoseBlend(), turn: 0, zones: new Set(), hidden: false, lastIntent: "", W: [],
         seatY: a.seatY, standAt: a.standAt, reachY: a.reachY,
       };
       this.actors.set(a.id, rt);
@@ -389,14 +391,14 @@ export class ActorSim {
         this.onEvent({ type: "leave", payload: { zone: zn.id, actor: a.model.id } });
       }
     }
-    this.pose(a);
+    this.pose(a, dt);
   }
 
-  pose(a: ActorRT) {
+  pose(a: ActorRT, dt = 0) {
     const sk = a.model.asset.skeleton!;
     const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" ? a.seatY : 0, reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
     const { pose } = a.mo.pose(st);
-    a.W = sk.world(pose);
+    a.W = sk.world(a.blend.apply(pose, `${a.action}|${st.seatY ? 1 : 0}`, dt));
   }
 
   /** Point regardé (monde) ou "camera" ; null : regard libre. */

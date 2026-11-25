@@ -127,3 +127,23 @@ describe("locomotion", () => {
     expect(slide).toBeLessThan(0.012);
   });
 });
+
+describe("fondu entre poses au changement d'action", () => {
+  it("la pose rejoint la nouvelle action sans saut, en ≈ 0,35 s", async () => {
+    const { PoseBlend } = await import("./motion");
+    const qa: [number, number, number, number] = [0, 0, 0, 1];
+    const qb: [number, number, number, number] = [Math.sin(0.5), 0, 0, Math.cos(0.5)]; // 57° autour de x
+    const pa = { rot: { "upperarm.r": qa }, root: [0, 0, 0] as [number, number, number] };
+    const pb = { rot: { "upperarm.r": qb }, root: [0, 0.1, 0] as [number, number, number] };
+    const bl = new PoseBlend(0.35);
+    bl.apply(pa, "idle", 1 / 60);
+    const angle = (q: number[]) => 2 * Math.acos(Math.min(1, Math.abs(q[3])));
+    // premier pas après le changement : presque encore la pose de départ
+    const f1 = bl.apply(pb, "wave", 1 / 60);
+    expect(angle(f1.rot["upperarm.r"])).toBeLessThan(0.05);
+    let last = f1;
+    for (let i = 0; i < 30; i++) last = bl.apply(pb, "wave", 1 / 60);
+    expect(angle(last.rot["upperarm.r"])).toBeCloseTo(1, 3);
+    expect(last.root[1]).toBeCloseTo(0.1, 5);
+  });
+});

@@ -24,7 +24,7 @@ import { FaceState, bindExpr } from "./expr";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
-import { type Motion, motionFor } from "../rig/motion";
+import { type Motion, PoseBlend, motionFor } from "../rig/motion";
 import { dualQuat } from "../rig/skeleton";
 import { type StyleTokens, resolveColors } from "../style/style";
 import { ROLES } from "../style/roles";
@@ -115,6 +115,8 @@ type ActorRT = {
   /** Visage : poids des morphs d'expression ; cible du regard (`look`). */
   face: FaceState;
   look: string;
+  /** Fondu entre poses au changement d'état. */
+  blend: PoseBlend;
   turn: number;
   zones: Set<string>;
   hidden: boolean;
@@ -646,7 +648,7 @@ export class ProcgenView {
     const rt: ActorRT = {
       model: a, mesh, mats, mo: motionFor(a.asset), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: Math.random(), action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
       mood: String(a.params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), turn: 0,
-      face: new FaceState(a.asset, baseMoodOf(a), a.seed), look: "", zones: new Set(), hidden: false, lastIntent: "",
+      face: new FaceState(a.asset, baseMoodOf(a), a.seed), look: "", blend: new PoseBlend(), zones: new Set(), hidden: false, lastIntent: "",
       seatY: a.seatY, standAt: a.standAt, reachY: a.reachY,
     };
     this.actors.set(a.id, rt);
@@ -2756,7 +2758,9 @@ export class ProcgenView {
   private poseActor(a: ActorRT, _dt: number) {
     const sk = a.model.asset.skeleton!;
     const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
-    const { pose } = a.mo.pose(st);
+    const { pose: raw } = a.mo.pose(st);
+    // fondu au changement d'action ou d'assise (pas de saut d'une pose à l'autre)
+    const pose = a.blend.apply(raw, `${a.action}|${st.seatY ? 1 : 0}|${a.ride ? 1 : 0}`, _dt);
     const W = sk.world(pose);
     a.mesh.userData.world = W;
     const S = sk.skinMatrices(W);
