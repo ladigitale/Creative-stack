@@ -153,3 +153,15 @@ describe("personnage : main qui tient un objet", () => {
     expect(amax(e.data.subarray(l * e.count * 3, (l + 1) * e.count * 3))).toBeGreaterThan(1e-3);
   });
 });
+
+describe("personnage : style réaliste", () => {
+  it("7,6 têtes, petits yeux, morphs du visage présents", () => {
+    const { asset, issues } = build({ archetype: "realistic", hat: "none", item: "none", height: 1.75, headSize: 1 }, "real-test");
+    expect(issues.list.filter((i) => i.code !== "info")).toEqual([]);
+    const sk = asset.skeleton!;
+    const head = sk.bone("head")!;
+    const headH = (head.tail[1] - head.head[1]) / 0.88;
+    expect(1.75 / headH).toBeGreaterThan(6.8);
+    expect(asset.expr?.channels).toContain("happy");
+  });
+});

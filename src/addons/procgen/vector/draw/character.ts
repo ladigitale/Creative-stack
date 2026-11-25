@@ -182,9 +182,9 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     }
     return best;
   };
-  const armDraw = (a: Limb) => () => {
+  const armDraw = (a: Limb, only?: Set<number>) => () => {
     const tone = a.far ? -1 : 0;
-    if (a.side === "r" && item !== "none") drawItem(a.far);
+    const holds = a.side === "r" && item !== "none";
     const pts = P2s(a.pts);
     const hp = handPoseOf(a.side);
     const hw = a.hw.slice();
@@ -196,64 +196,85 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       hw[3] *= hp === "fist" ? 1.12 : 1;
       hw[4] = hw[3] * 0.95;
     }
-    em.add(strokeVar(new Pen(), pts, hw), "skin", { tone });
-    if (hp && hp !== "fist") {
-      // main vue en raccourci : doigts dans l'axe de l'avant-bras, longueur minimale
-      const el2 = pts[1], fa = Math.hypot(wr2[0] - el2[0], wr2[1] - el2[1]) || 1;
-      const short = hl < a.hw[3] * 1.6;
-      const u: P2 = short ? [(wr2[0] - el2[0]) / fa, (wr2[1] - el2[1]) / fa] : [(tip2[0] - wr2[0]) / hl, (tip2[1] - wr2[1]) / hl];
-      const hl2 = Math.max(hl, a.hw[3] * 2.4);
-      const rot = (v: P2, a2: number): P2 => [v[0] * Math.cos(a2) - v[1] * Math.sin(a2), v[0] * Math.sin(a2) + v[1] * Math.cos(a2)];
-      const fw = a.hw[4] * 0.42;
-      const finger = (from: P2, dir: P2, l: number, w = fw) => em.add(strokeVar(new Pen(), [from, [from[0] + dir[0] * l, from[1] + dir[1] * l]], [w, w * 0.85]), gloves ? "leather" : "skin", { tone });
-      const base = pts[3];
-      const side = a.side === "l" ? 1 : -1;
-      if (hp === "open") {
-        for (let f = 0; f < 4; f++) {
-          const ang = ((f - 1.5) * 16 * Math.PI) / 180;
-          const off: P2 = [base[0] + rot(u, Math.PI / 2)[0] * (f - 1.5) * fw * 1.5, base[1] + rot(u, Math.PI / 2)[1] * (f - 1.5) * fw * 1.5];
-          finger(off, rot(u, ang), hl2 * (f === 1 ? 0.62 : f === 3 ? 0.45 : 0.56));
-        }
-        finger(lerp2(wr2, base, 0.4), rot(u, side * 1.1), hl2 * 0.42, fw * 1.1);
-      } else finger(base, u, hl2 * 0.7, fw * 1.1);
-    }
     const sleeve = top0 === "dress" ? 0.45 : top === "tee" ? 0.5 : top === "long" || top === "sweater" || top === "coat" ? 1.9 : top === "robe" ? 1.95 : 0;
-    if (sleeve > 0) {
-      // manche : sous-polyligne épaule → coude (→ avant-bras)
-      const sp: P2[] = [pts[0]];
-      const sw: number[] = [a.hw[0] * 1.18];
-      if (sleeve <= 1) {
-        sp.push(lerp2(pts[0], pts[1], sleeve));
-        sw.push(lerpN(a.hw[0], a.hw[1], sleeve) * 1.28);
-      } else {
-        sp.push(pts[1], lerp2(pts[1], pts[2], sleeve - 1));
-        const wide = top === "robe" ? 1.9 : top === "coat" ? 1.35 : top0 === "shirt" ? 1.32 : 1.25;
-        sw.push(a.hw[1] * 1.25, lerpN(a.hw[1], a.hw[2], sleeve - 1) * wide);
+    const wide = top === "robe" ? 1.9 : top === "coat" ? 1.35 : top0 === "shirt" ? 1.32 : 1.25;
+    const cloth = "cloth1";
+    const stripes = (p0: P2, p1: P2, n: number) => {
+      if (pattern !== "stripes") return;
+      const st = new Pen();
+      const dx = p1[0] - p0[0], dy = p1[1] - p0[1], l = Math.hypot(dx, dy) || 1, w = a.hw[1] * 1.2;
+      for (let k = 1; k <= n; k++) {
+        const q = lerp2(p0, p1, k / (n + 1));
+        st.M(q[0] - (dy / l) * w, q[1] + (dx / l) * w).L(q[0] + (dy / l) * w, q[1] - (dx / l) * w);
       }
-      const cloth = "cloth1";
-      em.add(strokeVar(new Pen(), sp, sw, { capEnd: top === "tee" || top0 === "dress" }), cloth, { tone });
-      if (pattern === "stripes" && sleeve > 1) {
-        const st = new Pen();
-        for (let k = 1; k < 6; k++) {
-          const q = k < 3 ? lerp2(sp[0], sp[1], k / 3) : lerp2(sp[1], sp[2], (k - 3) / 3);
-          const dx = sp[2][0] - sp[0][0], dy = sp[2][1] - sp[0][1], l = Math.hypot(dx, dy) || 1, w = a.hw[1] * 1.2;
-          st.M(q[0] - (dy / l) * w, q[1] + (dx / l) * w).L(q[0] + (dy / l) * w, q[1] - (dx / l) * w);
+      em.line(st, "cloth3", 1.2, { tone });
+    };
+    /* Trois morceaux (bras, avant-bras, main), chacun avec ses vêtements, peints du plus loin au plus proche : une main
+       ramenée devant le bras (boire, réfléchir, saluer) passe devant la manche au lieu de disparaître dessous. */
+    const upper = () => {
+      em.add(strokeVar(new Pen(), [pts[0], pts[1]], [hw[0], hw[1]]), "skin", { tone });
+      if (sleeve > 0) {
+        const e = sleeve <= 1 ? lerp2(pts[0], pts[1], sleeve) : pts[1];
+        const we = sleeve <= 1 ? lerpN(a.hw[0], a.hw[1], sleeve) * 1.28 : a.hw[1] * 1.25;
+        em.add(strokeVar(new Pen(), [pts[0], e], [a.hw[0] * 1.18, we], { capEnd: sleeve > 1 || top === "tee" || top0 === "dress" }), cloth, { tone });
+        if (sleeve > 1) stripes(pts[0], pts[1], 2);
+      }
+      if (over === "jacket") em.add(strokeVar(new Pen(), [pts[0], pts[1]], [a.hw[0] * 1.3, a.hw[1] * 1.32]), "cloth3", { tone });
+      if (over === "armor") em.add(strokeVar(new Pen(), [pts[0], lerp2(pts[0], pts[1], 0.45)], [a.hw[0] * 1.55, a.hw[0] * 1.3]), "metal", { tone });
+    };
+    const fore = () => {
+      em.add(strokeVar(new Pen(), [pts[1], pts[2]], [hw[1], hw[2]]), "skin", { tone });
+      if (sleeve > 1) {
+        const e = lerp2(pts[1], pts[2], sleeve - 1);
+        const we = lerpN(a.hw[1], a.hw[2], sleeve - 1) * wide;
+        em.add(strokeVar(new Pen(), [pts[1], e], [a.hw[1] * 1.25, we], { capEnd: false }), cloth, { tone });
+        stripes(pts[1], e, 2);
+        if (top === "sweater" || top === "coat") {
+          const e2 = lerp2(pts[1], e, 0.85);
+          em.add(strokeVar(new Pen(), [e2, e], [we, we], { capStart: false, capEnd: false }), top === "coat" ? "cloth3" : cloth, { tone: tone - 1, stroke: null });
         }
-        em.line(st, "cloth3", 1.2, { tone });
       }
-      if (top === "sweater" || top === "coat") {
-        const e = sp[sp.length - 1], e2 = lerp2(sp[sp.length - 2], e, 0.85);
-        em.add(strokeVar(new Pen(), [e2, e], [sw[sw.length - 1], sw[sw.length - 1]], { capStart: false, capEnd: false }), top === "coat" ? "cloth3" : cloth, { tone: tone - 1, stroke: null });
+      if (over === "jacket") em.add(strokeVar(new Pen(), [pts[1], lerp2(pts[1], pts[2], 0.88)], [a.hw[1] * 1.32, lerpN(a.hw[1], a.hw[2], 0.88) * 1.4]), "cloth3", { tone });
+      if (over === "armor") em.add(strokeVar(new Pen(), [lerp2(pts[1], pts[2], 0.25), lerp2(pts[1], pts[2], 0.85)], [a.hw[1] * 1.3, a.hw[2] * 1.35], { capStart: false, capEnd: false }), "metal", { tone: tone - 1 });
+    };
+    const hand = () => {
+      // objet tenu : derrière la main qui le serre, devant le reste du bras quand la main est devant
+      if (holds) drawItem(a.far);
+      em.add(strokeVar(new Pen(), [pts[2], pts[3], pts[4]], [hw[2], hw[3], hw[4]]), "skin", { tone });
+      if (hp && hp !== "fist") {
+        // main vue en raccourci : doigts dans l'axe de l'avant-bras, longueur minimale
+        const el2 = pts[1], fa = Math.hypot(wr2[0] - el2[0], wr2[1] - el2[1]) || 1;
+        const short = hl < a.hw[3] * 1.6;
+        const u: P2 = short ? [(wr2[0] - el2[0]) / fa, (wr2[1] - el2[1]) / fa] : [(tip2[0] - wr2[0]) / hl, (tip2[1] - wr2[1]) / hl];
+        const hl2 = Math.max(hl, a.hw[3] * 2.4);
+        const rot = (v: P2, a2: number): P2 => [v[0] * Math.cos(a2) - v[1] * Math.sin(a2), v[0] * Math.sin(a2) + v[1] * Math.cos(a2)];
+        const fw = a.hw[4] * 0.42;
+        const finger = (from: P2, dir: P2, l: number, w = fw) => em.add(strokeVar(new Pen(), [from, [from[0] + dir[0] * l, from[1] + dir[1] * l]], [w, w * 0.85]), gloves ? "leather" : "skin", { tone });
+        const base = pts[3];
+        const side = a.side === "l" ? 1 : -1;
+        if (hp === "open") {
+          for (let f = 0; f < 4; f++) {
+            const ang = ((f - 1.5) * 16 * Math.PI) / 180;
+            const off: P2 = [base[0] + rot(u, Math.PI / 2)[0] * (f - 1.5) * fw * 1.5, base[1] + rot(u, Math.PI / 2)[1] * (f - 1.5) * fw * 1.5];
+            finger(off, rot(u, ang), hl2 * (f === 1 ? 0.62 : f === 3 ? 0.45 : 0.56));
+          }
+          finger(lerp2(wr2, base, 0.4), rot(u, side * 1.1), hl2 * 0.42, fw * 1.1);
+        } else finger(base, u, hl2 * 0.7, fw * 1.1);
       }
-    }
-    // veste, armure : manche ou spalière par-dessus
-    if (over === "jacket") em.add(strokeVar(new Pen(), [pts[0], pts[1], lerp2(pts[1], pts[2], 0.88)], [a.hw[0] * 1.3, a.hw[1] * 1.32, lerpN(a.hw[1], a.hw[2], 0.88) * 1.4]), "cloth3", { tone });
-    if (over === "armor") {
-      em.add(strokeVar(new Pen(), [pts[0], lerp2(pts[0], pts[1], 0.45)], [a.hw[0] * 1.55, a.hw[0] * 1.3]), "metal", { tone });
-      em.add(strokeVar(new Pen(), [lerp2(pts[1], pts[2], 0.25), lerp2(pts[1], pts[2], 0.85)], [a.hw[1] * 1.3, a.hw[2] * 1.35], { capStart: false, capEnd: false }), "metal", { tone: tone - 1 });
-    }
-    if (gloves) em.add(strokeVar(new Pen(), [lerp2(pts[1], pts[2], 0.8), pts[2], pts[3], pts[4]], [a.hw[2] * 1.15, a.hw[2] * 1.1, a.hw[3] * 1.05, a.hw[4]]), "leather", { tone });
+      if (gloves) em.add(strokeVar(new Pen(), [lerp2(pts[1], pts[2], 0.8), pts[2], pts[3], pts[4]], [a.hw[2] * 1.15, a.hw[2] * 1.1, a.hw[3] * 1.05, hw[4]]), "leather", { tone });
+    };
+    // profondeur de chaque morceau (plus grand = plus près) ; à égalité, l'ordre naturel bras → avant-bras → main
+    const mid = (i: number, j: number) => depth(lerp3(a.pts[i], a.pts[j], 0.5));
+    const bias = headW * 0.12;
+    const segs = [
+      { i: 0, d: mid(0, 1), f: upper },
+      { i: 1, d: mid(1, 2) + bias, f: fore },
+      { i: 2, d: mid(2, 4) + bias * 2, f: hand },
+    ];
+    segs.sort((x, y) => x.d - y.d);
+    for (const sg of segs) if (!only || only.has(sg.i)) sg.f();
   };
+
 
   /* ---------------- torse ---------------- */
   const shC = lerp3(J("upperarm.l"), J("upperarm.r"), 0.5);
@@ -410,7 +431,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   const nrm = (lon: number, lat: number): V3 => norm(add(add(scale(hLft, Math.sin(lon) * Math.cos(lat)), scale(hUp, Math.sin(lat))), scale(hFwd, Math.cos(lon) * Math.cos(lat))));
   const vis = (lon: number, lat: number) => dot(nrm(lon, lat), vdir);
   const faceVis = dot(hFwd, vdir);
-  const eyeR = headW * (archName === "chibi" ? 0.13 : archName === "cartoon" ? 0.105 : archName === "stylized" ? 0.08 : 0.068);
+  const eyeR = headW * (archName === "chibi" ? 0.13 : archName === "cartoon" ? 0.105 : archName === "stylized" ? 0.08 : archName === "realistic" ? 0.06 : 0.068);
 
   /** Repère unitaire de la tête : u = (gauche, haut, avant) sur la sphère unité ↔ point de l'ellipsoïde gonflé `k`. */
   const U = (u: V3, k: number, c0 = hc): V3 => add(c0, add(add(scale(hLft, u[0] * rx * k), scale(hUp, u[1] * ry * k)), scale(hFwd, u[2] * rz * k)));
@@ -1501,6 +1522,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
 
   /* ---------------- assemblage ---------------- */
   const chestKey = depth(chestC);
+  const headKey = chestKey + 0.5;
   const legKeys = legs.map((l) => l.key);
   const minLeg = Math.min(...legKeys);
   legs.slice().sort((a, b) => a.key - b.key).forEach((l, i) => parts.push({ key: minLeg - 1 + i * 1e-3, draw: legDraw(l) }));
@@ -1508,14 +1530,35 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   // queue : derrière le corps quand elle s'éloigne de l'observateur, devant sinon (personnage vu de dos)
   if (animal) parts.push({ key: depth(madd(pelvisH, fwd, -H * 0.2)) < depth(pelvisH) ? minLeg - 2 : chestKey + 0.08, draw: tailDraw });
   parts.push({ key: chestKey, draw: () => { torsoDraw(); outfitExtras(); bagFront(); } });
-  for (const a of arms) parts.push({ key: a.far ? chestKey - 0.2 - (a.side === "r" ? 0 : 1e-3) : chestKey + 0.1 + (a.key - chestKey) * 0.01, draw: armDraw(a) });
+  // bras : chaque morceau (0 bras, 1 avant-bras, 2 main) se range derrière le buste, devant lui, ou devant le visage
+  // selon sa profondeur réelle (bras lointain ramené devant soi, main portée à la bouche ou au menton)
+  const faceFront = depth(hc) + rz * 0.55;
+  const chestFront = chestKey + shoulderHalf * 0.35;
+  for (const a of arms) {
+    const base = a.far ? chestKey - 0.2 - (a.side === "r" ? 0 : 1e-3) : chestKey + 0.1 + (a.key - chestKey) * 0.01;
+    const segD = [depth(lerp3(a.pts[0], a.pts[1], 0.5)), depth(lerp3(a.pts[1], a.pts[2], 0.5)), depth(lerp3(a.pts[2], a.pts[4], 0.5))];
+    const keyOf = (i: number) => {
+      // près de la tête (à l'écran) et devant le visage : après la tête
+      const sp = S(i === 2 ? a.pts[3] : lerp3(a.pts[i], a.pts[i + 1], 0.5)), hs = S(hc);
+      const nearHead = Math.hypot(sp[0] - hs[0], sp[1] - hs[1]) < headW * 1.1;
+      if (i > 0 && nearHead && segD[i] > faceFront) return headKey + 0.2 + i * 1e-3;
+      if (a.far && i > 0 && segD[i] > chestFront) return chestKey + 0.1 + i * 1e-3;
+      return base;
+    };
+    const groups = new Map<number, Set<number>>();
+    for (let i = 0; i < 3; i++) {
+      const k = keyOf(i);
+      if (!groups.has(k)) groups.set(k, new Set());
+      groups.get(k)!.add(i);
+    }
+    for (const [k, set] of groups) parts.push({ key: k, draw: armDraw(a, groups.size > 1 ? set : undefined) });
+  }
   const bp = bagPart();
   if (bp) parts.push({ key: bp.key < chestKey ? Math.min(bp.key, minLeg - 2) : chestKey + 0.05, draw: bp.draw });
   if (capeP === "short" || capeP === "long") {
     const cp = capePart(capeP === "long");
     parts.push({ key: cp.key < chestKey ? Math.min(cp.key, minLeg - 2) - 0.5 : chestKey + 0.06, draw: cp.draw });
   }
-  const headKey = chestKey + 0.5;
   const hb = hairBack();
   if (hair0 === "pigtails" || hair0 === "braids") {
     for (const sd of [-1, 1]) {
