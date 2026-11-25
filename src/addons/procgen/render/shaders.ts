@@ -278,27 +278,33 @@ float shadowAt(vec4 sc, float ndl) {
 /** Variation de valeur procédurale selon le rôle (veinage du bois, taches de pierre, macro-variation du sol). */
 float roleTexture(int role, vec3 p, vec3 n) {
   vec3 an = abs(n);
-  if (role == 8 || role == 9) { // bois, écorce : fibres étirées
-    float f = fbm3(vec3(p.x * 9.0, p.y * 1.4, p.z * 9.0)) + fbm3(vec3(p.x * 1.4, p.y * 9.0, p.z * 1.4)) * an.y;
-    return (f - 0.5) * 0.28;
+  if (role == 8 || role == 9) { // bois, écorce : fibres étirées et serrées, nœuds plus rares
+    float f = fbm3(vec3(p.x * 16.0, p.y * 2.2, p.z * 16.0)) + fbm3(vec3(p.x * 2.2, p.y * 16.0, p.z * 2.2)) * an.y;
+    return (f - 0.5) * 0.26 + (vnoise(vec3(p.x * 46.0, p.y * 5.0, p.z * 46.0)) - 0.5) * 0.06;
   }
-  if (role == 4 || role == 5 || role == 6) { // pierre, enduit
-    float f = fbm3(p * 3.2) * 0.7 + vnoise(p * 17.0) * 0.3;
+  if (role == 4 || role == 5 || role == 6) { // pierre, enduit : taches larges douces, grain fin
+    float f = fbm3(p * 3.2) * 0.55 + vnoise(p * 24.0) * 0.3 + vnoise(p * 60.0) * 0.15;
     return (f - 0.5) * (role == 4 ? 0.3 : 0.14);
   }
   if (role == 7) { // toitures : rangs de tuiles
     float rows = abs(fract(p.y * 7.0 + vnoise(p * 2.0) * 0.4) - 0.5);
-    return (smoothstep(0.0, 0.18, rows) - 0.7) * 0.16 + (vnoise(p * 6.0) - 0.5) * 0.12;
+    return (smoothstep(0.0, 0.18, rows) - 0.7) * 0.16 + (vnoise(p * 14.0) - 0.5) * 0.1;
   }
-  if (role <= 3) { // sol, herbe, chemin, chaussée
-    float macro = fbm3(vec3(p.x, 0.0, p.z) * 0.35);
-    float speck = vnoise(vec3(p.x, 0.0, p.z) * 9.0);
-    return (macro - 0.5) * 0.32 + (speck - 0.5) * 0.1;
+  if (role <= 3) { // sol, herbe, chemin, chaussée : grandes plages + moucheture fine
+    vec3 g = vec3(p.x, 0.0, p.z);
+    float macro = fbm3(g * 0.35);
+    float speck = vnoise(g * 18.0) * 0.6 + vnoise(g * 46.0) * 0.4;
+    return (macro - 0.5) * 0.3 + (speck - 0.5) * 0.1;
   }
-  if (role == 10 || role == 11) return (fbm3(p * 4.5) - 0.5) * 0.3;
-  if (role >= 17 && role <= 20) return (vnoise(p * 40.0) - 0.5) * 0.06;
-  if (role >= 32) return (vnoise(p * 28.0) - 0.5) * 0.03; // couleurs franches : plastique, caoutchouc, cuir peint
-  return (vnoise(p * 8.0) - 0.5) * 0.06;
+  if (role == 10 || role == 11) return (fbm3(p * 7.5) - 0.5) * 0.26 + (vnoise(p * 30.0) - 0.5) * 0.06;
+  if (role >= 17 && role <= 19) { // tissus : trame fine (fils croisés), à peine de marbrure
+    float weave = (sin(p.x * 420.0 + p.z * 37.0) * sin(p.y * 420.0 + p.x * 29.0)) * 0.5 + 0.5;
+    return (weave - 0.5) * 0.035 + (vnoise(p * 55.0) - 0.5) * 0.04 + (vnoise(p * 9.0) - 0.5) * 0.02;
+  }
+  if (role == 20) return (vnoise(p * 70.0) - 0.5) * 0.05 + (vnoise(p * 12.0) - 0.5) * 0.03; // cuir : grain serré
+  if (role == 21) return (vnoise(p * 90.0) - 0.5) * 0.02; // peau : grain très fin, pas de marbrure
+  if (role >= 32) return (vnoise(p * 40.0) - 0.5) * 0.03; // couleurs franches : plastique, caoutchouc, cuir peint
+  return (vnoise(p * 28.0) - 0.5) * 0.05;
 }
 
 void main() {
@@ -434,7 +440,8 @@ void main() {
   float ndl = dot(N, uSunDir);
   float sh = shadowAt(vShadow, ndl);
   float light;
-  float brush = (fbm3(vPosW * 6.0) - 0.5) * uBrush;
+  // touche de pinceau : plus fine (16 et 44 cycles/m) ; plus de taches de 15 cm qui déchirent les bandes d'ombre
+  float brush = ((fbm3(vPosW * 16.0) - 0.5) * 0.75 + (vnoise(vPosW * 44.0) - 0.5) * 0.25) * uBrush;
   if (uShading < 0.5) light = clamp(ndl * 0.5 + 0.5, 0.0, 1.0) * 0.6 + 0.4;        // flat : lumière douce, sans bandes
   else if (uShading < 1.5) {                                                       // toon : bandes à seuil perturbé
     float x = clamp((ndl + brush * (role == 21 ? 0.4 : 1.0)) * 0.5 + 0.5, 0.0, 1.0);
