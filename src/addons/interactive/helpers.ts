@@ -4,6 +4,7 @@
  */
 import type { Expression } from "jsonata";
 import { mondeParams, mondePlace, mondeRemove } from "../../shared/monde/edit";
+import { registerAlgoHelpers } from "../../shared/algo/jsonata";
 
 /** mulberry32 → { value: 0..1, seed } */
 export function rand(seed: unknown): { value: number; seed: number } {
@@ -95,6 +96,8 @@ export function registerInteractiveHelpers(expression: Expression): void {
   expression.registerFunction("set", immutableSet);
   expression.registerFunction("matrix", matrix);
   expression.registerFunction("rotate", rotate);
+  // algorithmes de jeu (grilles, chemins, génération, hasard à graine, interpolation…) : algo.md
+  registerAlgoHelpers(expression);
   // édition d'un monde (format monde de sonic-3d / sonic-2d)
   expression.registerFunction("mondePlace", mondePlace);
   expression.registerFunction("mondeRemove", mondeRemove);

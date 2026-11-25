@@ -11,6 +11,7 @@
 import type { Expression } from "jsonata";
 import { toMediaUrl } from "./mediaRef";
 import { cosine, rankBySimilarity } from "./similarity";
+import { registerAlgoHelpers } from "./algo/jsonata";
 
 export function registerCreativeJsonataHelpers(expression: Expression): Expression {
   expression.registerFunction("cosine", (a: unknown, b: unknown) => cosine(a, b));
@@ -26,5 +27,7 @@ export function registerCreativeJsonataHelpers(expression: Expression): Expressi
       ),
   );
   expression.registerFunction("mediaUrl", (value: unknown) => toMediaUrl(value));
+  // algorithmes de jeu ($gridPath, $genMaze, $roll…) : src/addons/interactive/algo.md
+  registerAlgoHelpers(expression);
   return expression;
 }

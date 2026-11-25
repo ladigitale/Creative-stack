@@ -1,3 +1,5 @@
+import { astarCells } from "../../../shared/algo/path";
+
 /**
  * Grille de navigation (cellules de 0,5 m) issue des emprises, de l'eau et des pentes, et recherche de chemin A*
  * (8 voisins, heuristique octile) avec lissage par visibilité.
@@ -148,76 +150,15 @@ export class NavGrid {
     const g = this.nearestFree(to[0], to[1]);
     if (!s || !g) return null;
     const W = this.nx;
-    const key = (i: number, j: number) => j * W + i;
-    const gScore = new Float32Array(this.nx * this.nz).fill(Infinity);
-    const came = new Int32Array(this.nx * this.nz).fill(-1);
-    const closed = new Uint8Array(this.nx * this.nz);
-    const heap: [number, number][] = [];
-    const push = (k: number, f: number) => {
-      heap.push([f, k]);
-      let i = heap.length - 1;
-      while (i > 0) {
-        const p = (i - 1) >> 1;
-        if (heap[p][0] <= heap[i][0]) break;
-        [heap[p], heap[i]] = [heap[i], heap[p]];
-        i = p;
-      }
-    };
-    const pop = () => {
-      const top = heap[0];
-      const last = heap.pop()!;
-      if (heap.length) {
-        heap[0] = last;
-        let i = 0;
-        for (;;) {
-          const l = 2 * i + 1, r = l + 1;
-          let m = i;
-          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
-          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
-          if (m === i) break;
-          [heap[m], heap[i]] = [heap[i], heap[m]];
-          i = m;
-        }
-      }
-      return top;
-    };
-    const h = (i: number, j: number) => {
-      const dx = Math.abs(i - g[0]), dz = Math.abs(j - g[1]);
-      return dx + dz + (Math.SQRT2 - 2) * Math.min(dx, dz);
-    };
-    const sk = key(s[0], s[1]);
-    gScore[sk] = 0;
-    push(sk, h(s[0], s[1]));
-    let found = false;
-    let n = 0;
-    while (heap.length && n++ < maxNodes) {
-      const [, k] = pop();
-      if (closed[k]) continue;
-      closed[k] = 1;
-      const i = k % W, j = (k / W) | 0;
-      if (i === g[0] && j === g[1]) {
-        found = true;
-        break;
-      }
-      for (let dj = -1; dj <= 1; dj++)
-        for (let di = -1; di <= 1; di++) {
-          if (!di && !dj) continue;
-          const ni = i + di, nj = j + dj;
-          if (this.isBlocked(ni, nj)) continue;
-          if (di && dj && (this.isBlocked(i + di, j) || this.isBlocked(i, j + dj))) continue;
-          const nk = key(ni, nj);
-          const c = gScore[k] + (di && dj ? Math.SQRT2 : 1);
-          if (c < gScore[nk]) {
-            gScore[nk] = c;
-            came[nk] = k;
-            push(nk, c + h(ni, nj));
-          }
-        }
-    }
-    if (!found) return null;
-    const cells: [number, number][] = [];
-    for (let k = key(g[0], g[1]); k >= 0; k = came[k]) cells.push([k % W, (k / W) | 0]);
-    cells.reverse();
+    // A* commun (src/shared/algo) : 8 voisins, pas de coin coupé, coût 1 par case
+    const r = astarCells(
+      { w: W, h: this.nz, cost: (k) => (this.isBlocked(k % W, (k / W) | 0) ? Infinity : 1), diag: true, cut: false, minCost: 1 },
+      [s[1] * W + s[0]],
+      [g[1] * W + g[0]],
+      maxNodes,
+    );
+    if (!r.found) return null;
+    const cells: [number, number][] = r.cells.map((k) => [k % W, (k / W) | 0]);
     // lissage : on garde un point dès que la ligne de vue est rompue
     const out: [number, number][] = [this.center(cells[0][0], cells[0][1])];
     let anchor = cells[0];
