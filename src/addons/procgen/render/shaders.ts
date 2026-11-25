@@ -612,13 +612,13 @@ void main() {
     }
     c.rgb = mix(c.rgb, p, uPhotoMix);
   }
-  vec3 col;
-  if (bg) {
-    float t = clamp((vUv.y - uHorizonY) / max(1.0 - uHorizonY, 0.1), 0.0, 1.0);
-    col = uSkyOn > 0.5 ? mix(uSkyHorizon, uSkyTop, pow(t, 0.7)) : uSkyHorizon;
-    // particules devant le ciel (couleur prémultipliée ; rien d'autre n'écrit la couleur sans la profondeur)
-    col = col * (1.0 - clamp(c.a, 0.0, 1.0)) + c.rgb;
-  } else col = c.rgb;
+  // Le ciel est peint ici, sous la scène : la cible est effacée en noir transparent et un objet écrit alpha = 1.
+  // Couleur prémultipliée par la couverture : particules devant le ciel, et bords de silhouette en anticrénelage
+  // (MSAA : un pixel à moitié couvert vaut la moitié de sa couleur, alpha 0,5). Sans ce mélange, ces bords
+  // prenaient du noir (liseré sombre autour des arbres, des brins et du bout du terrain contre le ciel).
+  float t = clamp((vUv.y - uHorizonY) / max(1.0 - uHorizonY, 0.1), 0.0, 1.0);
+  vec3 sky = uSkyOn > 0.5 ? mix(uSkyHorizon, uSkyTop, pow(t, 0.7)) : uSkyHorizon;
+  vec3 col = sky * (1.0 - clamp(c.a, 0.0, 1.0)) + c.rgb;
   // contours : silhouette (profondeur, identifiant) plus épaisse que les plis (normales)
   if (uOutlineStrength > 0.0 && uOutline > 0.0) {
     float edgeS = 0.0, edgeC = 0.0;
