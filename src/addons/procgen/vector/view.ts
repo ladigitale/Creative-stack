@@ -437,9 +437,13 @@ export class VectorView {
 
   /* ---------------- rendu ---------------- */
 
+  /** Images dessinées (contrat de source d'images, voir `SonicProcgen.frameSeq`). */
+  frameSeq = 0;
+
   render() {
     const ctx = this.ctx;
     if (!this.scene || !ctx) return;
+    this.frameSeq++;
     this.applySize();
     this.layout();
     const t0 = now();

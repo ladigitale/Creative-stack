@@ -76,6 +76,10 @@
         "keep-heading": {
           "type": "boolean",
           "description": "Cap gardé pendant le glisser (procgen ne tourne jamais un objet tout seul ; R, Q / E ou molette le tournent)"
+        },
+        "frame-source": {
+          "type": "boolean",
+          "description": "Source d'images pour une autre toile (channel0: \"#id\" d'un sonic-shader, sonic-media-recorder) : l'image est gardée après présentation (rendu 3D ; lu à la création de la vue)"
         }
       }
     }

@@ -174,6 +174,18 @@ export class SonicProcgen extends HTMLElement {
     this.root.append(style, this.stage);
   }
 
+  /**
+   * Source d'images (`channel0: "#id"` d'un `sonic-shader`, `sonic-media-recorder`…) : compteur d'images présentées et
+   * toile de la vue. En 3D, l'attribut `frame-source` (lu à la création de la vue) garde l'image après présentation :
+   * sans lui, une toile qui la relit hors de l'image en cours peut la trouver vide.
+   */
+  get frameSeq(): number {
+    return (this.view as { frameSeq?: number } | null)?.frameSeq ?? 0;
+  }
+  getFrameCanvas(): HTMLCanvasElement | null {
+    return this.view ? this.canvas : null;
+  }
+
   get dataProvider(): string {
     return this.getAttribute("dataProvider") ?? this.getAttribute("dataprovider") ?? "";
   }
@@ -275,7 +287,7 @@ export class SonicProcgen extends HTMLElement {
       if (mode === "vector") this.view = new VectorView(canvas);
       else if (liveViews >= MAX_VIEWS) this.glError = `au plus ${MAX_VIEWS} scènes procgen 3D par document`;
       else {
-        this.view = new ProcgenView(canvas);
+        this.view = new ProcgenView(canvas, { preserve: this.hasAttribute("frame-source") });
         liveViews++;
       }
     } catch (e) {

@@ -8,6 +8,13 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 { "tagName": "sonic-procgen", "attributes": { "dataProvider": "monde", "scene": "village", "style": "height:420px" } }
 ```
 
+**Source d'images** : avec l'attribut `frame-source`, la scène sert de `channel0: "#id"` à un `sonic-shader` (filtre pixel art, post-traitement maison) ou à `sonic-media-recorder`. En 3D, l'image est alors gardée après présentation (léger coût, d'où l'attribut, lu à la création de la vue) ; sans lui, une toile qui la relit peut la trouver vide.
+
+```json
+{ "tagName": "sonic-procgen", "attributes": { "id": "scene", "frame-source": true, "dataProvider": "monde", "style": "position:absolute;inset:0" } },
+{ "tagName": "sonic-shader", "attributes": { "channel0": "#scene", "image": "<pixel-art.glsl>", "render-size": "320x180", "style": "image-rendering:pixelated" } }
+```
+
 ## Clés lues dans `dataProvider`
 
 | Clé | Rôle |

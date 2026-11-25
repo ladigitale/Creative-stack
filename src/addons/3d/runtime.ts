@@ -77,6 +77,8 @@ export class SceneRuntime {
   private prevEmissiveIntensity = 0;
   private postFx: PostFxPipeline;
   private lastCssW = 1;
+  /** Rapport et position de la caméra au dernier cadrage automatique (null : jamais cadré). */
+  private fitPose: { aspect: number; pos: THREE.Vector3 } | null = null;
   private lastCssH = 1;
   private damping = 0.08;
   private postFrame: PostFxUniforms = {
@@ -291,6 +293,11 @@ export class SceneRuntime {
     this.lastCssW = cssW;
     this.lastCssH = cssH;
     view.resize(this.asViewCtx(), cssW, cssH);
+    // Cadré automatiquement (souvent avant la première mise en page, en 1:1) et caméra pas encore bougée :
+    // on recadre si le passage en portrait (ou son inverse) change le champ qui décide.
+    const p = this.fitPose;
+    if (p && !this.isEye && this.fitEnabled && this.activeCam.position.distanceToSquared(p.pos) < 1e-10 &&
+      Math.abs(Math.min(1, this.perspCam.aspect) - Math.min(1, p.aspect)) > 1e-3) this.fitToContent();
     const dpr = Math.min(
       typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
       this.dprMax,
@@ -397,6 +404,7 @@ export class SceneRuntime {
       return;
     }
     ops.fitToContent(this.asOpsCtx());
+    this.fitPose = { aspect: this.perspCam.aspect, pos: this.activeCam.position.clone() };
   }
 
   setPostConfig(config: PostFxConfig | null) {
