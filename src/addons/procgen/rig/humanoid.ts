@@ -12,11 +12,11 @@ export const ARCHETYPES = {
   // shoulder : demi-largeur entre les articulations (le deltoïde et la manche s'y ajoutent) ; headW : largeur / hauteur
   // de la tête (têtes plus rondes qu'un œuf) ; hand : facteur sur une main réelle (≈ 0,3 × bras + avant-bras)
   chibi: { heads: 2.6, crotch: 0.27, arm: 0.3, shoulder: 0.13, hip: 0.085, neck: 0.012, hand: 1.4, foot: 1.5, headW: 1.12, headD: 1.0, limb: 1.45, torsoD: 1.15 },
-  cartoon: { heads: 4.5, crotch: 0.4, arm: 0.36, shoulder: 0.112, hip: 0.083, neck: 0.022, hand: 1.18, foot: 1.3, headW: 1.0, headD: 0.98, limb: 1.15, torsoD: 1.05 },
-  stylized: { heads: 6, crotch: 0.46, arm: 0.4, shoulder: 0.11, hip: 0.08, neck: 0.03, hand: 1.0, foot: 1.15, headW: 0.9, headD: 0.95, limb: 1, torsoD: 1 },
+  cartoon: { heads: 4.5, crotch: 0.4, arm: 0.36, shoulder: 0.112, hip: 0.083, neck: 0.027, hand: 1.18, foot: 1.3, headW: 1.0, headD: 0.98, limb: 1.15, torsoD: 1.05 },
+  stylized: { heads: 6, crotch: 0.46, arm: 0.4, shoulder: 0.11, hip: 0.08, neck: 0.037, hand: 1.0, foot: 1.15, headW: 0.9, headD: 0.95, limb: 1, torsoD: 1 },
   // réaliste : proportions d'un adulte réel (7,6 têtes, tête ovale modérée, mains et pieds réels)
-  realistic: { heads: 7.6, crotch: 0.48, arm: 0.44, shoulder: 0.112, hip: 0.078, neck: 0.04, hand: 1.0, foot: 1.0, headW: 0.84, headD: 0.96, limb: 0.92, torsoD: 0.96 },
-  heroic: { heads: 7.2, crotch: 0.48, arm: 0.43, shoulder: 0.114, hip: 0.076, neck: 0.036, hand: 1.0, foot: 1.05, headW: 0.86, headD: 0.93, limb: 0.95, torsoD: 0.98 },
+  realistic: { heads: 7.6, crotch: 0.5, arm: 0.44, shoulder: 0.112, hip: 0.078, neck: 0.047, hand: 1.0, foot: 1.0, headW: 0.84, headD: 0.96, limb: 0.86, torsoD: 0.96 },
+  heroic: { heads: 7.2, crotch: 0.48, arm: 0.43, shoulder: 0.114, hip: 0.076, neck: 0.042, hand: 1.0, foot: 1.05, headW: 0.86, headD: 0.93, limb: 0.95, torsoD: 0.98 },
 } as const;
 export type Archetype = keyof typeof ARCHETYPES;
 
@@ -153,7 +153,7 @@ export function buildHumanoid(P: Proportions): Skeleton {
   for (const [s, sx] of [["l", 1], ["r", -1]] as const) {
     const drop = P.asym * sx * H * 0.006 + Math.max(0, P.posture) * H * 0.004;
     const clav0: V3 = [sx * H * 0.015, P.shoulderY - H * 0.012, H * 0.01 + chestTop[2]];
-    const shoulder: V3 = [sx * P.shoulderHalf, P.shoulderY - H * 0.02 - drop, -H * 0.005 + chestTop[2] * 0.9];
+    const shoulder: V3 = [sx * P.shoulderHalf, P.shoulderY - H * 0.032 - drop, -H * 0.005 + chestTop[2] * 0.9];
     add_({ name: `clavicle.${s}`, parent: "chest", head: clav0, tail: shoulder, radius: [r(0.03), r(0.031)], swing: 25, twist: [-10, 10] });
     const arm: V3 = [d.arm[0] * sx, d.arm[1], d.arm[2]];
     const fore: V3 = [d.fore[0] * sx, d.fore[1], d.fore[2]];

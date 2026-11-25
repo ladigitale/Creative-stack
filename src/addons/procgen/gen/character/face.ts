@@ -203,7 +203,9 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     const look3 = norm([s.n[0] * 0.12 - sx * 0.04, s.n[1] * 0.15, 1]);
     const tilt = dims[2] * DEG * sx;
     const qe: Q = qMul(qFromTo([0, 0, 1], look3), qAxis([0, 0, 1], tilt));
-    const ew = eyeR * dims[0], eh = eyeR * dims[1] * (sleepyMood ? 0.6 : wide);
+    // réaliste : œil en amande moins ouvert, paupière qui couvre le haut de l'iris, cils fins
+    const real = arch === "realistic";
+    const ew = eyeR * dims[0], eh = eyeR * dims[1] * (sleepyMood ? 0.6 : wide) * (real ? 0.74 : 1);
     const ctr = madd(s.p, s.n, -eyeR * (toon ? 0.12 : 0.32));
     eyeCenters.push(ctr);
     const T = (m: Mesh, off: V3 = [0, 0, 0]) => m.transform(m4Compose(add(ctr, rot(qe, off)), qe));
@@ -226,7 +228,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
       add_(T(ellipsoid(eyeR * 0.13, eyeR * 0.13, eyeR * 0.08, ROLE.eyeWhite, sg(6), sg(4)), [ri * 0.38, ri * 0.4 - eh * 0.04, eyeR * 0.4]), ctr[1]);
     }
     // paupière supérieure (coque de peau) : descendue (yeux mi-clos) ou rentrée sous l'arcade, toujours présente
-    const lidDrop = shape === "sleepy" || sleepyMood ? 0.42 : (LID[mood] ?? 0);
+    const lidDrop = shape === "sleepy" || sleepyMood ? 0.42 : Math.max(LID[mood] ?? 0, real ? 0.16 : 0);
     const lid = ellipsoid(ew * 1.08, eh * 0.75, eyeR * 0.5, ROLE.skin, sg(14), sg(8));
     if (lidDrop > 0) add_(T(lid, [0, eh * (1.1 - lidDrop * 1.4), eyeR * 0.05]), ctr[1]);
     else {
@@ -244,7 +246,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
         const x = Math.cos(a) * ew * 1.02 * sx;
         const y = Math.sin(a) * (lidDrop > 0 ? eh * 0.12 : top) + (lidDrop > 0 ? top : 0) - (1 - Math.sin(a)) * eh * 0.08;
         pts.push(add(ctr, rot(qe, [x, y, eyeR * (toon ? 0.2 : 0.3) * Math.sin(a) + eyeR * 0.08])));
-        rr.push(eyeR * (toon ? 0.07 : 0.06) * (0.5 + 0.9 * (sx > 0 ? t : 1 - t) ** 1.2));
+        rr.push(eyeR * (toon ? 0.07 : real ? 0.035 : 0.06) * (0.5 + 0.9 * (sx > 0 ? t : 1 - t) ** 1.2));
       }
       add_(tube(pts, rr, ROLE.ink, crowd ? 4 : 5, true, true), ctr[1]);
     }
@@ -264,7 +266,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
         const bx = sx * (eyeX + eyeR * mix(-1.0, 1.1, t) * spec[2]);
         const peak = brow === "arched" ? Math.sin(Math.min(1, t / 0.65) * Math.PI * 0.5) * (t > 0.65 ? 1 - (t - 0.65) * 1.6 : 1) : Math.sin(t * Math.PI);
         const by = eyeY + eyeR * (1.5 * Math.max(0.8, dims[1]) + raise + (1 - t) * browIn * 0.7 + peak * spec[1] * 0.6);
-        const r = eyeR * spec[0] * (0.55 + 0.45 * Math.sin(Math.min(1, t * 1.15) * Math.PI) ** 0.5) * (brow === "bushy" ? 0.85 + 0.3 * Math.abs(Math.sin(i * 2.7)) : 1);
+        const r = eyeR * spec[0] * (arch === "realistic" ? 0.7 : 1) * (0.55 + 0.45 * Math.sin(Math.min(1, t * 1.15) * Math.PI) ** 0.5) * (brow === "bushy" ? 0.85 + 0.3 * Math.abs(Math.sin(i * 2.7)) : 1);
         pts.push(onSkin(bx, by, r * 0.35));
         radii.push(r);
       }
