@@ -80,7 +80,7 @@ export function buildHeadField(k: Kit): HeadField {
     const cw = shape === "square" ? 0.17 : shape === "round" ? 0.13 : 0.12;
     sk("skull", { kind: "ellipsoid", c: chinPt, r: [hw * cw, hh * 0.075, hd * 0.12] });
     for (const sx of [1, -1]) sk("skull", { kind: "ellipsoid", c: add(headC, [sx * hw * 0.27, -hh * 0.07, hd * 0.24]), r: [hw * 0.13, hh * 0.085, hd * 0.13] });
-    sk("skull", { kind: "ellipsoid", c: add(headC, [0, hh * 0.11, hd * (arch === "heroic" ? 0.37 : 0.35)]), r: [hw * 0.33, hh * (arch === "heroic" ? 0.07 : 0.06), hd * 0.1] });
+    sk("skull", { kind: "ellipsoid", c: add(headC, [0, hh * 0.11, hd * (arch === "heroic" || arch === "realistic" ? 0.37 : 0.35)]), r: [hw * 0.33, hh * (arch === "heroic" || arch === "realistic" ? 0.07 : 0.06), hd * 0.1] });
   }
   // moignon de cou, plus fin que le cou du corps (qui l'enveloppe en bas)
   sk("skull", { kind: "capsule", a: k.at("neck", 0.3), b: add(k.at("neck", 1), [0, hh * 0.1, 0]), ra: k.rad("neck", 0.3) * 0.94, rb: k.rad("neck", 1) * 0.96 });
@@ -91,13 +91,13 @@ export function buildHeadField(k: Kit): HeadField {
   };
 
   /* ---------- repères ---------- */
-  const eyeR = hw * { chibi: 0.12, cartoon: 0.105, stylized: 0.088, heroic: 0.074 }[arch];
-  const eyeX = hw * { chibi: 0.24, cartoon: 0.21, stylized: 0.19, heroic: 0.18 }[arch] * (shape === "round" ? 1.04 : shape === "long" ? 0.96 : 1);
-  const eyeY = headC[1] + headR[1] * { chibi: -0.12, cartoon: -0.05, stylized: 0.0, heroic: 0.02 }[arch];
-  const mouth0 = headC[1] + headR[1] * { chibi: -0.42, cartoon: -0.45, stylized: -0.5, heroic: -0.52 }[arch] * (shape === "long" ? 1.08 : 1);
+  const eyeR = hw * { chibi: 0.12, cartoon: 0.105, stylized: 0.088, heroic: 0.074, realistic: 0.066 }[arch];
+  const eyeX = hw * { chibi: 0.24, cartoon: 0.21, stylized: 0.19, heroic: 0.18, realistic: 0.175 }[arch] * (shape === "round" ? 1.04 : shape === "long" ? 0.96 : 1);
+  const eyeY = headC[1] + headR[1] * { chibi: -0.12, cartoon: -0.05, stylized: 0.0, heroic: 0.02, realistic: 0.03 }[arch];
+  const mouth0 = headC[1] + headR[1] * { chibi: -0.42, cartoon: -0.45, stylized: -0.5, heroic: -0.52, realistic: -0.53 }[arch] * (shape === "long" ? 1.08 : 1);
   const noseTipY = mix(eyeY, mouth0, chibi ? 0.55 : 0.62);
   // bouche franchement sous le nez (les nez ronds des styles cartoon descendaient jusqu'aux lèvres)
-  const mouthY = mouth0 - headR[1] * { chibi: 0.14, cartoon: 0.1, stylized: 0.04, heroic: 0.03 }[arch];
+  const mouthY = mouth0 - headR[1] * { chibi: 0.14, cartoon: 0.1, stylized: 0.04, heroic: 0.03, realistic: 0.03 }[arch];
   const mouthW = hw * (chibi ? 0.11 : 0.15);
 
   /* ---------- nez ---------- */

@@ -25,7 +25,7 @@ export const characterSchema = {
   role: { type: "enum", default: "auto", options: auto(ROLES_CHAR), doc: "Rôle social : biaise les tirages auto (tenue, chapeau, objet, âge, posture) sans les imposer" },
   figure: { type: "enum", default: "auto", options: auto(FIGURES), doc: "Silhouette et style : feminine, masculine, androgynous (biaise coupe, coiffure, pilosité)" },
   height: { type: "number", default: 1.7, min: 0.5, max: 2.6, unit: "m", doc: "Taille (m) ; laissée à 1,7 : varie selon l'âge et la graine" },
-  archetype: { type: "enum", default: "stylized", options: Object.keys(ARCHETYPES), doc: "Proportions : chibi (2,6 têtes), cartoon (4,5), stylized (6), heroic (7,2)" },
+  archetype: { type: "enum", default: "stylized", options: Object.keys(ARCHETYPES), doc: "Proportions : chibi (2,6 têtes), cartoon (4,5), stylized (6), heroic (7,2), realistic (7,6 : adulte réel, petits yeux)" },
   age: { type: "enum", default: "auto", options: auto(AGES), doc: "child, teen, adult, elder (auto : surtout adultes)" },
   build: { type: "number", default: 0.45, min: 0, max: 1, doc: "Carrure : 0 fin … 1 massif (laissée par défaut : varie avec la graine)" },
   shape: { type: "number", default: 0, min: -1, max: 1, doc: "-1 hanches larges … +1 épaules larges" },
