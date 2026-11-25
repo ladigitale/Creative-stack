@@ -340,7 +340,8 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
     if (elder) (w.half = (w.half ?? 0) + 0.8), (w.round = (w.round ?? 0) + 0.6);
   });
   const freckles = choose("freckles");
-  const blush = choose("blush");
+  // réaliste : pas de joues roses de dessin animé (sauf demande)
+  const blush = s("archetype") === "realistic" && (pp.blush ?? "auto") === "auto" ? "none" : choose("blush");
   const wrinkles = s("wrinkles") !== "auto" ? s("wrinkles") : elder ? pick(rng.fork("auto/wrinkles"), { light: 1, strong: 1.2 }) : age === "adult" ? pick(rng.fork("auto/wrinkles"), { none: 6, light: 1 }) : "none";
 
   // cohérences

@@ -709,7 +709,9 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       const f = clamp(v * 1.15, 0.3, 1);
       const ek = p.eyes === "big" ? 1.3 : p.eyes === "narrow" ? 1.05 : 1;
       const eyK = p.eyes === "narrow" ? 0.55 : p.eyes === "almond" ? 0.78 : p.eyes === "sleepy" ? 0.7 : 1;
-      const ex = eyeR * f * ek, ey = eyeR * (mood === "surprised" ? 1.12 : 0.85) * (toony ? 1.1 : 0.82) * ek * eyK;
+      // réaliste : œil en amande moins ouvert, iris qui remplit le blanc, paupière haute qui couvre le haut de l'iris
+      const real = archName === "realistic";
+      const ex = eyeR * f * ek, ey = eyeR * (mood === "surprised" ? 1.12 : 0.85) * (toony ? 1.1 : 0.82) * ek * eyK * (real ? 0.7 : 1);
       if (blink || mood === "sleepy") {
         const lid = new Pen();
         strokeVar(lid, [[q[0] - ex, q[1]], [q[0], q[1] - ey * (mood === "sleepy" ? 0.15 : 0.35)], [q[0] + ex, q[1]]], [eyeR * 0.06, eyeR * 0.14, eyeR * 0.06]);
@@ -722,15 +724,17 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         continue;
       }
       em.add(new Pen().ellipse(q[0], q[1], ex, ey), "eyeWhite", { stroke: null });
-      const ir = (mood === "surprised" ? 0.48 : toony ? 0.66 : 0.62);
+      const ir = (mood === "surprised" ? 0.48 : toony ? 0.66 : real ? 0.74 : 0.62);
       const ix = q[0] + gaze * ex * 0.3, iy = q[1] - ey * 0.04 + gazeY * ey * 0.22;
       em.add(new Pen().ellipse(ix, iy, ex * ir, ey * ir * 1.05), "eye", { stroke: null });
-      em.add(new Pen().ellipse(ix - ex * 0.22, iy + ey * 0.28, ex * 0.2, ey * 0.2), "eyeWhite", { tone: 1, stroke: null });
+      em.add(new Pen().ellipse(ix - ex * 0.22, iy + ey * 0.28, ex * (real ? 0.1 : 0.2), ey * (real ? 0.12 : 0.2)), "eyeWhite", { tone: 1, stroke: null });
+      // réaliste : paupière supérieure couleur peau sur le haut de l'iris
+      if (real) em.add(new Pen().M(q[0] - ex * 1.05, q[1] + ey * 0.35).Q(q[0], q[1] + ey * 0.95, q[0] + ex * 1.05, q[1] + ey * 0.35).L(q[0] + ex * 1.05, q[1] + ey * 1.3).L(q[0] - ex * 1.05, q[1] + ey * 1.3).Z(), "skin", { stroke: null });
       // paupière supérieure (trait de cils), plissée selon l'humeur
       const tilt = mood === "angry" ? -0.3 : mood === "sad" ? 0.3 : 0;
       const inner = -s * (gaze >= 0 ? 1 : 1);
       const lidPts: P2[] = [[q[0] - ex * 1.1, q[1] + ey * 0.25 + tilt * ey * inner], [q[0], q[1] + ey * 1.02], [q[0] + ex * 1.1, q[1] + ey * 0.25 - tilt * ey * inner]];
-      em.add(strokeVar(new Pen(), lidPts, [eyeR * 0.05, eyeR * 0.15, eyeR * 0.07]), "ink", { stroke: null });
+      em.add(strokeVar(new Pen(), lidPts, real ? [eyeR * 0.03, eyeR * 0.07, eyeR * 0.04] : [eyeR * 0.05, eyeR * 0.15, eyeR * 0.07]), "ink", { stroke: null });
       if (mood === "happy") em.add(new Pen().M(q[0] - ex * 1.1, q[1] - ey * 1.1).Q(q[0], q[1] - ey * 0.15, q[0] + ex * 1.1, q[1] - ey * 1.1).Z(), "skin", { stroke: null });
     }
     // sourcils
@@ -742,7 +746,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       const a = onHead(s * 0.16, latB + raise + innerDy), m = onHead(s * 0.4, latB + raise + 0.035), b = onHead(s * 0.64, latB + raise + outerDy - 0.02);
       if (vis(s * 0.4, latB) < 0.02) continue;
       if (p.brows === "none") continue;
-      const bw = p.brows === "thin" ? 0.5 : p.brows === "thick" ? 1.45 : p.brows === "bushy" ? 1.9 : 1;
+      const bw = (p.brows === "thin" ? 0.5 : p.brows === "thick" ? 1.45 : p.brows === "bushy" ? 1.9 : 1) * (archName === "realistic" ? 0.7 : 1);
       const mm = p.brows === "arched" ? madd(m, hUp, ry * 0.035) : m;
       em.add(strokeVar(new Pen(), [S(a), S(mm), S(b)], [eyeR * 0.2 * bw, eyeR * 0.17 * bw, eyeR * 0.06 * bw]), "hair", { tone: -1, stroke: null });
     }
