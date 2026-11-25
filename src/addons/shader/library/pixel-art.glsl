@@ -9,10 +9,14 @@
 // 6. Contours « sel-out » : côté sombre d'un bord franc, la couleur d'un cran plus sombre de la palette.
 // 7. Tramage de Knoll (4 candidates ramenées à 2 couleurs), motif 2×2 (25 / 50 / 75 %), seulement dans les
 //    dégradés : ni aplat, ni bord, ni contour, jamais entre couleurs trop éloignées.
+// Pré-tramage (au choix) : chaque échantillon lu par le représentant est tramé en 6 niveaux par canal, motif à
+// l'échelle du pixel d'art ; le Kuwahara fond alors la trame en taches orientées le long des formes.
 // Le même calcul est refait pour les 4 voisins : nettoyage et contours voient les index affichés.
 // Réglages : uParam0 lignes de pixels ; uParam1 palette (partie entière : 0 = couleurs de l'attribut
 // colors, 8 au plus, sans colors niveaux automatiques ; 1 pico8, 2 gameboy, 3 braise, 4 ocean, 5 terre,
-// 6 pastel, 7 nord, 8 cga, 9 zx, 10 mac) + lissage (décimales, 0 à 0,99) ; uParam2 tramage ; uParam3 contours.
+// 6 pastel, 7 nord, 8 cga, 9 zx, 10 mac) + lissage (décimales, 0 à 0,99) ; uParam2 tramage : 0..1 après le
+// Kuwahara (tramage final seul), 2..3 avant (pré-tramage seul), 4..5 les deux (force = valeur - 0, - 2 ou - 4) ;
+// uParam3 contours.
 const vec3 PAL[84] = vec3[](vec3(.0000,.0000,.0000),vec3(.1137,.1686,.3255),vec3(.4941,.1451,.3255),vec3(.0000,.5294,.3176),vec3(.6706,.3216,.2118),vec3(.3725,.3412,.3098),vec3(.7608,.7647,.7804),vec3(1.0000,.9451,.9098),vec3(1.0000,.0000,.3020),vec3(1.0000,.6392,.0000),vec3(1.0000,.9255,.1529),vec3(.0000,.8941,.2118),vec3(.1608,.6784,1.0000),vec3(.5137,.4627,.6118),vec3(1.0000,.4667,.6588),vec3(1.0000,.8000,.6667),vec3(.0588,.2196,.0588),vec3(.1882,.3843,.1882),vec3(.5451,.6745,.0588),vec3(.6078,.7373,.0588),vec3(.0706,.0510,.1020),vec3(.2392,.0824,.1882),vec3(.4784,.1216,.1686),vec3(.7608,.2549,.1765),vec3(.9412,.5412,.1412),vec3(1.0000,.8196,.4000),vec3(1.0000,.9529,.8392),vec3(.0118,.0157,.3686),vec3(.0078,.2431,.5412),vec3(.0000,.4667,.7137),vec3(.0000,.5882,.7804),vec3(.2824,.7922,.8941),vec3(.6784,.9098,.9569),vec3(.9451,.9804,.9333),vec3(.1686,.1137,.0784),vec3(.3569,.2275,.1608),vec3(.5490,.3529,.2353),vec3(.7255,.5098,.3098),vec3(.8510,.7059,.5608),vec3(.9373,.8784,.7843),vec3(.4196,.4392,.3608),vec3(.6471,.6471,.5529),vec3(.2392,.2275,.2941),vec3(.4902,.5176,.6980),vec3(.5608,.6510,.7961),vec3(.8588,.9569,.6549),vec3(.8353,.9765,.8706),vec3(.9686,.8392,.8784),vec3(.9490,.7098,.8314),vec3(.9922,.9647,.9255),vec3(.1804,.2039,.2510),vec3(.2314,.2588,.3216),vec3(.2980,.3373,.4157),vec3(.8471,.8706,.9137),vec3(.9255,.9373,.9569),vec3(.5608,.7373,.7333),vec3(.5333,.7529,.8157),vec3(.3686,.5059,.6745),vec3(.7490,.3804,.4157),vec3(.8157,.5294,.4392),vec3(.9216,.7961,.5451),vec3(.6392,.7451,.5490),vec3(.7059,.5569,.6784),vec3(.0000,.0000,.0000),vec3(.3333,1.0000,1.0000),vec3(1.0000,.3333,1.0000),vec3(1.0000,1.0000,1.0000),vec3(.0000,.0000,.0000),vec3(.0000,.0000,.8431),vec3(.8431,.0000,.0000),vec3(.8431,.0000,.8431),vec3(.0000,.8431,.0000),vec3(.0000,.8431,.8431),vec3(.8431,.8431,.0000),vec3(.8431,.8431,.8431),vec3(.0000,.0000,1.0000),vec3(1.0000,.0000,.0000),vec3(1.0000,.0000,1.0000),vec3(.0000,1.0000,.0000),vec3(.0000,1.0000,1.0000),vec3(1.0000,1.0000,.0000),vec3(1.0000,1.0000,1.0000),vec3(.1059,.1059,.1059),vec3(.9490,.9412,.9020));
 const int PAL_OFF[10] = int[](0,16,20,27,34,42,50,63,67,82);
 const int PAL_CNT[10] = int[](16,4,7,7,8,8,13,4,15,2);
@@ -59,11 +63,19 @@ vec3 grade(vec3 l){
 
 vec2 gCell;  // taille d'une cellule en pixels du canvas
 float gLis;  // lissage 0..1
+float gPre;  // force du pré-tramage 0..1
 vec3 src(vec2 uv){ return texture(iChannel0, uv).rgb; }
+// Échantillon pré-tramé : 6 niveaux par canal, seuil de Bayer du pixel d'art qui contient l'échantillon.
+vec3 tap(vec2 uv){
+  vec3 c = src(uv);
+  if (gPre <= 0.0) return c;
+  float t = bayer4(floor(uv * iResolution.xy / gCell)) - 0.5;
+  return clamp(floor(c * 5.0 + 0.5 + t * gPre) / 5.0, 0.0, 1.0);
+}
 // Échantillon (sur 3×3) le plus proche de la moyenne de la cellule : net, sans bouillie de bord.
 vec3 nearMean(vec2 cell, vec2 cs){
   vec3 s[9]; vec3 m = vec3(0.0);
-  for (int i = 0; i < 9; i++){ s[i] = src((cell + (vec2(float(i - (i / 3) * 3), float(i / 3)) + 0.5) / 3.0) * cs); m += s[i]; }
+  for (int i = 0; i < 9; i++){ s[i] = tap((cell + (vec2(float(i - (i / 3) * 3), float(i / 3)) + 0.5) / 3.0) * cs); m += s[i]; }
   m /= 9.0;
   vec3 best = s[4]; float bd = 1e9;
   for (int i = 0; i < 9; i++){ vec3 d = s[i] - m; float e = dot(d, d); if (e < bd){ bd = e; best = s[i]; } }
@@ -80,14 +92,14 @@ vec3 kuwahara(vec2 cell, vec2 cs){
   float an = clamp(gm * 6.0, 0.0, 0.85);
   float r = 0.5 + 1.5 * gLis;
   vec2 ax = t * r * (1.0 + an), ay = vec2(-t.y, t.x) * r / (1.0 + an);
-  vec3 c0 = src(c), acc = vec3(0.0);
+  vec3 c0 = tap(c), acc = vec3(0.0);
   float wt = 0.0;
   for (int k = 0; k < 4; k++){
     vec3 m = c0, s2 = c0 * c0;
     for (int j = 0; j < 6; j++){
       float a = (float(k) + 0.17 + 0.33 * float(j - (j / 3) * 3)) * 1.5707963;
       vec2 o = (ax * cos(a) + ay * sin(a)) * (j < 3 ? 0.45 : 0.9);
-      vec3 v = src(c + o * cs);
+      vec3 v = tap(c + o * cs);
       m += v; s2 += v * v;
     }
     m /= 7.0;
@@ -150,7 +162,12 @@ void mainImage(out vec4 o, in vec2 frag){
   vec2 cell = floor(frag / gCell);
   int p = int(clamp(floor(uParam1 + 0.001), 0.0, 10.0));
   gLis = clamp(fract(uParam1 + 0.001) * 1.0101, 0.0, 1.0);
-  float dith = clamp(uParam2, 0.0, 1.0), edge = clamp(uParam3, 0.0, 1.0);
+  // Tramage : la partie paire choisit le moment (0 après, 2 avant, 4 les deux), le reste la force.
+  float tm = clamp(uParam2, 0.0, 5.0);
+  int mode = int(floor(tm * 0.5));
+  float force = clamp(tm - 2.0 * float(mode), 0.0, 1.0);
+  gPre = mode >= 1 ? force : 0.0;
+  float dith = mode == 1 ? 0.0 : force, edge = clamp(uParam3, 0.0, 1.0);
 
   vec3 c[5];
   c[0] = target(cell);
