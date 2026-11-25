@@ -36,7 +36,7 @@ describe("bibliothèque de shaders de base", () => {
   });
 
   it("aucun mot réservé de GLSL ES 3.00 utilisé comme nom (flat, smooth, sample, filter…)", () => {
-    const reserved = ["flat", "smooth", "centroid", "sample", "patch", "filter", "input", "output", "common", "partition", "active", "superp", "noperspective", "invariant", "layout", "precise", "half", "fixed", "cast", "namespace", "using", "interface", "union", "enum", "typedef", "template", "this", "resource", "goto", "inline", "noinline", "public", "static", "extern", "external", "long", "short", "unsigned", "sizeof"];
+    const reserved = ["flat", "smooth", "centroid", "sample", "patch", "filter", "input", "output", "common", "partition", "active", "superp", "noperspective", "invariant", "layout", "precise", "half", "fixed", "cast", "namespace", "using", "interface", "union", "enum", "typedef", "template", "this", "resource", "goto", "inline", "noinline", "public", "static", "extern", "external", "long", "short", "unsigned", "sizeof", "coherent", "volatile", "restrict", "readonly", "writeonly", "shared", "buffer"];
     for (const e of library.entries) {
       const src = source(e).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
       for (const w of reserved) expect(new RegExp(`\\b(float|int|vec[234]|mat[234]|bool|ivec[234])\\s+${w}\\b`).test(src), `${e.id} : « ${w} » est réservé`).toBe(false);

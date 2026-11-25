@@ -126,10 +126,10 @@
       "id": "pixel-art",
       "kind": "shader",
       "file": "pixel-art.glsl",
-      "version": 1,
+      "version": 2,
       "license": "MIT",
       "title": "Pixel art",
-      "description": "Image, vidéo, caméra ou scène 3D (canal 0) redessinée en pixel art à palette limitée : grille entière, couleur représentative par cellule, pixels orphelins absorbés, ombres froides et lumières chaudes, contours sel-out d’1 pixel, palette en OKLab, tramage ordonné par paires (Yliluoma) seulement dans les dégradés. 10 palettes nommées ou les couleurs de l’attribut colors (8 au plus). Le plus léger : render-size = résolution d’art (ex. 192x108 avec Lignes 108) et style image-rendering: pixelated.",
+      "description": "Image, vidéo, caméra ou scène 3D (canal 0) redessinée en pixel art à palette limitée. Couleur cible de chaque pixel d'art (échantillon le plus proche de la moyenne, mêlé à un Kuwahara anisotrope selon le lissage), étalonnage OKLab, puis tout se décide sur la palette : index de couleur, nettoyage des pixels isolés sur les index, contours sel-out d'un cran plus sombre dans la palette, tramage de Knoll ramené à 2 couleurs en motif 2×2 (25 / 50 / 75 %), seulement dans les dégradés. 10 palettes nommées ou les couleurs de l'attribut colors (8 au plus). Le plus léger : render-size = résolution d'art (ex. 192x108 avec Lignes 108) et style image-rendering: pixelated.",
       "tags": [
         "effet",
         "rétro",
@@ -152,10 +152,10 @@
         },
         {
           "name": "uParam1",
-          "label": "Palette (0 couleurs du document, 1 pico8, 2 gameboy, 3 braise, 4 ocean, 5 terre, 6 pastel, 7 nord, 8 cga, 9 zx, 10 mac)",
+          "label": "Palette (partie entière : 0 couleurs du document, 1 pico8, 2 gameboy, 3 braise, 4 ocean, 5 terre, 6 pastel, 7 nord, 8 cga, 9 zx, 10 mac) + lissage (décimales, 0 à 0,99)",
           "min": 0,
-          "max": 10,
-          "default": 1
+          "max": 10.99,
+          "default": 1.3
         },
         {
           "name": "uParam2",
