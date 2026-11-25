@@ -40,7 +40,8 @@ export function handTemplate(pose: HandPose, rw: number, ro: number, role: numbe
   const prims: FieldPrim[] = [];
   const blends: Blend[] = [];
   const P = (f: PrimIn) => (prims.push({ ...f, role, tag: 0 } as FieldPrim), prims.length - 1);
-  const pwh = rw * 0.95 * chunky;
+  // paume : demi-largeur ≈ 0,23 longueur de main (une main réelle), jamais plus étroite que le poignet
+  const pwh = Math.max(rw * 0.95, 0.23) * chunky;
   const pth = rw * 0.5;
   // poignet : le long de l'avant-bras (le poignet peut être fléchi : main tendue vers l'avant pour tenir un manche droit)
   const wrist = P({ kind: "capsule", a: scale(wd, 0.24), b: [0, 0.04, 0], ra: rw * 0.96, rb: rw * 0.88 });

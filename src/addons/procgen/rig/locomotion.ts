@@ -175,7 +175,9 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   };
   switch (st.action) {
     case "wave":
-      raiseArm("r", 150, 10, 25 + 25 * Math.sin(at * 9));
+      // salut de la main : bras sur le côté, coude à hauteur d'épaule et plié, avant-bras dressé (vrillé de 80° autour
+      // de l'humérus pour que la flexion monte au lieu d'avancer) qui balance de gauche à droite ; jamais bras tendu
+      raiseArm("r", 105, 80, 92 + 22 * Math.sin(at * 8));
       over.head = qEuler(-4 * DEG, -8 * DEG, 4 * DEG);
       break;
     case "point":
