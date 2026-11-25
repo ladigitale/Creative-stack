@@ -88,3 +88,17 @@ export class PoseBlend {
     return out;
   }
 }
+
+/**
+ * Cap affiché qui rejoint le cap logique sans à-coup : approche amortie, vitesse de rotation bornée (rad/s). Rend le
+ * nouveau cap et la vitesse de rotation (pour l'inclinaison du virage et le piétinement sur place).
+ */
+export function turnToward(disp: number, target: number, dt: number, maxRate = 5): { yaw: number; rate: number } {
+  let d = target - disp;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  if (dt <= 0) return { yaw: disp, rate: 0 };
+  const k = 1 - Math.exp(-dt * 8);
+  const step = Math.max(-maxRate * dt, Math.min(maxRate * dt, d * k));
+  return { yaw: disp + step, rate: step / dt };
+}
