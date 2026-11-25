@@ -209,7 +209,7 @@ export function buildBodyField(k: Kit): BodyField {
       if (sleeve[1] > 0) {
         put("forearm", cap(`forearm.${s}`, 0, top === "robe" ? 0.8 : sleeve[1], thick * (top === "robe" ? 1.5 : 1), C1, top === "robe" ? 1.15 : 1), `forearm.${s}`, { pattern: limbPat(`forearm.${s}`) });
         // poignet : revers un peu plus épais (rôle détail pour les manteaux)
-        if (top !== "robe") put("forearm", cap(`forearm.${s}`, sleeve[1] - 0.13, sleeve[1], thick * 1.55, top === "coat" ? C3 : C1, 1), `forearm.${s}`);
+        if (top !== "robe") put("forearm", cap(`forearm.${s}`, sleeve[1] - 0.13, sleeve[1], thick * 1.3, top === "coat" ? C3 : C1, 1), `forearm.${s}`);
       }
     }
     if (top === "coat" || top === "robe" || top === "tunic") {

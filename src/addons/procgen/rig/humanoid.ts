@@ -161,7 +161,7 @@ export function buildHumanoid(P: Proportions): Skeleton {
     const wrist = madd(elbow, fore, P.foreArm);
     const handTip = madd(wrist, fore, P.handLen);
     add_({ name: `upperarm.${s}`, parent: `clavicle.${s}`, head: shoulder, tail: elbow, radius: [r(0.036), r(0.03)], swing: 120, twist: [-90, 90] });
-    add_({ name: `forearm.${s}`, parent: `upperarm.${s}`, head: elbow, tail: wrist, radius: [r(0.03), r(0.022)], swing: 150, twist: [-80, 80] });
+    add_({ name: `forearm.${s}`, parent: `upperarm.${s}`, head: elbow, tail: wrist, radius: [r(0.029), r(0.017)], swing: 150, twist: [-80, 80] });
     add_({ name: `hand.${s}`, parent: `forearm.${s}`, head: wrist, tail: handTip, radius: [r(0.024) * P.hand, r(0.02) * P.hand], swing: 75, twist: [-20, 20] });
     const hip: V3 = [sx * P.hipHalf * 0.8, P.hipY - H * 0.012, 0];
     const th: V3 = [d.thigh[0] * sx, d.thigh[1], d.thigh[2]];

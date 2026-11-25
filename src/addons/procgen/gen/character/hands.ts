@@ -44,7 +44,7 @@ export function handTemplate(pose: HandPose, rw: number, ro: number, role: numbe
   const pwh = Math.max(rw * 0.95, 0.23) * chunky;
   const pth = rw * 0.5;
   // poignet : le long de l'avant-bras (le poignet peut être fléchi : main tendue vers l'avant pour tenir un manche droit)
-  const wrist = P({ kind: "capsule", a: scale(wd, 0.24), b: [0, 0.04, 0], ra: rw * 0.96, rb: rw * 0.88 });
+  const wrist = P({ kind: "capsule", a: scale(wd, 0.24), b: [0, 0.04, 0], ra: rw * 0.9, rb: rw * 0.85 });
   const palm = P({ kind: "box", c: [0, 0.22, 0], h: [pwh * 0.92, 0.2, pth * 0.85], round: pth * 0.8 });
   blends.push({ a: wrist, b: palm, k: rw * 0.55 });
   const spacing = (2 * pwh * 0.92) / 4;
