@@ -20,12 +20,13 @@ export type HandTemplate = { mesh: Mesh; grip: V3; morphs?: Record<HandMorph, Fl
 
 /** Flexion (°) des trois phalanges de chaque doigt (index → auriculaire) et écart des doigts, par pose. */
 type FingerPose = { curl: number[][]; splay: number; thumb: [V3, V3, V3] };
-const RELAX: FingerPose = { curl: [[10, 14, 8], [14, 18, 10], [18, 24, 12], [24, 30, 16]], splay: 1, thumb: [[0.6, 0.6, 0.5], [0.32, 0.78, 0.55], [0.18, 0.86, 0.48]] };
+// pouce au repos : le long de l'index, un peu en avant de la paume (pas écarté à l'horizontale)
+const RELAX: FingerPose = { curl: [[10, 14, 8], [14, 18, 10], [18, 24, 12], [24, 30, 16]], splay: 1.3, thumb: [[0.42, 0.72, 0.55], [0.2, 0.84, 0.5], [0.08, 0.9, 0.42]] };
 const FIST_CURL = [78, 96, 66];
 const FIST_THUMB: [V3, V3, V3] = [[0.35, 0.45, 0.82], [-0.5, 0.38, 0.78], [-0.88, 0.05, 0.47]];
 const POSES: Record<HandMorph, FingerPose> = {
   fist: { curl: [FIST_CURL, FIST_CURL, FIST_CURL, FIST_CURL], splay: 0.3, thumb: FIST_THUMB },
-  open: { curl: [[0, 2, 1], [0, 2, 1], [0, 3, 1], [2, 4, 2]], splay: 2.6, thumb: [[0.85, 0.42, 0.3], [0.75, 0.62, 0.2], [0.6, 0.78, 0.15]] },
+  open: { curl: [[0, 2, 1], [0, 2, 1], [0, 3, 1], [2, 4, 2]], splay: 2.4, thumb: [[0.7, 0.55, 0.35], [0.62, 0.7, 0.25], [0.5, 0.82, 0.2]] },
   point: { curl: [[2, 4, 2], FIST_CURL, FIST_CURL, FIST_CURL], splay: 0.4, thumb: FIST_THUMB },
 };
 
@@ -48,7 +49,8 @@ export function handTemplate(pose: HandPose, rw: number, ro: number, role: numbe
   const palm = P({ kind: "box", c: [0, 0.22, 0], h: [pwh * 0.92, 0.2, pth * 0.85], round: pth * 0.8 });
   blends.push({ a: wrist, b: palm, k: rw * 0.55 });
   const spacing = (2 * pwh * 0.92) / 4;
-  const rf = spacing * 0.5 * 0.97;
+  // doigts un peu plus fins que leur écartement : séparés au maillage (sinon soudés, puis étirés en palmure)
+  const rf = spacing * 0.5 * 0.8;
   const fx = [0.75, 0.25, -0.25, -0.75].map((x) => x * pwh * 0.92);
   const fy = [0.41, 0.425, 0.41, 0.385];
   const fl = [0.47, 0.52, 0.49, 0.39].map((x) => x * (1 - rf * 0.6));
@@ -122,7 +124,7 @@ export function handTemplate(pose: HandPose, rw: number, ro: number, role: numbe
   }
   chain(tp, [rt * 1.35, rt * 1.15, rt, rt * 0.9], palm, 4);
   const field = new Field(prims, blends);
-  const cell = rf * (fine ? 0.7 : 1.3);
+  const cell = rf * (fine ? 0.5 : 1.3);
   const { mesh, owner } = polygonize(field, { cell, smooth: 2, ao: true, margin: cell * 2, aoSteps: 3, exactOwner: pose === "relax" });
   const out: HandTemplate = { mesh, grip: [0, C[0], C[1]] as V3 };
   if (pose === "relax") {
@@ -161,7 +163,8 @@ function poseDeltas(mesh: Mesh, owner: Int32Array, segOf: Map<number, { c: numbe
     const t = Math.min(1, Math.max(0, dot(sub(v, a), ab) / Math.max(1e-9, dot(ab, ab))));
     const own = move(c, s, v);
     let p = own;
-    if (s === 0) p = mix3(v, own, smooth01(t / 0.35));
+    // première phalange : fondue avec la paume ; base du pouce (éminence) encore plus ancrée, sinon elle se retourne
+    if (s === 0) p = mix3(v, own, smooth01(t / (c === 4 ? 0.7 : 0.35)) * (c === 4 ? 0.7 : 1));
     else if (t < 0.25) p = mix3(move(c, s - 1, v), own, 0.5 + 2 * t);
     if (s < 2 && t > 0.75) p = mix3(p, move(c, s + 1, v), (t - 0.75) * 2);
     out[i * 3] = p[0] - v[0];

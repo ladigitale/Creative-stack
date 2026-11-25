@@ -5,7 +5,7 @@
  * `animalPose`. `stepLengthFor(asset, vitesse)` donne le « pas » (demi-cycle) : la phase s'intègre toujours par
  * `phase += Δdistance / (2 · stepLengthFor(asset, vitesse))`.
  */
-import type { V3 } from "../core/math";
+import { type Q, type V3, qId, qSlerp } from "../core/math";
 import type { Asset } from "../gen/types";
 import { type MotionState, type RigInfo, humanoidPose, rigInfo, stepLength } from "./locomotion";
 import { type AnimalInfo, animalInfo, animalPose, animalStepLength } from "./quadruped-motion";
@@ -48,4 +48,43 @@ export function motionFor(asset: Pick<Asset, "skeleton" | "generator">): Motion 
 
 export function stepLengthFor(asset: Pick<Asset, "skeleton" | "generator">, speed: number): number {
   return motionFor(asset).stepLength(speed);
+}
+
+/**
+ * Fondu entre deux poses quand l'état d'animation change (action, assise…) : la nouvelle pose part de la dernière
+ * pose affichée et la rejoint en `dur` secondes (courbe douce). Sans changement, la pose passe telle quelle.
+ */
+export class PoseBlend {
+  private last: Pose | null = null;
+  private from: Pose | null = null;
+  private t = 1;
+  private key: string | null = null;
+
+  constructor(private dur = 0.35) {}
+
+  apply(pose: Pose, key: string, dt: number): Pose {
+    if (this.key !== null && key !== this.key && this.last) {
+      this.from = this.last;
+      this.t = 0;
+    }
+    this.key = key;
+    let out = pose;
+    if (this.from && this.t < 1) {
+      this.t = Math.min(1, this.t + Math.max(0, dt) / this.dur);
+      const k = this.t * this.t * (3 - 2 * this.t);
+      const f = this.from;
+      const rot: Record<string, Q> = {};
+      for (const n of new Set([...Object.keys(pose.rot), ...Object.keys(f.rot)])) rot[n] = qSlerp(f.rot[n] ?? qId(), pose.rot[n] ?? qId(), k);
+      const r0 = f.root, r1 = pose.root;
+      out = {
+        ...pose,
+        rot,
+        root: [r0[0] + (r1[0] - r0[0]) * k, r0[1] + (r1[1] - r0[1]) * k, r0[2] + (r1[2] - r0[2]) * k],
+        ...(pose.rootRot ? { rootRot: f.rootRot ? qSlerp(f.rootRot, pose.rootRot, k) : pose.rootRot } : {}),
+      };
+      if (this.t >= 1) this.from = null;
+    }
+    this.last = out;
+    return out;
+  }
 }
