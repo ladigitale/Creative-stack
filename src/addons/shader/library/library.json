@@ -123,6 +123,57 @@
       ]
     },
     {
+      "id": "pixel-art",
+      "kind": "shader",
+      "file": "pixel-art.glsl",
+      "version": 1,
+      "license": "MIT",
+      "title": "Pixel art",
+      "description": "Image, vidéo, caméra ou scène 3D (canal 0) redessinée en pixel art à palette limitée : grille entière, couleur représentative par cellule, pixels orphelins absorbés, ombres froides et lumières chaudes, contours sel-out d’1 pixel, palette en OKLab, tramage ordonné par paires (Yliluoma) seulement dans les dégradés. 10 palettes nommées ou les couleurs de l’attribut colors (8 au plus). Le plus léger : render-size = résolution d’art (ex. 192x108 avec Lignes 108) et style image-rendering: pixelated.",
+      "tags": [
+        "effet",
+        "rétro",
+        "pixel art",
+        "palette",
+        "caméra",
+        "image",
+        "3d"
+      ],
+      "channels": [
+        "iChannel0 : image / caméra / vidéo / scène (#id d’un sonic-3d, sonic-2d, sonic-shader)"
+      ],
+      "params": [
+        {
+          "name": "uParam0",
+          "label": "Lignes de pixels (hauteur)",
+          "min": 16,
+          "max": 480,
+          "default": 120
+        },
+        {
+          "name": "uParam1",
+          "label": "Palette (0 couleurs du document, 1 pico8, 2 gameboy, 3 braise, 4 ocean, 5 terre, 6 pastel, 7 nord, 8 cga, 9 zx, 10 mac)",
+          "min": 0,
+          "max": 10,
+          "default": 1
+        },
+        {
+          "name": "uParam2",
+          "label": "Tramage",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        },
+        {
+          "name": "uParam3",
+          "label": "Contours",
+          "min": 0,
+          "max": 1,
+          "default": 0.6
+        }
+      ]
+    },
+    {
       "id": "sobel",
       "kind": "shader",
       "file": "sobel.glsl",
