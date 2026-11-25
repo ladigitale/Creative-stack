@@ -73,8 +73,39 @@ Measured on 256 × 256: A* across a 255 × 255 maze 3 ms, distance map 6 ms, flo
 | `$genPoisson(w, h, r, seed, options?)` | points `[[x, y]…]` at least `r` apart (trees, enemies, stars), `max` 2000 |
 | `$genNoise(w, h, options?)` | coherent noise map: matrix of numbers in [-1, 1], or text rows with `levels: [[-0.2, "~"], [0.3, "."], [9, "^"]]` (first threshold above the value wins). `seed`, `scale` (0.1), `octaves` (4), `kind`: `fbm`, `ridge`, `warp` |
 | `$noise(x, y, options?)` | one noise value (same options) |
+| `$genWfc(sample, w, h, seed, options?)` | Wave Function Collapse: new rows (≤ 128 × 128) that only use neighbourhoods seen in `sample` (small text grid, 32 distinct characters at most), with its frequencies. `periodic` (output tiles seamlessly), `wrapSample`, `fixed`: rows where `?` is free and any other character is imposed (borders, an entrance, a key cell), `tries` (8). Throws when the imposed cells contradict the sample. 64 × 64 ≈ 7 ms |
+| `$genVoronoi(w, h, seed, options?)` | `{rows, sites}`: Voronoi regions on a grid, `count` sites (8), `relax` Lloyd passes (0–10, more regular), `metric` `euclid`/`manhattan`, `values`: characters cycled per region (countries, biomes, shards) |
+| `$delaunay(points)` | `{triangles: [[i, j, k]…], edges: [[i, j]…]}` (indices into `points`, 2000 at most) |
+| `$mst(points)` | minimum spanning tree `[[i, j, length]…]`: the shortest network linking all points (connect dungeon rooms, draw constellations, roads); add a few `$delaunay` edges back for loops |
 
 A level is fully described by its seed: store the seed, regenerate when needed (`$genMaze(10, 10, $state.level)`), or store the rows once in `@init`.
+
+## Two-player alignment boards
+
+Tic-tac-toe, connect four (`gravity: true`), gomoku… Boards are text rows; `.` is empty (`empty` option), players are single characters. `n` is the winning length (default 3 up to 4 × 4, 5 from 9 × 9, 4 otherwise). 400 cells at most.
+
+| function | returns |
+|---|---|
+| `$boardWinner(board, options?)` | `{winner: "x" \| null, line: [[x, y]…], draw}` |
+| `$boardMoves(board, options?)` | legal moves `[[x, y]…]` (with `gravity`: the lowest empty cell of each column; on big boards without gravity: cells within 2 of a stone) |
+| `$boardPlay(board, at, player, options?)` | new board: `at` = `[x, y]`, or a column (number or `[x, …]`) with `gravity`; an illegal move returns the board unchanged |
+| `$boardBest(board, player, options?)` | `{move: [x, y], column, score, depth, nodes}` or nothing when the game is over. `algo`: `minimax` (default: alpha-beta, iterative deepening, transposition table — perfect play on tic-tac-toe, strong on connect four) or `mcts` (random playouts, `iterations`, `seed`). Always takes an immediate win and blocks an immediate loss. `ms` time budget (40, 200 at most), `depth` limit (lower = easier opponent: 1–2 beginner, 4 medium), `opponent` character when the board has no opponent stone yet. `score`: `"win"`, `"loss"` or a heuristic number |
+
+Computer turn in a reducer:
+
+```jsonata
+$action.type = 'play' ? (
+  $b := $boardPlay($state.board, $action.payload.column, 'x', {'gravity': true});
+  $b = $state.board or $boardWinner($b, {'gravity': true}).winner ? $merge([$state, {'board': $b}]) : (
+    $ai := $boardBest($b, 'o', {'gravity': true, 'depth': $state.level});
+    $merge([$state, {'board': $boardPlay($b, $ai.column, 'o', {'gravity': true})}])
+  )
+) : $state
+```
+
+## Moving crowds
+
+For dozens of agents moving every frame (schools, flocks, chasers, crowds flowing through a generated maze), use the `sonic-swarm` component ([../swarm/swarm.md](../swarm/swarm.md)): it runs at 60 Hz, reads the same text grids for walls and flow fields, and sends captures to your store.
 
 ## Seeded chance
 

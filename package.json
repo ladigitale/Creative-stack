@@ -38,6 +38,7 @@
     "./qr": "./src/addons/qr/index.ts",
     "./predict": "./src/addons/predict/index.ts",
     "./scroll": "./src/addons/scroll/index.ts",
+    "./swarm": "./src/addons/swarm/index.ts",
     "./cursor": "./src/addons/cursor/index.ts",
     "./text": "./src/addons/text/index.ts",
     "./markdown": "./src/addons/markdown/index.ts",
