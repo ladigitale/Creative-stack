@@ -62,6 +62,8 @@ export type StyleTokens = {
   /** Épaisseur du contour (px à l'écran) et force (0 = aucun). */
   outline: number;
   outlineStrength: number;
+  /** Occlusion ambiante en espace écran (0 aucune … 1) : plis, creux, jonctions. */
+  ssao: number;
   /** Lumière : azimut et hauteur (°), intensité. */
   lightAzimuth: number;
   lightElevation: number;
@@ -115,7 +117,7 @@ const COLOR_TOKENS = ["skyHorizon", "skyTop", "sunColor", "ambientColor"] as con
 export const ENVIRONMENTS = ["exterieur", "studio", "aucun"] as const;
 
 export const DEFAULT_STYLE: StyleTokens = {
-  palette: "gouache", hue: 0, chroma: 1, contrast: 1, shading: "toon", bands: 3, bandSoftness: 0.08, brush: 0.35, outline: 0, outlineStrength: 0,
+  palette: "gouache", hue: 0, chroma: 1, contrast: 1, shading: "toon", bands: 3, bandSoftness: 0.08, brush: 0.35, outline: 0, outlineStrength: 0, ssao: 0.6,
   lightAzimuth: 35, lightElevation: 48, lightIntensity: 1, shadows: true, shadowStrength: 0.75, ao: 0.8, texture: 0.6, fog: 0.5, fogHeight: 0.3,
   night: 0, lamps: 0.6, rim: 0.25, grain: 0.15, paper: 0, vignette: 0.25, pixel: 0, saturation: 1, roles: {}, finishes: {}, sky: true, detail: 1,
   post: [], postQuality: "auto", pixelSnap: true,
