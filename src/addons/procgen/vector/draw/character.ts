@@ -34,6 +34,8 @@ export type CharacterInput = {
   blink: number;
   /** Bouche ouverte 0 … 1 (parole, mâche, cri de joie). */
   talk?: number;
+  /** Poids des humeurs (lissés au changement d'humeur) ; absent : humeur `params.mood` seule. */
+  moodW?: Record<string, number>;
   /** Poses des mains : poids `fist.l`, `open.r`, `point.r`… (voir `rig/face-motion.ts`). */
   hands?: Record<string, number>;
   /** Point regardé (monde) ou "camera" (regard vers le spectateur) ; absent : les yeux suivent la tête. */
@@ -74,6 +76,10 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   const shoulderHalf = Math.abs(sk.bone("upperarm.l")!.head[0]);
   const hipHalf = Math.abs(sk.bone("thigh.l")!.head[0]) / 0.8;
   const mood = String(p.mood ?? "neutral");
+  // humeurs pondérées : tout ce qui dépend de l'humeur est interpolé (transition douce d'une expression à l'autre)
+  const MW: Record<string, number> = c.moodW ?? { [mood]: 1 };
+  const MV = (t: Record<string, number>) => Object.entries(MW).reduce((acc, [m, w]) => acc + w * (t[m] ?? t._ ?? 0), 0);
+  const wOf = (m: string) => MW[m] ?? 0;
   // valeurs résolues par `gen/character/look.ts` : les nouvelles se dessinent sur une base proche + détails
   const top0 = String(p.top ?? "tee"), bottom0 = String(p.bottom ?? "trousers"), shoes = String(p.shoes ?? "shoes");
   const top = top0 === "shirt" || top0 === "tunic" ? "long" : top0 === "dress" ? "robe" : top0;
@@ -682,12 +688,13 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     if (faceVis < -0.3) return;
     const blink = c.blink > 0.5;
     // joues
-    if (toony && (mood === "happy" || mood === "surprised") && faceVis > 0.1)
+    const cheeks = wOf("happy") + wOf("surprised");
+    if (toony && cheeks > 0.02 && faceVis > 0.1)
       for (const s of [-1, 1]) {
         const v = vis(s * 0.62, -0.32);
         if (v < 0.1) continue;
         const q = S(onHead(s * 0.62, -0.32));
-        em.add(new Pen().ellipse(q[0], q[1], eyeR * 0.8 * v, eyeR * 0.45), "accent", { stroke: null, alpha: 0.3 });
+        em.add(new Pen().ellipse(q[0], q[1], eyeR * 0.8 * v, eyeR * 0.45), "accent", { stroke: null, alpha: 0.3 * Math.min(1, cheeks) });
       }
     // yeux : regard porté par la tête, ou tourné vers une cible (direction à l'écran)
     let gaze = pr.vec(hFwd)[0], gazeY = 0;
@@ -711,37 +718,40 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       const eyK = p.eyes === "narrow" ? 0.55 : p.eyes === "almond" ? 0.78 : p.eyes === "sleepy" ? 0.7 : 1;
       // réaliste : œil en amande moins ouvert, iris qui remplit le blanc, paupière haute qui couvre le haut de l'iris
       const real = archName === "realistic";
-      const ex = eyeR * f * ek, ey = eyeR * (mood === "surprised" ? 1.12 : 0.85) * (toony ? 1.1 : 0.82) * ek * eyK * (real ? 0.7 : 1);
-      if (blink || mood === "sleepy") {
+      const ex = eyeR * f * ek, ey = eyeR * MV({ surprised: 1.12, _: 0.85 }) * (toony ? 1.1 : 0.82) * ek * eyK * (real ? 0.7 : 1);
+      if (blink) {
         const lid = new Pen();
-        strokeVar(lid, [[q[0] - ex, q[1]], [q[0], q[1] - ey * (mood === "sleepy" ? 0.15 : 0.35)], [q[0] + ex, q[1]]], [eyeR * 0.06, eyeR * 0.14, eyeR * 0.06]);
-        if (mood === "sleepy" && !blink) {
-          em.add(new Pen().ellipse(q[0], q[1] - ey * 0.25, ex * 0.9, ey * 0.55), "eyeWhite", { stroke: null });
-          em.add(new Pen().ellipse(q[0] + gaze * ex * 0.2, q[1] - ey * 0.3 + gazeY * ey * 0.1, ex * 0.5, ey * 0.45), "eye", { stroke: null });
-          em.add(new Pen().M(q[0] - ex * 1.05, q[1]).L(q[0] + ex * 1.05, q[1]).L(q[0] + ex * 1.05, q[1] + ey).L(q[0] - ex * 1.05, q[1] + ey).Z(), "skin", { tone: -1, stroke: null });
-        }
+        strokeVar(lid, [[q[0] - ex, q[1]], [q[0], q[1] - ey * 0.35], [q[0] + ex, q[1]]], [eyeR * 0.06, eyeR * 0.14, eyeR * 0.06]);
         em.add(lid, "ink", { stroke: null });
         continue;
       }
       em.add(new Pen().ellipse(q[0], q[1], ex, ey), "eyeWhite", { stroke: null });
-      const ir = (mood === "surprised" ? 0.48 : toony ? 0.66 : real ? 0.74 : 0.62);
+      const ir = MV({ surprised: 0.48, _: toony ? 0.66 : real ? 0.74 : 0.62 });
       const ix = q[0] + gaze * ex * 0.3, iy = q[1] - ey * 0.04 + gazeY * ey * 0.22;
       em.add(new Pen().ellipse(ix, iy, ex * ir, ey * ir * 1.05), "eye", { stroke: null });
       em.add(new Pen().ellipse(ix - ex * 0.22, iy + ey * 0.28, ex * (real ? 0.1 : 0.2), ey * (real ? 0.12 : 0.2)), "eyeWhite", { tone: 1, stroke: null });
       // réaliste : paupière supérieure couleur peau sur le haut de l'iris
       if (real) em.add(new Pen().M(q[0] - ex * 1.05, q[1] + ey * 0.35).Q(q[0], q[1] + ey * 0.95, q[0] + ex * 1.05, q[1] + ey * 0.35).L(q[0] + ex * 1.05, q[1] + ey * 1.3).L(q[0] - ex * 1.05, q[1] + ey * 1.3).Z(), "skin", { stroke: null });
+      // ensommeillé : paupière lourde qui descend sur l'œil (proportionnelle au poids de l'humeur)
+      const sl = wOf("sleepy");
+      if (sl > 0.02) {
+        const yl = q[1] + ey * (1.3 - 1.45 * sl);
+        em.add(new Pen().M(q[0] - ex * 1.08, q[1] + ey * 1.3).L(q[0] + ex * 1.08, q[1] + ey * 1.3).L(q[0] + ex * 1.08, yl).Q(q[0], yl - ey * 0.25 * sl, q[0] - ex * 1.08, yl).Z(), "skin", { tone: -1, stroke: null });
+      }
       // paupière supérieure (trait de cils), plissée selon l'humeur
-      const tilt = mood === "angry" ? -0.3 : mood === "sad" ? 0.3 : 0;
+      const tilt = MV({ angry: -0.3, sad: 0.3 });
       const inner = -s * (gaze >= 0 ? 1 : 1);
       const lidPts: P2[] = [[q[0] - ex * 1.1, q[1] + ey * 0.25 + tilt * ey * inner], [q[0], q[1] + ey * 1.02], [q[0] + ex * 1.1, q[1] + ey * 0.25 - tilt * ey * inner]];
       em.add(strokeVar(new Pen(), lidPts, real ? [eyeR * 0.03, eyeR * 0.07, eyeR * 0.04] : [eyeR * 0.05, eyeR * 0.15, eyeR * 0.07]), "ink", { stroke: null });
-      if (mood === "happy") em.add(new Pen().M(q[0] - ex * 1.1, q[1] - ey * 1.1).Q(q[0], q[1] - ey * 0.15, q[0] + ex * 1.1, q[1] - ey * 1.1).Z(), "skin", { stroke: null });
+      // joie : paupière basse qui remonte (yeux plissés)
+      const hp = wOf("happy");
+      if (hp > 0.02) em.add(new Pen().M(q[0] - ex * 1.1, q[1] - ey * 1.1).Q(q[0], q[1] - ey * (1.1 - 0.95 * hp), q[0] + ex * 1.1, q[1] - ey * 1.1).Z(), "skin", { stroke: null });
     }
     // sourcils
     for (const s of [-1, 1]) {
-      const raise = mood === "surprised" ? 0.09 : mood === "happy" ? 0.03 : 0;
-      const innerDy = mood === "angry" ? -0.07 : mood === "sad" ? 0.08 : 0;
-      const outerDy = mood === "sad" ? -0.04 : mood === "angry" ? 0.03 : 0;
+      const raise = MV({ surprised: 0.09, happy: 0.03 });
+      const innerDy = MV({ angry: -0.07, sad: 0.08 });
+      const outerDy = MV({ sad: -0.04, angry: 0.03 });
       const latB = toony ? 0.2 : 0.22;
       const a = onHead(s * 0.16, latB + raise + innerDy), m = onHead(s * 0.4, latB + raise + 0.035), b = onHead(s * 0.64, latB + raise + outerDy - 0.02);
       if (vis(s * 0.4, latB) < 0.02) continue;
@@ -764,42 +774,32 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       em.add(pen, "skin", { tone: Math.abs(faceVis) > 0.85 ? -1 : 0, width: 0.5 });
       if (faceVis > 0.5) em.add(new Pen().ellipse(u[0] + side * w * 0.2, u[1] + w * 0.15, w * 0.45, w * 0.22), "skin", { tone: -2, stroke: null, alpha: 0.7 });
     }
-    // bouche
+    // bouche : courbe et ouverture interpolées entre humeurs (surprise = bouche ronde, joie toon = rire ouvert)
     const mv = vis(0, -0.46);
     if (mv > -0.15) {
-      const mw = toony ? 0.26 : 0.22;
-      const curve = mood === "happy" ? 0.09 : mood === "sad" ? -0.07 : mood === "angry" ? -0.03 : mood === "neutral" ? 0.015 : 0;
+      const talk = clamp(c.talk ?? 0, 0, 1);
+      const su = wOf("surprised");
+      const mw = (toony ? 0.26 : 0.22) * (1 - 0.55 * su);
+      const curve = MV({ happy: 0.09, sad: -0.07, angry: -0.03, neutral: 0.015 });
+      const open = clamp(su * 0.9 + (toony ? wOf("happy") * 0.75 : 0) + talk, 0, 1.2);
       const lat0 = toony ? -0.48 : -0.46;
       const pts: P2[] = [];
       for (let i = 0; i <= 6; i++) {
         const t = i / 6, x = (t - 0.5) * 2;
-        pts.push(S(onHead(x * mw, lat0 + curve * (x * x) - curve * 0.3, 1.0)));
+        pts.push(S(onHead(x * mw, lat0 + curve * (x * x) - curve * 0.3 + su * 0.05 * (1 - x * x), 1.0)));
       }
-      const talk = clamp(c.talk ?? 0, 0, 1);
-      if (mood === "surprised") {
-        const q = S(onHead(0, lat0 - 0.02));
-        em.add(new Pen().ellipse(q[0], q[1], eyeR * 0.45 * Math.max(0.3, mv), eyeR * (0.6 + talk * 0.15)), "mouth", { tone: -1, width: 0.5 });
-      } else if (talk > 0.08) {
-        // parole : lèvre basse qui s'abaisse, intérieur sombre, langue
+      if (open > 0.08) {
+        // lèvre basse qui s'abaisse : intérieur sombre, langue quand elle est assez ouverte
         const low: P2[] = [];
         for (let i = 6; i >= 0; i--) {
           const t = i / 6, x = (t - 0.5) * 2;
-          low.push(S(onHead(x * mw * 0.92, lat0 + curve * (x * x) - curve * 0.3 - (0.03 + talk * 0.12) * (1 - x * x), 1.0)));
+          low.push(S(onHead(x * mw * 0.92, lat0 + curve * (x * x) - curve * 0.3 - (0.03 + open * 0.12) * (1 - x * x) * (1 + su * 0.6), 1.0)));
         }
         em.add(new Pen().smooth(pts, false, true).raw("").smooth([pts[pts.length - 1], ...low], false, false).Z(), "mouth", { tone: -1, width: 0.5 });
-        if (talk > 0.3) {
-          const tongue = S(onHead(0, lat0 - 0.02 - talk * 0.09));
-          em.add(new Pen().ellipse(tongue[0], tongue[1], eyeR * 0.3 * Math.max(0.3, mv), eyeR * 0.12 * talk), "accent", { stroke: null, alpha: 0.8 });
+        if (open > 0.3 && su < 0.5) {
+          const tongue = S(onHead(0, lat0 - 0.02 - open * 0.09));
+          em.add(new Pen().ellipse(tongue[0], tongue[1], eyeR * 0.3 * Math.max(0.3, mv), eyeR * 0.12 * Math.min(1, open)), "accent", { stroke: null, alpha: 0.8 });
         }
-      } else if (mood === "happy" && toony) {
-        const low: P2[] = [];
-        for (let i = 6; i >= 0; i--) {
-          const t = i / 6, x = (t - 0.5) * 2;
-          low.push(S(onHead(x * mw * 0.9, lat0 - 0.13 * (1 - x * x) + 0.02, 1.0)));
-        }
-        em.add(new Pen().smooth(pts, false, true).raw("").smooth([pts[pts.length - 1], ...low], false, false).Z(), "mouth", { tone: -1, width: 0.5 });
-        const tongue = S(onHead(0, lat0 - 0.08));
-        em.add(new Pen().ellipse(tongue[0], tongue[1], eyeR * 0.35 * Math.max(0.3, mv), eyeR * 0.18), "accent", { stroke: null, alpha: 0.8 });
       } else {
         const lk = p.lips === "full" ? 1.6 : p.lips === "thin" ? 0.65 : 1;
         if (p.lips === "full" && mv > 0.2) {
@@ -859,7 +859,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         pts = hull([...pts, S(madd(chin, hLft, rx * 0.25)), S(madd(chin, hLft, -rx * 0.25)), S(chin)]);
       }
       if (pts.length > 2) em.add(beard === "full" || beard === "long" ? bumpy(pts, rx * 0.05) : new Pen().smooth(pts, true), beard === "stubble" ? "bark" : "hair", { tone: beard === "stubble" ? 0 : -1, stroke: beard === "stubble" ? null : undefined, alpha: beard === "stubble" ? 0.55 : 1 });
-      if (beard !== "stubble" && beard !== "goatee" && mood !== "surprised") {
+      if (beard !== "stubble" && beard !== "goatee" && wOf("surprised") < 0.5) {
         // bouche dégagée dans la barbe
         const mq = S(onHead(0, -0.5));
         em.add(new Pen().ellipse(mq[0], mq[1], eyeR * 0.5 * Math.max(0.3, faceVis), eyeR * 0.14), "mouth", { tone: -1, stroke: null });

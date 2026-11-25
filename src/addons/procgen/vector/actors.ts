@@ -51,6 +51,8 @@ export type ActorRT = {
   blink: number;
   /** Cible du regard (`look` : acteur, objet, "camera"). */
   look: string;
+  /** Poids des humeurs, lissés vers `mood` (transition du visage). */
+  moodW: Record<string, number>;
   /** Fondu entre poses au changement d'état. */
   blend: PoseBlend;
   turn: number;
@@ -85,7 +87,7 @@ export class ActorSim {
       const params = look ? { ...a.params, ...look } : a.asset.generator === "animal" ? { ...a.params, ...ex } : (resolveParams(GENERATORS.character?.schema ?? {}, a.params, { rng: new Rng(a.id), vars: {} }, issues) as Record<string, unknown>);
       const rt: ActorRT = {
         model: a, params, mo: motionFor(a.asset), pos: [...a.pos], yaw: a.yaw, speed: 0, phase: (a.seed * 0.618) % 1, action: a.action, actionTime: 0, actionWeight: a.action === "idle" ? 0 : 1,
-        mood: String(a.params.mood ?? params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), blink: 0, look: "", blend: new PoseBlend(), turn: 0, zones: new Set(), hidden: false, lastIntent: "", W: [],
+        mood: String(a.params.mood ?? params.mood ?? "neutral"), path: null, goal: null, drive: null, wantSpeed: 0, wanderT: 1 + (a.seed % 5), blinkT: 1 + (a.seed % 3), blink: 0, look: "", moodW: { [String(a.params.mood ?? params.mood ?? "neutral")]: 1 }, blend: new PoseBlend(), turn: 0, zones: new Set(), hidden: false, lastIntent: "", W: [],
         seatY: a.seatY, standAt: a.standAt, reachY: a.reachY,
       };
       this.actors.set(a.id, rt);
@@ -391,6 +393,13 @@ export class ActorSim {
         this.onEvent({ type: "leave", payload: { zone: zn.id, actor: a.model.id } });
       }
     }
+    // visage : les humeurs glissent vers la nouvelle (même vitesse qu'en 3D)
+    const km = 1 - Math.exp(-dt * 7);
+    for (const m of new Set([...Object.keys(a.moodW), a.mood])) {
+      const v = (a.moodW[m] ?? 0) + ((m === a.mood ? 1 : 0) - (a.moodW[m] ?? 0)) * km;
+      if (v < 0.002 && m !== a.mood) delete a.moodW[m];
+      else a.moodW[m] = v;
+    }
     this.pose(a, dt);
   }
 
@@ -398,7 +407,7 @@ export class ActorSim {
     const sk = a.model.asset.skeleton!;
     const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" ? a.seatY : 0, reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
     const { pose } = a.mo.pose(st);
-    a.W = sk.world(a.blend.apply(pose, `${a.action}|${st.seatY ? 1 : 0}`, dt));
+    a.W = sk.world(a.blend.apply(pose, `${a.action}|${a.mood}|${st.seatY ? 1 : 0}`, dt));
   }
 
   /** Point regardé (monde) ou "camera" ; null : regard libre. */
@@ -413,7 +422,7 @@ export class ActorSim {
   }
 
   poses(): ActorPose[] {
-    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, talk: mouthOpen(a.action, this.time + a.model.seed), hands: handPose(a.action === "idle" && a.speed > 2.5 ? "run" : a.action, this.time + a.model.seed), gaze: this.gazeOf(a), speed: a.speed, hidden: a.hidden, seated: (a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0, colors: a.model.asset.colors as Record<string, string> | undefined }));
+    return [...this.actors.values()].map((a) => ({ id: a.model.id, obj: a.model.obj, sk: a.model.asset.skeleton!, W: a.W, pos: a.pos, yaw: a.yaw, params: { ...a.params, mood: a.mood }, blink: a.blink, moodW: { ...a.moodW }, talk: mouthOpen(a.action, this.time + a.model.seed), hands: handPose(a.action === "idle" && a.speed > 2.5 ? "run" : a.action, this.time + a.model.seed), gaze: this.gazeOf(a), speed: a.speed, hidden: a.hidden, seated: (a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0, colors: a.model.asset.colors as Record<string, string> | undefined }));
   }
 
   state(id: string) {

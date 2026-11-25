@@ -2760,7 +2760,7 @@ export class ProcgenView {
     const st: MotionState = { speed: a.speed, phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.turn, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
     const { pose: raw } = a.mo.pose(st);
     // fondu au changement d'action ou d'assise (pas de saut d'une pose à l'autre)
-    const pose = a.blend.apply(raw, `${a.action}|${st.seatY ? 1 : 0}|${a.ride ? 1 : 0}`, _dt);
+    const pose = a.blend.apply(raw, `${a.action}|${a.mood}|${st.seatY ? 1 : 0}|${a.ride ? 1 : 0}`, _dt);
     const W = sk.world(pose);
     a.mesh.userData.world = W;
     const S = sk.skinMatrices(W);
