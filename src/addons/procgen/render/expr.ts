@@ -7,7 +7,7 @@
 import * as THREE from "three";
 import type { Asset } from "../gen/types";
 import { EXPR_SLOTS, EXPR_TEX_W } from "./shaders";
-import { mouthOpen } from "../rig/face-motion";
+import { handPose, mouthOpen } from "../rig/face-motion";
 
 type Expr = NonNullable<Asset["expr"]>;
 
@@ -96,6 +96,8 @@ export class FaceState {
     // bouche : parole (syllabes irrégulières), mâche, cri de joie
     const t = this.time + seed;
     const talk = mouthOpen(action, t);
+    const hands = handPose(action, t);
+    const kh = 1 - Math.exp(-dt * 9);
     // regard libre : petits déplacements de temps en temps
     this.saccT -= dt;
     if (this.saccT <= 0) {
@@ -113,6 +115,7 @@ export class FaceState {
         this.w[i] += (talk - this.w[i]) * (1 - Math.exp(-dt * 25));
         return;
       }
+      if (c.endsWith(".l") || c.endsWith(".r")) return void (this.w[i] += ((hands[c] ?? 0) - this.w[i]) * kh);
       if (c === "gazeX") return void (this.w[i] = this.gaze[0]);
       if (c === "gazeY") return void (this.w[i] = this.gaze[1]);
       this.w[i] += ((c === target ? 1 : 0) - this.w[i]) * k;

@@ -16,7 +16,7 @@ import { ROLE } from "../../style/roles";
 import type { Anchor, Asset, SoftPiece } from "../types";
 import { type Decal, buildBodyField } from "./body";
 import { buildFace } from "./face";
-import { handFrame, handTemplate, placeHand } from "./hands";
+import { HAND_MORPHS, type HandMorph, handFrame, handTemplate, placeHand } from "./hands";
 import { buildHeadField } from "./head";
 import { heldToolBasis } from "../tool";
 import { buildItem } from "./items";
@@ -116,6 +116,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
   /* ---------- mains ---------- */
   const item = buildItem(look.item, H);
   const hands: Mesh[] = [];
+  const handMorphs: (Record<HandMorph, Float32Array> | null)[] = [];
   const grips: Record<string, V3> = {};
   const frames: Record<string, V3> = {};
   for (const s of ["l", "r"] as const) {
@@ -153,6 +154,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
       writeWeights(hm.skin, hm.weight, vv, new Map([[bi(`forearm.${s}`), 1 - wh], [bi(`hand.${s}`), wh]]));
     }
     hands.push(hm);
+    handMorphs.push(placed.morphs ?? null);
     grips[s] = placed.grip;
     frames[s] = t;
   }
@@ -203,7 +205,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
   };
   const bb = mesh.bounds();
   const hx = Math.max(P.shoulderHalf * 1.2, P.hipHalf * 1.4);
-  return { mesh, skeleton: skel, anchors, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: bb.max[1], soft: [...bf.soft, ...hf.soft], ...(face.expr ? { expr: { base: faceBase, ...face.expr } } : {}) };
+  return { mesh, skeleton: skel, anchors, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: bb.max[1], soft: [...bf.soft, ...hf.soft], ...(face.expr ? { expr: joinExpr(face.expr, faceBase, face.mesh.vertexCount, hands, handMorphs) } : {}) };
 }
 
 /**
@@ -293,6 +295,30 @@ function buildDecal(dc: Decal, field: Field, H: number): { mesh: Mesh; anchor: V
       break;
   }
   return { mesh: m, anchor: p };
+}
+
+/**
+ * Morphs du visage et des mains sur une seule plage (visage, puis main gauche, puis main droite, contigus dans le
+ * maillage) : canaux du visage, puis `fist.l`, `open.l`, `point.l`, `fist.r`, `open.r`, `point.r` (nuls pour une main
+ * qui tient un objet : sa prise reste fermée).
+ */
+function joinExpr(face: NonNullable<Asset["expr"]> | { count: number; channels: readonly string[]; data: Float32Array }, base: number, faceVerts: number, hands: Mesh[], morphs: (Record<HandMorph, Float32Array> | null)[]): NonNullable<Asset["expr"]> {
+  const sides = ["l", "r"];
+  const channels = [...face.channels, ...sides.flatMap((s) => HAND_MORPHS.map((m) => `${m}.${s}`))];
+  const count = faceVerts + hands.reduce((n, h) => n + h.vertexCount, 0);
+  const data = new Float32Array(channels.length * count * 3);
+  face.channels.forEach((_, c) => data.set(face.data.subarray(c * face.count * 3, (c + 1) * face.count * 3), c * count * 3));
+  let off = faceVerts;
+  hands.forEach((h, k) => {
+    const m = morphs[k];
+    if (m)
+      HAND_MORPHS.forEach((name, j) => {
+        const c = face.channels.length + k * HAND_MORPHS.length + j;
+        data.set(m[name], (c * count + off) * 3);
+      });
+    off += h.vertexCount;
+  });
+  return { base, count, channels, data };
 }
 
 function skinRigid(m: Mesh, bone: number) {
