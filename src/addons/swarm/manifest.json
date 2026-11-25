@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../schemas/addon-manifest.schema.json",
+  "id": "swarm",
+  "label": "Essaims",
+  "description": "Agents pilotés à 60 Hz : bancs et nuées (séparation, alignement, cohésion), errance, chercher, fuir, arriver, poursuivre, esquiver, suivre un chemin, descendre un champ de flux sur une grille à murs ; captures envoyées à un store. Publie nodes (x, y, rz ou x, z, ry) et une liste sprites pour sonic-2d",
+  "status": "experimental",
+  "enabledByDefault": true,
+  "requires": [],
+  "docs": "swarm.md",
+  "examples": [],
+  "components": [
+    {
+      "name": "sonic-swarm",
+      "description": "Essaim d'agents (200 au plus) : spec {bounds, edges: steer|wrap|bounce, grid {rows, cell}, seed, groups [{name, count, maxSpeed, maxForce, radius, view, separation, alignment, cohesion, wander, seek|flee|arrive|pursue|evade|flow {target: [x,y] | group:<nom> | agent:<nom> | dp:<chemin>, weight, radius}, path {points, loop}, catch {target, radius, respawn}, spawn, sprite}]} ; control = réglages en direct fusionnés par nom de groupe (+ paused) ; sortie {nodes, sprites, agents, count, catches, status, error}",
+      "props": {
+        "spec": { "type": "string", "description": "Description JSON ou chemin DataProvider" },
+        "control": { "type": "string", "description": "Chemin DataProvider des réglages en direct" },
+        "out-data-provider": { "type": "string" },
+        "plane": { "type": "string", "enum": ["screen", "xz"] },
+        "scale": { "type": "number" },
+        "rate": { "type": "number" },
+        "target": { "type": "string", "description": "Store qui reçoit les captures" },
+        "action": { "type": "string" }
+      }
+    }
+  ]
+}

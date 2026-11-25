@@ -15,6 +15,9 @@ import { cachedField, distanceField, downhill, gridPath, MAX_VISITS, reach, smoo
 import { Rng } from "./rng";
 import { fov, line, sightClear } from "./sight";
 import { fbm3, ridge2, warped2 } from "../noise";
+import { type Board, mcts, minimax, movesOf, readBoard, winnerOf } from "./board";
+import { delaunay, mst, triEdges, voronoiGrid } from "./voronoi";
+import { wfc } from "./wfc";
 
 type Opts = Record<string, unknown>;
 const opts = (o: unknown): Opts => readOptions(o) as Opts;
@@ -250,6 +253,145 @@ export function genNoise(w: unknown, h: unknown, o?: unknown): string[] | number
   return out as string[] | number[][];
 }
 
+export function genWfc(sample: unknown, w: unknown, h: unknown, seed: unknown, o?: unknown): string[] {
+  if (!Array.isArray(sample) || !sample.length) throw new Error("$genWfc : exemple attendu (lignes de texte)");
+  const op = opts(o);
+  const W = Math.max(1, Math.min(128, Math.floor(num(w, 1)))), H = Math.max(1, Math.min(128, Math.floor(num(h, 1))));
+  const fixed = Array.isArray(op.fixed) ? op.fixed.map(String) : undefined;
+  const out = wfc(sample.map(String), W, H, new Rng(seed), { periodic: !!op.periodic, wrapSample: !!op.wrapSample, fixed, tries: num(op.tries, 8) });
+  if (!out) throw new Error(fixed ? "$genWfc : cases imposées incompatibles avec l'exemple" : "$genWfc : pas de solution trouvée (autre graine, exemple plus riche)");
+  return out;
+}
+
+export function genVoronoi(w: unknown, h: unknown, seed: unknown, o?: unknown) {
+  const op = opts(o);
+  const W = Math.max(1, Math.min(256, Math.floor(num(w, 1)))), H = Math.max(1, Math.min(256, Math.floor(num(h, 1))));
+  const v = voronoiGrid(W, H, new Rng(seed), num(op.count, 8), num(op.relax, 0), op.metric === "manhattan" ? "manhattan" : "euclid");
+  const chars = [...String(op.values ?? "abcdefghijklmnopqrstuvwxyz")];
+  const rows: string[] = [];
+  for (let y = 0; y < H; y++) {
+    let s = "";
+    for (let x = 0; x < W; x++) s += chars[v.label[y * W + x] % chars.length];
+    rows.push(s);
+  }
+  return { rows, sites: v.sites };
+}
+
+function readPoints(p: unknown, what: string): [number, number][] {
+  if (!Array.isArray(p)) throw new Error(`${what} : liste de points [x, y] attendue`);
+  return p.map((q) => {
+    const c = Array.isArray(q) ? q : [(q as { x?: unknown })?.x, (q as { y?: unknown })?.y];
+    return [num(c[0], 0), num(c[1], 0)] as [number, number];
+  });
+}
+
+export function delaunayFn(points: unknown) {
+  const tris = delaunay(readPoints(points, "$delaunay"));
+  return { triangles: tris, edges: triEdges(tris) };
+}
+
+/** Arbre couvrant minimal euclidien (sous-graphe de Delaunay) : `[[i, j, longueur]…]`. */
+export function mstFn(points: unknown): [number, number, number][] {
+  const pts = readPoints(points, "$mst");
+  if (pts.length < 2) return [];
+  const edges = pts.length === 2 ? [[0, 1] as [number, number]] : triEdges(delaunay(pts));
+  // points alignés : pas de triangle, on les relie dans l'ordre le long de la droite
+  let list = edges;
+  if (!list.length) {
+    const order = pts.map((_, i) => i).sort((p, q) => pts[p][0] - pts[q][0] || pts[p][1] - pts[q][1]);
+    list = order.slice(1).map((i, k) => [order[k], i] as [number, number]);
+  }
+  const w = list.map(([a, b]) => [a, b, Math.hypot(pts[a][0] - pts[b][0], pts[a][1] - pts[b][1])] as [number, number, number]);
+  return mst(pts.length, w).map(([a, b, d]) => [a, b, round3(d)]);
+}
+
+// ——— plateaux (jeux d'alignement) ———
+
+function boardOpts(o: Opts) {
+  return { n: o.n == null ? undefined : num(o.n, 3), gravity: !!o.gravity, empty: typeof o.empty === "string" ? o.empty : undefined };
+}
+
+const cellXY = (b: Board, k: number): Cell => [k % b.w, Math.floor(k / b.w)];
+
+/** Premier pion rencontré (pour lire un plateau sans connaître les joueurs). */
+function firstStone(rows: unknown, o: Opts): string {
+  const e = typeof o.empty === "string" ? o.empty.slice(0, 1) : ".";
+  for (const r of Array.isArray(rows) ? rows : []) for (const c of String(r)) if (c !== e) return c;
+  return "x";
+}
+
+export function boardWinner(rows: unknown, o?: unknown) {
+  const op = opts(o);
+  const b = readBoard(rows, firstStone(rows, op), undefined, boardOpts(op));
+  const w = winnerOf(b);
+  return { winner: w.who ? b.chars[w.who] : null, line: w.line.map((k) => cellXY(b, k)), draw: !w.who && !movesOf(b).length };
+}
+
+export function boardMoves(rows: unknown, o?: unknown): Cell[] {
+  const op = opts(o);
+  const b = readBoard(rows, firstStone(rows, op), undefined, boardOpts(op));
+  if (winnerOf(b).who) return [];
+  return movesOf(b).map((k) => cellXY(b, k));
+}
+
+/** Joue un pion : case `[x, y]`, ou colonne (nombre ou `[x, …]`) avec `gravity`. Coup interdit : plateau inchangé. */
+export function boardPlay(rows: unknown, at: unknown, player: unknown, o?: unknown): unknown[] {
+  const op = opts(o);
+  const p = String(player ?? "x").slice(0, 1);
+  const b = readBoard(rows, p, undefined, boardOpts(op));
+  const x = Array.isArray(at) ? num(at[0], -1) : num(at, -1);
+  let k = -1;
+  if (b.gravity) {
+    for (let y = b.h - 1; y >= 0; y--) if (x >= 0 && x < b.w && !b.cells[y * b.w + x]) {
+      k = y * b.w + x;
+      break;
+    }
+  } else {
+    const c = readCell(at);
+    if (c && c[0] >= 0 && c[1] >= 0 && c[0] < b.w && c[1] < b.h && !b.cells[c[1] * b.w + c[0]]) k = c[1] * b.w + c[0];
+  }
+  if (k < 0) return rows as unknown[];
+  const g = readGrid(rows);
+  return writeGrid(rows as unknown[], g, new Map([[k, p]]));
+}
+
+/**
+ * Meilleur coup de `player` : `{move: [x, y], column, score, depth, nodes}` (null si la partie est finie).
+ * `algo` : `minimax` (défaut, parfait sur un petit plateau) ou `mcts` ; `depth` borne la recherche (petite = IA facile),
+ * `ms` le temps (40, 200 au plus), `iterations` et `seed` pour MCTS.
+ */
+export function boardBest(rows: unknown, player: unknown, o?: unknown) {
+  const op = opts(o);
+  const p = String(player ?? "x").slice(0, 1);
+  const b = readBoard(rows, p, typeof op.opponent === "string" ? op.opponent : undefined, boardOpts(op));
+  if (winnerOf(b).who) return null;
+  const moves = movesOf(b);
+  if (!moves.length) return null;
+  const ms = Math.max(1, Math.min(200, num(op.ms, 40)));
+  let r: { move: number; score: number; depth: number; nodes: number };
+  if (op.algo === "mcts") {
+    // gagner tout de suite, sinon parer : MCTS seul les rate parfois
+    const cells = b.cells;
+    let forced = -1;
+    for (const who of [1, 2] as const) {
+      for (const k of moves) {
+        cells[k] = who;
+        const w = winnerOf(b, cells).who === who;
+        cells[k] = 0;
+        if (w) {
+          forced = k;
+          break;
+        }
+      }
+      if (forced >= 0) break;
+    }
+    r = forced >= 0 ? { move: forced, score: 1, depth: 1, nodes: 0 } : mcts(b, new Rng(op.seed ?? 1), Math.max(1, Math.min(100_000, num(op.iterations, 3000))), ms);
+  } else r = minimax(b, Math.max(1, Math.min(20, num(op.depth, 12))), ms);
+  if (r.move < 0) return null;
+  const score = Math.abs(r.score) >= 1e8 ? (r.score > 0 ? "win" : "loss") : round3(r.score);
+  return { move: cellXY(b, r.move), column: r.move % b.w, score, depth: r.depth, nodes: r.nodes };
+}
+
 // ——— hasard à graine ———
 
 export function shuffled(list: unknown, seed: unknown) {
@@ -315,6 +457,15 @@ export function registerAlgoHelpers(e: Expression): void {
   r("genPoisson", genPoisson);
   r("genNoise", genNoise);
   r("noise", noiseAt);
+  r("genWfc", genWfc);
+  r("genVoronoi", genVoronoi);
+  r("delaunay", delaunayFn);
+  r("mst", mstFn);
+  // plateaux
+  r("boardWinner", boardWinner);
+  r("boardMoves", boardMoves);
+  r("boardPlay", boardPlay);
+  r("boardBest", boardBest);
   // hasard à graine
   r("shuffled", shuffled);
   r("pick", pick);

@@ -302,3 +302,90 @@ describe("recettes de algo.md", () => {
     expect([l.level, l.map.length]).toEqual([2, 17]);
   });
 });
+
+describe("lot 2 : WFC, Voronoï, Delaunay, plateaux", () => {
+  it("WFC n'emploie que des voisinages vus dans l'exemple", async () => {
+    const sample = ["~~~~~~", "~...~~", "~.^^.~", "~.^^.~", "~....~", "~~~~~~"];
+    const out = (await run(`$genWfc(s, 30, 20, 4)`, { s: sample })) as string[];
+    expect([out[0].length, out.length]).toEqual([30, 20]);
+    const pairs = new Set<string>();
+    const add = (rows: string[]) => rows.forEach((r, y) => [...r].forEach((c, x) => {
+      if (x + 1 < r.length) pairs.add("h" + c + r[x + 1]);
+      if (y + 1 < rows.length) pairs.add("v" + c + rows[y + 1][x]);
+    }));
+    add(sample);
+    const seen = new Set(pairs);
+    pairs.clear();
+    add(out);
+    for (const p of pairs) expect(seen.has(p)).toBe(true);
+    expect(await run(`$genWfc(s, 30, 20, 4)`, { s: sample })).toEqual(out);
+    const fixed = (await run(`$genWfc(s, 6, 4, 1, {"fixed": ["?????^"]})`, { s: sample })) as string[];
+    expect(fixed[0][5]).toBe("^");
+    await expect(run(`$genWfc(s, 6, 4, 1, {"fixed": ["Z"]})`, { s: sample })).rejects.toThrow(/imposées/);
+  });
+
+  it("Voronoï relaxé : autant de régions que de sites", async () => {
+    const v = (await run(`$genVoronoi(40, 30, 2, {"count": 6, "relax": 2, "values": "abcdef"})`)) as { rows: string[]; sites: number[][] };
+    expect(v.sites.length).toBe(6);
+    const chars = new Set(v.rows.join(""));
+    expect(chars.size).toBe(6);
+  });
+
+  it("Delaunay et arbre couvrant minimal", async () => {
+    const pts = [[0, 0], [10, 0], [0, 10], [10, 10], [5, 5]];
+    const d = (await run(`$delaunay(p)`, { p: pts })) as { triangles: number[][]; edges: number[][] };
+    expect(d.triangles.length).toBe(4);
+    expect(d.edges.length).toBe(8);
+    const m = (await run(`$mst(p)`, { p: pts })) as number[][];
+    expect(m.length).toBe(4);
+    expect(m.every((e) => e.includes(4))).toBe(true);
+    expect(((await run(`$mst([[0,0],[2,0],[1,0]])`)) as number[][]).length).toBe(2);
+  });
+
+  it("morpion : vainqueur, coups, minimax parfait", async () => {
+    expect(await run(`$boardWinner(["xxx", "oo.", "..."])`)).toMatchObject({ winner: "x", line: [[0, 0], [1, 0], [2, 0]], draw: false });
+    expect(await run(`$boardWinner(["xox", "xoo", "oxx"])`)).toMatchObject({ winner: null, draw: true });
+    // gagner tout de suite
+    expect(((await run(`$boardBest(["xx.", "oo.", "..."], "x")`)) as { move: number[] }).move).toEqual([2, 0]);
+    // parer
+    expect(((await run(`$boardBest(["x..", "oo.", "x.."], "x")`)) as { move: number[] }).move).toEqual([2, 1]);
+    // partie complète minimax contre minimax : nulle
+    let b: unknown = ["...", "...", "..."];
+    let p = "x";
+    for (let i = 0; i < 9; i++) {
+      const best = (await run(`$boardBest(b, p)`, { b, p })) as { move: number[] } | undefined;
+      if (!best) break;
+      b = await run(`$boardPlay(b, m, p)`, { b, m: best.move, p });
+      p = p === "x" ? "o" : "x";
+    }
+    expect(await run(`$boardWinner(b)`, { b })).toMatchObject({ winner: null, draw: true });
+  });
+
+  it("puissance 4 avec gravité : coup en colonne, parade, MCTS", async () => {
+    const empty = Array(6).fill(".......");
+    const b1 = (await run(`$boardPlay(b, 3, "x", {"gravity": true})`, { b: empty })) as string[];
+    expect(b1[5]).toBe("...x...");
+    const b = [".......", ".......", ".......", ".......", ".......", "xxx.oo."];
+    expect(((await run(`$boardBest(b, "o", {"gravity": true})`, { b })) as { column: number }).column).toBe(3);
+    expect(((await run(`$boardBest(b, "o", {"gravity": true, "algo": "mcts", "seed": 3})`, { b })) as { column: number }).column).toBe(3);
+    const t = ["..x....", "..o....", "..x....", "..o.o..", "..xxo..", ".oxxoxo"];
+    const r = (await run(`$boardBest(b, "x", {"gravity": true, "ms": 50})`, { b: t })) as { depth: number; nodes: number };
+    expect(r.depth).toBeGreaterThan(3);
+  });
+});
+
+describe("recette plateau de algo.md", () => {
+  it("le joueur joue une colonne, l'ordinateur répond, un coup interdit ne change rien", async () => {
+    const doc = readFileSync("src/addons/interactive/algo.md", "utf8");
+    const expr = /Computer turn in a reducer:\n\n```jsonata\n([\s\S]*?)\n```/.exec(doc)![1];
+    const e = (jsonata as unknown as (s: string) => import("jsonata").Expression)(expr);
+    registerAlgoHelpers(e);
+    const board = Array(6).fill(".......");
+    const s1 = (await e.evaluate({}, { state: { board, level: 4 }, action: { type: "play", payload: { column: 3 } } })) as { board: string[] };
+    expect(s1.board.join("").split("x").length - 1).toBe(1);
+    expect(s1.board.join("").split("o").length - 1).toBe(1);
+    const full = ["x......", "o......", "x......", "o......", "x......", "o......"];
+    const s2 = (await e.evaluate({}, { state: { board: full, level: 4 }, action: { type: "play", payload: { column: 0 } } })) as { board: string[] };
+    expect(s2.board).toEqual(full);
+  });
+});
