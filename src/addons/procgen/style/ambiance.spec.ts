@@ -29,7 +29,9 @@ describe("ambiances (procgen)", () => {
     expect(s.roles.road ?? s.roles.ground).toBeTruthy();
     expect(s.finishes.metal?.metal).toBe(1); // chrome
     expect(s.finishes.wall?.clear).toBe(1); // laque, fini par défaut des pièces fabriquées
-    expect(fxs(s)).toEqual(["couleur", "bloom", "neon", "aberration", "crt", "grain"]);
+    // contours : jamais par défaut ; néon des arêtes sur demande (`contours`)
+    expect(fxs(s)).toEqual(["couleur", "bloom", "aberration", "crt", "grain"]);
+    expect(fxs(resolveStyle({ ambiance: { base: "cyber", etalonnage: { contours: 0.8 } } }))).toContain("neon");
     expect(s.meteo).toEqual(["pluie"]);
     const c = resolveColors(s);
     // ciel d'horizon presque noir
@@ -43,8 +45,9 @@ describe("ambiances (procgen)", () => {
     expect(v.pixel).toBe(4);
     expect(fxs(v)).toContain("niveaux");
     expect(fxs(resolveStyle({ ambiance: "western" }))).toContain("sepia");
-    // contour sombre : contours du style (encre), pas de néon
-    const bd = resolveStyle({ ambiance: "cartoon" });
+    // pas de contours par défaut ; sur demande, contour sombre du style (encre), pas de néon
+    expect(resolveStyle({ ambiance: "cartoon" }).outlineStrength).toBe(0);
+    const bd = resolveStyle({ ambiance: { base: "cartoon", etalonnage: { contours: 0.9 } } });
     expect(fxs(bd)).not.toContain("neon");
     expect(bd.outlineStrength).toBeCloseTo(0.9, 5);
     expect(bd.roles.ink).toBe("#1c1c28");

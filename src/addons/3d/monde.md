@@ -42,7 +42,7 @@ du monde (`rot`), en **radians** dans `nodes` (format partagé). Euler ordre XYZ
 | `outline` | Contour des silhouettes 2D en px (défaut 1, 0 = aucun) |
 | `view2d` | Vue 2D : `{"view": "top" \| "side" \| "front" \| "iso", "unit": 48 (px par m), "origin": [x, y] (position écran de l'origine)}` |
 | `ciel`, `brume` | Fond 3D et brume (0 à 1) |
-| `traits` | Importance des traits (contours) des modèles `gen` : 0 aucun, 1 (défaut) celui du style, jusqu'à 3 ; 0,4 pour un rendu léger |
+| `traits` | Importance des traits (contours) des modèles `gen` : 0 aucun, 1 (défaut) celui du style, jusqu'à 3 ; 0,4 pour un rendu léger. Les styles n'ont pas de contours par défaut (sauf `encre` et `bd`) : `style: {outline: 1.6}` les active |
 | `style` | Style des modèles `gen` : préréglage procgen (`gouache`, `doux`, `bd`, `encre`, `aquarelle`, `papier`, `nuit`, `crepuscule`…) ou jetons `{preset, shading, bands, outline, palette…}` ; défaut selon `look` |
 
 ## Modèle
