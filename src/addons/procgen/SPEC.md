@@ -177,7 +177,7 @@ Ces décisions **priment** sur les sections précédentes quand elles divergent.
 - **DQS** dans le matériau unique ; correctifs d'articulation (échelle d'os d'aide) au coude et au genou ; os de torsion avant-bras en v3.1.
 - Vêtements fusionnés au corps en **un seul maillage** ; triangles de peau couverts supprimés ; épaisseur ≥ 1,5 voxel ; jupe/manteau : poids bassin + cuisses lissés.
 - Ancres = **repères complets** (position + orientation + échelle).
-- Proportions par archétype comptées **en têtes** : `chibi` (2,5), `cartoon` (4,5), `stylized` (6), `heroic` (7) ; pas d'interpolation libre entre eux ; micro-variations par graine (asymétrie, posture, tics d'idle) ; carnations et cheveux en palettes contraintes ; **clignement** des yeux.
+- Proportions par archétype comptées **en têtes** : `chibi` (2,5), `cartoon` (4,5), `stylized` (6), `heroic` (7), `realistic` (7,6 : adulte réel) ; pas d'interpolation libre entre eux ; micro-variations par graine (asymétrie, posture, tics d'idle) ; carnations et cheveux en palettes contraintes ; **clignement** des yeux.
 - Contraintes articulaires en **swing-twist** (table de la revue). IK : vecteur de pôle, **soft IK**, roulé du pied, abaissement du bassin si cible hors d'atteinte.
 - Locomotion : vitesse = foulée × cadence normalisées par la longueur de jambe ; cycle sur **poses clés** (contact, bas, passage, haut) avec événements de contact et **pieds verrouillés** ; avance par **distance parcourue** (aucun glissement en profil) ; rebond, lacet et bascule du bassin, contre-rotation des épaules, coude plus fléchi avec la vitesse, inclinaison avec la vitesse, tête stabilisée ; humeur = décalages des poses clés.
 

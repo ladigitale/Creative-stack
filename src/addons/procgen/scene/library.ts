@@ -128,7 +128,7 @@ export const SCENES: Record<string, Recipe & { label: string; tags: string[] }> 
   personnages: {
     label: "Galerie de personnages",
     tags: ["personnages", "avatars", "galerie"],
-    params: { archetype: { default: "stylized", options: ["chibi", "cartoon", "stylized", "heroic"], doc: "Archétype" } },
+    params: { archetype: { default: "stylized", options: ["chibi", "cartoon", "stylized", "heroic", "realistic"], doc: "Archétype" } },
     size: [16, 8],
     ground: { relief: 0, surface: "dirt" },
     layers: [
