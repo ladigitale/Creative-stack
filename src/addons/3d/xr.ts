@@ -3,6 +3,7 @@ import { customElement, property } from "lit/decorators.js";
 import { DeviceElement, policyAllows, type CommandArg, type CommandMap, type DeviceBaseState } from "../../shared/device/base";
 import { dispatch } from "../interactive";
 import type { Sonic3dXrHost } from "./3d";
+import { MagicWindow, requestOrientationPermission } from "./magic-window";
 
 const tagName = "sonic-xr";
 
@@ -22,8 +23,12 @@ export type XrInputInfo = {
 export type XrState = DeviceBaseState & {
   /** Mode de la session en cours (ou demandée), `null` hors session. */
   mode: XrMode | null;
-  /** Modes que l'appareil accepte (`isSessionSupported`), relus au montage. */
-  modes: { vr: boolean; ar: boolean };
+  /** Modes que l'appareil accepte (`isSessionSupported`), relus au montage ; `magic` : fenêtre magique (toujours possible). */
+  modes: { vr: boolean; ar: boolean; magic: boolean };
+  /** La fenêtre magique est ouverte (vue qui suit le téléphone, ou le glisser). */
+  magic: boolean;
+  /** Fenêtre magique : les capteurs d'orientation répondent (sinon : glisser pour tourner). */
+  sensors: boolean;
   /** Une session immersive est affichée. */
   presenting: boolean;
   /** Espace de référence obtenu (`local-floor` ou `local`). */
@@ -99,7 +104,11 @@ export function placePosition(bounds: { center: Vec3; min: Vec3 } | null, scale:
  * - `target` : id du `sonic-3d` (même arbre / shadow root, puis la page) ; `mode` : `vr` | `ar` | `auto`
  *   (AR si l'appareil l'accepte, sinon VR) ; `reference` : `local-floor` (défaut, repli `local`) ou `local`.
  * - `features` : `hand-tracking`, `hit-test` (AR), `dom-overlay` (avec `overlay` = id de l'élément affiché par-dessus).
- * - `for="bouton"` : le clic lance la session dans le geste ; `control` : `{enter, exit, toggle, place}`.
+ * - `for="bouton"` : le clic lance la session dans le geste ; `data-xr-mode="vr|ar|magic"` sur le bouton choisit le mode
+ *   (plusieurs boutons pour un seul sonic-xr) ; `control` : `{enter, exit, toggle, place, magic}`.
+ * - Fenêtre magique (`magic`, et repli du clic quand il n'y a ni casque ni AR, sauf `fallback="none"`) : la caméra se
+ *   place au centre de la scène à hauteur des yeux (`eye`) et suit les capteurs du téléphone (iPhone compris) ;
+ *   sans capteurs, glisser tourne la vue ; Échap ou un nouveau clic la referme.
  * - Placement : la scène est décalée (centre de sa boîte devant l'utilisateur à hauteur des yeux), `offset`
  *   `[x,y,z]` ajouté, `scale` ; en AR avec hit-test, `reticle` montre le point visé, `place` y pose la scène.
  * - Sélection des manettes : le même tap que `sonic-3d` (`pick` + action vers son `target`), et action
@@ -124,6 +133,12 @@ export class SonicXr extends DeviceElement<XrState> {
   @property({ type: Boolean }) reticle = false;
   /** Id du `sonic-store` qui reçoit `xr:select`. */
   @property({ type: String }) store = "";
+  /** Sans casque ni AR, le clic ouvre la fenêtre magique (`magic`, défaut) ou rien (`none`). */
+  @property({ type: String }) fallback = "magic";
+  /** Hauteur des yeux de la fenêtre magique (mètres, défaut 1,6 ; bornée par la hauteur de la scène). */
+  @property({ type: Number }) eye = 1.6;
+
+  private magicWin: MagicWindow | null = null;
 
   protected feature = "xr-spatial-tracking";
   protected state: XrState = {
@@ -133,7 +148,9 @@ export class SonicXr extends DeviceElement<XrState> {
     allowed: "unknown",
     active: false,
     mode: null,
-    modes: { vr: false, ar: false },
+    modes: { vr: false, ar: false, magic: true },
+    magic: false,
+    sensors: false,
     presenting: false,
     reference: null,
     hit: null,
@@ -152,9 +169,15 @@ export class SonicXr extends DeviceElement<XrState> {
 
   protected commands(): CommandMap {
     return {
-      enter: (a) => this.enter(a),
+      enter: (a) => (a.mode === "magic" ? this.startMagic() : this.enter(a)),
       exit: () => this.exit(),
-      toggle: (a) => (this.session ? this.exit() : this.enter(a)),
+      toggle: (a) => {
+        if (this.session || this.magicWin) return this.exit();
+        const immersive = this.state.modes.vr || this.state.modes.ar;
+        if (a.mode === "magic" || (!immersive && a.mode === undefined && this.fallback !== "none")) return this.startMagic();
+        return this.enter(a);
+      },
+      magic: () => (this.magicWin ? this.stopMagic() : this.startMagic()),
       place: () => this.place(),
     };
   }
@@ -164,7 +187,58 @@ export class SonicXr extends DeviceElement<XrState> {
     void this.probe();
   }
 
+  /** `data-xr-mode="vr|ar|magic"` sur le bouton cliqué choisit le mode (plusieurs boutons pour un seul sonic-xr). */
+  protected clickArg(el: Element): CommandArg {
+    const m = el.getAttribute("data-xr-mode");
+    return m === "vr" || m === "ar" || m === "magic" ? { mode: m } : {};
+  }
+
+  /** Fenêtre magique : regarder autour de soi sans casque (capteurs du téléphone, ou glisser). */
+  startMagic(): boolean {
+    if (this.magicWin) return true;
+    if (this.session) {
+      this.patch({ status: "error", error: "une session immersive est déjà ouverte" });
+      return false;
+    }
+    const host = this.targetHost();
+    if (!host) {
+      this.patch({ status: "error", error: "scène sonic-3d introuvable ou pas encore prête (target)" });
+      return false;
+    }
+    // permission des capteurs (iOS) demandée dans le geste ; refusée : le glisser reste possible
+    const perm = requestOrientationPermission();
+    const win = new MagicWindow(host, host.renderer.domElement, Number(this.eye) || 1.6);
+    this.magicWin = win;
+    win.start();
+    document.addEventListener("keydown", this.onKey);
+    this.patch({ status: "ready", error: null, active: true, magic: true, sensors: false, mode: null });
+    void perm.then(() => {
+      // les capteurs répondent en quelques dizaines de ms quand ils existent
+      setTimeout(() => {
+        if (this.magicWin === win) this.patch({ sensors: win.sensors });
+      }, 600);
+    });
+    this.emit("sonic-xr-change", this.getState());
+    return true;
+  }
+
+  stopMagic(): boolean {
+    const win = this.magicWin;
+    if (!win) return true;
+    this.magicWin = null;
+    win.stop();
+    document.removeEventListener("keydown", this.onKey);
+    this.patch({ status: "idle", active: false, magic: false, sensors: false });
+    this.emit("sonic-xr-change", this.getState());
+    return true;
+  }
+
+  private onKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") this.stopMagic();
+  };
+
   disconnectedCallback(): void {
+    this.stopMagic();
     void this.exit();
     super.disconnectedCallback();
   }
@@ -174,7 +248,8 @@ export class SonicXr extends DeviceElement<XrState> {
     const xr = xrSystem();
     const allowed = policyAllows(this.feature);
     if (!xr) {
-      this.patch({ supported: false, allowed, status: "unsupported", error: "WebXR non disponible dans ce navigateur (HTTPS requis)" });
+      // sans WebXR, la fenêtre magique reste possible (sauf fallback="none")
+      this.patch({ supported: false, allowed, ...(this.fallback === "none" ? { status: "unsupported" as const, error: "WebXR non disponible dans ce navigateur (HTTPS requis)" } : {}) });
       return;
     }
     const ask = async (m: string) => {
@@ -189,8 +264,14 @@ export class SonicXr extends DeviceElement<XrState> {
     this.patch({
       supported: true,
       allowed,
-      modes: { vr, ar },
-      ...(this.session ? {} : none ? { status: "unsupported" as const, error: "aucun casque ni mode AR disponible sur cet appareil" } : { status: "idle" as const, error: null }),
+      modes: { vr, ar, magic: true },
+      ...(this.session || this.magicWin
+        ? {}
+        : none
+          ? this.fallback === "none"
+            ? { status: "unsupported" as const, error: "aucun casque ni mode AR disponible sur cet appareil" }
+            : { status: "idle" as const, error: null }
+          : { status: "idle" as const, error: null }),
     });
   }
 
@@ -317,6 +398,7 @@ export class SonicXr extends DeviceElement<XrState> {
   }
 
   async exit(): Promise<boolean> {
+    if (this.magicWin) return this.stopMagic();
     const s = this.session;
     if (!s) return true;
     try {
