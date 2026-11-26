@@ -5,6 +5,7 @@
  * retenue) et captures. Voisins trouvés par grille de hachage : coût ~linéaire en nombre d'agents.
  */
 import { type Grid, readGrid } from "../../shared/algo/grid";
+import { SmoothWalls } from "../../shared/algo/walls";
 import { cachedField } from "../../shared/algo/path";
 import { Rng } from "../../shared/algo/rng";
 
@@ -69,8 +70,12 @@ export interface WorldSpec {
   bounds?: [number, number, number, number];
   /** `steer` (retenue douce, défaut), `wrap` (tore), `bounce`. */
   edges?: "steer" | "wrap" | "bounce";
-  /** Murs : grille de algo (lignes de texte), `cell` = taille d'une case en unités du monde. */
-  grid?: { rows: string[]; cell?: number; walls?: string; costs?: Record<string, number>; diag?: boolean };
+  /**
+   * Murs : grille de algo (lignes de texte), `cell` = taille d'une case en unités du monde. `smooth` (0 à 4, comme
+   * `$gridContours`) : les agents heurtent les parois lissées, celles que `$gridContours` dessine avec le même `smooth`,
+   * au lieu des cases carrées.
+   */
+  grid?: { rows: string[]; cell?: number; walls?: string; costs?: Record<string, number>; diag?: boolean; smooth?: number };
   seed?: number | string;
   groups?: GroupSpec[];
 }
@@ -120,6 +125,8 @@ export class Swarm {
   bounds: [number, number, number, number] = [0, 0, 800, 600];
   edges: NonNullable<WorldSpec["edges"]> = "steer";
   grid: Grid | null = null;
+  /** Parois lissées (`grid.smooth`), null : cases carrées. */
+  walls: SmoothWalls | null = null;
   cell = 32;
   private gridSpec: WorldSpec["grid"] | null = null;
   private rng: Rng;
@@ -140,6 +147,9 @@ export class Swarm {
       this.cell = Math.max(1, Number(spec.grid.cell) || 32);
       this.grid = readGrid(spec.grid.rows, { walls: spec.grid.walls, costs: spec.grid.costs, diag: spec.grid.diag ?? true });
     }
+    this.walls = this.grid && spec.grid && spec.grid.smooth != null && Number.isFinite(Number(spec.grid.smooth))
+      ? wallsFor(this.grid, spec.grid, this.cell)
+      : null;
     const groups = (spec.groups ?? []).filter((g) => g && typeof g.name === "string").slice(0, 16);
     let total = 0;
     const keep: Agent[] = [];
@@ -222,6 +232,10 @@ export class Swarm {
     if (!g) return false;
     const cx = Math.floor(x / this.cell), cy = Math.floor(y / this.cell);
     if (cx < 0 || cy < 0 || cx >= g.w || cy >= g.h) return true;
+    if (this.walls) {
+      const hit = this.walls.query(x, y);
+      if (hit) return !hit.free;
+    }
     return g.cost[cy * g.w + cx] === Infinity;
   }
 
@@ -422,7 +436,16 @@ export class Swarm {
         }
       }
       // murs : répulsion des cases pleines proches, le long de la normale (deux murs d'un couloir s'annulent)
-      if (this.grid) {
+      if (this.walls) {
+        // parois lissées : écartement selon la normale de la paroi la plus proche
+        const range = radius + this.cell * 0.4;
+        const hit = this.walls.query(a.x, a.y);
+        if (hit && (!hit.free || hit.dist < range)) {
+          const m = hit.free ? 1 - hit.dist / range : 1.5;
+          const along = a.vx * hit.nx + a.vy * hit.ny;
+          steer(a.vx - Math.min(0, along) * hit.nx + hit.nx * maxSpeed * m, a.vy - Math.min(0, along) * hit.ny + hit.ny * maxSpeed * m, 2);
+        }
+      } else if (this.grid) {
         const range = radius + this.cell * 0.4;
         const cx = Math.floor(a.x / this.cell), cy = Math.floor(a.y / this.cell);
         let px = 0, py = 0;
@@ -551,4 +574,18 @@ export class Swarm {
     const m = Math.hypot(gx, gy);
     return m > 0 ? [gx / m, gy / m] : null;
   }
+}
+
+/** Parois lissées partagées entre essaims et reconfigurations (une grille de niveau est relue à chaque description). */
+const wallsCache = new Map<string, SmoothWalls>();
+function wallsFor(grid: Grid, spec: NonNullable<WorldSpec["grid"]>, cell: number): SmoothWalls {
+  const smooth = Math.max(0, Math.min(4, Math.floor(Number(spec.smooth))));
+  const key = `${smooth}|${cell}|${spec.walls ?? ""}|${spec.rows.join("\n")}`;
+  let w = wallsCache.get(key);
+  if (!w) {
+    w = new SmoothWalls(grid, (k) => grid.cost[k] !== Infinity, { smooth, scale: cell });
+    if (wallsCache.size >= 4) wallsCache.delete(wallsCache.keys().next().value as string);
+    wallsCache.set(key, w);
+  }
+  return w;
 }
