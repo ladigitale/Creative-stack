@@ -297,8 +297,10 @@ float roleTexture(int role, vec3 p, vec3 n) {
     // touffes et mottes (~30 cm), moucheture fine effacée sous le pixel : le sol se lit sans faire grossier
     float clump = fbm3(g * 3.2);
     float fsp = 1.0 - smoothstep(0.004, 0.02, length(fwidth(p)));
-    float tuft = vnoise(g * 9.0);
-    return (macro - 0.5) * 0.18 + (clump - 0.5) * 0.15 + (tuft - 0.5) * 0.1 + (speck - 0.5) * 0.11 * fsp;
+    // grain fin de l'herbe (brins, ~1 et ~3 cm) plutôt que des taches : effacé dès qu'il tombe sous le pixel
+    float fw = length(fwidth(p));
+    float blades = (vnoise(g * 95.0) - 0.5) * (1.0 - smoothstep(0.002, 0.007, fw)) + (vnoise(g * 38.0) - 0.5) * 0.7 * (1.0 - smoothstep(0.005, 0.02, fw));
+    return (macro - 0.5) * 0.4 + (clump - 0.5) * 0.12 + (speck - 0.5) * 0.16 * fsp + blades * 0.45;
   }
   if (role == 10 || role == 11) return (fbm3(p * 7.5) - 0.5) * 0.26 + (vnoise(p * 30.0) - 0.5) * 0.06;
   if (role >= 17 && role <= 19) { // tissus : trame fine (fils croisés), à peine de marbrure
@@ -354,6 +356,13 @@ void main() {
   base = mix(base, base * vec3(1.06, 1.0, 0.9), (vVar > 0.5 ? 1.0 : -0.6) * abs(var) * (role == 5 ? 0.9 : 0.1));
   // tissus, cuir, peau, cheveux : motif pris en repère local (il suit le corps animé au lieu de glisser dessus)
   base *= 1.0 + roleTexture(role, (role >= 17 && role <= 22) || role == 14 || role == 26 || role >= 32 ? vPosL : vPosW, vNormalW) * uTexture;
+  if (role == 1) {
+    // herbe : plaques plus sèches (jaunies) et plus drues (vert sombre) : la teinte se lit mieux que la seule valeur
+    float dry = smoothstep(0.4, 0.68, fbm3(vec3(vPosW.x, 0.0, vPosW.z) * 0.45));
+    float lush = smoothstep(0.46, 0.74, fbm3(vec3(vPosW.x + 17.0, 0.0, vPosW.z - 9.0) * 0.8));
+    base = mix(base, base * vec3(1.22, 1.1, 0.66), min(1.0, dry * 1.5 * uTexture));
+    base = mix(base, base * vec3(0.7, 0.88, 0.74), min(1.0, lush * 1.3 * uTexture));
+  }
   vec3 N = normalize(vNormalW);
   if (!gl_FrontFacing) N = -N;
   // relief de détail procédural (pierre, enduit, toiture, bois, écorce, sol) : gradient d'un bruit, sans texture
@@ -366,11 +375,11 @@ void main() {
     N = normalize(N - (g - N * dot(g, N)) * bumpK * 0.12);
     if (role <= 3) {
       // sol : petites mottes (~5 cm) en plus des ondulations, effacées quand elles passent sous le pixel
-      float fk = 1.0 - smoothstep(0.006, 0.025, length(fwidth(vPosW)));
-      vec3 q2 = vPosW * 20.0;
+      float fk = 1.0 - smoothstep(0.003, 0.012, length(fwidth(vPosW)));
+      vec3 q2 = vPosW * 48.0;
       float m0 = vnoise(q2);
       vec3 g2 = vec3(vnoise(q2 + vec3(0.1, 0.0, 0.0)) - m0, 0.0, vnoise(q2 + vec3(0.0, 0.0, 0.1)) - m0) / 0.1;
-      N = normalize(N - (g2 - N * dot(g2, N)) * 0.05 * fk * uTexture * uDetail);
+      N = normalize(N - (g2 - N * dot(g2, N)) * 0.025 * fk * uTexture * uDetail);
     }
   }
   // relief fin des personnages et accessoires (tissus, cuir, peau, cheveux, papier) : carte de hauteur procédurale
