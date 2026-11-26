@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qFromTo, qMul, qRot, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb"] as const;
 /** Poses à bord (posées par la conduite, pas des ordres d'acteur) : mains au volant, à califourchon, à la rame. */
 export const RIDE_ACTIONS = ["drive", "ride", "row"] as const;
 export type Action = (typeof ACTIONS)[number] | (typeof RIDE_ACTIONS)[number];
@@ -310,6 +310,10 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   let stanceDrop = 0;
   let kickFoot: { p: V3; pitch: number } | null = null;
   let hangLift = 0, hangSwing = 0;
+  // danse : pas marqués (décalage des pieds) ; nage : corps à l'horizontale ; escalade : élévation le long de la paroi
+  let footOff: { l: V3; r: V3 } | null = null;
+  let swimK = 0, swimBob = 0, swimKick = 0;
+  let climbLift = 0, climbPh = 0;
   const settle = at < 0.6 ? 1 + 0.08 * Math.sin((at / 0.6) * Math.PI) * (1 - at / 0.6) * 2 : 1;
   const raiseArm = (s: "l" | "r", abduct: number, forward: number, elbowDeg: number) => {
     const sg = s === "l" ? 1 : -1;
@@ -495,6 +499,84 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       over["hand.l"] = qAxis([0, 0, 1], 15 * DEG);
       aimItem([0, 1, 0.1], [0, 0, 1], "z");
       stance = { l: [0.04, 0, -0.12], r: [-0.02, 0, 0.14] };
+      break;
+    }
+    case "dance": {
+      // danse à 112 battements par minute : rebond sur le temps, pas de côté qui marquent chaque temps, quatre
+      // enchaînements de bras (8 temps chacun) tirés par acteur et qui tournent
+      const beat = (at * 112) / 60, b = beat % 1, n = Math.floor(beat);
+      const bounce = 0.5 - 0.5 * Math.cos(b * TAU);
+      const side = n % 2 ? 1 : -1;
+      const move = (Math.floor(beat / 8) + Math.floor(rnd(31) * 4)) % 4;
+      const tap = Math.sin(Math.PI * b);
+      const fs = side > 0 ? "l" : "r";
+      footOff = { l: [0, 0, 0], r: [0, 0, 0] };
+      footOff[fs] = [side * leg * 0.14 * tap, leg * 0.07 * tap, leg * 0.03 * tap];
+      stance = { l: [0.05, 0, 0], r: [-0.05, 0, 0] };
+      stanceDrop = leg * (0.02 + 0.045 * (1 - bounce));
+      const sw = Math.sin(beat * Math.PI);
+      if (move === 0) {
+        // bras pliés qui balancent en opposition
+        aimArm(over, "l", 25 + 25 * sw, 18, 95, 30);
+        aimArm(over, "r", 25 - 25 * sw, 18, 95, 30);
+      } else if (move === 1) {
+        // bras levés qui ondulent d'un côté à l'autre
+        for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) aimDir(over, s2, [sg2 * 0.45 + 0.35 * sw, 1, 0.25], 25, 0, 10);
+      } else if (move === 2) {
+        // disco : le bras droit pointe en haut puis traverse en bas, l'autre main sur la hanche
+        aimDir(over, "r", side > 0 ? [-0.55, 0.85, 0.3] : [0.35, -0.6, 0.6], 6, 0, 0);
+        aimArm(over, "l", 10, 35, 105, -40);
+      } else {
+        // épaules qui roulent, avant-bras devant
+        aimArm(over, "l", 40, 14, 100, 35);
+        aimArm(over, "r", 40, 14, 100, 35);
+        over["clavicle.l"] = qAxis([0, 0, 1], 9 * Math.max(0, sw) * DEG);
+        over["clavicle.r"] = qAxis([0, 0, 1], 9 * Math.min(0, sw) * DEG);
+      }
+      over.spine = qEuler(0, 10 * side * bounce * DEG, 6 * sw * DEG);
+      over.chest = qEuler(-3 * DEG, -6 * sw * DEG, -4 * sw * DEG);
+      over.head = qEuler((6 * bounce - 3) * DEG, 8 * sw * DEG, 5 * sw * DEG);
+      break;
+    }
+    case "swim": {
+      // crawl : corps à l'horizontale à la surface, bras en moulinet alternés (entrée devant, traction sous le
+      // corps, sortie à la hanche, retour coude haut au-dessus de l'eau), battements de jambes, roulis du corps et
+      // respiration sur le côté tous les deux mouvements
+      swimK = 1;
+      const c = at * 0.75;
+      for (const [s2, sg2, ph2] of [["r", -1, 0], ["l", 1, 0.5]] as const) {
+        const a = TAU * (c + ph2);
+        const rec = Math.sin(a) < 0;
+        aimDir(over, s2, [sg2 * 0.2, Math.cos(a), Math.sin(a)], rec ? 70 * -Math.sin(a) + 15 : 20, rec ? 40 : 10, 30);
+        over[`clavicle.${s2}`] = qAxis([0, 0, 1], sg2 * 12 * Math.max(0, Math.cos(a)) * DEG);
+      }
+      const roll = Math.sin(TAU * c);
+      over.spine = qEuler(0, 18 * roll * DEG, 0);
+      over.chest = qEuler(0, 10 * roll * DEG, 0);
+      const breath = Math.max(0, Math.sin(TAU * c * 0.5)) ** 2;
+      over.neck = qEuler(-25 * DEG, 0, 0);
+      over.head = qEuler(-15 * DEG, 55 * breath * DEG, 0);
+      swimBob = Math.sin(TAU * c * 2) * leg * 0.015;
+      swimKick = Math.sin(at * 3 * TAU);
+      break;
+    }
+    case "climb": {
+      // escalade (paroi, échelle, filet) : la main droite et le pied gauche montent ensemble, puis l'inverse ; le
+      // corps s'élève jusqu'à la prise visée (reachY) ou un mètre et demi, puis reste agrippé
+      const ub = sk.bone("upperarm.r")!, fb = sk.bone("forearm.r")!;
+      const reach = ub.head[1] + len(sub(ub.tail, ub.head)) + len(sub(fb.tail, fb.head));
+      const top = st.reachY !== undefined ? Math.max(0, st.reachY - reach) : leg * 1.6;
+      climbLift = Math.min(top, at * leg * 0.45);
+      const going = climbLift < top - 1e-3 ? 1 : 0.25;
+      climbPh = at * 0.8;
+      for (const [s2, sg2, ph2] of [["r", -1, 0], ["l", 1, 0.5]] as const) {
+        const u = (((climbPh + ph2) % 1) + 1) % 1;
+        const up = going * (u < 0.5 ? Math.sin(u * TAU) : 0);
+        aimDir(over, s2, [sg2 * 0.3, 1, 0.45 - 0.15 * up], 30 + 40 * (1 - up), 20, 60);
+        over[`clavicle.${s2}`] = qAxis([0, 0, 1], sg2 * (14 + 8 * up) * DEG);
+      }
+      over.spine = qEuler(-8 * DEG, 0, 0);
+      over.head = qEuler(-14 * DEG, 0, 0);
       break;
     }
     case "hang": {
@@ -743,7 +825,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const standLift = Math.max(0, leg * 0.999 - (info.hipY - info.ankleY)) * (1 - sit);
   const bob0 = bob + standLift;
   const hangY = hangLift * w;
-  const pelvisOffset: V3 = [sway, bob0 - drop + jumpY + hangY, hangSwing * leg * 0.04 * w];
+  const climbY = climbLift * w;
+  const pelvisOffset: V3 = [sway, bob0 - drop + jumpY + hangY + climbY, hangSwing * leg * 0.04 * w];
   const beta = mix(0.62, 0.38, run);
   const lift = leg * mix(0.075, 0.2, run) * Math.min(1, vn * 1.3) * moving;
   const feetLocal: Record<"l" | "r", { p: V3; pitch: number; planted: boolean }> = { l: { p: [0, 0, 0], pitch: 0, planted: true }, r: { p: [0, 0, 0], pitch: 0, planted: true } };
@@ -781,6 +864,17 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       const o = stance[s], k = w * (1 - moving);
       feetLocal[s].p = [feetLocal[s].p[0] + o[0] * leg * k, feetLocal[s].p[1] + o[1] * leg * k, feetLocal[s].p[2] + o[2] * leg * k];
     }
+    if (footOff) {
+      const o = footOff[s];
+      feetLocal[s].p = [feetLocal[s].p[0] + o[0] * w, feetLocal[s].p[1] + o[1] * w, feetLocal[s].p[2] + o[2] * w];
+      if (o[1] > 1e-3) feetLocal[s].planted = false;
+    }
+    // escalade : pieds sur la paroi devant soi, qui montent en alternance avec la main opposée
+    if (climbY > 0) {
+      const u = (((climbPh + (s === "l" ? 0 : 0.5)) % 1) + 1) % 1;
+      const up = u < 0.5 ? Math.sin(u * TAU) : 0;
+      feetLocal[s] = { p: [feetLocal[s].p[0] * 0.9, climbY + leg * (0.08 + 0.3 * up), leg * 0.3], pitch: -10, planted: false };
+    }
     if (kickFoot && s === "r") feetLocal[s] = { p: kickFoot.p.map((x) => x * w) as V3, pitch: kickFoot.pitch * w, planted: false };
     // suspendu : pieds dans le vide, pointes vers le bas, jambes qui suivent le balancement avec retard
     if (hangY > 0) {
@@ -798,7 +892,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   }
   // passes : position du bassin, puis IK, puis abaissement si hors d'atteinte
   let pose: Pose = { rot, root: toWorld(pelvisOffset), rootRot: yawQ };
-  for (let pass = 0; pass < 2; pass++) {
+  for (let pass = 0; pass < (swimK > 0 ? 0 : 2); pass++) {
     pose = { rot, root: toWorld([pelvisOffset[0], pelvisOffset[1], pelvisOffset[2]]), rootRot: yawQ };
     const W = sk.world(pose);
     const Wq = sk.worldQuats(W);
@@ -871,6 +965,22 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     rot["hand.r"] = qSlerp(rot["hand.r"] ?? qId(), qMul(qConj(T), h), w);
   }
 
+  if (swimK > 0) {
+    // nage : le corps bascule à l'horizontale autour du bassin, posé à la surface (l'appelant met l'acteur au niveau
+    // de l'eau) ; jambes tendues qui battent, pointes allongées
+    const th = 82 * DEG * w;
+    const sY = -leg * 0.06 + swimBob;
+    pelvisOffset[0] = 0;
+    pelvisOffset[1] = sY - info.hipY * Math.cos(th) + (1 - w) * info.hipY;
+    pelvisOffset[2] = -info.hipY * Math.sin(th);
+    for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) {
+      rot[`thigh.${s2}`] = qSlerp(rot[`thigh.${s2}`] ?? qId(), qAxis([1, 0, 0], (12 * sg2 * swimKick - 4) * DEG), w);
+      rot[`shin.${s2}`] = qSlerp(rot[`shin.${s2}`] ?? qId(), hinge(sk, `shin.${s2}`, -(12 + 8 * Math.max(0, sg2 * swimKick))), w);
+      rot[`foot.${s2}`] = qSlerp(rot[`foot.${s2}`] ?? qId(), qAxis([1, 0, 0], 50 * DEG), w);
+    }
+    pose = { rot, root: toWorld(pelvisOffset), rootRot: qMul(yawQ, qAxis([1, 0, 0], th)) };
+    return { pose, feet: { l: toWorld(feetLocal.l.p), r: toWorld(feetLocal.r.p) } };
+  }
   pose = { rot, root: toWorld(pelvisOffset), rootRot: yawQ };
   return { pose, feet: { l: toWorld(feetLocal.l.p), r: toWorld(feetLocal.r.p) } };
 }

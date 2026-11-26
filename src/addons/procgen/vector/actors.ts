@@ -116,7 +116,7 @@ export class ActorSim {
       const toSeat = typeof it.target === "string" && /\.sit\.\d+$/.test(it.target);
       const toBall = typeof it.target === "string" && !!this.balls?.byId.get(it.target);
       // boire, manger, dormir vers une cible : l'action commence à l'arrivée
-      const atTarget = typeof it.target === "string" && !toBall && (it.action === "drink" || it.action === "eat" || it.action === "sleep");
+      const atTarget = typeof it.target === "string" && !toBall && (it.action === "drink" || it.action === "eat" || it.action === "sleep" || it.action === "climb" || it.action === "hang");
       a.actionDur = Number.isFinite(it.duration) && Number(it.duration) > 0 ? Number(it.duration) : undefined;
       // en route vers une place (ou un ballon), l'acteur marche : il ne s'assied (ou ne tire) qu'à l'arrivée
       if (it.action && !(toSeat && it.action === "sit") && !atTarget && !(toBall && it.action === "kick") && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
@@ -167,6 +167,11 @@ export class ActorSim {
             const spm = /^spot(?:\.(\d+))?$/.exec(sa);
             const ap = spm ? o.anchors[spm[1] !== undefined ? `approach.${spm[1]}` : "approach"] : undefined;
             if (spm && atTarget) then = { action: it.action as Action, spot: o.anchors[sa] };
+            // grimper, se suspendre : jusqu'à l'ancre visée (ou le haut de l'objet), monté depuis son pied
+            if (atTarget && (it.action === "climb" || it.action === "hang") && !then) {
+              const sp = (an && o.anchors[an]) || o.anchors.top || ([o.pos[0], o.pos[1] + (o.height ?? 2), o.pos[2]] as V3);
+              then = { action: it.action as Action, spot: sp };
+            }
             const p = (sm && o.anchors[`approach.${sm[1]}`]) || ap || (sa && o.anchors[sa]) || o.anchors.door || o.pos;
             [x, z] = [p[0], p[2]];
           }
