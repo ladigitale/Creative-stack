@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { camTweenAt, hitShape, layerTransform, parseLayers, parseSprite, pivotOffset, safeImageSrc, screenToLayer, visualKey } from "./model";
+import { camTweenAt, hitShape, lightOnScreen, readLights, layerTransform, parseLayers, parseSprite, pivotOffset, safeImageSrc, screenToLayer, visualKey } from "./model";
 import manifestJson from "./manifest.json";
 import parallaxe from "./examples/parallaxe.sdui.json";
 
@@ -151,6 +151,36 @@ describe("transition de caméra", () => {
     expect(first.cam.x).toBeGreaterThan(0);
     const end = camTweenAt(t, 5300);
     expect(end).toEqual({ cam: { x: 100, y: 50, zoom: 2 }, done: true });
+  });
+});
+
+describe("obscurité et lumières", () => {
+  it("lit l'ambiant, la liste et ses bornes ; ignore les couleurs douteuses", () => {
+    const l = readLights({ darkness: 1, lights: [{ x: 10, y: 20, r: 50, color: "#ffcc88", intensity: 5 }, { color: "url(javascript:x)", visible: true }, { visible: false }, 3] })!;
+    expect(l.ambient).toBe("#000000");
+    expect(l.lights).toHaveLength(2);
+    expect(l.lights[0]).toMatchObject({ x: 10, y: 20, r: 50, color: "#ffcc88", intensity: 2 });
+    expect(l.lights[1].color).toBe("#ffffff");
+    expect(readLights({ ambient: "#0b1a3a", lights: [] })!.ambient).toBe("#0b1a3a");
+    expect(readLights([{ x: 1 }])!.lights).toHaveLength(1);
+    expect(readLights(null)).toBeNull();
+  });
+
+  it("place la lumière à l'écran selon la caméra et le zoom", () => {
+    const l = readLights([{ x: 500, y: 300, r: 100 }])!.lights[0];
+    const cam = { x: 500, y: 300, zoom: 2 };
+    const s = lightOnScreen(l, [l.x, l.y], cam, 800, 600, 0);
+    expect(s).toMatchObject({ x: 400, y: 300, r: 200, intensity: 1 });
+  });
+
+  it("scintillement : varie dans le temps, reste entre 65 % et 100 %, déterministe", () => {
+    const l = readLights([{ name: "flamme", flicker: 1 }])!.lights[0];
+    const cam = { x: 0, y: 0, zoom: 1 };
+    const ks = Array.from({ length: 200 }, (_, i) => lightOnScreen(l, [0, 0], cam, 100, 100, i * 37).intensity);
+    expect(Math.min(...ks)).toBeGreaterThanOrEqual(0.649);
+    expect(Math.max(...ks)).toBeLessThanOrEqual(1);
+    expect(Math.max(...ks) - Math.min(...ks)).toBeGreaterThan(0.1);
+    expect(lightOnScreen(l, [0, 0], cam, 100, 100, 1234).intensity).toBe(lightOnScreen(l, [0, 0], cam, 100, 100, 1234).intensity);
   });
 });
 
