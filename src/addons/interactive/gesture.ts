@@ -17,20 +17,32 @@ export type GestureSettings = {
   pinch: boolean;
   wheel: boolean;
   press: boolean;
+  dragEvents: boolean;
+  rate: number;
 };
 
 const NUM_KEYS: Array<[keyof GestureSettings, number, number]> = [
   ["swipeThreshold", 1, 2000],
   ["longPressMs", 50, 10_000],
   ["doubleTapMs", 0, 2000],
+  ["rate", 1, 120],
 ];
-const BOOL_KEYS = ["drag", "pan", "pinch", "wheel", "press"] as const;
+const BOOL_KEYS = ["drag", "pan", "pinch", "wheel", "press", "dragEvents"] as const;
+/** Actions ponctuelles qui reçoivent aussi nx, ny (fraction bornée 0..1, comme u, v mais sans dépasser la zone). */
+const POSITIONED = new Set(["tap", "double-tap", "long-press"]);
+
+/** Ajoute nx, ny (fraction bornée) aux tap / double-tap / long-press. */
+export function withNormalized(a: GestureAction): GestureAction {
+  if (!POSITIONED.has(a.type) || !a.payload || "nx" in a.payload) return a;
+  const c = (v: unknown) => Math.min(1, Math.max(0, Number(v) || 0));
+  return { ...a, payload: { ...a.payload, nx: c(a.payload.u), ny: c(a.payload.v) } };
+}
 /** Actions transmises par une zone traversante pendant un geste à plusieurs doigts. */
 export const PASSTHROUGH_TYPES = new Set(["pan", "pan-end", "pinch-start", "pinch", "pinch-end"]);
 
 /**
  * Lit le DP `params` : `{ swipeThreshold (px, 1..2000), longPressMs (50..10000), doubleTapMs (0..2000), drag, pan,
- * pinch, wheel, press }`. Clé absente, `null` ou `""` : l'attribut s'applique. `invalid` : clés présentes mais illisibles
+ * pinch, wheel, press, dragEvents, rate (1..120) }`. Clé absente, `null` ou `""` : l'attribut s'applique. `invalid` : clés présentes mais illisibles
  * (ignorées).
  */
 export function readGestureParams(v: unknown): { settings: Partial<GestureSettings>; invalid: string[] } {
@@ -56,7 +68,11 @@ export function readGestureParams(v: unknown): { settings: Partial<GestureSettin
 /**
  * Zone tactile multipoint → actions vers un sonic-store (`target`).
  *
- * Toujours : tap / double-tap / long-press ({x, y, u, v} : px dans la zone et fraction), swipe-up|down|left|right.
+ * Toujours : tap / double-tap / long-press ({x, y, u, v, nx, ny} : px dans la zone et fraction, nx / ny bornées 0..1),
+ * swipe-up|down|left|right {x, y, nx, ny (point de départ), dx, dy, start, end}.
+ * `drag-events` : glisser continu d'un doigt drag:start {x, y, nx, ny}, drag:move {x, y, nx, ny, dx, dy, vx, vy}
+ *   (au plus `rate` par seconde, défaut 30 ; dx, dy en px depuis le départ, vx, vy en px/s), drag:end {…, start,
+ *   cancelled?} ; remplace le swipe du geste. `scroll="y"` (ou `x`) laisse défiler la page dans ce sens.
  * `drag` : drag {dx, dy} cumulés en fraction de la zone (1 doigt) + drag-end.
  * `pan` : pan {dx, dy, x, y} en px depuis l'action précédente (centre des doigts) + pan-end {dx, dy, vx, vy} ; pas de swipe.
  * `pinch` : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end (deux doigts).
@@ -66,7 +82,8 @@ export function readGestureParams(v: unknown): { settings: Partial<GestureSettin
  *   (ou que le geste est annulé), pour chaque doigt : jeu instrumental (note tenue tant que le doigt reste).
  * `passthrough` : ne capture rien et n'émet que les gestes à deux doigts (pan, pinch) et la molette : un doigt seul
  *   va aux éléments dessous (dessiner d'un doigt, déplacer / zoomer / tourner à deux).
- * `state-provider` : DataProvider qui reçoit {active, pointers, scale, rotation, panX, panY, x, y}.
+ * `state-provider` : DataProvider qui reçoit {active, pointers, scale, rotation, panX, panY, x, y, drag: {active, x, y, nx,
+ *   ny, dx, dy, vx, vy}}.
  * `params` : DP de réglages en direct {swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press},
  *   prioritaires sur les attributs (clé retirée : retour à l'attribut).
  */
@@ -77,6 +94,12 @@ export class SonicGesture extends LitElement {
       display: block;
       touch-action: none;
       user-select: none;
+    }
+    :host([scroll="y"]) {
+      touch-action: pan-y;
+    }
+    :host([scroll="x"]) {
+      touch-action: pan-x;
     }
   `;
 
@@ -108,6 +131,21 @@ export class SonicGesture extends LitElement {
   @property({ type: Boolean })
   press = false;
 
+  /** Glisser continu : drag:start / drag:move (≤ `rate` par seconde) / drag:end, en px et fraction, avec vitesse. */
+  @property({ type: Boolean, attribute: "drag-events" })
+  dragEvents = false;
+
+  /** drag:move par seconde au plus (1..120). */
+  @property({ type: Number })
+  rate = 30;
+
+  /**
+   * `y` (ou `x`) : la page peut défiler dans ce sens depuis la zone (`touch-action: pan-y`) ; les gestes dans ce sens
+   * sont alors pris par le navigateur (pointercancel). Vide (défaut) : la zone garde tous les gestes.
+   */
+  @property({ type: String, reflect: true, attribute: "scroll" })
+  scrollAxis = "";
+
   /**
    * Zone traversante : ne capture pas les pointeurs et n'émet que les gestes à deux doigts ou plus
    * (pan, pinch avec rotation) et la molette. Un doigt seul reste aux éléments dessous (toile de
@@ -122,7 +160,7 @@ export class SonicGesture extends LitElement {
   @property({ type: Boolean, attribute: "dispatch-event" })
   dispatchEventFlag = false;
 
-  /** DP de réglages en direct : `{ swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press }`. */
+  /** DP de réglages en direct : `{ swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press, dragEvents, rate }`. */
   @property({ type: String })
   params = "";
 
@@ -144,6 +182,8 @@ export class SonicGesture extends LitElement {
       pinch: this.pinch,
       wheel: this.wheel,
       press: this.press,
+      dragEvents: this.dragEvents,
+      rate: this.rate,
       ...this.live,
     };
   }
@@ -173,6 +213,8 @@ export class SonicGesture extends LitElement {
       drag: s.drag,
       pan: s.pan,
       pinch: s.pinch,
+      dragEvents: s.dragEvents,
+      rate: s.rate,
       width: r.width,
       height: r.height,
     };
@@ -256,7 +298,7 @@ export class SonicGesture extends LitElement {
     this.clearLong();
     this.releasePointer(e);
     // Un pointeur annulé (geste système) termine le geste sans tap ni swipe.
-    if (this.tracker.size <= 1) this.handle(this.tracker.cancel());
+    if (this.tracker.size <= 1) this.handle(this.tracker.cancel(this.options()));
     else this.handle(this.tracker.up(this.point(e), { ...this.options(), swipeThreshold: Infinity, longPressMs: 0 }));
   };
 
@@ -274,7 +316,8 @@ export class SonicGesture extends LitElement {
   private handle(actions: GestureAction[]): void {
     if (this.passthrough) actions = this.passthroughFilter(actions);
     if (!actions.length) return;
-    for (const a of actions) {
+    for (const raw of actions) {
+      const a = withNormalized(raw);
       if (CONTINUOUS.has(a.type)) {
         this.queue.push(a);
         if (this.frame == null) this.frame = requestAnimationFrame(() => this.flush());

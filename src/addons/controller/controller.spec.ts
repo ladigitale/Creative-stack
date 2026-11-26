@@ -3,7 +3,7 @@ import { get } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./controller";
 import { deadzone, type SonicController } from "./controller";
 
-type FakePad = { index: number; id: string; mapping: string; connected: boolean; axes: number[]; buttons: { pressed: boolean; value: number }[]; vibrationActuator?: { playEffect: (t: string, p: object) => Promise<void> } };
+type FakePad = { index: number; id: string; mapping: string; connected: boolean; axes: number[]; buttons: { pressed: boolean; value: number }[]; vibrationActuator?: { playEffect: (t: string, p: object) => Promise<void>; reset?: () => Promise<void> } };
 let pads: FakePad[] = [];
 const pad = (index = 0): FakePad => ({
   index, id: `Pad ${index}`, mapping: "standard", connected: true, axes: [0, 0, 0, 0],
@@ -70,5 +70,35 @@ describe("sonic-controller", () => {
     set("padCtl", { rumble: { n: 0 } });
     set("padCtl", { rumble: { n: 1, ms: 100 } });
     expect(effects).toBe(1);
+  });
+});
+
+describe("sonic-controller : vibration", () => {
+  it("pad ciblé, duration, stopRumble, état rumble et erreurs", async () => {
+    const calls: string[] = [];
+    const mk = (i: number, ok: boolean): FakePad => {
+      const p = pad(i);
+      if (ok) p.vibrationActuator = Object.assign({ playEffect: async (_t: string, o: object) => void calls.push(`play${i}:${(o as { duration: number }).duration}`) }, { reset: async () => void calls.push(`reset${i}`) });
+      return p;
+    };
+    pads = [mk(0, true), mk(1, false)];
+    document.body.innerHTML = `<sonic-controller id="padr" control="padRc"></sonic-controller>`;
+    const el = document.querySelector("sonic-controller") as SonicController;
+    await el.updateComplete;
+    el.poll();
+    expect(el.getState().rumble).toEqual({ supported: true, active: false });
+    const { set } = await import("@supersoniks/concorde/core/utils/PublisherProxy");
+    set("padRc", { rumble: { n: 0 }, stopRumble: 0 });
+    set("padRc", { rumble: { n: 1, duration: 9000, pad: 0 }, stopRumble: 0 });
+    expect(calls).toEqual(["play0:5000"]);
+    set("padRc", { rumble: { n: 1 }, stopRumble: 1 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toContain("reset0");
+    expect(await el.rumbleWith({ pad: 1 })).toBe(false);
+    expect(el.getState().error).toContain("ne sait pas vibrer");
+    expect(await el.rumbleWith({ pad: 3 })).toBe(false);
+    expect((get("padrState") as { error: string }).error).toContain("Aucune manette n° 3");
+    expect(await el.rumbleWith({ ms: 50, pad: 0 })).toBe(true);
+    expect(el.getState().error).toBeNull();
   });
 });

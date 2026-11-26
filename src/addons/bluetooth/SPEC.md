@@ -1,6 +1,6 @@
 # Addon `bluetooth` — cahier des charges
 
-Statut : **phases A et B livrées** (socle, `sonic-bluetooth`, `sonic-label-printer` avec `luck-aiyin`, `luck-lujiang`, `escpos`). Restent C et D. La validation sur matériel de `luck-aiyin` par ce dépôt reste à faire : le protocole suit la référence, vérifiée par son auteur sur un D11s.
+Statut : **phases A et B livrées** (socle, `sonic-bluetooth`, `sonic-label-printer` avec `luck-aiyin`, `luck-lujiang`, `escpos`). Phase D en partie : `niimbot`, `cat`, `phomemo` écrits ; phase C : MIDI BLE décodé par le profil `midi` du transport. Restent l'UART, les capteurs et les lumières. La validation sur matériel de `luck-aiyin` par ce dépôt reste à faire : le protocole suit la référence, vérifiée par son auteur sur un D11s.
 
 Objectif : qu'un artefact SDUI, sans JS, puisse **se connecter à un appareil Bluetooth Low Energy**, lire et écrire ses données par DataProvider, et piloter les familles d'appareils courantes par des **pilotes** (imprimantes d'étiquettes, liaisons série, capteurs standard, MIDI, lumières). Premier appareil visé et testable : l'imprimante d'étiquettes **Fichero** (Action).
 
@@ -200,9 +200,13 @@ Vecteur de test : image 96×240 → en-tête `1D 76 30 00 0C 00 F0 00`, 2880 oct
 |---|---|---|---|---|
 | `luck-lujiang` | autres Fichero (3561, 4575, 4437), LuckP, DP, L12, L13 | activation `10 FF F1 03`, fin `10 FF F1 45` ; largeur de tête par modèle | B | non testé |
 | `escpos` | imprimantes tickets 58 mm BLE génériques | `1B 40`, raster `GS v 0`, avance `1B 4A n` ; `width-px` requis (384 courant) | B | non testé |
-| `cat` | GB01/02/03, GT01, YT01, MX05 à MX10, X5 | trames `51 78 cmd 00 len 00 … crc8 FF`, 384 px ; énergie, qualité, avance | D | non testé |
-| `phomemo` | M110, M02, T02, D30 | ESC/POS avec extensions constructeur, morceaux de 128 | D | non testé |
-| `niimbot` | D11, D110, B1, B21, B1 Pro, B21 Pro, M2 | protocole à paquets, deux variantes de tâche d'impression | D | non testé |
+| `cat` | GB01/02/03, GT01, YT01, MX05 à MX10, X5 | trames `51 78 cmd 00 len 00 … crc8 FF`, 384 px ; énergie, qualité, avance | D | écrit d'après documentation, non testé sur matériel |
+| `phomemo` | M110, M02, T02, D30 | ESC/POS avec extensions constructeur, morceaux de 128 | D | écrit d'après documentation, non testé sur matériel |
+| `niimbot` | D11, D110, B1, B21, B1 Pro, B21 Pro, M2 | protocole à paquets, deux variantes de tâche d'impression | D | écrit d'après documentation, non testé sur matériel |
+
+`cat` : écrit (`printer/cat.ts`) d'après WerWolv, `rbaron/catprinter` et `NaitLee/Cat-Printer`, sans code repris. Sûr : cadre, CRC-8 (polynôme 0x07, vérifié sur les trames publiées), `a2` ligne de 48 octets bits inversés, `a1` avance, `a6` lattice, `a4` qualité, `af` énergie, `bd` vitesse, `be` mode, `ae` contrôle de flux venu de l'imprimante (respecté). Supposé : énergie et vitesse par noirceur, bits de l'octet d'état `a3`. Lignes envoyées quatre par écriture avec 15 ms de pause, morceaux du profil (20 octets, 10 ms). Compression `bf` des modèles récents absente.
+
+`phomemo` : écrit (`printer/phomemo.ts`), trois variantes choisies au nom. Sûr : `1B 40`, raster `GS v 0`, avance `1B 64 n`. Supposé : `1F 11 02 04` et requêtes de fin `1F 11 08 / 0E / 07 / 09` (M02), vitesse `1B 4E 0D`, noirceur `1B 4E 04`, papier `1F 11 0A|0B|26`, fin `1F F0 05 00 1F F0 03 00` (M110), préambule `1F 11 24 00` (D30). Aucune lecture d'état ni de batterie.
 
 `niimbot` : écrit (`printer/niimbot.ts`, cinq variantes de tâche reprises de `@mmote/niimbluelib`, sans dépendance), non testé sur matériel. Note d'origine : ne pas réécrire le protocole. Évaluer `@mmote/niimbluelib` (référence de NiimBlue) ou `niimbot-web-bluetooth` (MIT, sans dépendance) ; vérifier licence et taille, charger à la demande.
 
@@ -240,7 +244,7 @@ Table des modèles (`models.ts`) : préfixe de nom → `{ protocol, widthPx, dpi
 
 ### 5.3 MIDI BLE
 
-`sonic-midi ble="#bt"` : le transport apparaît comme un port d'entrée et de sortie portant le nom de l'appareil. Codec dans `src/shared/bluetooth/ble-midi.ts` (octets d'horodatage, statut courant, messages multiples par paquet), réutilise `parseMidi` et `encode`. Pas de SysEx, comme aujourd'hui. Avant de coder : vérifier si Web MIDI voit déjà les appareils BLE sur les cibles (c'est le cas quand le système les a appairés ; pas garanti sous Android).
+Livré autrement que prévu : le profil `midi` de `sonic-bluetooth` décode lui-même (codec pur `midi/ble-midi.ts` de cet addon : horodatage, statut courant, messages multiples par paquet, SysEx sur plusieurs paquets en réception) et publie `midi {last, notes, n, sent}`, action `midi:message` vers `target`, envoi `midiSend {n, bytes | hex}` (SysEx refusé en envoi). Forme des événements alignée sur `sonic-midi` (canal 1..16, valeurs 0..1), sans import entre addons. Écrit d'après la spécification, non testé sur matériel. Reste possible : `sonic-midi ble="#bt"` pour jouer un instrument. Avant de coder : vérifier si Web MIDI voit déjà les appareils BLE sur les cibles (c'est le cas quand le système les a appairés ; pas garanti sous Android).
 
 ### 5.4 `sonic-ble-light`
 

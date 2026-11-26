@@ -1,6 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, query } from "lit/decorators.js";
 import { Subscriber } from "@supersoniks/concorde/mixins";
+import { dispatch, type SonicActionMessage } from "./registry";
 
 const tagName = "sonic-matrix";
 
@@ -16,8 +17,49 @@ function pathGet(obj: unknown, path: string): unknown {
   return cur;
 }
 
+export type MatrixCell = { row: number; col: number };
+
+/** Cases traversées entre deux cases (incluses), sans saut, dans l'ordre du trajet (Bresenham). */
+export function cellsBetween(a: MatrixCell, b: MatrixCell): MatrixCell[] {
+  const out: MatrixCell[] = [];
+  let x = a.col;
+  let y = a.row;
+  const dx = Math.abs(b.col - x);
+  const dy = -Math.abs(b.row - y);
+  const sx = x < b.col ? 1 : -1;
+  const sy = y < b.row ? 1 : -1;
+  let err = dx + dy;
+  for (let guard = 0; guard < 1024; guard++) {
+    out.push({ row: y, col: x });
+    if (x === b.col && y === b.row) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y += sy;
+    }
+  }
+  return out;
+}
+
+/** `paint-value` : nombre si l'attribut en est un, sinon texte ; vide : absent. */
+function readPaintValue(v: string): number | string | undefined {
+  const t = (v ?? "").trim();
+  if (!t) return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : t;
+}
+
 /**
  * Rendu canvas d’une grille 2D (number[][] ou flat + cols) depuis dataProvider.
+ *
+ * Interaction (optionnelle) : `emit="cell"` envoie `matrix:cell` {row, col, value, index, stroke, first} au store
+ * `target` au clic d'une case (le défilement de la page reste libre). `paint` : appuyer puis glisser peint les cases
+ * traversées, une action par case nouvelle du geste (pas de doublon), `paint` = `paint-value` dans le payload si
+ * renseigné ; capture du pointeur et `touch-action: none` seulement dans ce mode.
  */
 @customElement(tagName)
 export class SonicMatrix extends Subscriber(LitElement) {
@@ -33,6 +75,14 @@ export class SonicMatrix extends Subscriber(LitElement) {
       width: 100%;
       height: auto;
       image-rendering: pixelated;
+    }
+    :host([emit="cell"]) canvas,
+    :host([paint]) canvas {
+      cursor: pointer;
+    }
+    :host([paint]) canvas {
+      touch-action: none;
+      user-select: none;
     }
   `;
 
@@ -72,9 +122,31 @@ export class SonicMatrix extends Subscriber(LitElement) {
   @property({ type: String, attribute: "label-key" })
   labelKey = "";
 
+  /** Store qui reçoit les actions `matrix:cell`. */
+  @property({ type: String })
+  target = "";
+
+  /** `cell` : un clic sur une case envoie `matrix:cell`. */
+  @property({ type: String, reflect: true })
+  emit = "";
+
+  /** Glisser pour peindre : une action `matrix:cell` par case traversée (implique `emit="cell"`). */
+  @property({ type: Boolean, reflect: true })
+  paint = false;
+
+  /** Valeur à peindre, recopiée dans `payload.paint` (nombre si possible). */
+  @property({ type: String, attribute: "paint-value" })
+  paintValue = "";
+
+  @property({ type: Boolean, attribute: "dispatch-event" })
+  dispatchEventFlag = false;
+
   @query("canvas") private canvas!: HTMLCanvasElement;
 
   private lastSig = "";
+  /** Geste de peinture en cours : pointeur, cases déjà envoyées, dernière case. */
+  private stroke: { id: number; seen: Set<number>; last: MatrixCell | null } | null = null;
+  private strokeCount = 0;
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -177,8 +249,94 @@ export class SonicMatrix extends Subscriber(LitElement) {
     }
   }
 
+  /** Case sous un point écran (null hors de la grille). Public pour les tests. */
+  cellAt(clientX: number, clientY: number): MatrixCell | null {
+    const grid = this.readGrid();
+    const h = grid.length;
+    const w = h ? grid[0].length : 0;
+    if (!w || !h || !this.canvas) return null;
+    const r = this.canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    const col = Math.floor(((clientX - r.left) / r.width) * w);
+    const row = Math.floor(((clientY - r.top) / r.height) * h);
+    if (col < 0 || row < 0 || col >= w || row >= h) return null;
+    return { row, col };
+  }
+
+  private send(cell: MatrixCell, first: boolean): void {
+    const grid = this.readGrid();
+    const w = grid[0]?.length ?? 0;
+    const value = Number(grid[cell.row]?.[cell.col]) || 0;
+    const payload: Record<string, unknown> = { row: cell.row, col: cell.col, value, index: cell.row * w + cell.col, stroke: this.strokeCount, first };
+    const pv = readPaintValue(this.paintValue);
+    if (pv !== undefined) payload.paint = pv;
+    const action: SonicActionMessage = { type: "matrix:cell", payload };
+    if (this.target) dispatch(this.target, action);
+    if (this.dispatchEventFlag) this.dispatchEvent(new CustomEvent("sonic-action", { detail: action, bubbles: true, composed: true }));
+  }
+
+  /** Envoie les cases de `from` à `to` pas encore vues dans le geste. */
+  private paintTo(to: MatrixCell): void {
+    const s = this.stroke;
+    if (!s) return;
+    const w = this.readGrid()[0]?.length ?? 0;
+    const path = s.last ? cellsBetween(s.last, to) : [to];
+    for (const c of path) {
+      const i = c.row * w + c.col;
+      if (s.seen.has(i)) continue;
+      s.seen.add(i);
+      this.send(c, s.seen.size === 1);
+    }
+    s.last = to;
+  }
+
+  private onClick = (e: MouseEvent) => {
+    if (this.paint || this.emit.trim() !== "cell") return;
+    const cell = this.cellAt(e.clientX, e.clientY);
+    if (!cell) return;
+    this.strokeCount++;
+    this.send(cell, true);
+  };
+
+  private onDown = (e: PointerEvent) => {
+    if (!this.paint) return;
+    if (e.button != null && e.button !== 0) return;
+    const cell = this.cellAt(e.clientX, e.clientY);
+    if (!cell) return;
+    e.preventDefault();
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointeur déjà relâché */
+    }
+    this.strokeCount++;
+    this.stroke = { id: e.pointerId, seen: new Set(), last: null };
+    this.paintTo(cell);
+  };
+
+  private onMove = (e: PointerEvent) => {
+    if (!this.stroke || e.pointerId !== this.stroke.id) return;
+    const cell = this.cellAt(e.clientX, e.clientY);
+    if (cell) this.paintTo(cell);
+  };
+
+  private onUp = (e: PointerEvent) => {
+    if (this.stroke && e.pointerId === this.stroke.id) this.stroke = null;
+  };
+
+  disconnectedCallback(): void {
+    this.stroke = null;
+    super.disconnectedCallback();
+  }
+
   render() {
-    return html`<canvas></canvas>`;
+    return html`<canvas
+      @click=${this.onClick}
+      @pointerdown=${this.onDown}
+      @pointermove=${this.onMove}
+      @pointerup=${this.onUp}
+      @pointercancel=${this.onUp}
+    ></canvas>`;
   }
 }
 

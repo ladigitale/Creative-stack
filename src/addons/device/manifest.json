@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "device",
   "label": "Appareil et navigateur",
-  "description": "API du navigateur en DataProviders, sans JS : plein écran, pointer lock, wake lock, orientation et capteurs, géolocalisation et lieux proches, presse-papiers, partage, vibration, état de la page, et un agrégateur de capacités (ce que la page hôte autorise). Manettes : addon controller ; MIDI : addon audio.",
+  "description": "API du navigateur en DataProviders, sans JS : plein écran, pointer lock, wake lock, orientation et capteurs, géolocalisation et lieux proches, presse-papiers, partage, vibration, état de la page, tags NFC (Web NFC), appareils HID (WebHID) et USB (WebUSB), et un agrégateur de capacités (ce que la page hôte autorise). Manettes : addon controller ; MIDI : addon audio.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -260,6 +260,116 @@
       }
     },
     {
+      "name": "sonic-nfc",
+      "description": "Tags NFC (Web NFC) : lecture des tags approchés du téléphone, écriture de texte, d'URL http(s) ou de JSON. for=\"idBouton\" : le clic lance scan (geste obligatoire, permission). Commandes control {scan:n, stop:n (arrête la lecture et annule une écriture en attente), write:{n, text} | {n, url} | {n, records:[{recordType:\"text\"|\"url\"|\"mime\", data, mediaType:\"application/json\"}]} (mime = JSON seulement ; 16 enregistrements, 8 Ko au plus ; attend qu'un tag soit approché), makeReadOnly:n (verrouillage définitif, refusé sans l'attribut allow-lock)}. État <id>State {status, error, supported, allowed, active, scanning, writing, serial, records:[{recordType, mediaType, text | url | json | size}], count, lastWrite:{records, at}}. Action nfc:read {serial, records} vers target à chaque tag lu ; événement sonic-nfc-read. Chrome sous Android seulement, en HTTPS, page visible ; pas d'iframe d'une autre origine. Non testé sur matériel",
+      "props": {
+        "target": {
+          "type": "string",
+          "description": "store qui reçoit l'action nfc:read {serial, records}"
+        },
+        "allow-lock": {
+          "type": "boolean",
+          "description": "autorise la commande makeReadOnly (irréversible)"
+        },
+        "no-overwrite": {
+          "type": "boolean",
+          "description": "write refuse un tag qui contient déjà un message"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n} ou {commande: {n, …arguments}}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance scan, dans le geste"
+        }
+      }
+    },
+    {
+      "name": "sonic-hid",
+      "description": "Appareil HID (WebHID) : boutons, pédaliers, claviers de macros, manettes non standard, capteurs. for=\"idBouton\" : le clic ouvre le sélecteur du navigateur (un seul appareil déjà autorisé qui correspond aux filtres est rouvert sans sélecteur) ; filters JSON [{vendorId, productId, usagePage, usage}] (identifiants en hexadécimal en chaîne ou nombre ; sans filters le sélecteur liste tous les appareils HID). auto-reconnect : rouvre au chargement et au rebranchement. Commandes control {connect:n | {n, pick:true}, close:n, sendReport:{n, reportId, bytes | hex}, sendFeatureReport:{n, reportId, bytes | hex} (4096 octets au plus), receiveFeatureReport:{n, reportId}, forget:n}. État <id>State {status, error, supported, allowed, active, device:{productName, vendorId, productId, collections:[{usagePage, usage}]}, last:{reportId, bytes, at, buttons?}, reports (keep derniers), feature:{reportId, bytes, at}, count}. profile=\"buttons\" : last.buttons = 8 booléens du premier octet ; gamepad-generic : octets bruts. Action hid:input {reportId, bytes, at, buttons?} vers target, au plus rate par seconde (dernier rapport jamais perdu). Événements sonic-hid-connect, sonic-hid-disconnect. Chromium sur ordinateur, en HTTPS ; claviers et souris masqués par le navigateur. Dans une iframe : allow=\"hid\". Non testé sur matériel",
+      "props": {
+        "filters": {
+          "type": "string",
+          "description": "JSON [{vendorId, productId, usagePage, usage}] ; vide = tous les appareils HID"
+        },
+        "auto-reconnect": {
+          "type": "boolean",
+          "description": "rouvre un appareil déjà autorisé au chargement et au rebranchement"
+        },
+        "keep": {
+          "type": "number",
+          "description": "rapports gardés dans reports (16 ; 0 à 64)"
+        },
+        "profile": {
+          "type": "string",
+          "description": "décodage : gamepad-generic (aucun) ou buttons (bits du premier octet)"
+        },
+        "target": {
+          "type": "string",
+          "description": "store qui reçoit l'action hid:input"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n} ou {commande: {n, …arguments}}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance connect, dans le geste"
+        },
+        "rate": {
+          "type": "number",
+          "description": "publications et actions par seconde au plus (30)"
+        }
+      }
+    },
+    {
+      "name": "sonic-usb",
+      "description": "Appareil USB (WebUSB) : cartes de développement, instruments, appareils à protocole maison. for=\"idBouton\" : le clic ouvre le sélecteur (un seul appareil déjà autorisé qui correspond est rouvert sans sélecteur) ; filters JSON [{vendorId, productId, classCode}] (sans filters : tous les appareils USB). Ouverture = open, selectConfiguration(configuration), claimInterface(interface). auto-reconnect : au chargement et au rebranchement. Commandes control {connect:n | {n, pick:true}, open:n, close:n, transferIn:{n, endpoint (1 à 15), length (64 ; 65536 au plus)}, transferOut:{n, endpoint, bytes | hex | text}, controlTransferIn:{n, setup:{requestType: standard|class|vendor, recipient: device|interface|endpoint|other, request, value, index}, length}, controlTransferOut:{n, setup, bytes | hex | text (facultatif)}, forget:n} ; 64 Ko au plus par transfert, un transfert à la fois. État <id>State {status, error, supported, allowed, active, device:{productName, manufacturerName, vendorId, productId, serialNumber}, claimed:{configuration, interface}, last:{endpoint (nombre ou \"control\"), bytes (4096 premiers), length, truncated, status: ok|stall|babble, at}, lastOut:{endpoint, bytesWritten, status, at}, transfers}. Action usb:in (= last) vers target à chaque réception. Événements sonic-usb-connect, sonic-usb-disconnect. Chromium (ordinateur, Android), en HTTPS ; interfaces HID, stockage, audio, vidéo protégées par le navigateur. Dans une iframe : allow=\"usb\". Non testé sur matériel",
+      "props": {
+        "filters": {
+          "type": "string",
+          "description": "JSON [{vendorId, productId, classCode, subclassCode, protocolCode}] ; vide = tous les appareils USB"
+        },
+        "configuration": {
+          "type": "number",
+          "description": "configuration choisie à l'ouverture (1)"
+        },
+        "interface": {
+          "type": "number",
+          "description": "interface réservée à l'ouverture (0)"
+        },
+        "auto-reconnect": {
+          "type": "boolean",
+          "description": "rouvre un appareil déjà autorisé au chargement et au rebranchement"
+        },
+        "target": {
+          "type": "string",
+          "description": "store qui reçoit l'action usb:in"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {commande: n} ou {commande: {n, …arguments}}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic lance connect, dans le geste"
+        }
+      }
+    },
+    {
       "name": "sonic-page-state",
       "description": "État de la page en DataProvider, sans permission : visible (onglet), focused, online, width, height, dpr, reducedMotion, colorScheme (light|dark), touch, hover. Sert à suspendre rendu et son quand visible vaut false. État <id>State {status, active, visible, focused, online, width, height, dpr, reducedMotion, colorScheme, touch, hover}",
       "props": {
@@ -275,7 +385,7 @@
     },
     {
       "name": "sonic-capabilities",
-      "description": "Ce que l'environnement autorise, en un DataProvider, sans ouvrir de demande de permission : pour fullscreen, pointerLock, wakeLock, gamepad, midi, orientation, clipboard, share, vibrate, camera, microphone, audio, screen, bluetooth, serial → {supported, allowed (Permissions Policy), permission}, plus embedded (iframe) et secureContext. À lire pour dégrader proprement. control {refresh:n} relit. État <id>State {status:\"ready\", embedded, secureContext, fullscreen:{…}, …}",
+      "description": "Ce que l'environnement autorise, en un DataProvider, sans ouvrir de demande de permission : pour fullscreen, pointerLock, wakeLock, gamepad, midi, orientation, clipboard, share, vibrate, camera, microphone, audio, screen, bluetooth, serial, nfc, hid, usb, xr, speechSynthesis, speechRecognition → {supported, allowed (Permissions Policy), permission}, plus embedded (iframe) et secureContext. À lire pour dégrader proprement. control {refresh:n} relit. État <id>State {status:\"ready\", embedded, secureContext, fullscreen:{…}, …}",
       "props": {
         "control": {
           "type": "string",

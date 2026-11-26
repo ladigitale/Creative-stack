@@ -80,7 +80,7 @@
     },
     {
       "name": "sonic-gamepad",
-      "description": "Manette (disposition standard, première manette) : boutons et stick gauche poussé à fond (ls-x-, ls-x+, ls-y-, ls-y+) -> actions store ; params (DP) {deadzone, keymap, repeat} en direct ; dataProvider / out-data-provider publie {status: idle|ready|error|unsupported, error, connected, id, deadzone}. Axes analogiques, gâchettes, plusieurs manettes, vibration : voir sonic-controller (addon controller)",
+      "description": "Manette (disposition standard, première manette) : boutons et stick gauche poussé à fond (ls-x-, ls-x+, ls-y-, ls-y+) -> actions store ; params (DP) {deadzone, keymap, repeat} en direct ; control (DP, compteurs) {rumble: {n, duration (ms, ≤ 5000, défaut 200), strong (0..1, défaut 0.8), weak (0..1, défaut 0.5), pad (index, défaut 0)}} fait vibrer, {stopRumble: n} arrête ; dataProvider / out-data-provider publie {status: idle|ready|error|unsupported, error, connected, id, deadzone, rumble: {supported, active}} (vibration impossible : message dans error, status inchangé). Vibration non testée sur matériel. Axes analogiques, gâchettes, plusieurs manettes : voir sonic-controller (addon controller)",
       "props": {
         "target": {
           "type": "string"
@@ -101,17 +101,21 @@
         },
         "dataProvider": {
           "type": "string",
-          "description": "Reçoit {status, error, connected, id, deadzone}"
+          "description": "Reçoit {status, error, connected, id, deadzone, rumble: {supported, active}}"
         },
         "out-data-provider": {
           "type": "string",
           "description": "Même état que dataProvider"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage {rumble: {n, duration, strong, weak, pad}, stopRumble: n}"
         }
       }
     },
     {
       "name": "sonic-gesture",
-      "description": "Gestes tactiles multipoints -> actions vers target. Toujours : tap / double-tap / long-press {x, y (px dans la zone), u, v (fraction)}, swipe-up|down|left|right. drag : drag {dx, dy} cumulés en fraction de la zone + drag-end. pan : pan {dx, dy, x, y} en px depuis l'action précédente + pan-end {dx, dy, vx, vy}, sans swipe. pinch : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end. wheel : molette -> pinch {source:\"wheel\"}. Continues regroupées par image. passthrough : zone traversante (aucune capture) qui n'émet que les gestes à deux doigts (pan, pinch avec rotation) et la molette, un doigt seul allant aux éléments dessous (dessiner d'un doigt, déplacer / zoomer / tourner à deux). press : press {id, x, y, u, v} au contact de chaque doigt, release au lever (jeu instrumental). params (DP) {swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press} en direct, prioritaire sur les attributs.",
+      "description": "Gestes tactiles multipoints -> actions vers target. Toujours : tap / double-tap / long-press {x, y (px dans la zone), u, v (fraction), nx, ny (fraction bornée 0..1)}, swipe-up|down|left|right {x, y, nx, ny (point de départ), dx, dy (px), start {x, y, nx, ny}, end {x, y, nx, ny}}. drag-events : glisser continu d'un doigt drag:start {x, y, nx, ny} (après 10 px), drag:move {x, y, nx, ny, dx, dy (px depuis le départ), vx, vy (px/s)} au plus rate par seconde (défaut 30), drag:end {x, y, nx, ny, dx, dy, vx, vy, start, cancelled?} (cancelled : deuxième doigt ou geste annulé) ; plus de swipe pour ce geste ; état drag dans state-provider. drag (historique) : drag {dx, dy} cumulés en fraction de la zone + drag-end. pan : pan {dx, dy, x, y} en px depuis l'action précédente + pan-end {dx, dy, vx, vy}, sans swipe. pinch : pinch-start, pinch {scale, dScale, rotation, dRotation, cx, cy}, pinch-end. wheel : molette -> pinch {source:\"wheel\"}. Continues regroupées par image. passthrough : zone traversante (aucune capture) qui n'émet que les gestes à deux doigts (pan, pinch avec rotation) et la molette, un doigt seul allant aux éléments dessous (dessiner d'un doigt, déplacer / zoomer / tourner à deux). press : press {id, x, y, u, v} au contact de chaque doigt, release au lever (jeu instrumental). scroll=\"y\" (ou x) : la page défile encore dans ce sens depuis la zone (par défaut la zone bloque tout défilement tactile). params (DP) {swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press, dragEvents, rate} en direct, prioritaire sur les attributs.",
       "props": {
         "target": {
           "type": "string",
@@ -147,7 +151,7 @@
         },
         "state-provider": {
           "type": "string",
-          "description": "DataProvider qui reçoit {active, pointers, scale, rotation, panX, panY, x, y}"
+          "description": "DataProvider qui reçoit {active, pointers, scale, rotation, panX, panY, x, y, drag: {active, x, y, nx, ny, dx, dy, vx, vy}}"
         },
         "dispatch-event": {
           "type": "boolean",
@@ -163,7 +167,19 @@
         },
         "params": {
           "type": "string",
-          "description": "DP de réglages en direct {swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press}"
+          "description": "DP de réglages en direct {swipeThreshold, longPressMs, doubleTapMs, drag, pan, pinch, wheel, press, dragEvents, rate}"
+        },
+        "drag-events": {
+          "type": "boolean",
+          "description": "Émet drag:start / drag:move (≤ rate par seconde) / drag:end en px et fraction, avec vitesse"
+        },
+        "rate": {
+          "type": "number",
+          "description": "drag:move par seconde au plus (1..120, défaut 30)"
+        },
+        "scroll": {
+          "type": "string",
+          "description": "y ou x : laisse la page défiler dans ce sens (touch-action pan-y / pan-x) ; vide : la zone garde tous les gestes"
         }
       }
     },
@@ -353,7 +369,7 @@
     },
     {
       "name": "sonic-matrix",
-      "description": "Grille 2D canvas",
+      "description": "Grille 2D canvas (key = chemin de la matrice number[][] dans le dataProvider, ou tableau plat + cols ; palette valeur→couleur). Interactif : emit=\"cell\" → un clic sur une case envoie l'action matrix:cell {row, col, value (valeur actuelle de la case), index (row × largeur + col), stroke (n° du geste), first} au store target (le défilement de la page reste libre) ; paint : appuyer puis glisser peint les cases traversées, une action matrix:cell par case nouvelle du geste (pas de doublon, cases sautées comblées), payload.paint = paint-value si renseigné (nombre si possible) ; capture du pointeur et touch-action: none seulement en mode paint. Reducer : $set($state, 'grid.' & $action.payload.row & '.' & $action.payload.col, $action.payload.paint)",
       "props": {
         "key": {
           "type": "string"
@@ -375,6 +391,26 @@
         },
         "label-key": {
           "type": "string"
+        },
+        "target": {
+          "type": "string",
+          "description": "Id du sonic-store qui reçoit matrix:cell"
+        },
+        "emit": {
+          "type": "string",
+          "description": "cell : un clic sur une case envoie matrix:cell"
+        },
+        "paint": {
+          "type": "boolean",
+          "description": "Glisser pour peindre (une action par case traversée, implique emit=cell)"
+        },
+        "paint-value": {
+          "type": "string",
+          "description": "Valeur recopiée dans payload.paint"
+        },
+        "dispatch-event": {
+          "type": "boolean",
+          "description": "Émet aussi l'événement DOM sonic-action"
         }
       }
     },

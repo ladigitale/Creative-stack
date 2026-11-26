@@ -13,6 +13,7 @@ import {
 import { bool, CounterTrigger } from "../../shared/media/control";
 import { VideoFrames, type FrameListener } from "../../shared/media/frames";
 import { TrackAdjuster } from "../../shared/media/track-controls";
+import { policyAllows } from "../../shared/device/base";
 import { revokeMediaUrls, type SonicFrameConsumerHost, type SonicFrameSource, type SonicMediaRef } from "../../shared/mediaRef";
 
 const tagName = "sonic-camera";
@@ -29,6 +30,10 @@ export type CameraState = {
   /** Dernière photo (SonicMediaRef : url blob:, dimensions). */
   snapshot: { url: string; width: number; height: number; mime: string } | null;
   snapshots: number;
+  /** `getUserMedia` existe dans ce navigateur (page en HTTPS). */
+  supported: boolean;
+  /** Autorisée par la Permissions Policy de la page hôte (`camera`) ; `"unknown"` si indétectable. */
+  allowed: boolean | "unknown";
 };
 
 /**
@@ -178,7 +183,7 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
   private cancelGesture: (() => void) | null = null;
   private state: CameraState = {
     status: "idle", error: null, active: false, facing: "user", width: 0, height: 0,
-    deviceId: null, devices: [], snapshot: null, snapshots: 0,
+    deviceId: null, devices: [], snapshot: null, snapshots: 0, supported: false, allowed: "unknown",
   };
 
   /* ---------------------------------------------------------------- */
@@ -309,7 +314,8 @@ export class SonicCamera extends LitElement implements SonicFrameSource, SonicFr
   }
 
   getState(): CameraState {
-    return { ...this.state, devices: [...this.state.devices] };
+    const supported = typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getUserMedia === "function";
+    return { ...this.state, devices: [...this.state.devices], supported, allowed: policyAllows("camera") };
   }
 
   /* ---------------------------------------------------------------- */

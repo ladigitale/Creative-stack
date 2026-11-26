@@ -7,6 +7,7 @@ import { listenDp } from "../../shared/audio/dp";
 import { stopStream, type CaptureStatus } from "../../shared/media/capture";
 import { bool, CounterTrigger } from "../../shared/media/control";
 import { VideoFrames } from "../../shared/media/frames";
+import { policyAllows } from "../../shared/device/base";
 import { revokeMediaUrls, type SonicFrameConsumerHost, type SonicFrameSource, type SonicMediaRef } from "../../shared/mediaRef";
 
 const tagName = "sonic-screen";
@@ -23,6 +24,10 @@ export type ScreenState = {
   audio: boolean;
   snapshot: { url: string; width: number; height: number; mime: string } | null;
   snapshots: number;
+  /** `getDisplayMedia` existe dans ce navigateur (bureau, page en HTTPS). */
+  supported: boolean;
+  /** Autorisée par la Permissions Policy de la page hôte (`display-capture`) ; `"unknown"` si indétectable. */
+  allowed: boolean | "unknown";
 };
 
 /**
@@ -125,7 +130,7 @@ export class SonicScreen extends LitElement implements SonicFrameSource, SonicFr
   private snapshotTrigger = new CounterTrigger();
   private unsubs: (() => void)[] = [];
   private state: ScreenState = {
-    status: "idle", error: null, active: false, surface: null, width: 0, height: 0, audio: false, snapshot: null, snapshots: 0,
+    status: "idle", error: null, active: false, surface: null, width: 0, height: 0, audio: false, snapshot: null, snapshots: 0, supported: false, allowed: "unknown",
   };
 
   get frameSeq(): number {
@@ -220,7 +225,8 @@ export class SonicScreen extends LitElement implements SonicFrameSource, SonicFr
   }
 
   getState(): ScreenState {
-    return { ...this.state };
+    const supported = typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function";
+    return { ...this.state, supported, allowed: policyAllows("display-capture") };
   }
 
   private listenControl(): void {

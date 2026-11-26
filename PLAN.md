@@ -125,7 +125,7 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 - [x] `sonic-shader channel0="#spectre"` reçoit une texture mise à jour à chaque image.
 - [x] Sampler : blob WAV transposé (A4 → A5 = 880 Hz), URL dangereuse refusée.
 - [x] Démo « Vie sonore » zéro JS : jeu de la vie en store, séquenceur en mode store, pluck + kit, fond shader piloté par l'analyseur.
-- [ ] `sonic-sample-osc` (sample comme oscillateur de patch) : reporté.
+- [x] `sonic-sample-osc` (sample comme oscillateur de patch) : module de `sonic-patch` (`root`, `loop`, `start`), vitesse = note / root.
 
 ## Phase 3 — critères d'acceptation (validés)
 
@@ -187,8 +187,8 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 - [x] Contrat commun (`src/shared/device/base.ts`) : état `status / error / supported / allowed / active`, pilotage par compteurs (`control`), clic direct (`for`, appel dans le geste), publication plafonnée avec dernier état toujours envoyé, nettoyage au retrait.
 - [x] Tests (jsdom, API doublées) : plein écran (entrée, sortie, Échap, refus, iPhone vidéo seule), pointer lock (cumul des deltas, retour à zéro, repli du mouvement brut, API sans promesse, `pointerlockerror`), wake lock (reprise au retour de l'onglet, intention gardée onglet masqué, refus puis geste), capteurs (permission iOS, lissage, `alpha` par le plus court chemin), presse-papiers (aucune lecture seule), partage (URL dangereuse refusée, annulation non fautive, repli copie), vibration (bornes, refus), état de la page, capacités (aucun appel `getUserMedia`, politique lue, permissions suivies).
 - [ ] À vérifier en navigateur réel (Chromium, Firefox, Safari iOS) : réussite effective du plein écran, du pointer lock et du wake lock depuis un clic SDUI (`for` et compteur), valeurs `allow` d'iframe du viewer Artefacts, capteurs sous iOS.
-- [ ] Démo combinée (plein écran + pointer lock + wake lock + manette) : à faire.
-- [ ] Alignement de `sonic-camera` et de l'audio sur l'état commun : non fait (leurs états `status` / `error` suivent déjà la convention ; `sonic-capabilities` fait sa propre détection).
+- [x] Démo combinée (plein écran + pointer lock + wake lock + manette) : artefact `demo-appareil` publié sur Tadaaa.
+- [x] Alignement de `sonic-camera` et `sonic-screen` sur l'état commun (`supported`, `allowed`, `active`) ; l'audio garde `status` / `error`.
 - [ ] `sonic-gamepad` et `sonic-midi` : déjà livrés (addons `controller`, `interactive`, `audio`), non refaits.
 
 ## Ce qui reste côté Concorde (prompt Cursor, non bloquant)
@@ -196,8 +196,8 @@ La balise décrit, le moteur construit : les modules sont des éléments déclar
 Le viewer garde ses composants visuels Concorde ; ces améliorations ne viendront donc que de Concorde :
 
 - `sonic-shader` / `sonic-webgpu` / `sonic-3d` : lire `getFrameSource()` quand il existe (caméra et vidéo sans copie canvas). En attendant, caméra et vidéo exposent `getFrameCanvas()`, déjà compris par les shaders.
-- `sonic-matrix` : `emit="cell"` / `paint` (case touchée vers un store).
-- `sonic-gesture` : coordonnées dans `tap`, `long-press`, `swipe`, et `drag` continu.
+- ~~`sonic-matrix` : `emit="cell"` / `paint`~~ : fait (addon interactive).
+- ~~`sonic-gesture` : coordonnées et glisser continu~~ : fait (`nx`/`ny`, `drag-events`).
 - `sonic-if` lié aux données et `sonic-value format` à restaurer en 5.x avant toute migration du viewer.
 
 ## Phase 1 — critères d'acceptation (validés)
@@ -208,3 +208,13 @@ Le viewer garde ses composants visuels Concorde ; ces améliorations ne viendron
 - [x] Dédoublonnage par `id` ; événement `when` passé de plus de 50 ms ignoré ; données invalides ignorées sans exception.
 - [x] Patch FM 2 opérateurs et `drums/kit` rendus : pas de NaN, pas de dépassement de 0 dBFS après le limiteur.
 - [x] Démo « Premier son » zéro JS : `sonic-keyboard` (Concorde) → `sonic-store` → `notes` → `sonic-patch preset="synth/lead"` + un patch écrit à la main.
+
+## Phase 9 — matériel, voix, XR, export (critères d'acceptation)
+
+- [x] Voix native : `sonic-speak` (speechSynthesis), `sonic-listen` (SpeechRecognition, mots-clés) — addon `speech`.
+- [x] WebXR : `sonic-xr` (addon 3d) ouvre un `sonic-3d` en VR / AR (`renderer.xr`, hit-test, sélection des manettes = tap).
+- [x] Export vidéo image par image : `sonic-video-export` (WebCodecs VP9/VP8, muxer WebM maison).
+- [x] Matériel : `sonic-nfc`, `sonic-hid`, `sonic-usb` (addon device) ; vibration des manettes (`rumble`) ; imprimantes `cat` et `phomemo`, MIDI BLE (addon bluetooth).
+- [x] Graphes : `sonic-graph` (addon plot, forces écrites à la main, Barnes-Hut).
+- [x] Analyse musicale : `features="pitch onset tempo"` de `sonic-audio-analyser` (YIN, flux spectral, autocorrélation).
+- [ ] À vérifier sur matériel et navigateur réels : casque XR, tags NFC, appareils HID / USB, imprimantes chat / Phomemo, MIDI BLE, vibration des manettes, reconnaissance vocale.

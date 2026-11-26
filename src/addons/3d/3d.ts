@@ -6,6 +6,7 @@ import { formBind, type FormOrbit } from "./form-bind";
 import { life } from "./life";
 import { outPublish } from "./out-publish";
 import { postBind } from "./post-bind";
+import { dispatch } from "../interactive";
 import type { SceneHit } from "./pick";
 import { playback } from "./playback";
 import { pointer } from "./pointer";
@@ -15,6 +16,28 @@ import { sonic3dStyles } from "./styles";
 import { status, type Sonic3dStatus } from "./status";
 import { propUpdate } from "./updated";
 import { wire } from "./wire";
+
+/**
+ * Accès à la scène pour `sonic-xr` (WebXR) : renderer, scène, caméra, et la boucle de `sonic-3d`
+ * suspendue pendant la session (`pause` / `resume`).
+ */
+export type Sonic3dXrHost = {
+  renderer: import("three").WebGLRenderer;
+  scene: import("three").Scene;
+  camera: import("three").Camera;
+  /** Suspend la boucle de la fenêtre et passe le runtime en rendu XR (sans post-effets ni étalonnage). */
+  pause(): void;
+  /** Rend la caméra, l'orbite, la taille et la boucle d'origine. */
+  resume(): void;
+  /** Une image XR (à appeler depuis `renderer.setAnimationLoop`). */
+  render(): void;
+  /** Boîte englobante du contenu, en coordonnées de la scène. */
+  bounds(): { center: [number, number, number]; min: [number, number, number]; max: [number, number, number] } | null;
+  /** Rayon en coordonnées monde : objet touché (mêmes filtres que le tap). */
+  pickRay(origin: [number, number, number], dir: [number, number, number]): (SceneHit & { instance?: string; src?: number }) | null;
+  /** Émet le tap de `sonic-3d` (`pick` + action vers `target`) pour un objet touché (coordonnées de la scène). */
+  tap(hit: (SceneHit & { instance?: string; src?: number }) | null): void;
+};
 
 /** Frames sans mouvement avant `rest` / `moving=0`. */
 const REST_STILL_FRAMES = 8;
@@ -64,6 +87,8 @@ export class Sonic3d extends Sonic3dProps {
   lastNodesJson = "";
   /** Début du pointerdown courant (tap vs drag). */
   tapStart: { x: number; y: number; t: number } | null = null;
+  /** Session WebXR en cours (`sonic-xr`) : boucle de la fenêtre suspendue. */
+  xrPresenting = false;
   /** Consommateurs live (`registerFrameConsumer`). */
   private frameConsumers = new Set<object>();
   /** 1 si caméra en mouvement, 0 sinon (publié en out). */
@@ -258,6 +283,55 @@ export class Sonic3d extends Sonic3dProps {
       this.stillFrames = 0;
       this.moving = 1;
     }
+  }
+
+  /**
+   * Hôte WebXR pour `sonic-xr` ; `null` tant que la scène n'est pas prête.
+   * Pendant la session, la boucle de la fenêtre est suspendue (le RAF ne tourne pas dans un casque) ;
+   * `render()` dessine une image sans post-effets ni étalonnage.
+   */
+  getXrHost(): Sonic3dXrHost | null {
+    const rt = this.runtime;
+    if (!rt || !this.ready) return null;
+    return {
+      renderer: rt.renderer,
+      scene: rt.scene,
+      camera: rt.camera,
+      pause: () => {
+        this.xrPresenting = true;
+        playback.stopLoop(this as never);
+        rt.xrBegin();
+      },
+      resume: () => {
+        if (!this.xrPresenting) return;
+        this.xrPresenting = false;
+        rt.xrEnd();
+        this.syncPlayback();
+      },
+      render: () => {
+        if (!this.xrPresenting || this.runtime !== rt) return;
+        this.frame++;
+        rt.renderXr();
+        this.frameSeq++;
+        outPublish.maybePublish(this as never, performance.now(), (performance.now() - this.startTime) / 1000);
+      },
+      bounds: () => rt.bounds(),
+      pickRay: (o, d) => rt.pickRay(o, d, this.pickNames),
+      tap: (hit) => {
+        if (hit) {
+          this.lastHit = hit;
+          this.dispatchEvent(new CustomEvent("pick", { detail: hit, bubbles: true, composed: true }));
+        }
+        if (!this.pick || !this.target) return;
+        const type = this.pickActionType || "pick";
+        if (hit) {
+          const { objectId, x, y, z, instance, src } = hit;
+          dispatch(this.target, { type, payload: { objectId, x, y, z, ...(instance ? { instance, src } : {}) } });
+        } else if (this.pickEmpty) {
+          dispatch(this.target, { type, payload: { objectId: null } });
+        }
+      },
+    };
   }
 
   /** Contrat SonicFrameSource — canvas Three (preserveDrawingBuffer). */

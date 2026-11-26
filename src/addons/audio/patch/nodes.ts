@@ -3,7 +3,8 @@
  * entrées / sortie, ses AudioParam modulables et ses réglages « composites ».
  * Les valeurs de base des AudioParam sont écrites par le runtime.
  */
-import { MODULES, tempoToSeconds } from "./modules";
+import { MODULES, loopOn, tempoToSeconds } from "./modules";
+import { midiToFreq, toMidi } from "../../../shared/audio/notes";
 import type { CompiledModule } from "./compile";
 import { SampleBank } from "../../../shared/audio/samples";
 
@@ -48,6 +49,16 @@ export function resonatorPartials(p: CompiledModule["params"], random: () => num
     gains: ratios.map((_, i) => (Number.isFinite(g[i]) ? g[i] : 1 / Math.sqrt(i + 1))),
     cents: ratios.map(() => (jitter ? (random() * 2 - 1) * jitter : 0)),
   };
+}
+
+/**
+ * Vitesse de lecture d'un sonic-sample-osc : `hz` (note de la voix) / fréquence de `root`, puis `semi` demi-tons.
+ * A5 (880 Hz) sur un sample en A4 → 2. Root invalide → C4.
+ */
+export function sampleOscRate(hz: number, root: unknown, semi = 0): number {
+  const midi = toMidi(root) ?? 60;
+  const rate = (hz / midiToFreq(midi)) * Math.pow(2, (Number(semi) || 0) / 12);
+  return Number.isFinite(rate) && rate > 0 ? Math.min(64, Math.max(1 / 64, rate)) : 1;
 }
 
 /** Modules dont la version native (sans AudioWorklet) perd quelque chose : message pour l'état du patch. */
@@ -725,6 +736,44 @@ export function buildModule(ac: BaseAudioContext, mod: CompiledModule, ctx: Buil
         };
       }
       return { ...b, start: (t) => cloud.start(t), stop: (t) => cloud.stop(t), input: null, output: cloud.out, params: { level: cloud.out.gain } };
+    }
+    case "sonic-sample-osc": {
+      const spec = String(p.sample ?? "").trim();
+      const bank = SampleBank.get();
+      bank.request(spec);
+      const buf = bank.buffer(spec);
+      const level = track(ac.createGain());
+      const b = base();
+      // sample pas encore chargé (ou refusé) : la note est muette, les suivantes le joueront
+      if (!buf) return { ...b, input: null, output: level, params: { level: level.gain } };
+      const hz = p["freq-hz"] === "voice.pitch" ? (ctx.freq ?? 261.63) : Number(p["freq-hz"]);
+      const src = track(ac.createBufferSource());
+      src.buffer = buf;
+      src.playbackRate.value = sampleOscRate(hz, p.root, Number(p.semi));
+      const setLoop = (on: boolean, from: number, to: number) => {
+        src.loop = on;
+        src.loopStart = Math.max(0, Math.min(buf.duration, from));
+        src.loopEnd = to > src.loopStart ? Math.min(buf.duration, to) : 0;
+      };
+      let loop = loopOn(p.loop);
+      let loopStart = Number(p["loop-start"]) || 0;
+      let loopEnd = Number(p["loop-end"]) || 0;
+      setLoop(loop, loopStart, loopEnd);
+      src.connect(level);
+      b.setters.loop = (v) => setLoop((loop = loopOn(v)), loopStart, loopEnd);
+      b.setters["loop-start"] = (v) => setLoop(loop, (loopStart = Number(v) || 0), loopEnd);
+      b.setters["loop-end"] = (v) => setLoop(loop, loopStart, (loopEnd = Number(v) || 0));
+      const offset = Math.max(0, Math.min(Math.max(0, buf.duration - 0.001), Number(p.start) || 0));
+      const params: Record<string, AudioParam> = { level: level.gain };
+      if (src.detune) params.detune = src.detune;
+      return {
+        ...b,
+        start: (t) => src.start(t, offset),
+        stop: (t) => src.stop(t),
+        input: null,
+        output: level,
+        params,
+      };
     }
     case "sonic-comp": {
       const c = track(ac.createDynamicsCompressor());

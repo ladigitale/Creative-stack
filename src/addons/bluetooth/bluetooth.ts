@@ -5,6 +5,8 @@ import type { PipeWriteOptions, SonicBytePipe } from "../../shared/pipe/pipe";
 import { getProfile, type BluetoothFilter, type BluetoothProfile } from "../../shared/bluetooth/profiles";
 import { chunks, OpQueue, sleep } from "../../shared/pipe/queue";
 import { expandUuid, isBlockedService, parseChannel } from "../../shared/bluetooth/uuid";
+import { dispatch } from "../interactive";
+import { BleMidiDecoder, encodeBleMidi, splitMidi, trackNotes, type BleMidiEvent, type HeldMidiNote } from "./midi/ble-midi";
 
 const tagName = "sonic-bluetooth";
 
@@ -13,6 +15,9 @@ const MAX_WRITE = 512;
 const MAX_FILTERS = 16;
 const MAX_SERVICES = 16;
 const MAX_NAME = 64;
+
+/** État MIDI (profil `midi`) : dernier message reçu (hors horloge), notes tenues, compteurs. */
+export type BleMidiState = { last: BleMidiEvent | null; notes: HeldMidiNote[]; n: number; sent: number };
 
 export type BluetoothValue = { hex: string; bytes: number[]; text?: string; n: number; at: number };
 
@@ -31,6 +36,8 @@ export type BluetoothState = DeviceBaseState & {
   rx: number;
   tx: { queued: number; sent: number; n: number };
   reconnecting: boolean;
+  /** Profil `midi` seulement (sinon `null`). */
+  midi: BleMidiState | null;
 };
 
 // ─── Sous-ensemble de Web Bluetooth utilisé ici (absent des types DOM standard) ────────────────────────────────
@@ -57,7 +64,7 @@ function initial(): BluetoothState {
   return {
     status: "idle", error: null, supported: false, allowed: "unknown", active: false,
     available: "unknown", connected: false, device: null, profile: null, services: [], channels: [], values: {}, rx: 0,
-    tx: { queued: 0, sent: 0, n: 0 }, reconnecting: false,
+    tx: { queued: 0, sent: 0, n: 0 }, reconnecting: false, midi: null,
   };
 }
 
@@ -90,9 +97,11 @@ function cleanFilters(value: unknown): BluetoothFilter[] | null {
  * - `filters`, `services`, `channels`, `notify` : pour un appareil sans profil.
  * - `for="bouton"` : le clic ouvre le sélecteur du navigateur (geste obligatoire).
  * - `control` (DP) : `{ connect: n, disconnect: n, toggle: n, write: {n, channel, hex | bytes | text},
- *   read: {n, channel}, subscribe: {n, channel}, unsubscribe: {n, channel}, forget: n }`.
+ *   read: {n, channel}, subscribe: {n, channel}, unsubscribe: {n, channel}, forget: n, midiSend: {n, bytes | hex} }`.
  * - État `<id>State` : `{ status, error, supported, allowed, active, available, connected, device,
- *   services, channels, values, rx, tx, reconnecting }`.
+ *   services, channels, values, rx, tx, reconnecting, midi }`.
+ * - Profil `midi` : paquets BLE-MIDI décodés dans `midi {last, notes, n, sent}` et envoyés en action
+ *   `midi:message` au store `target`.
  *
  * Chromium seulement, en HTTPS ; ni iOS, ni Firefox, ni Safari. Dans une iframe : `allow="bluetooth"`.
  * Jamais de mise à jour de micrologiciel : les services DFU, HID et FIDO sont refusés.
@@ -123,6 +132,8 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
   @property({ type: Boolean, attribute: "auto-reconnect" }) autoReconnect = false;
   /** Sélecteur sans filtre de nom (déconseillé) ; `services` ou `channels` restent obligatoires. */
   @property({ type: Boolean, attribute: "accept-all" }) acceptAll = false;
+  /** Store (id) qui reçoit chaque message MIDI décodé (profil `midi`) en action `midi:message`. */
+  @property({ type: String }) target = "";
 
   protected feature = "bluetooth";
   protected readonly defaultCommand = "connect";
@@ -140,6 +151,7 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
   private activeProfile = "";
   private chunk = 20;
   private gap = 0;
+  private midiDecoder: BleMidiDecoder | null = null;
 
   protected commands(): CommandMap {
     return {
@@ -151,6 +163,7 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
       subscribe: (a) => this.subscribe(String(a.channel ?? "")),
       unsubscribe: (a) => this.unsubscribe(String(a.channel ?? "")),
       forget: () => this.forget(),
+      midiSend: (a) => this.midiSend(a),
     };
   }
 
@@ -383,7 +396,9 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
       this.chunk = this.chunkSizeAttr > 0 ? this.chunkSizeAttr : variant.profile?.chunkSize ?? 20;
       this.gap = this.gapMsAttr >= 0 ? this.gapMsAttr : variant.profile?.gapMs ?? 0;
       this.retryDelay = 1000;
+      this.midiDecoder = variant.name === "midi" ? new BleMidiDecoder() : null;
       this.patch({
+        midi: this.midiDecoder ? { last: this.state.midi?.last ?? null, notes: [], n: this.state.midi?.n ?? 0, sent: this.state.midi?.sent ?? 0 } : null,
         status: "ready", error: this.chars.size || !Object.keys(variant.channels).length ? null : "aucun canal trouvé sur cet appareil",
         active: true, connected: true, reconnecting: false, profile: variant.name,
         device: { id: device.id, name: (device.name ?? "").slice(0, MAX_NAME) }, services, channels: [...this.chars.keys()], values: {},
@@ -419,7 +434,9 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
   }
 
   private offline(): Partial<BluetoothState> {
-    return { active: false, connected: false, reconnecting: false, channels: [], services: [], device: null, tx: { ...this.state.tx, queued: 0 } };
+    this.midiDecoder?.reset();
+    return {
+      ...(this.state.midi ? { midi: { ...this.state.midi, notes: [] } } : {}), active: false, connected: false, reconnecting: false, channels: [], services: [], device: null, tx: { ...this.state.tx, queued: 0 } };
   }
 
   private closeDevice(): void {
@@ -429,6 +446,7 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
     for (const off of this.listening.values()) off();
     this.listening.clear();
     this.chars.clear();
+    this.midiDecoder = null;
     const device = this.device;
     this.device = null;
     if (!device) return;
@@ -481,6 +499,7 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
       if (!view) return;
       const data = new Uint8Array(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength));
       this.store(alias, data, true);
+      if (this.midiDecoder && alias === "rx") this.onMidi(data);
       for (const cb of this.listeners) {
         try {
           cb(data, alias);
@@ -518,6 +537,41 @@ export class SonicBluetooth extends DeviceElement<BluetoothState> implements Son
     if (text !== undefined) value.text = text;
     // Valeurs continues : publication plafonnée par `rate`.
     this.patch({ values: { ...this.state.values, [alias]: value }, rx: this.state.rx + (notification ? 1 : 0) }, false);
+  }
+
+  // ─── MIDI (profil `midi`) ─────────────────────────────────────────────────────────────────────────────────────
+  private onMidi(packet: Uint8Array): void {
+    const events = this.midiDecoder?.events(packet) ?? [];
+    if (!events.length || !this.state.midi) return;
+    let { notes, n } = this.state.midi;
+    const store = this.target.trim().replace(/^#/, "");
+    for (const e of events) {
+      notes = trackNotes(notes, e);
+      n++;
+      if (store) dispatch(store, { type: "midi:message", payload: e });
+    }
+    this.patch({ midi: { ...this.state.midi, last: events[events.length - 1], notes, n } }, false);
+  }
+
+  /** `midiSend {n, bytes | hex}` : messages MIDI complets (statut compris), SysEx refusé. */
+  private async midiSend(arg: CommandArg): Promise<boolean> {
+    if (!this.midiDecoder || !this.state.midi) {
+      this.patch({ error: "midiSend : appareil MIDI non connecté (profile=\"midi\")" });
+      return false;
+    }
+    const data = payloadBytes({ hex: arg.hex, bytes: arg.bytes }, 256);
+    const messages = data ? splitMidi(data) : null;
+    if (!messages) {
+      this.patch({ error: "midiSend : messages MIDI complets attendus dans bytes ou hex (SysEx refusé, 256 octets au plus)" });
+      return false;
+    }
+    const size = Math.min(MAX_WRITE, Math.max(5, this.chunk));
+    // Un paquet par écriture : un paquet BLE-MIDI ne doit jamais être coupé.
+    for (const packet of encodeBleMidi(messages, typeof performance !== "undefined" ? performance.now() : Date.now(), size)) {
+      if (!(await this.writeBytes(packet, { chunkSize: packet.length }))) return false;
+    }
+    this.patch({ error: null, midi: { ...this.state.midi, sent: this.state.midi.sent + messages.length } });
+    return true;
   }
 
   private async commandRead(arg: CommandArg): Promise<boolean> {

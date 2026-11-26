@@ -126,6 +126,60 @@
           "description": "Hauteur des yeux en camera=\"yeux\" (mètres, défaut 1.25)"
         }
       }
+    },
+    {
+      "name": "sonic-xr",
+      "description": "Ouvre une scène sonic-3d en réalité virtuelle ou augmentée (WebXR, renderer.xr de three.js). target = id du sonic-3d (même arbre / shadow root, puis la page). for=\"idBouton\" lance la session dans le geste (exigé par le navigateur) ; control {enter:n, exit:n, toggle:n, place:n} (forme {n, mode}). Pendant la session : boucle du casque (setAnimationLoop), rendu direct sans post-effets ni étalonnage, fond transparent en AR ; la scène est décalée pour que le centre de sa boîte soit devant l'utilisateur à hauteur des yeux (offset ajouté, scale). AR + features=\"hit-test\" : état hit {x,y,z} (point du réel visé), reticle montre ce point, place y pose la scène. Sélection d'une manette, d'une main ou d'un toucher AR : rayon dans la scène → même tap que sonic-3d (événement pick, action pick-action-type vers son target si pick) et action {type:\"xr:select\", payload:{objectId|null, instance?, src?, point:[x,y,z]|null (coordonnées de la scène), hand, mode, hit}} vers store. État <id>State {status (idle|requesting|ready|denied|error|unsupported), error, supported, allowed, active, mode (vr|ar|null), modes:{vr,ar} (isSessionSupported au montage), presenting, reference (local-floor|local), hit, inputs:[{handedness, mode, hand}]}. Événements sonic-xr-change, sonic-xr-select, sonic-xr-place. HTTPS ; iframe allow=\"xr-spatial-tracking\". Non testé sur casque.",
+      "props": {
+        "target": {
+          "type": "string",
+          "description": "id du sonic-3d à ouvrir en XR"
+        },
+        "mode": {
+          "type": "string",
+          "description": "vr (immersive-vr), ar (immersive-ar) ou auto (défaut : AR si acceptée, sinon VR)"
+        },
+        "reference": {
+          "type": "string",
+          "description": "local-floor (défaut, repli local) ou local"
+        },
+        "features": {
+          "type": "string",
+          "description": "fonctionnalités optionnelles séparées par des espaces : hand-tracking, hit-test (AR), dom-overlay (AR, avec overlay)"
+        },
+        "overlay": {
+          "type": "string",
+          "description": "id de l'élément affiché par-dessus la vue AR (dom-overlay) ; ses touchers ne sélectionnent pas dans la scène"
+        },
+        "offset": {
+          "type": "string",
+          "description": "décalage \"x y z\" en mètres ajouté au placement automatique (défaut 0 0 0)"
+        },
+        "scale": {
+          "type": "number",
+          "description": "échelle de la scène en XR (défaut 1 : une unité = un mètre)"
+        },
+        "reticle": {
+          "type": "boolean",
+          "description": "AR + hit-test : anneau sur le point visé"
+        },
+        "store": {
+          "type": "string",
+          "description": "id du sonic-store qui reçoit xr:select"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {enter, exit, toggle, place}"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic bascule la session, dans le geste"
+        }
+      }
     }
   ],
   "examples": [

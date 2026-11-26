@@ -46,7 +46,8 @@ export function readGraph(g: unknown): Adj {
   };
   const o = g as { edges?: unknown; directed?: unknown; nodes?: unknown };
   if (Array.isArray(o.edges)) {
-    if (Array.isArray(o.nodes)) for (const n of o.nodes) id(n);
+    // Nœuds en ids ou en objets `{id, …}` (forme de sonic-graph).
+    if (Array.isArray(o.nodes)) for (const n of o.nodes) id(n && typeof n === "object" ? (n as { id?: unknown }).id : n);
     for (const e of o.edges) if (Array.isArray(e) && e.length >= 2) add(e[0], e[1], e[2], !!o.directed);
   } else {
     for (const [a, v] of Object.entries(g as Record<string, unknown>)) {

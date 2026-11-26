@@ -1,8 +1,8 @@
 {
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "plot",
-  "label": "Graphiques statistiques",
-  "description": "Graphiques déclaratifs en SVG aux design tokens Concorde, alimentés par DataProvider : courbes, aires, barres, nuage de points, secteurs, histogramme, carte de chaleur, sparkline ; survol et sélection publiés en DataProvider",
+  "label": "Graphiques statistiques et graphes",
+  "description": "Graphiques déclaratifs en SVG aux design tokens Concorde, alimentés par DataProvider : courbes, aires, barres, nuage de points, secteurs, histogramme, carte de chaleur, sparkline ; survol et sélection publiés en DataProvider ; graphes nœuds / liens placés par forces (sonic-graph)",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -36,6 +36,30 @@
         "format-value": { "type": "string" },
         "out-data-provider": { "type": "string" }
       }
+    },
+    {
+      "name": "sonic-graph",
+      "description": "Graphe nœuds / liens en SVG (couleurs par jetons --sc-*) : data-provider (relu en direct) {nodes: [{id, label?, group?, size? (rayon), x?, y?, fixed?}], links: [{source, target, weight?, label?, directed?}]} ou forme de $graphPath ({edges: [[a, b, poids]], directed?} ou liste d'adjacence) ; 2000 nœuds au plus ; layout force (défaut, graine seed, charge, link-distance, gravity) | circle | grid | tree (couches depuis root) ; un changement de données garde les positions des nœuds présents ; glisser un nœud (pin : reste figé), molette / pincement = zoom, glisser le fond = vue, double-clic = recadrer ; tap sur un nœud → action {type: action (défaut graph:select), payload: {id, node}} vers le store target ; survol = voisins mis en avant ; selection = chemin DP (id, liste d'ids ou résultat {path} de $graphPath : chemin surligné) ; directed = flèches sur tous les liens ; labels auto|always|none ; couleur par group, épaisseur par weight ; état <id>State (ou out-data-provider) {status: idle|ready|error, error, nodes, links, layout, alpha, settled, hover, selected, positions? ({id: [x, y]}, 500 au plus, avec publish-positions)}",
+      "props": {
+        "data-provider": { "type": "string" },
+        "layout": { "type": "string", "enum": ["force", "circle", "grid", "tree"] },
+        "seed": { "type": "string" },
+        "root": { "type": "string" },
+        "charge": { "type": "number" },
+        "link-distance": { "type": "number" },
+        "gravity": { "type": "number" },
+        "height": { "type": "number" },
+        "directed": { "type": "boolean" },
+        "pin": { "type": "boolean" },
+        "labels": { "type": "string", "enum": ["auto", "always", "none"] },
+        "target": { "type": "string" },
+        "action": { "type": "string" },
+        "selection": { "type": "string" },
+        "publish-positions": { "type": "boolean" },
+        "out-data-provider": { "type": "string" },
+        "gestures": { "type": "string", "enum": ["auto", "capture", "cooperative"] }
+      },
+      "emits": ["graph:select"]
     }
   ]
 }

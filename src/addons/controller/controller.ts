@@ -2,6 +2,8 @@ import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
+import { CounterTrigger } from "../../shared/media/control";
+import { RumbleTracker, canRumble, noPadError, readRumble, type RumbleState } from "../../shared/device/rumble";
 
 const tagName = "sonic-controller";
 
@@ -30,6 +32,10 @@ export type ControllerState = {
   /** Le navigateur ne montre une manette qu'après un appui sur un de ses boutons. */
   count: number;
   pads: PadState[];
+  /** Dernière erreur lisible (vibration impossible…), `null` sinon. */
+  error: string | null;
+  /** `supported` : une des manettes suivies sait vibrer ; `active` : un effet joue. */
+  rumble: RumbleState;
 };
 
 type Mapped = string | { type: string; payload?: unknown };
@@ -53,7 +59,8 @@ export function deadzone(x: number, y: number, dz: number): [number, number] {
  * - `analog-action="stick"` : envoie `{ type: "stick", payload: { pad, lx, ly, rx, ry, lt, rt } }`
  *   quand un axe bouge (au plus `rate` fois par seconde) : le reducer en fait une vitesse, un paramètre…
  * - État `<id>State` : `{ status, count, pads: [{ index, id, lx, ly, rx, ry, lt, rt, pressed }] }`.
- * - `control` (DP) : `{ rumble: { n: compteur, ms, strong, weak } }` fait vibrer la manette.
+ * - `control` (DP) : `{ rumble: { n: compteur, duration (ou ms, ≤ 5000), strong, weak, pad } }` fait vibrer
+ *   la manette `pad` (sans `pad` : toutes les manettes suivies), `{ stopRumble: n }` arrête. Non testé sur matériel.
  */
 @customElement(tagName)
 export class SonicController extends LitElement {
@@ -82,17 +89,20 @@ export class SonicController extends LitElement {
   private lastAnalogAt = 0;
   private lastPublish = 0;
   private lastJson = "";
-  private rumbleN: number | undefined;
+  private rumbleTrigger = new CounterTrigger();
+  private stopTrigger = new CounterTrigger();
+  private rumbles = new RumbleTracker(() => this.patchRumble());
   private unsub: (() => void) | null = null;
-  private state: ControllerState = { status: "idle", count: 0, pads: [] };
+  private state: ControllerState = { status: "idle", count: 0, pads: [], error: null, rumble: { supported: false, active: false } };
 
   connectedCallback(): void {
     super.connectedCallback();
     if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
-      this.state = { status: "unsupported", count: 0, pads: [] };
+      this.state = { ...this.state, status: "unsupported", count: 0, pads: [] };
       this.publish(true);
       return;
     }
+    if (this.hasUpdated) this.listenControl();
     window.addEventListener("gamepadconnected", this.scan);
     window.addEventListener("gamepaddisconnected", this.scan);
     this.scan();
@@ -105,35 +115,66 @@ export class SonicController extends LitElement {
     this.raf = 0;
     this.unsub?.();
     this.unsub = null;
+    this.rumbles.reset();
     super.disconnectedCallback();
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
-    if (changed.has("control")) {
-      this.unsub?.();
-      this.rumbleN = undefined;
-      this.unsub = this.control
-        ? listenDp(this.control, (v) => {
-            const r = (v as { rumble?: { n?: unknown; ms?: unknown; strong?: unknown; weak?: unknown } } | null)?.rumble;
-            if (!r || typeof r.n !== "number") return;
-            const prev = this.rumbleN;
-            this.rumbleN = r.n;
-            if (prev !== undefined && r.n > prev) this.rumble(Number(r.ms) || 200, Number(r.strong ?? 0.8), Number(r.weak ?? 0.5));
-          })
-        : null;
-    }
+    if (changed.has("control")) this.listenControl();
+  }
+
+  private listenControl(): void {
+    this.unsub?.();
+    this.rumbleTrigger.reset();
+    this.stopTrigger.reset();
+    this.unsub = this.control
+      ? listenDp(this.control, (v) => {
+          if (!v || typeof v !== "object") return;
+          const c = v as Record<string, unknown>;
+          if (this.stopTrigger.feed(c.stopRumble)) void this.stopRumble();
+          if (this.rumbleTrigger.feed(c.rumble)) void this.rumbleWith(c.rumble);
+        })
+      : null;
   }
 
   getState(): ControllerState {
     return JSON.parse(JSON.stringify(this.state)) as ControllerState;
   }
 
-  /** Vibration (si la manette et le navigateur le permettent). */
+  /** Vibration de toutes les manettes suivies (si la manette et le navigateur le permettent). */
   rumble(ms = 200, strong = 0.8, weak = 0.5): void {
-    for (const pad of this.pads()) {
-      const act = (pad as Gamepad & { vibrationActuator?: { playEffect?: (t: string, p: object) => Promise<unknown> } }).vibrationActuator;
-      act?.playEffect?.("dual-rumble", { duration: Math.min(5000, ms), strongMagnitude: clamp01(strong), weakMagnitude: clamp01(weak) })?.catch(() => undefined);
+    void this.rumbleWith({ duration: ms, strong, weak });
+  }
+
+  /** Commande `rumble` : `{ duration | ms, strong, weak, pad }`. Ne lève jamais ; vrai si l'effet a joué. */
+  async rumbleWith(arg: unknown = {}): Promise<boolean> {
+    const args = readRumble(arg);
+    const pads = typeof navigator.getGamepads === "function" ? this.pads() : [];
+    const chosen = args.pad === undefined ? pads : pads.filter((p) => p.index === args.pad);
+    if (!chosen.length) return this.rumbleFailed(noPadError(args.pad));
+    try {
+      this.state = { ...this.state, error: null };
+      await this.rumbles.play(chosen, args);
+      return true;
+    } catch (e) {
+      return this.rumbleFailed(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /** Commande `stopRumble`. */
+  async stopRumble(): Promise<void> {
+    await this.rumbles.stop(typeof navigator.getGamepads === "function" ? this.pads() : []);
+  }
+
+  private rumbleFailed(message: string): false {
+    this.state = { ...this.state, error: message };
+    this.publish(true);
+    return false;
+  }
+
+  private patchRumble(): void {
+    this.state = { ...this.state, rumble: { ...this.state.rumble, active: this.rumbles.active } };
+    this.publish(true);
   }
 
   private pads(): Gamepad[] {
@@ -149,7 +190,7 @@ export class SonicController extends LitElement {
     if (!any) {
       cancelAnimationFrame(this.raf);
       this.raf = 0;
-      this.state = { status: "idle", count: 0, pads: [] };
+      this.state = { ...this.state, status: "idle", count: 0, pads: [], rumble: { supported: false, active: this.rumbles.active } };
       this.publish(true);
     }
   };
@@ -202,7 +243,7 @@ export class SonicController extends LitElement {
         }
       }
     }
-    this.state = { status: "ready", count: states.length, pads: states };
+    this.state = { ...this.state, status: "ready", count: states.length, pads: states, rumble: { supported: pads.some((p) => canRumble(p)), active: this.rumbles.active } };
     this.publish(false);
   }
 
@@ -237,10 +278,6 @@ export class SonicController extends LitElement {
   render() {
     return html``;
   }
-}
-
-function clamp01(v: number): number {
-  return Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
 }
 
 export default SonicController;
