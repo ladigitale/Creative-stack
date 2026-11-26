@@ -5,7 +5,7 @@
  */
 // Sans ce module, Pixi compile ses shaders avec `new Function` : refusé par une CSP sans unsafe-eval (viewer Artefacts).
 import "pixi.js/unsafe-eval";
-import { Application, CanvasSource, Container, Graphics, Mesh, MeshGeometry, Sprite, Text, Texture, type ContainerChild } from "pixi.js";
+import { Application, CanvasSource, Color, Container, Graphics, Mesh, MeshGeometry, RenderTexture, Sprite, Text, Texture, type ContainerChild } from "pixi.js";
 import { isFrameSource } from "../../shared/mediaRef";
 import { NodeStates } from "../../shared/node-state";
 import { buildSkin, skinVertices, type BoneFrame, type Skin } from "../../shared/skin";
@@ -14,10 +14,12 @@ import {
   hitShape,
   pivotOffset,
   layerTransform,
+  lightOnScreen,
   screenToLayer,
   visualKey,
   type Camera,
   type Layer,
+  type LightsSpec,
   type SpriteSpec,
 } from "./model";
 
@@ -169,11 +171,132 @@ export class Scene2D {
   }
 
   render(): void {
-    if (this.ready && !this.destroyed) this.app.render();
+    if (!this.ready || this.destroyed) return;
+    if (this.lighting) this.drawLights();
+    this.app.render();
+  }
+
+  /* ------------------------------------------------------------ obscurité et lumières */
+
+  private lighting: {
+    spec: LightsSpec;
+    resolve: (name: string) => [number, number] | null;
+    root: Container;
+    base: Graphics;
+    pool: Sprite[];
+    rt: RenderTexture;
+    overlay: Sprite;
+  } | null = null;
+  private static glow: Texture | null = null;
+
+  /** Halo radial blanc (dégradé doux), partagé par toutes les lumières. */
+  private static glowTexture(): Texture {
+    if (Scene2D.glow) return Scene2D.glow;
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    const g = c.getContext("2d");
+    if (g) {
+      const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+      grad.addColorStop(0, "rgba(255,255,255,1)");
+      grad.addColorStop(0.25, "rgba(255,255,255,0.75)");
+      grad.addColorStop(0.55, "rgba(255,255,255,0.3)");
+      grad.addColorStop(0.8, "rgba(255,255,255,0.08)");
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 256, 256);
+    }
+    Scene2D.glow = Texture.from(c);
+    return Scene2D.glow;
+  }
+
+  /**
+   * Obscurité éclairée : une carte de lumière (ambiant + halos additifs) rendue à demi-résolution puis multipliée
+   * sur les calques du monde, sous les calques d'interface (parallaxe 0). Null : pas d'éclairage.
+   */
+  setLights(spec: LightsSpec | null, resolve: (name: string) => [number, number] | null): void {
+    if (!spec) {
+      if (this.lighting) {
+        this.lighting.overlay.destroy();
+        this.lighting.root.destroy({ children: true });
+        this.lighting.rt.destroy(true);
+        this.lighting = null;
+        this.opts.invalidate();
+      }
+      return;
+    }
+    if (!this.ready) return;
+    if (!this.lighting) {
+      const rt = RenderTexture.create({ width: this.width, height: this.height, resolution: 0.5 });
+      const root = new Container();
+      const base = new Graphics();
+      root.addChild(base);
+      const overlay = new Sprite(rt);
+      overlay.label = "lumieres";
+      overlay.blendMode = "multiply";
+      overlay.width = this.width;
+      overlay.height = this.height;
+      this.app.stage.addChild(overlay);
+      this.lighting = { spec, resolve, root, base, pool: [], rt, overlay };
+      this.placeLightOverlay();
+    }
+    this.lighting.spec = spec;
+    this.lighting.resolve = resolve;
+    this.opts.invalidate();
+  }
+
+  /** Vrai si une lumière scintille : la scène doit être redessinée à chaque image. */
+  get lightsLive(): boolean {
+    return !!this.lighting && this.lighting.spec.lights.some((l) => l.flicker > 0);
+  }
+
+  private placeLightOverlay(): void {
+    if (!this.lighting) return;
+    const ui = this.order.findIndex((l) => l.parallax === 0);
+    this.lighting.overlay.zIndex = ui >= 0 ? ui - 0.5 : this.order.length + 1;
+  }
+
+  private drawLights(): void {
+    const L = this.lighting!;
+    const { spec } = L;
+    L.base.clear().rect(0, 0, this.width, this.height).fill(new Color(spec.ambient));
+    const t = performance.now();
+    const glow = Scene2D.glowTexture();
+    let used = 0;
+    for (const l of spec.lights) {
+      let at: [number, number] = [l.x, l.y];
+      if (l.follow) {
+        const p = L.resolve(l.follow);
+        if (!p) continue;
+        at = [p[0] + l.x, p[1] + l.y];
+      }
+      const s = lightOnScreen(l, at, this.camera, this.width, this.height, t);
+      if (s.x + s.r < 0 || s.y + s.r < 0 || s.x - s.r > this.width || s.y - s.r > this.height || s.intensity <= 0) continue;
+      // au-delà de 1 : un second halo plus serré renforce le cœur
+      for (let pass = 0; pass < (s.intensity > 1 ? 2 : 1); pass++) {
+        let sp = L.pool[used];
+        if (!sp) {
+          sp = new Sprite(glow);
+          sp.anchor.set(0.5);
+          sp.blendMode = "add";
+          L.pool.push(sp);
+          L.root.addChild(sp);
+        }
+        const r = pass ? s.r * 0.5 : s.r;
+        sp.visible = true;
+        sp.position.set(s.x, s.y);
+        sp.width = sp.height = r * 2;
+        sp.tint = l.color;
+        sp.alpha = pass ? s.intensity - 1 : Math.min(1, s.intensity);
+        used++;
+      }
+    }
+    for (let i = used; i < L.pool.length; i++) L.pool[i].visible = false;
+    this.app.renderer.render({ container: L.root, target: L.rt, clear: true });
   }
 
   destroy(): void {
     this.destroyed = true;
+    this.lighting = null;
     if (this.ready) this.app.destroy({ removeView: false }, { children: true, texture: true });
     this.ready = false;
     this.entries.clear();
@@ -212,6 +335,7 @@ export class Scene2D {
       else p.addChild(x.c);
     }
     this.applyCamera();
+    this.placeLightOverlay();
   }
 
   private extras: { c: Container; layer: string }[] = [];
@@ -273,6 +397,12 @@ export class Scene2D {
 
   has(name: string): boolean {
     return this.entries.has(name);
+  }
+
+  /** Position (unités du monde) d'un sprite visible, ou null. */
+  positionOf(name: string): [number, number] | null {
+    const e = this.entries.get(name);
+    return e && e.holder.visible ? [e.holder.x, e.holder.y] : null;
   }
 
   get count(): number {

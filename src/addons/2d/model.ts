@@ -286,3 +286,75 @@ export function hitShape(s: SpriteSpec, px: number, py: number, textSize?: [numb
       return Math.abs(lx) <= s.w / 2 && Math.abs(ly) <= s.h / 2;
   }
 }
+
+/* ------------------------------------------------------------ obscurité et lumières */
+
+/** Une lumière (unités du monde, calque qui suit la caméra). */
+export interface LightSpec {
+  name: string;
+  x: number;
+  y: number;
+  /** Rayon (px du monde). */
+  r: number;
+  color: string;
+  /** 0..2 (au-delà de 1 : cœur plus large et plus franc). */
+  intensity: number;
+  /** Nom d'un sprite ou d'une instance monde2d dont la lumière suit la position (x, y : décalage). */
+  follow: string;
+  /** 0..1 : scintillement (flamme, lampe qui faiblit). */
+  flicker: number;
+}
+
+export interface LightsSpec {
+  /** Couleur de la scène hors de toute lumière (multipliée) : `#000` = noir total, `#fff` = aucun effet. */
+  ambient: string;
+  lights: LightSpec[];
+}
+
+export const MAX_LIGHTS = 200;
+const CSS_COLOR = /^(#[0-9a-f]{3,8}|(rgb|hsl)a?\([\d\s.,%/-]+\)|[a-z]+)$/i;
+const colorOr = (v: unknown, d: string): string => (typeof v === "string" && CSS_COLOR.test(v.trim()) ? v.trim() : d);
+
+/**
+ * Clé `lights` : `{ambient, darkness, lights: [{x, y, r, color, intensity, follow, flicker}]}` ou directement la liste.
+ * `darkness` (0..1, défaut 0.85) donne un ambiant gris quand `ambient` est absent. Null : pas d'éclairage.
+ */
+export function readLights(v: unknown): LightsSpec | null {
+  if (v == null || v === false) return null;
+  const o = Array.isArray(v) ? { lights: v } : typeof v === "object" ? (v as Record<string, unknown>) : null;
+  if (!o) return null;
+  const list = Array.isArray(o.lights) ? o.lights : o.lights && typeof o.lights === "object" ? Object.values(o.lights) : [];
+  const dark = Math.min(1, Math.max(0, num(o.darkness, 0.85)));
+  const g = Math.round((1 - dark) * 255).toString(16).padStart(2, "0");
+  const lights: LightSpec[] = [];
+  list.slice(0, MAX_LIGHTS).forEach((raw, i) => {
+    if (!raw || typeof raw !== "object") return;
+    const l = raw as Record<string, unknown>;
+    if (l.visible === false) return;
+    lights.push({
+      name: typeof l.name === "string" ? l.name : `light${i}`,
+      x: num(l.x, 0),
+      y: num(l.y, 0),
+      r: Math.max(1, num(l.r, 120)),
+      color: colorOr(l.color, "#ffffff"),
+      intensity: Math.min(2, Math.max(0, num(l.intensity, 1))),
+      follow: typeof l.follow === "string" ? l.follow : "",
+      flicker: Math.min(1, Math.max(0, num(l.flicker, 0))),
+    });
+  });
+  return { ambient: colorOr(o.ambient, `#${g}${g}${g}`), lights };
+}
+
+/** Position, rayon et intensité à l'écran (unités de scène) d'une lumière, à l'instant `t` (ms). */
+export function lightOnScreen(l: LightSpec, at: [number, number], cam: Camera, w: number, h: number, t: number): { x: number; y: number; r: number; intensity: number } {
+  const tr = layerTransform(1, cam, w, h);
+  let k = l.intensity;
+  if (l.flicker > 0) {
+    // deux sinus incommensurables, phase tirée du nom : chaque flamme vit à son rythme, sans hasard
+    let ph = 0;
+    for (let i = 0; i < l.name.length; i++) ph = (ph * 31 + l.name.charCodeAt(i)) % 6283;
+    const s = Math.sin(t * 0.011 + ph) * 0.6 + Math.sin(t * 0.037 + ph * 1.7) * 0.4;
+    k *= 1 - l.flicker * 0.35 * (0.5 + 0.5 * s);
+  }
+  return { x: tr.x + tr.scale * at[0], y: tr.y + tr.scale * at[1], r: l.r * tr.scale, intensity: k };
+}

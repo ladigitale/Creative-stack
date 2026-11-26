@@ -95,6 +95,29 @@ describe("Swarm", () => {
     expect(Math.floor(s.agents[0].y / cell)).toBe(5);
   });
 
+  it("parois lissées (grid.smooth) : un banc traverse le labyrinthe sans entrer dans les parois dessinées", () => {
+    const rows = ["#########", "#S..#...#", "###.#.#.#", "#...#.#.#", "#.###.#.#", "#.....#X#", "#########"];
+    const cell = 40;
+    const s = new Swarm(9);
+    s.configure({
+      bounds: [0, 0, 9 * cell, 7 * cell],
+      grid: { rows, cell, smooth: 2 },
+      groups: [{ name: "a", count: 12, maxSpeed: 80, radius: 5, spawn: [cell * 1.2, cell * 1.2, cell * 2.8, cell * 1.8], flow: { target: [7.5 * cell, 5.5 * cell] }, separation: { radius: 12, weight: 1 } }],
+    });
+    expect(s.walls).not.toBeNull();
+    let inWall = 0;
+    for (let i = 0; i < 60 * 50; i++) {
+      s.step(1 / 60);
+      for (const a of s.agents) if (s.blocked(a.x, a.y)) inWall++;
+    }
+    expect(inWall).toBe(0);
+    const arrived = s.agents.filter((a) => Math.floor(a.x / cell) === 7 && Math.floor(a.y / cell) >= 4).length;
+    expect(arrived).toBeGreaterThanOrEqual(10);
+    // coin arrondi : la case est libre mais le coin dessiné est un mur
+    expect(s.blocked(cell + 1, cell + 1)).toBe(true);
+    expect(s.grid!.cost[1 * 9 + 1]).not.toBe(Infinity);
+  });
+
   it("chemin en boucle et bords en tore", () => {
     const s = new Swarm(7);
     s.configure({ bounds: [0, 0, 200, 200], groups: [{ name: "p", count: 1, spawn: [10, 10, 11, 11], separation: 0, path: { points: [[150, 20], [150, 150], [20, 150]] } }] });

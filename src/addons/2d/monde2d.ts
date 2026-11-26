@@ -210,6 +210,12 @@ export class Monde2dRenderer {
     return this.driver.has(name);
   }
 
+  /** Position (unités du calque) d'une instance visible, ou null. */
+  positionOf(name: string): [number, number] | null {
+    const b = this.built.get(name);
+    return b && b.holder.visible && b.holder.parent ? [b.holder.x, b.holder.y] : null;
+  }
+
   private layer(name: string): Container {
     let c = this.layers.get(name);
     if (!c) {
