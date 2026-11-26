@@ -122,3 +122,19 @@ Les coins sont lissés par un filtre One Euro (`smoothing`) : immobile, très st
 
 - Forts changements de lumière (jour / nuit), reflets, occultations : enregistrer plusieurs références du même lieu.
 - Signe de l'accéléromètre : corrigé pour iOS d'après la présence de `DeviceMotionEvent.requestPermission` ; à vérifier sur chaque appareil cible avant de resserrer `gravity-tolerance`.
+
+## Renfort gyroscope
+
+Quand l'image ne permet plus de retrouver la zone (flou de bougé, geste rapide, zone à moitié sortie du cadre),
+`sonic-anchor` prédit sa position à partir de la rotation du téléphone depuis le dernier repérage réussi
+(homographie de rotation pure, caméra arrière). Actif dès que `gravity` reçoit l'état d'un `sonic-orientation`
+aux capteurs démarrés ; rien à ajouter au document.
+
+- `gyro-hold` : durée de la prédiction après une perte (ms, 1500 ; `0` = sans).
+- `fov` : champ de vision horizontal de la caméra (degrés, 63 ; la plupart des téléphones entre 60 et 70).
+- État : `gyro: true` (et `status: "holding"`, `found: true`) tant que les coins sont prédits ; ils suivent chaque
+  mesure des capteurs. L'analyse d'image reprend la main dès qu'elle retrouve la zone.
+
+Limite : les capteurs ne voient que les rotations. Si l'on se déplace, la prédiction dérive ; c'est un relais de
+quelques instants, pas un suivi. Un suivi complet (position et rotation) demande la vraie AR (WebXR, Chrome Android).
+
