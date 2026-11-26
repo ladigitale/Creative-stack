@@ -232,7 +232,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     aimDir(out, s, [d0[0], d0[1] * Math.cos(f), -d0[1] * Math.sin(f)], elbowDeg, twistDeg);
   };
   /** Même chose avec la direction du bras donnée directement (repère du buste : x à gauche, y en haut, z devant). */
-  const aimDir = (out: Record<string, Q>, s: "l" | "r", dir: V3, elbowDeg: number, twistDeg = 0) => {
+  const aimDir = (out: Record<string, Q>, s: "l" | "r", dir: V3, elbowDeg: number, twistDeg = 0, pronDeg = 0) => {
     const sg = s === "l" ? 1 : -1;
     const d = norm(dir);
     // sens de flexion du coude : vers l'avant (ou vers le haut si le bras pointe déjà devant), tourné par `twist`
@@ -244,7 +244,9 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     const bend = norm(add(scale(b0, Math.cos(tw)), scale(m0, Math.sin(tw))));
     const ui = sk.index[`upperarm.${s}`];
     out[`upperarm.${s}`] = qFromBasis(sk.axis[ui], [0, 0, 1], d, bend);
-    out[`forearm.${s}`] = hinge(sk, `forearm.${s}`, elbowDeg);
+    // coude, puis rotation de l'avant-bras sur lui-même (pronation > 0 : la paume se tourne vers le corps / le bas)
+    const fi = sk.index[`forearm.${s}`];
+    out[`forearm.${s}`] = pronDeg ? qMul(hinge(sk, `forearm.${s}`, elbowDeg), qAxis(sk.axis[fi], -sg * pronDeg * DEG)) : hinge(sk, `forearm.${s}`, elbowDeg);
   };
   /**
    * Main portée à un point du corps (bouche, menton…), en repère de repos du personnage : IK deux os sur le bras
@@ -320,12 +322,13 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       for (const [s, sgn, ph] of [["r", -1, 0], ["l", 1, 0.12]] as const) {
         const p = 0.5 - 0.5 * Math.cos((at * 2 - ph) * TAU);
         const a = (34 + 4 * p) * DEG;
-        aimDir(over, s, [sgn * Math.sin(a), Math.cos(a), 0.2 - 0.06 * p], 8 + 16 * (1 - p), 20);
+        // bras nettement devant le plan du corps (la poitrine se cambre un peu : sans cela ils partent en arrière),
+        // poings paume vers l'avant et légèrement vers l'intérieur, poignet droit
+        aimDir(over, s, [sgn * Math.sin(a), Math.cos(a), 0.38 - 0.08 * p], 8 + 16 * (1 - p), 20, 20);
         over[`clavicle.${s}`] = qAxis([0, 0, 1], sgn * (6 + 3 * p) * DEG);
-        over[`hand.${s}`] = qAxis([1, 0, 0], -10 * DEG);
       }
       const pl = 0.5 - 0.5 * Math.cos((at * 2 - 0.15) * TAU);
-      over.chest = qEuler(-(5 + 4 * pl) * DEG, 0, 0);
+      over.chest = qEuler(-(2 + 3 * pl) * DEG, 0, 0);
       over.head = qEuler(-(8 + 4 * pl) * DEG, 0, 0);
       break;
     }
