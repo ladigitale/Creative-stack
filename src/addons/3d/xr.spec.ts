@@ -417,3 +417,37 @@ describe("couche WebXR en AR", () => {
     }
   });
 });
+
+describe("replis à l'ouverture", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("refus avec dom-overlay : nouvel essai sans, la session s'ouvre", async () => {
+    const x = fakeXr({ vr: false, ar: true });
+    const orig = x.xr.requestSession.getMockImplementation()!;
+    x.xr.requestSession.mockImplementation((mode: string, init: Record<string, unknown>) =>
+      init.domOverlay ? (x.requests.push({ mode, init }), Promise.reject(domError("NotSupportedError"))) : orig(mode, init),
+    );
+    const h = fakeHost();
+    await mount(`<sonic-xr id="xr" target="scene" features="dom-overlay" overlay="hud" for="ar"></sonic-xr><div id="hud"></div><button id="ar" data-xr-mode="ar"></button>`, h.host);
+    (document.getElementById("ar") as HTMLButtonElement).click();
+    await wait();
+    await wait();
+    expect(x.requests.length).toBe(2);
+    expect(x.requests[1].init.domOverlay).toBeUndefined();
+    expect(state().presenting).toBe(true);
+  });
+
+  it("refus total : message d'erreur et détail de chaque essai", async () => {
+    const x = fakeXr({ vr: false, ar: true, fail: "NotSupportedError" });
+    const h = fakeHost();
+    await mount(`<sonic-xr id="xr" target="scene" for="ar"></sonic-xr><button id="ar" data-xr-mode="ar"></button>`, h.host);
+    (document.getElementById("ar") as HTMLButtonElement).click();
+    await wait();
+    await wait();
+    expect(x.requests.length).toBe(2);
+    expect(state().status).toBe("unsupported");
+    expect(state().detail).toMatch(/NotSupportedError/);
+  });
+});
