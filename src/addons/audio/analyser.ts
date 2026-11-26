@@ -6,6 +6,10 @@ import { isAudioSource } from "../../shared/audio/contracts";
 import { listenDp } from "../../shared/audio/dp";
 import { bool, num } from "../../shared/media/control";
 import type { SonicFrameConsumerHost, SonicFrameSource } from "../../shared/mediaRef";
+import { dispatch } from "../interactive";
+import { yinPitch, type PitchInfo } from "./analysis/pitch";
+import { OnsetDetector, spectralFlux } from "./analysis/onset";
+import { BeatClock, estimateTempo, OnsetEnvelope } from "./analysis/tempo";
 
 const tagName = "sonic-audio-analyser";
 
@@ -35,7 +39,27 @@ export type AnalyserState = {
   /** Hauteur estimée (attribut `pitch`), null si incertaine. */
   pitchHz: number | null;
   settings: AnalyserSettings;
+  /** Analyses musicales actives (attribut `features`) ; clés suivantes présentes seulement si demandées. */
+  features?: AnalyserFeature[];
+  /** `features="pitch"` : fondamentale par YIN, null si silence ou peu claire. */
+  pitch?: PitchInfo | null;
+  /** `features="onset"` : attaques par flux spectral à seuil adaptatif (médiane mobile). */
+  attack?: AttackState;
+  /** `features="tempo"` : BPM par autocorrélation de la fonction d'attaque (~8 s). */
+  tempo?: TempoState;
 };
+
+export type AnalyserFeature = "pitch" | "onset" | "tempo";
+export type AttackState = { count: number; lastOnsetAt: number | null; strength: number };
+export type TempoState = { bpm: number | null; confidence: number; beat: number; phase: number };
+
+const FEATURES: AnalyserFeature[] = ["pitch", "onset", "tempo"];
+
+/** `"pitch onset tempo"` → liste reconnue, sans doublon (le reste est ignoré). */
+export function parseFeatures(raw: string | null | undefined): AnalyserFeature[] {
+  const words = String(raw ?? "").toLowerCase().split(/[\s,]+/);
+  return FEATURES.filter((f) => words.includes(f));
+}
 
 const DEFAULTS: AnalyserSettings = { bands: 16, fft: 2048, smoothing: 0.7, pitch: false, onsetThreshold: 1.5, rate: 30 };
 
@@ -46,6 +70,8 @@ const DEFAULTS: AnalyserSettings = { bands: 16, fft: 2048, smoothing: 0.7, pitch
  * Réglages en attributs, ou en direct par le DP `params`
  * `{ bands, fft, smoothing, pitch, onsetThreshold, rate }` : l'analyseur est reconfiguré
  * sans être recréé (l'analyse ne touche pas au son).
+ * `features="pitch onset tempo"` ajoute l'analyse musicale (YIN, flux spectral à seuil
+ * adaptatif, tempo par autocorrélation) et les actions `audio:onset` / `audio:beat` vers `target`.
  */
 @customElement(tagName)
 export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
@@ -88,6 +114,14 @@ export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, 
   @property({ type: String, attribute: "out-data-provider" })
   outDataProvider = "";
 
+  /** Analyses musicales (coûteuses, désactivées par défaut) : `"pitch onset tempo"`. */
+  @property({ type: String })
+  features = "";
+
+  /** Store (id) qui reçoit `audio:onset` et `audio:beat`. */
+  @property({ type: String })
+  target = "";
+
   private live: Partial<AnalyserSettings> = {};
   private unlistenParams: (() => void) | null = null;
   private analyser: AnalyserNode | null = null;
@@ -105,6 +139,15 @@ export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, 
   private consumers = new Set<object>();
   private state: AnalyserState = emptyState(DEFAULTS);
   private unsubscribeEngine: (() => void) | null = null;
+  private feat = new Set<AnalyserFeature>();
+  private onsetDet = new OnsetDetector();
+  private envelope = new OnsetEnvelope(50, 8);
+  private beatClock = new BeatClock();
+  private musicPrev: Float32Array | null = null;
+  private lastTempoAt = 0;
+  private attack: AttackState = { count: 0, lastOnsetAt: null, strength: 0 };
+  private tempo: TempoState = { bpm: null, confidence: 0, beat: 0, phase: 0 };
+  private pitchInfo: PitchInfo | null = null;
 
   get frameSeq(): number {
     return this.seq;
@@ -161,6 +204,7 @@ export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, 
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
+    if (changed.has("features")) this.setFeatures();
     if (changed.has("params") && this.isConnected) this.listenParams();
     if (changed.has("fft") || changed.has("smoothing")) this.configure();
     if (changed.has("source")) this.disconnectSource();
@@ -181,6 +225,63 @@ export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, 
       this.configure();
       this.refreshSettings();
     });
+  }
+
+  private setFeatures(): void {
+    const next = new Set(parseFeatures(this.features));
+    if ([...next].join() === [...this.feat].join()) return;
+    if (!next.has("onset") && !next.has("tempo")) {
+      this.onsetDet.reset();
+      this.musicPrev = null;
+    }
+    if (!next.has("tempo")) {
+      this.envelope.reset();
+      this.beatClock.reset();
+      this.tempo = { bpm: null, confidence: 0, beat: 0, phase: 0 };
+    }
+    if (!next.has("pitch")) this.pitchInfo = null;
+    this.feat = next;
+    this.state = this.withMusic(stripMusic(this.state));
+    this.publish(true);
+  }
+
+  /** Ajoute à l'état les clés des analyses actives (et seulement elles). */
+  private withMusic(state: AnalyserState): AnalyserState {
+    if (!this.feat.size) return state;
+    const out: AnalyserState = { ...state, features: [...this.feat] };
+    if (this.feat.has("pitch")) out.pitch = this.pitchInfo;
+    if (this.feat.has("onset")) out.attack = { ...this.attack };
+    if (this.feat.has("tempo")) out.tempo = { ...this.tempo };
+    return out;
+  }
+
+  /** Analyse image par image (attaques, tempo) : flux, seuil adaptatif, enveloppe, horloge des temps. */
+  private analyseFrame(now: number): void {
+    const fd = this.freqData!;
+    const spec = new Float32Array(fd.length);
+    for (let i = 0; i < fd.length; i++) spec[i] = fd[i] / 255;
+    const flux = spectralFlux(this.musicPrev, spec);
+    this.musicPrev = spec;
+    this.onsetDet.threshold = this.settings().onsetThreshold;
+    const r = this.onsetDet.push(flux, now);
+    const target = this.target.trim();
+    if (r.onset && this.feat.has("onset")) {
+      this.attack = { count: this.attack.count + 1, lastOnsetAt: Math.round(now), strength: r.strength };
+      if (target) dispatch(target, { type: "audio:onset", payload: { count: this.attack.count, strength: r.strength, at: Math.round(now) } });
+    }
+    if (!this.feat.has("tempo")) return;
+    this.envelope.add(now, r.novelty);
+    if (now - this.lastTempoAt >= 250) {
+      this.lastTempoAt = now;
+      const est = estimateTempo(this.envelope.values(), this.envelope.fps);
+      if (est && est.confidence >= 0.1) {
+        this.beatClock.sync(this.envelope.endMs - est.lastBeatAgo * 1000, est.bpm);
+        this.tempo = { ...this.tempo, bpm: est.bpm, confidence: est.confidence };
+      } else this.tempo = { ...this.tempo, confidence: est?.confidence ?? 0 };
+    }
+    const b = this.beatClock.update(now);
+    this.tempo = { ...this.tempo, beat: b.count, phase: b.phase };
+    if (b.beat && target) dispatch(target, { type: "audio:beat", payload: { beat: b.count, bpm: this.tempo.bpm, confidence: this.tempo.confidence, at: Math.round(now) } });
   }
 
   /** Republie l'état quand les réglages effectifs changent (même sans source). */
@@ -277,7 +378,8 @@ export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, 
     }
     if (!this.connectedSource) {
       if (this.state.status !== "waiting-source") {
-        this.state = { ...emptyState(this.settings()), status: "waiting-source" };
+        this.pitchInfo = null;
+        this.state = this.withMusic({ ...emptyState(this.settings()), status: "waiting-source" });
         this.publish(true);
       }
       return;
@@ -287,14 +389,16 @@ export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, 
     const interval = 1000 / settings.rate;
     const wantTexture = this.consumers.size > 0;
     const due = now - this.lastPublish >= interval;
-    if (!due && !wantTexture) return;
+    const perFrame = this.feat.has("onset") || this.feat.has("tempo");
+    if (!due && !wantTexture && !perFrame) return;
 
     a.getFloatTimeDomainData(this.timeData);
     a.getByteFrequencyData(this.freqData);
     if (wantTexture || due) this.paintTexture();
+    if (perFrame) this.analyseFrame(now);
     if (!due) return;
     this.lastPublish = now;
-    this.state = this.measure(a.context.sampleRate, now, settings);
+    this.state = this.withMusic(this.measure(a.context.sampleRate, now, settings));
     this.publish();
   };
 
@@ -343,6 +447,7 @@ export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, 
     }
     this.prevSpectrum = spec;
     flux /= fd.length;
+    this.pitchInfo = this.feat.has("pitch") ? yinPitch(td, sampleRate) : null;
     const hist = this.fluxHistory;
     const mean = hist.length ? hist.reduce((x, y) => x + y, 0) / hist.length : 0;
     hist.push(flux);
@@ -360,7 +465,7 @@ export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, 
       centroidHz: den > 0 ? Math.round(num / den) : 0,
       onset,
       onsetCount: this.state.onsetCount + (onset ? 1 : 0),
-      pitchHz: settings.pitch ? estimatePitch(td, sampleRate) : null,
+      pitchHz: settings.pitch ? estimatePitch(td, sampleRate) : (this.pitchInfo?.hz ?? null),
       settings,
     };
   }
@@ -395,6 +500,11 @@ export class SonicAudioAnalyser extends LitElement implements SonicFrameSource, 
   render() {
     return html``;
   }
+}
+
+function stripMusic(s: AnalyserState): AnalyserState {
+  const { features: _f, pitch: _p, attack: _a, tempo: _t, ...rest } = s;
+  return rest;
 }
 
 function emptyState(settings: AnalyserSettings): AnalyserState {

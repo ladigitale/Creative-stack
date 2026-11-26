@@ -5,6 +5,8 @@
  * Compatibilité : tap, double-tap, long-press, swipe-*, drag (déplacement cumulé en fraction de
  * la zone) gardent leur sens. Nouveau, à la demande : pan (delta en px), pinch (échelle et
  * rotation à deux doigts), drag-end / pan-end, position {x, y, u, v} sur tap / double-tap / long-press.
+ * `dragEvents` : glisser continu d'un doigt `drag:start` / `drag:move` (au plus `rate` par seconde) / `drag:end`,
+ * en px et en fraction bornée (nx, ny), avec vitesse ; les swipes sont alors remplacés par `drag:end`.
  */
 
 export type GesturePoint = { id: number; x: number; y: number; t: number };
@@ -19,6 +21,10 @@ export type GestureOptions = {
   pan: boolean;
   /** `pinch-start` / `pinch` {scale, dScale, rotation, dRotation, cx, cy} / `pinch-end` à deux doigts. */
   pinch: boolean;
+  /** `drag:start` / `drag:move` / `drag:end` (glisser continu d'un doigt, px + fraction, vitesse). */
+  dragEvents?: boolean;
+  /** `drag:move` par seconde au plus (1..120, défaut 30). */
+  rate?: number;
   width: number;
   height: number;
 };
@@ -31,6 +37,23 @@ export const MOVE_TOLERANCE_PX = 10;
 type Tracked = { x: number; y: number };
 
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+/** Point public : px dans la zone (non bornés) et fraction bornée 0..1 (nx, ny). */
+export function normPoint(x: number, y: number, width: number, height: number): { x: number; y: number; nx: number; ny: number } {
+  return {
+    x: round(x),
+    y: round(y),
+    nx: round(width ? clamp01(x / width) : 0, 4),
+    ny: round(height ? clamp01(y / height) : 0, 4),
+  };
+}
+
+/** Fenêtre de calcul de la vitesse d'un glisser (ms). */
+const VELOCITY_WINDOW_MS = 100;
+
+export type DragState = { active: boolean; x: number; y: number; nx: number; ny: number; dx: number; dy: number; vx: number; vy: number };
+const IDLE_DRAG: DragState = { active: false, x: 0, y: 0, nx: 0, ny: 0, dx: 0, dy: 0, vx: 0, vy: 0 };
 
 function normalizeAngle(a: number): number {
   while (a > Math.PI) a -= 2 * Math.PI;
@@ -49,6 +72,14 @@ export class GestureTracker {
   private panned = false;
   private lastTap = -Infinity;
   private base: { d: number; a: number; scale: number; rotation: number } | null = null;
+  /** Glisser continu (`dragEvents`). */
+  private dragging = false;
+  private dragDone = false;
+  private lastDragMove = -Infinity;
+  private pendingDrag: Record<string, unknown> | null = null;
+  private samples: Array<{ x: number; y: number; t: number }> = [];
+  private dragInfo: DragState = { ...IDLE_DRAG };
+  private lastOpts: GestureOptions | null = null;
   /** Échelle et rotation cumulées depuis le début du geste (1 et 0 au repos). */
   scale = 1;
   rotation = 0;
@@ -106,6 +137,7 @@ export class GestureTracker {
   }
 
   down(p: GesturePoint, o: GestureOptions): GestureAction[] {
+    this.lastOpts = o;
     if (this.pointers.has(p.id)) return [];
     this.pointers.set(p.id, { x: p.x, y: p.y });
     const out: GestureAction[] = [];
@@ -119,8 +151,15 @@ export class GestureTracker {
       this.total = { dx: 0, dy: 0 };
       this.base = null;
       this.panned = false;
+      this.dragging = false;
+      this.dragDone = false;
+      this.pendingDrag = null;
+      this.lastDragMove = -Infinity;
+      this.samples = [{ x: p.x, y: p.y, t: p.t }];
     } else {
       this.multi = true;
+      // Un deuxième doigt interrompt le glisser d'un doigt.
+      if (this.dragging) out.push(...this.endDrag(o, true));
       if (o.pinch && this.pointers.size === 2) {
         this.rebase();
         const c = this.centroid();
@@ -132,6 +171,7 @@ export class GestureTracker {
   }
 
   move(p: GesturePoint, o: GestureOptions): GestureAction[] {
+    this.lastOpts = o;
     const tracked = this.pointers.get(p.id);
     if (!tracked) return [];
     tracked.x = p.x;
@@ -174,6 +214,71 @@ export class GestureTracker {
         payload: { dx: o.width ? (p.x - this.start.x) / o.width : 0, dy: o.height ? (p.y - this.start.y) / o.height : 0 },
       });
     }
+    if (o.dragEvents && this.pointers.size === 1 && !this.multi) out.push(...this.dragMove(p, o));
+    return out;
+  }
+
+  private velocity(): { vx: number; vy: number } {
+    const s = this.samples;
+    if (s.length < 2) return { vx: 0, vy: 0 };
+    const a = s[0];
+    const b = s[s.length - 1];
+    const dt = b.t - a.t;
+    if (dt <= 0) return { vx: 0, vy: 0 };
+    return { vx: round(((b.x - a.x) / dt) * 1000), vy: round(((b.y - a.y) / dt) * 1000) };
+  }
+
+  private sample(p: GesturePoint): void {
+    this.samples.push({ x: p.x, y: p.y, t: p.t });
+    while (this.samples.length > 2 && p.t - this.samples[0].t > VELOCITY_WINDOW_MS) this.samples.shift();
+  }
+
+  private dragPayload(x: number, y: number, o: GestureOptions): Record<string, unknown> {
+    const v = this.velocity();
+    const pt = normPoint(x, y, o.width, o.height);
+    const payload = { ...pt, dx: round(x - this.start.x), dy: round(y - this.start.y), vx: v.vx, vy: v.vy };
+    this.dragInfo = { active: this.dragging, ...payload };
+    return payload;
+  }
+
+  private dragMove(p: GesturePoint, o: GestureOptions): GestureAction[] {
+    this.sample(p);
+    const out: GestureAction[] = [];
+    if (!this.dragging) {
+      if (this.dragDone || Math.hypot(p.x - this.start.x, p.y - this.start.y) <= MOVE_TOLERANCE_PX) return out;
+      this.dragging = true;
+      out.push({ type: "drag:start", payload: normPoint(this.start.x, this.start.y, o.width, o.height) });
+    }
+    const payload = this.dragPayload(p.x, p.y, o);
+    const rate = Math.min(120, Math.max(1, Number(o.rate) || 30));
+    if (p.t - this.lastDragMove >= 1000 / rate - 0.5) {
+      this.lastDragMove = p.t;
+      this.pendingDrag = null;
+      out.push({ type: "drag:move", payload });
+    } else {
+      this.pendingDrag = payload;
+    }
+    return out;
+  }
+
+  /** Termine le glisser : dernier `drag:move` retenu par la cadence, puis `drag:end` (`cancelled` si interrompu). */
+  private endDrag(o: GestureOptions, cancelled: boolean, last?: GesturePoint): GestureAction[] {
+    if (!this.dragging) return [];
+    const out: GestureAction[] = [];
+    if (last) {
+      this.sample(last);
+      const moved = this.dragInfo.x !== round(last.x) || this.dragInfo.y !== round(last.y);
+      if (moved) this.pendingDrag = this.dragPayload(last.x, last.y, o);
+    }
+    if (this.pendingDrag) out.push({ type: "drag:move", payload: this.pendingDrag });
+    this.pendingDrag = null;
+    this.dragging = false;
+    this.dragDone = true;
+    const end: Record<string, unknown> = { ...this.dragInfo, start: normPoint(this.start.x, this.start.y, o.width, o.height) };
+    delete end.active;
+    if (cancelled) end.cancelled = true;
+    this.dragInfo = { ...this.dragInfo, active: false };
+    out.push({ type: "drag:end", payload: end });
     return out;
   }
 
@@ -214,12 +319,15 @@ export class GestureTracker {
         payload: { dx: o.width ? dx / o.width : 0, dy: o.height ? dy / o.height : 0, ...this.position(p.x, p.y, o) },
       });
     }
+    const dragged = this.dragging || this.dragDone;
+    if (this.dragging) out.push(...this.endDrag(o, false, p));
     if (this.multi || this.longFired) return out;
 
     if (dist >= o.swipeThreshold) {
-      if (!o.pan) {
+      if (!o.pan && !dragged) {
         const type = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "swipe-right" : "swipe-left") : dy > 0 ? "swipe-down" : "swipe-up";
-        out.push({ type });
+        const start = normPoint(this.start.x, this.start.y, o.width, o.height);
+        out.push({ type, payload: { ...start, dx: round(dx), dy: round(dy), start, end: normPoint(p.x, p.y, o.width, o.height) } });
       }
       return out;
     }
@@ -244,8 +352,11 @@ export class GestureTracker {
   }
 
   /** Annule tout (pointercancel, déconnexion). */
-  cancel(): GestureAction[] {
+  cancel(o?: GestureOptions): GestureAction[] {
     const out: GestureAction[] = [];
+    const opts = o ?? this.lastOpts;
+    if (this.dragging && opts) out.push(...this.endDrag(opts, true));
+    this.dragging = false;
     if (this.base) out.push({ type: "pinch-end", payload: { scale: round(this.scale, 4), rotation: round(this.rotation, 4) } });
     this.pointers.clear();
     this.base = null;
@@ -264,6 +375,7 @@ export class GestureTracker {
       panY: round(this.total.dy),
       x: round(c.x),
       y: round(c.y),
+      drag: { ...this.dragInfo },
     };
   }
 }
@@ -286,7 +398,7 @@ export function coalesce(actions: GestureAction[]): GestureAction[] {
         };
         continue;
       }
-      if (a.type === "drag") {
+      if (a.type === "drag" || a.type === "drag:move") {
         prev.payload = a.payload;
         continue;
       }
@@ -297,4 +409,4 @@ export function coalesce(actions: GestureAction[]): GestureAction[] {
 }
 
 /** Types émis à chaque mouvement : regroupés par image avant dispatch. */
-export const CONTINUOUS = new Set(["pan", "pinch", "drag"]);
+export const CONTINUOUS = new Set(["pan", "pinch", "drag", "drag:move"]);

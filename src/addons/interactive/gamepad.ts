@@ -3,7 +3,8 @@ import { customElement, property, state } from "lit/decorators.js";
 import { dispatch, type SonicActionMessage } from "./registry";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
-import { num } from "../../shared/media/control";
+import { CounterTrigger, num } from "../../shared/media/control";
+import { RumbleTracker, canRumble, noPadError, readRumble, type RumbleState } from "../../shared/device/rumble";
 import { readKeymap, readRepeat, type Keymap, type RepeatCfg } from "./keyboard";
 
 const tagName = "sonic-gamepad";
@@ -44,6 +45,8 @@ export type GamepadState = {
   id: string | null;
   /** Zone morte effective des sticks. */
   deadzone: number;
+  /** Vibration de la manette 0 (ou de la première visible) : `supported` si elle sait vibrer, `active` pendant l'effet. */
+  rumble: RumbleState;
 };
 
 const STANDARD: Record<string, number | { axis: number; dir: 1 | -1 }> = {
@@ -67,6 +70,8 @@ const STANDARD: Record<string, number | { axis: number; dir: 1 | -1 }> = {
  * Manette → actions store. Raf uniquement si une pad est connectée. Boutons et stick gauche poussé à fond
  * seulement, une manette : pour les axes analogiques, les gâchettes ou plusieurs manettes, voir `sonic-controller`.
  * Réglages en direct par le DP `params` : `{ deadzone, keymap, repeat }`.
+ * Vibration par le DP `control` : `{ rumble: { n: compteur, duration (ms, ≤ 5000), strong (0..1), weak (0..1), pad } }`,
+ * `{ stopRumble: n }` l'arrête ; erreur lisible dans `error` de l'état (sans changer `status`). Non testé sur matériel.
  */
 @customElement(tagName)
 export class SonicGamepad extends LitElement {
@@ -111,6 +116,10 @@ export class SonicGamepad extends LitElement {
   @property({ type: Boolean, attribute: "dispatch-event" })
   dispatchEventFlag = false;
 
+  /** DP de pilotage par compteurs : `{ rumble: { n, duration, strong, weak, pad }, stopRumble: n }`. */
+  @property({ type: String })
+  control = "";
+
   @state() private connected = false;
 
   private raf = 0;
@@ -120,10 +129,16 @@ export class SonicGamepad extends LitElement {
   private liveInvalid: string[] = [];
   private unlistenParams: (() => void) | null = null;
   private published = "";
+  private unlistenControl: (() => void) | null = null;
+  private rumbleTrigger = new CounterTrigger();
+  private stopTrigger = new CounterTrigger();
+  private rumbleError: string | null = null;
+  private rumbles = new RumbleTracker(() => this.publishStatus());
 
   connectedCallback(): void {
     super.connectedCallback();
     this.listenParams();
+    if (this.hasUpdated) this.listenControl();
     window.addEventListener("gamepadconnected", this.onConnect);
     window.addEventListener("gamepaddisconnected", this.onDisconnect);
     this.scan();
@@ -136,11 +151,15 @@ export class SonicGamepad extends LitElement {
     this.clearHolds();
     this.unlistenParams?.();
     this.unlistenParams = null;
+    this.unlistenControl?.();
+    this.unlistenControl = null;
+    this.rumbles.reset();
     super.disconnectedCallback();
   }
 
   protected updated(changed: Map<string | number | symbol, unknown>): void {
     if (changed.has("params") && changed.get("params") !== undefined && this.isConnected) this.listenParams();
+    if (changed.has("control")) this.listenControl();
     if (changed.has("dataProvider") || changed.has("outDataProvider")) this.published = "";
     this.publishStatus();
   }
@@ -160,6 +179,54 @@ export class SonicGamepad extends LitElement {
     });
   }
 
+  private listenControl(): void {
+    this.unlistenControl?.();
+    this.unlistenControl = null;
+    this.rumbleTrigger.reset();
+    this.stopTrigger.reset();
+    const path = this.control.trim();
+    if (!path) return;
+    this.unlistenControl = listenDp(path, (v) => {
+      if (!v || typeof v !== "object") return;
+      const c = v as Record<string, unknown>;
+      if (this.stopTrigger.feed(c.stopRumble)) void this.stopRumble();
+      if (this.rumbleTrigger.feed(c.rumble)) void this.rumble(c.rumble);
+    });
+  }
+
+  /** Manette visée : `Gamepad.index` = `index`, ou la première visible pour l'index 0. */
+  private padAt(index: number): Gamepad | undefined {
+    const pads = [...(navigator.getGamepads?.() ?? [])].filter((p): p is Gamepad => !!p);
+    return pads.find((p) => p.index === index) ?? (index === 0 ? pads[0] : undefined);
+  }
+
+  /** Vibration (commande `rumble`) : `{ duration (ms), strong, weak, pad }`. Ne lève jamais ; vrai si elle a joué. */
+  async rumble(arg: unknown = {}): Promise<boolean> {
+    const args = readRumble(arg);
+    const index = args.pad ?? 0;
+    const pad = typeof navigator.getGamepads === "function" ? this.padAt(index) : undefined;
+    if (!pad) return this.rumbleFailed(noPadError(index));
+    try {
+      this.rumbleError = null;
+      await this.rumbles.play([pad], args);
+      return true;
+    } catch (e) {
+      return this.rumbleFailed(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** Arrête la vibration (commande `stopRumble`). */
+  async stopRumble(): Promise<void> {
+    const pads = [...(navigator.getGamepads?.() ?? [])].filter((p): p is Gamepad => !!p);
+    await this.rumbles.stop(pads);
+  }
+
+  private rumbleFailed(message: string): false {
+    this.rumbleError = message;
+    this.publishStatus();
+    return false;
+  }
+
   /** Réglages effectifs (attributs, puis `params`). */
   settings(): GamepadSettings {
     const dz = Number(this.deadzone);
@@ -173,12 +240,20 @@ export class SonicGamepad extends LitElement {
 
   /** État courant (aussi publié dans `dataProvider` / `out-data-provider`). */
   getState(): GamepadState {
-    const error = this.liveInvalid.length ? `params : valeur refusée pour ${this.liveInvalid.join(", ")}` : null;
+    const error = this.liveInvalid.length ? `params : valeur refusée pour ${this.liveInvalid.join(", ")}` : this.rumbleError;
     const supported = typeof navigator !== "undefined" && typeof navigator.getGamepads === "function";
     const pads = supported ? navigator.getGamepads() : [];
     const first = [...pads].find(Boolean);
-    const status: GamepadState["status"] = error ? "error" : !supported ? "unsupported" : this.connected ? "ready" : "idle";
-    return { status, error, connected: this.connected, id: first?.id ?? null, deadzone: this.settings().deadzone };
+    const status: GamepadState["status"] = this.liveInvalid.length ? "error" : !supported ? "unsupported" : this.connected ? "ready" : "idle";
+    const rumblePad = supported ? this.padAt(0) : undefined;
+    return {
+      status,
+      error,
+      connected: this.connected,
+      id: first?.id ?? null,
+      deadzone: this.settings().deadzone,
+      rumble: { supported: canRumble(rumblePad), active: this.rumbles.active },
+    };
   }
 
   private onConnect = () => this.scan();

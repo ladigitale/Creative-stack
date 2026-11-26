@@ -46,6 +46,7 @@
     "./bluetooth": "./src/addons/bluetooth/index.ts",
     "./serial": "./src/addons/serial/index.ts",
     "./grbl": "./src/addons/grbl/index.ts",
+    "./speech": "./src/addons/speech/index.ts",
     "./compat": "./src/shared/concorde-compat.ts",
     "./jsonata": "./src/shared/jsonata-shim.ts",
     "./shared/*": "./src/shared/*.ts",

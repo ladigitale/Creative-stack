@@ -12,6 +12,9 @@ Addon `@supersoniks/creative-stack/device` : les API « appareil » du navigateu
 | `sonic-clipboard` | Copier, lire le presse-papiers (texte) | `copy {text}`, `read` |
 | `sonic-share` | Partage natif, repli par copie | `share {title, text, url}` |
 | `sonic-vibrate` | Vibration (Android) | `vibrate {pattern}`, `stop` |
+| `sonic-nfc` | Tags NFC : lire, écrire texte / URL / JSON (Chrome Android) | `scan`, `stop`, `write {text \| url \| records}`, `makeReadOnly` (avec `allow-lock`) |
+| `sonic-hid` | Appareil HID : boutons, pédaliers, claviers de macros | `connect {pick}`, `close`, `sendReport`, `sendFeatureReport`, `receiveFeatureReport`, `forget` |
+| `sonic-usb` | Appareil USB à protocole maison (WebUSB) | `connect {pick}`, `open`, `close`, `transferIn`, `transferOut`, `controlTransferIn`, `controlTransferOut`, `forget` |
 | `sonic-page-state` | Visibilité, focus, connexion, taille, préférences | — |
 | `sonic-capabilities` | Ce que la page autorise, en un DataProvider | `refresh` |
 
@@ -63,6 +66,9 @@ L'hôte doit autoriser la fonction : attribut `allow` de l'`<iframe>`, ou en-tê
 | `sonic-clipboard` | `allow="clipboard-write; clipboard-read"` |
 | `sonic-share` | `allow="web-share"` |
 | `sonic-vibrate` | `allow="vibrate"` (selon le navigateur) |
+| `sonic-nfc` | rien à autoriser : Web NFC n'a pas de Permissions Policy et ne marche que dans le cadre principal ou une iframe de même origine |
+| `sonic-hid` | `allow="hid"` ; en-tête de la page `Permissions-Policy: hid=(self)` |
+| `sonic-usb` | `allow="usb"` ; en-tête de la page `Permissions-Policy: usb=(self)` |
 
 Tableau de départ : à vérifier sur chaque navigateur cible avant de s'y fier.
 
@@ -162,3 +168,66 @@ Partage d'un fichier : `file-from` désigne un SonicMediaRef (URL `blob:` seulem
 **`sonic-vibrate`** — `pattern` : `"200"` ou `"100,50,100"` (vibration, pause, vibration…), 20 éléments au plus, 5 s chacun. Absent sous iOS (`supported: false`) : prévoir un autre retour (son, animation).
 
 **`sonic-page-state`** — Sans permission ni commande. `active` = `visible`. À utiliser pour couper un rendu ou un son quand l'onglet est caché (`visible: false`), ou adapter la scène au tactile (`touch`), au thème sombre (`colorScheme`) ou au mouvement réduit (`reducedMotion`).
+
+## NFC, HID et USB
+
+Trois composants pour du matériel, **non testés sur matériel** (seulement avec des doublures des API) : à essayer sur l'appareil visé avant de s'y fier. Tous exigent HTTPS et un geste de l'utilisateur pour la première autorisation (`for="idBouton"`). Navigateurs : Chromium seulement (Chrome, Edge, Opera, Samsung Internet) ; ni Firefox, ni Safari, ni iOS. Prévoir un repli : `supported: false` et `status: "unsupported"` le disent dès le chargement.
+
+### `sonic-nfc` — tags NFC
+
+Chrome sous **Android** seulement (Web NFC), page visible et au premier plan, NFC activé dans les réglages du téléphone (sinon `error` le dit). Pas de Permissions Policy : rien à mettre dans `allow` ; une iframe d'une autre origine ne peut pas s'en servir.
+
+- `for` : le clic lance `scan` (demande de permission au premier usage). Ensuite chaque tag approché est lu : `records`, `serial`, `count` ; action `nfc:read {serial, records}` vers le store `target`.
+- Enregistrements lus : `text` → `{recordType: "text", text}` ; `url` / `absolute-url` → `{url}` si http(s) (sinon seulement `size`) ; `mime` JSON (`application/json`, `…+json`) → `{json}` ; les autres types → `{recordType, mediaType, size}` sans les données. 16 enregistrements au plus, textes tronqués à 10 000 caractères.
+- `write` : `{n, text}`, `{n, url}` (http ou https), ou `{n, records: [{recordType: "text"|"url"|"mime", data, mediaType}]}` (`mime` = `application/json` seulement, `data` = valeur JSON). 8 Ko au plus (un tag courant en contient bien moins : NTAG213 ≈ 140 octets, NTAG215 ≈ 500). L'écriture **attend qu'un tag soit approché** (`writing: true`) ; `stop` l'annule. `no-overwrite` refuse un tag qui contient déjà un message.
+- `makeReadOnly` verrouille le tag **définitivement** : refusé sans l'attribut `allow-lock`.
+
+```json
+{ "tagName": "div", "nodes": [
+  { "tagName": "sonic-nfc", "attributes": { "id": "nfc", "for": "lire", "target": "jeu", "control": "nfcCmd" } },
+  { "tagName": "sonic-button", "attributes": { "id": "lire", "type": "primary" }, "nodes": [{ "tagName": "span", "attributes": { "text": "Approcher une carte" } }] },
+  { "tagName": "sonic-value", "attributes": { "dataProvider": "nfcState", "key": "records.0.text" } }
+] }
+```
+
+Le store `jeu` reçoit `{type: "nfc:read", payload: {serial, records}}`. Pour écrire, un reducer incrémente `nfcCmd.write` : `{ "write": { "n": 2, "url": "https://exemple.fr/salle-3" } }`.
+
+### `sonic-hid` — appareils HID
+
+Chrome, Edge et Opera **sur ordinateur** (WebHID). Les claviers et souris sont masqués par le navigateur (inutilisables) ; les manettes standard passent mieux par `sonic-controller`.
+
+- `for` : le clic ouvre le sélecteur. `filters` JSON `[{vendorId, productId, usagePage, usage}]` (identifiants en hexadécimal en chaîne, `"1a86"`, ou en nombre) : **sans `filters`, le sélecteur liste tous les appareils HID de la machine** ; mieux vaut filtrer quand on connaît l'appareil. Un seul appareil déjà autorisé qui correspond est rouvert sans sélecteur (`{connect: {n, pick: true}}` force le sélecteur).
+- `auto-reconnect` : rouvre l'appareil autorisé au chargement de la page, et quand il est rebranché.
+- Rapports d'entrée : `last = {reportId, bytes, at}` et `reports` (les `keep` derniers, 16 par défaut, 64 au plus) ; action `hid:input` (même forme) vers `target`, au plus `rate` par seconde, le dernier rapport n'est jamais perdu. `profile="buttons"` ajoute `buttons` : les 8 bits du premier octet (bit 0 d'abord) ; `gamepad-generic` laisse les octets bruts.
+- Commandes : `sendReport {n, reportId, bytes | hex}`, `sendFeatureReport {…}` (4096 octets au plus), `receiveFeatureReport {n, reportId}` (résultat dans `feature`), `close`, `forget` (retire l'autorisation).
+
+```json
+{ "tagName": "div", "nodes": [
+  { "tagName": "sonic-hid", "attributes": { "id": "pedale", "for": "brancher", "filters": "[{\"usagePage\": 12}]", "profile": "buttons", "auto-reconnect": "", "target": "lecteur", "rate": "20" } },
+  { "tagName": "sonic-button", "attributes": { "id": "brancher" }, "nodes": [{ "tagName": "span", "attributes": { "text": "Brancher le pédalier" } }] }
+] }
+```
+
+Le store `lecteur` reçoit `{type: "hid:input", payload: {reportId, bytes, at, buttons}}` et tourne la page sur `buttons.0`.
+
+### `sonic-usb` — appareils USB
+
+Chromium sur ordinateur et sous Android (WebUSB). Pour un appareil à protocole maison (carte Arduino ou RP2040 avec WebUSB, instrument de mesure) ; les interfaces HID, stockage de masse, audio et vidéo sont **protégées** par le navigateur (`claimInterface` refusé), et un appareil déjà tenu par un pilote du système ne s'ouvre pas (sous Windows : pilote WinUSB ; sous Linux : règle udev). Pour un pont série USB, `sonic-serial` (addon `serial`) convient mieux.
+
+- `for` : le clic ouvre le sélecteur. `filters` JSON `[{vendorId, productId, classCode}]` (`subclassCode`, `protocolCode` aussi) ; **sans `filters`, tous les appareils USB** de la machine sont listés. Un seul appareil déjà autorisé qui correspond est rouvert sans sélecteur ; `auto-reconnect` au chargement et au rebranchement.
+- Ouverture : `open()`, `selectConfiguration(configuration)` (attribut, 1), `claimInterface(interface)` (attribut, 0). L'état publie `claimed`.
+- Transferts, un à la fois dans l'ordre des commandes, **64 Ko au plus** : `transferIn {n, endpoint, length}`, `transferOut {n, endpoint, bytes | hex | text}`, `controlTransferIn {n, setup, length}`, `controlTransferOut {n, setup, bytes | hex | text}` avec `setup = {requestType: "standard"|"class"|"vendor", recipient: "device"|"interface"|"endpoint"|"other", request, value, index}`. `endpoint` de 1 à 15.
+- Réception : `last = {endpoint, bytes, length, truncated, status, at}` (les 4096 premiers octets recopiés ; `length` donne la taille reçue) ; action `usb:in` (même forme) vers `target`. `status` `stall` ou `babble` est aussi signalé dans `error`. Envoi : `lastOut = {endpoint, bytesWritten, status, at}`.
+
+```json
+{ "tagName": "div", "nodes": [
+  { "tagName": "sonic-usb", "attributes": { "id": "carte", "for": "connecter", "filters": "[{\"vendorId\": \"2e8a\"}]", "interface": "2", "control": "carteCmd", "target": "mesures" } },
+  { "tagName": "sonic-button", "attributes": { "id": "connecter" }, "nodes": [{ "tagName": "span", "attributes": { "text": "Connecter la carte" } }] }
+] }
+```
+
+Un reducer écrit `carteCmd = { "transferOut": { "n": 3, "endpoint": 4, "text": "mesure\n" }, "transferIn": { "n": 3, "endpoint": 5, "length": 64 } }` ; le store `mesures` reçoit `usb:in`.
+
+### Permissions-Policy
+
+Hors iframe, la page elle-même est autorisée tant que l'en-tête ne l'interdit pas. Pour servir explicitement : `Permissions-Policy: hid=(self), usb=(self)`. Dans une iframe : `<iframe allow="hid; usb">`. Web NFC n'a pas de directive.

@@ -50,6 +50,22 @@ function raycastHits(
     .filter((h) => isVisibleChain(h.object) && nameAllowed(names, h.object));
 }
 
+/**
+ * Premier objet visible (accepté par `pick-names`) touché par un rayon déjà posé sur `raycaster`
+ * (rayon d'une manette XR, en coordonnées monde). Mêmes filtres que le tap à l'écran.
+ */
+function rayHit(
+  content: THREE.Object3D | null,
+  raycaster: THREE.Raycaster,
+  names?: string,
+): { hit: SceneHit; object: THREE.Object3D } | null {
+  if (!content) return null;
+  const h = raycaster
+    .intersectObject(content, true)
+    .find((x) => isVisibleChain(x.object) && nameAllowed(names, x.object));
+  return h ? { hit: hitFromIntersection(h, names), object: h.object } : null;
+}
+
 function isVisibleChain(obj: THREE.Object3D | null): boolean {
   for (let o = obj; o; o = o.parent) if (!o.visible) return false;
   return true;
@@ -134,4 +150,5 @@ export const pick = {
   setHoverAt,
   clearHighlight,
   raycastHits,
+  rayHit,
 } as const;

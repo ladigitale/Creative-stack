@@ -15,7 +15,7 @@
   "components": [
     {
       "name": "sonic-camera",
-      "description": "Caméra : aperçu, source d'images (#id) pour sonic-shader, photos (control.snapshot compteur → snapshot-provider) ; démarrage sur geste ; état {status, error, width, height, snapshot, snapshots} ; réglages de la piste (zoom, torche, focus, exposition, balance des blancs…) : capacités publiées dans <id>Capabilities {status, controls, list[{key, kind, label, min, max, step, values}], unsupported}, demandes par le DP adjust {zoom: 2, torch: true, focusMode: \"manual\"}, résultat dans <id>Settings {desired, applied, pending, errors} (lire applied, jamais desired)",
+      "description": "Caméra : aperçu, source d'images (#id) pour sonic-shader, photos (control.snapshot compteur → snapshot-provider) ; démarrage sur geste ; état {status, error, active, supported, allowed (Permissions Policy camera : true|false|\"unknown\"), width, height, snapshot, snapshots} ; réglages de la piste (zoom, torche, focus, exposition, balance des blancs…) : capacités publiées dans <id>Capabilities {status, controls, list[{key, kind, label, min, max, step, values}], unsupported}, demandes par le DP adjust {zoom: 2, torch: true, focusMode: \"manual\"}, résultat dans <id>Settings {desired, applied, pending, errors} (lire applied, jamais desired)",
       "props": {
         "active": {
           "type": "boolean"
@@ -370,7 +370,7 @@
     },
     {
       "name": "sonic-screen",
-      "description": "Capture d'écran (getDisplayMedia, clic direct requis : sonic-media-start for=\"screen\") : source d'images (#id) pour sonic-shader, photos (control.snapshot), son du partage (audio) pour l'analyseur / l'enregistreur, export par sonic-media-recorder ; état {status, error, surface, width, height, audio, snapshot}",
+      "description": "Capture d'écran (getDisplayMedia, clic direct requis : sonic-media-start for=\"screen\") : source d'images (#id) pour sonic-shader, photos (control.snapshot), son du partage (audio) pour l'analyseur / l'enregistreur, export par sonic-media-recorder ; état {status, error, active, supported, allowed (Permissions Policy display-capture), surface, width, height, audio, snapshot}",
       "props": {
         "active": {
           "type": "boolean"
@@ -463,6 +463,76 @@
         },
         "out-data-provider": {
           "type": "string"
+        }
+      }
+    },
+    {
+      "name": "sonic-video-export",
+      "description": "Export vidéo image par image (WebCodecs VP9, repli VP8, fichier WebM sans son) d'une source d'images source=\"#id\" (sonic-shader, sonic-3d, sonic-2d, sonic-camera, sonic-video…) ; mode=\"frames\" (défaut : horodatage fixe image n = n/fps, vidéo fluide même si le rendu est lent, capture jamais plus rapide que fps) ou \"live\" (horodatage réel) ; arrêt automatique après duration (s) ou frames ; pilotage control {start, stop, cancel, toggle} (compteurs) ou for=\"idBouton\" (toggle) ; état <id>State {status, error, supported, allowed, active (capture), encoding, mode, frames, seconds, progress (0..1 ou null), codec, width, height, bytes, file {url blob:, name, type: \"video/webm\", mime, size}} ; file se branche sur sonic-media-download source=\"<id>State.file\" ; action {type: \"video:done\", payload: {file, frames, seconds, codec, width, height, error}} vers target ; dépassement de max-mb : export arrêté, fichier gardé, error renseignée",
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "#id d'une source d'images"
+        },
+        "mode": {
+          "type": "string",
+          "description": "frames (défaut) | live"
+        },
+        "fps": {
+          "type": "number",
+          "description": "images par seconde, défaut 30"
+        },
+        "duration": {
+          "type": "number",
+          "description": "durée en s, 0 = jusqu'à stop"
+        },
+        "frames": {
+          "type": "number",
+          "description": "nombre d'images (mode frames, prioritaire sur duration)"
+        },
+        "width": {
+          "type": "number",
+          "description": "défaut : largeur de la source, arrondie au pair"
+        },
+        "height": {
+          "type": "number",
+          "description": "défaut : hauteur de la source, arrondie au pair"
+        },
+        "bitrate": {
+          "type": "number",
+          "description": "bits/s, défaut 6000000"
+        },
+        "keyframe-every": {
+          "type": "number",
+          "description": "s entre images clés, défaut 2"
+        },
+        "max-mb": {
+          "type": "number",
+          "description": "taille maximale du fichier en Mo, défaut 200"
+        },
+        "filename": {
+          "type": "string",
+          "description": "nom du fichier sans extension, défaut video"
+        },
+        "target": {
+          "type": "string",
+          "description": "store qui reçoit l'action de fin"
+        },
+        "type": {
+          "type": "string",
+          "description": "type de l'action de fin, défaut video:done"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage {start, stop, cancel, toggle}"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids des boutons dont le clic lance toggle"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP de l'état (défaut <id>State)"
         }
       }
     },

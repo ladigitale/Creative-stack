@@ -195,6 +195,26 @@ export const MODULES: Record<string, ModuleSpec> = {
       level: { default: 1, min: 0, max: 4, audio: true },
     },
   },
+  /** Sample joué comme oscillateur : transposé selon la note de la voix (`root` = note d'origine). */
+  "sonic-sample-osc": {
+    kind: "source",
+    params: {
+      /** URL (https, blob:, data:audio, relative) ou chemin DP d'un SonicMediaRef (prise, `ref` d'un sampler). */
+      sample: { default: "" },
+      /** Note jouée à la vitesse d'origine (nom ou numéro MIDI). */
+      root: { default: "C4" },
+      "freq-hz": { default: "voice.pitch", min: 0, max: 20000 },
+      semi: { default: 0, min: -48, max: 48 },
+      detune: { default: 0, min: -4800, max: 4800, audio: true },
+      /** Départ dans le sample (s). */
+      start: { default: 0, min: 0, max: 600 },
+      loop: { default: "off", values: ["off", "on", "true", "false", "1", "0", ""] },
+      "loop-start": { default: 0, min: 0, max: 600 },
+      /** Fin de boucle (s) ; 0 = fin du sample. */
+      "loop-end": { default: 0, min: 0, max: 600 },
+      level: { default: 1, min: 0, max: 4, audio: true },
+    },
+  },
   "sonic-comp": {
     kind: "processor",
     params: {
@@ -233,4 +253,9 @@ export function tempoToSeconds(value: string, bpm: number): number | null {
   const frac = Number(m[1]) / Number(m[2]);
   if (!Number.isFinite(frac) || frac <= 0) return null;
   return (frac * 4 * 60) / bpm;
+}
+
+/** Attribut `loop` d'un sonic-sample-osc : présent sans valeur, `on`, `true` ou `1`. */
+export function loopOn(v: unknown): boolean {
+  return v === "" || v === "on" || v === "true" || v === "1" || v === 1 || v === true;
 }

@@ -14,7 +14,7 @@ Addon opt-in `@supersoniks/creative-stack/interactive` for **declarative** playa
 | `sonic-ticker` | Clock `tick` with `dt` |
 | `sonic-trigger` | Sensor → action: watches a DataProvider value and dispatches an action to a store, or plays a MIDI note — see below |
 | `sonic-motion` | Speed / acceleration / peak speed of a sensor value (velocity for MIDI) — see below |
-| `sonic-matrix` | 2D grid canvas from DataProvider |
+| `sonic-matrix` | 2D grid canvas from DataProvider ; optionnellement interactif (clic ou peinture au doigt → `matrix:cell`) — see below |
 
 Also: `sonic-if` accepts `dataProvider` + `key` + `equals`/`not`/`truthy`/`gt`/`lt` for SDUI. `sonic-value` accepts `format="00000"` or `format="intl:fr-FR"`.
 
@@ -147,7 +147,16 @@ Standard-layout buttons of the first pad (`dpad-up|down|left|right`, `a b x y st
 | `target`, `keymap`, `repeat` | As `sonic-keyboard`, with button names as keys | tetris-like keymap |
 | `deadzone` | Stick threshold (0..0.95) for `ls-*` | `0.25` |
 | `params` | DataProvider of live settings `{deadzone, keymap, repeat}`; absent key: attribute applies | — |
-| `dataProvider`, `out-data-provider` | State `{status: idle \| ready \| error \| unsupported, error, connected, id, deadzone}` (both may be set) | — |
+| `dataProvider`, `out-data-provider` | State `{status: idle \| ready \| error \| unsupported, error, connected, id, deadzone, rumble: {supported, active}}` (both may be set) | — |
+| `control` | DP de pilotage par compteurs : `{rumble: {n, duration, strong, weak, pad}}` fait vibrer, `{stopRumble: n}` arrête | — |
+
+Vibration (`control`) : `duration` en ms (≤ 5000, défaut 200), `strong` / `weak` 0..1 (moteurs lourd / léger, défauts 0.8 / 0.5), `pad` = index de la manette (défaut 0 : la première visible). `vibrationActuator.playEffect("dual-rumble")`, sinon `hapticActuators[0].pulse` (ancien Firefox). `rumble.supported` dit si la manette 0 sait vibrer, `rumble.active` est vrai pendant l'effet. Impossible (pas de manette à cet index, manette muette, refus du navigateur) : message en français dans `error`, `status` inchangé ; un essai réussi efface le message. Non testé sur matériel.
+
+```json
+{ "tagName": "sonic-gamepad", "attributes": { "target": "game", "control": "game.pad", "out-data-provider": "padState" } }
+```
+
+Le reducer incrémente le compteur : `$merge([$state, {"pad": {"rumble": {"n": $state.pad.rumble.n + 1, "duration": 150, "strong": 1, "weak": 0.3}}}])`.
 
 ## `sonic-gesture`
 
@@ -155,16 +164,18 @@ Pointer area (touch, mouse, pen) dispatching actions to `target`. Coordinates ar
 
 | Option | Actions |
 |---|---|
-| always | `tap`, `double-tap`, `long-press` with `{x, y, u, v}` ; `swipe-up|down|left|right` (one finger) |
+| always | `tap`, `double-tap`, `long-press` with `{x, y, u, v, nx, ny}` (`nx`, `ny` : fraction bornée 0..1) ; `swipe-up|down|left|right` (one finger) `{x, y, nx, ny, dx, dy, start, end}` : `x, y, nx, ny` = point de départ, `dx, dy` en px, `start` / `end` = `{x, y, nx, ny}` |
+| `drag-events` | glisser continu d'un doigt : `drag:start {x, y, nx, ny}` (point d'appui, après 10 px de mouvement), `drag:move {x, y, nx, ny, dx, dy, vx, vy}` (position courante ; `dx, dy` en px depuis l'appui ; `vx, vy` en px/s sur les 100 dernières ms), au plus `rate` par seconde (défaut 30, 1..120), `drag:end {x, y, nx, ny, dx, dy, vx, vy, start, cancelled?}` (`cancelled: true` quand un deuxième doigt se pose ou que le geste est annulé). Le dernier mouvement retenu par la cadence part avant `drag:end`. Un geste qui a glissé ne finit pas en swipe ; un tap reste un tap. Indépendant de `drag` (sens historique ci-dessous). |
 | `drag` | `drag {dx, dy}` = **cumulative fraction** of the area since the start (historical meaning) ; `drag-end {dx, dy, x, y, u, v}` |
 | `pan` | `pan {dx, dy, x, y}` = **px delta** since the previous action (centre of the fingers) ; `pan-end {dx, dy, vx, vy}` (total px, px/s). No swipe when `pan` is on. |
 | `pinch` | `pinch-start {cx, cy}`, `pinch {scale, dScale, rotation, dRotation, cx, cy}` (two fingers; `scale` cumulative, `dScale` since the previous action, radians), `pinch-end {scale, rotation}` |
 | `wheel` | mouse wheel / trackpad → `pinch {source: "wheel", scale, dScale, cx, cy}` (page scroll blocked on the area) |
 | `passthrough` | zone **traversante** : aucune capture de pointeur ; seuls les gestes à deux doigts ou plus (`pan`, `pinch-start`, `pinch` avec `rotation` / `dRotation`, `pinch-end`, `pan-end`) et la molette sont émis. Un doigt seul va aux éléments dessous : autour d'une `sonic-paint`, on dessine d'un doigt et on déplace / zoome / tourne à deux (la toile abandonne alors le trait commencé) |
-| `state-provider="nom"` | DataProvider `{active, pointers, scale, rotation, panX, panY, x, y}` |
-| `params="ui.geste"` | DataProvider of live settings `{swipeThreshold (px, 1..2000), longPressMs (50..10000), doubleTapMs (0..2000), drag, pan, pinch, wheel, press}`, read at each pointer event; each key present overrides the attribute, absent key: attribute applies; unreadable values are ignored |
+| `state-provider="nom"` | DataProvider `{active, pointers, scale, rotation, panX, panY, x, y, drag: {active, x, y, nx, ny, dx, dy, vx, vy}}` (`drag` suivi avec `drag-events`) |
+| `scroll="y"` (ou `x`) | la page peut encore défiler dans ce sens depuis la zone (`touch-action: pan-y`) : les gestes horizontaux restent à la zone (glisser une barre, swipe gauche / droite), le navigateur prend les verticaux (le geste en cours est alors annulé). Sans `scroll`, la zone garde tous les gestes tactiles (comportement historique) |
+| `params="ui.geste"` | DataProvider of live settings `{swipeThreshold (px, 1..2000), longPressMs (50..10000), doubleTapMs (0..2000), drag, pan, pinch, wheel, press, dragEvents, rate (1..120)}`, read at each pointer event; each key present overrides the attribute, absent key: attribute applies; unreadable values are ignored |
 
-Continuous actions (`drag`, `pan`, `pinch`) are coalesced: at most one of each per animation frame (`pan` deltas summed, `dScale` multiplied). A gesture with two fingers never ends in `tap` or `swipe`, nor does a fired long press.
+Continuous actions (`drag`, `drag:move`, `pan`, `pinch`) are coalesced: at most one of each per animation frame (`pan` deltas summed, `dScale` multiplied). A gesture with two fingers never ends in `tap` or `swipe`, nor does a fired long press.
 
 Camera reducer example (zoom around the fingers, pan in px):
 
@@ -234,3 +245,24 @@ Montre un toast Concorde quand une valeur de DataProvider change, au lieu d'un t
 
 La valeur présente au chargement n'est pas montrée ; une même valeur non plus tant qu'elle n'a pas changé (le réducteur
 la remet à `""` ou en écrit une autre). Le texte est affiché tel quel (jamais interprété comme du HTML).
+
+## `sonic-matrix`
+
+Dessine une grille (`key` : chemin d'une matrice `number[][]` dans le DataProvider, ou tableau plat + `cols`) ; `palette` associe valeur → couleur, `ghost-key` une couche fantôme, `label-key` le texte d'accessibilité.
+
+| Attribut | Rôle |
+|---|---|
+| `target` | Store qui reçoit `matrix:cell` |
+| `emit="cell"` | un **clic** sur une case envoie `matrix:cell {row, col, value, index, stroke, first}` (`value` = valeur actuelle de la case, `index` = `row × largeur + col`, `stroke` = n° du geste). Clic : la page défile normalement depuis la grille |
+| `paint` | appuyer puis glisser **peint** : une action `matrix:cell` par case nouvelle du geste (aucun doublon, cases sautées par un mouvement rapide comblées), `first: true` pour la première. Capture du pointeur et `touch-action: none` seulement dans ce mode. Implique `emit="cell"` |
+| `paint-value` | recopié dans `payload.paint` (nombre si possible) |
+| `dispatch-event` | émet aussi l'événement DOM `sonic-action` |
+
+Reducer (peindre la valeur choisie, ou basculer au clic) :
+
+```jsonata
+$action.type = "matrix:cell"
+  ? $set($state, "grid." & $action.payload.row & "." & $action.payload.col,
+      $exists($action.payload.paint) ? $action.payload.paint : ($action.payload.value = 0 ? 1 : 0))
+  : $state
+```

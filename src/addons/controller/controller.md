@@ -17,11 +17,13 @@ Addon `@supersoniks/creative-stack/controller` : `sonic-controller` lit les mane
 | `deadzone` | Zone morte radiale des sticks (0.15) |
 | `player` | `all` (défaut) ou index 0..3 |
 | `rate` | Publications par seconde (30) |
-| `control` | DP `{ rumble: { n: compteur, ms, strong, weak } }` : vibration à chaque hausse de `n` |
+| `control` | DP `{ rumble: { n: compteur, duration, strong, weak, pad }, stopRumble: n }` : vibration à chaque hausse de `n`, arrêt à chaque hausse de `stopRumble` |
 
 Boutons (disposition standard) : `a b x y lb rb lt rt select start ls rs up down left right home`, plus `ls-left`, `ls-right`, `ls-up`, `ls-down` (stick gauche poussé à fond).
 
-État (`<id>State`) : `{ status: idle | ready | unsupported, count, pads: [{ index, id, mapping, lx, ly, rx, ry, lt, rt, pressed }] }`.
+État (`<id>State`) : `{ status: idle | ready | unsupported, count, pads: [{ index, id, mapping, lx, ly, rx, ry, lt, rt, pressed }], error, rumble: { supported, active } }`.
+
+Vibration : `duration` en ms (alias historique `ms`, ≤ 5000, défaut 200), `strong` / `weak` 0..1 (moteurs lourd / léger, défauts 0.8 / 0.5), `pad` = index de la manette ; sans `pad`, toutes les manettes suivies (`player`) vibrent. `vibrationActuator.playEffect("dual-rumble")`, sinon `hapticActuators[0].pulse` (ancien Firefox). `rumble.supported` : une des manettes suivies sait vibrer ; `rumble.active` : un effet joue. Impossible (pas de manette à cet index, manette muette, refus du navigateur) : message en français dans `error` (effacé par le prochain essai réussi). Non testé sur matériel.
 
 Le navigateur ne montre une manette qu'après un appui sur l'un de ses boutons : afficher l'état (`padState.status`) pour l'indiquer.
 

@@ -14,7 +14,7 @@ export type Capability = {
 };
 
 export const CAPABILITY_KEYS = [
-  "fullscreen", "pointerLock", "wakeLock", "gamepad", "midi", "orientation", "clipboard", "share", "vibrate", "camera", "microphone", "audio", "screen", "bluetooth", "serial",
+  "fullscreen", "pointerLock", "wakeLock", "gamepad", "midi", "orientation", "clipboard", "share", "vibrate", "camera", "microphone", "audio", "screen", "bluetooth", "serial", "nfc", "hid", "usb", "xr", "speechSynthesis", "speechRecognition",
 ] as const;
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
 
@@ -42,9 +42,15 @@ const META: Record<CapabilityKey, { policy: string | null; query: string | null 
   screen: { policy: "display-capture", query: null },
   bluetooth: { policy: "bluetooth", query: null },
   serial: { policy: "serial", query: null },
+  nfc: { policy: null, query: "nfc" },
+  hid: { policy: "hid", query: null },
+  usb: { policy: "usb", query: null },
+  xr: { policy: "xr-spatial-tracking", query: null },
+  speechSynthesis: { policy: null, query: null },
+  speechRecognition: { policy: "microphone", query: "microphone" },
 };
 
-type Nav = Navigator & { wakeLock?: unknown; requestMIDIAccess?: unknown; share?: unknown; vibrate?: unknown; getGamepads?: unknown; bluetooth?: unknown; serial?: unknown };
+type Nav = Navigator & { wakeLock?: unknown; requestMIDIAccess?: unknown; share?: unknown; vibrate?: unknown; getGamepads?: unknown; bluetooth?: unknown; serial?: unknown; hid?: unknown; usb?: unknown; xr?: unknown };
 
 /** Détection par présence de l'API, sans rien appeler qui ouvre une demande de permission. */
 function detectSupport(): Record<CapabilityKey, boolean> {
@@ -67,13 +73,21 @@ function detectSupport(): Record<CapabilityKey, boolean> {
     screen: !!n.mediaDevices?.getDisplayMedia,
     bluetooth: !!n.bluetooth,
     serial: !!n.serial,
+    nfc: typeof (w as { NDEFReader?: unknown }).NDEFReader !== "undefined",
+    hid: !!n.hid,
+    usb: !!n.usb,
+    xr: !!n.xr,
+    speechSynthesis: typeof (w as { speechSynthesis?: unknown }).speechSynthesis !== "undefined",
+    speechRecognition:
+      typeof (w as { SpeechRecognition?: unknown }).SpeechRecognition !== "undefined" ||
+      typeof (w as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition !== "undefined",
   };
 }
 
 /**
  * Ce que l'environnement autorise, en un seul DataProvider : pour chaque fonction (`fullscreen`, `pointerLock`,
  * `wakeLock`, `gamepad`, `midi`, `orientation`, `clipboard`, `share`, `vibrate`, `camera`, `microphone`, `audio`,
- * `screen`, `bluetooth`, `serial`) : `{ supported, allowed, permission }`, plus `embedded` (iframe) et `secureContext`.
+ * `screen`, `bluetooth`, `serial`, `nfc`, `hid`, `usb`, `xr`, `speechSynthesis`, `speechRecognition`) : `{ supported, allowed, permission }`, plus `embedded` (iframe) et `secureContext`.
  *
  * Aucune demande de permission n'est déclenchée : détection par présence de l'API, lecture de la Permissions
  * Policy de la page et `navigator.permissions.query` quand le navigateur connaît le nom. Un artefact lit

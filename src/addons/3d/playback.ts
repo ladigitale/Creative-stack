@@ -12,6 +12,8 @@ export type PlaybackHost = {
   /** Nombre de consommateurs live (`registerFrameConsumer`). */
   frameConsumerCount: number;
   raf: number;
+  /** Session WebXR en cours (`sonic-xr`) : la boucle du casque remplace celle de la fenêtre. */
+  xrPresenting?: boolean;
   drawFrame: (now: number) => void;
 };
 
@@ -31,6 +33,7 @@ function prefersReducedMotion(): boolean {
 }
 
 function shouldAnimate(host: PlaybackHost): boolean {
+  if (host.xrPresenting) return false;
   if (!host.play) return false;
   if (!host.ready) return false;
   if (!host.inView && !wantsOffscreenPlay(host)) return false;

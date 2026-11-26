@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/addon-manifest.schema.json",
   "id": "audio",
   "label": "Audio (synthèse modulaire)",
-  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, dont ladder, fold, Karplus, résonateur et granulaire ; bibliothèque), séquenceur à mini-notation, sampler, micro, MIDI (entrée MPE, sortie, horloge), enregistreur, analyseur et charge audio (DP + texture shader), tout piloté par DataProvider.",
+  "description": "Moteur audio partagé, synthèse modulaire (sonic-patch + modules, dont ladder, fold, Karplus, résonateur et granulaire, sample en oscillateur ; bibliothèque), séquenceur à mini-notation, sampler, micro, MIDI (entrée MPE, sortie, horloge), enregistreur, analyseur (hauteur, attaques, tempo) et charge audio (DP + texture shader), tout piloté par DataProvider.",
   "status": "experimental",
   "enabledByDefault": true,
   "requires": [],
@@ -503,6 +503,47 @@
       }
     },
     {
+      "name": "sonic-sample-osc",
+      "description": "Module de sonic-patch (dans sonic-voice) : sample joué comme oscillateur, transposé selon la note de la voix (vitesse = fréquence de la note / fréquence de root ; A5 sur root=\"A4\" = vitesse 2). sample = URL https/blob/data:audio/relative ou chemin DP d'un SonicMediaRef (prise de sonic-audio-recorder, même ref qu'un sonic-sampler) ; start (s), loop (attribut présent, on, off), loop-start / loop-end (s, 0 = fin) réglables en direct (sonic-param) ; detune et level modulables ; suit le bend ; note muette tant que le sample n'est pas chargé",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "sample": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string",
+          "description": "note jouée à la vitesse d'origine (C4 par défaut, ou numéro MIDI)"
+        },
+        "freq-hz": {
+          "type": "string",
+          "description": "voice.pitch (défaut) ou fréquence fixe en Hz"
+        },
+        "semi": {
+          "type": "number"
+        },
+        "detune": {
+          "type": "number"
+        },
+        "start": {
+          "type": "number"
+        },
+        "loop": {
+          "type": "string"
+        },
+        "loop-start": {
+          "type": "number"
+        },
+        "loop-end": {
+          "type": "number"
+        },
+        "level": {
+          "type": "number"
+        }
+      }
+    },
+    {
       "name": "sonic-comp",
       "description": "Compresseur",
       "props": {
@@ -671,7 +712,7 @@
     },
     {
       "name": "sonic-audio-analyser",
-      "description": "Analyse master ou #id : DP {status, error, rms, peak, db, bands[], centroidHz, onset, onsetCount, pitchHz, settings} + texture lisible par sonic-shader channel0='#id' (ligne 0 spectre, ligne 1 onde) ; DP params {bands, fft, smoothing, pitch, onsetThreshold, rate} en direct (analyseur reconfiguré sans couper le son)",
+      "description": "Analyse master ou #id : DP {status, error, rms, peak, db, bands[], centroidHz, onset, onsetCount, pitchHz, settings} + texture lisible par sonic-shader channel0='#id' (ligne 0 spectre, ligne 1 onde) ; DP params {bands, fft, smoothing, pitch, onsetThreshold, rate} en direct (analyseur reconfiguré sans couper le son). Analyse musicale à la demande, features=\"pitch onset tempo\" (rien de calculé sans) : pitch = {hz, note (\"A4\"), midi, cents, clarity} ou null (YIN) ; attack = {count, lastOnsetAt (ms, horloge performance.now), strength 0..1} (flux spectral, seuil = médiane mobile × onset-threshold) + action {type: \"audio:onset\", payload: {count, strength, at}} vers target ; tempo = {bpm (null au début, ~4 s d'écoute), confidence 0..1, beat (compteur), phase 0..1} (autocorrélation sur 8 s, 60..200 BPM) + action {type: \"audio:beat\", payload: {beat, bpm, confidence, at}} vers target ; state.features = liste active",
       "props": {
         "source": {
           "type": "string"
@@ -700,6 +741,14 @@
         },
         "out-data-provider": {
           "type": "string"
+        },
+        "features": {
+          "type": "string",
+          "description": "analyses musicales séparées par des espaces : pitch onset tempo (défaut : aucune)"
+        },
+        "target": {
+          "type": "string",
+          "description": "id du sonic-store qui reçoit audio:onset (features onset) et audio:beat (features tempo)"
         }
       }
     },

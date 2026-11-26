@@ -327,8 +327,15 @@ export function compilePatch(children: PatchNode[], opts: { out?: string } = {})
   }
   const all = [...modules.values()];
   const needsWorklet = all.some((m) => WORKLET_TYPES.includes(m.type) || (m.type === "sonic-osc" && !!m.params.sync));
-  const samples = [...new Set(all.filter((m) => m.type === "sonic-grain").map((m) => String(m.params.sample ?? "").trim()))];
-  for (const m of all) if (m.type === "sonic-grain" && !String(m.params.sample ?? "").trim()) errors.push(`${m.name} : sample requis (URL ou chemin DP d'une prise)`);
+  const sampled = all.filter((m) => m.type === "sonic-grain" || m.type === "sonic-sample-osc");
+  const samples = [...new Set(sampled.map((m) => String(m.params.sample ?? "").trim()).filter(Boolean))];
+  for (const m of sampled) if (!String(m.params.sample ?? "").trim()) errors.push(`${m.name} : sample requis (URL ou chemin DP d'une prise)`);
+  for (const m of all) {
+    if (m.type !== "sonic-sample-osc") continue;
+    if (toMidi(m.params.root) === null) errors.push(`${m.name}.root : note "${m.params.root}" invalide (ex. C4, A3, 60)`);
+    const f = m.params["freq-hz"];
+    if (f !== "voice.pitch" && !(Number(f) > 0)) errors.push(`${m.name}.freq-hz : "${f}" invalide (voice.pitch ou fréquence en Hz)`);
+  }
 
   // Modulations.
   const checkTarget = (to: string, where: string, needAudio: boolean): { module: CompiledModule; param: string } | null => {

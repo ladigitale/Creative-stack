@@ -15,6 +15,8 @@ export { SonicFileOpen, fileKind, type FileOpenState, type FileKind } from "./fi
 export { SonicMediaStart } from "./start";
 export { SonicMediaRecorder, type MediaRecorderState } from "./recorder";
 export { SonicMediaDownload } from "./download";
+export { SonicVideoExport, type VideoExportFile, type VideoExportState } from "./video-export";
+export { WebmMuxer, type WebmCodec, type WebmOptions } from "./webm-mux";
 export { pickMime, extensionFor } from "../../shared/media/record";
 export { FrameRing, type RingSlot } from "../../shared/media/frame-ring";
 export { VideoFrames, type FrameInfo, type FrameListener } from "../../shared/media/frames";

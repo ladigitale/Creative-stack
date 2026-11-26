@@ -10,7 +10,7 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 |---|---|
 | `sonic-patch` | Instrument : compile ses modules (ou un preset), une voix WebAudio par note |
 | `sonic-voice` | Portée « par note » ; plusieurs `sonic-voice` avec `sample` / `note` = un kit |
-| `sonic-osc` `sonic-noise` `sonic-karplus` `sonic-grain` | Sources (oscillateur, bruit, corde pincée, granulaire) |
+| `sonic-osc` `sonic-noise` `sonic-karplus` `sonic-grain` `sonic-sample-osc` | Sources (oscillateur, bruit, corde pincée, granulaire, sample transposé) |
 | `sonic-mixer` `sonic-filter` `sonic-vca` `sonic-shaper` `sonic-pan` | Traitements |
 | `sonic-env` `sonic-lfo` | Modulations (enveloppe 0..1, LFO -1..1) |
 | `sonic-ladder` `sonic-fold` `sonic-resonator` | Filtre ladder, wavefolder, résonateur |
@@ -19,7 +19,7 @@ Le moteur audio est **partagé** : un seul `AudioContext` par page (y compris av
 | `sonic-param` | Paramètre lu dans un DataProvider, ou exposé au preset |
 | `sonic-sequencer` | Horloge musicale : motifs en mini-notation joués sur des instruments, ou pas envoyés à un store |
 | `sonic-sampler` | Joue des samples (URL, enregistrement en DataProvider), par nom ou chromatiquement |
-| `sonic-audio-analyser` | Niveaux, bandes, attaques, hauteur en DataProvider + texture pour `sonic-shader` |
+| `sonic-audio-analyser` | Niveaux, bandes, attaques, hauteur (note), tempo en DataProvider + texture pour `sonic-shader` |
 | `sonic-mic` | Micro : source pour l'analyseur, un patch, un enregistreur (jamais vers les haut-parleurs sauf `monitor`) |
 | `sonic-audio-input` | Module de patch : entrée externe (micro, vidéo, sampler…) ; un patch sans voix devient une chaîne d'effets |
 | `sonic-midi` | Web MIDI : claviers et contrôleurs MPE en entrée, notes / CC / horloge vers des appareils |
@@ -141,10 +141,21 @@ La note jouée au moment même où l'utilisateur active le son n'est pas perdue 
 | `sonic-karplus` ¹ | *`freq-hz`* (voice.pitch), *`detune`*, `decay` (1.5 s), `damp` (0.4), *`level`* |
 | `sonic-resonator` ¹ | *`freq-hz`* (voice.pitch), *`detune`*, `q` (40), `partials` (`"1 2 3 4 5 6"`, jusqu'à 32), `gains` (défaut 1/√rang), `jitter` (0 cent : désaccord aléatoire de chaque partiel, tiré à chaque note), *`level`* — à exciter : bruit, `sonic-audio-input`… `partials`, `gains` et `q` se changent **pendant le jeu** (`sonic-param source="…"` avec une liste ou une chaîne `"1 2.76 5.4"`) sans recompiler : changer de corps (corde → cloche) ne reconstruit pas le patch |
 | `sonic-grain` | `sample` (URL ou chemin DP d'une prise), `position` (0.5), `spread` (0.05), `size-s` (0.08), `density` (24 grains/s), `pitch` (0), `jitter` (0 demi-ton), *`level`* |
+| `sonic-sample-osc` | `sample` (URL ou chemin DP d'une prise), `root` (C4 : note jouée à la vitesse d'origine), `freq-hz` (voice.pitch, ou Hz fixe), `semi` (0), *`detune`* (0, cents), `start` (0 s), `loop` (off ; présent, `on`), `loop-start` (0 s), `loop-end` (0 = fin), *`level`* |
 
 ¹ Processeur **AudioWorklet**, chargé une fois par page avant le premier son (le patch reste `idle` le temps du chargement). S'il est indisponible (navigateur, CSP), le module passe sur une version native approchée et l'état du patch le dit (`warnings`). Les modules qui suivent la note (`freq-hz="voice.pitch"`) suivent aussi le bend MPE.
 
 **Granulaire** : `sonic-grain` découpe un son (URL `https:` / `blob:`, ou chemin DP d'un SonicMediaRef, par exemple une prise `takes.voix` de `sonic-audio-recorder` : une nouvelle prise remplace le son) en grains de `size-s` secondes, `density` fois par seconde, autour de `position` (0..1, ± `spread`). Dans une voix, la hauteur suit la note (C4 = vitesse d'origine). Tous ses réglages se changent pendant le jeu avec `sonic-param source="dp.pos"` ; le son est chargé une fois par page, partagé entre voix.
+
+**Sample en oscillateur** : `sonic-sample-osc` joue un son entier (mêmes sources que `sonic-grain` : URL `https:` / `blob:` / `data:audio`, ou chemin DP d'un SonicMediaRef — une prise de `sonic-audio-recorder`, le même `ref` qu'un pad de `sonic-sampler`) à la vitesse qui donne la note de la voix : vitesse = fréquence de la note / fréquence de `root` (un sample enregistré en A4 joué en A5 va deux fois plus vite, une octave plus haut). Il se branche comme un oscillateur : filtre, enveloppe, LFO sur `detune` (vibrato), bend MPE. `loop` boucle entre `loop-start` et `loop-end` tant que la note est tenue (sinon le sample s'arrête à sa fin) ; `loop`, `loop-start` et `loop-end` se changent pendant le jeu (`sonic-param`). Le son est chargé une fois par page ; une note jouée avant la fin du chargement reste muette. Dans une voix à clé (`sample=` / `note=` sur `sonic-voice`), la note vaut C4 : garder `root="C4"` pour la vitesse d'origine.
+
+```json
+{ "tagName": "sonic-patch", "attributes": { "id": "voixpiano", "events": "jeu" }, "nodes": [
+  { "tagName": "sonic-voice", "nodes": [
+    { "tagName": "sonic-sample-osc", "attributes": { "name": "s", "sample": "takes.voix", "root": "A3", "loop": "on", "loop-start": "0.2", "loop-end": "0.6" } },
+    { "tagName": "sonic-env", "attributes": { "name": "e", "a": "0.01", "r": "0.4" } },
+    { "tagName": "sonic-vca", "attributes": { "gain": "e" } } ] } ] }
+```
 
 **Fichier des processeurs** : avec un bundler (le viewer Artefacts), il est servi à côté du code. Avec les bundles autonomes (`dist/creative-stack-audio.*.js`) il est embarqué en `data:` ; sous une CSP stricte (`script-src` sans `data:`), servir `dist/creative-stack-audio-worklet.js` (ou `src/addons/audio/worklet/processors.js` via jsDelivr) et appeler `AudioEngine.setWorkletUrl(url)` (ou `window.__creativeStackWorkletUrl = url` avant le chargement).
 | `sonic-audio-input` | `source` (`#mic` : `#id` d'une source audio ; `in` : reçoit ce qui est routé vers le patch), *`level`* (1). Hors de `sonic-voice` uniquement |
@@ -290,6 +301,20 @@ Une grille plus courte que la mesure ne se répète pas (`..x.` = une frappe au 
 { "tagName": "sonic-audio-analyser", "attributes": { "id": "spectre", "source": "#lead", "params": "reglages.analyse", "out-data-provider": "spectreState" } }
 ```
 
+### Analyse musicale (`features`)
+
+Désactivée par défaut (rien n'est calculé) ; `features="pitch onset tempo"` (une, deux ou les trois) ajoute à l'état :
+
+- **`pitch`** : `{ hz, note, midi, cents, clarity }` (ex. `{ hz: 440, note: "A4", midi: 69, cents: 0, clarity: 0.98 }`), ou `null` en silence, sur du bruit ou un son peu net (`clarity` < 0,6). Algorithme YIN sur la forme d'onde, 50 Hz – 2 kHz, une estimation par publication (`rate`). Une voix seule, pas un accord. `pitchHz` reprend `pitch.hz` (sauf avec l'attribut historique `pitch`, qui garde son estimateur).
+- **`attack`** : `{ count, lastOnsetAt, strength }` — attaques par flux spectral (hausse du spectre d'une image à l'autre) au-dessus d'un seuil adaptatif : médiane des 500 dernières ms × `onset-threshold` (1.5), 80 ms au moins entre deux attaques. `count` sert de `trigger`, `lastOnsetAt` est en ms (horloge `performance.now`, comme le `t` des actions de store), `strength` 0..1 (0,5 = deux fois le seuil). Analysé à chaque image, pas seulement aux publications. Chaque attaque part aussi en action `{ type: "audio:onset", payload: { count, strength, at } }` vers le store `target`. (`onset` / `onsetCount` historiques restent calculés à part, au rythme des publications.)
+- **`tempo`** : `{ bpm, confidence, beat, phase }` — autocorrélation de la fonction d'attaque sur les 8 dernières secondes (60..200 BPM ; quand la pulsation deux fois plus rapide est aussi nette, elle l'emporte), réestimée toutes les 250 ms. `bpm` reste `null` les ~3 premières secondes ; `confidence` 0..1 (sous 0,1 le tempo n'est pas mis à jour) ; `beat` compte les temps, `phase` 0..1 avance dans le temps courant (0 = sur le temps). Chaque temps part en action `{ type: "audio:beat", payload: { beat, bpm, confidence, at } }` vers `target`.
+
+```json
+{ "tagName": "sonic-audio-analyser", "attributes": { "id": "oreille", "source": "#mic", "features": "pitch onset tempo", "target": "jeu" } }
+```
+
+Lecture : `oreilleState.pitch.note`, `oreilleState.tempo.bpm`, `oreilleState.attack.count`. Testé sur signaux synthétiques (sinus, clics) uniquement, pas sur de la musique réelle ni un vrai micro : tempo et attaques dépendent du mixage (une batterie nette marche mieux qu'une nappe).
+
 ## Micro (`sonic-mic`)
 
 ```json
@@ -381,4 +406,5 @@ import { AudioEngine, compilePatch, PATCH_LIBRARY } from "@supersoniks/creative-
 document.querySelector("sonic-patch#lead").schedule([{ note: "C4", durS: 0.5 }]);
 document.querySelector("sonic-midi#midi").send([0xb0, 74, 64]); // message brut vers la sortie
 const { errors, warnings } = compilePatch(tree); // pur : validation côté serveur possible
+yinPitch(buffer, 48000); // { hz, note: "A4", midi, cents, clarity } | null ; estimateTempo(env, fps), OnsetDetector : purs
 ```

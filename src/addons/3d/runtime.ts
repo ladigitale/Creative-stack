@@ -6,7 +6,7 @@ import { EYE_FOV, EyeNav } from "./eye";
 import { bootScene } from "./boot";
 import { ops, type OpsCtx } from "./ops";
 import type { SceneRuntimeOptions } from "./opts";
-import type { SceneHit } from "./pick";
+import { pick as pickOps, type SceneHit } from "./pick";
 import {
   PostFxCompileError,
   PostFxPipeline,
@@ -292,6 +292,8 @@ export class SceneRuntime {
   resize(cssW: number, cssH: number) {
     this.lastCssW = cssW;
     this.lastCssH = cssH;
+    // le casque fixe la taille du rendu pendant une session WebXR (reprise à la sortie)
+    if (this.xrMode) return;
     view.resize(this.asViewCtx(), cssW, cssH);
     // Cadré automatiquement (souvent avant la première mise en page, en 1:1) et caméra pas encore bougée :
     // on recadre si le passage en portrait (ou son inverse) change le champ qui décide.
@@ -428,7 +430,15 @@ export class SceneRuntime {
   }
 
   render() {
+    // en session WebXR, seule la boucle du casque dessine (renderXr) : les rendus ponctuels attendent
+    if (this.xrMode) return;
     const now = performance.now();
+    this.stepFrame(now);
+    if (this.photo.enabled && this.photo.frame(this.scene, this.activeCam, this.raster, now)) return;
+    this.raster();
+  }
+  /** Avance la scène d'une image (monde, nœuds, regard, orbite, ombres), sans dessiner. */
+  private stepFrame(now: number) {
     if (this.mondeData) this.monde.step(now);
     this.nodes.step(now);
     if (this.mondeData) this.monde.follow();
@@ -438,8 +448,78 @@ export class SceneRuntime {
     if (this.mondeData) this.monde.texAdapt.scan(this.monde.group, this.activeCam, this.lastCssH * this.renderer.getPixelRatio(), now);
     this.castShadows.set(!!this.mondeData?.castShadows);
     if (this.castShadows.enabled) this.castShadows.update(this.monde.group);
-    if (this.photo.enabled && this.photo.frame(this.scene, this.activeCam, this.raster, now)) return;
-    this.raster();
+  }
+
+  /* ---------- WebXR (sonic-xr) ---------- */
+
+  /** Session WebXR en cours : `render()` ne dessine plus, `renderXr()` dessine sans post-effets. */
+  private xrMode = false;
+  private xrSaved: { pos: THREE.Vector3; quat: THREE.Quaternion; scale: THREE.Vector3; fov: number; zoom: number; controls: boolean } | null = null;
+  get isXr() {
+    return this.xrMode;
+  }
+  /** Caméra active (perspective, orthographique ou à hauteur d'yeux). */
+  get camera(): THREE.Camera {
+    return this.activeCam;
+  }
+  /** Boîte englobante du contenu (null : vide). */
+  bounds(): { center: [number, number, number]; min: [number, number, number]; max: [number, number, number] } | null {
+    if (this.bbox.isEmpty()) return null;
+    const c = this.bbox.getCenter(new THREE.Vector3());
+    const { min, max } = this.bbox;
+    return { center: [c.x, c.y, c.z], min: [min.x, min.y, min.z], max: [max.x, max.y, max.z] };
+  }
+  /** Entrée en XR : caméra sauvegardée (le casque l'écrase à chaque image), orbite coupée. */
+  xrBegin() {
+    if (this.xrMode) return;
+    const cam = this.activeCam as THREE.PerspectiveCamera;
+    this.xrSaved = {
+      pos: cam.position.clone(),
+      quat: cam.quaternion.clone(),
+      scale: cam.scale.clone(),
+      fov: cam.fov ?? 0,
+      zoom: cam.zoom ?? 1,
+      controls: this.controls?.enabled ?? false,
+    };
+    if (this.controls) this.controls.enabled = false;
+    this.xrMode = true;
+  }
+  /** Sortie de XR : caméra, orbite et taille d'origine. */
+  xrEnd() {
+    if (!this.xrMode) return;
+    this.xrMode = false;
+    const s = this.xrSaved;
+    this.xrSaved = null;
+    const cam = this.activeCam as THREE.PerspectiveCamera;
+    if (s) {
+      cam.position.copy(s.pos);
+      cam.quaternion.copy(s.quat);
+      cam.scale.copy(s.scale);
+      if (cam.isPerspectiveCamera) cam.fov = s.fov;
+      if ("zoom" in cam) cam.zoom = s.zoom;
+      cam.updateMatrix();
+      (cam as THREE.PerspectiveCamera).updateProjectionMatrix?.();
+      if (this.controls) this.controls.enabled = s.controls;
+    }
+    this.resize(this.lastCssW, this.lastCssH);
+    this.render();
+  }
+  /** Une image en XR : scène avancée puis rendu direct scène + caméra (sans étalonnage ni post-effets). */
+  renderXr() {
+    if (!this.xrMode) return;
+    this.stepFrame(performance.now());
+    this.renderer.render(this.scene, this.activeCam);
+  }
+  /**
+   * Rayon en coordonnées monde (manette XR) : premier objet touché, mêmes filtres que le tap
+   * (`pick-names`, nœuds masqués ignorés), avec l'instance du monde et le rang de son entrée.
+   */
+  pickRay(origin: [number, number, number], dir: [number, number, number], names?: string): (SceneHit & { instance?: string; src?: number }) | null {
+    this.raycaster.set(new THREE.Vector3(...origin), new THREE.Vector3(...dir).normalize());
+    const r = pickOps.rayHit(this.content, this.raycaster, names);
+    if (!r) return null;
+    const instance = this.mondeData ? this.monde.instanceOfObject(r.object) : "";
+    return instance ? { ...r.hit, instance, src: this.monde.srcOf(instance) } : r.hit;
   }
   private raster = () => {
     if (this.grade.enabled && !this.postFx.isEnabled) {

@@ -563,7 +563,7 @@ describe("sonic-label-printer", () => {
   });
 
   it("protocole inconnu : erreur qui liste les protocoles disponibles", async () => {
-    const el = await mount<SonicLabelPrinter>(`<sonic-label-printer id="x" transport="#fake2" protocol="phomemo"></sonic-label-printer>`, "#x");
+    const el = await mount<SonicLabelPrinter>(`<sonic-label-printer id="x" transport="#fake2" protocol="dymo"></sonic-label-printer>`, "#x");
     const pipe = new FakePipe("B21");
     const host = document.createElement("div");
     host.id = "fake2";

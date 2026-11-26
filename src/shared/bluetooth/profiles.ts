@@ -93,7 +93,17 @@ export const PROFILES: Record<string, BluetoothProfile> = {
     chunkSize: 20,
     gapMs: 10,
     validated: false,
-    source: "github.com/rbaron/catprinter",
+    source: "github.com/rbaron/catprinter, github.com/NaitLee/Cat-Printer",
+  },
+  /** Imprimantes Phomemo (M02, T02, M110, D30…). Notification `ff03` relevée par les outils communautaires. */
+  phomemo: {
+    filters: ["M02", "M110", "M120", "M200", "T02", "D30", "D35"].map((namePrefix) => ({ namePrefix })),
+    channels: { tx: "ff00/ff02", rx: "ff00/ff03" },
+    notify: ["rx"],
+    chunkSize: 128,
+    gapMs: 20,
+    validated: false,
+    source: "github.com/vivier/phomemo-tools, github.com/transcriptionstream/phomymo",
   },
   niimbot: {
     // Par service, et par début de nom : certains modèles n'annoncent pas le service avant la connexion.
