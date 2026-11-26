@@ -334,8 +334,10 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
    * Oriente l'objet tenu (main droite) : le poignet tourne pour que le manche suive `dirB` (repère du bassin : x à
    * gauche, y en haut, z devant). Axe du manche au repos : celui de la prise posée par `character` (bras en A).
    */
-  let itemAim: V3 | ((forearm: V3) => V3) | null = null;
-  const aimItem = (dirOf: V3 | ((forearm: V3) => V3)) => void (itemAim = dirOf);
+  type AimDir = V3 | ((forearm: V3) => V3);
+  /** Objet tenu orienté : axe du manche, et si besoin direction de sa tête (+x de l'objet) ou de sa face (+z). */
+  let itemAim: { axis: AimDir; ref?: AimDir; refAxis?: "x" | "z" } | null = null;
+  const aimItem = (axis: AimDir, ref?: AimDir, refAxis: "x" | "z" = "x") => void (itemAim = { axis, ref, refAxis });
   /** Garde de combat : poings devant le menton, coudes serrés qui protègent les côtes. */
   const guardArm = (out: Record<string, Q>, s: "l" | "r", k = 1) => aimArm(out, s, 36 + 8 * k, 10, 118 + 10 * k, 14);
   /** Mélange deux poses de bras (0 = a, 1 = b). */
@@ -491,7 +493,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       const [x, y, z] = keyed(c, [[0, nock as number[]], [0.15, nock as number[]], [0.5, anchor as number[]], [0.76, anchor as number[]], [0.8, behind as number[]], [1, nock as number[]]]);
       reachArm(over, "l", [x, y, z], 0, add(qRot(toChest, [0, 0, -1]), [0.6, 0.6, 0]));
       over["hand.l"] = qAxis([0, 0, 1], 15 * DEG);
-      aimItem([0, 1, 0.1]);
+      aimItem([0, 1, 0.1], [0, 0, 1], "z");
       stance = { l: [0.04, 0, -0.12], r: [-0.02, 0, 0.14] };
       break;
     }
@@ -580,6 +582,13 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       over.spine = qEuler((6 + 6 * (1 - k)) * DEG, 0, 0);
       over.chest = qEuler(-4 * k * DEG, 0, 0);
       over.head = qEuler(14 * DEG, 0, 0);
+      // l'outil : manche qui sort du poing en avant (poignet cassé), tête dans le plan du geste, face de frappe en avant
+      // de la rotation (vers le bas à l'impact, vers l'arrière à l'armé)
+      aimItem(
+        (f) => { const p = norm(cross([1, 0, 0], f)); return norm(add(f, scale(p, -0.35))); },
+        (f) => { const p = norm(cross([1, 0, 0], f)); const hd = norm(add(f, scale(p, -0.35))); return cross([1, 0, 0], hd); },
+        "x",
+      );
       break;
     }
     case "sweep": {
@@ -840,9 +849,16 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     const grip: V3 = [g0[0] * Math.cos(a36) - g0[1] * Math.sin(a36), g0[0] * Math.sin(a36) + g0[1] * Math.cos(a36), g0[2]];
     const Wq = sk.worldQuats(sk.world({ rot: { ...rot, "hand.r": qId() }, root: [0, 0, 0], rootRot: qId() }));
     const fq = Wq[sk.index["forearm.r"]];
-    const aim = itemAim as V3 | ((forearm: V3) => V3);
-    const dirB = typeof aim === "function" ? aim(qRot(fq, sk.axis[sk.index["forearm.r"]])) : aim;
-    const h = qFromTo(grip, qRot(qConj(fq), norm(dirB)));
+    const aim = itemAim as { axis: AimDir; ref?: AimDir; refAxis?: "x" | "z" };
+    const fa = qRot(fq, sk.axis[sk.index["forearm.r"]]);
+    const dirOf = (d: AimDir) => (typeof d === "function" ? d(fa) : d);
+    const dirB = dirOf(aim.axis);
+    // avec une direction de tête (marteau, hache) ou de face (arc) : l'objet entier est orienté, pas seulement son
+    // manche (sinon il tourne librement autour, tête de travers, arc vu de profil)
+    const mount = qFromTo([0, 1, 0], grip);
+    const h = aim.ref
+      ? qFromBasis(grip, qRot(mount, aim.refAxis === "z" ? [0, 0, 1] : [1, 0, 0]), qRot(qConj(fq), norm(dirB)), qRot(qConj(fq), norm(dirOf(aim.ref))))
+      : qFromTo(grip, qRot(qConj(fq), norm(dirB)));
     // le poignet tourne peu sur son axe : la part de rotation autour de l'avant-bras passe dans la pronation
     // (l'avant-bras tourne sur lui-même, dans ses limites), le poignet ne garde que la flexion
     const fi = sk.index["forearm.r"], ax = sk.axis[fi];
