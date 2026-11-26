@@ -47,6 +47,7 @@ import { InfiniteGpu } from "./infinite-gpu";
 import type { TileWorld } from "../scene/infinite";
 import type { NavGrid } from "../scene/nav";
 import { type Terrain, type TerrainEdit, readTerrainEdits } from "../scene/terrain";
+import { actorRadius, separate, slideStep, steerAround } from "../scene/crowd";
 import { type DriveInput, type DriveState, type Route, type SeatPose, type VehicleSpec, ObstacleSet, doorFor, obbOverlap, followRoute, newDriveState, newRoute, obstaclesOf, planRoute, readInput, seatFor, seatNames, sideApproach, stepDrive, steerPartValue, vehicleSpecOf, wheelPartValue } from "../scene/drive";
 import { worldRoads } from "../scene/world-roads";
 
@@ -2706,6 +2707,13 @@ export class ProcgenView {
         if (!a.path) a.wanderT = 1;
       }
     }
+    // évitement : un acteur qui marche contourne ceux qui sont devant lui (écart latéral du côté libre), ralentit
+    // s'il est sur le point de les toucher ; les autres le voient venir de la même façon (croisements naturels)
+    if (want > 0.01 && this.actors.size > 1) {
+      const st = steerAround(a, this.actors.values(), vx, vz, (b) => !!(b as ActorRT).ride);
+      [vx, vz] = [st.vx, st.vz];
+      want *= st.slow;
+    }
     // vitesse et cap lissés
     a.speed += (want - a.speed) * (1 - Math.exp(-dt * (want > a.speed ? 4 : 6)));
     if (want > 0.01) {
@@ -2722,10 +2730,12 @@ export class ProcgenView {
     if (step > 0) {
       const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);
       const nx = a.pos[0] + fx * step, nz = a.pos[2] + fz * step;
-      if (!m.nav || m.nav.free(nx, nz) || a.path || !a.drive) {
+      // obstacles (murs, objets, eau) : hors d'un chemin planifié, l'acteur glisse le long au lieu de traverser
+      const free = (x: number, z: number) => !m.nav || m.nav.free(x, z);
+      if (a.path) {
         a.pos[0] = nx;
         a.pos[2] = nz;
-      } else this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
+      } else if (!slideStep(a.pos, nx, nz, free) && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
       a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
     a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
@@ -3003,6 +3013,39 @@ export class ProcgenView {
   private ballsDirty = false;
   private ballAwake = new Set<number>();
 
+  /**
+   * Personne ne se traverse : deux acteurs qui se chevauchent sont écartés (l'assis, le suspendu, le cavalier, celui
+   * qu'on glisse au doigt ne bougent pas), et les acteurs sont repoussés hors des véhicules et montures. Aucun écart ne
+   * pousse dans un obstacle. Grille de 1 m : coût linéaire, même avec une foule.
+   */
+  private separateActors() {
+    const m = this.model;
+    if (!m) return;
+    const L = [...this.actors.values()].filter((a) => !a.hidden && !a.ride);
+    if (!L.length) return;
+    const free = (x: number, z: number) => !m.nav || m.nav.free(x, z);
+    const pinned = (a: ActorRT) => ((a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0) || a.action === "hang" || a === this.drag?.actor || a === this.settle?.d.actor || !!this.vehicles.get(a.model.id);
+    const push = (a: ActorRT, dx: number, dz: number) => {
+      if (slideStep(a.pos, a.pos[0] + dx, a.pos[2] + dz, free)) a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+    };
+    separate(L, free, pinned, (a) => (a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1])));
+    // véhicules et montures (au sol) : file de disques le long de la caisse
+    for (const v of this.vehicles.values()) {
+      if (!v.o || v.spec.medium === "air") continue;
+      const fx = Math.sin(v.s.yaw), fz = Math.cos(v.s.yaw);
+      const n = Math.max(1, Math.round(v.spec.hz / Math.max(0.2, v.spec.hx)));
+      for (const a of L) {
+        if (a.model.id === v.id || pinned(a)) continue;
+        for (let k = 0; k < n; k++) {
+          const t = n === 1 ? 0 : -v.spec.hz + v.spec.hx + ((2 * (v.spec.hz - v.spec.hx)) * k) / (n - 1);
+          const ex = a.pos[0] - (v.s.x + fx * t), ez = a.pos[2] - (v.s.z + fz * t);
+          const d = Math.hypot(ex, ez), R = v.spec.hx + actorRadius(a);
+          if (d < R && d > 1e-4) push(a, (ex / d) * (R - d), (ez / d) * (R - d));
+        }
+      }
+    }
+  }
+
   private stepBalls(dt: number) {
     const m = this.model!;
     const bw = this.balls!;
@@ -3078,6 +3121,7 @@ export class ProcgenView {
       this.time += dt * this.speed;
       this.stepVehicles(dt * this.speed);
       for (const a of this.actors.values()) if (a !== this.drag?.actor && a !== this.settle?.d.actor) this.updateActor(a, dt * this.speed);
+      this.separateActors();
       // relief retouché par les acteurs : maillage réécrit au plus ~8 fois par seconde
       this.terrainWait -= dt;
       if (this.terrainDirty && this.terrainWait <= 0) {
