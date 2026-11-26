@@ -185,3 +185,31 @@ describe("Swarm : cible par agent et suiveurs", () => {
     expect((f.p0 ?? 0) + (f.p1 ?? 0)).toBe(4);
   });
 });
+
+describe("Swarm : groupe réduit", () => {
+  it("les agents en trop sont signalés pour être cachés", () => {
+    const s = new Swarm(1);
+    s.configure({ groups: [{ name: "f", count: 5 }, { name: "r", count: 2 }] });
+    s.takeRemoved();
+    s.configure({ groups: [{ name: "f", count: 3 }] });
+    expect(s.takeRemoved().sort()).toEqual(["f3", "f4", "r0", "r1"]);
+    expect(s.agents.length).toBe(3);
+  });
+});
+
+describe("Swarm : respawnAll après pertes", () => {
+  it("survivants renumérotés : les anciens noms sans agent sont cachés", () => {
+    const s = new Swarm(2);
+    s.configure({ groups: [{ name: "f", count: 4 }] });
+    s.removed.add("f0");
+    s.removed.add("f1");
+    s.agents = s.agents.filter((a) => a.name !== "f0" && a.name !== "f1");
+    s.takeRemoved();
+    // niveau suivant à 2 poissons : les survivants f2, f3 n'ont plus d'agent → cachés
+    s.configure({ groups: [{ name: "f", count: 2 }] });
+    expect(s.takeRemoved().sort()).toEqual(["f2", "f3"]);
+    s.respawnAll();
+    expect(s.agents.map((a) => a.name)).toEqual(["f0", "f1"]);
+    expect(s.takeRemoved()).toEqual([]);
+  });
+});

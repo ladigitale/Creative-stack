@@ -263,8 +263,9 @@ export class SonicSwarm extends LitElement {
           n.color = c;
           n.roles = { [g?.follow?.role || "peau"]: c };
         }
-        n.visible = true;
       }
+      // à chaque publication : un rendu qui arrive après coup (scène chargée à la demande) ne lit que le dernier état
+      n.visible = true;
       nodes[a.name] = n;
       if (g) groups[g.name] = (groups[g.name] ?? 0) + 1;
       agents.push({ name: a.name, group: g?.name, x: r2(a.x), y: r2(a.y), heading: r3(h), ...(a.leader !== undefined && g?.follow ? { leader: a.leader } : {}) });

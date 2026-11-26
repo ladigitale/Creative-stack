@@ -157,6 +157,9 @@ export class Swarm {
         else keep.push(this.spawn(g, gi, name));
       }
     });
+    // agents en trop (groupe réduit ou retiré) : à cacher dans le rendu, comme une capture
+    const kept = new Set(keep.map((a) => a.name));
+    for (const a of this.agents) if (!kept.has(a.name)) this.removedNew.push(a.name);
     this.groups = groups;
     this.agents = keep;
     this.hashSize = Math.max(8, ...groups.map((g) => Math.max(g.view ?? 50, (g.radius ?? 6) * 4)));
@@ -178,10 +181,13 @@ export class Swarm {
   /** Tous les agents replacés dans leur zone d'apparition, les retirés reviennent (nouveau niveau). */
   respawnAll(): void {
     this.removed.clear();
+    const before = this.agents.map((a) => a.name);
     const groups = this.groups;
     this.groups = [];
     this.agents = [];
     this.configure({ bounds: this.bounds, edges: this.edges, groups, grid: this.gridSpec ?? undefined });
+    const now = new Set(this.agents.map((a) => a.name));
+    for (const n of before) if (!now.has(n)) this.removedNew.push(n);
     for (const a of this.agents) this.leaderChanged.add(a.name);
   }
 
