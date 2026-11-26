@@ -218,3 +218,33 @@ describe("sonic-anchor-ref", () => {
     el.remove();
   });
 });
+
+describe("sonic-anchor : renfort gyroscope", () => {
+  type Internals = { handle(r: unknown, seq: number, t: number, w: number, h: number, e: string): void; running: boolean };
+  const found = { found: true, index: 0, corners: [{ x: 120, y: 90 }, { x: 200, y: 90 }, { x: 200, y: 150 }, { x: 120, y: 150 }], matches: 80, inliers: 40, confidence: 0.9, rotation: 0, ms: 5, mode: "detect" };
+  const lost = { found: false, index: -1, corners: null, matches: 3, inliers: 0, confidence: 0, rotation: null, ms: 5, mode: "detect" };
+
+  it("zone perdue : coins prédits par la rotation du téléphone, puis abandon après gyro-hold", async () => {
+    set("gyOrient", { alpha: 0, beta: 90, gamma: 0, angle: 0 });
+    document.body.insertAdjacentHTML("beforeend", `<sonic-anchor id="gy" gravity="gyOrient" smoothing="0" hold="0" gyro-hold="400"></sonic-anchor>`);
+    const el = document.getElementById("gy") as unknown as Internals & { updateComplete: Promise<boolean>; remove(): void };
+    await el.updateComplete;
+    el.running = true;
+    el.handle(found, 1, performance.now(), 320, 240, "main");
+    const st = () => get("gyState") as { status: string; gyro: boolean; corners: { x: number; y: number }[] | null };
+    expect(st().status).toBe("tracking");
+    const x0 = st().corners![0].x;
+    // le téléphone tourne de 10° vers la gauche : la zone glisse vers la droite de l'image
+    set("gyOrient", { alpha: 10, beta: 90, gamma: 0, angle: 0 });
+    el.handle(lost, 2, performance.now(), 320, 240, "main");
+    expect(st().status).toBe("holding");
+    expect(st().gyro).toBe(true);
+    expect(st().corners![0].x).toBeGreaterThan(x0 + 0.05);
+    await new Promise((r) => setTimeout(r, 450));
+    el.handle(lost, 3, performance.now(), 320, 240, "main");
+    expect(st().status).toBe("searching");
+    expect(st().gyro).toBe(false);
+    el.running = false;
+    el.remove();
+  });
+});

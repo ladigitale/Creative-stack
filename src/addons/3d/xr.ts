@@ -179,6 +179,8 @@ export class SonicXr extends DeviceElement<XrState> {
   @property({ type: Number }) eye = 1.6;
 
   private magicWin: MagicWindow | null = null;
+  /** Niveau de repli (options retirées) à essayer au prochain toucher, par mode ; gardé quand il marche. */
+  private fallbackLevel: Record<XrMode, number> = { vr: 0, ar: 0 };
 
   protected feature = "xr-spatial-tracking";
   protected state: XrState = {
@@ -375,15 +377,19 @@ export class SonicXr extends DeviceElement<XrState> {
         el.addEventListener("beforexrselect", this.onBeforeSelect);
       }
     }
+    // messages des essais précédents (touchers d'avant), gardés pour le diagnostic
+    const tried: string[] = this.state.detail && this.fallbackLevel[mode] > 0 ? [this.state.detail] : [];
     this.patch({ status: "requesting", error: null, detail: null, mode });
     const sessionMode = mode === "ar" ? "immersive-ar" : "immersive-vr";
     // Replis si le navigateur refuse la demande complète (option qu'il n'accepte pas, surimpression…) :
-    // sans dom-overlay, puis sans aucune option. Lancés aussitôt, dans la foulée du geste.
+    // sans dom-overlay, puis avec le seul hit-test (AR), puis sans aucune option. Une demande consomme le geste
+    // (Chrome refuse un second requestSession sans nouveau toucher) : chaque nouveau toucher essaie le niveau suivant.
     const attempts: Record<string, unknown>[] = [init];
     if (init.domOverlay) attempts.push({ optionalFeatures: optional.filter((f) => f !== "dom-overlay") });
+    if (mode === "ar") attempts.push({ optionalFeatures: ["hit-test"] });
     attempts.push({});
     const what = "réalité " + (mode === "ar" ? "augmentée" : "virtuelle");
-    const tried: string[] = [];
+    const level = Math.min(this.fallbackLevel[mode], attempts.length - 1);
     const attempt = (i: number): Promise<boolean> | boolean => {
       let pending: Promise<XRSessionLike>;
       try {
@@ -404,14 +410,28 @@ export class SonicXr extends DeviceElement<XrState> {
       const msg = e instanceof Error ? e.message : String(e);
       tried.push(`${name}: ${msg}`);
       // refus de l'utilisateur ou de la page : inutile d'insister
-      const retry = name !== "NotAllowedError" && name !== "SecurityError" && i + 1 < attempts.length;
-      if (retry) return attempt(i + 1);
       this.cleanupOverlay();
+      const refused = name === "NotSupportedError" || name === "TypeError";
+      if (refused && i + 1 < attempts.length) {
+        // le prochain toucher essaiera avec moins d'options
+        this.fallbackLevel[mode] = i + 1;
+        this.patch({
+          status: "error",
+          error: `${what} : ce navigateur refuse une des options demandées. Touchez de nouveau pour réessayer avec moins d'options.`,
+          mode: null,
+          detail: tried.join(" | "),
+        });
+        return false;
+      }
       this.fail(e, what);
-      this.patch({ mode: null, detail: tried.join(" | ") });
+      this.patch({
+        mode: null,
+        detail: tried.join(" | "),
+        ...(refused && mode === "ar" ? { error: "réalité augmentée refusée par ce téléphone : installer ou mettre à jour « Services Google Play pour la RA » (ARCore) dans le Play Store" } : {}),
+      });
       return false;
     };
-    return attempt(0);
+    return attempt(level);
   }
 
   private async start(session: XRSessionLike, host: Sonic3dXrHost, mode: XrMode, features: string[]): Promise<boolean> {

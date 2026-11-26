@@ -434,6 +434,13 @@ describe("replis à l'ouverture", () => {
     (document.getElementById("ar") as HTMLButtonElement).click();
     await wait();
     await wait();
+    // un seul essai par toucher (Chrome refuse un second requestSession sans nouveau geste)
+    expect(x.requests.length).toBe(1);
+    expect(state().status).toBe("error");
+    expect(state().error).toMatch(/Touchez de nouveau/);
+    (document.getElementById("ar") as HTMLButtonElement).click();
+    await wait();
+    await wait();
     expect(x.requests.length).toBe(2);
     expect(x.requests[1].init.domOverlay).toBeUndefined();
     expect(state().presenting).toBe(true);
@@ -443,11 +450,19 @@ describe("replis à l'ouverture", () => {
     const x = fakeXr({ vr: false, ar: true, fail: "NotSupportedError" });
     const h = fakeHost();
     await mount(`<sonic-xr id="xr" target="scene" for="ar"></sonic-xr><button id="ar" data-xr-mode="ar"></button>`, h.host);
+    for (let i = 0; i < 2; i++) {
+      (document.getElementById("ar") as HTMLButtonElement).click();
+      await wait();
+      await wait();
+      expect(state().error).toMatch(/Touchez de nouveau/);
+    }
     (document.getElementById("ar") as HTMLButtonElement).click();
     await wait();
     await wait();
-    expect(x.requests.length).toBe(2);
+    // essais : complet, hit-test seul, aucune option
+    expect(x.requests.map((r) => JSON.stringify(r.init))).toEqual([JSON.stringify(x.requests[0].init), '{"optionalFeatures":["hit-test"]}', "{}"]);
     expect(state().status).toBe("unsupported");
-    expect(state().detail).toMatch(/NotSupportedError/);
+    expect(state().error).toMatch(/ARCore/);
+    expect(state().detail).toMatch(/NotSupportedError.*NotSupportedError.*NotSupportedError/);
   });
 });

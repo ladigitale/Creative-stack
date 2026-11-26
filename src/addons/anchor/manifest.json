@@ -103,7 +103,7 @@
     },
     {
       "name": "sonic-anchor",
-      "description": "Retrouve en direct une ou plusieurs références (sorties de sonic-anchor-ref) dans l'image de la caméra. source (#camera), reference = DP d'une référence ou d'une liste (références, ou entrées {id, ref, …} enregistrées par sonic-anchor-ref : leurs autres champs sont publiés dans item), within = DP d'ids ou état de sonic-geolocation (nearby) pour ne garder que les lieux proches, embedding = DP de sortie d'un sonic-image-embedder (candidates essayées par ressemblance, top), gravity = DP d'état de sonic-orientation (filtre les rotations impossibles, gravity-tolerance degrés), active ou control {start, stop}, interval ms, smoothing, hold. État <id>State {status idle|searching|tracking|holding|error, found, refId, index, corners [{x,y}×4] en 0..1 de l'image, width, height, matches, inliers, confidence, rotation, ms, fps, references, candidates, item, similarity, frameSeq, latencyMs, mode detect|track, engine worker|main, foundCount (+1 à chaque balise qui apparaît : trigger d'un son)}. Analyse dans un worker : détection par appariement, puis suivi image par image par flot optique (environ 8 fois moins cher), redétection quand le suivi s'appauvrit. Image et contenu synchrones : caméra en hidden-preview, sonic-frame-sync for=\"cam\" sync=\"<id>State\" (montre l'image exacte analysée, frameSeq), affichée par un sonic-shader channel0 ; le contenu projeté tombe alors pile sur la zone.. debug dessine la zone (même fit que la caméra). Commande capture (control) : la zone suivie redressée de face, avec capture-pad fois sa taille autour, dans state.capture (data:image/jpeg) ; à poser en backdrop-from d'un sonic-sketch (export-area page) pour dessiner calé sur le mur, au-delà de la zone.",
+      "description": "Retrouve en direct une ou plusieurs références (sorties de sonic-anchor-ref) dans l'image de la caméra. source (#camera), reference = DP d'une référence ou d'une liste (références, ou entrées {id, ref, …} enregistrées par sonic-anchor-ref : leurs autres champs sont publiés dans item), within = DP d'ids ou état de sonic-geolocation (nearby) pour ne garder que les lieux proches, embedding = DP de sortie d'un sonic-image-embedder (candidates essayées par ressemblance, top), gravity = DP d'état de sonic-orientation (filtre les rotations impossibles, gravity-tolerance degrés), active ou control {start, stop}, interval ms, smoothing, hold. État <id>State {status idle|searching|tracking|holding|error, found, refId, index, corners [{x,y}×4] en 0..1 de l'image, width, height, matches, inliers, confidence, rotation, ms, fps, references, candidates, item, similarity, frameSeq, latencyMs, mode detect|track, engine worker|main, foundCount (+1 à chaque balise qui apparaît : trigger d'un son)}. Analyse dans un worker : détection par appariement, puis suivi image par image par flot optique (environ 8 fois moins cher), redétection quand le suivi s'appauvrit. Image et contenu synchrones : caméra en hidden-preview, sonic-frame-sync for=\"cam\" sync=\"<id>State\" (montre l'image exacte analysée, frameSeq), affichée par un sonic-shader channel0 ; le contenu projeté tombe alors pile sur la zone.. debug dessine la zone (même fit que la caméra). Commande capture (control) : la zone suivie redressée de face, avec capture-pad fois sa taille autour, dans state.capture (data:image/jpeg) ; à poser en backdrop-from d'un sonic-sketch (export-area page) pour dessiner calé sur le mur, au-delà de la zone. Renfort gyroscope (avec gravity, capteurs actifs) : zone perdue de vue (flou, geste rapide), position prédite par la rotation du téléphone pendant gyro-hold ms (1500, 0 = sans) ; fov = champ horizontal de la caméra (63) ; état gyro: true pendant la prédiction.",
       "props": {
         "source": {
           "type": "string",
@@ -192,6 +192,14 @@
         "capture-size": {
           "type": "number",
           "description": "Prise de vue : plus grand côté en px (256..2048, défaut 1440)"
+        },
+        "gyro-hold": {
+          "type": "number",
+          "description": "renfort gyroscope : ms de suivi par la rotation du téléphone après une perte (1500, 0 = sans)"
+        },
+        "fov": {
+          "type": "number",
+          "description": "champ de vision horizontal de la caméra en degrés (63)"
         }
       }
     },
