@@ -477,6 +477,9 @@ export class Sonic2d extends LitElement {
       } catch {
         /* pas encore de valeur */
       }
+    } else {
+      // attribut retiré : clé `lights` du dataProvider, sinon plus d'éclairage
+      this.applyLights((this.publisher?.get() as Record<string, unknown> | null)?.lights ?? null);
     }
     const path = this.sprites.trim();
     if (!path) {

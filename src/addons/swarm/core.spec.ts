@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Swarm } from "./core";
+import { Swarm, agentClip } from "./core";
 
 const run = (s: Swarm, seconds: number, resolve?: (r: string) => [number, number] | null) => {
   const ev = [];
@@ -116,6 +116,22 @@ describe("Swarm", () => {
     // coin arrondi : la case est libre mais le coin dessiné est un mur
     expect(s.blocked(cell + 1, cell + 1)).toBe(true);
     expect(s.grid!.cost[1 * 9 + 1]).not.toBe(Infinity);
+  });
+
+  it("clips : nage, fuite au-delà de fastAt, morsure après une capture, cadence selon la vitesse", () => {
+    const g = { name: "r", maxSpeed: 100, clips: { swim: "nage", fast: "rapide", catch: "morsure", pace: true } };
+    const a = { name: "r0", group: 0, x: 0, y: 0, vx: 20, vy: 0, wander: 0, waypoint: 0, cooldown: 0, bite: 0, leader: null };
+    expect(agentClip(a, g)).toEqual({ clip: "nage", pace: 0.8 });
+    expect(agentClip({ ...a, vx: 90 }, g)).toEqual({ clip: "rapide", pace: 1.4 });
+    expect(agentClip({ ...a, bite: 0.2 }, g)!.clip).toBe("morsure");
+    expect(agentClip(a, { name: "x" })).toBeNull();
+    const s = new Swarm(3);
+    s.configure({ bounds: [0, 0, 200, 200], groups: [
+      { name: "h", count: 1, maxSpeed: 120, spawn: [90, 90, 91, 91], seek: { target: "group:p" }, catch: { target: "group:p", radius: 30 }, clips: { catch: "morsure" }, separation: 0 },
+      { name: "p", count: 1, maxSpeed: 1, spawn: [100, 100, 101, 101], separation: 0 },
+    ] });
+    s.step(1 / 60);
+    expect(s.agents.find((x) => x.name === "h0")!.bite).toBeGreaterThan(0.3);
   });
 
   it("chemin en boucle et bords en tore", () => {

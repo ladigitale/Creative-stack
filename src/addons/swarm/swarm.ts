@@ -5,7 +5,7 @@ import { listenDp } from "../../shared/audio/dp";
 import { publisherAt } from "../../shared/dp-path";
 import { CounterTrigger } from "../../shared/media/control";
 import { dispatch } from "../interactive";
-import { type CatchEvent, MAX_AGENTS, Swarm, type WorldSpec } from "./core";
+import { type CatchEvent, MAX_AGENTS, Swarm, type WorldSpec, agentClip } from "./core";
 
 const STEP = 1 / 60;
 
@@ -242,6 +242,8 @@ export class SonicSwarm extends LitElement {
     this.dispatchEvent(new CustomEvent("catch", { detail: ev, bubbles: true, composed: true }));
   }
 
+  private clipOf = new Map<string, string>();
+
   private publish(withSprites: boolean): void {
     const out = this.outDataProvider;
     if (!out) return;
@@ -262,6 +264,16 @@ export class SonicSwarm extends LitElement {
         if (c) {
           n.color = c;
           n.roles = { [g?.follow?.role || "peau"]: c };
+        }
+      }
+      // clip selon l'état (nage, fuite, morsure) : seulement quand il change
+      const want = g ? agentClip(a, g) : null;
+      if (want) {
+        const key = `${want.clip}|${want.pace}`;
+        if (this.clipOf.get(a.name) !== key || withSprites) {
+          this.clipOf.set(a.name, key);
+          if (want.clip) n.clip = want.clip;
+          if (g?.clips?.pace) n.clipSpeed = want.pace;
         }
       }
       // à chaque publication : un rendu qui arrive après coup (scène chargée à la demande) ne lit que le dernier état

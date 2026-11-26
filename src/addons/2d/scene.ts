@@ -226,7 +226,7 @@ export class Scene2D {
     }
     if (!this.ready) return;
     if (!this.lighting) {
-      const rt = RenderTexture.create({ width: this.width, height: this.height, resolution: 0.5 });
+      const rt = RenderTexture.create({ width: this.width, height: this.height, resolution: 0.25 });
       const root = new Container();
       const base = new Graphics();
       root.addChild(base);
