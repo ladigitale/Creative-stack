@@ -207,6 +207,10 @@
           ],
           "default": "click",
           "description": "click (défaut) : comme un bouton Concorde, ne part pas quand un doigt fait défiler la page ; pointerdown : dès l'appui, pour les jeux et manettes tactiles (implicite avec hold-repeat)"
+        },
+        "payload-from": {
+          "type": "string",
+          "description": "Chemin DataProvider lu à l'action et fusionné dans le payload (objet fusionné, autre valeur dans payload.value)"
         }
       }
     },

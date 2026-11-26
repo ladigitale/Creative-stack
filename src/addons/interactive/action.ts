@@ -1,3 +1,4 @@
+import { publisherAt } from "../../shared/dp-path";
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { dispatch, type SonicActionMessage } from "./registry";
@@ -30,6 +31,14 @@ export class SonicAction extends LitElement {
 
   @property({ type: Object })
   payload: unknown = null;
+
+  /**
+   * Chemin DataProvider lu au moment de l'action et fusionné dans le payload : un objet est fusionné par-dessus
+   * `payload`, une autre valeur arrive dans `payload.value`. Pour envoyer au store une valeur qu'il ne peut pas lire
+   * (champ de formulaire, choix, résultat d'un transform comme la date du jour).
+   */
+  @property({ type: String, attribute: "payload-from" })
+  payloadFrom = "";
 
   @property({ type: String, attribute: "hold-repeat" })
   holdRepeat = "";
@@ -116,7 +125,7 @@ export class SonicAction extends LitElement {
 
   private emit(): void {
     if (!this.type) return;
-    const action: SonicActionMessage = { type: this.type, payload: this.payload };
+    const action: SonicActionMessage = { type: this.type, payload: this.mergedPayload() };
     if (this.target) dispatch(this.target, action);
     if (this.dispatchEventFlag) {
       this.dispatchEvent(
@@ -127,6 +136,20 @@ export class SonicAction extends LitElement {
         }),
       );
     }
+  }
+
+  private mergedPayload(): unknown {
+    const path = this.payloadFrom.trim();
+    if (!path) return this.payload;
+    let v: unknown;
+    try {
+      v = JSON.parse(JSON.stringify((publisherAt(path) as unknown as { get(): unknown }).get() ?? null));
+    } catch {
+      v = null;
+    }
+    const base = this.payload && typeof this.payload === "object" && !Array.isArray(this.payload) ? (this.payload as Record<string, unknown>) : this.payload == null ? {} : { payload: this.payload };
+    if (v && typeof v === "object" && !Array.isArray(v)) return { ...base, ...(v as Record<string, unknown>) };
+    return { ...base, value: v };
   }
 
   render() {
