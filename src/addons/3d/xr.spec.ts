@@ -4,7 +4,7 @@ import { get } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { registerStore, unregisterStore, type SonicActionMessage } from "../interactive/registry";
 import "./xr";
 import "./3d";
-import { framePosition, parseFeatures, parseVec3, placePosition, type SonicXr, type XrState } from "./xr";
+import { framePosition, parseFeatures, parseVec3, placePosition, type SonicXr, type XrState, arScaleFor } from "./xr";
 import type { Sonic3d, Sonic3dXrHost } from "./3d";
 
 const wait = (ms = 0) => new Promise<void>((r) => setTimeout(r, ms));
@@ -385,5 +385,14 @@ describe("Sonic3d.getXrHost", () => {
     // runtime factice : rien à libérer au démontage
     el.runtime = null;
     el.ready = false;
+  });
+});
+
+describe("AR en maquette", () => {
+  it("arScaleFor : auto ramène l'emprise au sol à 60 cm, jamais agrandie ; un nombre est imposé", () => {
+    const room = { min: [0, 0, 0] as [number, number, number], max: [4.4, 2.5, 3.3] as [number, number, number] };
+    expect(arScaleFor(room, "auto")).toBeCloseTo(0.6 / 4.4);
+    expect(arScaleFor({ min: [0, 0, 0], max: [0.2, 0.2, 0.2] }, "auto")).toBe(1);
+    expect(arScaleFor(room, "0.05")).toBe(0.05);
   });
 });

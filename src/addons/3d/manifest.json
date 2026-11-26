@@ -129,7 +129,7 @@
     },
     {
       "name": "sonic-xr",
-      "description": "Ouvre une scène sonic-3d en réalité virtuelle ou augmentée (WebXR, renderer.xr de three.js). target = id du sonic-3d (même arbre / shadow root, puis la page). for=\"idBouton\" lance la session dans le geste (exigé par le navigateur) ; control {enter:n, exit:n, toggle:n, place:n} (forme {n, mode}). Pendant la session : boucle du casque (setAnimationLoop), rendu direct sans post-effets ni étalonnage, fond transparent en AR ; la scène est décalée pour que le centre de sa boîte soit devant l'utilisateur à hauteur des yeux (offset ajouté, scale). AR + features=\"hit-test\" : état hit {x,y,z} (point du réel visé), reticle montre ce point, place y pose la scène. Sélection d'une manette, d'une main ou d'un toucher AR : rayon dans la scène → même tap que sonic-3d (événement pick, action pick-action-type vers son target si pick) et action {type:\"xr:select\", payload:{objectId|null, instance?, src?, point:[x,y,z]|null (coordonnées de la scène), hand, mode, hit}} vers store. État <id>State {status (idle|requesting|ready|denied|error|unsupported), error, supported, allowed, active, mode (vr|ar|null), modes:{vr,ar} (isSessionSupported au montage), presenting, reference (local-floor|local), hit, inputs:[{handedness, mode, hand}]}. Événements sonic-xr-change, sonic-xr-select, sonic-xr-place. HTTPS ; iframe allow=\"xr-spatial-tracking\". Non testé sur casque. FENÊTRE MAGIQUE (sans casque, partout, iPhone compris) : commande magic, data-xr-mode=\"magic\" sur un bouton, ou repli du clic quand l'appareil n'a ni VR ni AR (fallback=\"magic\" par défaut, \"none\" pour l'empêcher) : caméra au centre de la scène à hauteur des yeux (eye, 1.6 m), qui suit les capteurs du téléphone ; sans capteurs, glisser tourne la vue ; Échap ou nouveau clic la referme. Plusieurs boutons pour un seul sonic-xr : data-xr-mode=\"vr|ar|magic\" sur chacun. État : modes {vr, ar, magic}, magic, sensors.",
+      "description": "Ouvre une scène sonic-3d en réalité virtuelle ou augmentée (WebXR, renderer.xr de three.js). target = id du sonic-3d (même arbre / shadow root, puis la page). for=\"idBouton\" lance la session dans le geste (exigé par le navigateur) ; control {enter:n, exit:n, toggle:n, place:n} (forme {n, mode}). Pendant la session : boucle du casque (setAnimationLoop), rendu direct sans post-effets ni étalonnage, fond transparent en AR ; la scène est décalée pour que le centre de sa boîte soit devant l'utilisateur à hauteur des yeux (offset ajouté, scale). AR + features=\"hit-test\" : état hit {x,y,z} (point du réel visé), reticle montre ce point, place y pose la scène. Sélection d'une manette, d'une main ou d'un toucher AR : rayon dans la scène → même tap que sonic-3d (événement pick, action pick-action-type vers son target si pick) et action {type:\"xr:select\", payload:{objectId|null, instance?, src?, point:[x,y,z]|null (coordonnées de la scène), hand, mode, hit}} vers store. État <id>State {status (idle|requesting|ready|denied|error|unsupported), error, supported, allowed, active, mode (vr|ar|null), modes:{vr,ar} (isSessionSupported au montage), presenting, reference (local-floor|local), hit, inputs:[{handedness, mode, hand}]}. Événements sonic-xr-change, sonic-xr-select, sonic-xr-place. HTTPS ; iframe allow=\"xr-spatial-tracking\". Non testé sur casque. FENÊTRE MAGIQUE (sans casque, partout, iPhone compris) : commande magic, data-xr-mode=\"magic\" sur un bouton, ou repli du clic quand l'appareil n'a ni VR ni AR (fallback=\"magic\" par défaut, \"none\" pour l'empêcher) : caméra au centre de la scène à hauteur des yeux (eye, 1.6 m), qui suit les capteurs du téléphone ; sans capteurs, glisser tourne la vue ; Échap ou nouveau clic la referme. Plusieurs boutons pour un seul sonic-xr : data-xr-mode=\"vr|ar|magic\" sur chacun. État : modes {vr, ar, magic}, magic, sensors. EN AR : maquette (ar-scale=\"auto\" : emprise au sol ramenée à 60 cm ; un nombre impose l'échelle) posée 90 cm devant soi à hauteur de table, objets nommés dans ar-hide masqués (défaut plafond), anneau sur la surface visée et toucher de l'écran = poser la maquette là (hit-test toujours demandé en AR).",
       "props": {
         "target": {
           "type": "string",
@@ -186,6 +186,14 @@
         "eye": {
           "type": "number",
           "description": "hauteur des yeux de la fenêtre magique en mètres (1.6)"
+        },
+        "ar-scale": {
+          "type": "string",
+          "description": "auto (maquette de 60 cm, défaut) ou échelle imposée en AR"
+        },
+        "ar-hide": {
+          "type": "string",
+          "description": "noms d'objets masqués en AR, séparés par des espaces (plafond)"
         }
       }
     }
