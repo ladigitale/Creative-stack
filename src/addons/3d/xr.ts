@@ -91,6 +91,16 @@ export function framePosition(bounds: { center: Vec3; min: Vec3; max: Vec3 } | n
   return [offset[0] - c[0] * scale, eye + offset[1] - c[1] * scale, -dist + offset[2] - c[2] * scale];
 }
 
+/** Échelle en AR : nombre imposé, ou `auto` = emprise au sol ramenée à 60 cm (jamais agrandie). */
+export function arScaleFor(bounds: { min: Vec3; max: Vec3 } | null, attr: string, fallback = 1): number {
+  const n = Number(attr);
+  if (attr !== "auto" && attr !== "" && Number.isFinite(n) && n > 0) return n;
+  if (attr !== "auto") return Math.max(1e-3, fallback);
+  if (!bounds) return 1;
+  const span = Math.max(bounds.max[0] - bounds.min[0], bounds.max[2] - bounds.min[2], 1e-3);
+  return Math.min(1, 0.6 / span);
+}
+
 /** Position de la scène pour que le bas du centre de sa boîte soit posé sur `p`. */
 export function placePosition(bounds: { center: Vec3; min: Vec3 } | null, scale: number, p: Vec3): Vec3 {
   const c = bounds?.center ?? [0, 0, 0];
@@ -135,6 +145,14 @@ export class SonicXr extends DeviceElement<XrState> {
   @property({ type: String }) store = "";
   /** Sans casque ni AR, le clic ouvre la fenêtre magique (`magic`, défaut) ou rien (`none`). */
   @property({ type: String }) fallback = "magic";
+  /**
+   * Taille en AR : `auto` (défaut) = maquette dont l'emprise au sol tient dans 60 cm, posée devant soi à hauteur
+   * de table (une pièce à taille réelle boucherait toute la vue de la caméra) ; un nombre = échelle imposée.
+   */
+  @property({ type: String, attribute: "ar-scale" }) arScale = "auto";
+  /** Noms d'objets masqués en AR (vue de dessus d'une maquette), séparés par des espaces (défaut `plafond`). */
+  @property({ type: String, attribute: "ar-hide" }) arHide = "plafond";
+  private arHidden: THREE.Object3D[] = [];
   /** Hauteur des yeux de la fenêtre magique (mètres, défaut 1,6 ; bornée par la hauteur de la scène). */
   @property({ type: Number }) eye = 1.6;
 
@@ -317,7 +335,9 @@ export class SonicXr extends DeviceElement<XrState> {
     }
     const mode = this.wantedMode(arg);
     const features = parseFeatures(this.features);
-    const optional = ["local-floor", ...features.filter((f) => f !== "dom-overlay" && (f !== "hit-test" || mode === "ar"))];
+    const optional = ["local-floor", ...features.filter((f) => f !== "dom-overlay" && f !== "hit-test")];
+    // en AR, viser une surface (table, sol) sert toujours : le toucher y pose la maquette
+    if (mode === "ar") optional.push("hit-test");
     const init: Record<string, unknown> = { optionalFeatures: optional };
     if (mode === "ar" && features.includes("dom-overlay")) {
       const el = this.byId(this.overlay);
@@ -370,21 +390,33 @@ export class SonicXr extends DeviceElement<XrState> {
         scene.background = null;
         renderer.setClearAlpha(0);
       }
-      const s = Math.max(1e-3, Number(this.scale) || 1);
-      scene.scale.setScalar(s);
-      scene.position.set(...framePosition(host.bounds(), s, reference, parseVec3(this.offset) ?? [0, 0, 0]));
+      const bounds = host.bounds();
+      if (mode === "ar") {
+        const s = arScaleFor(bounds, this.arScale, Number(this.scale) || 1);
+        scene.scale.setScalar(s);
+        // maquette posée 90 cm devant soi, à hauteur de table (local-floor : 75 cm du sol ; local : 60 cm sous les yeux)
+        const off = parseVec3(this.offset) ?? [0, 0, 0];
+        const base: Vec3 = [off[0], (reference === "local-floor" ? 0.75 : -0.6) + off[1], -0.9 + off[2]];
+        scene.position.set(...placePosition(bounds, s, base));
+        this.hideForAr(scene);
+      } else {
+        const s = Math.max(1e-3, Number(this.scale) || 1);
+        scene.scale.setScalar(s);
+        scene.position.set(...framePosition(bounds, s, reference, parseVec3(this.offset) ?? [0, 0, 0]));
+      }
       scene.updateMatrixWorld(true);
       session.addEventListener("end", this.onEnd);
       session.addEventListener("select", this.onSelect as EventListener);
       session.addEventListener("inputsourceschange", this.onInputs);
-      if (mode === "ar" && features.includes("hit-test") && session.requestHitTestSource) {
+      if (mode === "ar" && session.requestHitTestSource) {
         try {
           const viewer = await session.requestReferenceSpace("viewer");
           this.hitSource = (await session.requestHitTestSource({ space: viewer })) ?? null;
         } catch {
           this.hitSource = null;
         }
-        if (this.hitSource && this.reticle) this.addReticle();
+        // en AR, l'anneau montre où le toucher posera la maquette (reticle forcé)
+        if (this.hitSource) this.addReticle();
       }
       renderer.setAnimationLoop(this.onXrFrame);
       this.patch({ status: "ready", error: null, active: true, presenting: true, mode, reference, inputs: this.readInputs() });
@@ -428,11 +460,29 @@ export class SonicXr extends DeviceElement<XrState> {
 
   private onEnd = () => void this.teardown(false);
 
+  /** AR : masque les objets nommés dans `ar-hide` (plafond d'une maquette vue de dessus) ; rendus à la sortie. */
+  private hideForAr(scene: THREE.Scene): void {
+    const names = new Set(this.arHide.split(/[\s,]+/).filter(Boolean));
+    if (!names.size) return;
+    scene.traverse((o) => {
+      if (names.has(o.name) && o.visible) {
+        o.visible = false;
+        this.arHidden.push(o);
+      }
+    });
+  }
+
+  private showHidden(): void {
+    for (const o of this.arHidden) o.visible = true;
+    this.arHidden = [];
+  }
+
   private async teardown(failed: boolean): Promise<void> {
     const session = this.session;
     const host = this.host;
     this.session = null;
     this.host = null;
+    this.showHidden();
     session?.removeEventListener("end", this.onEnd);
     session?.removeEventListener("select", this.onSelect as EventListener);
     session?.removeEventListener("inputsourceschange", this.onInputs);
@@ -532,6 +582,11 @@ export class SonicXr extends DeviceElement<XrState> {
   private onSelect = (e: Event & { inputSource?: XRInputSourceLike; frame?: XRFrameLike }) => {
     const host = this.host;
     if (!host) return;
+    // AR sur téléphone : toucher l'écran pose la maquette sur la surface visée (anneau)
+    if (this.state.mode === "ar" && this.lastHit && e.inputSource?.targetRayMode === "screen") {
+      this.place();
+      return;
+    }
     const src = e.inputSource;
     const frame = e.frame ?? this.lastFrame;
     const space = src?.targetRaySpace;
