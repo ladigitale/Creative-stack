@@ -29,6 +29,8 @@ type FacePose = { mood: string; open: number; gx: number; gy: number };
 const MOUTH: Record<string, [number, number, number]> = { neutral: [0.12, 0, 1], happy: [1, 0.1, 1.1], sad: [-0.8, 0, 0.92], angry: [-0.45, 0.06, 0.95], surprised: [0, 0.85, 0.6], sleepy: [0, 0, 0.9] };
 /** Paupière supérieure descendue par humeur (0 = rentrée sous l'arcade). */
 const LID: Record<string, number> = { sleepy: 0.42, angry: 0.16, sad: 0.12 };
+/** Occlusion des pièces de peau du visage (paupières) : celle de la peau de l'orbite, assombrie par le modelage. */
+const LID_AO = 0.6;
 /** Ouverture de bouche du canal `talk`. */
 const TALK_OPEN = 0.55;
 
@@ -205,7 +207,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     const qe: Q = qMul(qFromTo([0, 0, 1], look3), qAxis([0, 0, 1], tilt));
     // réaliste : œil en amande moins ouvert, paupière qui couvre le haut de l'iris, cils fins
     const real = arch === "realistic";
-    const ew = eyeR * dims[0], eh = eyeR * dims[1] * (sleepyMood ? 0.6 : wide) * (real ? 0.86 : 1);
+    const ew = eyeR * dims[0], eh = eyeR * dims[1] * (sleepyMood ? 0.6 : wide) * (real ? 0.94 : 1);
     const ctr = madd(s.p, s.n, -eyeR * (toon ? 0.12 : 0.32));
     eyeCenters.push(ctr);
     const T = (m: Mesh, off: V3 = [0, 0, 0]) => m.transform(m4Compose(add(ctr, rot(qe, off)), qe));
@@ -230,6 +232,8 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     // paupière supérieure (coque de peau) : descendue (yeux mi-clos) ou rentrée sous l'arcade, toujours présente
     const lidDrop = shape === "sleepy" || sleepyMood ? 0.42 : Math.max(LID[mood] ?? 0, real ? 0.1 : 0);
     const lid = ellipsoid(ew * 1.08, eh * 0.75, eyeR * 0.5, ROLE.skin, sg(14), sg(8));
+    // peau du visage (tête) : son occlusion est assombrie autour de l'œil ; la paupière prend la même valeur
+    lid.ao = lid.ao.map((a) => a * LID_AO);
     if (lidDrop > 0) add_(T(lid, [0, eh * (1.1 - lidDrop * 1.4), eyeR * 0.05]), ctr[1]);
     else {
       // rentrée : aplatie et enfoncée derrière l'arcade (rien ne dépasse de la peau)
@@ -246,16 +250,32 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
         const x = Math.cos(a) * ew * 1.02 * sx;
         const y = Math.sin(a) * (lidDrop > 0 ? eh * 0.12 : top) + (lidDrop > 0 ? top : 0) - (1 - Math.sin(a)) * eh * 0.08;
         pts.push(add(ctr, rot(qe, [x, y, eyeR * (toon ? 0.2 : 0.3) * Math.sin(a) + eyeR * 0.08])));
-        rr.push(eyeR * (toon ? 0.07 : real ? 0.035 : 0.06) * (0.5 + 0.9 * (sx > 0 ? t : 1 - t) ** 1.2));
+        rr.push(eyeR * (toon ? 0.07 : real ? 0.05 : 0.06) * (0.5 + 0.9 * (sx > 0 ? t : 1 - t) ** 1.2));
       }
       add_(tube(pts, rr, ROLE.ink, crowd ? 4 : 5, true, true), ctr[1]);
+    }
+    if (!toon && !crowd) {
+      // pli de la paupière supérieure (au-dessus de l'œil ouvert) et bord de la paupière inférieure : ce sont eux qui
+      // posent le regard d'un visage réaliste ; tracés fins, de teinte peau sombre
+      const crease: V3[] = [], cr: number[] = [], lower: V3[] = [], lr: number[] = [];
+      for (let i = 0; i <= 8; i++) {
+        const t = i / 8, a = Math.PI * (1 - t), x = Math.cos(a) * ew * sx;
+        crease.push(add(ctr, rot(qe, [x * 1.04, eh * 1.28 + Math.sin(a) * eh * 0.22 - (lidDrop > 0 ? eh * lidDrop * 0.3 : 0), eyeR * 0.22 + Math.sin(a) * eyeR * 0.12])));
+        cr.push(eyeR * 0.028 * Math.sin(Math.min(1, t * 1.3) * Math.PI) ** 0.6 + eyeR * 0.004);
+        lower.push(add(ctr, rot(qe, [x * 0.98, -eh * 0.98 - Math.sin(a) * eh * 0.12, eyeR * 0.3 + Math.sin(a) * eyeR * 0.08])));
+        lr.push(eyeR * 0.035 * Math.sin(t * Math.PI) ** 0.5 + eyeR * 0.004);
+      }
+      add_(tube(crease, cr, ROLE.mouth, 4, true, true), ctr[1]);
+      const lw = tube(lower, lr, ROLE.skin, 4, true, true);
+      lw.ao = lw.ao.map((a) => a * LID_AO);
+      add_(lw, null);
     }
   }
 
   /* ---------- sourcils ---------- */
   const brow = look.brows;
   if (brow !== "none") {
-    const spec = ({ thin: [0.07, 0.3, 1.0], straight: [0.12, 0.05, 1.0], arched: [0.1, 0.55, 1.05], thick: [0.17, 0.15, 1.05], bushy: [0.22, 0.2, 1.15] } as Record<string, number[]>)[brow] ?? [0.12, 0.2, 1];
+    const spec = ({ thin: [0.09, 0.3, 1.0], straight: [0.14, 0.05, 1.0], arched: [0.12, 0.55, 1.05], thick: [0.19, 0.15, 1.05], bushy: [0.24, 0.2, 1.15] } as Record<string, number[]>)[brow] ?? [0.12, 0.2, 1];
     const browIn = ({ angry: -0.55, sad: 0.6, surprised: 0.45, happy: 0.15, neutral: 0, sleepy: -0.1 } as Record<string, number>)[mood] ?? 0;
     const raise = ({ surprised: 0.3, happy: 0.06, sleepy: -0.1, angry: -0.08 } as Record<string, number>)[mood] ?? 0;
     for (const sx of [1, -1]) {
@@ -266,7 +286,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
         const bx = sx * (eyeX + eyeR * mix(-1.0, 1.1, t) * spec[2]);
         const peak = brow === "arched" ? Math.sin(Math.min(1, t / 0.65) * Math.PI * 0.5) * (t > 0.65 ? 1 - (t - 0.65) * 1.6 : 1) : Math.sin(t * Math.PI);
         const by = eyeY + eyeR * (1.5 * Math.max(0.8, dims[1]) + raise + (1 - t) * browIn * 0.7 + peak * spec[1] * 0.6);
-        const r = eyeR * spec[0] * (arch === "realistic" ? 0.7 : 1) * (0.55 + 0.45 * Math.sin(Math.min(1, t * 1.15) * Math.PI) ** 0.5) * (brow === "bushy" ? 0.85 + 0.3 * Math.abs(Math.sin(i * 2.7)) : 1);
+        const r = eyeR * spec[0] * (arch === "realistic" ? 0.9 : 1) * (0.55 + 0.45 * Math.sin(Math.min(1, t * 1.15) * Math.PI) ** 0.5) * (brow === "bushy" ? 0.85 + 0.3 * Math.abs(Math.sin(i * 2.7)) : 1);
         pts.push(onSkin(bx, by, r * 0.35));
         radii.push(r);
       }

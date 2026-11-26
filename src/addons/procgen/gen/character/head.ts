@@ -102,7 +102,7 @@ export function buildHeadField(k: Kit): HeadField {
   };
 
   /* ---------- repères ---------- */
-  const eyeR = hw * { chibi: 0.12, cartoon: 0.105, stylized: 0.088, heroic: 0.074, realistic: 0.071 }[arch];
+  const eyeR = hw * { chibi: 0.12, cartoon: 0.105, stylized: 0.092, heroic: 0.08, realistic: 0.079 }[arch];
   const eyeX = hw * { chibi: 0.24, cartoon: 0.21, stylized: 0.19, heroic: 0.18, realistic: 0.175 }[arch] * (shape === "round" ? 1.04 : shape === "long" ? 0.96 : 1);
   const eyeY = headC[1] + headR[1] * { chibi: -0.12, cartoon: -0.05, stylized: 0.0, heroic: 0.02, realistic: 0.03 }[arch];
   const mouth0 = headC[1] + headR[1] * { chibi: -0.42, cartoon: -0.45, stylized: -0.5, heroic: -0.52, realistic: -0.53 }[arch] * (shape === "long" ? 1.08 : 1);
@@ -110,6 +110,63 @@ export function buildHeadField(k: Kit): HeadField {
   // bouche franchement sous le nez (les nez ronds des styles cartoon descendaient jusqu'aux lèvres)
   const mouthY = mouth0 - headR[1] * { chibi: 0.14, cartoon: 0.1, stylized: 0.04, heroic: 0.03, realistic: 0.03 }[arch];
   const mouthW = hw * (chibi ? 0.11 : 0.15);
+
+  /* ---------- reliefs de caractère ---------- */
+  // Os et plis qui donnent un caractère propre à chaque visage : arcades sourcilières, pommettes, angles de la
+  // mâchoire, menton (parfois fendu), philtrum, sillons nasogéniens. Intensité tirée par personnage (graine
+  // séparée : les autres tirages ne bougent pas), plus marquée chez l'adulte masculin et l'âgé, douce chez l'enfant,
+  // atténuée dans les styles cartoon. Chaque relief est posé sur la peau (lancer de rayon) et fondu avec un rayon
+  // court, sans quoi le grand fondu du crâne l'efface.
+  const relief: number[] = [];
+  if (!chibi && !an) {
+    const rf = v.fork("relief");
+    const masc = look.figure === "masculine" ? 1 : look.figure === "feminine" ? 0 : 0.5;
+    const ageK = look.age === "child" ? 0.3 : look.age === "teen" ? 0.65 : look.age === "elder" ? 1.25 : 1;
+    const sty = { realistic: 1, heroic: 1.15, stylized: 0.6, cartoon: 0.4, chibi: 0 }[arch];
+    const K = sty * ageK;
+    const browK = rf.range(0.25, 1) * (0.45 + 0.55 * masc) * K;
+    const boneK = rf.range(0.3, 1) * K;
+    const jawK = (rf.range(0, 1) * (0.3 + 0.7 * masc) + (shape === "square" ? 0.35 : 0)) * K;
+    const foldK = (rf.range(0.2, 0.8) + (look.age === "elder" ? 0.6 : 0)) * K;
+    const cleft = masc > 0.5 && rf.chance(arch === "heroic" ? 0.5 : 0.22) && look.age !== "child";
+    const put = (x: number, y: number, r: V3, out: number) => {
+      if (out <= hh * 0.0015) return;
+      const s = hit(base, x, y);
+      relief.push(sk("relief", { kind: "ellipsoid", c: madd(s.p, s.n, out - r[2]), r }));
+    };
+    const putCap = (a2: [number, number], b2: [number, number], r: number, out: number) => {
+      if (out <= hh * 0.0015) return;
+      const a = hit(base, a2[0], a2[1]), b = hit(base, b2[0], b2[1]);
+      relief.push(sk("relief", { kind: "capsule", a: madd(a.p, a.n, out - r), b: madd(b.p, b.n, out - r), ra: r, rb: r * 0.8 }));
+    };
+    for (const sx of [1, -1]) {
+      // arcade sourcilière : plus saillante au-dessus du milieu de l'œil, s'efface vers la tempe
+      put(sx * eyeX * 0.8, eyeY + eyeR * 1.6, [eyeR * 1.25, eyeR * 0.5, eyeR * 0.7], eyeR * 0.22 * browK);
+      // pommette (os zygomatique) : sous le coin externe de l'œil, filant vers l'oreille
+      put(sx * (eyeX + eyeR * 0.7), eyeY - eyeR * 1.75, [eyeR * 1.4, eyeR * 0.65, eyeR * 0.9], eyeR * 0.2 * boneK);
+      putCap([sx * (eyeX + eyeR * 1.2), eyeY - eyeR * 1.6], [sx * hw * 0.43, eyeY - eyeR * 1.2], eyeR * 0.45, eyeR * 0.14 * boneK);
+      // sillon nasogénien : bord du coussin de la joue, de l'aile du nez au coin de la bouche
+      putCap([sx * hw * 0.095, noseTipY - hh * 0.005], [sx * mouthW * 1.12, mouthY - hh * 0.035], hh * 0.022, hh * 0.008 * foldK);
+      // philtrum : deux crêtes du nez à la lèvre supérieure
+      putCap([sx * mouthW * 0.14, noseTipY - hh * 0.04], [sx * mouthW * 0.2, mouthY + hh * 0.035], hh * 0.009, hh * 0.0045 * K);
+    }
+    // angles de la mâchoire (gonion), vus de côté
+    for (const sx of [1, -1]) {
+      const y = mouthY - hh * 0.07, z = headC[2] - hd * 0.02;
+      const e = base.raycast([sx * hw * 1.2, y, z], [-sx, 0, 0], hw * 1.2, hh * 0.0005);
+      if (e && jawK > 0.05) {
+        const r: V3 = [hw * 0.07, hh * 0.075, hd * 0.12];
+        relief.push(sk("relief", { kind: "ellipsoid", c: add(e, [sx * (hw * 0.03 * jawK - r[0]), -hh * 0.01, 0]), r }));
+      }
+    }
+    // menton : coussin du muscle mentonnier, fendu chez certains
+    const cy = chinPt[1] + hh * 0.03;
+    if (cleft) for (const sx of [1, -1]) put(sx * hw * 0.045, cy, [hw * 0.06, hh * 0.045, hd * 0.06], hd * 0.022 * K);
+    else put(0, cy, [hw * 0.085, hh * 0.042, hd * 0.07], hd * 0.016 * K);
+    const rk = hw * 0.05;
+    const skullIdx = set.prims.map((_, i) => i).filter((i) => set.group[i] === "skull");
+    for (const a of relief) for (const b of skullIdx) set.extraBlends.push({ a, b, k: rk });
+  }
 
   /* ---------- nez ---------- */
   const nose = look.nose;
@@ -155,12 +212,22 @@ export function buildHeadField(k: Kit): HeadField {
 
   /* ---------- lèvres ---------- */
   const mouthS = hit(base, 0, mouthY);
-  const lh = look.lips === "full" ? hh * 0.03 : look.lips === "medium" ? hh * 0.021 : 0;
+  const lh = look.lips === "full" ? hh * 0.03 : look.lips === "medium" ? hh * 0.021 : toon ? 0 : hh * 0.014;
   const LIP = ROLE.sky;
   if (lh > 0 && !chibi && !an) {
     const n = mouthS.n;
-    set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, lh * 0.55, 0]), n, -lh * 0.32), r: [mouthW * 0.95, lh * 0.55, lh * 0.75], role: LIP, tag: 0 }, "head", "lips");
-    set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, -lh * 0.75, 0]), n, -lh * 0.28), r: [mouthW * 0.8, lh * 0.72, lh * 0.8], role: LIP, tag: 0 }, "head", "lips");
+    // lèvre supérieure en deux lobes inclinés qui se rejoignent au centre (arc de Cupidon, petit tubercule), effilée
+    // vers les commissures ; lèvre inférieure plus pleine au centre. Peu saillantes : un bourrelet uniforme fait masque
+    for (const sx of [1, -1]) {
+      const c = madd(add(mouthS.p, [sx * mouthW * 0.42, lh * 0.5, 0]), n, -lh * 0.48);
+      set.add({ kind: "capsule", a: add(c, [-sx * mouthW * 0.36, lh * 0.12, 0]), b: add(c, [sx * mouthW * 0.5, -lh * 0.25, -lh * 0.25]), ra: lh * 0.56, rb: lh * 0.2, role: LIP, tag: 0 }, "head", "lips");
+    }
+    set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, lh * 0.35, 0]), n, -lh * 0.22), r: [mouthW * 0.16, lh * 0.42, lh * 0.55], role: LIP, tag: 0 }, "head", "lips");
+    set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, -lh * 0.72, 0]), n, -lh * 0.38), r: [mouthW * 0.72, lh * 0.7, lh * 0.8], role: LIP, tag: 0 }, "head", "lips");
+    // fondues dans la peau (sinon une pastille posée sur le visage), bord net gardé par la couleur
+    const lipIdx = set.prims.map((_, i) => i).filter((i) => set.group[i] === "lips");
+    const skullIdx = set.prims.map((_, i) => i).filter((i) => set.group[i] === "skull");
+    for (const a of lipIdx) for (const b of skullIdx) set.extraBlends.push({ a, b, k: lh * 0.7 });
   }
   if (AS) {
     // couleurs : rôles réservés au personnage animal (voir animal.ts, ANIMAL_ROLE)
@@ -468,9 +535,9 @@ export function buildHeadField(k: Kit): HeadField {
       const yb = earTop + hh * 0.02;
       const edge = nape(0.55, yb);
       const ext = Math.min(hairT, hw * 0.08) + hw * 0.07;
-      hatP({ kind: "ellipsoid", c: add(cc, [0, hh * 0.04, -hd * 0.02]), r: [cr[0] + ext, cr[1] + ext * 1.25, cr[2] + ext], clip: [edge], bump: { amp: hh * 0.004, freq: 1 / (hw * 0.06), seed: 3 } }, A);
-      hatP({ kind: "ellipsoid", c: add(cc, [0, hh * 0.02, -hd * 0.02]), r: [cr[0] + ext * 1.35, cr[1] + ext * 1.2, cr[2] + ext * 1.35], clip: [edge, { n: scale3(edge.n, -1), d: -edge.d + hh * 0.075 }] }, A, "band");
-      if (v.chance(0.5)) hatP({ kind: "sphere", c: [0, topY0 + hh * 0.1, cc[2] - hd * 0.03], r: hw * 0.12, bump: { amp: hw * 0.012, freq: 1 / (hw * 0.04), seed: 5 } }, ROLE.cloth3);
+      hatP({ kind: "ellipsoid", c: add(cc, [0, hh * 0.04, -hd * 0.02]), r: [cr[0] + ext, cr[1] + ext * 1.25, cr[2] + ext], clip: [edge], bump: { amp: hh * 0.004, freq: 1 / (hw * 0.06), seed: 3 } }, ROLE.cloth3);
+      hatP({ kind: "ellipsoid", c: add(cc, [0, hh * 0.02, -hd * 0.02]), r: [cr[0] + ext * 1.35, cr[1] + ext * 1.2, cr[2] + ext * 1.35], clip: [edge, { n: scale3(edge.n, -1), d: -edge.d + hh * 0.075 }] }, ROLE.cloth3, "band");
+      if (v.chance(0.5)) hatP({ kind: "sphere", c: [0, topY0 + hh * 0.1, cc[2] - hd * 0.03], r: hw * 0.12, bump: { amp: hw * 0.012, freq: 1 / (hw * 0.04), seed: 5 } }, A);
       topY = topY0 + hh * 0.18;
       break;
     }
