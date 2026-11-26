@@ -351,6 +351,35 @@ void main() {
     vec3 g = vec3(fbm3(q + vec3(0.05, 0.0, 0.0)) - n0, fbm3(q + vec3(0.0, 0.05, 0.0)) - n0, fbm3(q + vec3(0.0, 0.0, 0.05)) - n0) / 0.05;
     N = normalize(N - (g - N * dot(g, N)) * bumpK * 0.12);
   }
+  // relief fin des personnages et accessoires (tissus, cuir, peau, cheveux, papier) : carte de hauteur procédurale
+  // prise en repère local (elle ne glisse pas sur un corps qui bouge), appliquée par dérivées écran (bump sans UV,
+  // Mikkelsen). Chaque échelle s'efface quand elle devient plus fine que le pixel (pas de moiré au loin).
+  #ifndef BLADE
+  float hK = (role >= 17 && role <= 19 ? 1.0 : role == 20 ? 0.9 : role == 21 ? 0.45 : role == 22 ? 1.0 : role == 28 ? 0.5 : 0.0) * uTexture * uDetail;
+  if (hK > 0.0) {
+    vec3 q = vPosL;
+    vec3 dpx = dFdx(vPosW), dpy = dFdy(vPosW);
+    float fp = max(length(dpx), length(dpy));
+    float fine = 1.0 - smoothstep(0.0012, 0.004, fp);
+    float mid = 1.0 - smoothstep(0.004, 0.012, fp);
+    float h;
+    if (role == 22) h = (vnoise(vec3(q.x * 240.0, q.y * 28.0, q.z * 240.0)) * 0.003) * fine + fbm3(vec3(q.x * 45.0, q.y * 9.0, q.z * 45.0)) * 0.011 * mid; // mèches
+    else if (role == 21) h = vnoise(q * 300.0) * 0.0005 * fine + fbm3(q * 34.0) * 0.0028 * mid; // pores, modelé doux
+    else if (role == 20) h = vnoise(q * 160.0) * 0.0015 * fine + fbm3(vec3(q.x * 16.0, q.y * 42.0, q.z * 16.0)) * 0.007 * mid; // grain, plis du cuir
+    else if (role == 28) h = vnoise(q * 110.0) * 0.0004 * fine;
+    else {
+      // trame croisée + plis horizontaux (coudes, taille, genoux) + froissé large
+      float weave = sin(q.x * 560.0 + q.z * 41.0) * sin(q.y * 560.0 + q.x * 33.0) * 0.5 + 0.5;
+      float folds = fbm3(vec3(q.x * 8.0, q.y * 24.0, q.z * 8.0));
+      h = weave * 0.0008 * fine + folds * 0.013 * mid + fbm3(q * 60.0) * 0.002 * fine;
+    }
+    h *= hK;
+    float dhx = dFdx(h), dhy = dFdy(h);
+    vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+    float det = dot(dpx, r1);
+    if (abs(det) > 1e-12) N = normalize(abs(det) * N - sign(det) * (dhx * r1 + dhy * r2));
+  }
+  #endif
   // finis texturés (cartes tirées d'un motif du format monde) : relief, parallaxe, usure, occlusion des creux ; eau
   float finAO = 1.0, finWear = 0.0;
   vec4 fin2 = vec4(0.0);

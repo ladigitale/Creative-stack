@@ -23,11 +23,14 @@ export function handPose(action: string, t: number): Record<string, number> {
       return { "open.l": 0.8, "open.r": 0.8 };
     case "think":
       return { "fist.r": 0.55 };
+    case "walk":
+      return { "fist.l": 0.38, "fist.r": 0.38 };
     case "carry":
       return { "open.l": 0.45, "open.r": 0.45 };
     case "kick":
       return { "fist.l": 0.5, "fist.r": 0.5 };
     default:
-      return {};
+      // main au repos : doigts légèrement repliés et serrés (une main ouverte et raide fait mannequin)
+      return { "fist.l": 0.32, "fist.r": 0.32 };
   }
 }

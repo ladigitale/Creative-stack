@@ -169,8 +169,9 @@ export function buildHumanoid(P: Proportions): Skeleton {
     const knee = madd(hip, th, P.thigh);
     const ankle = madd(knee, sh, P.shin);
     const ankleG: V3 = [ankle[0], P.ankleY, ankle[2]];
-    const ball: V3 = [ankle[0], H * 0.018, ankle[2] + P.footLen * 0.62];
-    const toe: V3 = [ankle[0], H * 0.016, ankle[2] + P.footLen * 0.85];
+    // articulations des orteils posées assez haut pour que la semelle (rayon + épaisseur de chaussure) reste au sol
+    const ball: V3 = [ankle[0], Math.max(H * 0.018, r(0.026) * footR + H * 0.009), ankle[2] + P.footLen * 0.62];
+    const toe: V3 = [ankle[0], Math.max(H * 0.016, r(0.022) * footR + H * 0.009), ankle[2] + P.footLen * 0.85];
     add_({ name: `thigh.${s}`, parent: "pelvis", head: hip, tail: knee, radius: [r(0.062), r(0.045)], swing: 120, twist: [-40, 40] });
     add_({ name: `shin.${s}`, parent: `thigh.${s}`, head: knee, tail: ankleG, radius: [r(0.042), r(0.028)], swing: 150, twist: [-10, 10] });
     add_({ name: `foot.${s}`, parent: `shin.${s}`, head: ankleG, tail: ball, radius: [r(0.03) * footR, r(0.03) * footR], swing: 50, twist: [-15, 15] });
