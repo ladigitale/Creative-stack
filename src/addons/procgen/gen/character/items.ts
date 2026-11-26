@@ -4,7 +4,7 @@
  */
 import { m4Compose, qAxis } from "../../core/math";
 import { Mesh } from "../../geom/mesh";
-import { box, cylinder, ellipsoid, lathe } from "../../geom/prims";
+import { box, cylinder, ellipsoid, lathe, tube } from "../../geom/prims";
 import { ROLE } from "../../style/roles";
 import { partsToMesh } from "../parts";
 import { heldToolParts } from "../tool";
@@ -33,6 +33,19 @@ export function buildItem(kind: string, H: number): { mesh: Mesh; handle: number
       m.append(box(H * 0.045, H * 0.007, H * 0.012, M, H * 0.003), m4Compose([0, H * 0.035, 0]));
       m.append(lathe(prof([[0, 0], [0.011, 0.0], [0.011, 0.2], [0.0, 0.23]]), M, 4), m4Compose([0, H * 0.04, 0], qAxis([0, 1, 0], Math.PI / 4), [1, 1, 0.3]));
       return { mesh: m, handle: H * 0.01 };
+    case "bow": {
+      // arc droit (tir à l'arc) : branches qui s'incurvent vers l'archer (-z), poignée gainée de cuir, corde tendue
+      const half = H * 0.42, back = H * 0.07;
+      const limb: [number, number, number][] = [];
+      for (let i = 0; i <= 12; i++) {
+        const t = i / 6 - 1;
+        limb.push([0, t * half, -back * t * t]);
+      }
+      m.append(tube(limb, limb.map((_, i) => H * (0.0075 - 0.0035 * Math.abs(i / 6 - 1))), W, 6, true, true));
+      m.append(cylinder(H * 0.011, H * 0.011, H * 0.07, ROLE.leather, 8), m4Compose([0, -H * 0.035, 0]));
+      m.append(tube([[0, half, -back], [0, -half, -back]], [H * 0.0016, H * 0.0016], ROLE.paper, 4, true, true));
+      return { mesh: m, handle: H * 0.011 };
+    }
     case "spear":
       m.append(cylinder(H * 0.009, H * 0.009, H * 0.9, W, 7), m4Compose([0, -H * 0.35, 0]));
       m.append(lathe(prof([[0, 0], [0.012, 0.0], [0.016, 0.03], [0.0, 0.12]]), M, 6), m4Compose([0, H * 0.55, 0], qAxis([0, 1, 0], 0), [1, 1, 0.35]));

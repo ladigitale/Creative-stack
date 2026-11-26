@@ -1410,8 +1410,10 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     const hd = J("hand.r"), tip = T("hand.r");
     const grip = lerp3(hd, tip, 0.45);
     const hu = D("hand.r", [0, 1, 0]);
-    const iu = item === "sword" || item === "book" ? hu : norm(add(scale(hu, 0.35), [0, 0.65, 0]));
+    // arc, épée : axe réel de la prise (le poignet l'oriente pendant les gestes), sinon manche presque vertical
+    const iu = item === "sword" || item === "bow" ? norm(D("hand.r", [0.555, 0.764, 0.33])) : item === "book" ? hu : norm(add(scale(hu, 0.35), [0, 0.65, 0]));
     const side = norm(cross(iu, vdir));
+    const fwdI = D("hand.r", [0, 0, 1]);
     const tone = far ? -1 : 0;
     const g = S(grip);
     if (item.startsWith("tool.")) {
@@ -1513,6 +1515,18 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
           }
           em.line(bar, "metal", 1.4, { tone });
         }
+        break;
+      }
+      case "bow": {
+        // arc : branches incurvées vers l'archer, corde droite entre les pointes
+        const tipU = madd(madd(grip, iu, H * 0.42), fwdI, -H * 0.07), tipD = madd(madd(grip, iu, -H * 0.42), fwdI, -H * 0.07);
+        const pts: [number, number][] = [];
+        for (let i = 0; i <= 10; i++) {
+          const t = i / 5 - 1;
+          pts.push(S(madd(madd(grip, iu, t * H * 0.42), fwdI, -H * 0.07 * t * t)));
+        }
+        em.add(strokeVar(new Pen(), pts, pts.map((_, i) => H * (0.007 - 0.003 * Math.abs(i / 5 - 1)))), "wood", { tone });
+        em.line(new Pen().M(...S(tipU)).L(...S(tipD)), "paper", 0.6, { tone });
         break;
       }
       case "hammer": {

@@ -7,7 +7,8 @@ import { type Action, type MotionState, humanoidPose, rigInfo } from "./locomoti
 
 describe("gestes : la main ne traverse jamais la tête", () => {
   const ARCH = ["chibi", "cartoon", "stylized", "realistic", "heroic"];
-  const ACTIONS: Action[] = ["idle", "wave", "point", "cheer", "talk", "carry", "think", "hammer", "sweep", "dig", "drink", "eat"];
+  // garde, coups, coiffure, ancrage de la corde : la main vient au visage, elle peut le toucher sans y entrer
+  const ACTIONS: Action[] = ["idle", "wave", "point", "cheer", "talk", "carry", "think", "hammer", "sweep", "dig", "drink", "eat", "throw", "guard", "punch", "fightkick", "sword", "hang", "comb", "archery"];
   it("5 styles × 12 gestes × 8 instants", () => {
     const bad: string[] = [];
     for (const archetype of ARCH) {
@@ -23,7 +24,7 @@ describe("gestes : la main ne traverse jamais la tête", () => {
           const W = sk.world(humanoidPose(sk, info, st).pose);
           const c = scale(add(sk.headOf(W, "head"), sk.tailOf(W, "head")), 0.5);
           // les gestes qui vont au visage peuvent le toucher, pas y entrer
-          const touch = action === "eat" || action === "drink" || action === "think";
+          const touch = action === "eat" || action === "drink" || action === "think" || action === "comb" || action === "archery" || action === "guard" || action === "punch" || action === "fightkick";
           for (const s of ["l", "r"]) {
             for (const pt of [sk.headOf(W, `hand.${s}`), sk.tailOf(W, `hand.${s}`), sk.headOf(W, `forearm.${s}`)] as V3[]) {
               const d = len(sub(pt, c)) / R;
