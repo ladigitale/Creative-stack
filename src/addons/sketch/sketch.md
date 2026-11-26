@@ -154,7 +154,7 @@ Repères de dessin posés par-dessus la toile, jamais exportés, transparents au
 
 ## Passes
 
-Un trait en mode de fusion (autre que `normal`) ou à opacité inférieure à 1 est coupé en passes là où il revient sur lui-même : aller-retour de hachure, zigzag de remplissage, boucle, gribouillis, croisement. La pointe qui entre dans l'empreinte d'une partie déjà tracée du même trait (au-delà des deux derniers diamètres) ouvre une nouvelle passe. Chaque passe se pose sur la précédente, en direct comme à la mise à plat : les recouvrements foncent comme au crayon, sans marque à la jonction entre deux passes. Un virage franc qui ne repasse sur rien ne coupe pas. `passes="false"` revient à un trait d'un seul tenant (ses recouvrements ne comptent qu'une fois).
+Un trait en mode de fusion (autre que `normal`) ou à opacité inférieure à 1 est coupé en passes là où il revient sur lui-même : aller-retour de hachure, zigzag de remplissage, boucle, gribouillis, croisement. La pointe qui entre dans l'empreinte d'une partie déjà tracée du même trait (au-delà des deux derniers diamètres) ouvre une nouvelle passe. Chaque passe se pose sur la précédente, en direct comme à la mise à plat : les recouvrements foncent comme au crayon, sans marque à la jonction entre deux passes. Un virage franc qui ne repasse sur rien ne coupe pas. `passes="false"` revient à un trait d'un seul tenant (ses recouvrements ne comptent qu'une fois), réglable aussi en direct dans `brush-from` (`{"passes": false}`). Pendant le geste, la passe qui se termine couvre tout le disque de jonction : pas de croissant clair là où la suivante repart.
 
 ## Aplatissement progressif
 

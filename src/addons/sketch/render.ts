@@ -157,6 +157,20 @@ export function clearDisc(s: Surface, x: number, y: number, r: number): void {
   ctx.restore();
 }
 
+/** Disque plein de couleur `color` (rayon en unités du monde) : complète une passe jusqu'à sa jonction. */
+export function fillDisc(s: Surface, x: number, y: number, r: number, color: string): void {
+  const { ctx, view, w, h } = s;
+  const [sx, sy] = toScreen(view, x, y, w, h);
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(sx, sy, Math.max(0, r * view.zoom), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 /** Pose un tampon (pixels de la surface) sur la surface avec un mode de fusion. */
 export function blitBlend(s: Surface, buf: CanvasImageSource, blend: string | undefined, alpha = 1, rect?: PxRect): void {
   const { ctx } = s;

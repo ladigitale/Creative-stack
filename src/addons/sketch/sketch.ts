@@ -13,7 +13,7 @@ import {
   Doc, MAX_POINTS_PER_STROKE, MAX_ZOOM, MIN_ZOOM, compactStroke, contentBBox, fitCurvePoints, strokePath, fitView, makeBrush, sanitizeView, strokeBBox, strokeHit, strokeMargin,
   toScreen, toWorld, visibleRect, sanitizeBlend, DEFAULT_VIEW, type BlendMode, type Stroke, type StrokeBrush, type View,
 } from "./model";
-import { blitBlend, clearDisc, compositeOf, drawStamp, drawStroke, drawStrokes, punch, scratchFor, type Surface } from "./render";
+import { blitBlend, clearDisc, compositeOf, fillDisc, drawStamp, drawStroke, drawStrokes, punch, scratchFor, type Surface } from "./render";
 import { intersects } from "../vector/geometry";
 import { LayerWorker, sameView, type LayerResult } from "./layer-worker";
 import { StrokeStamper } from "./stamps";
@@ -444,6 +444,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   /**
    * Un trait se pose passe par passe, coupé à chaque changement de direction franc (aller-retour de hachure),
    * quand son mode de fusion ou son opacité partielle rend le cumul visible. `false` : une seule forme par trait.
+   * Aussi en direct dans `brush-from` (`{passes: false}`).
    */
   @property({ type: Boolean, attribute: "passes", converter: { fromAttribute: (v) => v !== "false" } }) passes = true;
   @property({ type: String, attribute: "save-mode" }) saveMode: "auto" | "manual" = "auto";
@@ -1533,7 +1534,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.trembler = new Trembler(seed);
     this.cutIdx = [];
     // Passes : trait en fusion ou translucide, gomme pleine partielle (repasser efface davantage).
-    this.turns = this.passes && multiPass(brush) && (!erase || solidEraser) ? new PassDetector(brush.size) : null;
+    this.turns = this.currentPasses() && multiPass(brush) && (!erase || solidEraser) ? new PassDetector(brush.size) : null;
     this.startFlatInc(brush, erase);
     this.liveBuf = null;
     if (brush.blend || erase || brush.opacity < 0.999) {
@@ -1574,12 +1575,17 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
       this.pieceBoundary(c, "pass");
       this.pieceLen = Math.hypot(x - st.pts[n - 3], y - st.pts[n - 2]);
       const layer = this.layerSurface();
+      const joint: [number, number, number] = [st.pts[n - 3], st.pts[n - 2], solidRadius(st.brush, [0, 0, st.pts[n - 1]])];
+      // La passe qui se termine couvre tout le disque de jonction (les empreintes, espacées et en retard sur le
+      // lissage, s'arrêtent avant) : le disque retiré ensuite de la passe suivante ne laisse pas de croissant vide.
+      // Un pixel de plus : les bords anticrénelés des deux disques ne laissent pas de liseré clair.
+      if (this.liveBuf && isSolid(st.brush, [])) fillDisc(this.liveBuf, joint[0], joint[1], joint[2] + 1 / this.liveBuf.view.zoom, (this.liveBrush ?? st.brush).color);
       if (this.liveBuf && layer) {
         if (this.erasing) punch(layer, this.liveBuf.ctx.canvas, this.liveAlpha);
         else blitBlend(layer, this.liveBuf.ctx.canvas, st.brush.blend, this.liveAlpha);
         this.liveBuf = scratchFor(layer, this.liveKey);
       }
-      this.liveJoint = [st.pts[n - 3], st.pts[n - 2], solidRadius(st.brush, [0, 0, st.pts[n - 1]])];
+      this.liveJoint = joint;
     } else if (n < 3) this.turns?.feed(x, y);
     st.pts.push(x, y, pr);
     // Trait long d'une seule passe (ou trait couvrant) : il est aussi livré par tronçons à l'aplatissement progressif.
@@ -2153,6 +2159,11 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private selectionContiguous(): boolean {
     return typeof this.live.contiguous === "boolean" ? (this.live.contiguous as boolean) : this.contiguous;
   }
+  /** Passes : réglage en direct (`brush-from.passes`), sinon attribut. */
+  private currentPasses(): boolean {
+    return typeof this.live.passes === "boolean" ? (this.live.passes as boolean) : this.passes;
+  }
+
 
   /**
    * Clic de sélection (un glissé de plus de 6 px est ignoré) : la région sous le point, ou toutes celles de sa
