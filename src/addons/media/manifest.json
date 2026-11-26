@@ -468,7 +468,7 @@
     },
     {
       "name": "sonic-video-export",
-      "description": "Export vidéo image par image (WebCodecs VP9, repli VP8, fichier WebM sans son) d'une source d'images source=\"#id\" (sonic-shader, sonic-3d, sonic-2d, sonic-camera, sonic-video…) ; mode=\"frames\" (défaut : horodatage fixe image n = n/fps, vidéo fluide même si le rendu est lent, capture jamais plus rapide que fps) ou \"live\" (horodatage réel) ; arrêt automatique après duration (s) ou frames ; pilotage control {start, stop, cancel, toggle} (compteurs) ou for=\"idBouton\" (toggle) ; état <id>State {status, error, supported, allowed, active (capture), encoding, mode, frames, seconds, progress (0..1 ou null), codec, width, height, bytes, file {url blob:, name, type: \"video/webm\", mime, size}} ; file se branche sur sonic-media-download source=\"<id>State.file\" ; action {type: \"video:done\", payload: {file, frames, seconds, codec, width, height, error}} vers target ; dépassement de max-mb : export arrêté, fichier gardé, error renseignée",
+      "description": "Export vidéo image par image (WebCodecs VP9, repli VP8, fichier WebM) d'une source d'images source=\"#id\" (sonic-shader, sonic-3d, sonic-2d, sonic-camera, sonic-video…) ; mode=\"frames\" (défaut : horodatage fixe image n = n/fps, capture au rythme réel du rendu, jamais plus vite que fps ; si le rendu est lent la vidéo paraît accélérée), \"offline\" (rendu hors temps réel, vidéo exacte : pendant la capture le temps de la page est virtuel — requestAnimationFrame, performance.now, Date.now — et avance de exactement 1/fps par image ; sonic-shader, sonic-3d, sonic-2d, sonic-clock + sonic-timeline, sonic-animate suivent sans réglage ; l'écran n'est plus en temps réel pendant l'export ; pas de son ; caméra, vidéo, setTimeout/setInterval et animations CSS restent en temps réel ; une seule capture offline à la fois par page) ou \"live\" (horodatage réel ; seul mode avec son : audio-source=\"master|#id|none\", défaut none, Opus) ; arrêt automatique après duration (s) ou frames ; pilotage control {start, stop, cancel, toggle} (compteurs) ou for=\"idBouton\" (toggle) ; état <id>State {status, error, warning (non bloquant : son non capturé…), supported, allowed, active (capture), encoding, mode, frames, seconds, progress (0..1 ou null), codec, width, height, bytes, audio (piste son présente), file {url blob:, name, type: \"video/webm\", mime, size}} ; file se branche sur sonic-media-download source=\"<id>State.file\" ; action {type: \"video:done\", payload: {file, frames, seconds, codec, width, height, audio, error}} vers target ; dépassement de max-mb : export arrêté, fichier gardé, error renseignée",
       "props": {
         "source": {
           "type": "string",
@@ -476,7 +476,11 @@
         },
         "mode": {
           "type": "string",
-          "description": "frames (défaut) | live"
+          "description": "frames (défaut, temps fixe au rythme du rendu) | offline (temps virtuel, vidéo exacte, sans son) | live (temps réel, son possible)"
+        },
+        "audio-source": {
+          "type": "string",
+          "description": "son, mode live seulement : none (défaut) | master (tout ce qu'on entend) | #id d'une source audio"
         },
         "fps": {
           "type": "number",
@@ -488,7 +492,7 @@
         },
         "frames": {
           "type": "number",
-          "description": "nombre d'images (mode frames, prioritaire sur duration)"
+          "description": "nombre d'images (modes frames et offline, prioritaire sur duration)"
         },
         "width": {
           "type": "number",

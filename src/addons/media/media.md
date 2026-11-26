@@ -25,7 +25,7 @@ Le micro (`sonic-mic`) est dans l'addon `audio`.
 | `sonic-color-tracker` | Suivi d'un objet par sa couleur, sans modèle (balle, gant, carton coloré) |
 | `sonic-media-start` | Bouton d'invite qui démarre caméra / micro / vidéo, affiche un refus |
 | `sonic-media-recorder` | Export vidéo d'un shader, d'une caméra ou d'une vidéo, avec le son |
-| `sonic-video-export` | Export vidéo image par image (WebCodecs, WebM VP9 / VP8, sans son), à temps fixe ou réel |
+| `sonic-video-export` | Export vidéo image par image (WebCodecs, WebM VP9 / VP8) : temps fixe, hors temps réel (image exacte) ou temps réel avec le son |
 | `sonic-media-download` | Lien de téléchargement d'une prise, d'une photo ou d'un export |
 
 ## `sonic-camera`
@@ -389,26 +389,46 @@ Export = SonicMediaRef `{ url, mime, durS, size, width, height }` (WebM VP9/Opus
 
 ## `sonic-video-export` : export vidéo image par image
 
-Encode une source d'images avec WebCodecs (`VideoEncoder`) et l'assemble en fichier WebM dans la page (muxer intégré, sans dépendance ni service). Contrairement à `sonic-media-recorder` (qui filme le canvas en temps réel avec le son), il peut produire une vidéo **à cadence fixe** : chaque image reçoit l'instant n / fps, la vidéo est fluide même si la scène se dessine lentement.
+Encode une source d'images avec WebCodecs (`VideoEncoder`, et `AudioEncoder` pour le son) et l'assemble en fichier WebM dans la page (muxer intégré, sans dépendance ni service). Contrairement à `sonic-media-recorder` (qui filme le canvas tel qu'il s'affiche), il peut produire une vidéo **à cadence fixe**, et même **hors temps réel** : chaque image correspond exactement à l'instant n / fps, quelle que soit la lenteur du rendu.
 
 ```json
 [
   { "tagName": "sonic-shader", "attributes": { "id": "fond", "image": "void mainImage(out vec4 c, in vec2 p){ vec2 uv = p / iResolution.xy; c = vec4(0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0, 2, 4)), 1.0); }", "style": "display:block;width:640px;height:360px" } },
   { "tagName": "sonic-button", "attributes": { "id": "btn-export", "type": "primary" }, "textContent": "Exporter 5 s" },
-  { "tagName": "sonic-video-export", "attributes": { "id": "export", "source": "#fond", "mode": "frames", "duration": "5", "fps": "30", "for": "btn-export", "target": "jeu" } },
+  { "tagName": "sonic-video-export", "attributes": { "id": "export", "source": "#fond", "mode": "offline", "duration": "5", "fps": "60", "width": "1920", "height": "1080", "for": "btn-export", "target": "jeu" } },
   { "tagName": "sonic-value", "attributes": { "dataProvider": "exportState", "key": "frames" } },
   { "tagName": "sonic-media-download", "attributes": { "source": "exportState.file", "filename": "mon-fond" } }
 ]
 ```
 
+### Les trois modes : lequel choisir
+
+| Mode | Temps des images | Rendu lent | Son | Quand le choisir |
+|---|---|---|---|---|
+| `frames` (défaut) | fixe : n / fps | la capture suit le rendu réel ; la vidéo reste fluide mais paraît **accélérée** | non | aperçu rapide d'une scène légère, sans toucher au temps de la page |
+| `offline` | fixe et **exact** : la page est rendue à l'instant n / fps | sans effet : la capture attend chaque image | non | export soigné (haute définition, 60 i/s, scène lourde) d'un shader, d'une scène 3D / 2D, d'une animation |
+| `live` | réel (instant de la capture) | images répétées ou sautées | **oui** (`audio-source`) | filmer une performance jouée en direct : jeu, instrument, caméra, avec le son |
+
+**Mode `offline` (hors temps réel).** Pendant la capture, le temps de la page devient virtuel : `requestAnimationFrame`, `cancelAnimationFrame`, `performance.now` et `Date.now` sont remplacés par une horloge qui n'avance que d'exactement 1 / fps par image. À chaque image : le temps avance, les rappels `requestAnimationFrame` en attente s'exécutent avec l'horodatage virtuel (les sources dessinent), une tâche passe pour laisser Lit et les promesses finir leur travail, l'image est capturée et encodée (l'export attend que l'encodeur suive), puis un vrai rafraîchissement laisse la page s'afficher (progression, bouton d'arrêt). Les fonctions d'origine sont toujours remises : fin, `stop`, `cancel`, erreur, retrait du composant.
+
+- Suivent le temps virtuel sans réglage (ils prennent leur temps de `performance.now()` ou du timestamp de `requestAnimationFrame`) : `sonic-shader` (`iTime`), `sonic-3d` (scène, nœuds, orbite, animations), `sonic-2d`, `sonic-stage`, `sonic-webgpu`, `sonic-clock` (et donc `sonic-timeline` branché dessus), `sonic-animate`.
+- Restent en temps réel : `setTimeout` / `setInterval`, `new Date()` sans argument, la lecture des `<video>` (`sonic-video`, textures vidéo d'un shader), la caméra et le partage d'écran, les animations et transitions CSS, le son (`AudioContext.currentTime` : la musique jouée pendant l'export n'est pas calée sur les images). Pour ces sources, préférer `live`.
+- Pendant l'export, l'écran n'est plus en temps réel (la scène avance au rythme de l'encodage, plus lent ou plus rapide que la réalité) ; à la fin, le temps de la page reprend au temps réel, ce qui peut faire un saut dans les animations.
+- Une seule capture `offline` à la fois par page (la seconde répond `error` : « une capture hors temps réel est déjà en cours dans la page »).
+- Sans `duration` ni `frames`, la capture continue jusqu'à `stop`.
+- Onglet masqué : le navigateur suspend `requestAnimationFrame` ; l'export continue mais plus lentement.
+
+**Son (mode `live` seulement).** `audio-source="master"` enregistre tout ce qu'on entend (sortie du moteur audio, après le premier geste), `#id` une source audio (`sonic-sound`, `sonic-instrument`, `sonic-mic`…), `none` (défaut) rien. Le son est encodé en Opus (`AudioEncoder`, 2 canaux au plus, fréquence du contexte audio) et écrit comme seconde piste du WebM (`A_OPUS`, entrelacée avec les images). Si le navigateur ne sait pas encoder l'Opus ou capter le son, la vidéo est faite sans son et `warning` le dit ; dans les modes `frames` et `offline`, `audio-source` est ignoré avec un `warning`.
+
 | Attribut | Rôle |
 |---|---|
 | `source` | `#id` d'une source d'images : `sonic-shader`, `sonic-3d`, `sonic-2d`, `sonic-camera`, `sonic-video`, `sonic-screen`… |
-| `mode` | `frames` (défaut) : horodatage fixe n / fps ; `live` : une image par rafraîchissement, horodatage réel (images répétées ou sautées selon le rendu) |
+| `mode` | `frames` (défaut), `offline` ou `live` (voir plus haut) |
+| `audio-source` | Mode `live` : `none` (défaut), `master`, `#id` d'une source audio |
 | `fps` (30) | Cadence de la vidéo |
-| `duration` (s), `frames` | Arrêt automatique (`frames` prioritaire en mode `frames`) ; sans eux, jusqu'à `stop` |
+| `duration` (s), `frames` | Arrêt automatique (`frames` prioritaire, modes `frames` et `offline`) ; sans eux, jusqu'à `stop` |
 | `width`, `height` | Taille de la vidéo (défaut : taille de la source, arrondie au pair) ; proportions gardées, bandes noires si besoin |
-| `bitrate` (6 000 000) | Débit en bits/s |
+| `bitrate` (6 000 000) | Débit vidéo en bits/s (son : 128 kb/s) |
 | `keyframe-every` (2) | Secondes entre images clés |
 | `max-mb` (200) | Taille maximale : au-delà, l'export s'arrête, garde ce qui est fait et le dit dans `error` |
 | `filename` | Nom proposé dans `file.name` (`sonic-media-download` garde son propre `filename`) |
@@ -416,13 +436,12 @@ Encode une source d'images avec WebCodecs (`VideoEncoder`) et l'assemble en fich
 | `for` | Ids des boutons dont le clic lance `toggle` |
 | `target`, `type` | Store qui reçoit l'action de fin (`video:done` par défaut) |
 
-État (`<id>State` ou `out-data-provider`) : `{ status, error, supported, allowed, active, encoding, mode, frames, seconds, progress, codec, width, height, bytes, file }`. `active` : capture en cours ; `encoding` : capture puis finalisation ; `progress` : 0..1 quand la durée est connue, sinon `null` ; `codec` : `vp09.00.10.08` ou `vp8` ; `file` : `{ url (blob:), name, type: "video/webm", mime, size }`, à brancher tel quel sur `sonic-media-download source="<id>State.file"`. Chaque nouvel export libère l'URL du précédent ; `cancel` abandonne sans toucher au fichier précédent. Action de fin : `{ type: "video:done", payload: { file, frames, seconds, codec, width, height, error } }`.
+État (`<id>State` ou `out-data-provider`) : `{ status, error, warning, supported, allowed, active, encoding, mode, frames, seconds, progress, codec, width, height, bytes, audio, file }`. `active` : capture en cours ; `encoding` : capture puis finalisation ; `progress` : 0..1 quand la durée est connue, sinon `null` ; `codec` : `vp09.00.10.08` ou `vp8` ; `audio` : piste son enregistrée ; `warning` : avertissement non bloquant (son non capturé), à montrer au bon moment (toast) ; `file` : `{ url (blob:), name, type: "video/webm", mime, size }`, à brancher tel quel sur `sonic-media-download source="<id>State.file"`. Chaque nouvel export libère l'URL du précédent ; `cancel` abandonne sans toucher au fichier précédent. Action de fin : `{ type: "video:done", payload: { file, frames, seconds, codec, width, height, audio, error } }`.
 
 ### À savoir
 
-- **Temps fixe sans contrôle du temps de la source** : aucune source du dépôt (`sonic-shader`, `sonic-3d`, `sonic-timeline`…) ne permet aujourd'hui d'avancer son horloge image par image. En mode `frames`, la capture suit donc le rendu réel (une image par nouveau rendu, jamais plus vite que `fps`) mais l'horodatage est fixe : si la scène tourne moins vite que `fps`, la vidéo est fluide mais paraît accélérée par rapport à l'écran. Une source qui ne redessine pas (image fixe) est capturée 4 fois par seconde.
-- **Pas de son** dans cette version (utiliser `sonic-media-recorder` pour filmer avec le son).
-- **Navigateurs** : WebCodecs est présent dans Chrome / Edge (bureau et Android) ; Firefox et Safari récents l'exposent aussi, mais les codecs d'encodage disponibles varient. Le composant essaie VP9 puis VP8 (`VideoEncoder.isConfigSupported`) et passe en `unsupported` si aucun ne convient. La lecture du WebM produit dépend aussi du lecteur (Safari ne lit pas toujours le WebM). Testé avec un encodeur simulé seulement : non testé sur navigateur réel.
+- **Navigateurs** : WebCodecs est présent dans Chrome / Edge (bureau et Android) ; Firefox et Safari récents l'exposent aussi, mais les codecs d'encodage disponibles varient. Le composant essaie VP9 puis VP8 (`VideoEncoder.isConfigSupported`) et passe en `unsupported` si aucun ne convient. Le son passe par `MediaStreamTrackProcessor` (Chrome / Edge) ou, à défaut, par un `ScriptProcessorNode`. La lecture du WebM produit dépend aussi du lecteur (Safari ne lit pas toujours le WebM).
+- **Non testé sur navigateur ni sur matériel réels** : encodeurs, prise de son et horloge virtuelle sont vérifiés avec des doublures (vitest, jsdom) ; le format du fichier (piste vidéo et piste Opus) est vérifié octet par octet.
 - Tout le fichier est assemblé en mémoire (taille du Segment écrite à la fin, index `Cues` pour la navigation) : rester sous `max-mb`, surtout sur mobile.
 
 ## `sonic-media-download`

@@ -1,6 +1,7 @@
 # Voix : `sonic-speak` et `sonic-listen`
 
-Synthèse et reconnaissance vocales **natives** du navigateur, pilotées par DataProvider, sans JS.
+Synthèse et reconnaissance vocales **natives** du navigateur, pilotées par DataProvider, sans JS ;
+reconnaissance **sur l'appareil** avec Whisper (`engine="whisper"`).
 Les deux composants sont invisibles : un bouton de l'artefact les déclenche par `for="idBouton"`
 (dans le geste, ce que les navigateurs exigent) ou par compteurs dans un DataProvider `control`.
 
@@ -116,15 +117,82 @@ rapides d'affilée (`status: "error"`).
 Permissions-Policy : `microphone` (`allowed` dans l'état ; une iframe a besoin de
 `allow="microphone"`). La première écoute ouvre la demande d'accès au micro du navigateur.
 
+## Reconnaissance locale (Whisper)
+
+`engine="whisper"` transcrit la parole **sur l'appareil** : aucun son n'est envoyé à Google ni à
+un autre service. Le modèle Whisper tourne dans le navigateur, dans le worker de l'addon
+hugging-face-infer (Transformers.js), avec sa liste blanche, son consentement et son cache.
+Mêmes état et actions qu'en natif (`interim`, `final`, `transcript`, `match`, `listen:result`,
+`listen:match`) ; fonctionne aussi sous Firefox.
+
+```json
+{ "tagName": "sonic-listen", "attributes": { "id": "dictee", "engine": "whisper", "for": "btn-dicter",
+  "lang": "fr-FR", "continuous": true, "interim": true, "consent-provider": "dicteeConsent.accepted", "target": "notes" } },
+{ "tagName": "sonic-states", "attributes": { "dataProvider": "dicteeState", "data-path": "modelPhase" }, "nodes": [
+  { "tagName": "template", "attributes": { "data-value": "awaiting-consent" }, "nodes": [
+    { "tagName": "div", "attributes": { "formDataProvider": "dicteeConsent" }, "nodes": [
+      { "tagName": "sonic-button", "attributes": { "radio": true, "name": "accepted", "value": "accepted" }, "nodes": [
+        { "tagName": "span", "attributes": { "text": "Télécharger le modèle de dictée (≈ 40 Mo, une fois)" } } ] } ] } ] },
+  { "tagName": "template", "attributes": { "data-value": "downloading" }, "nodes": [
+    { "tagName": "sonic-value", "attributes": { "dataProvider": "dicteeState", "key": "loading" } } ] } ] }
+```
+
+Fonctionnement : le micro (getUserMedia, ouvert par le geste `for` ou la commande `start`) est
+découpé en phrases par détection de silence (énergie RMS par trames de 30 ms, seuil relevé si
+le bruit de fond est fort) ; une phrase se termine après `silence-ms` de silence (700 ms) ou à
+15 s. Chaque phrase est rééchantillonnée en 16 kHz mono puis transcrite ; pendant ce temps
+`interim` vaut « … » (et, avec `interim`, `listen:result {text: "…", isFinal: false}` part).
+La langue (`lang`, sinon celle du navigateur) est passée au modèle (`fr-FR` → `fr`) ; un modèle
+anglais seul (`….en`) l'ignore. Sans `continuous`, l'écoute s'arrête après une phrase ; `stop`
+transcrit la phrase en cours, `abort` l'abandonne.
+
+| Attribut | Rôle |
+|---|---|
+| `engine` | `native` (défaut), `whisper`, `auto` |
+| `model` | Alias du modèle dans la liste blanche de l'application (défaut `whisper-tiny`) |
+| `silence-ms` | Silence qui termine une phrase (700 ms) |
+| `threshold` | Seuil RMS de parole, 0..1 (0,015) ; à monter dans un lieu bruyant |
+| `load` | `first-use` (défaut : au premier démarrage), `auto` (préchargé dès l'affichage), `consent` (toujours demander) |
+| `consent-provider` | DP : `"accepted"` ou `true` accepte le téléchargement, `"declined"` ou `false` le refuse |
+| `control` | En plus : compteurs `{load, accept, decline}` |
+
+État en plus : `engine` (moteur effectif), `loading` (0..100 pendant le téléchargement ou le
+chargement du modèle, sinon `null`), `modelReady`, `modelPhase` (`idle`, `checking`,
+`awaiting-consent`, `declined`, `downloading`, `loading`, `ready`, `error`, `unsupported`),
+`modelSize` (octets à télécharger, `null` si inconnu), `transcribing`. Whisper ne donne pas de
+confiance : `confidence` vaut 0 et `alternatives` ne contient que la phrase.
+
+**`engine="auto"`** : Whisper si l'application a configuré l'inférence et que `model` est dans sa
+liste blanche (et que le micro existe), sinon la reconnaissance du navigateur. Règle choisie pour
+la confidentialité : dès que la reconnaissance locale est possible, elle passe en premier.
+
+À savoir :
+
+- **Taille** : `whisper-tiny` multilingue (`onnx-community/whisper-tiny`, 8 bits) pèse environ
+  40 Mo, téléchargés une seule fois puis gardés dans le cache du navigateur. L'application
+  demande le consentement au-delà de son seuil (30 Mo par défaut) : `modelPhase` vaut alors
+  `awaiting-consent` jusqu'à `accept` (bouton, `consent-provider` ou `control`). Taille à
+  vérifier avec `hf-vendor.mjs` avant d'ajouter le modèle à la liste blanche.
+- **Première utilisation lente** : téléchargement, puis compilation du modèle (quelques secondes),
+  et chaque phrase prend environ 0,5 à 2 s à transcrire selon l'appareil (plus sur un téléphone
+  ancien, sans WebGPU). Les phrases dites pendant le chargement attendent (4 au plus).
+- **Confidentialité** : le son ne quitte pas l'appareil ; seul le modèle est téléchargé (depuis
+  l'hôte de modèles de l'application). Le dire à l'utilisateur, c'est un argument.
+- Whisper invente parfois du texte sur un silence ou une musique : les sorties entre crochets
+  (« [Musique] »), sans lettres, ou les génériques de sous-titres sont ignorées.
+- L'application doit appeler `configureHuggingFace` avec un modèle `automatic-speech-recognition`
+  sous cet alias ; sinon `status: "unsupported"` et la raison dans `error`. Dans un bundle autonome
+  (IIFE), charger `creative-stack-hugging-face-infer.bundle.js` avant celui de speech.
+- Non testé sur matériel ni en navigateur réel (tests jsdom avec micro, Web Audio et moteur doublés).
+
 ## Limites à connaître
 
-- **Firefox n'a pas de reconnaissance vocale** : `sonic-listen` publie `status: "unsupported"`.
-  Prévoir un champ texte en repli.
+- **Firefox n'a pas de reconnaissance vocale native** : `sonic-listen` publie `status: "unsupported"`.
+  Prévoir un champ texte en repli, ou `engine="whisper"` / `engine="auto"`.
 - **Chrome envoie l'audio aux serveurs de Google** pour le transcrire (Edge à ceux de Microsoft,
   Safari à ceux d'Apple selon les réglages de l'appareil). Le dire clairement à l'utilisateur
   avant de démarrer l'écoute. Pour une transcription qui reste sur l'appareil, préférer
-  `sonic-hugging-face-infer` avec un modèle Whisper (addon hugging-face-infer : plus lent, modèle à
-  télécharger, mais rien ne sort du navigateur).
+  `engine="whisper"` (plus lent, modèle à télécharger, mais rien ne sort du navigateur).
 - La reconnaissance exige une page HTTPS et, souvent, une connexion réseau.
 - Certaines voix de synthèse sont en ligne (`local: false`) : le texte lu part chez l'éditeur.
 - Sur iPhone, la synthèse ne parle qu'après un geste, et un onglet en arrière-plan se tait.
