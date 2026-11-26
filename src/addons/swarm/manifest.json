@@ -11,16 +11,39 @@
   "components": [
     {
       "name": "sonic-swarm",
-      "description": "Essaim d'agents (200 au plus) : spec {bounds, edges: steer|wrap|bounce, grid {rows, cell}, seed, groups [{name, count, maxSpeed, maxForce, radius, view, separation, alignment, cohesion, wander, seek|flee|arrive|pursue|evade|flow {target: [x,y] | group:<nom> | agent:<nom> | dp:<chemin>, weight, radius}, path {points, loop}, catch {target, radius, respawn}, spawn, sprite}]} ; control = réglages en direct fusionnés par nom de groupe (+ paused) ; sortie {nodes, sprites, agents, count, catches, status, error}",
+      "description": "Essaim d'agents (200 au plus) : spec {bounds, edges: steer|wrap|bounce, grid {rows, cell}, seed, groups [{name, count, maxSpeed, maxForce, radius, view, separation, alignment, cohesion, wander, seek|flee|arrive|pursue|evade|flow {target: [x,y] | group:<nom> | agent:<nom> | dp:<chemin>, weight, radius}, path {points, loop}, catch {target, radius, respawn, remove}, follow {target: group:<meneurs>, radius, swap, colors} (meneur le plus proche, couleur du meneur), spawn, sprite}]} ; control = réglages en direct fusionnés par nom de groupe (+ paused, compteur respawn) ; sortie {nodes, sprites, agents (leader), count, groups, catches, status, error}",
       "props": {
-        "spec": { "type": "string", "description": "Description JSON ou chemin DataProvider" },
-        "control": { "type": "string", "description": "Chemin DataProvider des réglages en direct" },
-        "out-data-provider": { "type": "string" },
-        "plane": { "type": "string", "enum": ["screen", "xz"] },
-        "scale": { "type": "number" },
-        "rate": { "type": "number" },
-        "target": { "type": "string", "description": "Store qui reçoit les captures" },
-        "action": { "type": "string" }
+        "spec": {
+          "type": "string",
+          "description": "Description JSON ou chemin DataProvider"
+        },
+        "control": {
+          "type": "string",
+          "description": "Chemin DataProvider des réglages en direct"
+        },
+        "out-data-provider": {
+          "type": "string"
+        },
+        "plane": {
+          "type": "string",
+          "enum": [
+            "screen",
+            "xz"
+          ]
+        },
+        "scale": {
+          "type": "number"
+        },
+        "rate": {
+          "type": "number"
+        },
+        "target": {
+          "type": "string",
+          "description": "Store qui reçoit les captures"
+        },
+        "action": {
+          "type": "string"
+        }
       }
     }
   ]

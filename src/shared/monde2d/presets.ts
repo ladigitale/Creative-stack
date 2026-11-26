@@ -620,6 +620,175 @@ function foule(r: Rand, p: Record<string, unknown>): Preset2dOut {
   return { parts, roles, clips: { ola: { ms: 1600, tracks: Object.fromEntries(Array.from({ length: Math.min(k, 40) }, (_, i) => [`fan${i}`, { y: [0, -s * 0.8, 0, 0], phase: i / 40 }])) } }, clip: "ola" };
 }
 
+
+/* ------------------------------------------------------------------ créatures marines */
+
+const MARIN_COULEURS: Record<string, string[]> = {
+  poisson: ["#f97316", "#facc15", "#38bdf8", "#f472b6", "#a3e635", "#2dd4bf"],
+  banc: ["#7dd3fc", "#fde68a", "#a5f3fc", "#bbf7d0", "#f9a8d4"],
+  requin: ["#64748b", "#475569", "#78716c"],
+  meduse: ["#f0abfc", "#a5b4fc", "#67e8f9", "#fda4af"],
+  anguille: ["#365314", "#3f6212", "#44403c", "#1e3a8a"],
+  raie: ["#a8a29e", "#78716c", "#57534e", "#0f766e"],
+  plongeur: ["#0ea5e9", "#f97316", "#eab308", "#ef4444", "#22c55e"],
+};
+
+/**
+ * Créatures marines et plongeur, vues de dessus (jeu, regard +x, origine au centre) ou de profil (regard +x, origine
+ * au centre : elles nagent, il n'y a pas de sol). `banc` : poisson réduit à deux pièces pour des centaines de copies.
+ * Clips : nage (repos), rapide (fuite), morsure (requin, anguille), eclat (plongeur : la lampe s'allume).
+ */
+function marin(r: Rand, p: Record<string, unknown>): Preset2dOut {
+  const espece = oneOf(p.espece, Object.keys(MARIN_COULEURS), "poisson");
+  const vue = oneOf(p.vue, ["dessus", "profil"], "dessus");
+  const L = numIn(p.taille, 4, 600, espece === "banc" ? 10 : espece === "requin" ? 90 : espece === "anguille" ? 70 : espece === "raie" ? 60 : espece === "plongeur" ? 48 : espece === "meduse" ? 30 : 26);
+  const peau = isHex(p.peau) ? p.peau : r.pick(MARIN_COULEURS[espece]);
+  const lueur = numIn(p.lueur, 0, 1, espece === "banc" || espece === "meduse" ? 0.8 : 0);
+  const top = vue === "dessus";
+  const parts: Part2In[] = [];
+  let clips: Record<string, Clip2In> = {};
+  const roles: Record<string, string> = { peau, ventre: "#f8fafc", nageoire: peau, oeil: "#0f172a", lueur: "#fef9c3" };
+  const eye = (parent: string, at: number[], rr: number) => {
+    if (top) parts.push({ name: "oeil", parent, mirror: "y", at: Q(at), circle: q(rr), role: "oeil", z: 4, line: 0 });
+    else parts.push({ name: "oeil", parent, at: Q([at[0], -Math.abs(at[1]) * 0.3]), circle: q(rr), role: "oeil", z: 4, line: 0 });
+  };
+  const bodyW = (k: number) => (top ? L * k * 0.8 : L * k);
+  switch (espece) {
+    case "banc": {
+      parts.push({ name: "corps", ellipse: Q([L * 0.38, bodyW(0.16)]), role: "peau", z: 2, line: 0, glow: lueur, relief: false });
+      parts.push({ name: "queue", parent: "corps", at: Q([-L * 0.32, 0]), poly: QQ([[0, 0], [-L * 0.3, -L * 0.17], [-L * 0.3, L * 0.17]]), role: "peau", z: 1, line: 0, glow: lueur * 0.6, relief: false });
+      clips = { nage: { ms: 500, tracks: { queue: { r: [-28, 28] } } }, rapide: { ms: 220, tracks: { queue: { r: [-35, 35] } } } };
+      break;
+    }
+    case "poisson": {
+      parts.push({ name: "corps", ellipse: Q([L * 0.36, bodyW(0.2)]), role: "peau", z: 2, grad: top ? undefined : [peau, "#0f172a"], glow: lueur });
+      parts.push({ name: "queue", parent: "corps", at: Q([-L * 0.32, 0]), poly: QQ([[0, 0], [-L * 0.3, -L * 0.2], [-L * 0.22, 0], [-L * 0.3, L * 0.2]]), role: "nageoire", z: 1 });
+      if (top) parts.push({ name: "nageoire", parent: "corps", mirror: "y", at: Q([L * 0.05, L * 0.12]), rot: 35, ellipse: Q([L * 0.1, L * 0.045]), role: "nageoire", z: 1.5 });
+      else {
+        parts.push({ name: "dorsale", parent: "corps", at: Q([0, -L * 0.17]), poly: QQ([[-L * 0.15, 0], [L * 0.1, 0], [-L * 0.08, -L * 0.13]]), role: "nageoire", z: 1.5 });
+        parts.push({ name: "ventre", parent: "corps", at: Q([-L * 0.02, L * 0.11]), ellipse: Q([L * 0.24, L * 0.05]), role: "ventre", z: 2.1, line: 0, relief: false, opacity: 0.45 });
+      }
+      eye("corps", [L * 0.22, L * 0.08], L * 0.035);
+      clips = {
+        nage: { ms: 700, tracks: { queue: { r: [-22, 22] }, corps: { r: [-4, 4] }, ...(top ? { nageoire: { r: [20, 45] } } : {}) } },
+        rapide: { ms: 280, tracks: { queue: { r: [-32, 32] }, corps: { r: [-7, 7] } } },
+      };
+      break;
+    }
+    case "requin": {
+      parts.push({ name: "corps", ellipse: Q([L * 0.34, bodyW(0.13)]), role: "peau", z: 2, grad: top ? undefined : [peau, "#e2e8f0"], gradAngle: 0 });
+      parts.push({ name: "tete", parent: "corps", at: Q([L * 0.3, 0]), ellipse: Q([L * 0.16, top ? L * 0.09 : L * 0.1]), role: "peau", z: 2.2 });
+      parts.push({ name: "queue", parent: "corps", at: Q([-L * 0.32, 0]), poly: QQ(top ? [[0, 0], [-L * 0.18, -L * 0.03], [-L * 0.3, -L * 0.12], [-L * 0.24, 0], [-L * 0.3, L * 0.12], [-L * 0.18, L * 0.03]] : [[0, 0], [-L * 0.26, -L * 0.2], [-L * 0.16, 0], [-L * 0.22, L * 0.1]]), role: "peau", z: 1.5 });
+      if (top) {
+        parts.push({ name: "pectorale", parent: "corps", mirror: "y", at: Q([L * 0.1, L * 0.08]), poly: QQ([[0, 0], [-L * 0.08, L * 0.18], [-L * 0.14, L * 0.16]]), role: "peau", z: 1.8 });
+        parts.push({ name: "dorsale", parent: "corps", at: Q([0, 0]), poly: QQ([[L * 0.08, 0], [-L * 0.1, -L * 0.02], [-L * 0.1, L * 0.02]]), role: "aileron", z: 3, line: 0 });
+        roles.aileron = "#1e293b";
+      } else {
+        parts.push({ name: "dorsale", parent: "corps", at: Q([0, -L * 0.11]), poly: QQ([[-L * 0.08, 0], [L * 0.08, 0], [-L * 0.06, -L * 0.16]]), role: "peau", z: 1.6 });
+        parts.push({ name: "pectorale", parent: "corps", at: Q([L * 0.1, L * 0.08]), poly: QQ([[0, 0], [-L * 0.06, L * 0.12], [-L * 0.12, L * 0.1]]), role: "peau", z: 2.4 });
+        parts.push({ name: "machoire", parent: "tete", at: Q([L * 0.02, L * 0.05]), poly: QQ([[-L * 0.06, 0], [L * 0.12, 0], [L * 0.1, L * 0.03], [-L * 0.04, L * 0.03]]), role: "ventre", z: 2.3 });
+        parts.push({ name: "branchies", parent: "tete", at: Q([-L * 0.08, 0]), trait: { pts: QQ([[0, -L * 0.04], [0, L * 0.04]]) }, role: "oeil", z: 2.5, line: 1 } as Part2In);
+      }
+      eye("tete", [L * 0.06, L * 0.05], L * 0.018);
+      clips = {
+        nage: { ms: 1400, tracks: { queue: { r: [-16, 16] }, corps: { r: [-3, 3] }, tete: { r: [2, -2] } } },
+        rapide: { ms: 600, tracks: { queue: { r: [-26, 26] }, corps: { r: [-5, 5] } } },
+        morsure: { ms: 380, loop: false, then: "nage", tracks: top ? { tete: { sx: [1, 1.25, 0.9, 1], sy: [1, 0.85, 1.1, 1] }, corps: { x: Q([0, L * 0.06, 0]) } } : { machoire: { r: [0, 25, 0] }, tete: { r: [0, -10, 0] }, corps: { x: Q([0, L * 0.06, 0]) } } },
+      };
+      break;
+    }
+    case "meduse": {
+      const n = 6;
+      if (top) {
+        parts.push({ name: "cloche", circle: q(L * 0.35), role: "peau", z: 2, grad: ["#ffffff", peau], glow: lueur, opacity: 0.85 });
+        parts.push({ name: "coeur", parent: "cloche", star: [4, q(L * 0.12), q(L * 0.05)], role: "lueur", z: 2.5, glow: Math.max(0.4, lueur), line: 0 });
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          parts.push({ name: `tentacule${i}`, parent: "cloche", at: Q([Math.cos(a) * L * 0.3, Math.sin(a) * L * 0.3]), rot: (a * 180) / Math.PI - 90, trait: { pts: QQ([[0, 0], [L * 0.05, L * 0.15], [0, L * 0.3]]), smooth: true }, role: "peau", z: 1, line: 1.2, opacity: 0.7 } as Part2In);
+        }
+        clips = { nage: { ms: 1600, tracks: { cloche: { s: [1, 0.86, 1] }, ...Object.fromEntries(Array.from({ length: n }, (_, i) => [`tentacule${i}`, { s: [1, 1.15, 1], phase: i / n }])) } } };
+      } else {
+        parts.push({ name: "cloche", blob: QQ([[-L * 0.35, 0], [-L * 0.3, -L * 0.25], [0, -L * 0.38], [L * 0.3, -L * 0.25], [L * 0.35, 0]]), role: "peau", z: 2, grad: ["#ffffff", peau], glow: lueur, opacity: 0.85 });
+        for (let i = 0; i < n; i++) parts.push({ name: `tentacule${i}`, parent: "cloche", at: Q([-L * 0.28 + (i * L * 0.56) / (n - 1), 0]), trait: { pts: QQ([[0, 0], [L * 0.04, L * 0.25], [-L * 0.03, L * 0.5], [L * 0.02, L * 0.7]]), smooth: true }, role: "peau", z: 1, line: 1.2, opacity: 0.7 } as Part2In);
+        clips = { nage: { ms: 1600, tracks: { cloche: { sy: [1, 0.8, 1], sx: [1, 1.1, 1] }, ...Object.fromEntries(Array.from({ length: n }, (_, i) => [`tentacule${i}`, { r: [-8, 8], phase: i / n }])) } } };
+      }
+      roles.lueur = "#fef08a";
+      break;
+    }
+    case "anguille": {
+      const seg = 6, sl = L / seg, w = L * 0.07;
+      let parent = "";
+      for (let i = 0; i < seg; i++) {
+        const nm = i === 0 ? "tete" : `segment${i}`;
+        // de la tête vers la queue : chaque segment est accroché à l'arrière du précédent (regard +x)
+        parts.push({ name: nm, ...(parent ? { parent } : {}), at: Q(parent ? [-sl, 0] : [L * 0.42, 0]), rot: 0, ellipse: Q([sl * 0.62, w * (1 - i * 0.1)]), role: i === 0 ? "peau" : i % 2 ? "peau" : "peau2", z: 2 + (seg - i) * 0.01 });
+        parent = nm;
+      }
+      parts.push({ name: "nageoire", parent, at: Q([-sl * 0.5, 0]), poly: QQ([[0, -w * 0.5], [-sl * 0.6, 0], [0, w * 0.5]]), role: "nageoire", z: 1.9 });
+      eye("tete", [sl * 0.25, w * 0.5], w * 0.28);
+      roles.peau2 = peau;
+      const wave = Object.fromEntries(Array.from({ length: seg - 1 }, (_, i) => [`segment${i + 1}`, { r: [-14, 14], phase: (i + 1) / seg }]));
+      clips = {
+        nage: { ms: 1100, tracks: { tete: { r: [-5, 5] }, ...wave } },
+        rapide: { ms: 500, tracks: { tete: { r: [-7, 7] }, ...wave } },
+        morsure: { ms: 340, loop: false, then: "nage", tracks: { tete: { x: Q([0, L * 0.08, 0]), sx: [1, 1.2, 1] } } },
+      };
+      break;
+    }
+    case "raie": {
+      if (top) {
+        parts.push({ name: "corps", blob: QQ([[L * 0.32, 0], [L * 0.05, -L * 0.42], [-L * 0.2, -L * 0.1], [-L * 0.22, 0], [-L * 0.2, L * 0.1], [L * 0.05, L * 0.42]]), role: "peau", z: 2, tex: { kind: "pois", scale: 0.6, color2: "#f8fafc" } } as Part2In);
+        parts.push({ name: "aileL", parent: "corps", at: Q([L * 0.02, -L * 0.25]), ellipse: Q([L * 0.12, L * 0.14]), role: "peau", z: 2.1, line: 0, relief: false });
+        parts.push({ name: "aileR", parent: "corps", at: Q([L * 0.02, L * 0.25]), ellipse: Q([L * 0.12, L * 0.14]), role: "peau", z: 2.1, line: 0, relief: false });
+      } else parts.push({ name: "corps", blob: QQ([[L * 0.32, 0], [0, -L * 0.07], [-L * 0.22, -L * 0.02], [-L * 0.22, L * 0.02], [0, L * 0.03]]), role: "peau", z: 2 });
+      parts.push({ name: "queue", parent: "corps", at: Q([-L * 0.2, 0]), trait: { pts: QQ([[0, 0], [-L * 0.25, L * 0.02], [-L * 0.5, -L * 0.02]]), smooth: true }, role: "peau", z: 1, line: 1.5 } as Part2In);
+      eye("corps", [L * 0.18, L * 0.06], L * 0.02);
+      clips = { nage: { ms: 1800, tracks: top ? { aileL: { sy: [1, 0.6, 1] }, aileR: { sy: [1, 0.6, 1] }, corps: { sy: [1, 0.9, 1] }, queue: { r: [-10, 10] } } : { corps: { y: Q([0, -L * 0.04, 0]) }, queue: { r: [-10, 10] } } } };
+      break;
+    }
+    case "plongeur": {
+      // corps horizontal (regard +x), sans parent tourné : bras vers l'avant (rot −90 : +y local → +x), jambes vers
+      // l'arrière (rot 90), palmes au bout des jambes
+      const tw = L * 0.11;
+      Object.assign(roles, { combinaison: "#0f172a", bande: peau, bouteille: "#facc15", palme: peau, lampe: "#fef9c3" });
+      if (top) {
+        parts.push({ name: "corps", ellipse: Q([L * 0.2, tw]), role: "combinaison", z: 2 });
+        parts.push({ name: "bande", parent: "corps", at: Q([L * 0.04, 0]), rect: Q([L * 0.05, tw * 2, 1]), role: "bande", z: 2.1, line: 0 });
+        parts.push({ name: "bouteille", parent: "corps", at: Q([-L * 0.03, 0]), ellipse: Q([L * 0.13, tw * 0.55]), role: "bouteille", z: 3 });
+        parts.push({ name: "tete", parent: "corps", at: Q([L * 0.24, 0]), circle: q(tw * 0.95), role: "combinaison", z: 2.5 });
+        parts.push({ name: "masque", parent: "tete", at: Q([tw * 0.5, 0]), ellipse: Q([tw * 0.35, tw * 0.7]), role: "lampe", z: 2.6, glow: 0.3 });
+        parts.push({ name: "lampe", parent: "tete", at: Q([tw * 0.95, 0]), circle: q(tw * 0.3), role: "lampe", z: 2.7, glow: 1, line: 0 });
+        parts.push({ name: "bras", parent: "corps", mirror: "y", at: Q([L * 0.12, tw * 0.85]), rot: -70, capsule: Q([tw * 0.38, L * 0.2]), off: Q([0, L * 0.1]), role: "combinaison", z: 1.8 });
+        parts.push({ name: "jambe", parent: "corps", mirror: "y", at: Q([-L * 0.16, tw * 0.5]), rot: 85, capsule: Q([tw * 0.45, L * 0.24]), off: Q([0, L * 0.12]), role: "combinaison", z: 1.6 });
+        parts.push({ name: "palme", parent: "jambe", at: Q([0, L * 0.24]), poly: QQ([[-tw * 0.5, 0], [tw * 0.5, 0], [tw * 0.8, L * 0.18], [-tw * 0.8, L * 0.18]]), role: "palme", z: 1.5 });
+        clips = {
+          nage: { ms: 900, tracks: { jambe: { r: [-12, 12] }, palme: { r: [-18, 18] }, bras: { r: [-6, 6] }, corps: { r: [-3, 3] } } },
+          rapide: { ms: 450, tracks: { jambe: { r: [-22, 22] }, palme: { r: [-30, 30] }, bras: { r: [-14, 14] } } },
+          eclat: { ms: 500, loop: false, then: "nage", tracks: { lampe: { s: [1, 3, 1] }, masque: { s: [1, 1.3, 1] } } },
+        };
+      } else {
+        parts.push({ name: "corps", ellipse: Q([L * 0.22, tw * 0.9]), role: "combinaison", z: 2 });
+        parts.push({ name: "bande", parent: "corps", at: Q([L * 0.04, 0]), rect: Q([L * 0.05, tw * 1.8, 1]), role: "bande", z: 2.1, line: 0 });
+        parts.push({ name: "bouteille", parent: "corps", at: Q([-L * 0.02, -tw * 0.95]), ellipse: Q([L * 0.14, tw * 0.48]), role: "bouteille", z: 1.9 });
+        parts.push({ name: "tete", parent: "corps", at: Q([L * 0.26, -tw * 0.2]), circle: q(tw * 0.95), role: "combinaison", z: 2.5 });
+        parts.push({ name: "masque", parent: "tete", at: Q([tw * 0.55, 0]), ellipse: Q([tw * 0.35, tw * 0.55]), role: "lampe", z: 2.6, glow: 0.3 });
+        parts.push({ name: "lampe", parent: "tete", at: Q([tw * 0.25, -tw * 0.85]), circle: q(tw * 0.28), role: "lampe", z: 2.7, glow: 1, line: 0 });
+        parts.push({ name: "bras", parent: "corps", mirror: "z", at: Q([L * 0.12, tw * 0.1]), rot: -65, capsule: Q([tw * 0.38, L * 0.2]), off: Q([0, L * 0.1]), role: "combinaison", z: 2.2 });
+        parts.push({ name: "jambe", parent: "corps", mirror: "z", at: Q([-L * 0.18, tw * 0.2]), rot: 80, capsule: Q([tw * 0.45, L * 0.24]), off: Q([0, L * 0.12]), role: "combinaison", z: 2.1 });
+        parts.push({ name: "palme", parent: "jambe", at: Q([0, L * 0.24]), poly: QQ([[-tw * 0.4, 0], [tw * 0.4, 0], [tw * 0.6, L * 0.18], [-tw * 0.6, L * 0.18]]), role: "palme", z: 2.05 });
+        clips = {
+          nage: { ms: 900, tracks: { jambe: { r: [-16, 16] }, palme: { r: [-22, 22] }, bras: { r: [-6, 6] } } },
+          rapide: { ms: 450, tracks: { jambe: { r: [-26, 26] }, palme: { r: [-34, 34] }, bras: { r: [-14, 14] } } },
+          eclat: { ms: 500, loop: false, then: "nage", tracks: { lampe: { s: [1, 3, 1] } } },
+        };
+      }
+      break;
+    }
+  }
+  // pas de hauteur : pas d'ombre au sol (elles nagent)
+  return { parts, clips, clip: "nage", roles };
+}
+
 export const PRESETS2D: Record<string, Preset2d> = {
   personnage: {
     doc: "Personnage ou créature articulé, vue profil (regard +x), face ou dessus (regard +x) ; clips idle marche course controle tir passe tacle chute saut joie plongeon",
@@ -640,4 +809,9 @@ export const PRESETS2D: Record<string, Preset2d> = {
   sol: { doc: "Sol de profil (herbe sur terre, relief)", params: { largeur: "px", epaisseur: "px", relief: "px" }, build: sol },
   collines: { doc: "Collines d'arrière-plan (profil)", params: { largeur: "px", hauteur: "px" }, build: collines },
   foule: { doc: "Gradin et supporters ; clip ola", params: { largeur: "px", rangs: "1..12", taille: "px" }, build: foule },
+  marin: {
+    doc: "Créature marine ou plongeur, vue dessus (regard +x, défaut) ou profil, origine au centre ; clips nage rapide (+ morsure : requin, anguille ; eclat : plongeur, la lampe s'allume). banc = poisson en 2 pièces pour des centaines de copies (sonic-swarm)",
+    params: { espece: Object.keys(MARIN_COULEURS).join("|"), vue: "dessus|profil", taille: "longueur en px", peau: "#rrggbb", lueur: "0..1 (pièces lumineuses ; banc et méduse : 0,8)" },
+    build: marin,
+  },
 };

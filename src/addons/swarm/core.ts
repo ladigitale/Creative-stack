@@ -44,8 +44,18 @@ export interface GroupSpec {
   path?: { points: [number, number][]; loop?: boolean; weight?: number };
   /** Descendre le champ de distances de la grille vers `target`. */
   flow?: Weighted;
-  /** Capture : action envoyée (et proie replacée avec `respawn`) quand un agent de `target` (groupe) est à `radius`. */
-  catch?: Weighted & { respawn?: boolean };
+  /**
+   * Capture : action envoyée quand un agent de `target` (groupe) est à `radius` ; `respawn` replace la proie,
+   * `remove` la retire (elle ne revient plus, même si la description change, jusqu'au prochain `respawnAll`).
+   */
+  catch?: Weighted & { respawn?: boolean; remove?: boolean };
+  /**
+   * Meneur : chaque agent suit (arrive) l'agent le plus proche de `target` (groupe) à moins de `radius` (sans limite
+   * si absent) et le garde ; il change de meneur quand un autre passe à moins de `swap` (radius / 3) et plus près.
+   * `colors` {meneur: couleur} : la couleur de l'agent suit son meneur (`color` dans `nodes`, et `roles.<role>` pour
+   * une instance monde2d, `role` = "peau") ; `lost` : couleur sans meneur.
+   */
+  follow?: Weighted & { swap?: number; slow?: number; colors?: Record<string, string>; role?: string; lost?: string };
   /** Zone d'apparition `[x0, y0, x1, y1]`, défaut : tout le monde. */
   spawn?: [number, number, number, number];
   /** Sprite `sonic-2d` publié pour chaque agent (mêmes clés que sonic-sprite, `name` ajouté). */
@@ -72,6 +82,8 @@ export interface Agent {
   wander: number;
   waypoint: number;
   cooldown: number;
+  /** Nom du meneur (`follow`), null sans meneur. */
+  leader: string | null;
 }
 
 export interface CatchEvent {
@@ -80,6 +92,8 @@ export interface CatchEvent {
   group: string;
   x: number;
   y: number;
+  /** Meneur de la proie (`follow`) au moment de la capture. */
+  leader: string | null;
 }
 
 type Resolve = (ref: string) => [number, number] | null;
@@ -93,11 +107,18 @@ function limit(x: number, y: number, max: number): [number, number] {
 
 export class Swarm {
   agents: Agent[] = [];
+  /** Agents retirés par une capture `remove` (noms) : absents jusqu'à `respawnAll`. */
+  removed = new Set<string>();
+  /** Retirés depuis la dernière lecture (`takeRemoved`) : à cacher dans le rendu. */
+  private removedNew: string[] = [];
+  /** Meneurs changés depuis la dernière lecture (`takeLeaderChanges`). */
+  private leaderChanged = new Set<string>();
   groups: GroupSpec[] = [];
   bounds: [number, number, number, number] = [0, 0, 800, 600];
   edges: NonNullable<WorldSpec["edges"]> = "steer";
   grid: Grid | null = null;
   cell = 32;
+  private gridSpec: WorldSpec["grid"] | null = null;
   private rng: Rng;
   private hash = new Map<number, number[]>();
   private hashSize = 50;
@@ -111,6 +132,7 @@ export class Swarm {
     if (Array.isArray(spec.bounds) && spec.bounds.length === 4) this.bounds = spec.bounds.map(Number) as Swarm["bounds"];
     this.edges = spec.edges === "wrap" || spec.edges === "bounce" ? spec.edges : "steer";
     this.grid = null;
+    this.gridSpec = spec.grid ?? null;
     if (spec.grid && Array.isArray(spec.grid.rows) && spec.grid.rows.length) {
       this.cell = Math.max(1, Number(spec.grid.cell) || 32);
       this.grid = readGrid(spec.grid.rows, { walls: spec.grid.walls, costs: spec.grid.costs, diag: spec.grid.diag ?? true });
@@ -123,10 +145,13 @@ export class Swarm {
       total += n;
       const prefix = g.prefix ?? g.name;
       const old = this.agents.filter((a) => this.groups[a.group]?.name === g.name);
+      const byName = new Map(old.map((a) => [a.name, a]));
       for (let i = 0; i < n; i++) {
-        const a = old[i];
-        if (a) keep.push({ ...a, group: gi, name: `${prefix}${i}` });
-        else keep.push(this.spawn(g, gi, `${prefix}${i}`));
+        const name = `${prefix}${i}`;
+        if (this.removed.has(name)) continue;
+        const a = byName.get(name);
+        if (a) keep.push({ ...a, group: gi });
+        else keep.push(this.spawn(g, gi, name));
       }
     });
     this.groups = groups;
@@ -144,7 +169,36 @@ export class Swarm {
     }
     const a = this.rng.next() * Math.PI * 2;
     const s = (g.maxSpeed ?? 100) * 0.5;
-    return { name, group: gi, x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, wander: a, waypoint: 0, cooldown: 0 };
+    return { name, group: gi, x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, wander: a, waypoint: 0, cooldown: 0, leader: null };
+  }
+
+  /** Tous les agents replacés dans leur zone d'apparition, les retirés reviennent (nouveau niveau). */
+  respawnAll(): void {
+    this.removed.clear();
+    const groups = this.groups;
+    this.groups = [];
+    this.agents = [];
+    this.configure({ bounds: this.bounds, edges: this.edges, groups, grid: this.gridSpec ?? undefined });
+    for (const a of this.agents) this.leaderChanged.add(a.name);
+  }
+
+  takeRemoved(): string[] {
+    const r = this.removedNew;
+    this.removedNew = [];
+    return r;
+  }
+
+  takeLeaderChanges(): string[] {
+    const r = [...this.leaderChanged];
+    this.leaderChanged.clear();
+    return r;
+  }
+
+  /** Couleur d'un agent selon son meneur (`follow.colors`), ou undefined. */
+  colorOf(a: Agent): string | undefined {
+    const f = this.groups[a.group]?.follow;
+    if (!f || !f.colors) return undefined;
+    return (a.leader && f.colors[a.leader]) || f.lost;
   }
 
   blocked(x: number, y: number): boolean {
@@ -275,6 +329,29 @@ export class Swarm {
         const py = a.y + Math.sin(h) * maxSpeed * 0.6 + Math.sin(a.wander) * maxSpeed * 0.3;
         steer(...toward(px, py), g.wander);
       }
+      if (g.follow && typeof g.follow.target === "string") {
+        const grp = g.follow.target.startsWith("group:") ? g.follow.target.slice(6) : g.follow.target;
+        const radius = g.follow.radius ?? Infinity;
+        const near = this.nearestOf(grp, a.x, a.y, i);
+        const cur = a.leader ? this.agents.find((b) => b.name === a.leader && this.groups[b.group]?.name === grp) ?? null : null;
+        let lead = cur;
+        if (!cur) lead = near && Math.hypot(near.x - a.x, near.y - a.y) <= radius ? near : null;
+        else if (near && near !== cur) {
+          const swap = g.follow.swap ?? (Number.isFinite(radius) ? radius / 3 : 40);
+          const dn = Math.hypot(near.x - a.x, near.y - a.y), dc = Math.hypot(cur.x - a.x, cur.y - a.y);
+          if (dn < swap && dn < dc * 0.6) lead = near;
+        }
+        const name = lead ? lead.name : null;
+        if (name !== a.leader) {
+          a.leader = name;
+          this.leaderChanged.add(a.name);
+        }
+        if (lead) {
+          const d = Math.hypot(lead.x - a.x, lead.y - a.y);
+          const slow = g.follow.slow ?? 60;
+          steer(...toward(lead.x, lead.y, d < slow ? (maxSpeed * d) / slow : maxSpeed), w(g.follow));
+        }
+      }
       if (g.seek) {
         const t = this.target(g.seek.target, a, i, resolve);
         if (t) steer(...toward(t.x, t.y), w(g.seek));
@@ -401,22 +478,29 @@ export class Swarm {
       if (a.cooldown > 0) a.cooldown -= dt;
     });
     // captures
+    const gone = new Set<Agent>();
     this.agents.forEach((a) => {
+      if (gone.has(a)) return;
       const g = this.groups[a.group];
       const c = g.catch;
       if (!c || typeof c.target !== "string" || a.cooldown > 0) return;
       const group = c.target.startsWith("group:") ? c.target.slice(6) : c.target;
       const prey = this.nearestOf(group, a.x, a.y, this.agents.indexOf(a));
-      if (!prey) return;
+      if (!prey || gone.has(prey)) return;
       const r = (c.radius ?? 0) || (g.radius ?? 6) + (this.groups[prey.group].radius ?? 6);
       if (Math.hypot(prey.x - a.x, prey.y - a.y) > r) return;
-      events.push({ by: a.name, caught: prey.name, group, x: Math.round(prey.x), y: Math.round(prey.y) });
+      events.push({ by: a.name, caught: prey.name, group, x: Math.round(prey.x), y: Math.round(prey.y), leader: prey.leader });
       a.cooldown = 0.5;
-      if (c.respawn) {
+      if (c.remove) {
+        this.removed.add(prey.name);
+        this.removedNew.push(prey.name);
+        gone.add(prey);
+      } else if (c.respawn) {
         const fresh = this.spawn(this.groups[prey.group], prey.group, prey.name);
         Object.assign(prey, fresh);
       }
     });
+    if (gone.size) this.agents = this.agents.filter((a) => !gone.has(a));
     return events;
   }
 

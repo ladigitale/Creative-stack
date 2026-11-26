@@ -3,6 +3,7 @@ import { customElement, property } from "lit/decorators.js";
 import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { listenDp } from "../../shared/audio/dp";
 import { publisherAt } from "../../shared/dp-path";
+import { CounterTrigger } from "../../shared/media/control";
 import { dispatch } from "../interactive";
 import { type CatchEvent, MAX_AGENTS, Swarm, type WorldSpec } from "./core";
 
@@ -62,6 +63,7 @@ export class SonicSwarm extends LitElement {
   private unsubs: (() => void)[] = [];
   private spriteSig = "";
   private catches = 0;
+  private respawnTrigger = new CounterTrigger();
 
   createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
@@ -101,11 +103,19 @@ export class SonicSwarm extends LitElement {
     }
     const ctl = this.control.trim();
     if (ctl) {
-      this.unsubs.push(listenDp(ctl, (v) => {
+      this.respawnTrigger.reset();
+      const onControl = (v: unknown) => {
         this.live = parseSpec(v);
         this.reconfigure();
-      }));
+        // compteur `respawn` : tout le monde replacé, les agents retirés reviennent (nouveau niveau)
+        if (this.respawnTrigger.feed((this.live as { respawn?: unknown } | null)?.respawn)) {
+          this.sim.respawnAll();
+          this.publish(true);
+        }
+      };
+      this.unsubs.push(listenDp(ctl, onControl));
       this.live = parseSpec(this.read(ctl));
+      this.respawnTrigger.feed((this.live as { respawn?: unknown } | null)?.respawn);
     }
     this.sim = new Swarm(this.base?.seed ?? 1);
     this.applied = "";
@@ -172,10 +182,12 @@ export class SonicSwarm extends LitElement {
       }
       if (steps === 4) this.acc = 0;
       for (const ev of events) this.emit(ev);
+      // une capture `remove` change la liste des sprites
+      const removedNow = events.length > 0 && this.sim.removed.size > 0;
       this.sinceOut += dt;
-      if (this.sinceOut >= 1 / Math.max(1, Math.min(60, this.rate))) {
+      if (removedNow || this.sinceOut >= 1 / Math.max(1, Math.min(60, this.rate))) {
         this.sinceOut = 0;
-        this.publish(false);
+        this.publish(removedNow);
       }
     }
     if (document.visibilityState !== "hidden") this.raf = requestAnimationFrame((t) => this.frame(t));
@@ -207,22 +219,38 @@ export class SonicSwarm extends LitElement {
     if (!out) return;
     const r2 = (n: number) => Math.round(n * 100) / 100 + 0;
     const r3 = (n: number) => Math.round(n * 1000) / 1000 + 0;
-    const nodes: Record<string, Record<string, number>> = {};
+    const nodes: Record<string, Record<string, unknown>> = {};
     const agents: Record<string, unknown>[] = [];
+    const groups: Record<string, number> = {};
     const k = Number(this.scale) || 1;
+    // couleurs : seulement quand le meneur change (patch : un champ absent reste tel quel)
+    const recolor = new Set(this.sim.takeLeaderChanges());
     for (const a of this.sim.agents) {
       const h = Math.atan2(a.vy, a.vx);
-      nodes[a.name] = this.plane === "xz" ? { x: r2(a.x / k), z: r2(a.y / k), ry: r3(-h) } : { x: r2(a.x), y: r2(a.y), rz: r3(h) };
-      agents.push({ name: a.name, group: this.sim.groups[a.group]?.name, x: r2(a.x), y: r2(a.y), heading: r3(h) });
+      const g = this.sim.groups[a.group];
+      const n: Record<string, unknown> = this.plane === "xz" ? { x: r2(a.x / k), z: r2(a.y / k), ry: r3(-h) } : { x: r2(a.x), y: r2(a.y), rz: r3(h) };
+      if (withSprites || recolor.has(a.name)) {
+        const c = this.sim.colorOf(a);
+        if (c) {
+          n.color = c;
+          n.roles = { [g?.follow?.role || "peau"]: c };
+        }
+        n.visible = true;
+      }
+      nodes[a.name] = n;
+      if (g) groups[g.name] = (groups[g.name] ?? 0) + 1;
+      agents.push({ name: a.name, group: g?.name, x: r2(a.x), y: r2(a.y), heading: r3(h), ...(a.leader !== undefined && g?.follow ? { leader: a.leader } : {}) });
     }
+    for (const name of this.sim.takeRemoved()) nodes[name] = { visible: false };
     set(`${out}.nodes`, nodes);
     set(`${out}.agents`, agents);
     set(`${out}.count`, agents.length);
+    set(`${out}.groups`, groups);
     if (withSprites) {
       const sprites: Record<string, unknown>[] = [];
       for (const a of this.sim.agents) {
         const s = this.sim.groups[a.group]?.sprite;
-        if (s && typeof s === "object") sprites.push({ shape: "circle", r: this.sim.groups[a.group].radius ?? 6, ...s, name: a.name, x: r2(a.x), y: r2(a.y) });
+        if (s && typeof s === "object") sprites.push({ shape: "circle", r: this.sim.groups[a.group].radius ?? 6, ...s, ...(this.sim.colorOf(a) ? { fill: this.sim.colorOf(a) } : {}), name: a.name, x: r2(a.x), y: r2(a.y) });
       }
       const sig = JSON.stringify(sprites.map((s) => [s.name, s.shape, s.r, s.fill, s.text]));
       if (sig !== this.spriteSig) {

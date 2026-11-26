@@ -18,6 +18,7 @@ import { fbm3, ridge2, warped2 } from "../noise";
 import { type Board, mcts, minimax, movesOf, readBoard, winnerOf } from "./board";
 import { delaunay, mst, triEdges, voronoiGrid } from "./voronoi";
 import { wfc } from "./wfc";
+import { contours } from "./contours";
 
 type Opts = Record<string, unknown>;
 const opts = (o: unknown): Opts => readOptions(o) as Opts;
@@ -181,6 +182,42 @@ export function gridLife(grid: unknown, rule?: unknown, o?: unknown): unknown[] 
   for (let s = 0; s < steps; s++) mask = lifeStep(mask, g.w, g.h, r, !!op.wrap, op.edge === "alive");
   const values = [dead, alive];
   return gridFromCodes(g, mask, values);
+}
+
+/**
+ * Contours lissés des cases « dedans » (`values`, défaut : les murs) en boucles fermées `{points, hole, depth, area}`,
+ * en unités du monde (`scale` = taille d'une case). Avec `sprites: {prefix, fill, holeFill, stroke, line, layer, z}` :
+ * liste prête pour `sonic-2d sprites` (polygones dans l'ordre d'emboîtement : `fill` pour les régions « dedans », `holeFill`
+ * pour les trous). Avec `border: "fill"` (murs au-delà du bord), donner au fond la couleur des murs.
+ */
+export function gridContours(grid: unknown, o?: unknown) {
+  const op = opts(o);
+  const g = readGrid(grid, o);
+  let test: (k: number) => boolean;
+  if (op.values == null) test = (k) => g.cost[k] === Infinity;
+  else {
+    const vals = (Array.isArray(op.values) ? op.values : g.kind === "rows" ? [...String(op.values)] : [op.values]).map((v) => valueOf(g, v));
+    const codes = new Set(vals.map((v) => g.values.indexOf(v)).filter((c) => c >= 0));
+    test = (k) => codes.has(g.code[k]);
+  }
+  const off = Array.isArray(op.offset) ? [num(op.offset[0], 0), num(op.offset[1], 0)] as [number, number] : undefined;
+  const list = contours(g, test, {
+    border: op.border === "fill" ? "fill" : "empty",
+    smooth: num(op.smooth, 2),
+    scale: num(op.scale, 1),
+    offset: off,
+    minArea: num(op.minArea, 0),
+  });
+  const sp = op.sprites && typeof op.sprites === "object" ? (op.sprites as Opts) : null;
+  if (!sp) return list;
+  const prefix = String(sp.prefix ?? "paroi");
+  return list.slice(0, 500).map((c, i) => {
+    const s: Record<string, unknown> = { name: `${prefix}${i}`, shape: "polygon", x: 0, y: 0, points: c.points, fill: c.hole ? (sp.holeFill ?? "#0b1020") : (sp.fill ?? "#1e293b"), z: num(sp.z, 0) + c.depth };
+    if (sp.stroke) s.stroke = sp.stroke;
+    if (sp.line != null) s.line = sp.line;
+    if (sp.layer) s.layer = sp.layer;
+    return s;
+  });
 }
 
 // ——— génération ———
@@ -450,6 +487,7 @@ export function registerAlgoHelpers(e: Expression): void {
   r("gridMatches", gridMatches);
   r("gridFall", gridFall);
   r("gridLife", gridLife);
+  r("gridContours", gridContours);
   // génération
   r("genMaze", genMaze);
   r("genCave", genCave);

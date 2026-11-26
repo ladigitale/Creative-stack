@@ -116,3 +116,52 @@ describe("Swarm", () => {
     expect((performance.now() - t0) / 60).toBeLessThan(4);
   });
 });
+
+describe("Swarm : retrait et meneurs", () => {
+  it("catch.remove : la proie disparaît, ne revient pas au reconfigure, revient avec respawnAll", () => {
+    const s = new Swarm(5);
+    const spec = {
+      bounds: [0, 0, 300, 300] as [number, number, number, number],
+      groups: [
+        { name: "prey", count: 2, maxSpeed: 30, spawn: [250, 250, 260, 260] as [number, number, number, number] },
+        { name: "hunter", count: 1, maxSpeed: 150, spawn: [20, 20, 21, 21] as [number, number, number, number], pursue: { target: "group:prey" }, catch: { target: "group:prey", remove: true } },
+      ],
+    };
+    s.configure(spec);
+    const ev = run(s, 10);
+    expect(ev.length).toBe(2);
+    expect(s.agents.map((a) => a.name)).toEqual(["hunter0"]);
+    expect(s.takeRemoved().sort()).toEqual(["prey0", "prey1"]);
+    s.configure(spec);
+    expect(s.agents.length).toBe(1);
+    s.respawnAll();
+    expect(s.agents.map((a) => a.name).sort()).toEqual(["hunter0", "prey0", "prey1"]);
+  });
+
+  it("follow : les poissons suivent le plongeur le plus proche, changent de meneur en passant près d'un autre, couleur du meneur", () => {
+    const s = new Swarm(6);
+    s.configure({
+      bounds: [0, 0, 1000, 400],
+      groups: [
+        { name: "plongeur", count: 2, maxSpeed: 0.0001, spawn: [100, 200, 101, 201] },
+        { name: "f", count: 6, maxSpeed: 120, spawn: [90, 180, 110, 220], separation: 0.5, follow: { target: "group:plongeur", radius: 200, colors: { plongeur0: "#f00", plongeur1: "#00f" }, lost: "#888" } },
+      ],
+    });
+    // le second plongeur est loin : tout le banc suit plongeur0 ou plongeur1 selon le plus proche au départ
+    s.agents.find((a) => a.name === "plongeur1")!.x = 900;
+    run(s, 1);
+    const fish = () => s.agents.filter((a) => a.name.startsWith("f"));
+    expect(fish().every((a) => a.leader === "plongeur0")).toBe(true);
+    expect(s.colorOf(fish()[0])).toBe("#f00");
+    expect(s.takeLeaderChanges().length).toBe(6);
+    // plongeur1 passe tout près du banc : les poissons qu'il frôle changent de meneur
+    const p1 = s.agents.find((a) => a.name === "plongeur1")!;
+    const p0 = s.agents.find((a) => a.name === "plongeur0")!;
+    p1.x = p0.x + 5;
+    p1.y = p0.y + 5;
+    p0.x = 500;
+    run(s, 0.5);
+    expect(fish().some((a) => a.leader === "plongeur1")).toBe(true);
+    expect(s.colorOf(fish().find((a) => a.leader === "plongeur1")!)).toBe("#00f");
+  });
+});

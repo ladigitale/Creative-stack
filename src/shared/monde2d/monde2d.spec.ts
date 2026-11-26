@@ -193,3 +193,23 @@ describe("monde2d : traits", () => {
     expect(readMonde2d({ traits: -1 }).traits).toBe(0);
   });
 });
+
+describe("monde2d : préréglage marin", () => {
+  it("toutes les espèces, deux vues, plusieurs graines : sans problème, clips présents", () => {
+    for (const espece of ["poisson", "banc", "requin", "meduse", "anguille", "raie", "plongeur"])
+      for (const vue of ["dessus", "profil"])
+        for (const seed of [1, 2, 3]) {
+          const m = readMonde2d({ models: { x: { preset: "marin", seed, params: { espece, vue } } } });
+          expect(m.issues, `${espece}/${vue}/${seed}`).toEqual([]);
+          const md = m.models.get("x")!;
+          expect(md.parts.length).toBeGreaterThan(0);
+          expect(md.clips.has("nage")).toBe(true);
+          for (const p of md.parts) if (p.shape) expect(p.shape.pts.every(Number.isFinite), `${espece}/${p.name}`).toBe(true);
+        }
+  });
+
+  it("banc : deux pièces seulement (centaines de copies)", () => {
+    const md = readMonde2d({ models: { b: { preset: "marin", params: { espece: "banc" } } } }).models.get("b")!;
+    expect(md.parts.length).toBe(2);
+  });
+});

@@ -389,3 +389,36 @@ describe("recette plateau de algo.md", () => {
     expect(s2.board).toEqual(full);
   });
 });
+
+describe("contours", () => {
+  it("une case : une boucle extérieure carrée, lissée, à l'échelle", async () => {
+    const raw = (await run(`$gridContours(g, {"smooth": 0, "scale": 10})`, { g: ["...", ".#.", "..."] })) as { points: number[][]; hole: boolean; depth: number; area: number }[];
+    expect(raw.length).toBe(1);
+    expect(raw[0].hole).toBe(false);
+    // milieux des arêtes : une case isolée devient un losange (coins coupés)
+    expect(raw[0].area).toBe(50);
+    expect([...raw[0].points].map((p) => p.join(",")).sort()).toEqual(["10,15", "15,10", "15,20", "20,15"]);
+    const sm = (await run(`$gridContours(g)`, { g: ["...", ".#.", "..."] })) as { points: number[][] }[];
+    expect(sm[0].points.length).toBe(16);
+  });
+
+  it("anneau : extérieur puis trou, profondeurs et sprites alternés", async () => {
+    const g = ["#####", "#...#", "#.#.#", "#...#", "#####"];
+    const c = (await run(`$gridContours(g, {"smooth": 0})`, { g })) as { hole: boolean; depth: number; area: number }[];
+    expect(c.map((x) => [x.depth, x.hole, x.area])).toEqual([[0, false, 24.5], [1, true, 8.5], [2, false, 0.5]]);
+    const sp = (await run(`$gridContours(g, {"sprites": {"prefix": "m", "fill": "#111", "holeFill": "#eee"}})`, { g })) as { name: string; fill: string; shape: string; z: number }[];
+    expect(sp.map((s) => [s.name, s.fill, s.z])).toEqual([["m0", "#111", 0], ["m1", "#eee", 1], ["m2", "#111", 2]]);
+    expect(sp[0].shape).toBe("polygon");
+  });
+
+  it("bord plein, cases en diagonale (point selle), caverne réelle sans boucle infinie", async () => {
+    const d = (await run(`$gridContours(g, {"smooth": 0})`, { g: ["#.", ".#"] })) as unknown[];
+    expect(d.length).toBeGreaterThanOrEqual(1);
+    const filled = (await run(`$gridContours(g, {"border": "fill", "smooth": 0})`, { g: ["...", "...", "..."] })) as { hole: boolean }[];
+    // murs à l'infini : le sol n'est qu'un trou dans le mur
+    expect(filled.map((x) => x.hole)).toEqual([true]);
+    const cave = (await run(`$gridContours($genCave(100, 70, 3), {"border": "fill"})`)) as { points: unknown[] }[];
+    expect(cave.length).toBeGreaterThan(1);
+    expect(cave.reduce((s, c) => s + c.points.length, 0)).toBeLessThan(40_000);
+  });
+});

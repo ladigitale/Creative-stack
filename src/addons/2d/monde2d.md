@@ -120,6 +120,7 @@ une variante par valeur distincte (32 par modèle). `monde2dInfo.prefabs` publie
 | `maison` | Façade (profil) ou toit (dessus) | `vue`, `largeur`, `hauteur`, `toit`, `cheminee` |
 | `sol`, `collines` | Sol de profil (herbe, terre, relief), collines d'arrière-plan | `largeur`, `epaisseur` / `hauteur`, `relief` |
 | `terrain`, `but`, `ballon`, `foule` | Football vu de dessus : pelouse à bandes et lignes, buts (filet), ballon (clip `roule`), gradins et supporters (clip `ola`) | voir le générateur |
+| `marin` | Créatures marines et plongeur, vue `dessus` (défaut, regard +x, origine au centre) ou `profil` ; pas d'ombre au sol (elles nagent). Clips `nage` (repos), `rapide` (fuite), `morsure` (requin, anguille), `eclat` (plongeur : la lampe s'allume). `banc` = poisson en 2 pièces pour des centaines de copies pilotées par `sonic-swarm` (`nodes` : `x`, `y`, `rz`) | `espece` (poisson banc requin meduse anguille raie plongeur), `vue`, `taille` (longueur px), `peau`, `lueur` (0..1 : pièces lumineuses ; banc et méduse 0,8) |
 
 Rôles des personnages : `peau`, `maillot`, `short`, `chaussette`, `chaussure`, `numero`, `museau`, `interieur`, `cheveux`,
 `oeil`, `pupille`, `corne`, `crete`.
