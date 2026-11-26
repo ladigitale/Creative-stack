@@ -5,6 +5,7 @@ import "../src/addons/2d";
 import "../src/addons/swarm";
 import "../src/addons/shader";
 import "../src/addons/sound";
+import "../src/addons/audio";
 import "../src/addons/controller";
 import "../src/addons/device";
 import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
@@ -12,7 +13,7 @@ import doc from "./lueurs.sdui.json";
 
 const d = doc as any;
 set("jour", new Date().toISOString().slice(0, 10));
-set("reglages", { pixel: "non", son: "non" });
+set("reglages", { pixel: "non", son: (window as any).__son ?? "non" });
 const host = document.getElementById("stores")!;
 for (const [id, def] of Object.entries<any>(d.data.stores)) {
   const s = document.createElement("sonic-store");
