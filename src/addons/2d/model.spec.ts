@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hitShape, layerTransform, parseLayers, parseSprite, pivotOffset, safeImageSrc, screenToLayer, visualKey } from "./model";
+import { camTweenAt, hitShape, layerTransform, parseLayers, parseSprite, pivotOffset, safeImageSrc, screenToLayer, visualKey } from "./model";
 import manifestJson from "./manifest.json";
 import parallaxe from "./examples/parallaxe.sdui.json";
 
@@ -127,6 +127,30 @@ describe("calques et caméra", () => {
     const p = parseSprite({ shape: "polygon", points: "-10,0 0,-20 10,0" }, "p").spec;
     expect(hitShape(p, 0, -5)).toBe(true);
     expect(hitShape(p, 8, -15)).toBe(false);
+  });
+});
+
+describe("transition de caméra", () => {
+  it("une cible reçue à chaque image fait avancer la caméra, même si l'image est horodatée avant la réception", () => {
+    let cam = { x: 0, y: 0, zoom: 1 };
+    const target = { x: 1000, y: 0, zoom: 1 };
+    let frame = 1000;
+    for (let i = 0; i < 60; i++) {
+      // réception juste après l'horodatage de l'image suivante : l'ancien départ performance.now() donnait k = 0
+      const t = { from: { ...cam }, to: target, start: null, ms: 220, curve: "out" as const };
+      frame += 16.7;
+      cam = camTweenAt(t, frame).cam;
+    }
+    expect(cam.x).toBeGreaterThan(900);
+  });
+
+  it("atteint la cible après la durée, sur l'horloge des images", () => {
+    const t = { from: { x: 0, y: 0, zoom: 1 }, to: { x: 100, y: 50, zoom: 2 }, start: null, ms: 200, curve: "linear" as const };
+    const first = camTweenAt(t, 5000);
+    expect(first.done).toBe(false);
+    expect(first.cam.x).toBeGreaterThan(0);
+    const end = camTweenAt(t, 5300);
+    expect(end).toEqual({ cam: { x: 100, y: 50, zoom: 2 }, done: true });
   });
 });
 

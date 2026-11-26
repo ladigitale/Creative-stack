@@ -6,6 +6,8 @@
  * une même liste de DataProvider peut décrire les corps d'un `sonic-physics` et leurs sprites.
  */
 
+import { easeCurve, type NodeCurve } from "../../shared/nodes";
+
 export type SpriteShape = "box" | "circle" | "polygon" | "text" | "image" | "mesh";
 
 export type SpriteSpec = {
@@ -196,6 +198,32 @@ export type Camera = { x: number; y: number; zoom: number };
 
 /** Caméra par défaut : centre de la scène, zoom 1. */
 export const defaultCamera = (w: number, h: number): Camera => ({ x: w / 2, y: h / 2, zoom: 1 });
+
+/** Transition de caméra (`ease` de la clé camera). `start` : horloge des images, fixé à la première image (null avant). */
+export type CamTween = { from: Camera; to: Camera; start: number | null; ms: number; curve: NodeCurve };
+
+/** Durée d'une image comptée dès la première image d'une transition. */
+const FRAME_MS = 1000 / 60;
+
+/**
+ * Caméra d'une transition à l'instant `now` (horodatage de requestAnimationFrame).
+ * Le départ est pris sur l'horloge des images, une image en arrière : une cible reçue à chaque image (caméra qui suit
+ * un joueur) avance donc d'au moins une image à chaque rendu. Avec un départ `performance.now()` pris à la réception,
+ * l'horodatage de l'image suivante pouvait être antérieur et la caméra restait figée sur sa position de départ.
+ */
+export function camTweenAt(t: CamTween, now: number): { cam: Camera; done: boolean } {
+  if (t.start == null || now < t.start) t.start = now - FRAME_MS;
+  const k = Math.min(1, Math.max(0, (now - t.start) / t.ms));
+  const e = easeCurve(t.curve, k);
+  return {
+    cam: {
+      x: t.from.x + (t.to.x - t.from.x) * e,
+      y: t.from.y + (t.to.y - t.from.y) * e,
+      zoom: t.from.zoom + (t.to.zoom - t.from.zoom) * e,
+    },
+    done: k >= 1,
+  };
+}
 
 export function readCamera(v: unknown, base: Camera): Camera {
   if (!v || typeof v !== "object") return base;
