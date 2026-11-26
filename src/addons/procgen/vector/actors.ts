@@ -3,6 +3,7 @@
  * errance et patrouille, actions transitoires, humeur, clignement, zones, événements de jeu. Produit, à chaque pas,
  * la pose 3D (`humanoidPose`) de chaque acteur ; le dessinateur vectoriel la projette.
  */
+import { separate, slideStep, steerAround } from "../scene/crowd";
 import { BallWorld } from "../scene/balls";
 import { type M4, type V3, clamp } from "../core/math";
 import { GENERATORS } from "../gen/index";
@@ -246,6 +247,9 @@ export class ActorSim {
   update(dt: number) {
     this.time += dt;
     for (const a of this.actors.values()) this.updateActor(a, dt);
+    // personne ne se traverse (les assis restent en place)
+    const m = this.model;
+    if (m) separate([...this.actors.values()].filter((a) => !a.hidden), (x, z) => !m.nav || m.nav.free(x, z), (a) => (a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0, (a) => (a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1])));
     this.stepBalls(dt);
   }
 
@@ -347,6 +351,12 @@ export class ActorSim {
         if (!a.path) a.wanderT = 1;
       }
     }
+    // foule : contourne les acteurs devant soi
+    if (want > 0.01 && this.actors.size > 1) {
+      const st = steerAround(a, this.actors.values(), vx, vz);
+      [vx, vz] = [st.vx, st.vz];
+      want *= st.slow;
+    }
     a.speed += (want - a.speed) * (1 - Math.exp(-dt * (want > a.speed ? 4 : 6)));
     if (want > 0.01) {
       const targetYaw = Math.atan2(vx, vz);
@@ -362,10 +372,11 @@ export class ActorSim {
     if (step > 0) {
       const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);
       const nx = a.pos[0] + fx * step, nz = a.pos[2] + fz * step;
-      if (!m.nav || m.nav.free(nx, nz) || a.path || !a.drive) {
+      const free = (x: number, z: number) => !m.nav || m.nav.free(x, z);
+      if (a.path) {
         a.pos[0] = nx;
         a.pos[2] = nz;
-      } else this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
+      } else if (!slideStep(a.pos, nx, nz, free) && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
       a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
     a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
