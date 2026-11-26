@@ -12,6 +12,7 @@ import { Issues } from "./core/schema";
 import { type Recipe, type SceneModel, composeSceneAsync, groundHeight } from "./scene/compose";
 import { SCENES } from "./scene/library";
 import { mergeEmitters, readProcgenEmitters } from "./scene/emitters";
+import { readTerrainEdits } from "./scene/terrain";
 import { resolveStyle } from "./style/style";
 import { ambianceFx } from "./style/ambiance";
 import { readProcgenPhoto, type ProcgenPhotoState } from "./render/photo";
@@ -115,6 +116,8 @@ export class SonicProcgen extends HTMLElement {
   private forcesKey = "";
   private driveKey = "";
   private driveModel: unknown = null;
+  private terrainKey = "";
+  private terrainModel: unknown = null;
   private queriesKey = "";
   /** Émetteurs lus (recette ⊕ `emitters` du DataProvider, graine, qualité) : relus seulement quand la clé change. */
   private emitKey = "";
@@ -585,6 +588,18 @@ export class SonicProcgen extends HTMLElement {
         const unknown = this.view.setDrive(d.drive);
         this.issues = [...this.issues.filter((i) => !String((i as { path: string }).path).startsWith("drive.")), ...unknown.map((id) => ({ path: `drive.${id}`, code: "unknown", message: `« ${id} » ne se conduit pas (véhicule ou monture attendu)`, didYouMean: suggest(id, this.model!.objects.filter((o) => o.affords?.includes("drive")).map((o) => o.id)) }))];
       }
+    }
+    // relief retouché : recette `terrain` ⊕ clé `terrain` du DataProvider, rejoué en entier à chaque changement
+    if (this.view instanceof ProcgenView) {
+      const rt = (recipe as { terrain?: unknown } | null)?.terrain;
+      const tk = JSON.stringify([rt ?? null, d.terrain ?? null]);
+      if (tk !== this.terrainKey || this.terrainModel !== this.model) {
+        this.terrainKey = tk;
+        this.terrainModel = this.model;
+        this.view.setTerrainEdits([...readTerrainEdits(rt), ...readTerrainEdits(d.terrain)]);
+      }
+    } else if ((d.terrain !== undefined || (recipe as { terrain?: unknown } | null)?.terrain) && !this.issues.some((x) => (x as { path?: string }).path === "terrain")) {
+      this.issues = [...this.issues, { path: "terrain", code: "info", message: "retouches du relief en rendu 3D seulement" }];
     }
     // physique : ordres `forces` (compteurs) et requêtes `queries` (rayon, sphère, boîte)
     if (this.view instanceof ProcgenView) {

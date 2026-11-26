@@ -307,6 +307,8 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     const mw = hf.mouthW * wk * (1 - 0.18 * open);
     // barbe épaisse ou moustache tombante : lèvres fines, la bouche n'apparaît qu'ouverte
     const lipK = hf.mouthHidden ? 0.35 : 1;
+    // épaisseur des lèvres (styles non dessinés) selon leur type ; la lèvre inférieure est la plus pleine
+    const fullK = ({ thin: 1.0, medium: 1.35, full: 1.7 } as Record<string, number>)[look.lips] ?? 1.3;
     const N = 10;
     const curveY = (t: number) => hf.mouthY + curve * amp * (2 * (t - 0.5)) ** 2 - curve * amp * 0.4;
     const lip = (dir: 1 | -1, rk: number) => {
@@ -315,15 +317,31 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
         const t = i / N;
         const x = mix(-mw, mw, t);
         const sw = Math.sin(t * Math.PI) ** 0.7;
-        const y = curveY(t) + (dir > 0 ? open * oh * 0.32 : -open * oh * 0.68) * sw;
+        const r = toon ? (eyeR * 0.075 * (0.45 + 0.55 * Math.sin(t * Math.PI)) + eyeR * 0.015) * rk * lipK : eyeR * 0.11 * fullK * rk * lipK * (0.3 + 0.7 * Math.sin(t * Math.PI) ** 0.6);
+        // lèvres (styles non dessinés) : bourrelet posé au-dessus (lèvre supérieure) ou au-dessous (inférieure) de la ligne
+        // de bouche, à demi enfoncé dans la peau
+        const y = curveY(t) + (dir > 0 ? open * oh * 0.32 : -open * oh * 0.68) * sw + (toon ? 0 : dir * r * 0.8);
         const s = hit(surf, x, y);
-        pts.push(madd(s.p, s.n, eyeR * 0.02));
-        radii.push((eyeR * 0.075 * (0.45 + 0.55 * Math.sin(t * Math.PI)) + eyeR * 0.015) * rk * lipK * (arch === "realistic" ? 0.72 : arch === "heroic" ? 0.85 : 1));
+        pts.push(madd(s.p, s.n, toon ? eyeR * 0.02 : -r * 0.35));
+        radii.push(r);
+      }
+      // styles dessinés : bouche = trait sombre ; sinon lèvres de la couleur des lèvres du personnage (seules lèvres du
+      // visage : elles suivent la parole et les humeurs), séparées par une fine ligne sombre
+      add_(tube(pts, radii, toon ? ROLE.mouth : ROLE.sky, crowd ? 4 : 5, true, true), null);
+    };
+    lip(1, toon ? 1 : 0.85);
+    lip(-1, toon ? 0.85 : 1.05);
+    if (!toon) {
+      // ligne de la bouche, entre les lèvres (au fond quand la bouche s'ouvre)
+      const pts: V3[] = [], radii: number[] = [];
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        const s = hit(surf, mix(-mw, mw, t) * 1.02, curveY(t) + (0.32 - 0.68) * open * oh * 0.5 * Math.sin(t * Math.PI) ** 0.7);
+        pts.push(madd(s.p, s.n, eyeR * 0.05));
+        radii.push(eyeR * (0.012 + 0.018 * Math.sin(t * Math.PI)) * (1 - 0.6 * Math.min(1, open)));
       }
       add_(tube(pts, radii, ROLE.mouth, crowd ? 4 : 5, true, true), null);
-    };
-    lip(1, 1);
-    lip(-1, 0.85);
+    }
     // intérieur sombre et langue : aplatis derrière les lèvres quand la bouche est fermée
     const cy = curveY(0.5) + open * oh * (0.32 - 0.68) * 0.5;
     const m = hit(surf, 0, cy);
