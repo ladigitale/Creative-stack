@@ -56,3 +56,21 @@ describe("sonic-swarm", () => {
     expect(out.error).toMatch(/200 au plus/);
   });
 });
+
+describe("sonic-swarm : rapport au store", () => {
+  it("envoie positions, groupes et meneurs au store", async () => {
+    const { registerStore } = await import("../interactive/registry");
+    const got: { type: string; payload: any }[] = [];
+    registerStore({ id: "rapport1", dispatch: (a: { type: string; payload: any }) => got.push(a) } as never);
+    const el = document.createElement("sonic-swarm") as SonicSwarm;
+    el.setAttribute("report", "rapport1");
+    el.setAttribute("report-groups", "p");
+    el.setAttribute("spec", JSON.stringify({ groups: [{ name: "p", count: 1 }, { name: "f", count: 3, follow: { target: "group:p" } }] }));
+    document.body.appendChild(el);
+    await el.updateComplete;
+    (el as unknown as { sendReport(): void }).sendReport();
+    const r = got.find((a) => a.type === "swarm:report")!;
+    expect(Object.keys(r.payload.agents)).toEqual(["p0"]);
+    expect(r.payload.groups).toEqual({ p: 1, f: 3 });
+  });
+});

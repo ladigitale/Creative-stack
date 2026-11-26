@@ -51,6 +51,14 @@ export class SonicSwarm extends LitElement {
   /** Store qui reçoit les captures (`{type: action, payload: {by, caught, group, x, y}}`). */
   @property({ type: String }) target = "";
   @property({ type: String }) action = "swarm:catch";
+  /**
+   * Store qui reçoit `{type: "swarm:report", payload: {agents: {nom: [x, y, cap]}, groups, leaders}}` toutes les
+   * `report-ms` ms : positions des groupes `report-groups` (noms séparés par des virgules, tous si vide), agents
+   * vivants par groupe, suiveurs par meneur. Un réducteur ne lit pas les autres DataProviders : c'est sa vue du monde.
+   */
+  @property({ type: String }) report = "";
+  @property({ type: String, attribute: "report-groups" }) reportGroups = "";
+  @property({ type: Number, attribute: "report-ms" }) reportMs = 100;
 
   private sim = new Swarm(1);
   private base: WorldSpec | null = null;
@@ -64,6 +72,7 @@ export class SonicSwarm extends LitElement {
   private spriteSig = "";
   private catches = 0;
   private respawnTrigger = new CounterTrigger();
+  private sinceReport = 0;
 
   createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
@@ -185,6 +194,11 @@ export class SonicSwarm extends LitElement {
       // une capture `remove` change la liste des sprites
       const removedNow = events.length > 0 && this.sim.removed.size > 0;
       this.sinceOut += dt;
+      this.sinceReport += dt;
+      if (this.report && this.sinceReport * 1000 >= Math.max(33, Number(this.reportMs) || 100)) {
+        this.sinceReport = 0;
+        this.sendReport();
+      }
       if (removedNow || this.sinceOut >= 1 / Math.max(1, Math.min(60, this.rate))) {
         this.sinceOut = 0;
         this.publish(removedNow);
@@ -205,6 +219,20 @@ export class SonicSwarm extends LitElement {
       if (Number.isFinite(x) && Number.isFinite(y)) return [x, y];
     }
     return null;
+  }
+
+  /** Rapport au store : positions des groupes choisis, vivants par groupe, suiveurs par meneur. */
+  sendReport(): void {
+    if (!this.report) return;
+    const want = new Set(this.reportGroups.split(",").map((x) => x.trim()).filter(Boolean));
+    const agents: Record<string, [number, number, number]> = {};
+    const groups: Record<string, number> = {};
+    for (const a of this.sim.agents) {
+      const g = this.sim.groups[a.group]?.name ?? "";
+      groups[g] = (groups[g] ?? 0) + 1;
+      if (!want.size || want.has(g)) agents[a.name] = [Math.round(a.x * 10) / 10, Math.round(a.y * 10) / 10, Math.round(Math.atan2(a.vy, a.vx) * 1000) / 1000];
+    }
+    dispatch(this.report, { type: "swarm:report", payload: { agents, groups, leaders: this.sim.followers() } });
   }
 
   private emit(ev: CatchEvent): void {

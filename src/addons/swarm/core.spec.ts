@@ -165,3 +165,23 @@ describe("Swarm : retrait et meneurs", () => {
     expect(s.colorOf(fish().find((a) => a.leader === "plongeur1")!)).toBe("#00f");
   });
 });
+
+describe("Swarm : cible par agent et suiveurs", () => {
+  it("dp:…{name} donne une cible propre à chaque agent ; followers compte les suiveurs par meneur", () => {
+    const s = new Swarm(3);
+    s.configure({
+      bounds: [0, 0, 600, 600],
+      groups: [
+        { name: "p", count: 2, spawn: [290, 290, 310, 310], separation: 0, arrive: { target: "dp:jeu.cibles.{name}", radius: 40 } },
+        { name: "f", count: 4, spawn: [290, 290, 310, 310], follow: { target: "group:p" } },
+      ],
+    });
+    const cibles: Record<string, [number, number]> = { "jeu.cibles.p0": [100, 100], "jeu.cibles.p1": [500, 500] };
+    run(s, 8, (ref) => (ref.startsWith("dp:") ? cibles[ref.slice(3)] ?? null : null));
+    const p0 = s.agents.find((a) => a.name === "p0")!, p1 = s.agents.find((a) => a.name === "p1")!;
+    expect(Math.hypot(p0.x - 100, p0.y - 100)).toBeLessThan(15);
+    expect(Math.hypot(p1.x - 500, p1.y - 500)).toBeLessThan(15);
+    const f = s.followers();
+    expect((f.p0 ?? 0) + (f.p1 ?? 0)).toBe(4);
+  });
+});

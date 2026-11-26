@@ -10,7 +10,10 @@ import { Rng } from "../../shared/algo/rng";
 
 export const MAX_AGENTS = 200;
 
-/** Cible : point `[x, y]`, `"group:<nom>"` (agent le plus proche du groupe), `"agent:<nom>"` ou `"dp:<chemin>"`. */
+/**
+ * Cible : point `[x, y]`, `"group:<nom>"` (agent le plus proche du groupe), `"agent:<nom>"` ou `"dp:<chemin>"`
+ * (`{name}` dans le chemin = nom de l'agent : une cible par agent, ex. `dp:jeu.cibles.{name}`).
+ */
 export type TargetRef = [number, number] | string;
 
 export interface Weighted {
@@ -194,6 +197,13 @@ export class Swarm {
     return r;
   }
 
+  /** Suiveurs vivants par meneur (`follow`). */
+  followers(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const a of this.agents) if (a.leader) out[a.leader] = (out[a.leader] ?? 0) + 1;
+    return out;
+  }
+
   /** Couleur d'un agent selon son meneur (`follow.colors`), ou undefined. */
   colorOf(a: Agent): string | undefined {
     const f = this.groups[a.group]?.follow;
@@ -264,7 +274,8 @@ export class Swarm {
       const a = this.agents.find((b) => b.name === ref.slice(6));
       return a && a !== self ? { x: a.x, y: a.y, vx: a.vx, vy: a.vy } : null;
     }
-    const p = resolve(ref);
+    // `dp:jeu.cibles.{name}` : une cible par agent
+    const p = resolve(ref.includes("{name}") ? ref.split("{name}").join(self.name) : ref);
     return p ? { x: p[0], y: p[1], vx: 0, vy: 0 } : null;
   }
 
