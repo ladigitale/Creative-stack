@@ -110,11 +110,14 @@ describe("personnage animal", () => {
       expect(issues.list.filter((i) => i.code !== "info"), a).toEqual([]);
     }
   });
-  it("espèce inconnue signalée, humain par défaut", () => {
-    const { asset, issues } = build({ detail: "crowd", animal: "licorne" }, "x");
-    expect((asset.extra as { look: Look }).look.animal).toBe("none");
-    expect(issues.list.some((i) => String(i.path).endsWith("animal"))).toBe(true);
+  it("n'importe quel nom d'animal : alias, sinon fiche générique (signalée)", () => {
+    const a = build({ detail: "crowd", animal: "licorne" });
+    expect((a.asset.extra as { look: Look }).look.animal).toBe("horse");
+    const b = build({ detail: "crowd", animal: "axolotl" });
+    expect((b.asset.extra as { look: Look }).look.animal).toBe("custom");
+    expect(b.issues.list.some((i) => String(i.path).endsWith("animal"))).toBe(true);
   });
+
 });
 
 describe("personnage : expressions du visage", () => {

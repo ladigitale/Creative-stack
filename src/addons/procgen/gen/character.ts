@@ -43,7 +43,7 @@ export const characterSchema = {
   nose: { type: "enum", default: "auto", options: auto(NOSES), doc: "Nez" },
   lips: { type: "enum", default: "auto", options: auto(LIPS), doc: "Lèvres" },
   ears: { type: "enum", default: "auto", options: auto(EARS), doc: "Oreilles (pointed : elfe)" },
-  animal: { type: "enum", default: "none", options: ANIMALS, doc: "Personnage animal (corps humanoïde, vêtements et animations inchangés) : cat, fox, dog, bear, rabbit, mouse, pig, owl, frog, dino, lion, tiger, panda, koala, raccoon, monkey, cow, sheep, deer, horse, elephant, duck ; custom = fiche animalSpec seule" },
+  animal: { type: "string", default: "none", doc: `Personnage animal (corps humanoïde, vêtements et animations inchangés) : n'importe quel animal, en français ou en anglais (fiches : ${ANIMALS.filter((a) => a !== "none" && a !== "custom").join(", ")} ; alias et espèces voisines : chat, loutre, panthère, coq…), un nom inconnu prend une fiche générique ; custom = fiche animalSpec seule` },
   animalSpec: { type: "object", default: {}, doc: "Retouche de la fiche de l'animal (ou espèce inventée) : ears {shape pointed|round|floppy|long|flap|tuft|none, size 0..3, spread 0..1, tilt}, horns none|small|antlers, snout {w, h, l} (l > 1,2 : trompe), nose, beak, mane, markings none|mask|patches, eyeBulge, spikes, eyeDiscs, tail {shape curve|bushy|wag|stub|pom|long|curl|fan|thick|tuft|none, length 0..3, tip}, colors {fur [#…], muzzle, nose, innerEar, beak, mane, marks, tailTip}" },
   beard: { type: "enum", default: "auto", options: auto(BEARDS), doc: "Barbe" },
   mustache: { type: "enum", default: "auto", options: auto(MUSTACHES), doc: "Moustache" },

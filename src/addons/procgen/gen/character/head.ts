@@ -63,22 +63,33 @@ export function buildHeadField(k: Kit): HeadField {
   const fy = chibi ? 0.6 : 1;
   switch (shape) {
     case "round":
-      face = { kind: "ellipsoid", c: add(headC, [0, -hh * 0.12 * fy, hd * 0.06]), r: [hw * 0.47, hh * 0.33, hd * 0.42], role: S, tag: 0 };
+      // rond = joues pleines, mais le bas reste une courbe (centre plus haut, moins large) : pas de mâchoire plate
+      face = { kind: "ellipsoid", c: add(headC, [0, -hh * 0.09 * fy, hd * 0.06]), r: [hw * 0.45, hh * 0.35, hd * 0.42], role: S, tag: 0 };
       break;
     case "square":
-      face = { kind: "box", c: add(headC, [0, -hh * 0.19 * fy, hd * 0.05]), h: [hw * (chibi ? 0.46 : 0.43), hh * 0.27, hd * 0.4], round: hw * (chibi ? 0.25 : 0.17), role: S, tag: 0 };
+      // « carrée » = mâchoire marquée, jamais une boîte : ellipsoïde plus large aux angles, menton qui reste arrondi
+      face = { kind: "ellipsoid", c: add(headC, [0, -hh * 0.15 * fy, hd * 0.06]), r: [hw * (chibi ? 0.46 : 0.43), hh * 0.33, hd * 0.41], role: S, tag: 0 };
       break;
     case "long":
       face = { kind: "ellipsoid", c: add(headC, [0, -hh * 0.22 * fy, hd * 0.07]), r: [hw * 0.38, hh * 0.37, hd * 0.39], role: S, tag: 0 };
       break;
     default:
-      face = { kind: "ellipsoid", c: add(headC, [0, -hh * 0.17 * fy, hd * 0.07]), r: [hw * 0.41, hh * 0.34, hd * 0.4], role: S, tag: 0 };
+      face = { kind: "ellipsoid", c: add(headC, [0, -hh * 0.15 * fy, hd * 0.07]), r: [hw * 0.39, hh * 0.35, hd * 0.4], role: S, tag: 0 };
+  }
+  // bas du visage : la grande ellipsoïde porte les pommettes et s'arrête plus haut, une mâchoire plus étroite
+  // prend le relais jusqu'au menton (V doux de l'os mandibulaire) ; réaliste encore un peu plus fin
+  const thin = arch === "realistic" ? 0.94 : 1;
+  if (!chibi && face.kind === "ellipsoid") {
+    face = { ...face, c: add(face.c, [0, hh * 0.04, 0]), r: [face.r[0] * thin, face.r[1] * 0.86, face.r[2]] };
+    const jw = { round: 0.37, oval: 0.31, long: 0.29, square: 0.35 }[shape as "oval"] ?? 0.31;
+    sk("skull", { kind: "ellipsoid", c: add(headC, [0, -hh * (shape === "long" ? 0.31 : 0.28), hd * 0.03]), r: [hw * jw * thin, hh * 0.17, hd * 0.3] });
   }
   const faceIdx = set.add(face, "head", "skull");
   const chinPt: V3 = add(headC, [0, -hh * (shape === "long" ? 0.43 : shape === "round" ? 0.38 : 0.41) * (chibi ? 0.85 : 1), hd * 0.3]);
   if (!chibi) {
-    const cw = shape === "square" ? 0.17 : shape === "round" ? 0.13 : 0.12;
-    sk("skull", { kind: "ellipsoid", c: chinPt, r: [hw * cw, hh * 0.075, hd * 0.12] });
+    // menton étroit et un peu avancé : il effile le bas du visage (V doux) au lieu d'élargir la mâchoire
+    const cw = shape === "square" ? 0.13 : shape === "round" ? 0.11 : 0.1;
+    sk("skull", { kind: "ellipsoid", c: add(chinPt, [0, 0, hd * 0.02]), r: [hw * cw, hh * 0.07, hd * 0.11] });
     for (const sx of [1, -1]) sk("skull", { kind: "ellipsoid", c: add(headC, [sx * hw * 0.27, -hh * 0.07, hd * 0.24]), r: [hw * 0.13, hh * 0.085, hd * 0.13] });
     sk("skull", { kind: "ellipsoid", c: add(headC, [0, hh * 0.11, hd * (arch === "heroic" || arch === "realistic" ? 0.37 : 0.35)]), r: [hw * 0.33, hh * (arch === "heroic" || arch === "realistic" ? 0.07 : 0.06), hd * 0.1] });
   }
@@ -207,6 +218,23 @@ export function buildHeadField(k: Kit): HeadField {
     // marques du visage (sous les yeux, qui se posent dessus)
     if (AS.markings === "patches") for (const sx of [1, -1]) sk("mark", { kind: "ellipsoid", c: madd(hit(base, sx * eyeX, eyeY - hh * 0.01).p, [0, 0, 1], -hd * 0.03), r: [eyeR * 1.7, eyeR * 1.45, hd * 0.07] }, MARK);
     if (AS.markings === "mask") sk("mark", { kind: "ellipsoid", c: madd(hit(base, 0, eyeY).p, [0, 0, 1], -hd * 0.05), r: [hw * 0.44, eyeR * 1.25, hd * 0.1] }, MARK);
+    if (AS.markings === "spots")
+      // taches (léopard, girafe) : semées sur le front et les joues
+      for (const [u, v] of [[0, 0.62], [-0.34, 0.5], [0.34, 0.5], [-0.16, 0.8], [0.2, 0.76], [-0.6, 0.05], [0.6, 0.05], [-0.52, -0.28], [0.52, -0.28], [-0.7, 0.3], [0.7, 0.3]]) {
+        const h = hit(base, u * hw * 0.5, headC[1] + v * hh * 0.42);
+        sk("mark", { kind: "ellipsoid", c: madd(h.p, h.n, -hd * 0.025), r: [eyeR * 0.42, eyeR * 0.36, hd * 0.055] }, MARK);
+      }
+    if (AS.markings === "stripes") {
+      // rayures (zèbre) ou bande médiane (blaireau, moufette) : bande du nez au sommet, bandes en travers du front et des joues
+      const top = hit(base, 0, headC[1] + hh * 0.42), mid = hit(base, 0, eyeY + eyeR * 1.4), low = hit(base, 0, noseTipY + hh * 0.06);
+      sk("mark", { kind: "capsule", a: madd(low.p, low.n, -hd * 0.02), b: madd(mid.p, mid.n, -hd * 0.02), ra: hw * 0.07, rb: hw * 0.09 }, MARK);
+      sk("mark", { kind: "capsule", a: madd(mid.p, mid.n, -hd * 0.02), b: madd(top.p, top.n, -hd * 0.03), ra: hw * 0.09, rb: hw * 0.1 }, MARK);
+      for (const sx of [1, -1])
+        for (const v of [0.55, 0.3, -0.25]) {
+          const a = hit(base, sx * hw * 0.2, headC[1] + v * hh * 0.42), b = hit(base, sx * hw * 0.46, headC[1] + v * hh * 0.42 - hh * 0.05);
+          sk("mark", { kind: "capsule", a: madd(a.p, a.n, -hd * 0.02), b: madd(b.p, b.n, -hd * 0.02), ra: hw * 0.035, rb: hw * 0.025 }, MARK);
+        }
+    }
     // museau (ou trompe) et truffe
     const ms = hit(base, 0, mix(noseTipY, mouthY, 0.4));
     const sn = AS.snout;

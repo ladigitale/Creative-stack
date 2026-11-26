@@ -7,7 +7,7 @@
  */
 import type { Rng } from "../../core/rng";
 import { TOOL_KINDS } from "../tool";
-import { type AnimalSpec, ANIMAL_NAMES, resolveAnimal } from "./animal";
+import { type AnimalSpec, ANIMAL_NAMES, animalKey, matchAnimal, resolveAnimal } from "./animal";
 import type { Issues } from "../../core/schema";
 
 export const SKIN_TONES: Record<string, string> = {
@@ -300,7 +300,12 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
   });
   const bag = choose("bag");
   const item = choose("item");
-  const headShape = choose("headShape");
+  // réaliste : jamais de tête carrée (même demandée), la mâchoire humaine s'effile vers le menton
+  const realistic = s("archetype") === "realistic";
+  const headShape0 = choose("headShape", (w) => {
+    if (realistic) w.square = 0;
+  });
+  const headShape = realistic && headShape0 === "square" ? "oval" : headShape0;
   const eyes = choose("eyes", (w) => {
     if (elder) w.sleepy = (w.sleepy ?? 0) + 1;
     if (young) w.big = (w.big ?? 0) + 1.5;
@@ -356,10 +361,21 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
   if (top === "none" && (over === "vest" || over === "jacket")) top = "tee";
 
   // personnage animal : pas de cheveux, de barbe ni de lèvres, oreilles et museau de l'espèce
+  // n'importe quel animal : fiche livrée, alias (français, synonymes, espèces voisines), nom le plus proche, ou fiche
+  // générique (animal inventé, à préciser par `animalSpec`)
   const a0 = s("animal") === "auto" ? "none" : s("animal");
-  let animal = (ANIMALS as readonly string[]).includes(a0) ? a0 : "none";
-  if (animal === "none" && a0 !== "none") issues.add({ path: `${path}.animal`, code: "unknown", message: `espèce « ${a0} » inconnue`, hint: ANIMALS.join(", ") });
-  const animalSpec = resolveAnimal(animal, pp.animalSpec);
+  let animal = a0;
+  if (a0 !== "none" && a0 !== "custom") {
+    const m = matchAnimal(a0);
+    if (m) {
+      animal = m.species;
+      if (m.species !== animalKey(a0)) issues.add({ path: `${path}.animal`, code: "info", message: `« ${a0} » : fiche ${m.species}${m.exact ? "" : " (nom le plus proche)"}`, got: a0, used: m.species });
+    } else {
+      animal = "custom";
+      issues.add({ path: `${path}.animal`, code: "info", message: `« ${a0} » : fiche générique (préciser oreilles, museau, queue, couleurs par animalSpec)`, got: a0, used: "custom", hint: ANIMALS.join(", ") });
+    }
+  }
+  const animalSpec = animal === "custom" ? resolveAnimal("custom", pp.animalSpec && Object.keys(pp.animalSpec as object).length ? pp.animalSpec : { ears: { shape: "round" } }) : resolveAnimal(animal, pp.animalSpec);
   if (animalSpec && animal === "none") animal = "custom";
   let glasses2 = glasses, freckles2 = freckles, wrinkles2 = wrinkles, brows2 = brows;
   if (animal !== "none") {

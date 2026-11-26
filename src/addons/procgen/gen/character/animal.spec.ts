@@ -34,3 +34,22 @@ describe("fiches animal", () => {
     expect([...GEN_ACTIONS]).toEqual([...ACTIONS]);
   });
 });
+
+describe("n'importe quel animal", () => {
+  it("noms français, synonymes, pluriels, fautes de frappe, inconnus", async () => {
+    const { matchAnimal } = await import("./animal");
+    expect(matchAnimal("Écureuil")?.species).toBe("squirrel");
+    expect(matchAnimal("chauve-souris")?.species).toBe("bat");
+    expect(matchAnimal("panthère")?.species).toBe("leopard");
+    expect(matchAnimal("loutres")?.species).toBe("otter");
+    expect(matchAnimal("zebre")?.species).toBe("zebra");
+    expect(matchAnimal("girafe")?.species).toBe("giraffe");
+    expect(matchAnimal("crocodil")?.species).toBe("crocodile");
+    expect(matchAnimal("axolotl")).toBeNull();
+  });
+  it("toutes les espèces du générateur d'animaux existent aussi en personnage", async () => {
+    const { ANIMAL_SPECS } = await import("./animal");
+    const { GENERATORS } = await import("../index");
+    for (const sp of (GENERATORS.animal.schema.species as { options: readonly string[] }).options) expect(ANIMAL_SPECS[sp], sp).toBeTruthy();
+  });
+});

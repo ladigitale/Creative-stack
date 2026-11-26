@@ -503,8 +503,9 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       for (const lat of [-1.1, -0.45, 0.2, 0.9]) pts.push(onHead((i / 14) * Math.PI * 2, lat));
     pts.push(onHead(0, Math.PI / 2));
     const jc = madd(madd(hc, hUp, -headH * 0.2), hFwd, headD * 0.07);
-    const jawK = headShapeK === "square" ? 1.12 : headShapeK === "round" ? 1.05 : 1;
-    for (let i = 0; i < 10; i++) for (const lat of [-1.1, -0.4]) pts.push(onHead((i / 12) * Math.PI * 2, lat, 1, jc, [rx * 0.8, ry * 0.62, rz * 0.86]));
+    // bas du visage effilé : mâchoire plus étroite que le crâne (un peu plus large si « carrée »), menton arrondi
+    const jawK = headShapeK === "square" ? 0.9 : headShapeK === "round" ? 0.86 : 0.78;
+    for (let i = 0; i < 10; i++) for (const lat of [-1.1, -0.4]) pts.push(onHead((i / 12) * Math.PI * 2, lat, 1, jc, [rx * jawK, ry * 0.62, rz * 0.86]));
     return new Pen().smooth(hull(pts.map(S)), true);
   };
 
@@ -573,6 +574,21 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         const q = S(onHead(sd * 0.42, -0.06));
         em.add(new Pen().ellipse(q[0], q[1], eyeR * 1.6, eyeR * 1.35), "bark", { stroke: null });
       }
+    if (AS.markings === "spots")
+      for (const [lon, lat] of [[0, 0.32], [-0.22, 0.26], [0.22, 0.26], [-0.1, 0.42], [0.12, 0.4], [-0.62, -0.1], [0.62, -0.1], [-0.55, -0.28], [0.55, -0.28], [-0.72, 0.12], [0.72, 0.12]]) {
+        if (vis(lon, lat) < 0.05) continue;
+        const q = S(onHead(lon, lat, 1.01));
+        em.add(new Pen().ellipse(q[0], q[1], eyeR * 0.42, eyeR * 0.36), "bark", { stroke: null });
+      }
+    if (AS.markings === "stripes" && faceVis > -0.3) {
+      const center = [onHead(0, -0.28, 1.01), onHead(0, 0.1, 1.01), onHead(0, 0.5, 1.01)].map(S);
+      em.add(strokeVar(new Pen(), center, [eyeR * 0.45, eyeR * 0.6, eyeR * 0.6]), "bark", { stroke: null });
+      for (const sd of [-1, 1])
+        for (const lat of [0.32, 0.16, -0.22]) {
+          if (vis(sd * 0.45, lat) < 0.05) continue;
+          em.add(strokeVar(new Pen(), [S(onHead(sd * 0.28, lat, 1.01)), S(onHead(sd * 0.62, lat - 0.06, 1.01))], [eyeR * 0.22, eyeR * 0.14]), "bark", { stroke: null });
+        }
+    }
     if (AS.markings === "mask" && faceVis > -0.2) {
       const pts: V3[] = [];
       for (let i = 0; i <= 8; i++) pts.push(onHead(-0.75 + i * 0.19, 0.02, 1.01), onHead(-0.75 + i * 0.19, -0.16, 1.01));

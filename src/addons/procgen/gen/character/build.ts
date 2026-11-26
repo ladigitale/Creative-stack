@@ -25,7 +25,8 @@ import type { Look } from "./look";
 
 export type Built = { mesh: Mesh; skeleton: Skeleton; anchors: Record<string, Anchor>; footprint: Asset["footprint"]; height: number; soft: SoftPiece[]; expr?: Asset["expr"] };
 
-export function buildCharacter(look: Look, v: Rng): Built {
+/** Proportions, squelette et kit de construction d'un personnage (partagé avec les tests de pose des accessoires). */
+export function characterKit(look: Look, v: Rng) {
   const P = proportions({
     height: look.height, archetype: look.archetype as Archetype, age: look.age as Age, build: look.build, shape: look.shape, headSize: look.headSize, belly: look.belly,
     legs: look.body.legs, arms: look.body.arms, neck: look.body.neck, shoulders: look.body.shoulders, hips: look.body.hips, posture: look.body.posture, asym: look.body.asym,
@@ -37,6 +38,11 @@ export function buildCharacter(look: Look, v: Rng): Built {
   // une couche de vêtement n'a pas besoin d'être plus épaisse qu'une cellule : le propriétaire est recalculé à la surface
   const thick = Math.max(cell * 0.55, H * 0.009);
   const k = makeKit(look, P, skel, cell, thick, v);
+  return { P, skel, H, crowd, cell, thick, k };
+}
+
+export function buildCharacter(look: Look, v: Rng): Built {
+  const { P, skel, H, crowd, cell, thick, k } = characterKit(look, v);
   const bi = (n: string) => skel.index[n];
 
   /* ---------- corps ---------- */
