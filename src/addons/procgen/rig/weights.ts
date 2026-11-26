@@ -22,6 +22,8 @@ export type WeightOptions = {
   override?: (v: number) => Record<string, number> | null;
   /** Côté d'un sommet (`l`, `r` ou `""` au centre) : un sommet d'un côté n'accepte pas les os `.l` / `.r` de l'autre. */
   side?: (v: number) => "l" | "r" | "";
+  /** Os refusé pour un sommet (ex. bassin pour un sommet d'épaule, malgré le voisinage à deux niveaux). */
+  exclude?: (v: number, bone: number) => boolean;
 };
 
 export function computeWeights(mesh: Mesh, owner: ArrayLike<number>, skel: Skeleton, opts: WeightOptions = {}): void {
@@ -54,10 +56,12 @@ export function computeWeights(mesh: Mesh, owner: ArrayLike<number>, skel: Skele
   const sideName = (b: number) => (skel.bones[b].name.endsWith(".l") ? "l" : skel.bones[b].name.endsWith(".r") ? "r" : "");
   const allowedFor = (v: number, o: number): number[] => {
     const sd = opts.side?.(v) ?? "";
-    if (!sd) return allowed[o];
+    const ex = opts.exclude;
+    if (!sd && !ex) return allowed[o];
     return allowed[o].filter((b) => {
+      if (b !== o && ex?.(v, b)) return false;
       const bs = sideName(b);
-      return !bs || bs === sd;
+      return !sd || !bs || bs === sd;
     });
   };
   let W = new Float32Array(nV * nB);

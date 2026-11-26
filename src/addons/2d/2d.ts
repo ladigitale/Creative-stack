@@ -12,8 +12,8 @@ import { hash32 } from "../../shared/monde/math";
 import { mondeSummary, readMonde, type Conflict, type Monde } from "../../shared/monde/format";
 import type { PlacedInfo } from "../../shared/monde/arrange";
 import { listenTurn, wrapAngle } from "../../shared/monde/turn-keys";
-import { TAP_MAX_MOVE_PX, TAP_MAX_MS, easeCurve, isNum, namesRegex, type NodeCurve } from "../../shared/nodes";
-import { MAX_SPRITES, defaultCamera, parseLayers, parseSprite, readCamera, type Camera, type SpriteSpec } from "./model";
+import { TAP_MAX_MOVE_PX, TAP_MAX_MS, isNum, namesRegex, type NodeCurve } from "../../shared/nodes";
+import { MAX_SPRITES, camTweenAt, defaultCamera, parseLayers, parseSprite, readCamera, type CamTween, type Camera, type SpriteSpec } from "./model";
 import { Scene2D } from "./scene";
 import "./elements";
 import { publisherAt } from "../../shared/dp-path";
@@ -28,7 +28,6 @@ type Publisher = {
   offInternalMutation(handler: VoidFunction): void;
 };
 
-type CamTween = { from: Camera; to: Camera; start: number; ms: number; curve: NodeCurve };
 
 function reducedMotion(): boolean {
   try {
@@ -453,13 +452,13 @@ export class Sonic2d extends LitElement {
       this.unsubs.push(
         listenDp(camPath, (v) => {
           const animate = !reducedMotion() && document.visibilityState !== "hidden";
-          this.applyCameraSpec(v, performance.now(), animate);
+          this.applyCameraSpec(v, animate);
           this.invalidate();
         }),
       );
       try {
         const cur = (publisherAt(camPath) as unknown as Publisher).get();
-        if (cur && typeof cur === "object" && Object.keys(cur).length) this.applyCameraSpec(JSON.parse(JSON.stringify(cur)), performance.now(), false);
+        if (cur && typeof cur === "object" && Object.keys(cur).length) this.applyCameraSpec(JSON.parse(JSON.stringify(cur)), false);
       } catch {
         /* pas encore de valeur */
       }
@@ -562,7 +561,7 @@ export class Sonic2d extends LitElement {
       }
     }
     if (data.rest !== undefined || data.bones !== undefined) scene.setSkeleton(data.rest, data.bones);
-    if (data.camera !== undefined && !this.camera.trim()) this.applyCameraSpec(data.camera, now, animate);
+    if (data.camera !== undefined && !this.camera.trim()) this.applyCameraSpec(data.camera, animate);
     this.publishOut();
     this.invalidate();
   };
@@ -711,14 +710,14 @@ export class Sonic2d extends LitElement {
     return rest;
   }
 
-  private applyCameraSpec(v: unknown, now: number, animate: boolean): void {
+  private applyCameraSpec(v: unknown, animate: boolean): void {
     const sig = JSON.stringify(v);
     if (sig === this.camSig) return;
     this.camSig = sig;
     const to = readCamera(v, this.cam);
     const ease = (v as { ease?: { ms?: number; curve?: NodeCurve } } | null)?.ease;
     if (animate && ease && isNum(ease.ms) && ease.ms > 0) {
-      this.camTween = { from: { ...this.cam }, to, start: now, ms: ease.ms, curve: ease.curve ?? "linear" };
+      this.camTween = { from: { ...this.cam }, to, start: null, ms: ease.ms, curve: ease.curve ?? "linear" };
     } else {
       this.camTween = null;
       this.cam = to;
@@ -779,16 +778,10 @@ export class Sonic2d extends LitElement {
       busy = busy || this.mondeBusy;
     }
     if (this.camTween) {
-      const t = this.camTween;
-      const k = Math.min(1, Math.max(0, (now - t.start) / t.ms));
-      const e = easeCurve(t.curve, k);
-      this.cam = {
-        x: t.from.x + (t.to.x - t.from.x) * e,
-        y: t.from.y + (t.to.y - t.from.y) * e,
-        zoom: t.from.zoom + (t.to.zoom - t.from.zoom) * e,
-      };
+      const { cam, done } = camTweenAt(this.camTween, now);
+      this.cam = cam;
       scene.setCamera(this.cam);
-      if (k >= 1) this.camTween = null;
+      if (done) this.camTween = null;
       else busy = true;
     }
     if (scene.hasLive && scene.refreshLive()) this.dirty = true;

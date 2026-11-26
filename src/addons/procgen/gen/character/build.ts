@@ -59,10 +59,16 @@ export function buildCharacter(look: Look, v: Rng): Built {
       return x > H * 0.008 ? "l" : x < -H * 0.008 ? "r" : "";
     },
     sharp: { "toe.l": 0.4, "toe.r": 0.4 },
+    // le bassin ne tire pas la poitrine ni les épaules (voisinage à deux niveaux depuis le buste) : sinon la peau
+    // d'épaule, à moitié liée au bassin, s'étire dès que le bras se lève ou que le dos tourne
+    exclude: (vi, b) => b === bi("pelvis") && mesh.pos[vi * 3 + 1] > k.B("chest").head[1],
     override: (vi) => {
       const o = owner[vi];
       if (o < 0 || !bf.set.drape[o]) return null;
       const pt = mesh.getPos(vi);
+      // pan drapé : seul le bas (sous la taille) suit bassin et cuisses ; le haut garde les poids du buste et des
+      // bras (sinon les épaules d'un manteau restaient collées au bassin et se déchiraient quand on bouge)
+      if (pt[1] > P.hipY + H * 0.04) return null;
       const a = smoothstep(P.crotchY + H * 0.02, thighY, pt[1]);
       const sx = pt[0] >= 0 ? "l" : "r";
       const sideW = smoothstep(0, P.hipHalf * 0.9, Math.abs(pt[0]));

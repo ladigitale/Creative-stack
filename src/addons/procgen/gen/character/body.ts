@@ -186,8 +186,11 @@ export function buildBodyField(k: Kit): BodyField {
     put("shin", cap(`shin.${s}`, 0, 1, 0, S, mix(0.95, 1.08, look.build)), `shin.${s}`);
     const fb = B(`foot.${s}`);
     const fr = fb.radius[0];
-    put("foot", { kind: "capsule", a: add(fb.head, [0, -fr * 0.2, -fr * 0.6]), b: add(fb.tail, [0, fr * 0.05, 0]), ra: fr * 0.95, rb: fr * 0.9, role: S, tag: 0 }, `foot.${s}`);
-    put("toe", cap(`toe.${s}`, 0, 1, 0, S), `toe.${s}`);
+    // pied et orteils jamais sous le sol, même chaussés (gros pieds des styles chibi, cartoon)
+    const sole = thick * 0.9 + H * 0.002;
+    const above = (f: FieldPrim): FieldPrim => (f.kind === "capsule" ? { ...f, a: [f.a[0], Math.max(f.a[1], f.ra + sole), f.a[2]], b: [f.b[0], Math.max(f.b[1], f.rb + sole), f.b[2]] } : f);
+    put("foot", above({ kind: "capsule", a: add(fb.head, [0, -fr * 0.2, -fr * 0.6]), b: add(fb.tail, [0, fr * 0.05, 0]), ra: fr * 0.95, rb: fr * 0.9, role: S, tag: 0 }), `foot.${s}`);
+    put("toe", above(cap(`toe.${s}`, 0, 1, 0, S)), `toe.${s}`);
   }
   const torsoIdx = [...groups.chest, ...groups.spine];
   const pelvisIdx = groups.pelvis[0];
