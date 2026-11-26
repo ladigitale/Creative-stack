@@ -299,10 +299,10 @@ float roleTexture(int role, vec3 p, vec3 n) {
   if (role == 10 || role == 11) return (fbm3(p * 7.5) - 0.5) * 0.26 + (vnoise(p * 30.0) - 0.5) * 0.06;
   if (role >= 17 && role <= 19) { // tissus : trame fine (fils croisés), à peine de marbrure
     float weave = (sin(p.x * 420.0 + p.z * 37.0) * sin(p.y * 420.0 + p.x * 29.0)) * 0.5 + 0.5;
-    return (weave - 0.5) * 0.035 + (vnoise(p * 55.0) - 0.5) * 0.04 + (vnoise(p * 9.0) - 0.5) * 0.02;
+    return (weave - 0.5) * 0.035 + (vnoise(p * 55.0) - 0.5) * 0.07 + (vnoise(p * 9.0) - 0.5) * 0.05;
   }
   if (role == 20) return (vnoise(p * 70.0) - 0.5) * 0.05 + (vnoise(p * 12.0) - 0.5) * 0.03; // cuir : grain serré
-  if (role == 21) return (vnoise(p * 90.0) - 0.5) * 0.02; // peau : grain très fin, pas de marbrure
+  if (role == 21) return (vnoise(p * 90.0) - 0.5) * 0.04 + (fbm3(p * 14.0) - 0.5) * 0.08; // peau : grain fin, nuances douces
   if (role >= 32) return (vnoise(p * 40.0) - 0.5) * 0.03; // couleurs franches : plastique, caoutchouc, cuir peint
   return (vnoise(p * 28.0) - 0.5) * 0.05;
 }
@@ -339,7 +339,8 @@ void main() {
   float vk = role == 5 ? 0.28 : role == 7 ? 0.2 : 0.1;
   base *= 1.0 + var * vk;
   base = mix(base, base * vec3(1.06, 1.0, 0.9), (vVar > 0.5 ? 1.0 : -0.6) * abs(var) * (role == 5 ? 0.9 : 0.1));
-  base *= 1.0 + roleTexture(role, vPosW, vNormalW) * uTexture;
+  // tissus, cuir, peau, cheveux : motif pris en repère local (il suit le corps animé au lieu de glisser dessus)
+  base *= 1.0 + roleTexture(role, role >= 17 && role <= 22 ? vPosL : vPosW, vNormalW) * uTexture;
   vec3 N = normalize(vNormalW);
   if (!gl_FrontFacing) N = -N;
   // relief de détail procédural (pierre, enduit, toiture, bois, écorce, sol) : gradient d'un bruit, sans texture
@@ -360,18 +361,20 @@ void main() {
     vec3 q = vPosL;
     vec3 dpx = dFdx(vPosW), dpy = dFdy(vPosW);
     float fp = max(length(dpx), length(dpy));
-    float fine = 1.0 - smoothstep(0.0012, 0.004, fp);
-    float mid = 1.0 - smoothstep(0.004, 0.012, fp);
+    float fine = 1.0 - smoothstep(0.0018, 0.0055, fp);
+    float mid = 1.0 - smoothstep(0.006, 0.03, fp);
     float h;
-    if (role == 22) h = (vnoise(vec3(q.x * 240.0, q.y * 28.0, q.z * 240.0)) * 0.003) * fine + fbm3(vec3(q.x * 45.0, q.y * 9.0, q.z * 45.0)) * 0.011 * mid; // mèches
-    else if (role == 21) h = vnoise(q * 300.0) * 0.0005 * fine + fbm3(q * 34.0) * 0.0028 * mid; // pores, modelé doux
-    else if (role == 20) h = vnoise(q * 160.0) * 0.0015 * fine + fbm3(vec3(q.x * 16.0, q.y * 42.0, q.z * 16.0)) * 0.007 * mid; // grain, plis du cuir
-    else if (role == 28) h = vnoise(q * 110.0) * 0.0004 * fine;
+    if (role == 22) h = vnoise(vec3(q.x * 160.0, q.y * 20.0, q.z * 160.0)) * 0.004 * fine + fbm3(vec3(q.x * 40.0, q.y * 8.0, q.z * 40.0)) * 0.016 * mid; // mèches
+    else if (role == 21) h = vnoise(q * 220.0) * 0.0008 * fine + fbm3(q * 40.0) * 0.005 * mid; // grain de peau, modelé
+    else if (role == 20) h = vnoise(q * 120.0) * 0.003 * fine + fbm3(vec3(q.x * 16.0, q.y * 42.0, q.z * 16.0)) * 0.012 * mid; // grain, plis du cuir
+    else if (role == 28) h = vnoise(q * 90.0) * 0.001 * fine;
     else {
-      // trame croisée + plis horizontaux (coudes, taille, genoux) + froissé large
-      float weave = sin(q.x * 560.0 + q.z * 41.0) * sin(q.y * 560.0 + q.x * 33.0) * 0.5 + 0.5;
+      // mailles (points en V alignés en colonnes, ~8 mm) + plis horizontaux (coudes, taille, genoux) + froissé large
+      vec2 st = vec2((q.x + q.z) * 125.0, q.y * 150.0);
+      float col = fract(st.x), row = fract(st.y + abs(col - 0.5) * 0.9);
+      float knit = smoothstep(0.0, 0.35, row) * (1.0 - smoothstep(0.65, 1.0, row)) * (1.0 - abs(col - 0.5) * 1.2);
       float folds = fbm3(vec3(q.x * 8.0, q.y * 24.0, q.z * 8.0));
-      h = weave * 0.0008 * fine + folds * 0.013 * mid + fbm3(q * 60.0) * 0.002 * fine;
+      h = knit * 0.0022 * fine + folds * 0.022 * mid + fbm3(q * 50.0) * 0.003 * mid;
     }
     h *= hK;
     float dhx = dFdx(h), dhy = dFdy(h);

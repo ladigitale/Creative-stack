@@ -51,6 +51,18 @@ export function buildCharacter(look: Look, v: Rng): Built {
   const field = new Field(prims, bf.blends);
   const { mesh, owner } = polygonize(field, { cell, smooth: 3, ao: true, exactOwner: true, aoSteps: 3 });
   const boneOwner = Int32Array.from(owner, (o) => (o >= 0 ? bf.set.bone[o] : 0));
+  // un pan de vêtement accroché au bas du dos (manteau, veste) suit, au-dessus, l'os qui est vraiment là : le haut du
+  // dos et les omoplates bougent avec la poitrine, pas avec les lombaires (sinon la peau s'étire bras levés)
+  {
+    const iSpine = skel.index.spine, iChest = skel.index.chest, iPelvis = skel.index.pelvis;
+    const chest = k.B("chest"), spine = k.B("spine");
+    const yChest = chest.head[1] + (chest.tail[1] - chest.head[1]) * 0.2, ySpine = spine.head[1] + (spine.tail[1] - spine.head[1]) * 0.3;
+    for (let vi = 0; vi < boneOwner.length; vi++) {
+      const y = mesh.pos[vi * 3 + 1];
+      if (boneOwner[vi] === iSpine && y > yChest) boneOwner[vi] = iChest;
+      else if (boneOwner[vi] === iPelvis && y > ySpine) boneOwner[vi] = y > yChest ? iChest : iSpine;
+    }
+  }
   const thighY = k.B("shin.l").head[1];
   computeWeights(mesh, boneOwner, skel, {
     passes: 9,

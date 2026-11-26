@@ -10,7 +10,7 @@
  *   épaules en contre-rotation ; balancier des bras opposé aux jambes ; coude plus fléchi avec la vitesse ;
  *   inclinaison avec la vitesse ; tête stabilisée.
  */
-import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qMul, qSlerp, scale, smoothstep, sub } from "../core/math";
+import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qMul, qRot, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
 export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep"] as const;
@@ -113,6 +113,44 @@ export function twoBoneIK(root: V3, target: V3, l1: number, l2: number, pole: V3
 }
 
 /**
+ * Garde-fou anatomique : ni la main ni l'avant-bras ne traversent la tête (grosses têtes chibi et cartoon, bras levés,
+ * gestes vers le visage). Si un point du bras entre dans la sphère de la tête, le bras pivote à l'épaule pour l'en
+ * écarter, par petits pas. `touch` : geste qui va au visage (manger, boire, réfléchir) : contact permis, pas plus.
+ */
+function clearHead(sk: Skeleton, rot: Record<string, Q>, touch: boolean) {
+  const hi = sk.index.head;
+  if (hi === undefined) return;
+  const hb = sk.bones[hi];
+  const R = Math.max(hb.radius[0], len(sub(hb.tail, hb.head)) * 0.5) * (touch ? 0.92 : 1.04);
+  for (const s of ["l", "r"] as const) {
+    const ui = sk.index[`upperarm.${s}`], hand = sk.index[`hand.${s}`];
+    if (ui === undefined || hand === undefined) continue;
+    const hr = sk.bones[hand].radius[0] * (touch ? 0.5 : 1.3);
+    for (let it = 0; it < 10; it++) {
+      const W = sk.world({ rot, root: [0, 0, 0] });
+      const c = scale(add(sk.headOf(W, "head"), sk.tailOf(W, "head")), 0.5);
+      const pts = [sk.headOf(W, `forearm.${s}`), sk.headOf(W, `hand.${s}`), sk.tailOf(W, `hand.${s}`), scale(add(sk.headOf(W, `forearm.${s}`), sk.headOf(W, `hand.${s}`)), 0.5)];
+      let worst = 0, wp: V3 | null = null;
+      for (const p of pts) {
+        const pen = R + hr - len(sub(p, c));
+        if (pen > worst) (worst = pen), (wp = p);
+      }
+      if (!wp || worst < 1e-4) break;
+      const sh = sk.headOf(W, `upperarm.${s}`);
+      // rotation à l'épaule qui éloigne le point fautif du centre de la tête (axe ⟂ bras et poussée)
+      const arm = sub(wp, sh), push = norm(sub(wp, c));
+      let ax = cross(arm, push);
+      if (len(ax) < 1e-6) ax = [0, 0, 1];
+      const ang = Math.min(0.25, worst / Math.max(1e-3, len(arm)) + 0.01);
+      const Wq = sk.worldQuats(W);
+      const parent = Wq[sk.parentIdx[ui]];
+      const axL = qRot(qConj(parent), norm(ax));
+      rot[`upperarm.${s}`] = qMul(qAxis(axL, ang), rot[`upperarm.${s}`] ?? qId());
+    }
+  }
+}
+
+/**
  * Pose d'un humanoïde. `rootPos` / `rootYaw` : placement du personnage dans la scène (le modèle regarde +z).
  * Renvoie la pose et les positions de pieds (pour le contrôle de glissement des tests).
  */
@@ -180,7 +218,12 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     const sg = s === "l" ? 1 : -1;
     const a = abdDeg * DEG, f = flexDeg * DEG;
     const d0: V3 = [sg * Math.sin(a), -Math.cos(a), 0];
-    const d: V3 = norm([d0[0], d0[1] * Math.cos(f), -d0[1] * Math.sin(f)]);
+    aimDir(out, s, [d0[0], d0[1] * Math.cos(f), -d0[1] * Math.sin(f)], elbowDeg, twistDeg);
+  };
+  /** Même chose avec la direction du bras donnée directement (repère du buste : x à gauche, y en haut, z devant). */
+  const aimDir = (out: Record<string, Q>, s: "l" | "r", dir: V3, elbowDeg: number, twistDeg = 0) => {
+    const sg = s === "l" ? 1 : -1;
+    const d = norm(dir);
     // sens de flexion du coude : vers l'avant (ou vers le haut si le bras pointe déjà devant), tourné par `twist`
     const fw: V3 = Math.abs(d[2]) > 0.9 ? [0, 1, 0] : [0, 0, 1];
     const b0 = norm(sub(fw, scale(d, dot(fw, d))));
@@ -192,6 +235,29 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     out[`upperarm.${s}`] = qFromBasis(sk.axis[ui], [0, 0, 1], d, bend);
     out[`forearm.${s}`] = hinge(sk, `forearm.${s}`, elbowDeg);
   };
+  /**
+   * Main portée à un point du corps (bouche, menton…), en repère de repos du personnage : IK deux os sur le bras
+   * (coude vers le bas et l'extérieur), valable quelles que soient la taille de la tête et la longueur des bras.
+   */
+  const reachArm = (out: Record<string, Q>, s: "l" | "r", target: V3, poleOut = 0.6) => {
+    const sg = s === "l" ? 1 : -1;
+    const ub = sk.bone(`upperarm.${s}`)!, fb = sk.bone(`forearm.${s}`)!, hb = sk.bone(`hand.${s}`)!;
+    const l1 = len(sub(ub.tail, ub.head)), l2 = len(sub(fb.tail, fb.head)) + len(sub(hb.tail, hb.head)) * 0.45;
+    const ik = twoBoneIK(ub.head, target, l1, l2, norm([sg * poleOut, -1, -0.25]));
+    const d = norm(sub(ik.mid, ub.head));
+    const fa = norm(sub(ik.end, ik.mid));
+    const bend0 = sub(fa, scale(d, dot(fa, d)));
+    const bend = len(bend0) > 1e-5 ? norm(bend0) : ([0, 0, 1] as V3);
+    out[`upperarm.${s}`] = qFromBasis(sk.axis[sk.index[`upperarm.${s}`]], [0, 0, 1], d, bend);
+    out[`forearm.${s}`] = hinge(sk, `forearm.${s}`, Math.acos(clamp(dot(d, fa), -1, 1)) / DEG);
+  };
+  /** Repères du visage en position de repos : bouche, menton (devant la tête). */
+  const face = (() => {
+    const hb = sk.bone("head")!;
+    const R = hb.radius[0], hH = len(sub(hb.tail, hb.head));
+    const ub = sk.bone("upperarm.r")!;
+    return { R, ua: len(sub(ub.tail, ub.head)), mouth: add(hb.head, [0, hH * 0.3, R * 1.0]) as V3, chin: add(hb.head, [0, hH * 0.12, R * 0.85]) as V3 };
+  })();
   const armAmp = mix(16, 40, run) * Math.min(1, 0.35 + vn) * moving * amp;
   for (const [s, sg] of [["l", 1], ["r", -1]] as const) {
     // balancier opposé à la jambe, un peu plus ample vers l'avant ; au repos le bras pend, légèrement devant
@@ -231,20 +297,25 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       over.head = qEuler(-4 * DEG, -8 * DEG, 4 * DEG);
       break;
     case "point":
-      raiseArm("r", 50, 80, 4);
+      // montrer : bras tendu devant, en diagonale vers la cible (jamais à l'horizontale sur le côté)
+      aimArm(over, "r", 78, 22, 6, 0);
       over.head = qEuler(0, -6 * DEG, 0);
       break;
     case "cheer": {
-      // hourra : bras levés en V, à peine devant le plan du corps, coudes presque tendus, poings serrés. Les poings
-      // « poussent » vers le ciel (2 coups par seconde) : le coude se tend en haut et se replie un peu à la descente,
-      // la poitrine s'ouvre et la tête part en arrière avec un temps de retard ; bras gauche décalé d'un rien.
-      for (const [s, ph] of [["r", 0], ["l", 0.12]] as const) {
+      // hourra : bras en V bien ouvert (35-40° de la verticale), un peu devant le plan du corps, coudes à peine
+      // pliés vers l'avant, poings face avant. Les poings « poussent » vers le ciel (2 coups par seconde) : le bras
+      // s'ouvre et se tend en haut, se replie un peu à la descente ; l'épaule monte un peu (omoplate), jamais
+      // jusqu'aux oreilles. Poitrine ouverte, tête en arrière avec un temps de retard ; bras gauche décalé.
+      for (const [s, sgn, ph] of [["r", -1, 0], ["l", 1, 0.12]] as const) {
         const p = 0.5 - 0.5 * Math.cos((at * 2 - ph) * TAU);
-        raiseArm(s, 150 + 10 * p, -4, 6 + 14 * (1 - p));
+        const a = (34 + 4 * p) * DEG;
+        aimDir(over, s, [sgn * Math.sin(a), Math.cos(a), 0.2 - 0.06 * p], 8 + 16 * (1 - p), 20);
+        over[`clavicle.${s}`] = qAxis([0, 0, 1], sgn * (6 + 3 * p) * DEG);
+        over[`hand.${s}`] = qAxis([1, 0, 0], -10 * DEG);
       }
       const pl = 0.5 - 0.5 * Math.cos((at * 2 - 0.15) * TAU);
       over.chest = qEuler(-(5 + 4 * pl) * DEG, 0, 0);
-      over.head = qEuler(-(10 + 5 * pl) * DEG, 0, 0);
+      over.head = qEuler(-(8 + 4 * pl) * DEG, 0, 0);
       break;
     }
     case "talk": {
@@ -252,8 +323,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       // (battements accélérés puis amortis), l'autre accompagne plus mollement ; le buste suit, la tête hoche
       const beat = (x: number) => { const u = ((x % 1) + 1) % 1; return u < 0.25 ? smoothstep(0, 0.25, u) : 1 - smoothstep(0.25, 1, u); };
       const g = beat(at * 1.3 + rnd(13)), h = beat(at * 0.9 + 0.4);
-      aimArm(over, "r", 20 + 18 * g, 16 + 8 * g, 80 - 20 * g, 22 - 18 * g);
-      aimArm(over, "l", 10 + 6 * h, 13, 55 - 8 * h, 2);
+      aimArm(over, "r", 12 + 14 * g, 16 + 8 * g, 66 - 12 * g, 24 - 14 * g);
+      aimArm(over, "l", 8 + 6 * h, 13, 58 - 8 * h, 22);
       over["hand.r"] = qAxis([1, 0, 0], -(12 + 10 * g) * DEG);
       over.chest = qEuler(-1.5 * g * DEG, 5 * Math.sin(at * 3.1 - 0.6) * DEG, 0);
       over.head = qEuler((3 * Math.sin(at * 5.3) - 2 * g) * DEG, 6 * Math.sin(at * 1.7) * DEG, 2 * Math.sin(at * 0.8) * DEG);
@@ -264,7 +335,10 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       raiseArm("l", 10, 45, 85);
       break;
     case "think":
-      raiseArm("r", 15, 40, 140);
+      // réfléchir : main au menton, l'autre avant-bras en travers du ventre soutient le coude
+      reachArm(over, "r", add(face.chin, scale([0, -0.1, 0.25], face.R)));
+      aimArm(over, "l", 14, 8, 98, 80);
+      over["hand.r"] = qAxis([1, 0, 0], 25 * DEG);
       over.head = qEuler(8 * DEG, -10 * DEG, 6 * DEG);
       break;
     case "hammer": {
@@ -272,8 +346,9 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       // montée lente (armé), frappe rapide, petit rebond : un coup toutes les 0,5 s
       const c = (at * 2) % 1;
       const k = c < 0.62 ? smoothstep(0, 0.62, c) : c < 0.76 ? 1 - ((c - 0.62) / 0.14) ** 2 : 0.08 * Math.sin(((c - 0.76) / 0.24) * Math.PI);
-      raiseArm("r", 22, 35 + 75 * k, 25 + 75 * k);
-      raiseArm("l", 14, 30, 70);
+      // le bras monte devant (pas sur le côté), coude plié à l'armé, s'abat devant soi ; l'autre main tient l'ouvrage
+      aimArm(over, "r", 45 + 85 * k, 14, 25 + 70 * k, 5);
+      aimArm(over, "l", 32, 10, 70, 35);
       over.spine = qEuler((6 + 6 * (1 - k)) * DEG, 0, 0);
       over.chest = qEuler(-4 * k * DEG, 0, 0);
       over.head = qEuler(14 * DEG, 0, 0);
@@ -282,8 +357,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     case "sweep": {
       // balai, râteau : main gauche avancée plus bas (approchée, sans IK sur le manche), le buste va et vient
       const k = Math.sin(at * 1.4 * TAU);
-      raiseArm("r", 18, 28 + 10 * k, 45);
-      raiseArm("l", 22, 48 - 10 * k, 70);
+      aimArm(over, "r", 30 + 10 * k, 12, 40, 25);
+      aimArm(over, "l", 48 - 10 * k, 6, 62, 55);
       over.spine = qEuler(14 * DEG, 16 * k * DEG, 0);
       over.chest = qEuler(4 * DEG, 10 * k * DEG, 0);
       over.head = qEuler(12 * DEG, -6 * k * DEG, 0);
@@ -292,8 +367,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     case "dig": {
       // bêcher : on se penche, on enfonce, on soulève (un cycle toutes les 1,1 s)
       const c = (at % 1.1) / 1.1, k = Math.sin(c * Math.PI);
-      raiseArm("r", 15, 40 + 35 * k, 30 + 30 * (1 - k));
-      raiseArm("l", 18, 55 + 25 * k, 50);
+      aimArm(over, "r", 40 + 30 * k, 12, 30 + 30 * (1 - k), 20);
+      aimArm(over, "l", 55 + 20 * k, 8, 50, 45);
       over.spine = qEuler((18 + 16 * (1 - k)) * DEG, 0, 0);
       over.chest = qEuler(8 * DEG, 0, 0);
       over.head = qEuler(10 * DEG, 0, 0);
@@ -304,8 +379,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
         // eau basse (bassin, fontaine, abreuvoir) : penché en avant, mains en coupe portées à la bouche
         const k = 0.5 + 0.5 * Math.sin(at * 1.6);
         const bend = clamp(1 - st.reachY / (info.hipY * 1.15), 0.3, 1);
-        raiseArm("r", 14, 55 + 25 * k, 40 + 70 * k);
-        raiseArm("l", 14, 55 + 25 * k, 40 + 70 * k);
+        aimArm(over, "r", 55 + 25 * k, 12, 40 + 70 * k, 40);
+        aimArm(over, "l", 55 + 25 * k, 12, 40 + 70 * k, 40);
         over.spine = qEuler((20 + 25 * bend) * DEG, 0, 0);
         over.chest = qEuler((10 + 10 * bend) * DEG, 0, 0);
         over.head = qEuler((14 - 10 * k) * DEG, 0, 0);
@@ -313,8 +388,10 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
         // gobelet (ou l'objet tenu) porté à la bouche, tête renversée à chaque gorgée (cycle de 2,4 s)
         const c = (at % 2.4) / 2.4;
         const k = Math.sin(clamp((c - 0.15) / 0.6, 0, 1) * Math.PI);
-        raiseArm("r", 16, 40 + 25 * k, 95 + 45 * k);
-        raiseArm("l", 10, 12, 20);
+        // gobelet porté à la bouche : coude devant et un peu écarté, avant-bras qui remonte vers le visage
+        const rest: V3 = add(sk.bone("upperarm.r")!.head, scale([0.17, -1.1, 0.75], face.ua));
+        const cup: V3 = add(face.mouth, scale([0, -0.35, 0.6], face.R));
+        reachArm(over, "r", [rest[0] + (cup[0] - rest[0]) * k, rest[1] + (cup[1] - rest[1]) * k, rest[2] + (cup[2] - rest[2]) * k]);
         over.head = qEuler(-18 * k * DEG, 0, 0);
         over.neck = qEuler(-8 * k * DEG, 0, 0);
       }
@@ -324,8 +401,11 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       // une bouchée toutes les 2 s : la main droite monte à la bouche, la gauche tient l'assiette, on mâche
       const c = (at % 2) / 2;
       const k = Math.sin(clamp(c / 0.45, 0, 1) * Math.PI);
-      raiseArm("r", 16, 30 + 30 * k, 70 + 70 * k);
-      raiseArm("l", 12, 42, 85);
+      // la main droite monte à la bouche devant le visage, la gauche tient l'assiette devant le ventre
+      const plate: V3 = add(sk.bone("upperarm.r")!.head, scale([0.3, -1.0, 0.8], face.ua));
+      const bite: V3 = add(face.mouth, scale([0, -0.1, 0.35], face.R));
+      reachArm(over, "r", [plate[0] + (bite[0] - plate[0]) * k, plate[1] + (bite[1] - plate[1]) * k, plate[2] + (bite[2] - plate[2]) * k]);
+      aimArm(over, "l", 22, 10, 82, 40);
       over.head = qEuler((8 - 6 * k + (c > 0.45 ? 2.5 * Math.sin(at * 11) : 0)) * DEG, 0, 0);
       break;
     }
@@ -374,6 +454,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     const wb = d > 0 && w < 1 ? smoothstep(0, 1, clamp((w - d) / (1 - d), 0, 1)) : w;
     rot[k] = qSlerp(rot[k] ?? qId(), q, wb);
   }
+  clearHead(sk, rot, st.action === "eat" || st.action === "drink" || st.action === "think" || st.action === "sleep");
 
   /* ---------- jambes : IK ---------- */
   const seated = st.action === "drive" || st.action === "ride" || st.action === "row";
