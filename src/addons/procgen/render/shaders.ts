@@ -293,17 +293,22 @@ float roleTexture(int role, vec3 p, vec3 n) {
   if (role <= 3) { // sol, herbe, chemin, chaussée : grandes plages + moucheture fine
     vec3 g = vec3(p.x, 0.0, p.z);
     float macro = fbm3(g * 0.35);
-    float speck = vnoise(g * 18.0) * 0.6 + vnoise(g * 46.0) * 0.4;
-    return (macro - 0.5) * 0.3 + (speck - 0.5) * 0.1;
+    float speck = vnoise(g * 26.0) * 0.6 + vnoise(g * 70.0) * 0.4;
+    // grandes plages douces, moucheture fine (une moucheture large fait grossier vue de près)
+    return (macro - 0.5) * 0.18 + (speck - 0.5) * 0.06;
   }
   if (role == 10 || role == 11) return (fbm3(p * 7.5) - 0.5) * 0.26 + (vnoise(p * 30.0) - 0.5) * 0.06;
   if (role >= 17 && role <= 19) { // tissus : trame fine (fils croisés), à peine de marbrure
     float weave = (sin(p.x * 420.0 + p.z * 37.0) * sin(p.y * 420.0 + p.x * 29.0)) * 0.5 + 0.5;
+    // trame régulière : effacée dès qu'elle approche la taille du pixel (sinon moiré)
+    weave = mix(0.5, weave, 1.0 - smoothstep(0.0012, 0.0025, length(fwidth(p))));
     return (weave - 0.5) * 0.035 + (vnoise(p * 55.0) - 0.5) * 0.07 + (vnoise(p * 9.0) - 0.5) * 0.05;
   }
   if (role == 20) return (vnoise(p * 70.0) - 0.5) * 0.05 + (vnoise(p * 12.0) - 0.5) * 0.03; // cuir : grain serré
-  if (role == 21) return (vnoise(p * 90.0) - 0.5) * 0.04 + (fbm3(p * 14.0) - 0.5) * 0.08; // peau : grain fin, nuances douces
-  if (role >= 32) return (vnoise(p * 40.0) - 0.5) * 0.03; // couleurs franches : plastique, caoutchouc, cuir peint
+  if (role == 21) return (vnoise(p * 90.0) - 0.5) * 0.02 + (fbm3(p * 14.0) - 0.5) * 0.035; // peau : grain fin, nuances douces (pas de taches)
+  if (role == 22) return (vnoise(vec3(p.x * 90.0, p.y * 9.0, p.z * 90.0)) - 0.5) * 0.09 + (fbm3(p * 10.0) - 0.5) * 0.04; // cheveux : mèches claires et sombres
+  if (role == 14) return (vnoise(vec3(p.x * 160.0, p.y * 4.0, p.z * 160.0)) - 0.5) * 0.08 + (fbm3(p * 6.0) - 0.5) * 0.1; // métal : brossé, patine
+  if (role >= 32 || role == 26) return (vnoise(p * 40.0) - 0.5) * 0.05 + (fbm3(p * 5.0) - 0.5) * 0.06; // plastique, peint : grain, usure douce
   return (vnoise(p * 28.0) - 0.5) * 0.05;
 }
 
@@ -340,13 +345,13 @@ void main() {
   base *= 1.0 + var * vk;
   base = mix(base, base * vec3(1.06, 1.0, 0.9), (vVar > 0.5 ? 1.0 : -0.6) * abs(var) * (role == 5 ? 0.9 : 0.1));
   // tissus, cuir, peau, cheveux : motif pris en repère local (il suit le corps animé au lieu de glisser dessus)
-  base *= 1.0 + roleTexture(role, role >= 17 && role <= 22 ? vPosL : vPosW, vNormalW) * uTexture;
+  base *= 1.0 + roleTexture(role, (role >= 17 && role <= 22) || role == 14 || role == 26 || role >= 32 ? vPosL : vPosW, vNormalW) * uTexture;
   vec3 N = normalize(vNormalW);
   if (!gl_FrontFacing) N = -N;
   // relief de détail procédural (pierre, enduit, toiture, bois, écorce, sol) : gradient d'un bruit, sans texture
-  float bumpK = (role == 4 ? 0.55 : role == 5 || role == 6 ? 0.18 : role == 7 ? 0.35 : role == 8 || role == 9 ? 0.3 : role <= 3 ? 0.25 : 0.0) * uTexture * uDetail;
+  float bumpK = (role == 4 ? 0.55 : role == 5 || role == 6 ? 0.18 : role == 7 ? 0.35 : role == 8 || role == 9 ? 0.3 : role <= 3 ? 0.1 : 0.0) * uTexture * uDetail;
   if (bumpK > 0.0) {
-    float fs = role == 7 ? 7.0 : role <= 3 ? 2.2 : 5.0;
+    float fs = role == 7 ? 7.0 : role <= 3 ? 4.5 : 5.0;
     vec3 q = vPosW * fs;
     float n0 = fbm3(q);
     vec3 g = vec3(fbm3(q + vec3(0.05, 0.0, 0.0)) - n0, fbm3(q + vec3(0.0, 0.05, 0.0)) - n0, fbm3(q + vec3(0.0, 0.0, 0.05)) - n0) / 0.05;
@@ -356,7 +361,7 @@ void main() {
   // prise en repère local (elle ne glisse pas sur un corps qui bouge), appliquée par dérivées écran (bump sans UV,
   // Mikkelsen). Chaque échelle s'efface quand elle devient plus fine que le pixel (pas de moiré au loin).
   #ifndef BLADE
-  float hK = (role >= 17 && role <= 19 ? 1.0 : role == 20 ? 0.9 : role == 21 ? 0.45 : role == 22 ? 1.0 : role == 28 ? 0.5 : 0.0) * uTexture * uDetail;
+  float hK = (role >= 17 && role <= 19 ? 1.0 : role == 20 ? 0.9 : role == 21 ? 0.45 : role == 22 ? 1.0 : role == 28 ? 0.5 : role == 14 ? 0.9 : role == 26 || role >= 32 ? 0.7 : 0.0) * uTexture * uDetail;
   if (hK > 0.0) {
     vec3 q = vPosL;
     vec3 dpx = dFdx(vPosW), dpy = dFdy(vPosW);
@@ -364,19 +369,29 @@ void main() {
     float fine = 1.0 - smoothstep(0.0018, 0.0055, fp);
     float mid = 1.0 - smoothstep(0.006, 0.03, fp);
     float h;
-    if (role == 22) h = vnoise(vec3(q.x * 160.0, q.y * 20.0, q.z * 160.0)) * 0.004 * fine + fbm3(vec3(q.x * 40.0, q.y * 8.0, q.z * 40.0)) * 0.016 * mid; // mèches
-    else if (role == 21) h = vnoise(q * 220.0) * 0.0008 * fine + fbm3(q * 40.0) * 0.005 * mid; // grain de peau, modelé
+    if (role == 22) {
+      // mèches : sillons fins le long des cheveux, puis ondulations larges (bruit non périodique : pas de moiré)
+      float strand = 1.0 - smoothstep(0.0015, 0.005, fp);
+      h = vnoise(vec3(q.x * 120.0, q.y * 14.0, q.z * 120.0)) * 0.006 * strand + fbm3(vec3(q.x * 30.0, q.y * 6.0, q.z * 30.0)) * 0.014 * mid;
+    }
+    else if (role == 21) h = vnoise(q * 220.0) * 0.0005 * fine + fbm3(q * 40.0) * 0.0016 * mid; // grain de peau, à peine (un visage bosselé fait sale)
     else if (role == 20) h = vnoise(q * 120.0) * 0.003 * fine + fbm3(vec3(q.x * 16.0, q.y * 42.0, q.z * 16.0)) * 0.012 * mid; // grain, plis du cuir
     else if (role == 28) h = vnoise(q * 90.0) * 0.001 * fine;
+    else if (role == 14) h = vnoise(vec3(q.x * 300.0, q.y * 5.0, q.z * 300.0)) * 0.0007 * fine + fbm3(q * 11.0) * 0.006 * mid; // métal brossé, cabossé
+    else if (role == 26 || role >= 32) h = vnoise(q * 140.0) * 0.0006 * fine + fbm3(q * 24.0) * 0.003 * mid; // plastique, peint : grain, ondulations
     else {
-      // mailles (points en V alignés en colonnes, ~8 mm) + plis horizontaux (coudes, taille, genoux) + froissé large
+      // tissu : mailles (points en V en colonnes, ~7 mm) visibles de près seulement, sinon le motif régulier tombe sous
+      // le pixel et moire ; à mi-distance un duvet de laine non périodique prend le relais ; plis et froissé
+      float knitF = 1.0 - smoothstep(0.0011, 0.0022, fp);
       vec2 st = vec2((q.x + q.z) * 125.0, q.y * 150.0);
       float col = fract(st.x), row = fract(st.y + abs(col - 0.5) * 0.9);
       float knit = smoothstep(0.0, 0.35, row) * (1.0 - smoothstep(0.65, 1.0, row)) * (1.0 - abs(col - 0.5) * 1.2);
+      float fuzz = fbm3(q * 85.0);
       float folds = fbm3(vec3(q.x * 8.0, q.y * 24.0, q.z * 8.0));
-      h = knit * 0.0022 * fine + folds * 0.022 * mid + fbm3(q * 50.0) * 0.003 * mid;
+      h = knit * 0.0022 * knitF + fuzz * 0.0022 * (1.0 - smoothstep(0.004, 0.014, fp)) + folds * 0.022 * mid + fbm3(q * 50.0) * 0.003 * mid;
     }
-    h *= hK;
+    // relief discret : il suggère la matière sans assombrir (ombres de texture trop marquées = aspect sale)
+    h *= hK * 0.6;
     float dhx = dFdx(h), dhy = dFdy(h);
     vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
     float det = dot(dpx, r1);
@@ -682,14 +697,20 @@ void main() {
     float radPx = clamp(0.2 * ppm, 2.0, 48.0);
     float a = hash13(vec3(gl_FragCoord.xy, 3.0)) * 6.2831;
     mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));
+    // paires de voisins opposés : seule la courbure (creux) compte, un plan incliné vu en biais ne s'assombrit pas.
+    // Seuil proportionnel à la distance : la profondeur stockée en demi-flottant a des paliers de quelques
+    // centimètres au loin (sinon bandes et rayures sur le sol et les murs)
     float occ = 0.0;
-    for (int i = 0; i < 12; i++) {
-      vec4 sm = dataAt(uv + R * AO_DISK[i] * radPx * uTexel);
-      if (sm.z <= 0.0 || sm.z >= 0.999) continue;
-      float dz = (d.z - sm.z) * uFarP;
-      occ += smoothstep(0.012, 0.07, dz) * (1.0 - smoothstep(0.3, 0.6, dz));
+    float q = max(0.012, zm * 0.004);
+    for (int i = 0; i < 6; i++) {
+      vec2 o = R * AO_DISK[i] * radPx * uTexel;
+      vec4 s1 = dataAt(uv + o), s2 = dataAt(uv - o);
+      if (s1.z <= 0.0 || s1.z >= 0.999 || s2.z <= 0.0 || s2.z >= 0.999) continue;
+      float a1 = (d.z - s1.z) * uFarP, a2 = (d.z - s2.z) * uFarP;
+      float dz = (a1 + a2) * 0.5;
+      occ += smoothstep(q, q * 5.0, dz) * (1.0 - smoothstep(0.3, 0.6, max(a1, a2)));
     }
-    col *= 1.0 - uAo * 0.55 * (occ / 12.0);
+    col *= 1.0 - uAo * 0.55 * (occ / 6.0);
   }
   // contours : silhouette (profondeur, identifiant) plus épaisse que les plis (normales)
   if (uOutlineStrength > 0.0 && uOutline > 0.0) {
