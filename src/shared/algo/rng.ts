@@ -1,9 +1,7 @@
 /**
  * Générateur mulberry32 (état 32 bits avancé d'une constante, sortie mélangée) : même graine → même suite, période
- * 2^32. Les fonctions publiques rendent la graine suivante pour que l'état la garde.
- *
- * Pas la même suite que `$rand` de sonic-store : celui-ci repart de sa sortie (hash itéré), ce qui peut boucler après
- * quelques dizaines de milliers de tirages — trop court pour une marche aléatoire ou une grande caverne.
+ * 2^32. Les fonctions publiques rendent la graine suivante pour que l'état la garde. Même suite que `$rand` de
+ * sonic-store enchaîné sur sa graine.
  */
 /** Tirage séquentiel : `rng.next()` ∈ [0, 1), `rng.seed` = graine à rendre à l'état. */
 export class Rng {

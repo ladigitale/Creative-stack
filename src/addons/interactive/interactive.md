@@ -187,7 +187,7 @@ $action.type = 'pinch' ? $merge([$state, {'zoom': $clamp($state.zoom * $action.p
 ## Reducer purity
 
 Injected: `$rand`, `$randInt`, `$clamp`, `$range`, `$set`, `$matrix`, `$rotate`, and the game algorithms of [algo.md](algo.md) (grids, A*, flow fields, field of view, flood fill, mazes, caves, dungeons, noise, seeded shuffle / pick / bag / dice, easing, state machines, hex grids, graphs).  
-`$random` and `$now` throw — use `$rand(seed)` and `$action.t`.
+`$random`, `$now` and `$shuffle` throw — use `$rand(seed)` (or `$shuffled(list, seed)`) and `$action.t`. `$rand(seed)` returns `{value, seed}`: keep `seed` in the state for the next draw (mulberry32, period 2^32, same sequence as `$shuffled` / `$pick` / `$bag` / `$roll`).
 
 ## CDN
 

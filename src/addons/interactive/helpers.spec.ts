@@ -48,3 +48,20 @@ describe("interactive helpers", () => {
     expect(range(3)).toEqual([0, 1, 2]);
   });
 });
+
+describe("rand : mulberry32", () => {
+  it("avance l'état d'une constante (pas de cycle court) et suit la même suite que l'algo", async () => {
+    const { Rng } = await import("../../shared/algo/rng");
+    const r = new Rng(7);
+    let seed = 7;
+    const seen = new Set<number>();
+    for (let i = 0; i < 100_000; i++) {
+      const a = rand(seed);
+      expect(a.value).toBe(r.next());
+      expect(a.seed).toBe(r.seed);
+      seed = a.seed;
+      seen.add(seed);
+    }
+    expect(seen.size).toBe(100_000);
+  });
+});

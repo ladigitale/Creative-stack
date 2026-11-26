@@ -165,6 +165,9 @@ export class SonicStore extends LitElement {
       expr.assign("now", () => {
         throw new Error("$now interdit dans un reducer (utiliser $action.t)");
       });
+      expr.assign("shuffle", () => {
+        throw new Error("$shuffle interdit dans un reducer (utiliser $shuffled(liste, graine))");
+      });
       this.compiled = expr;
     } catch (err) {
       this.fail(errorMessage(err));
@@ -233,7 +236,7 @@ export class SonicStore extends LitElement {
     };
     try {
       const expr = this.compiled;
-      // Bindings → $state, $action, $env (purs ; pas de $random / $now)
+      // Bindings → $state, $action, $env (purs ; pas de $random / $now / $shuffle)
       const result = await expr.evaluate(this.state, {
         state: this.state,
         action: bindings.action,
