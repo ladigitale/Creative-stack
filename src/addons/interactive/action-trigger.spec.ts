@@ -72,3 +72,35 @@ describe("sonic-action : déclencheur par évènement d'un enfant direct", () =>
     t.done();
   });
 });
+
+describe("sonic-action : payload-from", () => {
+  it("fusionne un objet lu dans un DataProvider, ou met une autre valeur dans payload.value", async () => {
+    const { set } = await import("@supersoniks/concorde/core/utils/PublisherProxy");
+    const got: SonicActionMessage[] = [];
+    registerStore({ id: "pfTest", dispatch: (a: SonicActionMessage) => got.push(a) } as never);
+    set("pfForm", { code: "abc", n: 2 });
+    set("pfJour", "2026-11-26");
+    const mk = (from: string, payload: string) => {
+      const act = document.createElement("sonic-action");
+      act.setAttribute("target", "pfTest");
+      act.setAttribute("type", "go");
+      act.setAttribute("payload", payload);
+      act.setAttribute("payload-from", from);
+      const b = document.createElement("button");
+      act.appendChild(b);
+      document.body.appendChild(act);
+      return { act, b };
+    };
+    const a = mk("pfForm", '{"players": 2, "n": 1}');
+    await (a.act as unknown as { updateComplete: Promise<unknown> }).updateComplete;
+    a.b.click();
+    expect(got[0].payload).toEqual({ players: 2, n: 2, code: "abc" });
+    const b = mk("pfJour", '{"daily": true}');
+    await (b.act as unknown as { updateComplete: Promise<unknown> }).updateComplete;
+    b.b.click();
+    expect(got[1].payload).toEqual({ daily: true, value: "2026-11-26" });
+    a.act.remove();
+    b.act.remove();
+    unregisterStore("pfTest");
+  });
+});
