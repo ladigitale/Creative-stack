@@ -139,39 +139,55 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const idleSway = (1 - moving) * leg * 0.008 * Math.sin(t * TAU * 0.11 + rnd(2) * 6);
   const pelvisYaw = 7 * DEG * Math.sin(TAU * phi) * moving * amp;
   const pelvisRoll = 4 * DEG * Math.sin(TAU * phi * 2 + Math.PI / 2) * moving * (1 - run * 0.5);
-  const sway = leg * 0.018 * Math.sin(TAU * phi) * moving * (1 - run * 0.6) + idleSway;
+  // contrapposto au repos : le poids passe d'une jambe à l'autre toutes les 7 à 12 s (maintien, puis bascule
+  // lente) ; bassin décalé au-dessus de la jambe d'appui, hanche libre qui descend, épaules en sens inverse
+  const still = (1 - moving) * (["sit", "sleep", "drive", "ride", "row", "jump", "kick", "bow"].includes(st.action) ? 1 - clamp(st.actionWeight, 0, 1) : 1);
+  const ws = still * Math.tanh(2.6 * Math.sin((t * TAU) / (7 + rnd(4) * 5) + rnd(5) * 6)) * (0.7 + 0.3 * rnd(6));
+  const hipRoll = 3.2 * DEG * ws;
+  const sway = leg * 0.018 * Math.sin(TAU * phi) * moving * (1 - run * 0.6) + idleSway + leg * 0.022 * ws;
   const lean = (m.lean + mix(3, 13, run) * moving * Math.min(1, vn * 1.5) + 2 * (1 - moving)) * DEG;
   const turnLean = clamp(st.turn * v * 0.15, -0.3, 0.3);
-  rot.pelvis = qMul(qEuler(lean * 0.4, pelvisYaw, pelvisRoll + turnLean), qId());
-  rot.spine = qEuler(lean * 0.35 + m.chest * 0.5 * DEG + breathe * 0.6 * DEG, -pelvisYaw * 0.5, -pelvisRoll * 0.5);
-  rot.chest = qEuler(lean * 0.25 + m.chest * 0.5 * DEG + breathe * 1.2 * DEG, -pelvisYaw * 0.9, -pelvisRoll * 0.4);
+  rot.pelvis = qMul(qEuler(lean * 0.4, pelvisYaw + 3 * DEG * ws, pelvisRoll + turnLean + hipRoll), qId());
+  rot.spine = qEuler(lean * 0.35 + m.chest * 0.5 * DEG + breathe * 0.6 * DEG, -pelvisYaw * 0.5 - 1.5 * DEG * ws, -pelvisRoll * 0.5 - hipRoll * 0.9);
+  rot.chest = qEuler(lean * 0.25 + m.chest * 0.5 * DEG + breathe * 1.2 * DEG, -pelvisYaw * 0.9 - 1.5 * DEG * ws, -pelvisRoll * 0.4 - hipRoll * 0.7);
   // tête stabilisée : annule le lacet du buste et l'inclinaison
   const look = 6 * DEG * Math.sin(t * 0.37 + rnd(3) * 9) * (1 - moving * 0.7);
-  rot.neck = qEuler(-lean * 0.3 + m.head * 0.4 * DEG, pelvisYaw * 0.3 + look * 0.4, 0);
-  rot.head = qEuler(-lean * 0.35 + m.head * 0.6 * DEG + Math.sin(t * 1.3) * 0.6 * DEG * (1 - moving), pelvisYaw * 0.3 + look * 0.6, 0);
+  // la tête amortit le pas (léger retard sur le rebond du bassin) et penche un peu du côté de la hanche d'appui
+  const nod = moving * 1.6 * DEG * Math.cos(TAU * 2 * (phi - 0.08)) * m.bob;
+  rot.neck = qEuler(-lean * 0.3 + m.head * 0.4 * DEG + nod * 0.4, pelvisYaw * 0.3 + look * 0.4, hipRoll * 0.4);
+  rot.head = qEuler(-lean * 0.35 + m.head * 0.6 * DEG + Math.sin(t * 1.3) * 0.6 * DEG * (1 - moving) + nod * 0.6, pelvisYaw * 0.3 + look * 0.6, hipRoll * 0.5 + 2 * DEG * still * Math.sin(t * 0.29 + rnd(7) * 6));
 
   /* ---------- bras ---------- */
   const armAmp = mix(18, 42, run) * Math.min(1, 0.35 + vn) * moving * amp + 3 * (1 - moving);
   const elbow = mix(8, 78, run) * moving + 10 + 4 * breathe * (1 - moving);
   for (const [s, sg] of [["l", 1], ["r", -1]] as const) {
     const swing = sg * -armAmp * Math.cos(TAU * phi) + (1 - moving) * 1.5 * Math.sin(t * 0.8 + sg);
-    // ramener l'A-pose vers le corps (adduction) puis balancier avant/arrière
-    const adduct = qAxis([0, 0, 1], -sg * (36 - m.shoulders * 0.5 + run * 4) * DEG);
+    // l'avant-bras et la main suivent le bras avec retard (fouet) : la flexion du coude culmine après le balancier
+    const lag = sg * -armAmp * Math.cos(TAU * (phi - 0.1));
+    // côté de la hanche d'appui : bras un peu plus écarté (la hanche le repousse), l'autre pend plus près
+    const side = sg * ws;
+    const adduct = qAxis([0, 0, 1], -sg * (36 - m.shoulders * 0.5 + run * 4 - 3 * side + 2.5 * (rnd(8 + sg) - 0.5)) * DEG);
     const flex = qAxis([1, 0, 0], -swing * DEG);
-    rot[`clavicle.${s}`] = qAxis([0, 0, 1], sg * m.shoulders * 0.6 * DEG);
+    // omoplate : légère protraction quand le bras passe devant, respiration qui soulève les épaules
+    rot[`clavicle.${s}`] = qMul(qAxis([0, 1, 0], sg * swing * 0.12 * DEG), qAxis([0, 0, 1], sg * (m.shoulders * 0.6 + breathe * 0.5) * DEG));
     rot[`upperarm.${s}`] = qMul(flex, adduct);
-    rot[`forearm.${s}`] = hinge(sk, `forearm.${s}`, elbow + Math.max(0, swing) * 0.3);
-    rot[`hand.${s}`] = qAxis([1, 0, 0], -6 * DEG);
+    rot[`forearm.${s}`] = hinge(sk, `forearm.${s}`, elbow + Math.max(0, lag) * 0.35 + 3 * (rnd(10 + sg) - 0.5) - 2 * side);
+    rot[`hand.${s}`] = qMul(qAxis([1, 0, 0], (-6 + 0.25 * (swing - lag)) * DEG), qAxis([0, 0, 1], sg * 4 * DEG));
   }
 
   /* ---------- actions (haut du corps) ---------- */
   const w = clamp(st.actionWeight, 0, 1);
   const at = st.actionTime;
   const over: Record<string, Q> = {};
+  // entrée d'un geste : le bras dépasse un peu sa cible puis s'y pose (0,6 s), plutôt qu'un arrêt sec
+  const settle = at < 0.6 ? 1 + 0.08 * Math.sin((at / 0.6) * Math.PI) * (1 - at / 0.6) * 2 : 1;
   const raiseArm = (s: "l" | "r", abduct: number, forward: number, elbowDeg: number) => {
     const sg = s === "l" ? 1 : -1;
-    over[`upperarm.${s}`] = qMul(qAxis([1, 0, 0], -forward * DEG), qAxis([0, 0, 1], sg * (abduct - 45) * DEG));
+    const ab = 45 + (abduct - 45) * settle;
+    over[`upperarm.${s}`] = qMul(qAxis([1, 0, 0], -forward * settle * DEG), qAxis([0, 0, 1], sg * (ab - 45) * DEG));
     over[`forearm.${s}`] = hinge(sk, `forearm.${s}`, elbowDeg);
+    // au-delà de l'horizontale, l'omoplate tourne et l'épaule monte (rythme scapulo-huméral)
+    over[`clavicle.${s}`] = qAxis([0, 0, 1], sg * (Math.max(0, ab - 60) * 0.16 + m.shoulders * 0.6) * DEG);
   };
   switch (st.action) {
     case "wave":
@@ -184,15 +200,25 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       raiseArm("r", 50, 80, 4);
       over.head = qEuler(0, -6 * DEG, 0);
       break;
-    case "cheer":
-      raiseArm("r", 165 + 6 * Math.sin(at * 8), 5, 12);
-      raiseArm("l", 165 + 6 * Math.sin(at * 8 + 1), 5, 12);
-      over.head = qEuler(-12 * DEG, 0, 0);
+    case "cheer": {
+      // hourra : bras levés en V, à peine devant le plan du corps, coudes presque tendus, poings serrés. Les poings
+      // « poussent » vers le ciel (2 coups par seconde) : le coude se tend en haut et se replie un peu à la descente,
+      // la poitrine s'ouvre et la tête part en arrière avec un temps de retard ; bras gauche décalé d'un rien.
+      for (const [s, ph] of [["r", 0], ["l", 0.12]] as const) {
+        const p = 0.5 - 0.5 * Math.cos((at * 2 - ph) * TAU);
+        raiseArm(s, 150 + 10 * p, -4, 6 + 14 * (1 - p));
+      }
+      const pl = 0.5 - 0.5 * Math.cos((at * 2 - 0.15) * TAU);
+      over.chest = qEuler(-(5 + 4 * pl) * DEG, 0, 0);
+      over.head = qEuler(-(10 + 5 * pl) * DEG, 0, 0);
       break;
+    }
     case "talk": {
       const g = Math.sin(at * 3.1);
       raiseArm("r", 20, 35 + 15 * g, 70 + 15 * Math.sin(at * 4.3));
       raiseArm("l", 15, 20 - 10 * g, 55);
+      // le buste accompagne le geste (rotation en léger retard), la tête ponctue
+      over.chest = qEuler(0, 5 * Math.sin(at * 3.1 - 0.6) * DEG, 0);
       over.head = qEuler((3 * Math.sin(at * 5.3)) * DEG, 6 * Math.sin(at * 1.7) * DEG, 0);
       break;
     }
@@ -206,10 +232,13 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       break;
     case "hammer": {
       // frappe : le bras droit monte puis s'abat (2 coups par seconde), regard sur l'ouvrage
-      const k = 0.5 + 0.5 * Math.sin(at * 2 * TAU);
+      // montée lente (armé), frappe rapide, petit rebond : un coup toutes les 0,5 s
+      const c = (at * 2) % 1;
+      const k = c < 0.62 ? smoothstep(0, 0.62, c) : c < 0.76 ? 1 - ((c - 0.62) / 0.14) ** 2 : 0.08 * Math.sin(((c - 0.76) / 0.24) * Math.PI);
       raiseArm("r", 22, 35 + 75 * k, 25 + 75 * k);
       raiseArm("l", 14, 30, 70);
-      over.spine = qEuler(8 * DEG, 0, 0);
+      over.spine = qEuler((6 + 6 * (1 - k)) * DEG, 0, 0);
+      over.chest = qEuler(-4 * k * DEG, 0, 0);
       over.head = qEuler(14 * DEG, 0, 0);
       break;
     }
@@ -301,7 +330,13 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       break;
     }
   }
-  for (const [k, q] of Object.entries(over)) rot[k] = qSlerp(rot[k] ?? qId(), q, w);
+  // pas de bloc qui bascule d'un coup : le tronc part d'abord, puis le bras, l'avant-bras et la main (enchaînement)
+  const LAG: Record<string, number> = { spine: 0, chest: 0.05, clavicle: 0.08, upperarm: 0.12, neck: 0.12, head: 0.2, forearm: 0.24, hand: 0.32 };
+  for (const [k, q] of Object.entries(over)) {
+    const d = LAG[k.split(".")[0]] ?? 0;
+    const wb = d > 0 && w < 1 ? smoothstep(0, 1, clamp((w - d) / (1 - d), 0, 1)) : w;
+    rot[k] = qSlerp(rot[k] ?? qId(), q, wb);
+  }
 
   /* ---------- jambes : IK ---------- */
   const seated = st.action === "drive" || st.action === "ride" || st.action === "row";

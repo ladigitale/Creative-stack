@@ -6,7 +6,7 @@
  * (gilet, veste, plastron, tablier) est plus large encore. Les motifs (rayures, carreaux) sont des fonctions scalaires
  * dont le signe choisit le rôle : la découpe des triangles en fait des bords nets.
  */
-import { type V3, add, cross, dot, mix, norm, sub } from "../../core/math";
+import { type V3, add, clamp, cross, dot, mix, norm, sub } from "../../core/math";
 import { type Blend, Field, type FieldPrim } from "../../geom/implicit";
 import { HUMANOID_BLENDS } from "../../rig/humanoid";
 import { ROLE } from "../../style/roles";
@@ -476,10 +476,11 @@ export function buildBodyField(k: Kit): BodyField {
         for (let i = 0; i + 1 < pts.length; i++) put("bag", { kind: "capsule", a: pts[i], b: pts[i + 1], ra, rb: ra, role: LE, tag: 0 }, i < 2 ? "chest" : "pelvis");
       }
     }
-      put("bag", { kind: "box", c: [-P.hipHalf * 1.35 * bw - H * 0.025, P.hipY - H * 0.01, H * 0.01], h: [H * 0.025, H * 0.05, H * 0.07], round: H * 0.015, role: LE, tag: 0 }, "pelvis");
+      // sacoche sur l'avant de la hanche (le bras qui pend ne la traverse pas), plaquée ensuite contre le vêtement
+      put("bag", { kind: "box", c: [-P.hipHalf * 1.15 * bw - H * 0.02, P.hipY - H * 0.01, H * 0.04], h: [H * 0.025, H * 0.05, H * 0.065], round: H * 0.015, role: LE, tag: 0 }, "pelvis");
       break;
     case "pouch":
-      put("bag", { kind: "box", c: [P.hipHalf * 1.3 * bw + thick + H * 0.018, P.hipY - H * 0.005, H * 0.02], h: [H * 0.02, H * 0.032, H * 0.035], round: H * 0.014, role: LE, tag: 0 }, "pelvis");
+      put("bag", { kind: "box", c: [P.hipHalf * 1.15 * bw + thick + H * 0.016, P.hipY - H * 0.005, H * 0.04], h: [H * 0.02, H * 0.032, H * 0.035], round: H * 0.014, role: LE, tag: 0 }, "pelvis");
       break;
     case "cape": {
       const top0 = P.shoulderY + H * 0.01;
@@ -509,6 +510,12 @@ export function buildBodyField(k: Kit): BodyField {
     soft.push(withSkirts(capePiece(k, look.cape, backZ)));
     put("bag", { kind: "ellipsoid", c: add(neckBase, [0, -H * 0.008, 0]), r: [neckR * 1.6 + thick * 1.6, H * 0.016, neckR * 1.5 + thick * 1.6], role: C3, tag: 0 }, "neck");
   }
+
+  /* ---------- accessoires hors du corps ---------- */
+  settleAccessories(set, outerField(), (y) => {
+    const u = clamp((y - hipC[1]) / Math.max(1e-6, chestC[1] - hipC[1]), 0, 1);
+    return hipC[2] + (chestC[2] - hipC[2]) * u;
+  }, H);
 
   /* ---------- soudures ---------- */
   set.dropCovered();
@@ -541,4 +548,86 @@ export function buildBodyField(k: Kit): BodyField {
         blends.push({ a, b, k: H * 0.01 });
       }
   return { set, blends, decals, hipC, chestC, chestR, backZ, patterned: look.pattern !== "plain", soft };
+}
+
+/** Points du cœur d'une primitive (75 % de sa taille) : ce qui ne doit jamais se trouver dans le corps. */
+export function corePoints(f: FieldPrim): V3[] {
+  const out: V3[] = [];
+  const k = 0.75;
+  if (f.kind === "box" || f.kind === "ellipsoid") {
+    const c = f.c, h = f.kind === "box" ? f.h : f.r;
+    for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 1]) {
+      if (f.kind === "ellipsoid" && Math.abs(x) + Math.abs(y) + Math.abs(z) > 1) continue;
+      out.push([c[0] + x * h[0] * k, c[1] + y * h[1] * k, c[2] + z * h[2] * k]);
+    }
+  } else if (f.kind === "capsule") for (const t of [0, 0.5, 1]) out.push([f.a[0] + (f.b[0] - f.a[0]) * t, f.a[1] + (f.b[1] - f.a[1]) * t, f.a[2] + (f.b[2] - f.a[2]) * t]);
+  else if (f.kind === "sphere") out.push(f.c);
+  return out;
+}
+
+/**
+ * Règle générale des accessoires (sacs, sacoches, bourse, bretelles, nœud et pan de ceinture) : leur cœur reste hors
+ * de la silhouette habillée. Une pièce décentrée est repoussée en s'éloignant de l'axe du buste ; une sangle (capsule)
+ * voit chaque bout reposé sur la surface. Les anneaux centrés (ceinture, col, écharpe) entourent le corps : ignorés.
+ */
+export function settleAccessories(set: PrimSet, body: Field, axisZ: (y: number) => number, H: number) {
+  const margin = H * 0.002;
+  set.prims.forEach((f0, i) => {
+    let f = f0;
+    if (set.group[i] !== "bag" && set.group[i] !== "belt") return;
+    if (f.kind === "capsule") {
+      // sangle : bouts puis milieu reposés sur le vêtement (le long de la normale), jamais dans le corps
+      const r = Math.max(f.ra, f.rb) * 0.6;
+      for (let it = 0; it < 6; it++) {
+        let moved = false;
+        for (const t of [0, 1, 0.5]) {
+          const p: V3 = [f.a[0] + (f.b[0] - f.a[0]) * t, f.a[1] + (f.b[1] - f.a[1]) * t, f.a[2] + (f.b[2] - f.a[2]) * t];
+          const d = body.eval(p).d;
+          if (d >= r - margin) continue;
+          const n = body.gradient(p, H * 0.004);
+          const step = r - d + margin;
+          // un bout bouge seul ; le milieu entraîne les deux bouts
+          for (const [q, wq] of [[f.a, 1 - t], [f.b, t]] as const) {
+            const w = t === 0.5 ? 1 : wq;
+            q[0] += n[0] * step * w;
+            q[1] += n[1] * step * w;
+            q[2] += n[2] * step * w;
+          }
+          moved = true;
+        }
+        if (!moved) break;
+      }
+      return;
+    }
+    if (f.kind !== "box" && f.kind !== "ellipsoid") return;
+    // copie : le centre peut être partagé avec une autre pièce
+    const c: V3 = [...f.c];
+    set.prims[i] = { ...f, c };
+    f = set.prims[i];
+    const dx = c[0], dz = c[2] - axisZ(c[1]);
+    const L = Math.hypot(dx, dz);
+    if (L < H * 0.02) {
+      // anneau centré (ceinture, col d'écharpe ou de cape) : élargi jusqu'à ce que son pourtour passe sur le vêtement
+      if (f.kind !== "ellipsoid") return;
+      for (let it = 0; it < 6; it++) {
+        let pen = 0;
+        for (let a = 0; a < 16; a++) {
+          const t = (a / 16) * Math.PI * 2;
+          pen = Math.max(pen, -body.eval([c[0] + Math.sin(t) * f.r[0] * 0.97, c[1], c[2] + Math.cos(t) * f.r[2] * 0.97]).d);
+        }
+        if (pen <= margin) break;
+        const r: V3 = f.r;
+        set.prims[i] = f = { ...f, r: [r[0] + pen + margin, r[1], r[2] + pen + margin] };
+      }
+      return;
+    }
+    const dir: V3 = [dx / L, 0, dz / L];
+    for (let it = 0; it < 6; it++) {
+      let pen = 0;
+      for (const p of corePoints(f)) pen = Math.max(pen, -body.eval(p).d);
+      if (pen <= margin) break;
+      c[0] += dir[0] * (pen + margin);
+      c[2] += dir[2] * (pen + margin);
+    }
+  });
 }
