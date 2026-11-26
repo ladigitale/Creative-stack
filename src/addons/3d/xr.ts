@@ -37,6 +37,8 @@ export type XrState = DeviceBaseState & {
   hit: { x: number; y: number; z: number } | null;
   /** Sources d'entrée (manettes, mains, toucher). */
   inputs: XrInputInfo[];
+  /** Diagnostic : messages exacts du navigateur quand la session est refusée (un par essai), `null` sinon. */
+  detail: string | null;
   /** Diagnostic : mode de fusion avec le réel (`alpha-blend` en AR sur téléphone, `opaque` en VR), `null` hors session. */
   blend: string | null;
   /** Diagnostic : couche de rendu WebXR utilisée (`webgl` = XRWebGLLayer, `projection` = WebXR Layers). */
@@ -191,6 +193,7 @@ export class SonicXr extends DeviceElement<XrState> {
     sensors: false,
     blend: null,
     layer: null,
+    detail: null,
     presenting: false,
     reference: null,
     hit: null,
@@ -372,24 +375,43 @@ export class SonicXr extends DeviceElement<XrState> {
         el.addEventListener("beforexrselect", this.onBeforeSelect);
       }
     }
-    this.patch({ status: "requesting", error: null, mode });
-    let pending: Promise<XRSessionLike>;
-    try {
-      pending = xr.requestSession(mode === "ar" ? "immersive-ar" : "immersive-vr", init);
-    } catch (e) {
+    this.patch({ status: "requesting", error: null, detail: null, mode });
+    const sessionMode = mode === "ar" ? "immersive-ar" : "immersive-vr";
+    // Replis si le navigateur refuse la demande complète (option qu'il n'accepte pas, surimpression…) :
+    // sans dom-overlay, puis sans aucune option. Lancés aussitôt, dans la foulée du geste.
+    const attempts: Record<string, unknown>[] = [init];
+    if (init.domOverlay) attempts.push({ optionalFeatures: optional.filter((f) => f !== "dom-overlay") });
+    attempts.push({});
+    const what = "réalité " + (mode === "ar" ? "augmentée" : "virtuelle");
+    const tried: string[] = [];
+    const attempt = (i: number): Promise<boolean> | boolean => {
+      let pending: Promise<XRSessionLike>;
+      try {
+        pending = xr.requestSession(sessionMode, attempts[i]);
+      } catch (e) {
+        return failed(e, i);
+      }
+      return pending.then(
+        (s) => {
+          if (i > 0 && attempts[i].domOverlay === undefined) this.cleanupOverlay();
+          return this.start(s, host, mode, features);
+        },
+        (e) => failed(e, i),
+      );
+    };
+    const failed = (e: unknown, i: number): Promise<boolean> | boolean => {
+      const name = (e as { name?: string } | null)?.name ?? "Error";
+      const msg = e instanceof Error ? e.message : String(e);
+      tried.push(`${name}: ${msg}`);
+      // refus de l'utilisateur ou de la page : inutile d'insister
+      const retry = name !== "NotAllowedError" && name !== "SecurityError" && i + 1 < attempts.length;
+      if (retry) return attempt(i + 1);
       this.cleanupOverlay();
-      this.fail(e, "réalité " + (mode === "ar" ? "augmentée" : "virtuelle"));
+      this.fail(e, what);
+      this.patch({ mode: null, detail: tried.join(" | ") });
       return false;
-    }
-    return pending.then(
-      (s) => this.start(s, host, mode, features),
-      (e) => {
-        this.cleanupOverlay();
-        this.fail(e, "réalité " + (mode === "ar" ? "augmentée" : "virtuelle"));
-        this.patch({ mode: null });
-        return false;
-      },
-    );
+    };
+    return attempt(0);
   }
 
   private async start(session: XRSessionLike, host: Sonic3dXrHost, mode: XrMode, features: string[]): Promise<boolean> {
