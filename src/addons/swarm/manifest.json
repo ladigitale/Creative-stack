@@ -11,7 +11,7 @@
   "components": [
     {
       "name": "sonic-swarm",
-      "description": "Essaim d'agents (200 au plus) : spec {bounds, edges: steer|wrap|bounce, grid {rows, cell}, seed, groups [{name, count, maxSpeed, maxForce, radius, view, separation, alignment, cohesion, wander, seek|flee|arrive|pursue|evade|flow {target: [x,y] | group:<nom> | agent:<nom> | dp:<chemin>, weight, radius}, path {points, loop}, catch {target, radius, respawn, remove}, follow {target: group:<meneurs>, radius, swap, colors} (meneur le plus proche, couleur du meneur), spawn, sprite}]} ; control = réglages en direct fusionnés par nom de groupe (+ paused, compteur respawn) ; sortie {nodes, sprites, agents (leader), count, groups, catches, status, error}",
+      "description": "Essaim d'agents (200 au plus) : spec {bounds, edges: steer|wrap|bounce, grid {rows, cell}, seed, groups [{name, count, maxSpeed, maxForce, radius, view, separation, alignment, cohesion, wander, seek|flee|arrive|pursue|evade|flow {target: [x,y] | group:<nom> | agent:<nom> | dp:<chemin> ({name} = nom de l'agent), weight, radius}, path {points, loop}, catch {target, radius, respawn, remove}, follow {target: group:<meneurs>, radius, swap, colors} (meneur le plus proche, couleur du meneur), spawn, sprite}]} ; control = réglages en direct fusionnés par nom de groupe (+ paused, compteur respawn) ; sortie {nodes, sprites, agents (leader), count, groups, catches, status, error} ; report=\"<store>\" : action swarm:report {agents {nom: [x, y, cap]}, groups, leaders} toutes les report-ms",
       "props": {
         "spec": {
           "type": "string",
@@ -43,6 +43,17 @@
         },
         "action": {
           "type": "string"
+        },
+        "report": {
+          "type": "string",
+          "description": "Store qui reçoit swarm:report {agents, groups, leaders}"
+        },
+        "report-groups": {
+          "type": "string",
+          "description": "Groupes rapportés (virgules ; tous si vide)"
+        },
+        "report-ms": {
+          "type": "number"
         }
       }
     }

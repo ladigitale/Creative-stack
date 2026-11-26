@@ -13,6 +13,7 @@ The swarm writes the shared scene format: `nodes` (`{x, y, rz}`, or `{x, z, ry}`
 | `out-data-provider` | output: `nodes`, `sprites`, `agents` (`[{name, group, x, y, heading, leader?}]`), `count`, `groups` (`{group: alive count}`), `catches` (total), `status`, `error` |
 | `plane` | `screen` (default: `x`, `y`, `rz` in radians) or `xz` (`x`, `z`, `ry`, divided by `scale`: world units per metre) |
 | `rate` | publications per second (30; the simulation always runs at 60 Hz) |
+| `report`, `report-groups`, `report-ms` | store receiving `{type: "swarm:report", payload: {agents: {name: [x, y, heading]}, groups: {group: alive}, leaders: {leader: followers}}}` every `report-ms` (100) ms, for the groups listed in `report-groups` (comma-separated; all if empty). A reducer cannot read other DataProviders: this is its view of the world (players' positions, light left per player…) |
 | `target`, `action` | store receiving captures: `{type: "swarm:catch", payload: {by, caught, group, x, y}}` (also a DOM `catch` event) |
 
 ## Description
@@ -59,7 +60,7 @@ The swarm writes the shared scene format: `nodes` (`{x, y, rz}`, or `{x, z, ry}`
 | `spawn` | `[x0, y0, x1, y1]` spawn area (default: `bounds`, avoiding walls) |
 | `sprite` | sprite published in `sprites` for every agent (keys of `sonic-sprite`; `shape` `circle` and `r` = `radius` by default) |
 
-**Targets**: `[x, y]`, `"group:<name>"` (nearest agent of that group), `"agent:<name>"`, or `"dp:<path>"` (a DataProvider holding `[x, y]` or `{x, y}`: a player position, a store key, the pointer).
+**Targets**: `[x, y]`, `"group:<name>"` (nearest agent of that group), `"agent:<name>"`, or `"dp:<path>"` (a DataProvider holding `[x, y]` or `{x, y}`: a player position, a store key, the pointer). `{name}` in a `dp:` path is replaced by the agent's name: one target per agent (`"dp:jeu.cibles.{name}"` → `jeu.cibles.p0`, `jeu.cibles.p1`…), e.g. one player per pad.
 
 ## Example: a school of fish fleeing a shark that follows the pointer
 
