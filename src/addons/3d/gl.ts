@@ -13,7 +13,11 @@ export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
   const rendererOpts = {
     canvas,
     antialias: true,
-    alpha: false,
+    /**
+     * Canal alpha requis par la réalité augmentée (sonic-xr) : sans lui, la caméra du téléphone reste cachée
+     * derrière un fond plein. Hors AR, le fond reste opaque (clearAlpha 1 ci-dessous, scene.background).
+     */
+    alpha: true,
     /**
      * Requis pour `toBlob` / snapshot async après `render()` (pont shader via DP).
      */
@@ -31,5 +35,7 @@ export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
     renderer.dispose();
     throw new Error(WEBGL_UNAVAILABLE_MSG);
   }
+  // même rendu qu'un contexte opaque : effacement en alpha 1 (seule la session AR le passe à 0)
+  renderer.setClearAlpha(1);
   return renderer;
 }
