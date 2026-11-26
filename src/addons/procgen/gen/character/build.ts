@@ -94,7 +94,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
   const hf = buildHeadField(k);
   const hField = new Field(hf.set.prims, hf.blends);
   const headCell = P.headH / (crowd ? 14 : 26);
-  const hp = polygonize(hField, { cell: headCell, smooth: 2, ao: true, exactOwner: true, aoSteps: 3 });
+  const hp = polygonize(hField, { cell: headCell, smooth: 3, ao: true, exactOwner: true, aoSteps: 3 });
   const head = hp.mesh;
   // poids : tête rigide au-dessus du menton, poids de la peau la plus proche (cou, buste) en dessous
   const trunk = new Set(["neck", "chest", "spine", "clavicle.l", "clavicle.r"].map(bi));

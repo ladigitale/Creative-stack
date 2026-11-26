@@ -205,7 +205,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     const qe: Q = qMul(qFromTo([0, 0, 1], look3), qAxis([0, 0, 1], tilt));
     // réaliste : œil en amande moins ouvert, paupière qui couvre le haut de l'iris, cils fins
     const real = arch === "realistic";
-    const ew = eyeR * dims[0], eh = eyeR * dims[1] * (sleepyMood ? 0.6 : wide) * (real ? 0.74 : 1);
+    const ew = eyeR * dims[0], eh = eyeR * dims[1] * (sleepyMood ? 0.6 : wide) * (real ? 0.86 : 1);
     const ctr = madd(s.p, s.n, -eyeR * (toon ? 0.12 : 0.32));
     eyeCenters.push(ctr);
     const T = (m: Mesh, off: V3 = [0, 0, 0]) => m.transform(m4Compose(add(ctr, rot(qe, off)), qe));
@@ -228,7 +228,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
       add_(T(ellipsoid(eyeR * 0.13, eyeR * 0.13, eyeR * 0.08, ROLE.eyeWhite, sg(6), sg(4)), [ri * 0.38, ri * 0.4 - eh * 0.04, eyeR * 0.4]), ctr[1]);
     }
     // paupière supérieure (coque de peau) : descendue (yeux mi-clos) ou rentrée sous l'arcade, toujours présente
-    const lidDrop = shape === "sleepy" || sleepyMood ? 0.42 : Math.max(LID[mood] ?? 0, real ? 0.16 : 0);
+    const lidDrop = shape === "sleepy" || sleepyMood ? 0.42 : Math.max(LID[mood] ?? 0, real ? 0.1 : 0);
     const lid = ellipsoid(ew * 1.08, eh * 0.75, eyeR * 0.5, ROLE.skin, sg(14), sg(8));
     if (lidDrop > 0) add_(T(lid, [0, eh * (1.1 - lidDrop * 1.4), eyeR * 0.05]), ctr[1]);
     else {
@@ -298,7 +298,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
         const y = curveY(t) + (dir > 0 ? open * oh * 0.32 : -open * oh * 0.68) * sw;
         const s = hit(surf, x, y);
         pts.push(madd(s.p, s.n, eyeR * 0.02));
-        radii.push((eyeR * 0.075 * (0.45 + 0.55 * Math.sin(t * Math.PI)) + eyeR * 0.015) * rk * lipK);
+        radii.push((eyeR * 0.075 * (0.45 + 0.55 * Math.sin(t * Math.PI)) + eyeR * 0.015) * rk * lipK * (arch === "realistic" ? 0.72 : arch === "heroic" ? 0.85 : 1));
       }
       add_(tube(pts, radii, ROLE.mouth, crowd ? 4 : 5, true, true), null);
     };
@@ -309,8 +309,10 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     const m = hit(surf, 0, cy);
     const qm = qFromTo([0, 0, 1], m.n);
     const ih = eyeR * 0.012 + open * oh * 0.46;
-    add_(ellipsoid(mw * 0.82, ih, eyeR * 0.12, ROLE.ink, sg(12), sg(6)).transform(m4Compose(madd(m.p, m.n, -eyeR * 0.05), qm)), null);
-    add_(ellipsoid(mw * 0.48, eyeR * 0.01 + open * oh * 0.2, eyeR * 0.1, ROLE.mouth, sg(10), sg(5)).transform(m4Compose(madd(add(m.p, [0, -ih * 0.55, 0]), m.n, -eyeR * 0.03), qm)), null);
+    // bouche fermée : l'intérieur et la langue rentrent entièrement sous la peau (sinon tache sombre sous les lèvres)
+    const o1 = Math.min(1, open);
+    add_(ellipsoid(mw * 0.82, ih, eyeR * 0.12, ROLE.ink, sg(12), sg(6)).transform(m4Compose(madd(m.p, m.n, -eyeR * (0.16 - 0.11 * o1)), qm)), null);
+    add_(ellipsoid(mw * 0.48, eyeR * 0.01 + open * oh * 0.2, eyeR * 0.1, ROLE.mouth, sg(10), sg(5)).transform(m4Compose(madd(add(m.p, [0, -ih * 0.55, 0]), m.n, -eyeR * (0.15 - 0.12 * o1)), qm)), null);
   }
   morph.length = face.vertexCount * 3;
   return { mesh: face, morph, eyeCenters };

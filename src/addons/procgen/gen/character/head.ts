@@ -80,9 +80,9 @@ export function buildHeadField(k: Kit): HeadField {
   // prend le relais jusqu'au menton (V doux de l'os mandibulaire) ; réaliste encore un peu plus fin
   const thin = arch === "realistic" ? 0.94 : 1;
   if (!chibi && face.kind === "ellipsoid") {
-    face = { ...face, c: add(face.c, [0, hh * 0.04, 0]), r: [face.r[0] * thin, face.r[1] * 0.86, face.r[2]] };
+    face = { ...face, c: add(face.c, [0, hh * 0.02, 0]), r: [face.r[0] * thin, face.r[1] * 0.92, face.r[2]] };
     const jw = { round: 0.37, oval: 0.31, long: 0.29, square: 0.35 }[shape as "oval"] ?? 0.31;
-    sk("skull", { kind: "ellipsoid", c: add(headC, [0, -hh * (shape === "long" ? 0.31 : 0.28), hd * 0.03]), r: [hw * jw * thin, hh * 0.17, hd * 0.3] });
+    sk("skull", { kind: "ellipsoid", c: add(headC, [0, -hh * (shape === "long" ? 0.29 : 0.26), hd * 0.04]), r: [hw * jw * thin, hh * 0.2, hd * 0.31] });
   }
   const faceIdx = set.add(face, "head", "skull");
   const chinPt: V3 = add(headC, [0, -hh * (shape === "long" ? 0.43 : shape === "round" ? 0.38 : 0.41) * (chibi ? 0.85 : 1), hd * 0.3]);
@@ -95,14 +95,14 @@ export function buildHeadField(k: Kit): HeadField {
   }
   // moignon de cou, plus fin que le cou du corps (qui l'enveloppe en bas)
   sk("skull", { kind: "capsule", a: k.at("neck", 0.3), b: add(k.at("neck", 1), [0, hh * 0.1, 0]), ra: k.rad("neck", 0.3) * 0.94, rb: k.rad("neck", 1) * 0.96 });
-  const base = new Field(set.prims.slice(), set.groupBlends(() => hw * 0.14));
+  const base = new Field(set.prims.slice(), set.groupBlends(() => hw * 0.2));
   const hit = (f: Field, x: number, y: number, z0 = headC[2] + hd * 1.6): { p: V3; n: V3 } => {
     const p = f.raycast([x, y, z0], [0, 0, -1], hd * 2.4, hh * 0.0005) ?? [x, y, headC[2] + hd * 0.4];
     return { p, n: f.gradient(p, hh * 0.004) };
   };
 
   /* ---------- repères ---------- */
-  const eyeR = hw * { chibi: 0.12, cartoon: 0.105, stylized: 0.088, heroic: 0.074, realistic: 0.066 }[arch];
+  const eyeR = hw * { chibi: 0.12, cartoon: 0.105, stylized: 0.088, heroic: 0.074, realistic: 0.071 }[arch];
   const eyeX = hw * { chibi: 0.24, cartoon: 0.21, stylized: 0.19, heroic: 0.18, realistic: 0.175 }[arch] * (shape === "round" ? 1.04 : shape === "long" ? 0.96 : 1);
   const eyeY = headC[1] + headR[1] * { chibi: -0.12, cartoon: -0.05, stylized: 0.0, heroic: 0.02, realistic: 0.03 }[arch];
   const mouth0 = headC[1] + headR[1] * { chibi: -0.42, cartoon: -0.45, stylized: -0.5, heroic: -0.52, realistic: -0.53 }[arch] * (shape === "long" ? 1.08 : 1);
@@ -556,7 +556,7 @@ export function buildHeadField(k: Kit): HeadField {
 }
 
 const groupK = (hw: number, nr: number, er: number) => (g: string) =>
-  g === "skull" ? hw * 0.14 : g === "nose" ? nr * 0.5 : g === "snout" ? hw * 0.04 : g.startsWith("ear") ? er * 0.15 : g === "lips" ? hw * 0.02 : g === "beard" ? hw * 0.05 : g === "hair" ? hw * 0.06 : g === "braid" ? hw * 0.02 : g === "hat" ? hw * 0.03 : g === "brim" ? hw * 0.02 : 0;
+  g === "skull" ? hw * 0.2 : g === "nose" ? nr * 0.5 : g === "snout" ? hw * 0.04 : g.startsWith("ear") ? er * 0.15 : g === "lips" ? hw * 0.02 : g === "beard" ? hw * 0.05 : g === "hair" ? hw * 0.06 : g === "braid" ? hw * 0.02 : g === "hat" ? hw * 0.03 : g === "brim" ? hw * 0.02 : 0;
 
 const sub3 = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len3 = (a: V3) => Math.hypot(a[0], a[1], a[2]);
