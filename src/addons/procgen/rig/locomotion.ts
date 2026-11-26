@@ -299,9 +299,10 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const w = clamp(st.actionWeight, 0, 1);
   // temps du geste légèrement accéléré ou ralenti, au hasard et en douceur : deux cycles ne tombent jamais pareil
   // (une boucle rejouée à l'identique fait automate). La dérivée reste proche de 1 : le geste ne recule jamais
-  // cadence propre à l'acteur (±15 %), puis dérive lente du tempo (accélère, ralentit) d'un cycle à l'autre
-  const rate = 0.85 + 0.3 * rnd(5);
-  const at = Math.max(0, st.actionTime * rate + 0.3 * nz(st.actionTime * 0.4, 7) * smoothstep(0, 1.5, st.actionTime));
+  // tempo : reste proche de la cadence d'équilibre (±4 % par acteur, très légère dérive) ; la variation porte
+  // sur les positions visées (plus bas), pas sur la synchronisation du geste
+  const rate = 0.96 + 0.08 * rnd(5);
+  const at = Math.max(0, st.actionTime * rate + 0.04 * nz(st.actionTime * 0.4, 7) * smoothstep(0, 1.5, st.actionTime));
   const over: Record<string, Q> = {};
   // entrée d'un geste : le bras dépasse un peu sa cible puis s'y pose (0,6 s), plutôt qu'un arrêt sec
   // posture des pieds et des jambes demandée par l'action (fractions de jambe : x à gauche, y, z devant)
@@ -674,6 +675,10 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       break;
     }
   }
+  // gestes qui vont au visage (et grosses têtes) : cible plus stable, la main ne doit pas entrer dans la tête
+  const faceAct = st.action === "eat" || st.action === "drink" || st.action === "think" || st.action === "comb" || st.action === "archery" || st.action === "wave";
+  const bigHead = (sk.bone("head")?.radius[0] ?? 0) > len(sub(sk.bone("upperarm.r")!.tail, sk.bone("upperarm.r")!.head)) * 0.75;
+  const varK = (faceAct ? 0.35 : 1) * (bigHead ? 0.5 : 1);
   // pas de bloc qui bascule d'un coup : le tronc part d'abord, puis le bras, l'avant-bras et la main (enchaînement)
   const LAG: Record<string, number> = { spine: 0, chest: 0.05, clavicle: 0.08, upperarm: 0.12, neck: 0.12, head: 0.2, forearm: 0.24, hand: 0.32 };
   for (const [k, q] of Object.entries(over)) {
@@ -681,13 +686,21 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     const wb = d > 0 && w < 1 ? smoothstep(0, 1, clamp((w - d) / (1 - d), 0, 1)) : w;
     // ampleur du geste qui change d'un cycle à l'autre (±18 %), autrement pour le tronc, les bras et la tête
     const part = k.split(".")[0];
-    const gain = 1 + 0.36 * nz(at * 0.45 + (part === "spine" || part === "chest" ? 0 : part === "head" || part === "neck" ? 3.1 : k.endsWith(".l") ? 5.7 : 8.3), 23);
-    rot[k] = qSlerp(rot[k] ?? qId(), qSlerp(qId(), q, gain), wb);
+    // positions visées variables : l'écart à la pose d'équilibre (base) change d'ampleur (±20 %) et dévie un peu
+    // (jusqu'à 15 % de cet écart) d'un cycle à l'autre ; près de l'équilibre, presque rien ne bouge
+    const base = rot[k] ?? qId();
+    const ph = part === "spine" || part === "chest" ? 0 : part === "head" || part === "neck" ? 3.1 : k.endsWith(".l") ? 5.7 : 8.3;
+    const gain = 1 + 0.4 * varK * nz(at * 0.5 + ph, 23);
+    const dq = qMul(qConj(base), q);
+    const ang = 2 * Math.acos(Math.min(1, Math.abs(dq[3])));
+    const dev = ang * 0.15 * varK;
+    const off = qEuler(dev * 2 * nz(at * 0.5 + ph, 29), dev * 2 * nz(at * 0.5 + ph, 31), dev * 2 * nz(at * 0.5 + ph, 37));
+    rot[k] = qSlerp(base, qMul(qSlerp(base, q, gain), off), wb);
   }
 
   // micro-variations lissées de chaque articulation du haut du corps (amplitude, orientation) : elles se superposent
   // à toutes les poses, au repos comme pendant un geste, et changent d'un personnage à l'autre
-  const JIT: [string, number, number][] = [["spine", 3, 0.23], ["chest", 4, 0.31], ["neck", 3, 0.27], ["head", 7, 0.37], ["clavicle", 3, 0.29], ["upperarm", 8, 0.41], ["forearm", 6, 0.47], ["hand", 11, 0.53]];
+  const JIT: [string, number, number][] = [["spine", 1.5, 0.23], ["chest", 2, 0.31], ["neck", 1.5, 0.27], ["head", 3.5, 0.37], ["clavicle", 1.5, 0.29], ["upperarm", 3.5, 0.41], ["forearm", 3, 0.47], ["hand", 5, 0.53]];
   const jk = 0.6 + 0.6 * w;
   for (const [b, amp, fq] of JIT)
     for (const n of b === "spine" || b === "chest" || b === "neck" || b === "head" ? [b] : [`${b}.l`, `${b}.r`]) {
