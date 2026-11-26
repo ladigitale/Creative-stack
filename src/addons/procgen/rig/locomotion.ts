@@ -321,11 +321,16 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       // jusqu'aux oreilles. Poitrine ouverte, tête en arrière avec un temps de retard ; bras gauche décalé.
       for (const [s, sgn, ph] of [["r", -1, 0], ["l", 1, 0.12]] as const) {
         const p = 0.5 - 0.5 * Math.cos((at * 2 - ph) * TAU);
-        const a = (34 + 4 * p) * DEG;
-        // bras nettement devant le plan du corps (la poitrine se cambre un peu : sans cela ils partent en arrière),
-        // poings paume vers l'avant et légèrement vers l'intérieur, poignet droit
-        aimDir(over, s, [sgn * Math.sin(a), Math.cos(a), 0.38 - 0.08 * p], 8 + 16 * (1 - p), 20, 20);
-        over[`clavicle.${s}`] = qAxis([0, 0, 1], sgn * (6 + 3 * p) * DEG);
+        const a = (27 + 5 * p) * DEG;
+        // rythme scapulo-huméral : bras levé au-dessus de la tête, la clavicule s'élève d'une vingtaine de degrés et
+        // emporte l'épaule (le moignon suit le bras au lieu de rester à l'horizontale, coude « cassé » à hauteur
+        // d'épaule). La direction du bras est donnée dans le repère du buste : on retire l'élévation de la clavicule.
+        const cq = qAxis([0, 0, 1], sgn * (17 + 6 * p) * DEG);
+        over[`clavicle.${s}`] = cq;
+        // bras nettement devant le plan du corps (sans cela ils partent en arrière), coude presque tendu : le repos
+        // en A plie déjà l'avant-bras d'une quinzaine de degrés vers l'avant ; poings paume vers l'avant
+        const dir = qRot(qConj(cq), [sgn * Math.sin(a), Math.cos(a), 0.3 - 0.06 * p]);
+        aimDir(over, s, dir, -9 + 10 * (1 - p), 0, 20);
       }
       const pl = 0.5 - 0.5 * Math.cos((at * 2 - 0.15) * TAU);
       over.chest = qEuler(-(2 + 3 * pl) * DEG, 0, 0);
