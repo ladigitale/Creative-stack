@@ -6,13 +6,18 @@ import type { Expression } from "jsonata";
 import { mondeParams, mondePlace, mondeRemove } from "../../shared/monde/edit";
 import { registerAlgoHelpers } from "../../shared/algo/jsonata";
 
-/** mulberry32 → { value: 0..1, seed } */
+/**
+ * mulberry32 → { value: 0..1, seed } : l'état avance d'une constante (période 2^32), la valeur est son mélange.
+ * Même suite que les tirages de `$shuffled`, `$pick`, `$bag`, `$roll` (src/shared/algo/rng.ts).
+ * (Avant, la graine suivante était la sortie mélangée : un hash itéré qui pouvait boucler au bout de quelques
+ * dizaines de milliers de tirages.)
+ */
 export function rand(seed: unknown): { value: number; seed: number } {
-  let t = (Number(seed) >>> 0) + 0x6d2b79f5;
+  const next = (((Number(seed) || 0) >>> 0) + 0x6d2b79f5) >>> 0;
+  let t = next;
   t = Math.imul(t ^ (t >>> 15), t | 1);
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  const next = t >>> 0;
-  return { value: ((next ^ (next >>> 14)) >>> 0) / 4294967296, seed: next };
+  return { value: ((t ^ (t >>> 14)) >>> 0) / 4294967296, seed: next };
 }
 
 export function randInt(seed: unknown, n: unknown): { value: number; seed: number } {
