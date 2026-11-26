@@ -8,7 +8,7 @@ import { type Action, type MotionState, humanoidPose, rigInfo } from "./locomoti
 describe("gestes : la main ne traverse jamais la tête", () => {
   const ARCH = ["chibi", "cartoon", "stylized", "realistic", "heroic"];
   // garde, coups, coiffure, ancrage de la corde : la main vient au visage, elle peut le toucher sans y entrer
-  const ACTIONS: Action[] = ["idle", "wave", "point", "cheer", "talk", "carry", "think", "hammer", "sweep", "dig", "drink", "eat", "throw", "guard", "punch", "fightkick", "sword", "hang", "comb", "archery"];
+  const ACTIONS: Action[] = ["idle", "wave", "point", "cheer", "talk", "carry", "think", "hammer", "sweep", "dig", "drink", "eat", "throw", "guard", "punch", "fightkick", "sword", "hang", "comb", "archery", "dance", "climb"];
   it("5 styles × 12 gestes × 8 instants", () => {
     const bad: string[] = [];
     for (const archetype of ARCH) {

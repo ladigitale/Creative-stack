@@ -1094,7 +1094,7 @@ export class ProcgenView {
       const toSeat = typeof it.target === "string" && /\.sit\.\d+$/.test(it.target);
       const toBall = typeof it.target === "string" && !!this.ballAt(it.target);
       // boire, manger, dormir vers une cible : l'action commence à l'arrivée
-      const atTarget = typeof it.target === "string" && !toBall && (it.action === "drink" || it.action === "eat" || it.action === "sleep");
+      const atTarget = typeof it.target === "string" && !toBall && (it.action === "drink" || it.action === "eat" || it.action === "sleep" || it.action === "climb" || it.action === "hang");
       a.actionDur = Number.isFinite(it.duration) && Number(it.duration) > 0 ? Number(it.duration) : undefined;
       // retouche du relief pendant l'action : posée devant l'acteur (ou en `at`), elle grandit avec l'action
       if (it.shape && typeof it.shape === "object" && it.action && this.model?.terrain && !this.inf) {
@@ -1153,6 +1153,11 @@ export class ProcgenView {
             const spm = /^spot(?:\.(\d+))?$/.exec(sa);
             const ap = spm ? o.anchors[spm[1] !== undefined ? `approach.${spm[1]}` : "approach"] : undefined;
             if (spm && atTarget) then = { action: it.action as Action, spot: o.anchors[sa] };
+            // grimper, se suspendre : jusqu'à l'ancre visée (ou le haut de l'objet), monté depuis son pied
+            if (atTarget && (it.action === "climb" || it.action === "hang") && !then) {
+              const sp = (an && o.anchors[an]) || o.anchors.top || ([o.pos[0], o.pos[1] + (o.height ?? 2), o.pos[2]] as V3);
+              then = { action: it.action as Action, spot: sp };
+            }
             const p = (sm && o.anchors[`approach.${sm[1]}`]) || ap || (sa && o.anchors[sa]) || o.anchors.door || o.pos;
             [x, z] = [p[0], p[2]];
           }
@@ -2731,7 +2736,8 @@ export class ProcgenView {
       const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);
       const nx = a.pos[0] + fx * step, nz = a.pos[2] + fz * step;
       // obstacles (murs, objets, eau) : hors d'un chemin planifié, l'acteur glisse le long au lieu de traverser
-      const free = (x: number, z: number) => !m.nav || m.nav.free(x, z);
+      // à la nage, l'eau est praticable (elle bloque les marcheurs)
+      const free = (x: number, z: number) => !m.nav || a.action === "swim" || m.nav.free(x, z);
       if (a.path) {
         a.pos[0] = nx;
         a.pos[2] = nz;
@@ -2739,6 +2745,11 @@ export class ProcgenView {
       a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
     a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+    // nageur : à la surface de l'eau quand elle recouvre le sol
+    if (a.action === "swim") {
+      const wl = this.waterAt(a.pos[0], a.pos[2]);
+      if (wl !== null && wl > a.pos[1]) a.pos[1] = wl;
+    }
     // actions
     const transient = a.action === "wave" || a.action === "cheer" || a.action === "jump" || a.action === "bow" || a.action === "point" || a.action === "kick";
     a.actionTime += dt;
