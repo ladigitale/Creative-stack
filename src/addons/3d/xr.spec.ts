@@ -4,7 +4,7 @@ import { get } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { registerStore, unregisterStore, type SonicActionMessage } from "../interactive/registry";
 import "./xr";
 import "./3d";
-import { framePosition, parseFeatures, parseVec3, placePosition, type SonicXr, type XrState, arScaleFor } from "./xr";
+import { framePosition, parseFeatures, parseVec3, placePosition, type SonicXr, type XrState, arScaleFor, hideProjectionLayers } from "./xr";
 import type { Sonic3d, Sonic3dXrHost } from "./3d";
 
 const wait = (ms = 0) => new Promise<void>((r) => setTimeout(r, ms));
@@ -394,5 +394,26 @@ describe("AR en maquette", () => {
     expect(arScaleFor(room, "auto")).toBeCloseTo(0.6 / 4.4);
     expect(arScaleFor({ min: [0, 0, 0], max: [0.2, 0.2, 0.2] }, "auto")).toBe(1);
     expect(arScaleFor(room, "0.05")).toBe(0.05);
+  });
+});
+
+describe("couche WebXR en AR", () => {
+  it("hideProjectionLayers masque createProjectionLayer puis le remet", () => {
+    class FakeBinding {
+      createProjectionLayer() {
+        return 1;
+      }
+    }
+    (globalThis as Record<string, unknown>).XRWebGLBinding = FakeBinding;
+    try {
+      const restore = hideProjectionLayers();
+      expect("createProjectionLayer" in FakeBinding.prototype).toBe(false);
+      restore();
+      expect(new FakeBinding().createProjectionLayer()).toBe(1);
+      restore();
+      expect("createProjectionLayer" in FakeBinding.prototype).toBe(true);
+    } finally {
+      delete (globalThis as Record<string, unknown>).XRWebGLBinding;
+    }
   });
 });

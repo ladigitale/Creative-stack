@@ -37,6 +37,10 @@ export type XrState = DeviceBaseState & {
   hit: { x: number; y: number; z: number } | null;
   /** Sources d'entrée (manettes, mains, toucher). */
   inputs: XrInputInfo[];
+  /** Diagnostic : mode de fusion avec le réel (`alpha-blend` en AR sur téléphone, `opaque` en VR), `null` hors session. */
+  blend: string | null;
+  /** Diagnostic : couche de rendu WebXR utilisée (`webgl` = XRWebGLLayer, `projection` = WebXR Layers). */
+  layer: "webgl" | "projection" | null;
 };
 
 /* Types WebXR minimaux (lib.dom ne les fournit pas tous). */
@@ -89,6 +93,22 @@ export function framePosition(bounds: { center: Vec3; min: Vec3; max: Vec3 } | n
   const dist = 1 + (size * scale) / 2;
   const eye = reference === "local-floor" ? EYE_HEIGHT : 0;
   return [offset[0] - c[0] * scale, eye + offset[1] - c[1] * scale, -dist + offset[2] - c[2] * scale];
+}
+
+/**
+ * Masque `XRWebGLBinding.prototype.createProjectionLayer` le temps de `renderer.xr.setSession` : three.js retombe sur
+ * un XRWebGLLayer. Rend une fonction qui remet la méthode (toujours appelée, même en cas d'erreur).
+ */
+export function hideProjectionLayers(): () => void {
+  const B = (globalThis as { XRWebGLBinding?: { prototype: object } }).XRWebGLBinding;
+  if (!B) return () => {};
+  const proto = B.prototype as Record<string, unknown>;
+  const desc = Object.getOwnPropertyDescriptor(proto, "createProjectionLayer");
+  if (!desc || !desc.configurable) return () => {};
+  delete proto.createProjectionLayer;
+  return () => {
+    if (!Object.prototype.hasOwnProperty.call(proto, "createProjectionLayer")) Object.defineProperty(proto, "createProjectionLayer", desc);
+  };
 }
 
 /** Échelle en AR : nombre imposé, ou `auto` = emprise au sol ramenée à 60 cm (jamais agrandie). */
@@ -169,6 +189,8 @@ export class SonicXr extends DeviceElement<XrState> {
     modes: { vr: false, ar: false, magic: true },
     magic: false,
     sensors: false,
+    blend: null,
+    layer: null,
     presenting: false,
     reference: null,
     hit: null,
@@ -385,7 +407,14 @@ export class SonicXr extends DeviceElement<XrState> {
       renderer.xr.setReferenceSpaceType(reference as XRReferenceSpaceType);
       this.saved = { position: scene.position.clone(), scale: scene.scale.clone(), background: scene.background, clearAlpha: renderer.getClearAlpha() };
       host.pause();
-      await renderer.xr.setSession(session as unknown as XRSession);
+      // AR : three.js prend les « projection layers » quand le navigateur les expose ; sur Chrome Android la caméra
+      // restait alors cachée. On impose le XRWebGLLayer (alpha), le chemin de tous les exemples AR de three.js.
+      const restoreLayers = mode === "ar" ? hideProjectionLayers() : () => {};
+      try {
+        await renderer.xr.setSession(session as unknown as XRSession);
+      } finally {
+        restoreLayers();
+      }
       this.refSpace = renderer.xr.getReferenceSpace();
       if (mode === "ar") {
         scene.background = null;
@@ -420,7 +449,20 @@ export class SonicXr extends DeviceElement<XrState> {
         if (this.hitSource) this.addReticle();
       }
       renderer.setAnimationLoop(this.onXrFrame);
-      this.patch({ status: "ready", error: null, active: true, presenting: true, mode, reference, inputs: this.readInputs() });
+      const xrm = renderer.xr as unknown as { getEnvironmentBlendMode?: () => string | undefined; getBaseLayer?: () => unknown };
+      const layer = xrm.getBaseLayer?.();
+      const WebGLLayer = (globalThis as { XRWebGLLayer?: new (...a: never[]) => unknown }).XRWebGLLayer;
+      this.patch({
+        status: "ready",
+        error: null,
+        active: true,
+        presenting: true,
+        mode,
+        reference,
+        inputs: this.readInputs(),
+        blend: xrm.getEnvironmentBlendMode?.() ?? null,
+        layer: layer ? (WebGLLayer && layer instanceof WebGLLayer ? "webgl" : "projection") : null,
+      });
       this.emit("sonic-xr-change", this.getState());
       return true;
     } catch (e) {
