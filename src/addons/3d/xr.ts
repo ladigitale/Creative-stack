@@ -226,6 +226,7 @@ export class SonicXr extends DeviceElement<XrState> {
     // permission des capteurs (iOS) demandée dans le geste ; refusée : le glisser reste possible
     const perm = requestOrientationPermission();
     const win = new MagicWindow(host, host.renderer.domElement, Number(this.eye) || 1.6);
+    win.onExit = () => this.stopMagic();
     this.magicWin = win;
     win.start();
     document.addEventListener("keydown", this.onKey);

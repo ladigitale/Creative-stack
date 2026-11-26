@@ -72,6 +72,18 @@ export class MagicWindow {
   start(): void {
     if (this.running) return;
     this.running = true;
+    // plein écran dans le geste (iPhone : refusé hors vidéo, la vue reste dans la page)
+    const box = this.fullscreenTarget();
+    if (box) {
+      this.savedRadius = box.style.borderRadius;
+      box.style.borderRadius = "0";
+    }
+    try {
+      void box?.requestFullscreen?.({ navigationUI: "hide" })?.catch?.(() => {});
+    } catch {
+      /* non disponible */
+    }
+    document.addEventListener("fullscreenchange", this.onFullscreen);
     const cam = this.host.camera as THREE.PerspectiveCamera;
     // cap de départ = celui de la vue actuelle : on regarde la scène là où on la regardait
     this.yaw = headingOf(cam.quaternion);
@@ -94,6 +106,10 @@ export class MagicWindow {
   stop(): void {
     if (!this.running) return;
     this.running = false;
+    document.removeEventListener("fullscreenchange", this.onFullscreen);
+    const box = this.fullscreenTarget();
+    if (box) box.style.borderRadius = this.savedRadius;
+    if (document.fullscreenElement && document.fullscreenElement === this.fullscreenTarget()) void document.exitFullscreen?.().catch(() => {});
     cancelAnimationFrame(this.raf);
     window.removeEventListener("deviceorientation", this.onOrientation);
     this.el.removeEventListener("pointerdown", this.onDown);
@@ -103,6 +119,23 @@ export class MagicWindow {
     this.el.style.touchAction = "";
     this.host.resume();
   }
+
+  /** Rappel quand l'utilisateur quitte le plein écran (Échap, geste système) : referme la fenêtre magique. */
+  onExit: (() => void) | null = null;
+  private wasFullscreen = false;
+  private savedRadius = "";
+
+  /** Élément mis en plein écran : l'hôte `sonic-3d` du canvas (ou le canvas). */
+  private fullscreenTarget(): HTMLElement | null {
+    const root = this.el.getRootNode();
+    return (root instanceof ShadowRoot ? (root.host as HTMLElement) : null) ?? this.el;
+  }
+
+  private onFullscreen = (): void => {
+    const on = !!document.fullscreenElement;
+    if (this.wasFullscreen && !on) this.onExit?.();
+    this.wasFullscreen = on;
+  };
 
   /** Orientation de caméra pour l'image courante (public pour les tests). */
   orientation(out = new THREE.Quaternion()): THREE.Quaternion {

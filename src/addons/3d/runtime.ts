@@ -293,7 +293,17 @@ export class SceneRuntime {
     this.lastCssW = cssW;
     this.lastCssH = cssH;
     // le casque fixe la taille du rendu pendant une session WebXR (reprise à la sortie)
-    if (this.xrMode) return;
+    if (this.xrMode && this.renderer.xr.isPresenting) return;
+    if (this.xrMode) {
+      // fenêtre magique (plein écran, rotation) : taille et proportions seulement, sans recadrer la caméra
+      this.renderer.setSize(cssW, cssH, false);
+      const cam = this.activeCam as THREE.PerspectiveCamera;
+      if (cam.isPerspectiveCamera && cssH > 0) {
+        cam.aspect = cssW / cssH;
+        cam.updateProjectionMatrix();
+      }
+      return;
+    }
     view.resize(this.asViewCtx(), cssW, cssH);
     // Cadré automatiquement (souvent avant la première mise en page, en 1:1) et caméra pas encore bougée :
     // on recadre si le passage en portrait (ou son inverse) change le champ qui décide.
