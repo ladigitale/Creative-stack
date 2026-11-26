@@ -1,10 +1,12 @@
 /**
- * Petit muxer WebM (Matroska) pour une piste vidéo VP8 / VP9 encodée par WebCodecs.
+ * Petit muxer WebM (Matroska) pour une piste vidéo VP8 / VP9 et, au besoin, une piste audio Opus,
+ * encodées par WebCodecs.
  *
  * Tout est assemblé en mémoire : les tailles (Segment, Clusters) sont connues à la fin, ce qui
  * évite les tailles « inconnues » et rend le fichier lisible et navigable partout.
- * Structure : EBML header, Segment { Info (TimecodeScale 1 ms, Duration), Tracks, Clusters
- * (Timecode + SimpleBlock, nouveau cluster à chaque image clé), Cues }.
+ * Structure : EBML header, Segment { Info (TimecodeScale 1 ms, Duration), Tracks (vidéo = piste 1,
+ * audio = piste 2), Clusters (Timecode + SimpleBlock vidéo et audio entrelacés par temps, nouveau
+ * cluster à chaque image clé vidéo), Cues (images clés vidéo) }.
  */
 
 export const EBML_ID = {
@@ -30,9 +32,15 @@ export const EBML_ID = {
   FlagLacing: 0x9c,
   CodecID: 0x86,
   DefaultDuration: 0x23e383,
+  CodecPrivate: 0x63a2,
+  CodecDelay: 0x56aa,
+  SeekPreRoll: 0x56bb,
   Video: 0xe0,
   PixelWidth: 0xb0,
   PixelHeight: 0xba,
+  Audio: 0xe1,
+  SamplingFrequency: 0xb5,
+  Channels: 0x9f,
   Cluster: 0x1f43b675,
   Timecode: 0xe7,
   SimpleBlock: 0xa3,
@@ -119,6 +127,44 @@ export function simpleBlock(track: number, relMs: number, keyframe: boolean, dat
   return element(EBML_ID.SimpleBlock, [vint(track), head, data]);
 }
 
+/** Pre-skip de libopus à 48 kHz (anticipation de l'encodeur), en échantillons. */
+export const OPUS_PRE_SKIP = 312;
+/** Pré-lecture conseillée pour Opus après un saut (80 ms), en ns. */
+const OPUS_SEEK_PREROLL_NS = 80_000_000;
+
+/**
+ * En-tête d'identification Opus (RFC 7845 §5.1) : CodecPrivate de la piste A_OPUS.
+ * Famille de correspondance 0 : 1 ou 2 canaux.
+ */
+export function opusHead(channels: number, inputRate: number, preSkip = OPUS_PRE_SKIP): Uint8Array {
+  if (channels !== 1 && channels !== 2) throw new Error(`Opus : 1 ou 2 canaux attendus (reçu ${channels})`);
+  const b = new Uint8Array(19);
+  b.set(new TextEncoder().encode("OpusHead"), 0);
+  const v = new DataView(b.buffer);
+  v.setUint8(8, 1); // version
+  v.setUint8(9, channels);
+  v.setUint16(10, preSkip, true);
+  v.setUint32(12, Math.round(inputRate), true);
+  v.setInt16(16, 0, true); // gain de sortie
+  v.setUint8(18, 0); // famille de correspondance
+  return b;
+}
+
+/** Pre-skip lu dans un OpusHead (octets 10-11, petit-boutiste), ou null si ce n'en est pas un. */
+export function opusPreSkip(head: Uint8Array): number | null {
+  if (head.length < 19 || new TextDecoder().decode(head.subarray(0, 8)) !== "OpusHead") return null;
+  return head[10] | (head[11] << 8);
+}
+
+export type WebmAudioOptions = {
+  /** 1 ou 2. */
+  channels: number;
+  /** Fréquence d'entrée de l'encodeur (écrite dans l'OpusHead construit ; la piste annonce 48 kHz). */
+  inputRate: number;
+  /** OpusHead fourni par l'encodeur (`decoderConfig.description`) ; sinon construit. */
+  codecPrivate?: Uint8Array;
+};
+
 export type WebmOptions = {
   codec: WebmCodec;
   width: number;
@@ -127,44 +173,101 @@ export type WebmOptions = {
   maxBytes?: number;
   /** Durée d'une image en ms (DefaultDuration), quand la cadence est fixe. */
   frameMs?: number;
+  /** Piste audio Opus (écrite seulement si des blocs audio ont été ajoutés). */
+  audio?: WebmAudioOptions;
   app?: string;
 };
 
-type Cluster = { time: number; blocks: Uint8Array[]; bytes: number };
+type Block = { track: 1 | 2; t: number; key: boolean; data: Uint8Array; seq: number };
+type Cluster = { time: number; blocks: Uint8Array[]; cue: boolean };
 
 /** Taille max d'un cluster en temps : le temps relatif d'un bloc tient sur un int16. */
 const CLUSTER_MAX_MS = 30000;
 
 export class WebmMuxer {
-  private clusters: Cluster[] = [];
+  private blocks: Block[] = [];
   private bytes = 0;
   private lastMs = 0;
+  /** Images vidéo ajoutées. */
   frames = 0;
+  /** Paquets audio ajoutés. */
+  audioPackets = 0;
 
   constructor(readonly opts: WebmOptions) {}
 
-  /** Octets des images déjà ajoutées (approximation de la taille du fichier). */
+  /** Octets des blocs déjà ajoutés (approximation de la taille du fichier). */
   get size(): number {
     return this.bytes;
   }
 
-  /** Ajoute une image encodée (temps en ms depuis le début). */
+  /** Ajoute une image vidéo encodée (temps en ms depuis le début). */
   add(data: Uint8Array, timeMs: number, keyframe: boolean): void {
+    if (!this.frames && !keyframe) throw new Error("la première image doit être une image clé");
     const t = Math.max(0, Math.round(timeMs));
-    let c = this.clusters[this.clusters.length - 1];
-    if (!c && !keyframe) throw new Error("la première image doit être une image clé");
-    if (!c || keyframe || t - c.time > CLUSTER_MAX_MS) {
-      c = { time: t, blocks: [], bytes: 0 };
-      this.clusters.push(c);
-    }
-    const block = simpleBlock(1, t - c.time, keyframe, data);
-    const max = this.opts.maxBytes ?? Infinity;
-    if (this.bytes + block.length > max) throw new Error(`taille maximale atteinte (${Math.round(max / 1e6)} Mo)`);
-    c.blocks.push(block);
-    c.bytes += block.length;
-    this.bytes += block.length;
+    this.push({ track: 1, t, key: keyframe, data, seq: this.blocks.length });
     this.lastMs = Math.max(this.lastMs, t);
     this.frames++;
+  }
+
+  /** Ajoute un paquet Opus (temps en ms depuis le début ; chaque paquet est indépendant). */
+  addAudio(data: Uint8Array, timeMs: number): void {
+    if (!this.opts.audio) throw new Error("aucune piste audio déclarée");
+    const t = Math.max(0, Math.round(timeMs));
+    this.push({ track: 2, t, key: true, data, seq: this.blocks.length });
+    this.audioPackets++;
+  }
+
+  /** OpusHead donné par l'encodeur après coup (premier paquet). */
+  setAudioCodecPrivate(head: Uint8Array): void {
+    if (this.opts.audio) this.opts.audio.codecPrivate = head;
+  }
+
+  private push(b: Block): void {
+    // Taille exacte du SimpleBlock : id (1) + taille (VINT) + piste (1) + temps (2) + drapeaux (1) + données.
+    const body = 4 + b.data.length;
+    const len = 1 + vint(body).length + body;
+    const max = this.opts.maxBytes ?? Infinity;
+    if (this.bytes + len > max) throw new Error(`taille maximale atteinte (${Math.round(max / 1e6)} Mo)`);
+    this.blocks.push(b);
+    this.bytes += len;
+  }
+
+  /** Blocs triés par temps, répartis en clusters (nouveau cluster à chaque image clé vidéo, ou après 30 s). */
+  private clusters(): Cluster[] {
+    const sorted = [...this.blocks].sort((a, b) => a.t - b.t || a.seq - b.seq);
+    const out: Cluster[] = [];
+    let c: Cluster | null = null;
+    for (const b of sorted) {
+      const videoKey = b.track === 1 && b.key;
+      if (!c || videoKey || b.t - c.time > CLUSTER_MAX_MS) {
+        // Un cluster qui commence par une image clé vidéo est un point d'entrée (Cues).
+        c = { time: b.t, blocks: [], cue: videoKey };
+        out.push(c);
+      }
+      c.blocks.push(simpleBlock(b.track, b.t - c.time, b.key, b.data));
+    }
+    return out;
+  }
+
+  private audioEntry(): Uint8Array | null {
+    const a = this.opts.audio;
+    if (!a || !this.audioPackets) return null;
+    const head = a.codecPrivate?.length ? a.codecPrivate : opusHead(a.channels, a.inputRate);
+    const given = opusPreSkip(head);
+    const preSkip = given ?? OPUS_PRE_SKIP;
+    const channels = given !== null ? head[9] : a.channels;
+    return element(EBML_ID.TrackEntry, [
+      uintEl(EBML_ID.TrackNumber, 2),
+      uintEl(EBML_ID.TrackUID, 2),
+      uintEl(EBML_ID.TrackType, 2),
+      uintEl(EBML_ID.FlagLacing, 0),
+      strEl(EBML_ID.CodecID, "A_OPUS"),
+      element(EBML_ID.CodecPrivate, head),
+      uintEl(EBML_ID.CodecDelay, Math.round((preSkip / 48000) * 1e9)),
+      uintEl(EBML_ID.SeekPreRoll, OPUS_SEEK_PREROLL_NS),
+      // Opus se décode toujours à 48 kHz : c'est la fréquence annoncée par la piste.
+      element(EBML_ID.Audio, [floatEl(EBML_ID.SamplingFrequency, 48000), uintEl(EBML_ID.Channels, channels)]),
+    ]);
   }
 
   /** Fichier en morceaux (pour un Blob sans recopie). `durationMs` par défaut : dernière image + une image. */
@@ -196,20 +299,25 @@ export class WebmMuxer {
     ];
     if (o.frameMs && o.frameMs > 0) entry.push(uintEl(EBML_ID.DefaultDuration, Math.round(o.frameMs * 1e6)));
     entry.push(element(EBML_ID.Video, [uintEl(EBML_ID.PixelWidth, o.width), uintEl(EBML_ID.PixelHeight, o.height)]));
-    const tracks = element(EBML_ID.Tracks, element(EBML_ID.TrackEntry, entry));
+    const entries = [element(EBML_ID.TrackEntry, entry)];
+    const audio = this.audioEntry();
+    if (audio) entries.push(audio);
+    const tracks = element(EBML_ID.Tracks, entries);
 
     // Positions des clusters relatives au début des données du Segment (pour les Cues).
     const body: Uint8Array[] = [info, tracks];
     let pos = info.length + tracks.length;
     const cues: Uint8Array[] = [];
-    for (const c of this.clusters) {
+    for (const c of this.clusters()) {
       const cluster = element(EBML_ID.Cluster, [uintEl(EBML_ID.Timecode, c.time), ...c.blocks]);
-      cues.push(
-        element(EBML_ID.CuePoint, [
-          uintEl(EBML_ID.CueTime, c.time),
-          element(EBML_ID.CueTrackPositions, [uintEl(EBML_ID.CueTrack, 1), uintEl(EBML_ID.CueClusterPosition, pos)]),
-        ]),
-      );
+      if (c.cue) {
+        cues.push(
+          element(EBML_ID.CuePoint, [
+            uintEl(EBML_ID.CueTime, c.time),
+            element(EBML_ID.CueTrackPositions, [uintEl(EBML_ID.CueTrack, 1), uintEl(EBML_ID.CueClusterPosition, pos)]),
+          ]),
+        );
+      }
       body.push(cluster);
       pos += cluster.length;
     }
