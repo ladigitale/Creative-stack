@@ -113,6 +113,25 @@ export function hideProjectionLayers(): () => void {
   };
 }
 
+const AR_REFUSED_KEY = "sonic-xr:ar-refused";
+
+/** Ce navigateur a déjà refusé une session AR sans aucune option (mémorisé : stockage indisponible = non). */
+export function arRefusedHere(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(AR_REFUSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberArRefused(): void {
+  try {
+    localStorage.setItem(AR_REFUSED_KEY, "1");
+  } catch {
+    /* navigation privée : on redemandera */
+  }
+}
+
 /** Échelle en AR : nombre imposé, ou `auto` = emprise au sol ramenée à 60 cm (jamais agrandie). */
 export function arScaleFor(bounds: { min: Vec3; max: Vec3 } | null, attr: string, fallback = 1): number {
   const n = Number(attr);
@@ -305,7 +324,9 @@ export class SonicXr extends DeviceElement<XrState> {
         return false;
       }
     };
-    const [vr, ar] = await Promise.all([ask("immersive-vr"), ask("immersive-ar")]);
+    const [vr, arAnnounced] = await Promise.all([ask("immersive-vr"), ask("immersive-ar")]);
+    // Chrome annonce l'AR puis la refuse sur les téléphones non certifiés ARCore : refus déjà constaté ici = pas d'AR
+    const ar = arAnnounced && !arRefusedHere();
     const none = !vr && !ar;
     this.patch({
       supported: true,
@@ -424,11 +445,19 @@ export class SonicXr extends DeviceElement<XrState> {
         return false;
       }
       this.fail(e, what);
-      this.patch({
-        mode: null,
-        detail: tried.join(" | "),
-        ...(refused && mode === "ar" ? { error: "réalité augmentée refusée par ce téléphone : installer ou mettre à jour « Services Google Play pour la RA » (ARCore) dans le Play Store" } : {}),
-      });
+      if (refused && mode === "ar") {
+        // même sans aucune option : le téléphone n'a pas l'AR (pas certifié ARCore) ; le bouton AR disparaît ici
+        rememberArRefused();
+        this.fallbackLevel.ar = 0;
+        this.patch({
+          mode: null,
+          detail: tried.join(" | "),
+          modes: { ...this.state.modes, ar: false },
+          error: "réalité augmentée indisponible sur ce téléphone (non certifié ARCore, ou « Services Google Play pour la RA » absent) ; « Regarder autour » reste possible",
+        });
+        return false;
+      }
+      this.patch({ mode: null, detail: tried.join(" | ") });
       return false;
     };
     return attempt(level);

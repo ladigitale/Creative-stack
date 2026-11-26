@@ -463,6 +463,13 @@ describe("replis à l'ouverture", () => {
     expect(x.requests.map((r) => JSON.stringify(r.init))).toEqual([JSON.stringify(x.requests[0].init), '{"optionalFeatures":["hit-test"]}', "{}"]);
     expect(state().status).toBe("unsupported");
     expect(state().error).toMatch(/ARCore/);
+    // le téléphone n'a pas l'AR : le bouton disparaît, et au prochain chargement aussi
+    expect(state().modes.ar).toBe(false);
     expect(state().detail).toMatch(/NotSupportedError.*NotSupportedError.*NotSupportedError/);
+    expect(localStorage.getItem("sonic-xr:ar-refused")).toBe("1");
+    document.body.innerHTML = "";
+    await mount(`<sonic-xr id="xr" target="scene"></sonic-xr>`, h.host);
+    expect(state().modes.ar).toBe(false);
+    localStorage.removeItem("sonic-xr:ar-refused");
   });
 });
