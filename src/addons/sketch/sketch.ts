@@ -155,6 +155,12 @@ export type SketchState = {
  * `save` (SVG), `savePng`, `fit`, `reset`, `zoomIn`, `zoomOut`, `rotateLeft`, `rotateRight`, `straighten`.
  * Vue pilotée par `view-from` ({x, y, zoom, rotation}).
  */
+/** Pipette (pointe en bas à gauche, trait sombre bordé de clair) ; croix si le navigateur refuse l'image. */
+const PICK_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+  '<g stroke="#fff" stroke-width="4"><path d="M3 21l2-.5L15 10.5 13.5 9 3.5 19z"/><path d="M13 7.5l3.5 3.5M15 6l2.5-2.5a2.1 2.1 0 0 1 3 3L18 9"/></g>' +
+  '<g stroke="#111" stroke-width="1.6"><path d="M3 21l2-.5L15 10.5 13.5 9 3.5 19z"/><path d="M13 7.5l3.5 3.5M15 6l2.5-2.5a2.1 2.1 0 0 1 3 3L18 9"/></g></svg>',
+)}") 3 21, crosshair`;
 /** Au-delà de ce nombre de traits visibles, la couche est redessinée par tranches après un geste de vue. */
 const PROGRESSIVE_MIN = 400;
 /** Durée d'une tranche du rendu étalé (ms) : laisse respirer l'interface entre deux images. */
@@ -493,7 +499,10 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   private readonly liveKey = {};
   private erased = new Set<number>();
   private space = false;
+  private alt = false;
   private hover = false;
+  /** Dernier événement de pointeur au-dessus de la toile : sert à remettre le curseur à jour sur Espace / Alt. */
+  private lastPtr: PointerEvent | null = null;
   private triggers = new Map<string, CounterTrigger>();
   private unsubs: (() => void)[] = [];
   private last: SketchState["last"] = null;
@@ -594,6 +603,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.observeSize();
     window.addEventListener("keydown", this.onSpace);
     window.addEventListener("keyup", this.onSpace);
+    window.addEventListener("keydown", this.onAlt);
+    window.addEventListener("keyup", this.onAlt);
+    window.addEventListener("blur", this.onBlur);
     window.addEventListener("pagehide", this.flushSave);
     document.addEventListener("visibilitychange", this.onVisibility);
   }
@@ -605,6 +617,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.unsubs = [];
     window.removeEventListener("keydown", this.onSpace);
     window.removeEventListener("keyup", this.onSpace);
+    window.removeEventListener("keydown", this.onAlt);
+    window.removeEventListener("keyup", this.onAlt);
+    window.removeEventListener("blur", this.onBlur);
     cancelAnimationFrame(this.raf);
     this.cancelProgressive();
     this.layerWorker.dispose();
@@ -1295,6 +1310,22 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (e.type === "keydown" && !this.hover && this.shadowRoot?.activeElement !== this.canvasEl) return;
     if (e.type === "keydown") e.preventDefault();
     this.space = e.type === "keydown";
+    this.refreshCursor();
+  };
+
+  /** Alt (pipette avec le crayon) change le curseur tout de suite, sans attendre un mouvement. */
+  private onAlt = (e: KeyboardEvent): void => {
+    if (e.key !== "Alt" || this.alt === (e.type === "keydown")) return;
+    this.alt = e.type === "keydown";
+    if (this.hover) this.refreshCursor();
+  };
+
+  /** Fenêtre quittée touche enfoncée : le keyup n'arrivera pas. */
+  private onBlur = (): void => {
+    if (!this.space && !this.alt) return;
+    this.space = false;
+    this.alt = false;
+    this.refreshCursor();
   };
 
   private onKey = (e: KeyboardEvent): void => {
@@ -1309,6 +1340,13 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
   };
 
   private onDown = (e: PointerEvent): void => {
+    this.down(e);
+    this.lastPtr = e;
+    this.alt = e.altKey;
+    this.refreshCursor();
+  };
+
+  private down(e: PointerEvent): void {
     if (this.readonly || this.gestureState?.playing) return;
     this.canvasEl.focus({ preventScroll: true });
     const p = this.local(e);
@@ -1355,7 +1393,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     const eraserTip = pen.eraser && this.penEraser !== "none";
     this.penAngle = this.penTilt !== "none" ? this.angleOfPen(pen) : null;
     this.startStroke(p, e, tool === "erase" || eraserTip);
-  };
+  }
 
   /** Orientation (°, dans le monde) donnée par le stylet : sa rotation si connue, sinon la direction de son inclinaison. */
   private angleOfPen(pen: ReturnType<typeof readPen>): number | null {
@@ -1366,7 +1404,10 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private onMove = (e: PointerEvent): void => {
     const p = this.local(e);
-    if (this.brushCursor) this.trackCursor(e, p);
+    this.lastPtr = e;
+    this.alt = e.altKey;
+    this.hover = true;
+    this.refreshCursor();
     if (this.nav.move(e.pointerId, p)) return;
     if (e.pointerId !== this.pointer) return;
     if (this.mode === "pick") { this.pick(e, false); return; }
@@ -1379,19 +1420,42 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
 
   private onLeave = (): void => {
     this.hover = false;
-    if (this.cursorAt) { this.cursorAt = null; this.canvasEl.style.cursor = ""; this.scheduleOverlay(); }
+    // Toujours capturé (geste en cours) : le curseur reste celui du geste.
+    if (this.pointer !== null) return;
+    this.lastPtr = null;
+    this.refreshCursor();
   };
 
-  /** Suit le pointeur pour le curseur-pinceau (souris et stylet seulement ; le tactile n'en a pas). */
-  private trackCursor(e: PointerEvent, p: { x: number; y: number }): void {
+  /**
+   * Curseur natif selon ce que ferait un clic ici : main ouverte (Espace, outil main) ou fermée (vue en cours de
+   * déplacement), pipette (outil, Alt avec le crayon, bouton du stylet), main à doigt pour la sélection, croix pour le
+   * crayon et la gomme (ou aucun, remplacé par le contour de l'empreinte avec `brush-cursor`).
+   */
+  private nativeCursor(e: PointerEvent): string {
+    if (this.readonly || this.gestureState?.playing || e.pointerType === "touch") return "";
+    if (this.mode === "pan" || (this.pointer !== null && this.nav.active)) return "grabbing";
     const tool = this.currentTool();
-    const on = e.pointerType !== "touch" && (tool === "paint" || tool === "erase") && this.mode !== "pan" && this.mode !== "pick" && !e.altKey;
-    const pen = readPen(e);
-    const a = this.penTilt !== "none" ? this.angleOfPen(pen) : null;
-    const next = on ? { x: p.x, y: p.y, p: e.pointerType === "pen" && e.pressure > 0 ? e.pressure : 1, a: a ?? 0 } : null;
+    if (this.space || tool === "hand") return "grab";
+    if (this.mode === "pick" || tool === "pick" || (this.alt && tool === "paint")) return PICK_CURSOR;
+    if (this.mode === "select" || tool === "select" || tool === "select-color") return "pointer";
+    if (this.brushCursor) return "none";
+    return "crosshair";
+  }
+
+  /** Remet à jour le curseur natif et le curseur-pinceau (souris et stylet seulement ; le tactile n'en a pas). */
+  private refreshCursor(): void {
+    if (!this.canvasEl) return;
+    const e = this.lastPtr;
+    const cursor = e ? this.nativeCursor(e) : "";
+    let next: typeof this.cursorAt = null;
+    if (e && cursor === "none") {
+      const p = this.local(e);
+      const a = this.penTilt !== "none" ? this.angleOfPen(readPen(e)) : null;
+      next = { x: p.x, y: p.y, p: e.pointerType === "pen" && e.pressure > 0 ? e.pressure : 1, a: a ?? 0 };
+    }
+    if (this.canvasEl.style.cursor !== cursor) this.canvasEl.style.cursor = cursor;
     if (!next && !this.cursorAt) return;
     this.cursorAt = next;
-    this.canvasEl.style.cursor = next ? "none" : "";
     this.scheduleOverlay();
   }
 
@@ -1411,6 +1475,8 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     else if (this.mode === "pan") this.settleLater();
     this.pointer = null;
     this.mode = "none";
+    if (!this.hover) this.lastPtr = null;
+    this.refreshCursor();
     this.publish();
   };
 

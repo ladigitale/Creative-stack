@@ -13,7 +13,7 @@ import { mondeSummary, readMonde, type Conflict, type Monde } from "../../shared
 import type { PlacedInfo } from "../../shared/monde/arrange";
 import { listenTurn, wrapAngle } from "../../shared/monde/turn-keys";
 import { TAP_MAX_MOVE_PX, TAP_MAX_MS, isNum, namesRegex, type NodeCurve } from "../../shared/nodes";
-import { MAX_SPRITES, camTweenAt, defaultCamera, parseLayers, parseSprite, readCamera, type CamTween, type Camera, type SpriteSpec } from "./model";
+import { MAX_SPRITES, camTweenAt, readLights, defaultCamera, parseLayers, parseSprite, readCamera, type CamTween, type Camera, type SpriteSpec } from "./model";
 import { Scene2D } from "./scene";
 import "./elements";
 import { publisherAt } from "../../shared/dp-path";
@@ -98,6 +98,11 @@ export class Sonic2d extends LitElement {
   @property({ type: String }) layers = "";
   /** Chemin DataProvider de la caméra {x, y, zoom, ease} (défaut : clé `camera` du dataProvider). */
   @property({ type: String }) camera = "";
+  /**
+   * Chemin DataProvider de l'éclairage `{ambient | darkness, lights: [{x, y, r, color, intensity, follow, flicker}]}`
+   * (sinon clé `lights` du dataProvider) : la scène est assombrie, les lumières l'éclairent.
+   */
+  @property({ type: String }) lights = "";
   /** Chemin DataProvider d'une liste de sprites (mêmes clés que sonic-sprite). */
   @property({ type: String }) sprites = "";
   @property({ type: String }) target = "";
@@ -256,7 +261,7 @@ export class Sonic2d extends LitElement {
     if (changed.has("layers")) this.applyLayers();
     if (changed.has("debug")) this.scene.setDebug(this.debug);
     if (changed.has("dataProvider")) this.bind();
-    if (changed.has("sprites") || changed.has("camera")) this.listen();
+    if (changed.has("sprites") || changed.has("camera") || changed.has("lights")) this.listen();
     if (changed.has("monde")) this.syncMonde((this.publisher?.get() as Record<string, unknown> | null)?.monde);
     if (changed.has("mondeLayer") && this.mondeR) this.scene.attachExtra(this.mondeR.container, this.mondeLayer || "monde");
     if (changed.has("monde2d")) this.syncMonde2d((this.publisher?.get() as Record<string, unknown> | null)?.monde2d);
@@ -313,6 +318,7 @@ export class Sonic2d extends LitElement {
     if (this.scene !== scene) return;
     this.cam = defaultCamera(this.width, this.height);
     this.camSig = "";
+    this.lightsSig = "";
     this.applyLayers();
     scene.setDebug(this.debug);
     this.m2 = new Monde2dRenderer(
@@ -463,6 +469,15 @@ export class Sonic2d extends LitElement {
         /* pas encore de valeur */
       }
     }
+    const lightsPath = this.lights.trim();
+    if (lightsPath) {
+      this.unsubs.push(listenDp(lightsPath, (v) => this.applyLights(v)));
+      try {
+        this.applyLights((publisherAt(lightsPath) as unknown as Publisher).get());
+      } catch {
+        /* pas encore de valeur */
+      }
+    }
     const path = this.sprites.trim();
     if (!path) {
       if (this.scene && this.listOwned.size) this.listOwned = this.scene.syncSet(this.listOwned, []);
@@ -562,6 +577,7 @@ export class Sonic2d extends LitElement {
     }
     if (data.rest !== undefined || data.bones !== undefined) scene.setSkeleton(data.rest, data.bones);
     if (data.camera !== undefined && !this.camera.trim()) this.applyCameraSpec(data.camera, animate);
+    if (data.lights !== undefined && !this.lights.trim()) this.applyLights(data.lights);
     this.publishOut();
     this.invalidate();
   };
@@ -710,6 +726,24 @@ export class Sonic2d extends LitElement {
     return rest;
   }
 
+  private lightsSig = "";
+
+  /** Éclairage : liste relue, positions des lumières `follow` lues au rendu (sprites, puis instances monde2d). */
+  private applyLights(v: unknown): void {
+    let sig = "";
+    try {
+      sig = JSON.stringify(v) ?? "";
+    } catch {
+      /* ignoré */
+    }
+    if (sig === this.lightsSig && this.scene?.isReady) return;
+    this.lightsSig = sig;
+    const scene = this.scene;
+    if (!scene?.isReady) return;
+    scene.setLights(readLights(v && typeof v === "object" ? JSON.parse(sig) : v), (name) => this.m2?.positionOf(name) ?? scene.positionOf(name));
+    this.invalidate();
+  }
+
   private applyCameraSpec(v: unknown, animate: boolean): void {
     const sig = JSON.stringify(v);
     if (sig === this.camSig) return;
@@ -764,7 +798,7 @@ export class Sonic2d extends LitElement {
       this.inFrame = false;
     }
     // Une source d'images vivante (sprite `source`) demande une image par rafraîchissement ; sinon : rendu à la demande.
-    if (this.dirty || scene.nodes.active || this.camTween || scene.hasLive || this.mondeBusy) this.raf = requestAnimationFrame(this.frame);
+    if (this.dirty || scene.nodes.active || this.camTween || scene.hasLive || scene.lightsLive || this.mondeBusy) this.raf = requestAnimationFrame(this.frame);
   };
 
   private mondeBusy = false;
@@ -785,6 +819,7 @@ export class Sonic2d extends LitElement {
       else busy = true;
     }
     if (scene.hasLive && scene.refreshLive()) this.dirty = true;
+    if (scene.lightsLive) this.dirty = true;
     if (this.dirty || busy) {
       this.dirty = false;
       scene.render();

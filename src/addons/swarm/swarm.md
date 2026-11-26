@@ -38,7 +38,7 @@ The swarm writes the shared scene format: `nodes` (`{x, y, rz}`, or `{x, z, ry}`
 ```
 
 - `bounds` `[x0, y0, x1, y1]` in world units (the same as the `sonic-2d` scene); `edges`: `steer` (turn back softly, default), `wrap` (torus), `bounce`.
-- `grid`: walls from a text grid (same format as the `$grid…` functions of [../interactive/algo.md](../interactive/algo.md)), `cell` = size of a cell in world units. Agents look ahead and turn away from walls, then slide along them. Outside the grid counts as wall.
+- `grid`: walls from a text grid (same format as the `$grid…` functions of [../interactive/algo.md](../interactive/algo.md)), `cell` = size of a cell in world units. Agents look ahead and turn away from walls, then slide along them. Outside the grid counts as wall. `smooth` (0 to 4): agents hit the smoothed walls that `$gridContours` draws with the same `smooth` and `scale` = `cell`, not the square cells — what the player sees is what blocks (rounded corners, diagonal slopes). Without `smooth`, walls are the square cells.
 - `seed`: same seed → same start (spawn positions, wandering).
 
 ### Group keys
@@ -78,7 +78,7 @@ Feed `mer.pointer` with the pointer position in scene units (for example a `soni
 
 ## With the `$grid…` functions
 
-A level generated in a reducer (`$genCave`, `$genDungeon`, `$genMaze`) goes straight to `grid.rows`; `flow` then walks a whole crowd towards the exit through the corridors, and `$gridFind(rows, 'X')` gives the target cell (multiply by `cell` and add half a cell for world units).
+A level generated in a reducer (`$genCave`, `$genDungeon`, `$genMaze`) goes straight to `grid.rows`; `flow` then walks a whole crowd towards the exit through the corridors, and `$gridFind(rows, 'X')` gives the target cell (multiply by `cell` and add half a cell for world units). Draw the walls with `$gridContours(rows, {"values": ".", "scale": cell, "smooth": 2, "sprites": {…}})` and give the swarm `grid.smooth: 2`: the school then follows the drawn shapes exactly. Keep passages at least two cells wide: smoothing rounds the corners of a one-cell turn.
 
 ## Limits
 

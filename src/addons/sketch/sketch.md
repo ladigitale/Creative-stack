@@ -223,6 +223,8 @@ Avec `sonic-palette`, l'attribut `write-base` écrit aussi la teinte tirée au h
 
 ### Curseur-pinceau
 
+Curseur natif selon le contexte : main ouverte avec Espace ou l'outil main, main fermée pendant que la vue se déplace (Espace, bouton du milieu, main), pipette pour `tool="pick"` et Alt avec le crayon, main à doigt pour la sélection, croix pour le crayon et la gomme. Espace et Alt changent le curseur dès l'appui, sans attendre un mouvement.
+
 `brush-cursor` : au-dessus de la toile, à la souris ou au stylet (survol compris), le curseur natif est remplacé par le **contour de l'empreinte** qui sera posée : forme de la pointe (`tip`), diamètre au zoom courant, angle, aplatissement (`roundness`) ; une petite croix quand l'empreinte fait moins de 6 px. Seulement pour le crayon et la gomme (pas la main, la pipette ni la sélection), jamais au tactile. Le contour est tracé sur la toile de la sélection, hors de l'image (ni export ni source d'images).
 
 Quand une couche est posée sur la toile (ex. un `sonic-shader` d'effets qui la reprend en `channel0`), `style="--sketch-overlay-z: 2"` place la sélection et le curseur-pinceau au-dessus.

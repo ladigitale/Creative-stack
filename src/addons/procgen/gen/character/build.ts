@@ -51,6 +51,18 @@ export function buildCharacter(look: Look, v: Rng): Built {
   const field = new Field(prims, bf.blends);
   const { mesh, owner } = polygonize(field, { cell, smooth: 3, ao: true, exactOwner: true, aoSteps: 3 });
   const boneOwner = Int32Array.from(owner, (o) => (o >= 0 ? bf.set.bone[o] : 0));
+  // un pan de vêtement accroché au bas du dos (manteau, veste) suit, au-dessus, l'os qui est vraiment là : le haut du
+  // dos et les omoplates bougent avec la poitrine, pas avec les lombaires (sinon la peau s'étire bras levés)
+  {
+    const iSpine = skel.index.spine, iChest = skel.index.chest, iPelvis = skel.index.pelvis;
+    const chest = k.B("chest"), spine = k.B("spine");
+    const yChest = chest.head[1] + (chest.tail[1] - chest.head[1]) * 0.2, ySpine = spine.head[1] + (spine.tail[1] - spine.head[1]) * 0.3;
+    for (let vi = 0; vi < boneOwner.length; vi++) {
+      const y = mesh.pos[vi * 3 + 1];
+      if (boneOwner[vi] === iSpine && y > yChest) boneOwner[vi] = iChest;
+      else if (boneOwner[vi] === iPelvis && y > ySpine) boneOwner[vi] = y > yChest ? iChest : iSpine;
+    }
+  }
   const thighY = k.B("shin.l").head[1];
   computeWeights(mesh, boneOwner, skel, {
     passes: 9,
@@ -69,11 +81,19 @@ export function buildCharacter(look: Look, v: Rng): Built {
       // pan drapé : seul le bas (sous la taille) suit bassin et cuisses ; le haut garde les poids du buste et des
       // bras (sinon les épaules d'un manteau restaient collées au bassin et se déchiraient quand on bouge)
       if (pt[1] > P.hipY + H * 0.04) return null;
+      // pan drapé (robe, jupe, tablier, manteau) : sous l'entrejambe il suit les jambes comme le tissu posé dessus —
+      // la cuisse jusqu'au genou, puis le tibia ; entre les jambes il est partagé entre les deux cuisses (le tissu se
+      // tend de l'une à l'autre) au lieu de rester accroché au bassin, que la cuisse traverserait assise ou en foulée
       const a = smoothstep(P.crotchY + H * 0.02, thighY, pt[1]);
-      const sx = pt[0] >= 0 ? "l" : "r";
+      // le haut du pan (sur la cuisse) la suit franchement ; plus bas le tissu retombe : sous le genou la part des
+      // jambes diminue jusqu'à l'ourlet (sinon une robe longue pivote en bloc et fait une cloche ou une boule)
+      const below = smoothstep(thighY, thighY - H * 0.25, pt[1]);
+      const legShare = a * (0.85 - 0.35 * below);
+      // une seule jambe par sommet (pas de sommet partagé entre les deux cuisses) : part forte sur les côtés, là où
+      // la cuisse traverserait le tissu, faible au milieu pour que le devant ne se déchire pas entre les jambes
       const sideW = smoothstep(0, P.hipHalf * 0.9, Math.abs(pt[0]));
-      const legW = a * 0.6 * (0.4 + 0.6 * sideW);
-      return { pelvis: 1 - legW, [`thigh.${sx}`]: legW };
+      const ls = legShare * (0.3 + 0.7 * sideW);
+      return { pelvis: 1 - ls, [`thigh.${pt[0] >= 0 ? "l" : "r"}`]: ls };
     },
   });
   cutRoles(mesh, owner, field, bf.set.pattern, cell);
@@ -82,7 +102,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
   const hf = buildHeadField(k);
   const hField = new Field(hf.set.prims, hf.blends);
   const headCell = P.headH / (crowd ? 14 : 26);
-  const hp = polygonize(hField, { cell: headCell, smooth: 2, ao: true, exactOwner: true, aoSteps: 3 });
+  const hp = polygonize(hField, { cell: headCell, smooth: 3, ao: true, exactOwner: true, aoSteps: 3 });
   const head = hp.mesh;
   // poids : tête rigide au-dessus du menton, poids de la peau la plus proche (cou, buste) en dessous
   const trunk = new Set(["neck", "chest", "spine", "clavicle.l", "clavicle.r"].map(bi));
