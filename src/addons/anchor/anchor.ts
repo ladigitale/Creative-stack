@@ -87,7 +87,9 @@ const IDLE: AnchorState = {
  * - `smoothing` 0..0.9 lisse les coins ; `hold` garde la dernière position quelques analyses après une perte.
  * - Renfort gyroscope (avec `gravity`, capteurs de `sonic-orientation` actifs) : zone perdue de vue, sa position
  *   est prédite par la rotation du téléphone depuis le dernier repérage pendant `gyro-hold` ms (1500 ; 0 = sans),
- *   champ de vision horizontal de la caméra `fov` (63°). État `gyro: true` tant que les coins sont prédits.
+ *   champ de vision horizontal de la caméra `fov` (63°). État `gyro: true` tant que les coins sont prédits. La prédiction
+ *   utilise l'orientation au moment de la prise de chaque image analysée et porte son `frameSeq` (calée sur la vidéo
+ *   de `sonic-frame-sync`).
  * - État `<id>State` (ou `out-data-provider`) : voir `AnchorState`. `debug` dessine la zone trouvée.
  * - Synchronisation image / contenu : l'état porte `frameSeq` et `latencyMs` de l'image analysée ; afficher la
  *   caméra à travers `sonic-frame-sync for="cam" sync="<id>State"` (puis un `sonic-shader channel0`) pour que le
@@ -147,7 +149,8 @@ export class SonicAnchor extends LitElement {
   private orient: Quat | null = null;
   /** Dernier repérage réussi : orientation, coins (0..1), instant, proportions de l'image. */
   private gyroRef: { q: Quat; corners: Pt[]; at: number; aspect: number } | null = null;
-  private gyroRaf = 0;
+  /** Mesures récentes des capteurs, horodatées : l'orientation au moment où une image a été prise. */
+  private orientHistory: { t: number; q: Quat }[] = [];
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private unsubs: Array<() => void> = [];
@@ -178,8 +181,6 @@ export class SonicAnchor extends LitElement {
   }
 
   disconnectedCallback(): void {
-    if (this.gyroRaf) cancelAnimationFrame(this.gyroRaf);
-    this.gyroRaf = 0;
     this.stop();
     this.runner?.dispose();
     this.runner = null;
@@ -201,8 +202,11 @@ export class SonicAnchor extends LitElement {
     if (this.gravity) this.unsubs.push(listenDp(this.gravity, (v) => {
       this.up = upFromOrientation(v);
       this.orient = quatFromOrientation(v);
-      // zone suivie au gyroscope : les coins suivent chaque mesure des capteurs, pas seulement chaque analyse
-      if (this.stateValue.gyro && !this.gyroRaf) this.gyroRaf = requestAnimationFrame(() => { this.gyroRaf = 0; this.gyroUpdate(); });
+      if (this.orient) {
+        const t = performance.now();
+        this.orientHistory.push({ t, q: this.orient });
+        while (this.orientHistory.length > 2 && t - this.orientHistory[0].t > 2000) this.orientHistory.shift();
+      }
     }));
     if (this.within) this.unsubs.push(listenDp(this.within, (v) => { this.onlyIds = idSet(plain(v)); }));
     if (this.embedding) this.unsubs.push(listenDp(this.embedding, (v) => {
@@ -360,7 +364,9 @@ export class SonicAnchor extends LitElement {
         this.smoothed = norm.map((p, k) => ({ x: this.filters[k * 2].filter(p.x, now), y: this.filters[k * 2 + 1].filter(p.y, now) }));
       }
       this.current = r.index;
-      if (this.orient) this.gyroRef = { q: this.orient, corners: this.smoothed, at: now, aspect: width / Math.max(1, height) };
+      // orientation au moment de la prise de cette image (pas celle de maintenant : l'image affichée est en retard)
+      const qShot = this.orientAt(grabbedAt);
+      if (qShot) this.gyroRef = { q: qShot, corners: this.smoothed, at: grabbedAt, aspect: width / Math.max(1, height) };
       const entry = this.refs[r.index];
       this.publish({
         ...base, status: "tracking", gyro: false, found: true, refId: entry?.id ?? null, index: r.index, item: entry?.meta ?? null,
@@ -371,10 +377,11 @@ export class SonicAnchor extends LitElement {
       return;
     }
     this.misses++;
-    const predicted = this.gyroPrediction(now);
+    const predicted = this.gyroPrediction(grabbedAt);
     if (predicted && this.current >= 0) {
-      // Zone perdue de vue mais téléphone suivi : position prédite par sa rotation (même image de référence).
-      this.publish({ ...this.stateValue, ...base, frameSeq: this.stateValue.frameSeq, latencyMs: this.stateValue.latencyMs, status: "holding", found: true, gyro: true, corners: predicted, matches: r.matches, inliers: r.inliers });
+      // Zone perdue de vue mais téléphone suivi : position prédite par sa rotation au moment de la prise de CETTE image,
+      // publiée avec son numéro (sonic-frame-sync montre la même image : contenu et vidéo restent calés).
+      this.publish({ ...this.stateValue, ...base, status: "holding", found: true, gyro: true, corners: predicted, matches: r.matches, inliers: r.inliers });
       return;
     }
     if (this.smoothed && this.misses <= Math.max(0, this.hold)) {
@@ -389,21 +396,27 @@ export class SonicAnchor extends LitElement {
     this.publish({ ...IDLE, ...base, status: "searching", matches: r.matches, inliers: r.inliers });
   }
 
-  /** Coins prédits par la rotation du téléphone depuis le dernier repérage, `null` hors délai ou sans capteurs. */
-  private gyroPrediction(now: number): Pt[] | null {
+  /** Orientation mesurée au plus près avant l'instant `t` (prise d'une image), `null` sans capteurs. */
+  private orientAt(t: number): Quat | null {
+    const h = this.orientHistory;
+    if (!h.length) return null;
+    let best = h[0];
+    for (const s of h) {
+      if (s.t <= t) best = s;
+      else break;
+    }
+    return best.q;
+  }
+
+  /** Coins prédits pour l'image prise à l'instant `t`, par la rotation du téléphone depuis le dernier repérage. */
+  private gyroPrediction(t: number): Pt[] | null {
     const ref = this.gyroRef;
-    if (!ref || !this.orient || !(this.gyroHold > 0) || now - ref.at > this.gyroHold) return null;
-    const c = rotateCorners(ref.corners, ref.q, this.orient, Number(this.fov) || 63, ref.aspect);
+    const q = this.orientAt(t);
+    if (!ref || !q || !(this.gyroHold > 0) || t - ref.at > this.gyroHold) return null;
+    const c = rotateCorners(ref.corners, ref.q, q, Number(this.fov) || 63, ref.aspect);
     // la zone sortie loin du cadre n'a plus de sens
     if (!c || c.some((p) => p.x < -1 || p.x > 2 || p.y < -1 || p.y > 2)) return null;
     return c.map((p) => ({ x: r4(p.x), y: r4(p.y) }));
-  }
-
-  /** Nouvelle mesure des capteurs pendant le suivi au gyroscope : coins republiés aussitôt. */
-  private gyroUpdate(): void {
-    if (!this.running || !this.stateValue.gyro) return;
-    const c = this.gyroPrediction(performance.now());
-    if (c) this.publish({ ...this.stateValue, corners: c });
   }
 
   /** Prise de vue en attente : photo dès que la zone est immobile, ou la dernière mesure au bout de 1,5 s. */

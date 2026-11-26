@@ -247,4 +247,30 @@ describe("sonic-anchor : renfort gyroscope", () => {
     el.running = false;
     el.remove();
   });
+
+  it("calée sur la vidéo : orientation au moment de la prise de l'image, numéro de cette image publié", async () => {
+    set("gy2Orient", { alpha: 0, beta: 90, gamma: 0, angle: 0 });
+    document.body.insertAdjacentHTML("beforeend", `<sonic-anchor id="gy2" gravity="gy2Orient" smoothing="0" hold="0"></sonic-anchor>`);
+    const el = document.getElementById("gy2") as unknown as Internals & { updateComplete: Promise<boolean>; remove(): void };
+    await el.updateComplete;
+    el.running = true;
+    const t0 = performance.now();
+    el.handle(found, 10, t0, 320, 240, "main");
+    const st = () => get("gy2State") as { gyro: boolean; frameSeq: number; corners: { x: number; y: number }[] | null };
+    const x0 = st().corners![0].x;
+    await new Promise((r) => setTimeout(r, 5));
+    const shot = performance.now(); // image prise avant que le téléphone ne tourne…
+    await new Promise((r) => setTimeout(r, 5));
+    set("gy2Orient", { alpha: 20, beta: 90, gamma: 0, angle: 0 }); // …rotation mesurée après
+    el.handle(lost, 11, shot, 320, 240, "main");
+    expect(st().gyro).toBe(true);
+    expect(st().frameSeq).toBe(11);
+    // la rotation faite après la prise n'est pas encore à l'image : le contenu ne bouge pas en avance
+    expect(st().corners![0].x).toBeCloseTo(x0, 3);
+    el.handle(lost, 12, performance.now(), 320, 240, "main");
+    expect(st().frameSeq).toBe(12);
+    expect(st().corners![0].x).toBeGreaterThan(x0 + 0.1);
+    el.running = false;
+    el.remove();
+  });
 });
