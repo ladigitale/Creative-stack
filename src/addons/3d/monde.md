@@ -639,7 +639,7 @@ tout de suite, le maillage apparaît quand il est prêt). Pas de rendu dans la p
   par personne ; les placements identiques partagent la variante (64 au plus). Changer ces `params` dans le store
   reconstruit seulement l'acteur concerné (humeur, espèce, tenue en cours de jeu).
 - **Clips libres** : un clip d'un modèle `gen` peut fixer `action` (moteur procgen : `idle walk run wave point cheer talk
-  carry sit jump think bow hammer sweep dig kick`) et `speed` (locomotion en m/s, 0 sur place), en plus de ses pistes :
+  carry sit jump think bow hammer sweep dig kick drink eat sleep throw comb guard punch fightkick sword archery hang`) et `speed` (locomotion en m/s, 0 sur place), en plus de ses pistes :
   `"danse": { "action": "cheer", "speed": 0, "tracks": { "brasL": { "rz": [0, 60, 0] } } }`.
 
 ```json

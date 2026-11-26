@@ -50,7 +50,7 @@ export const HAIRS = ["none", "shaved", "crop", "short", "sidepart", "bob", "wav
 export const HATS = ["none", "cap", "beret", "tophat", "wizard", "straw", "helmet", "crown", "beanie", "bandana", "turban", "cowboy", "flowers", "tricorn", "toque", "hood"] as const;
 export const BAGS = ["none", "backpack", "satchel", "cape", "scarf", "pouch"] as const;
 /** Objets tenus : accessoires propres au personnage, puis tous les outils (`tool.<kind>`, mêmes pièces que le générateur `tool`). */
-export const ITEMS: readonly string[] = ["none", "staff", "sword", "lantern", "book", "umbrella", "torch", "flower", "mug", "spear", "hammer", "pitchfork", "wand", ...TOOL_KINDS.map((k) => `tool.${k}`)];
+export const ITEMS: readonly string[] = ["none", "staff", "sword", "lantern", "book", "umbrella", "torch", "flower", "mug", "spear", "hammer", "pitchfork", "wand", "bow", ...TOOL_KINDS.map((k) => `tool.${k}`)];
 export const MOODS = ["neutral", "happy", "sad", "angry", "surprised", "sleepy"] as const;
 export const HEAD_SHAPES = ["round", "oval", "square", "long"] as const;
 export const EYES = ["round", "almond", "narrow", "sleepy", "big"] as const;

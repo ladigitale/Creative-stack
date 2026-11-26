@@ -29,6 +29,19 @@ export function handPose(action: string, t: number): Record<string, number> {
       return { "open.l": 0.45, "open.r": 0.45 };
     case "kick":
       return { "fist.l": 0.5, "fist.r": 0.5 };
+    case "guard":
+    case "punch":
+    case "fightkick":
+    case "hang":
+      return { "fist.l": 1, "fist.r": 1 };
+    case "sword":
+      return { "fist.l": 0.6, "fist.r": 1 };
+    case "archery":
+      return { "fist.r": 1, "point.l": 0.6 };
+    case "throw":
+      return { "fist.r": 0.7, "open.l": 0.6 };
+    case "comb":
+      return { "fist.r": 0.8, "fist.l": 0.7 };
     default:
       // main au repos : doigts légèrement repliés et serrés (une main ouverte et raide fait mannequin)
       return { "fist.l": 0.32, "fist.r": 0.32 };
