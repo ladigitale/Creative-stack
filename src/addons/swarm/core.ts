@@ -64,6 +64,12 @@ export interface GroupSpec {
   spawn?: [number, number, number, number];
   /** Sprite `sonic-2d` publié pour chaque agent (mêmes clés que sonic-sprite, `name` ajouté). */
   sprite?: Record<string, unknown>;
+  /**
+   * Clips des modèles (`monde2d`, `monde`) selon l'état de chaque agent : `swim` au repos, `fast` au-delà de `fastAt`
+   * (0..1 de `maxSpeed`, défaut 0.7), `catch` pendant `catchMs` (400) après une capture. `pace: true` : la cadence du
+   * clip suit la vitesse (`clipSpeed` 0.6 à 1.5).
+   */
+  clips?: { swim?: string; fast?: string; catch?: string; fastAt?: number; catchMs?: number; pace?: boolean };
 }
 
 export interface WorldSpec {
@@ -90,6 +96,8 @@ export interface Agent {
   wander: number;
   waypoint: number;
   cooldown: number;
+  /** Secondes restantes du clip de capture (`clips.catch`). */
+  bite: number;
   /** Nom du meneur (`follow`), null sans meneur. */
   leader: string | null;
 }
@@ -185,7 +193,7 @@ export class Swarm {
     }
     const a = this.rng.next() * Math.PI * 2;
     const s = (g.maxSpeed ?? 100) * 0.5;
-    return { name, group: gi, x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, wander: a, waypoint: 0, cooldown: 0, leader: null };
+    return { name, group: gi, x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, wander: a, waypoint: 0, cooldown: 0, bite: 0, leader: null };
   }
 
   /** Tous les agents replacés dans leur zone d'apparition, les retirés reviennent (nouveau niveau). */
@@ -516,6 +524,7 @@ export class Swarm {
       a.x = nx;
       a.y = ny;
       if (a.cooldown > 0) a.cooldown -= dt;
+      if (a.bite > 0) a.bite -= dt;
     });
     // captures
     const gone = new Set<Agent>();
@@ -531,6 +540,7 @@ export class Swarm {
       if (Math.hypot(prey.x - a.x, prey.y - a.y) > r) return;
       events.push({ by: a.name, caught: prey.name, group, x: Math.round(prey.x), y: Math.round(prey.y), leader: prey.leader });
       a.cooldown = 0.5;
+      if (g.clips?.catch) a.bite = Math.max(0.05, (g.clips.catchMs ?? 400) / 1000);
       if (c.remove) {
         this.removed.add(prey.name);
         this.removedNew.push(prey.name);
@@ -588,4 +598,14 @@ function wallsFor(grid: Grid, spec: NonNullable<WorldSpec["grid"]>, cell: number
     wallsCache.set(key, w);
   }
   return w;
+}
+
+/** Clip et cadence voulus pour un agent (`clips` de son groupe), ou null sans `clips`. */
+export function agentClip(a: Agent, g: GroupSpec): { clip: string; pace: number } | null {
+  const c = g.clips;
+  if (!c) return null;
+  const max = g.maxSpeed ?? 100;
+  const v = Math.hypot(a.vx, a.vy) / (max || 1);
+  const clip = a.bite > 0 && c.catch ? c.catch : v >= (c.fastAt ?? 0.7) && c.fast ? c.fast : (c.swim ?? "");
+  return { clip, pace: c.pace ? Math.round((0.6 + 0.9 * Math.min(1, v)) * 10) / 10 : 1 };
 }

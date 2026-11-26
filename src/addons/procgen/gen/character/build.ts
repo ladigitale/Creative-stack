@@ -101,7 +101,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
   /* ---------- tête ---------- */
   const hf = buildHeadField(k);
   const hField = new Field(hf.set.prims, hf.blends);
-  const headCell = P.headH / (crowd ? 14 : 26);
+  const headCell = P.headH / (crowd ? 14 : 32);
   const hp = polygonize(hField, { cell: headCell, smooth: 3, ao: true, exactOwner: true, aoSteps: 3 });
   const head = hp.mesh;
   // poids : tête rigide au-dessus du menton, poids de la peau la plus proche (cou, buste) en dessous
@@ -136,6 +136,48 @@ export function buildCharacter(look: Look, v: Rng): Built {
       let part = 0;
       for (const c of cheeks) part = Math.max(part, Math.exp(-(dist2(p, c) / (sig * sig))));
       head.blend[vv] = ROLE.sky + Math.min(0.92, part * blushK);
+    }
+  }
+  // modelé du visage : creux des orbites, dessous du nez, sillon sous la lèvre, creux sous les pommettes, tempes
+  // assombris dans l'occlusion des sommets ; une carnation un peu plus chaude sur les joues, le nez et les oreilles.
+  // C'est cette répartition des valeurs qui fait lire un visage de loin, bien avant les petits reliefs
+  const arch = look.archetype;
+  const sculptK = (({ realistic: 1, heroic: 1, stylized: 0.75, cartoon: 0.45, chibi: 0.25 }) as Record<string, number>)[arch] ?? 0.6;
+  if (head.ao && !look.animalSpec) {
+    const { eyeX, eyeY, eyeR, noseTip, mouthY, headC } = hf;
+    const hh = P.headH, hw = P.headW;
+    const zf = headC[2] + P.headD * 0.2;
+    const g = (p: V3, c: V3, r: V3) => Math.exp(-(((p[0] - c[0]) / r[0]) ** 2 + ((p[1] - c[1]) / r[1]) ** 2 + ((p[2] - c[2]) / r[2]) ** 2));
+    const zones: [V3, V3, number][] = [];
+    for (const sx of [1, -1]) {
+      zones.push([[sx * (eyeX - eyeR * 0.45), eyeY + eyeR * 0.55, zf], [eyeR * 1.15, eyeR * 0.9, P.headD * 0.5], 0.24]); // orbite, côté nez
+      zones.push([[sx * (eyeX + eyeR * 1.3), eyeY - eyeR * 2.6, zf], [eyeR * 1.1, eyeR * 0.9, P.headD * 0.5], 0.1]); // creux sous la pommette
+      zones.push([[sx * hw * 0.46, eyeY + eyeR * 1.2, headC[2]], [hw * 0.07, hh * 0.08, P.headD * 0.3], 0.08]); // tempe
+      zones.push([[sx * hw * 0.09, noseTip[1] - hh * 0.005, zf], [hw * 0.045, hh * 0.03, P.headD * 0.4], 0.16]); // narine
+    }
+    zones.push([[0, noseTip[1] - hh * 0.035, zf], [hw * 0.07, hh * 0.022, P.headD * 0.5], 0.12]); // sous le nez
+    zones.push([[0, mouthY - hh * 0.06, zf], [hw * 0.1, hh * 0.018, P.headD * 0.5], 0.14]); // sillon mentonnier
+    for (let vv = 0; vv < head.vertexCount; vv++) {
+      if (head.role[vv] !== ROLE.skin) continue;
+      const p = head.getPos(vv);
+      let d = 0;
+      for (const [c, r, k] of zones) d += k * g(p, c, r);
+      head.ao[vv] *= 1 - Math.min(0.6, d * 2 * sculptK);
+    }
+  }
+  if (arch !== "chibi" && !look.animalSpec) {
+    // carnation : sang plus visible sur les joues, le bout du nez et les oreilles (mélange léger vers le rôle des lèvres)
+    const warm: [V3, number, number][] = [
+      ...[1, -1].map((sx) => [[sx * (hf.eyeX + hf.eyeR * 0.2), hf.noseTipY + P.headH * 0.005, hf.headC[2] + P.headD * 0.35] as V3, P.headW * 0.13, 0.2] as [V3, number, number]),
+      [hf.noseTip, P.headW * 0.06, 0.18],
+      ...hf.ears.map((e) => [e, P.headW * 0.1, 0.22] as [V3, number, number]),
+    ];
+    for (let vv = 0; vv < head.vertexCount; vv++) {
+      if (head.role[vv] !== ROLE.skin) continue;
+      const p = head.getPos(vv);
+      let part = head.blend[vv] - ROLE.sky;
+      for (const [c, s, k] of warm) part = Math.max(part, k * sculptK * Math.exp(-dist2(p, c) / (s * s)));
+      head.blend[vv] = ROLE.sky + Math.min(0.92, part);
     }
   }
   cutRoles(head, hp.owner, hField, null, headCell);

@@ -42,6 +42,10 @@
           "type": "string",
           "description": "Chemin DataProvider de la caméra {x, y, zoom, ease} (défaut : clé camera du dataProvider)"
         },
+        "lights": {
+          "type": "string",
+          "description": "Chemin DataProvider de l'éclairage {ambient | darkness, lights: [{x, y, r, color, intensity, follow, flicker}]} (défaut : clé lights du dataProvider) : scène dans l'ombre, halos qui suivent sprites ou instances monde2d"
+        },
         "sprites": {
           "type": "string",
           "description": "Chemin DataProvider d'une liste de sprites (mêmes clés que sonic-sprite ; ajouts et retraits suivis)"

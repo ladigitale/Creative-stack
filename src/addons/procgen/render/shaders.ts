@@ -294,18 +294,26 @@ float roleTexture(int role, vec3 p, vec3 n) {
     vec3 g = vec3(p.x, 0.0, p.z);
     float macro = fbm3(g * 0.35);
     float speck = vnoise(g * 26.0) * 0.6 + vnoise(g * 70.0) * 0.4;
-    // grandes plages douces, moucheture fine (une moucheture large fait grossier vue de près)
-    return (macro - 0.5) * 0.18 + (speck - 0.5) * 0.06;
+    // touffes et mottes (~30 cm), moucheture fine effacée sous le pixel : le sol se lit sans faire grossier
+    float clump = fbm3(g * 3.2);
+    float fsp = 1.0 - smoothstep(0.004, 0.02, length(fwidth(p)));
+    float tuft = vnoise(g * 9.0);
+    return (macro - 0.5) * 0.18 + (clump - 0.5) * 0.15 + (tuft - 0.5) * 0.1 + (speck - 0.5) * 0.11 * fsp;
   }
   if (role == 10 || role == 11) return (fbm3(p * 7.5) - 0.5) * 0.26 + (vnoise(p * 30.0) - 0.5) * 0.06;
   if (role >= 17 && role <= 19) { // tissus : trame fine (fils croisés), à peine de marbrure
     float weave = (sin(p.x * 420.0 + p.z * 37.0) * sin(p.y * 420.0 + p.x * 29.0)) * 0.5 + 0.5;
     // trame régulière : effacée dès qu'elle approche la taille du pixel (sinon moiré)
     weave = mix(0.5, weave, 1.0 - smoothstep(0.0012, 0.0025, length(fwidth(p))));
-    return (weave - 0.5) * 0.035 + (vnoise(p * 55.0) - 0.5) * 0.07 + (vnoise(p * 9.0) - 0.5) * 0.05;
+    // chiné (fils de teintes voisines, ~1 cm) : la matière se lit à distance moyenne sans motif régulier
+    float fw = length(fwidth(p));
+    float heather = (vnoise(p * 110.0) - 0.5) * (1.0 - smoothstep(0.002, 0.006, fw));
+    // fils : stries courtes dans les deux sens du tissu (~1,5 cm), lisibles à mi-distance, effacées au loin
+    float threads = (vnoise(vec3(p.x * 70.0, p.y * 14.0, p.z * 70.0)) + vnoise(vec3(p.x * 14.0, p.y * 70.0, p.z * 14.0)) - 1.0) * (1.0 - smoothstep(0.004, 0.012, fw));
+    return (weave - 0.5) * 0.05 + heather * 0.09 + threads * 0.09 + (vnoise(p * 55.0) - 0.5) * 0.06 + (vnoise(p * 9.0) - 0.5) * 0.06;
   }
   if (role == 20) return (vnoise(p * 70.0) - 0.5) * 0.05 + (vnoise(p * 12.0) - 0.5) * 0.03; // cuir : grain serré
-  if (role == 21) return (vnoise(p * 90.0) - 0.5) * 0.02 + (fbm3(p * 14.0) - 0.5) * 0.035; // peau : grain fin, nuances douces (pas de taches)
+  if (role == 21) return (vnoise(p * 90.0) - 0.5) * 0.035 + (fbm3(p * 14.0) - 0.5) * 0.06 + (vnoise(p * 260.0) - 0.5) * 0.025 * (1.0 - smoothstep(0.0008, 0.0025, length(fwidth(p)))); // peau : grain, pores de près, nuances douces
   if (role == 22) return (vnoise(vec3(p.x * 90.0, p.y * 9.0, p.z * 90.0)) - 0.5) * 0.09 + (fbm3(p * 10.0) - 0.5) * 0.04; // cheveux : mèches claires et sombres
   if (role == 14) return (vnoise(vec3(p.x * 160.0, p.y * 4.0, p.z * 160.0)) - 0.5) * 0.08 + (fbm3(p * 6.0) - 0.5) * 0.1; // métal : brossé, patine
   if (role >= 32 || role == 26) return (vnoise(p * 40.0) - 0.5) * 0.05 + (fbm3(p * 5.0) - 0.5) * 0.06; // plastique, peint : grain, usure douce
@@ -349,13 +357,21 @@ void main() {
   vec3 N = normalize(vNormalW);
   if (!gl_FrontFacing) N = -N;
   // relief de détail procédural (pierre, enduit, toiture, bois, écorce, sol) : gradient d'un bruit, sans texture
-  float bumpK = (role == 4 ? 0.55 : role == 5 || role == 6 ? 0.18 : role == 7 ? 0.35 : role == 8 || role == 9 ? 0.3 : role <= 3 ? 0.1 : 0.0) * uTexture * uDetail;
+  float bumpK = (role == 4 ? 0.55 : role == 5 || role == 6 ? 0.18 : role == 7 ? 0.35 : role == 8 || role == 9 ? 0.3 : role <= 3 ? 0.16 : 0.0) * uTexture * uDetail;
   if (bumpK > 0.0) {
     float fs = role == 7 ? 7.0 : role <= 3 ? 4.5 : 5.0;
     vec3 q = vPosW * fs;
     float n0 = fbm3(q);
     vec3 g = vec3(fbm3(q + vec3(0.05, 0.0, 0.0)) - n0, fbm3(q + vec3(0.0, 0.05, 0.0)) - n0, fbm3(q + vec3(0.0, 0.0, 0.05)) - n0) / 0.05;
     N = normalize(N - (g - N * dot(g, N)) * bumpK * 0.12);
+    if (role <= 3) {
+      // sol : petites mottes (~5 cm) en plus des ondulations, effacées quand elles passent sous le pixel
+      float fk = 1.0 - smoothstep(0.006, 0.025, length(fwidth(vPosW)));
+      vec3 q2 = vPosW * 20.0;
+      float m0 = vnoise(q2);
+      vec3 g2 = vec3(vnoise(q2 + vec3(0.1, 0.0, 0.0)) - m0, 0.0, vnoise(q2 + vec3(0.0, 0.0, 0.1)) - m0) / 0.1;
+      N = normalize(N - (g2 - N * dot(g2, N)) * 0.05 * fk * uTexture * uDetail);
+    }
   }
   // relief fin des personnages et accessoires (tissus, cuir, peau, cheveux, papier) : carte de hauteur procédurale
   // prise en repère local (elle ne glisse pas sur un corps qui bouge), appliquée par dérivées écran (bump sans UV,
@@ -374,7 +390,7 @@ void main() {
       float strand = 1.0 - smoothstep(0.0015, 0.005, fp);
       h = vnoise(vec3(q.x * 120.0, q.y * 14.0, q.z * 120.0)) * 0.006 * strand + fbm3(vec3(q.x * 30.0, q.y * 6.0, q.z * 30.0)) * 0.014 * mid;
     }
-    else if (role == 21) h = vnoise(q * 220.0) * 0.0005 * fine + fbm3(q * 40.0) * 0.0016 * mid; // grain de peau, à peine (un visage bosselé fait sale)
+    else if (role == 21) h = vnoise(q * 220.0) * 0.0009 * fine + fbm3(q * 40.0) * 0.0024 * mid; // grain de peau, à peine (un visage bosselé fait sale)
     else if (role == 20) h = vnoise(q * 120.0) * 0.003 * fine + fbm3(vec3(q.x * 16.0, q.y * 42.0, q.z * 16.0)) * 0.012 * mid; // grain, plis du cuir
     else if (role == 28) h = vnoise(q * 90.0) * 0.001 * fine;
     else if (role == 14) h = vnoise(vec3(q.x * 300.0, q.y * 5.0, q.z * 300.0)) * 0.0007 * fine + fbm3(q * 11.0) * 0.006 * mid; // métal brossé, cabossé
@@ -388,10 +404,10 @@ void main() {
       float knit = smoothstep(0.0, 0.35, row) * (1.0 - smoothstep(0.65, 1.0, row)) * (1.0 - abs(col - 0.5) * 1.2);
       float fuzz = fbm3(q * 85.0);
       float folds = fbm3(vec3(q.x * 8.0, q.y * 24.0, q.z * 8.0));
-      h = knit * 0.0022 * knitF + fuzz * 0.0022 * (1.0 - smoothstep(0.004, 0.014, fp)) + folds * 0.022 * mid + fbm3(q * 50.0) * 0.003 * mid;
+      h = knit * 0.003 * knitF + fuzz * 0.0045 * (1.0 - smoothstep(0.005, 0.02, fp)) + folds * 0.022 * mid + fbm3(q * 50.0) * 0.004 * mid;
     }
-    // relief discret : il suggère la matière sans assombrir (ombres de texture trop marquées = aspect sale)
-    h *= hK * 0.6;
+    // relief net mais sans assombrir les creux (les ombres de texture trop marquées font sale)
+    h *= hK * 0.85;
     float dhx = dFdx(h), dhy = dFdy(h);
     vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
     float det = dot(dpx, r1);
@@ -488,14 +504,19 @@ void main() {
   float sh = shadowAt(vShadow, ndl);
   float light;
   // touche de pinceau : plus fine (16 et 44 cycles/m) ; plus de taches de 15 cm qui déchirent les bandes d'ombre
-  float brush = ((fbm3(vPosW * 16.0) - 0.5) * 0.75 + (vnoise(vPosW * 44.0) - 0.5) * 0.25) * uBrush;
+  // personnages (tissus, cuir, peau, cheveux) : touche plus fine et plus légère, accrochée au corps (repère local :
+  // ne glisse pas quand il bouge) ; sinon des taches de 6 cm déchiquettent les bandes d'ombre sur les vêtements
+  bool chr = role >= 17 && role <= 25;
+  vec3 bp = chr ? vPosL * 2.6 : vPosW;
+  float brush = ((fbm3(bp * 16.0) - 0.5) * 0.75 + (vnoise(bp * 44.0) - 0.5) * 0.25) * uBrush * (chr ? 0.4 : 1.0);
   if (uShading < 0.5) light = clamp(ndl * 0.5 + 0.5, 0.0, 1.0) * 0.6 + 0.4;        // flat : lumière douce, sans bandes
   else if (uShading < 1.5) {                                                       // toon : bandes à seuil perturbé
-    float x = clamp((ndl + brush * (role == 21 ? 0.4 : 1.0)) * 0.5 + 0.5, 0.0, 1.0);
+    float x = clamp((ndl + brush * (role == 21 ? 0.5 : 1.0)) * 0.5 + 0.5, 0.0, 1.0);
     x *= mix(1.0, 0.3, (1.0 - sh) * uShadowStrength);
     float k = x * uBands;
     // peau : transitions de bandes adoucies (un visage en marches dures paraît grossier)
-    float bsoft = role == 21 ? max(uBandSoft, 0.32) : uBandSoft;
+    // vêtements : transitions adoucies aussi (une marche nette sur chaque pli fait des ombres en escalier)
+    float bsoft = role == 21 ? max(uBandSoft, 0.32) : chr ? max(uBandSoft, 0.2) : uBandSoft;
     float q = (floor(k) + smoothstep(1.0 - max(bsoft * uBands, 0.001), 1.0, fract(k))) / uBands;
     light = clamp(q * uBands / (uBands - 1.0), 0.0, 1.0);
   } else {
