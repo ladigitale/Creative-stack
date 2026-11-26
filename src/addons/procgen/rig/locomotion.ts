@@ -190,7 +190,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const amp = m.amp;
   // la jambe d'appui, presque tendue, fait d'elle-même monter le bassin à mi-appui et descendre au double appui
   // (abaissement exact par IK) : le rebond ajouté ne fait plus qu'accentuer la course
-  const bobAmp = leg * mix(0.006, 0.045, run) * Math.min(1, vn * 1.2) * m.bob * moving;
+  const bobAmp = leg * mix(0.006, 0.045, run) * Math.min(1, vn * 1.2) * m.bob * moving * (1 + 0.35 * nz(t * 0.27, 43));
   const bob = run > 0.5 ? -bobAmp * (0.5 + 0.5 * Math.cos(TAU * 2 * (phi - 0.18))) : -bobAmp * (0.5 + 0.5 * Math.cos(TAU * 2 * phi));
   // genou d'appui fléchi de ~10° à la marche (amorti), plus en course ; au repos à peine déverrouillé
   const crouch = leg * (mix(0.002, 0.045, run) * moving + 0.002);
@@ -277,7 +277,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     const ub = sk.bone("upperarm.r")!;
     return { R, hH, base: hb.head, ua: len(sub(ub.tail, ub.head)), mouth: add(hb.head, [0, hH * 0.3, R * 1.0]) as V3, chin: add(hb.head, [0, hH * 0.12, R * 0.85]) as V3 };
   })();
-  const armAmp = mix(16, 40, run) * Math.min(1, 0.35 + vn) * moving * amp;
+  // balancier des bras qui respire : plus ample, moins ample, jamais deux foulées identiques
+  const armAmp = mix(16, 40, run) * Math.min(1, 0.35 + vn) * moving * amp * (1 + 0.4 * nz(t * 0.3, 41));
   for (const [s, sg] of [["l", 1], ["r", -1]] as const) {
     // balancier opposé à la jambe, un peu plus ample vers l'avant ; au repos le bras pend, légèrement devant
     const c = Math.cos(TAU * phi);
@@ -298,7 +299,9 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const w = clamp(st.actionWeight, 0, 1);
   // temps du geste légèrement accéléré ou ralenti, au hasard et en douceur : deux cycles ne tombent jamais pareil
   // (une boucle rejouée à l'identique fait automate). La dérivée reste proche de 1 : le geste ne recule jamais
-  const at = Math.max(0, st.actionTime + 0.12 * nz(st.actionTime * 0.4, 7) * smoothstep(0, 1.5, st.actionTime));
+  // cadence propre à l'acteur (±15 %), puis dérive lente du tempo (accélère, ralentit) d'un cycle à l'autre
+  const rate = 0.85 + 0.3 * rnd(5);
+  const at = Math.max(0, st.actionTime * rate + 0.3 * nz(st.actionTime * 0.4, 7) * smoothstep(0, 1.5, st.actionTime));
   const over: Record<string, Q> = {};
   // entrée d'un geste : le bras dépasse un peu sa cible puis s'y pose (0,6 s), plutôt qu'un arrêt sec
   // posture des pieds et des jambes demandée par l'action (fractions de jambe : x à gauche, y, z devant)
@@ -676,12 +679,15 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   for (const [k, q] of Object.entries(over)) {
     const d = LAG[k.split(".")[0]] ?? 0;
     const wb = d > 0 && w < 1 ? smoothstep(0, 1, clamp((w - d) / (1 - d), 0, 1)) : w;
-    rot[k] = qSlerp(rot[k] ?? qId(), q, wb);
+    // ampleur du geste qui change d'un cycle à l'autre (±18 %), autrement pour le tronc, les bras et la tête
+    const part = k.split(".")[0];
+    const gain = 1 + 0.36 * nz(at * 0.45 + (part === "spine" || part === "chest" ? 0 : part === "head" || part === "neck" ? 3.1 : k.endsWith(".l") ? 5.7 : 8.3), 23);
+    rot[k] = qSlerp(rot[k] ?? qId(), qSlerp(qId(), q, gain), wb);
   }
 
   // micro-variations lissées de chaque articulation du haut du corps (amplitude, orientation) : elles se superposent
   // à toutes les poses, au repos comme pendant un geste, et changent d'un personnage à l'autre
-  const JIT: [string, number, number][] = [["spine", 1.5, 0.23], ["chest", 2, 0.31], ["neck", 1.5, 0.27], ["head", 3, 0.37], ["clavicle", 1.5, 0.29], ["upperarm", 4, 0.41], ["forearm", 3, 0.47], ["hand", 6, 0.53]];
+  const JIT: [string, number, number][] = [["spine", 3, 0.23], ["chest", 4, 0.31], ["neck", 3, 0.27], ["head", 7, 0.37], ["clavicle", 3, 0.29], ["upperarm", 8, 0.41], ["forearm", 6, 0.47], ["hand", 11, 0.53]];
   const jk = 0.6 + 0.6 * w;
   for (const [b, amp, fq] of JIT)
     for (const n of b === "spine" || b === "chest" || b === "neck" || b === "head" ? [b] : [`${b}.l`, `${b}.r`]) {

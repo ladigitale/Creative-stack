@@ -46,12 +46,12 @@ import { createParticleMesh, disposeParticleMesh, particleQuad, uploadParticles,
 import { InfiniteGpu } from "./infinite-gpu";
 import type { TileWorld } from "../scene/infinite";
 import type { NavGrid } from "../scene/nav";
-import type { Terrain } from "../scene/terrain";
+import { type Terrain, type TerrainEdit, readTerrainEdits } from "../scene/terrain";
 import { type DriveInput, type DriveState, type Route, type SeatPose, type VehicleSpec, ObstacleSet, doorFor, obbOverlap, followRoute, newDriveState, newRoute, obstaclesOf, planRoute, readInput, seatFor, seatNames, sideApproach, stepDrive, steerPartValue, vehicleSpecOf, wheelPartValue } from "../scene/drive";
 import { worldRoads } from "../scene/world-roads";
 
-export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump"; payload: Record<string, unknown> };
+export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain"; payload: Record<string, unknown> };
 /** État publié de la physique : chargement, erreur, ou corps (10 fois par seconde au plus tant que ça bouge). */
 export type PhysicsOut = ({ status: "loading" | "error"; error?: string } | ({ status: "ready" } & RigidState)) | null;
 
@@ -98,6 +98,9 @@ type ActorRT = {
   reachY?: number;
   /** Durée demandée pour l'action en cours (s). */
   actionDur?: number;
+  /** Retouche du relief en cours (avancée avec l'action) et compteur de retouches de l'acteur. */
+  shape?: TerrainEdit & { id: string };
+  shapeN?: number;
   /** Hauteur de l'assise occupée (m) : le bassin s'y pose quand l'acteur est assis. */
   seatY?: number;
   /** Point libre devant l'assise, où l'acteur se relève. */
@@ -171,6 +174,12 @@ export class ProcgenView {
   private roles = { value: new Float32Array(ROLES.length * 3) };
   private staticMats: MaterialPair;
   private model: SceneModel | null = null;
+  /** Sol affiché (maillage réécrit par les retouches du relief), retouches reçues et retouches faites par les acteurs. */
+  private groundObj: THREE.Mesh | null = null;
+  private terrainEdits: TerrainEdit[] = [];
+  private actorEdits = new Map<string, TerrainEdit & { id: string }>();
+  private terrainWait = 0;
+  private terrainDirty = false;
   private style: StyleTokens | null = null;
   private view: ViewState = { ...DEFAULT_VIEW };
   private extent = 20;
@@ -488,7 +497,8 @@ export class ProcgenView {
       if (pick) this.pickables.push(mesh);
       return mesh;
     };
-    addStatic(model.ground);
+    this.groundObj = addStatic(model.ground) ?? null;
+    this.actorEdits.clear();
     addStatic(model.roads);
     addStatic(model.water);
     const tileMeshes = model.tiles.map((t) => addStatic(t));
@@ -1085,6 +1095,15 @@ export class ProcgenView {
       // boire, manger, dormir vers une cible : l'action commence à l'arrivée
       const atTarget = typeof it.target === "string" && !toBall && (it.action === "drink" || it.action === "eat" || it.action === "sleep");
       a.actionDur = Number.isFinite(it.duration) && Number(it.duration) > 0 ? Number(it.duration) : undefined;
+      // retouche du relief pendant l'action : posée devant l'acteur (ou en `at`), elle grandit avec l'action
+      if (it.shape && typeof it.shape === "object" && it.action && this.model?.terrain && !this.inf) {
+        const sh = it.shape;
+        const dist = Number.isFinite(Number(sh.dist)) ? Number(sh.dist) : 0.75;
+        const at = Array.isArray(sh.at) && sh.at.length >= 2 ? [Number(sh.at[0]), Number(sh.at[1])] : [a.pos[0] + Math.sin(a.yaw) * dist, a.pos[2] + Math.cos(a.yaw) * dist];
+        const [ed] = readTerrainEdits([{ op: sh.op ?? "dig", x: at[0], z: at[1], r: sh.r ?? 0.6, depth: sh.depth, height: sh.height, k: 0 }]);
+        a.shapeN = (a.shapeN ?? 0) + 1;
+        if (ed) a.shape = { ...ed, id: `${a.model.id}.${a.shapeN}` };
+      } else a.shape = undefined;
       // en route vers une place (ou un ballon), l'acteur marche : il ne s'assied (ou ne tire) qu'à l'arrivée
       if (it.action && !(toSeat && it.action === "sit") && !atTarget && !(toBall && it.action === "kick") && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
         if (a.action !== it.action) {
@@ -1484,6 +1503,32 @@ export class ProcgenView {
   }
 
   /** Commande directe (`drive` du DataProvider) : `{<id>: {throttle, steer, brake}}` ; rend les ids inconnus. */
+  /**
+   * Retouches du relief (liste complète, rejouée depuis le sol d'origine) : creuser, monter, aplanir, adoucir. Les
+   * retouches faites par les acteurs s'y ajoutent, sauf celles que la liste reprend déjà (même `id`). Rendu 3D, scène finie.
+   */
+  setTerrainEdits(edits: TerrainEdit[]) {
+    this.terrainEdits = edits;
+    this.refreshTerrain();
+  }
+
+  private refreshTerrain() {
+    const m = this.model, g = this.groundObj;
+    if (!m?.terrain || !g || this.inf) return;
+    const ids = new Set(this.terrainEdits.map((e) => e.id).filter(Boolean));
+    const all = [...this.terrainEdits, ...[...this.actorEdits.values()].filter((e) => !ids.has(e.id))];
+    const box = m.terrain.applyEdits(all);
+    if (!box) return;
+    const geo = g.geometry as THREE.BufferGeometry;
+    const P = geo.getAttribute("position") as THREE.BufferAttribute, N = geo.getAttribute("normal") as THREE.BufferAttribute, B = geo.getAttribute("aBlend") as THREE.BufferAttribute;
+    m.terrain.writeGrid(P.array as Float32Array, N.array as Float32Array, B.array as Float32Array, box);
+    P.needsUpdate = N.needsUpdate = B.needsUpdate = true;
+    geo.computeBoundingSphere();
+    geo.computeBoundingBox();
+    this.dirty = this.shadowDirty = true;
+    this.kick();
+  }
+
   setDrive(spec: unknown): string[] {
     const o = spec && typeof spec === "object" && !Array.isArray(spec) ? (spec as Record<string, unknown>) : {};
     for (const v of this.vehicles.values()) if (v.input && !(v.id in o)) v.input = null;
@@ -2689,6 +2734,20 @@ export class ProcgenView {
     a.actionTime += dt;
     const target = a.action === "idle" ? 0 : 1;
     a.actionWeight += (target - a.actionWeight) * (1 - Math.exp(-dt * 6));
+    if (a.shape && a.action !== "idle" && a.action !== "walk" && a.action !== "run" && !a.goal) {
+      // le trou se creuse (le tas monte) au fil de l'action : 3 s sans durée donnée
+      const k = Math.min(1, a.actionTime / (a.actionDur ?? 3));
+      if (k > (a.shape.k ?? 0) + 0.02 || k >= 1) {
+        a.shape.k = k;
+        this.actorEdits.set(a.shape.id, { ...a.shape });
+        this.terrainDirty = true;
+      }
+      if (k >= 1) {
+        const { k: _k, ...edit } = a.shape;
+        this.onEvent({ type: "terrain", payload: { actor: a.model.id, edit } });
+        a.shape = undefined;
+      }
+    }
     if ((transient && a.actionDur === undefined && a.actionTime > (a.action === "jump" ? 1.1 : a.action === "bow" ? 1.4 : a.action === "kick" ? 0.7 : 2.6)) || (a.actionDur !== undefined && a.action !== "idle" && !a.goal && a.actionTime > a.actionDur)) {
       this.onEvent({ type: "actionEnd", payload: { actor: a.model.id, action: a.action } });
       a.actionDur = undefined;
@@ -3019,6 +3078,13 @@ export class ProcgenView {
       this.time += dt * this.speed;
       this.stepVehicles(dt * this.speed);
       for (const a of this.actors.values()) if (a !== this.drag?.actor && a !== this.settle?.d.actor) this.updateActor(a, dt * this.speed);
+      // relief retouché par les acteurs : maillage réécrit au plus ~8 fois par seconde
+      this.terrainWait -= dt;
+      if (this.terrainDirty && this.terrainWait <= 0) {
+        this.terrainDirty = false;
+        this.terrainWait = 0.12;
+        this.refreshTerrain();
+      }
       if (this.actors.size) {
         this.shadowDirty = true;
         this.contentVersion++;

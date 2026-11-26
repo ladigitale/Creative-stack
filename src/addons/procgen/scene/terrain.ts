@@ -31,6 +31,35 @@ export type GroundSpec = {
   world?: { origin: [number, number]; step: number };
 };
 
+/**
+ * Retouche du relief : `dig` creuse (trou en cuvette), `raise` monte un tas, `flatten` aplanit à `height` (m ; défaut :
+ * hauteur au centre), `smooth` adoucit. `r` = rayon (m), `depth` = profondeur ou hauteur (m), `k` = avancement
+ * (0 … 1, retouche en cours : un trou qui se creuse). La terre retournée prend la couleur de la terre battue.
+ */
+export type TerrainEdit = { op: "dig" | "raise" | "flatten" | "smooth"; x: number; z: number; r: number; depth?: number; height?: number; k?: number; id?: string };
+export const TERRAIN_OPS = ["dig", "raise", "flatten", "smooth"] as const;
+
+/** Lit une liste de retouches (DataProvider, recette) ; les entrées invalides sont ignorées. */
+export function readTerrainEdits(v: unknown): TerrainEdit[] {
+  if (!Array.isArray(v)) return [];
+  const out: TerrainEdit[] = [];
+  for (const e of v.slice(0, 2000)) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const op = String(o.op ?? "dig") as TerrainEdit["op"];
+    const x = Number(o.x), z = Number(o.z);
+    if (!(TERRAIN_OPS as readonly string[]).includes(op) || !Number.isFinite(x) || !Number.isFinite(z)) continue;
+    const r = clamp(Number(o.r ?? 1) || 1, 0.1, 40);
+    const ed: TerrainEdit = { op, x, z, r };
+    if (o.depth !== undefined && Number.isFinite(Number(o.depth))) ed.depth = clamp(Number(o.depth), -20, 20);
+    if (o.height !== undefined && Number.isFinite(Number(o.height))) ed.height = clamp(Number(o.height), -100, 100);
+    if (o.k !== undefined && Number.isFinite(Number(o.k))) ed.k = clamp(Number(o.k), 0, 1);
+    if (typeof o.id === "string") ed.id = o.id.slice(0, 80);
+    out.push(ed);
+  }
+  return out;
+}
+
 const SURF: Record<GroundSpec["surface"], number> = { grass: ROLE.grass, sand: ROLE.path, snow: ROLE.snow, dirt: ROLE.ground, paved: ROLE.road, seabed: ROLE.ground };
 
 function segDist(px: number, pz: number, a: [number, number], b: [number, number]): { d: number; t: number } {
@@ -56,6 +85,10 @@ export class Terrain {
   private pathH: number[][];
   readonly res: [number, number];
   private heights: Float32Array;
+  /** Hauteurs d'origine (avant retouches), usure d'origine du maillage et terre retournée par sommet. */
+  private base: Float32Array | null = null;
+  private wear0: number[] | null = null;
+  private dug: Float32Array | null = null;
 
   /** `heights` : grille déjà calculée (tuile composée dans un worker), reprise telle quelle. */
   constructor(spec: GroundSpec, paths: PathSpec[], heights?: Float32Array) {
@@ -69,7 +102,8 @@ export class Terrain {
       return sm;
     });
     const [w, d] = spec.size;
-    const step = spec.world ? clamp(spec.world.step, 0.25, 8) : clamp(Math.max(w, d) / 150, 0.4, 2);
+    // petites scènes : maille fine (un trou d'un demi-mètre reste rond une fois retouché)
+    const step = spec.world ? clamp(spec.world.step, 0.25, 8) : clamp(Math.max(w, d) / 150, 0.2, 2);
     this.res = [Math.max(8, Math.round(w / step)), Math.max(8, Math.round(d / step))];
     this.heights = new Float32Array((this.res[0] + 1) * (this.res[1] + 1));
     if (heights && heights.length === this.heights.length) {
@@ -183,6 +217,7 @@ export class Terrain {
         wear = clamp(wear + (warped2(x * 0.35, z * 0.35, 0.6, 3) * 0.35) * wear * (1 - wear) * 4, 0, 0.995);
         m.vertex([x, y, z], n, role, 1);
         blend.push(ROLE.path + wear);
+        (this.wear0 ??= []).push(wear);
       }
     for (let j = 0; j < nz; j++)
       for (let i = 0; i < nx; i++) {
@@ -215,6 +250,89 @@ export class Terrain {
     edge(Array.from({ length: nz + 1 }, (_, j) => j * W + nx), [1, 0]);
     m.blend = blend;
     return m;
+  }
+
+  /**
+   * Applique la liste complète des retouches à partir du relief d'origine (rejouable : même liste, même sol). Les
+   * rangs du bord restent fixes (le socle du diorama s'y raccorde). Rend l'emprise touchée (indices de grille) ou null.
+   */
+  applyEdits(edits: TerrainEdit[]): { i0: number; i1: number; j0: number; j1: number } | null {
+    const [nx, nz] = this.res;
+    const W = nx + 1;
+    const [w, d] = this.spec.size;
+    if (!this.base) {
+      if (!edits.length) return null;
+      this.base = this.heights.slice();
+    }
+    const prevDug = this.dug;
+    this.heights.set(this.base);
+    this.dug = new Float32Array(this.heights.length);
+    let box: { i0: number; i1: number; j0: number; j1: number } | null = null;
+    const gx = (x: number) => (x / w + 0.5) * nx, gz = (z: number) => (z / d + 0.5) * nz;
+    for (const e of edits) {
+      const k = e.k ?? 1;
+      if (k <= 0) continue;
+      // un trou rejette sa terre autour de lui : bourrelet jusqu'à 1,6 rayon
+      const R = e.op === "dig" ? e.r * 1.6 : e.r;
+      const i0 = Math.max(1, Math.floor(gx(e.x - R))), i1 = Math.min(nx - 1, Math.ceil(gx(e.x + R)));
+      const j0 = Math.max(1, Math.floor(gz(e.z - R))), j1 = Math.min(nz - 1, Math.ceil(gz(e.z + R)));
+      if (i0 > i1 || j0 > j1) continue;
+      box = box ? { i0: Math.min(box.i0, i0), i1: Math.max(box.i1, i1), j0: Math.min(box.j0, j0), j1: Math.max(box.j1, j1) } : { i0, i1, j0, j1 };
+      const target = e.op === "flatten" ? e.height ?? this.height(e.x, e.z) : 0;
+      const src = e.op === "smooth" ? this.heights.slice() : null;
+      for (let j = j0; j <= j1; j++)
+        for (let i = i0; i <= i1; i++) {
+          const x = (i / nx - 0.5) * w, z = (j / nz - 0.5) * d;
+          const q = Math.hypot(x - e.x, z - e.z) / e.r;
+          const idx = j * W + i;
+          if (e.op === "dig" && q >= 1 && q < 1.6) {
+            const rim = Math.sin((Math.PI * (q - 1)) / 0.6);
+            this.heights[idx] += (e.depth ?? 0.5) * 0.22 * rim * k;
+            this.dug[idx] = Math.max(this.dug[idx], rim * Math.min(1, k * 1.5) * 0.8);
+          }
+          if (q >= 1) continue;
+          // cuvette (cosinus) pour creuser et monter, plateau à bord doux pour aplanir
+          const bell = 0.5 + 0.5 * Math.cos(Math.PI * q);
+          const h = this.heights[idx];
+          if (e.op === "dig") this.heights[idx] = h - (e.depth ?? 0.5) * bell * k;
+          else if (e.op === "raise") this.heights[idx] = h + (e.depth ?? 0.5) * bell * k;
+          else if (e.op === "flatten") this.heights[idx] = mix(h, target, smoothstep(1, 0.6, q) * k);
+          else if (src) {
+            const avg = (src[idx - 1] + src[idx + 1] + src[idx - W] + src[idx + W] + src[idx] * 4) / 8;
+            this.heights[idx] = mix(h, avg, bell * k);
+          }
+          if (e.op === "dig" || e.op === "raise") this.dug[idx] = Math.max(this.dug[idx], smoothstep(1, 0.55, q) * Math.min(1, k * 1.5));
+        }
+    }
+    // l'emprise couvre aussi ce qui était retouché avant (une retouche retirée rend le sol d'origine)
+    if (prevDug)
+      for (let idx = 0; idx < prevDug.length; idx++)
+        if (prevDug[idx] > 0 || this.heights[idx] !== this.base[idx]) {
+          const i = idx % W, j = Math.floor(idx / W);
+          box = box ? { i0: Math.min(box.i0, i), i1: Math.max(box.i1, i), j0: Math.min(box.j0, j), j1: Math.max(box.j1, j) } : { i0: i, i1: i, j0: j, j1: j };
+        }
+    return box ?? { i0: 1, i1: nx - 1, j0: 1, j1: nz - 1 };
+  }
+
+  /** Réécrit positions, normales et usure des sommets de grille (maillage de `mesh()`) dans l'emprise donnée. */
+  writeGrid(pos: Float32Array | number[], nrm: Float32Array | number[], blend: Float32Array | number[], box: { i0: number; i1: number; j0: number; j1: number }) {
+    const [nx, nz] = this.res;
+    const W = nx + 1;
+    const [w, d] = this.spec.size;
+    // maillage composé ailleurs (worker) : l'usure d'origine est celle qu'il porte au premier appel
+    if (!this.wear0) this.wear0 = Array.from({ length: W * (nz + 1) }, (_, i) => Math.max(0, (blend[i] ?? ROLE.path) - ROLE.path));
+    for (let j = Math.max(0, box.j0 - 1); j <= Math.min(nz, box.j1 + 1); j++)
+      for (let i = Math.max(0, box.i0 - 1); i <= Math.min(nx, box.i1 + 1); i++) {
+        const idx = j * W + i;
+        const x = (i / nx - 0.5) * w, z = (j / nz - 0.5) * d;
+        pos[idx * 3 + 1] = this.heights[idx];
+        const n = this.normal(x, z);
+        nrm[idx * 3] = n[0];
+        nrm[idx * 3 + 1] = n[1];
+        nrm[idx * 3 + 2] = n[2];
+        const w0 = this.wear0?.[idx] ?? 0;
+        blend[idx] = ROLE.path + Math.min(0.995, Math.max(w0, (this.dug?.[idx] ?? 0) * 0.995));
+      }
   }
 
   /** Chaussées, trottoirs et bordures (rues), revêtements (routes). */
