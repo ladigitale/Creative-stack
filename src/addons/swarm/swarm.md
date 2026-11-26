@@ -9,8 +9,8 @@ The swarm writes the shared scene format: `nodes` (`{x, y, rz}`, or `{x, z, ry}`
 | attribute | role |
 |---|---|
 | `spec` | description (below): inline JSON, or the path of a DataProvider (read live: changing `count` adds or removes agents, the others keep moving) |
-| `control` | DataProvider path of live settings, merged over `spec` **by group name**: `{"groups": [{"name": "fish", "seek": {"target": [400, 300]}}], "paused": true}` |
-| `out-data-provider` | output: `nodes`, `sprites`, `agents` (`[{name, group, x, y, heading}]`), `count`, `catches` (total), `status`, `error` |
+| `control` | DataProvider path of live settings, merged over `spec` **by group name**: `{"groups": [{"name": "fish", "seek": {"target": [400, 300]}}], "paused": true}`. Counter `respawn` (raise it: `{"respawn": 3}`): every agent back to its spawn area, removed agents come back (new level) |
+| `out-data-provider` | output: `nodes`, `sprites`, `agents` (`[{name, group, x, y, heading, leader?}]`), `count`, `groups` (`{group: alive count}`), `catches` (total), `status`, `error` |
 | `plane` | `screen` (default: `x`, `y`, `rz` in radians) or `xz` (`x`, `z`, `ry`, divided by `scale`: world units per metre) |
 | `rate` | publications per second (30; the simulation always runs at 60 Hz) |
 | `target`, `action` | store receiving captures: `{type: "swarm:catch", payload: {by, caught, group, x, y}}` (also a DOM `catch` event) |
@@ -54,7 +54,8 @@ The swarm writes the shared scene format: `nodes` (`{x, y, rz}`, or `{x, z, ry}`
 | `pursue` | `{target, weight}`: chase, aiming where the target will be |
 | `path` | `{points: [[x, y]…], loop: true, weight}`: follow waypoints |
 | `flow` | `{target, weight}`: follow the distance field of `grid` towards the target cell — the shortest way around the walls, computed once for everyone and cached |
-| `catch` | `{target: "group:<name>", radius, respawn}`: when a target agent is within `radius` (sum of body radii by default), send the capture to the store; `respawn: true` puts the prey back at a random spawn point |
+| `catch` | `{target: "group:<name>", radius, respawn, remove}`: when a target agent is within `radius` (sum of body radii by default), send the capture to the store (payload `{by, caught, group, x, y, leader}`); `respawn: true` puts the prey back at a random spawn point; `remove: true` takes it out for good (its node gets `visible: false`; it does not come back when the spec changes, only with the `respawn` counter of `control`) |
+| `follow` | `{target: "group:<name>", radius, swap, slow, weight, colors, role, lost}`: each agent picks a **leader** (nearest agent of that group within `radius`) and follows it, slowing down within `slow` (60); it switches to another leader that passes closer than `swap` (radius / 3). `colors` `{leader: colour}`: the agent takes its leader's colour (`color` in `nodes` for a sprite, `roles.<role>` for a monde2d instance, `role` = `peau`), `lost` without a leader. Co-op « lend your light »: fish follow the diver they are near |
 | `spawn` | `[x0, y0, x1, y1]` spawn area (default: `bounds`, avoiding walls) |
 | `sprite` | sprite published in `sprites` for every agent (keys of `sonic-sprite`; `shape` `circle` and `r` = `radius` by default) |
 

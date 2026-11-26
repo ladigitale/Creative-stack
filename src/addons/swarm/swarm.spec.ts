@@ -20,7 +20,7 @@ describe("sonic-swarm", () => {
     await tick();
     const out = dp("swOut1").get() as Record<string, any>;
     expect(Object.keys(out.nodes)).toEqual(["f0", "f1", "f2"]);
-    expect(out.nodes.f0).toEqual({ x: expect.any(Number), y: expect.any(Number), rz: expect.any(Number) });
+    expect(out.nodes.f0).toMatchObject({ x: expect.any(Number), y: expect.any(Number), rz: expect.any(Number) });
     expect(out.sprites[0]).toMatchObject({ name: "f0", shape: "circle", r: 4, fill: "--sc-info" });
     expect(out.count).toBe(3);
     expect(out.status).toBe("ready");
@@ -41,7 +41,7 @@ describe("sonic-swarm", () => {
     await tick();
     const out = dp("swOut2").get() as any;
     expect(out.count).toBe(5);
-    expect(out.nodes.a4).toEqual({ x: expect.any(Number), z: expect.any(Number), ry: expect.any(Number) });
+    expect(out.nodes.a4).toMatchObject({ x: expect.any(Number), z: expect.any(Number), ry: expect.any(Number) });
   });
 
   it("signale une description invalide et le dépassement du plafond", async () => {
