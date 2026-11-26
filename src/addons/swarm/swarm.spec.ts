@@ -74,3 +74,18 @@ describe("sonic-swarm : rapport au store", () => {
     expect(r.payload.groups).toEqual({ p: 1, f: 3 });
   });
 });
+
+describe("sonic-swarm : visible à chaque publication", () => {
+  it("un rendu qui arrive après coup lit visible: true dans le dernier état", async () => {
+    const el = document.createElement("sonic-swarm") as SonicSwarm;
+    el.setAttribute("out-data-provider", "swVis");
+    el.setAttribute("spec", JSON.stringify({ groups: [{ name: "f", count: 2 }] }));
+    document.body.appendChild(el);
+    await el.updateComplete;
+    (el as unknown as { publish(w: boolean): void }).publish(false);
+    const out = dp("swVis").get() as any;
+    expect(out.nodes.f0.visible).toBe(true);
+    expect(out.nodes.f1.visible).toBe(true);
+    el.remove();
+  });
+});
