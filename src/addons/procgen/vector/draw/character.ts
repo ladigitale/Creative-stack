@@ -1026,11 +1026,11 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     if (hat === "straw") em.add(new Pen().smooth(capHull(1.12, [0, 1, 0], 0.28), true), fill, { tone: -1 });
     if (hat === "helmet") em.add(new Pen().smooth(capHull(1.18, [0, 0.95, -0.3], 0.12), true), fill, { tone: -1 });
     if (hat === "hood") em.add(new Pen().smooth(capHull(1.32, [0, 0.4, -0.92], -0.5, hc, [madd(madd(hc, hUp, -ry * 1.3), hLft, rx * 1.1), madd(madd(hc, hUp, -ry * 1.3), hLft, -rx * 1.1)]), true), "cloth3", { tone: -1 });
-    if (hat === "beanie" || hat === "bandana" || hat === "turban" || hat === "toque") em.add(new Pen().smooth(capHull(hat === "turban" ? 1.28 : 1.1, [0, 1, 0], 0.2), true), hat === "toque" ? "paper" : "accent", { tone: -1 });
+    if (hat === "beanie" || hat === "bandana" || hat === "turban" || hat === "toque") em.add(new Pen().smooth(capHull(hat === "turban" ? 1.28 : 1.1, [0, 1, 0], 0.2), true), hat === "toque" ? "paper" : hat === "beanie" ? "cloth3" : "accent", { tone: -1 });
   };
   const hatDraw = () => {
     if (hat === "none") return;
-    const hatFill = hat === "tophat" ? "#2b2a33" : hat === "straw" ? "path" : hat === "helmet" ? "metal" : hat === "crown" ? "#d3a443" : hat === "wizard" ? "#4a4f8f" : "accent";
+    const hatFill = hat === "tophat" ? "#2b2a33" : hat === "straw" ? "path" : hat === "helmet" ? "metal" : hat === "crown" ? "#d3a443" : hat === "wizard" ? "#4a4f8f" : hat === "beanie" ? "cloth3" : "accent";
     const y0 = madd(hc, hUp, ry * (hat === "straw" ? 0.3 : hat === "wizard" ? 0.4 : 0.5));
     const brim = (r: number, lift = 0) => ring(madd(y0, hUp, lift), hLft, hFwd, rx * r, rz * r);
     switch (hat) {
@@ -1092,7 +1092,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         em.add(new Pen().smooth(capFront(1.13, [0, 0.95, -0.25], 0.18), true), hatFill, { tone: 0 });
         em.add(hullPen([...ring(madd(hc, hUp, ry * 0.2), hLft, hFwd, rx * 1.12, rz * 1.12), ...ring(madd(hc, hUp, ry * 0.42), hLft, hFwd, rx * 1.1, rz * 1.1)]), hatFill, { tone: -1, width: 0.5 });
         const pp = S(madd(hc, hUp, ry * 1.18));
-        em.add(bumpyCircle(pp, rx * 0.2), "paper", { tone: 0, width: 0.4 });
+        em.add(bumpyCircle(pp, rx * 0.2), "accent", { tone: 0, width: 0.4 });
         break;
       }
       case "bandana": {
