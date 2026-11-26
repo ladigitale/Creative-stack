@@ -114,14 +114,16 @@ export function twoBoneIK(root: V3, target: V3, l1: number, l2: number, pole: V3
 
 /**
  * Garde-fou anatomique : ni la main ni l'avant-bras ne traversent la tête (grosses têtes chibi et cartoon, bras levés,
- * gestes vers le visage). Si un point du bras entre dans la sphère de la tête, le bras pivote à l'épaule pour l'en
- * écarter, par petits pas. `touch` : geste qui va au visage (manger, boire, réfléchir) : contact permis, pas plus.
+ * gestes vers le visage) ni les cuisses (balancier de la marche, hanches larges). Si un point du bras entre dans la
+ * tête ou une cuisse, le bras pivote à l'épaule pour s'en écarter, par petits pas. `touch` : geste qui va au visage (manger, boire, réfléchir) : contact permis, pas plus.
  */
 function clearHead(sk: Skeleton, rot: Record<string, Q>, touch: boolean) {
   const hi = sk.index.head;
   if (hi === undefined) return;
   const hb = sk.bones[hi];
   const R = Math.max(hb.radius[0], len(sub(hb.tail, hb.head)) * 0.5) * (touch ? 0.92 : 1.04);
+  // cuisses (rayon habillé) : un bras qui pend ou se balance ne les traverse pas
+  const thighR = (s: string) => (sk.bones[sk.index[`thigh.${s}`]]?.radius[0] ?? 0) * 1.25;
   for (const s of ["l", "r"] as const) {
     const ui = sk.index[`upperarm.${s}`], hand = sk.index[`hand.${s}`];
     if (ui === undefined || hand === undefined) continue;
@@ -130,15 +132,24 @@ function clearHead(sk: Skeleton, rot: Record<string, Q>, touch: boolean) {
       const W = sk.world({ rot, root: [0, 0, 0] });
       const c = scale(add(sk.headOf(W, "head"), sk.tailOf(W, "head")), 0.5);
       const pts = [sk.headOf(W, `forearm.${s}`), sk.headOf(W, `hand.${s}`), sk.tailOf(W, `hand.${s}`), scale(add(sk.headOf(W, `forearm.${s}`), sk.headOf(W, `hand.${s}`)), 0.5)];
-      let worst = 0, wp: V3 | null = null;
+      let worst = 0, wp: V3 | null = null, from: V3 = c;
       for (const p of pts) {
         const pen = R + hr - len(sub(p, c));
-        if (pen > worst) (worst = pen), (wp = p);
+        if (pen > worst) (worst = pen), (wp = p), (from = c);
+        for (const t of ["l", "r"]) {
+          if (sk.index[`thigh.${t}`] === undefined) continue;
+          const a = sk.headOf(W, `thigh.${t}`), b = sk.tailOf(W, `thigh.${t}`);
+          const ab = sub(b, a);
+          const u = Math.max(0, Math.min(1, dot(sub(p, a), ab) / Math.max(1e-9, dot(ab, ab))));
+          const q = add(a, scale(ab, u));
+          const pen2 = thighR(t) + hr * 0.6 - len(sub(p, q));
+          if (pen2 > worst) (worst = pen2), (wp = p), (from = q);
+        }
       }
       if (!wp || worst < 1e-4) break;
       const sh = sk.headOf(W, `upperarm.${s}`);
-      // rotation à l'épaule qui éloigne le point fautif du centre de la tête (axe ⟂ bras et poussée)
-      const arm = sub(wp, sh), push = norm(sub(wp, c));
+      // rotation à l'épaule qui éloigne le point fautif de l'obstacle (axe ⟂ bras et poussée)
+      const arm = sub(wp, sh), push = norm(sub(wp, from));
       let ax = cross(arm, push);
       if (len(ax) < 1e-6) ax = [0, 0, 1];
       const ang = Math.min(0.25, worst / Math.max(1e-3, len(arm)) + 0.01);
@@ -454,7 +465,6 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     const wb = d > 0 && w < 1 ? smoothstep(0, 1, clamp((w - d) / (1 - d), 0, 1)) : w;
     rot[k] = qSlerp(rot[k] ?? qId(), q, wb);
   }
-  clearHead(sk, rot, st.action === "eat" || st.action === "drink" || st.action === "think" || st.action === "sleep");
 
   /* ---------- jambes : IK ---------- */
   const seated = st.action === "drive" || st.action === "ride" || st.action === "row";
@@ -563,6 +573,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       pelvisOffset[1] = bob0 - drop + jumpY;
     } else if (pass === 0) break;
   }
+  // garde-fou bras / tête / cuisses, une fois les jambes posées (la cuisse qui avance compte)
+  clearHead(sk, rot, st.action === "eat" || st.action === "drink" || st.action === "think" || st.action === "sleep");
   pose = { rot, root: toWorld(pelvisOffset), rootRot: yawQ };
   return { pose, feet: { l: toWorld(feetLocal.l.p), r: toWorld(feetLocal.r.p) } };
 }
