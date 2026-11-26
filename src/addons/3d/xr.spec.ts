@@ -59,6 +59,7 @@ function fakeHost() {
   let loop: ((t: number, f?: unknown) => void) | null = null;
   let clearAlpha = 1;
   const renderer = {
+    domElement: document.createElement("canvas"),
     xr: {
       enabled: false,
       refType: "",
@@ -136,17 +137,59 @@ describe("utilitaires", () => {
 });
 
 describe("sonic-xr", () => {
-  it("sans navigator.xr : unsupported", async () => {
+  it("sans navigator.xr : supported false, fenêtre magique toujours possible", async () => {
     await mount(`<sonic-xr id="xr" target="scene"></sonic-xr>`, null);
+    expect(state().supported).toBe(false);
+    expect(state().status).toBe("idle");
+    expect(state().modes.magic).toBe(true);
+  });
+
+  it("sans navigator.xr et fallback=none : unsupported", async () => {
+    await mount(`<sonic-xr id="xr" target="scene" fallback="none"></sonic-xr>`, null);
     expect(state().status).toBe("unsupported");
     expect(state().supported).toBe(false);
+  });
+
+  it("sans casque, le clic ouvre la fenêtre magique ; glisser tourne la vue ; Échap la referme", async () => {
+    const h = fakeHost();
+    await mount(`<sonic-xr id="xr" target="scene" for="btn"></sonic-xr><button id="btn"></button>`, h.host);
+    const cam = h.host.camera;
+    const before = cam.quaternion.clone();
+    (document.getElementById("btn") as HTMLButtonElement).click();
+    await wait();
+    expect(state().magic).toBe(true);
+    expect(state().active).toBe(true);
+    expect(h.calls.pause).toBe(1);
+    // caméra au centre de la scène, à hauteur des yeux bornée par la hauteur (1 m → 0,64 m)
+    expect(cam.position.x).toBeCloseTo(0);
+    expect(cam.position.y).toBeCloseTo(0.64);
+    const canvas = h.renderer.domElement;
+    const ptr = (type: string, x = 0, y = 0) => canvas.dispatchEvent(Object.assign(new Event(type), { pointerId: 1, clientX: x, clientY: y }));
+    ptr("pointerdown", 100, 100);
+    ptr("pointermove", 300, 100);
+    ptr("pointerup");
+    await new Promise((r) => setTimeout(r, 40));
+    expect(h.calls.render).toBeGreaterThan(0);
+    expect(cam.quaternion.angleTo(before)).toBeGreaterThan(0.1);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(state().magic).toBe(false);
+    expect(h.calls.resume).toBe(1);
+  });
+
+  it("data-xr-mode choisit le mode du bouton cliqué (VR même si l'AR existe)", async () => {
+    const x = fakeXr({ vr: true, ar: true });
+    const h = fakeHost();
+    await mount(`<sonic-xr id="xr" target="scene" for="vr ar"></sonic-xr><button id="vr" data-xr-mode="vr"></button><button id="ar" data-xr-mode="ar"></button>`, h.host);
+    (document.getElementById("vr") as HTMLButtonElement).click();
+    await wait();
+    expect(x.requests[0]?.mode).toBe("immersive-vr");
   });
 
   it("interroge isSessionSupported au montage", async () => {
     fakeXr({ vr: true, ar: false });
     await mount(`<sonic-xr id="xr" target="scene"></sonic-xr>`, null);
     expect(state().supported).toBe(true);
-    expect(state().modes).toEqual({ vr: true, ar: false });
+    expect(state().modes).toEqual({ vr: true, ar: false, magic: true });
     expect(state().status).toBe("idle");
   });
 

@@ -444,7 +444,8 @@ export class SceneRuntime {
     if (this.mondeData) this.monde.follow();
     this.stepLook(now);
     if (this.isEye) this.eye.tick(this.eyeCtx(), now);
-    this.controls?.update();
+    // en XR / fenêtre magique, la caméra est pilotée de dehors : l'orbite ne doit pas la ramener vers sa cible
+    if (!this.xrMode) this.controls?.update();
     if (this.mondeData) this.monde.texAdapt.scan(this.monde.group, this.activeCam, this.lastCssH * this.renderer.getPixelRatio(), now);
     this.castShadows.set(!!this.mondeData?.castShadows);
     if (this.castShadows.enabled) this.castShadows.update(this.monde.group);

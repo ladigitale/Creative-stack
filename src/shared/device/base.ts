@@ -214,10 +214,15 @@ export abstract class DeviceElement<S extends DeviceBaseState> extends LitElemen
       .map((s) => s.replace(/^#/, ""))
       .filter(Boolean);
     if (!ids.length) return;
-    const hit = e.composedPath().some((n) => n instanceof Element && !!n.id && ids.includes(n.id));
+    const el = e.composedPath().find((n): n is Element => n instanceof Element && !!n.id && ids.includes(n.id));
     // Appel synchrone dans le handler du clic : l'activation utilisateur est encore là.
-    if (hit) void this.run(this.defaultCommand);
+    if (el) void this.run(this.defaultCommand, this.clickArg(el));
   };
+
+  /** Arguments de la commande lancée par le clic sur `el` (un des ids de `for`) ; aucun par défaut. */
+  protected clickArg(_el: Element): CommandArg {
+    return {};
+  }
 
   render() {
     return html``;
