@@ -13,8 +13,9 @@ import { ARCHETYPES, AGES } from "../rig/humanoid";
 import { buildCharacter, type Built } from "./character/build";
 import {
   ANIMALS, BAGS, BEARDS, BELTS, BOTTOMS, BROWS, COLLARS, DETAILS, EARS, EYES, EYE_COLORS, FIGURES, GLASSES, GLOVES, HAIRS, HAIR_COLORS, HATS, HEAD_SHAPES, ITEMS, LEVELS, LIPS, MOODS, MUSTACHES, NOSES, OUTFITS, OVERS, PATTERNS, ROLES_CHAR, SHOES, SKIN_TONES, TOPS,
-  resolveColors, resolveLook,
+  type Look, resolveColors, resolveLook,
 } from "./character/look";
+import { Rng } from "../core/rng";
 import { defineGenerator } from "./types";
 
 export { HAIR_COLORS, OUTFITS, SKIN_TONES, EYE_COLORS };
@@ -71,7 +72,47 @@ export const characterSchema = {
   detail: { type: "enum", default: "auto", options: ["auto", "high", "crowd"], doc: "Finesse du maillage : high (héros), crowd (foule, ≈ 2× plus rapide), auto (héros pour les acteurs, foule pour les couches)" },
 } as const;
 
+/**
+ * Personnages déjà construits, par apparence et graine. Rempli à la demande, ou à l'avance par
+ * `prefetchCharacters` (constructions en parallèle dans des workers, cache persistant du navigateur).
+ */
 const cache = new Map<string, Built>();
+const CACHE_MAX = 128;
+
+export function cachedCharacter(key: string): Built | undefined {
+  return cache.get(key);
+}
+/** Vide le cache des personnages (tests). */
+export function clearCharacterCache() {
+  cache.clear();
+}
+export function storeCharacter(key: string, built: Built) {
+  cache.set(key, built);
+  if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value as string);
+}
+
+/**
+ * Partie légère de la construction : apparence et couleurs (tirées dans `ctx.rng`, dans le même ordre que `build`),
+ * clé de cache et clé de l'aléa du maillage. `buildCharacterFromKey(look, vkey)` donne exactement le maillage de `build`.
+ */
+export function prepareCharacter(p: Record<string, unknown>, ctx: { rng: import("../core/rng").Rng; issues: import("../core/schema").Issues; path: string }) {
+  const pp = p as Record<string, unknown> & { colors: Record<string, unknown> };
+  const rng = ctx.rng;
+  const look = resolveLook(pp, rng, ctx.issues, ctx.path);
+  const colors = resolveColors(pp, look, rng, ctx.issues, ctx.path);
+  const v = rng.fork("var");
+  const key = JSON.stringify({ look, seed: rng.key.split("/").slice(-1)[0] });
+  return { look, colors, v, key };
+}
+
+/** Asset d'un personnage construit (le même pour une construction sur place ou venue d'un worker). */
+export function characterAsset(look: Look, colors: Record<string, string>, built: Built) {
+  return { generator: "character", mesh: built.mesh, skeleton: built.skeleton, anchors: built.anchors, footprint: built.footprint, height: built.height, colors, blink: true, ...(built.expr ? { expr: built.expr } : {}), ...(built.soft.length ? { soft: built.soft } : {}), extra: { look } };
+}
+
+export function buildCharacterFromKey(look: Look, vkey: string): Built {
+  return buildCharacter(look, new Rng(vkey));
+}
 
 export const character = defineGenerator({
   id: "character",
@@ -80,18 +121,12 @@ export const character = defineGenerator({
   tags: ["personnage", "humain", "foule", "pnj", "héros"],
   schema: characterSchema,
   build(p, ctx) {
-    const pp = p as unknown as Record<string, unknown> & { colors: Record<string, unknown> };
-    const rng = ctx.rng;
-    const look = resolveLook(pp, rng, ctx.issues, ctx.path);
-    const colors = resolveColors(pp, look, rng, ctx.issues, ctx.path);
-    const v = rng.fork("var");
-    const key = JSON.stringify({ look, seed: rng.key.split("/").slice(-1)[0] });
+    const { look, colors, v, key } = prepareCharacter(p as unknown as Record<string, unknown>, ctx);
     let built = cache.get(key);
     if (!built) {
       built = buildCharacter(look, v);
-      cache.set(key, built);
-      if (cache.size > 48) cache.delete(cache.keys().next().value as string);
+      storeCharacter(key, built);
     }
-    return { generator: "character", mesh: built.mesh, skeleton: built.skeleton, anchors: built.anchors, footprint: built.footprint, height: built.height, colors, blink: true, ...(built.expr ? { expr: built.expr } : {}), ...(built.soft.length ? { soft: built.soft } : {}), extra: { look } };
+    return characterAsset(look, colors, built);
   },
 });

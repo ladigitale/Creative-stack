@@ -763,3 +763,10 @@ serveTileWorker(self);
 import { setProcgenTileRunner, WorkerTileRunner } from "@supersoniks/creative-stack/procgen";
 setProcgenTileRunner(() => new WorkerTileRunner(new Worker(new URL("./procgen-tiles.worker.ts", import.meta.url), { type: "module" })));
 ```
+
+Personnages construits en parallèle : le même script sert un pool de workers (cœurs − 1, au plus 6). Avant une composition 3D qui contient des personnages, procgen les repère par une composition à blanc, reprend ceux déjà construits dans le cache du navigateur (IndexedDB `procgen-personnages`, vidé de lui-même quand le code des générateurs change), fait construire les autres par le pool, puis compose : plus de tâche longue de 0,2 à 0,9 s par personnage, et une deuxième visite ne reconstruit rien. Le maillage obtenu est celui d'une construction sur place (même précision envoyée à la carte graphique). Sans workers (Node, tests, application qui n'en fournit pas), les personnages sont construits pendant la composition ; une erreur de worker n'est jamais bloquante.
+
+```ts
+import { setProcgenCharacterWorkers } from "@supersoniks/creative-stack/procgen";
+setProcgenCharacterWorkers(() => new Worker(new URL("./procgen-tiles.worker.ts", import.meta.url), { type: "module" }));
+```

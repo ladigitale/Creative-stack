@@ -18,6 +18,9 @@
  * ```
  */
 import type { Asset } from "../gen/types";
+import { buildCharacterFromKey } from "../gen/character";
+import type { Look } from "../gen/character/look";
+import { type PackedBuilt, packBuilt } from "../gen/character/pack";
 import { Mesh } from "../geom/mesh";
 import type { SceneModel } from "./compose";
 import { type TileJob, type TileRunner, MainThreadRunner, composeTile } from "./infinite";
@@ -33,7 +36,7 @@ export type TileData = {
     nav: { w: number; d: number; cell: number; ox: number; oz: number; blocked: Uint8Array } | null;
   };
 };
-type Req = { id: number; job: TileJob } | { id: number; reset: true };
+type Req = { id: number; job: TileJob } | { id: number; reset: true } | { id: number; char: { look: Look; vkey: string } };
 type Rep = { id: number; data?: TileData; ms: number; error?: string };
 
 function packMesh(m: Mesh | null, out: Transferable[]): MeshData | null {
@@ -116,7 +119,7 @@ export function unpackTile(d: TileData, meshes: Map<string, Mesh>): SceneModel {
 }
 
 /** Portée minimale d'un worker. */
-type Scope = { onmessage: ((e: { data: Req }) => void) | null; postMessage(m: Rep, transfer?: Transferable[]): void };
+type Scope = { onmessage: ((e: { data: Req }) => void) | null; postMessage(m: Rep | { id: number; char?: PackedBuilt; error?: string }, transfer?: Transferable[]): void };
 
 /** Boucle du worker : compose les tuiles demandées, une à la fois. */
 export function serveTileWorker(scope: unknown) {
@@ -127,6 +130,17 @@ export function serveTileWorker(scope: unknown) {
     const r = e.data;
     if ("reset" in r) {
       sent = new Set();
+      return;
+    }
+    if ("char" in r) {
+      // personnage construit pour le pool de `prefetchCharacters` (même script, autre instance)
+      try {
+        const transfer: Transferable[] = [];
+        const char = packBuilt(buildCharacterFromKey(r.char.look, r.char.vkey), transfer);
+        self.postMessage({ id: r.id, char }, transfer);
+      } catch (err) {
+        self.postMessage({ id: r.id, error: err instanceof Error ? err.message : String(err) });
+      }
       return;
     }
     const t0 = Date.now();

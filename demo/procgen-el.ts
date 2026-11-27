@@ -2,7 +2,11 @@
 import "@supersoniks/concorde/index";
 import "../src/addons/interactive";
 import "../src/addons/procgen";
+import { setProcgenCharacterWorkers } from "../src/addons/procgen/scene/char-pool";
 import { dp, get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+
+// ?workers=0 : personnages construits sur le fil principal (comparaison)
+if (new URLSearchParams(location.search).get("workers") !== "0") setProcgenCharacterWorkers(() => new Worker(new URL("./procgen-tiles.worker.ts", import.meta.url), { type: "module" }));
 
 const q = new URLSearchParams(location.search);
 set("monde", q.get("football") ? { football: JSON.parse(q.get("football")!) } : { scene: q.get("scene") ?? "village" });

@@ -10,6 +10,7 @@ import { set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import { dispatch, listStoreIds } from "../interactive";
 import { Issues } from "./core/schema";
 import { type Recipe, type SceneModel, composeSceneAsync, groundHeight } from "./scene/compose";
+import { prefetchCharacters } from "./scene/char-pool";
 import { SCENES } from "./scene/library";
 import { footballRecipe, parseFootball } from "./scene/football";
 import { mergeEmitters, readProcgenEmitters } from "./scene/emitters";
@@ -462,7 +463,12 @@ export class SonicProcgen extends HTMLElement {
       this.progress = 0;
       this.updateLoader();
       this.queueOut(true);
-      composeSceneAsync({ recipe: r, seed: seed as string, params, edits, mobile: isMobile() }, { signal, onProgress: (done, total) => ((this.progress = total ? done / total : 0), this.updateLoader(), this.queueOut()) })
+      const input = { recipe: r, seed: seed as string, params, edits, mobile: isMobile() };
+      const prog = (f: number) => ((this.progress = f), this.updateLoader(), this.queueOut());
+      // personnages préparés d'abord (cache du navigateur, workers en parallèle), puis composition
+      prefetchCharacters(input, (f) => prog(f * 0.9), signal)
+        .catch(() => 0)
+        .then((n) => (signal.cancelled ? null : composeSceneAsync(input, { signal, onProgress: (done, total) => prog((n ? 0.9 : 0) + (n ? 0.1 : 1) * (total ? done / total : 0)) })))
         .then((model) => {
           if (!model || signal.cancelled) return;
           const adopt = () => {

@@ -518,8 +518,17 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     let asset = ACTOR_GENS.has(gen.id) ? undefined : assetCache.get(key);
     const fresh = !asset;
     if (!asset) {
-      // cache de module : seulement hors tuiles (qui ont le leur) et sans constructeur de substitution
-      const gk = !tile && !input.assetBuilder && !ACTOR_GENS.has(gen.id) ? `${key}|${path}|${rng.key}|${rng.snapshot().join(",")}` : null;
+      // constructeur de substitution (doublures vectorielles, repérage des personnages) : prioritaire, jamais en cache
+      try {
+        asset = input.assetBuilder?.(gen.id, resolved, { rng, issues, path }) ?? undefined;
+      } catch (e) {
+        issues.add({ path, code: "info", message: `échec du générateur : ${(e as Error).message}` });
+        return null;
+      }
+    }
+    if (!asset) {
+      // cache de module : seulement hors tuiles (qui ont le leur)
+      const gk = !tile && !ACTOR_GENS.has(gen.id) ? `${key}|${path}|${rng.key}|${rng.snapshot().join(",")}` : null;
       const hit = gk ? lruGet(gk) : undefined;
       if (hit) {
         asset = hit.asset;
@@ -529,7 +538,7 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
         const rec: Issue[] = [];
         const iss = gk ? new TeeIssues(issues, rec) : issues;
         try {
-          asset = input.assetBuilder?.(gen.id, resolved, { rng, issues: iss, path }) ?? gen.build(resolved as never, { rng, issues: iss, path });
+          asset = gen.build(resolved as never, { rng, issues: iss, path });
         } catch (e) {
           issues.add({ path, code: "info", message: `échec du générateur : ${(e as Error).message}` });
           return null;
