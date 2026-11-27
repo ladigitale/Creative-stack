@@ -211,24 +211,9 @@ export function buildHeadField(k: Kit): HeadField {
   /* ---------- lèvres ---------- */
   const mouthS = hit(base, 0, mouthY);
   const lh = look.lips === "full" ? hh * 0.03 : look.lips === "medium" ? hh * 0.021 : toon ? 0 : hh * 0.014;
-  // volume des lèvres seulement (couleur peau) : la couleur et le dessin des lèvres sont portés par la bouche animée
-  // (face.ts), sinon deux bouches se superposent et se décalent dès que le personnage parle ou sourit
-  const LIP = S;
-  if (lh > 0 && !chibi && !an) {
-    const n = mouthS.n;
-    // lèvre supérieure en deux lobes inclinés qui se rejoignent au centre (arc de Cupidon, petit tubercule), effilée
-    // vers les commissures ; lèvre inférieure plus pleine au centre. Peu saillantes : un bourrelet uniforme fait masque
-    for (const sx of [1, -1]) {
-      const c = madd(add(mouthS.p, [sx * mouthW * 0.42, lh * 0.5, 0]), n, -lh * 0.48);
-      set.add({ kind: "capsule", a: add(c, [-sx * mouthW * 0.36, lh * 0.12, 0]), b: add(c, [sx * mouthW * 0.5, -lh * 0.25, -lh * 0.25]), ra: lh * 0.45, rb: lh * 0.16, role: LIP, tag: 0 }, "head", "lips");
-    }
-    set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, lh * 0.35, 0]), n, -lh * 0.22), r: [mouthW * 0.16, lh * 0.42, lh * 0.55], role: LIP, tag: 0 }, "head", "lips");
-    set.add({ kind: "ellipsoid", c: madd(add(mouthS.p, [0, -lh * 0.72, 0]), n, -lh * 0.38), r: [mouthW * 0.72, lh * 0.7, lh * 0.8], role: LIP, tag: 0 }, "head", "lips");
-    // fondues dans la peau (sinon une pastille posée sur le visage), bord net gardé par la couleur
-    const lipIdx = set.prims.map((_, i) => i).filter((i) => set.group[i] === "lips");
-    const skullIdx = set.prims.map((_, i) => i).filter((i) => set.group[i] === "skull");
-    for (const a of lipIdx) for (const b of skullIdx) set.extraBlends.push({ a, b, k: lh * 0.7 });
-  }
+  // pas de volume de lèvres dans le crâne : fixe, il ne suivait ni la parole ni le sourire de la bouche animée
+  // (face.ts), qui porte déjà le volume et la couleur des lèvres ; dès qu'elle bougeait, ce bourrelet de peau dessinait
+  // une seconde bouche en dessous. `lh` sert encore à placer la moustache
   if (AS) {
     // couleurs : rôles réservés au personnage animal (voir animal.ts, ANIMAL_ROLE)
     const MZ = ROLE.white, NOSE = ROLE.black, INNER = ROLE.sky, BEAK = ROLE.orange, MARK = ROLE.bark;

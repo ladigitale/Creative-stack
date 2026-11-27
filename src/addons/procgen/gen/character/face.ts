@@ -421,7 +421,8 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
       const pts: V3[] = [], radii: number[] = [];
       for (let i = 0; i <= N; i++) {
         const t = i / N;
-        const s = hit(surf, mix(-mw, mw, t) * 1.02, curveY(t) + (0.32 - 0.68) * open * oh * 0.5 * Math.sin(t * Math.PI) ** 0.7);
+        // un peu plus court que les lèvres : il ne dépasse jamais des commissures
+        const s = hit(surf, mix(-mw, mw, t) * 0.9, curveY(t) + (0.32 - 0.68) * open * oh * 0.5 * Math.sin(t * Math.PI) ** 0.7);
         pts.push(madd(s.p, s.n, eyeR * 0.05));
         radii.push(eyeR * (0.012 + 0.018 * Math.sin(t * Math.PI)) * (1 - 0.6 * Math.min(1, open)));
       }
@@ -434,8 +435,9 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     const ih = eyeR * 0.012 + open * oh * 0.46;
     // bouche fermée : l'intérieur et la langue rentrent entièrement sous la peau (sinon tache sombre sous les lèvres)
     const o1 = Math.min(1, open);
-    add_(ellipsoid(mw * 0.82, ih, eyeR * 0.12, ROLE.ink, sg(12), sg(6)).transform(m4Compose(madd(m.p, m.n, -eyeR * (0.16 - 0.11 * o1)), qm)), null);
-    add_(ellipsoid(mw * 0.48, eyeR * 0.01 + open * oh * 0.2, eyeR * 0.1, ROLE.mouth, sg(10), sg(5)).transform(m4Compose(madd(add(m.p, [0, -ih * 0.55, 0]), m.n, -eyeR * (0.15 - 0.12 * o1)), qm)), null);
+    // fermée : bien en retrait (sinon ses bords percent la peau aux commissures, petites taches sombres)
+    add_(ellipsoid(mw * mix(0.7, 0.82, o1), ih, eyeR * 0.12, ROLE.ink, sg(12), sg(6)).transform(m4Compose(madd(m.p, m.n, -eyeR * (0.34 - 0.29 * o1)), qm)), null);
+    add_(ellipsoid(mw * 0.48, eyeR * 0.01 + open * oh * 0.2, eyeR * 0.1, ROLE.mouth, sg(10), sg(5)).transform(m4Compose(madd(add(m.p, [0, -ih * 0.55, 0]), m.n, -eyeR * (0.33 - 0.3 * o1)), qm)), null);
   }
   morph.length = face.vertexCount * 3;
   return { mesh: face, morph, eyeCenters };
