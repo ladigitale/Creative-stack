@@ -363,7 +363,10 @@ export function buildHeadField(k: Kit): HeadField {
     const N = 7;
     for (let i = 0; i <= N; i++) {
       const t = (i / N) * 2 - 1;
-      const y = mouthY + lh * 1.1 + hh * 0.032 - hh * spec[2] * t * t + (mus === "walrus" ? -hh * 0.01 : 0);
+      // jamais sur le nez : sous son bout (les gros nez ronds des styles cartoon descendent jusque-là, et le lancer de
+      // rayon posait le milieu de la moustache dessus)
+      const noseBottom = noseTip[1] - tipR[1] - r0 * 1.3;
+      const y = Math.min(mouthY + lh * 1.1 + hh * 0.032, noseBottom) - hh * spec[2] * t * t + (mus === "walrus" ? -hh * 0.01 : 0);
       const s = hit(skin, t * w, y);
       pts.push(madd(s.p, s.n, r0 * 0.55));
     }
