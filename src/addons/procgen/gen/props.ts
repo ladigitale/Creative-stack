@@ -8,7 +8,8 @@ import { ROLE } from "../style/roles";
 import { type Asset, defineGenerator } from "./types";
 import { buildJoints } from "./joints";
 import { Rng } from "../core/rng";
-import { propText } from "../core/names";
+import { propFont, propText } from "../core/names";
+import { FONT_IDS } from "../fonts/index";
 import { type TextMeshOptions, textMesh } from "../geom/text";
 
 const put = (m: Mesh, part: Mesh, p: V3, rot?: [number, number, number]) => m.append(part, m4Compose(p, rot ? qEuler(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG) : [0, 0, 0, 1]));
@@ -30,14 +31,16 @@ const PROPS = [
 export type PropKind = (typeof PROPS)[number];
 
 /** Texte posé sur une face (lecture vers +z locale), centré en `at`, tourné de `yaw` degrés. */
-function letters(m: Mesh, text: string, o: Omit<TextMeshOptions, "back">, at: V3, yaw = 0) {
+function lettersOn(m: Mesh, text: string, o: Omit<TextMeshOptions, "back">, at: V3, yaw = 0) {
   if (!text) return;
   put(m, textMesh(text, { depth: 0.006, weight: 0.1, flat: true, ...o, back: false }).mesh, at, [0, yaw, 0]);
 }
 
-function build(kind: string, size: number, variant: number, textParam: unknown = "auto", rng: Rng = new Rng("prop")): Asset {
+function build(kind: string, size: number, variant: number, textParam: unknown = "auto", rng: Rng = new Rng("prop"), fontParam: unknown = "auto"): Asset {
   const m = new Mesh();
   const text = () => propText(kind, textParam, rng, variant);
+  const font = propFont(kind, fontParam, rng);
+  const letters = (mm: Mesh, t: string, o: Omit<TextMeshOptions, "back">, at: V3, yaw = 0) => lettersOn(mm, t, { font, ...o }, at, yaw);
   const W = ROLE.wood, M = ROLE.metal, S = ROLE.stone;
   switch (kind) {
     case "lamp": {
@@ -578,10 +581,11 @@ export const prop = defineGenerator({
     kind: { type: "enum", default: "crate", options: PROPS, doc: "Objet" },
     size: { type: "number", default: 1, min: 0.3, max: 4, doc: "Échelle (caisse, tonneau, meule)" },
     variant: { type: "int", default: 0, min: 0, max: 7, doc: "Variante" },
-    text: { type: "string", default: "auto", doc: "Texte des objets qui en portent : townsign (nom de la ville), streetsign (nom de la rue), signpost (destinations séparées par `|`), billboard (affiche), hangingsign (mot de métier), milestone (distance). « auto » = généré selon la graine, « none » = aucun ; `\\n` = retour à la ligne" },
+    text: { type: "string", default: "auto", doc: "Texte des objets qui en portent : townsign (nom de la ville), streetsign (nom de la rue), signpost (destinations séparées par `|`), billboard (affiche), hangingsign (mot de métier), milestone (distance). « auto » = généré selon la graine, « none » = aucun ; `\\n` = retour à la ligne ; `{nom}` = icône" },
+    font: { type: "enum", default: "auto", options: ["auto", ...FONT_IDS], doc: "Police du texte (auto : selon l'objet ; procgen = police à traits)" },
   },
   build(p, ctx) {
-    return build(p.kind, p.size, p.variant, p.text, ctx.rng);
+    return build(p.kind, p.size, p.variant, p.text, ctx.rng, p.font);
   },
 });
 

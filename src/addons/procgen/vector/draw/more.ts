@@ -8,7 +8,7 @@ import { type Affine, type P2, Pen, compose, hull, scallop, strokeVar } from "..
 import type { Kit } from "./kit";
 import type { DrawCtx, ObjectDrawer } from "./types";
 import { drawText } from "./text";
-import { propText } from "../../core/names";
+import { propFont, propText } from "../../core/names";
 
 type M = Affine;
 const lx = (kit: Kit) => (kit.L[0] < 0 ? 1 : -1); // côté ombré à l'écran
@@ -411,7 +411,7 @@ export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number
     em.add(new Pen(m).rect(-1.2, 1.2, 2.4, 1.3), ["accent", "water", "leaf2"][variant % 3], { tone: 0, stroke: null });
     const poster = propText("billboard", p?.text, ctx.rng, variant);
     if (poster) {
-      drawText(kit, m, poster, { cx: 0, cy: 1.85, height: 0.34, maxW: 2.1, maxH: 1.1 }, "paper");
+      drawText(kit, m, poster, { cx: 0, cy: 1.85, height: 0.34, maxW: 2.1, maxH: 1.1, font: propFont("billboard", p?.font, ctx.rng) }, "paper");
       return;
     }
     em.add(new Pen(m).ellipse(-0.5, 1.85, 0.42, 0.42), "paper", { tone: 1, stroke: null });
@@ -681,7 +681,7 @@ export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number
     else sign.rrect(0.25, 2.0, 0.6, 0.38, 0.04);
     em.add(sign, fill, { tone: 0, width: 0.55 });
     const word = propText("hangingsign", p?.text, ctx.rng, variant);
-    if (word) drawText(kit, m, word, { cx: 0.55, cy: variant % 3 === 1 ? 2.22 : 2.19, height: 0.12, maxW: 0.44, maxH: 0.26 }, fill === "paper" ? "ink" : "paper");
+    if (word) drawText(kit, m, word, { cx: 0.55, cy: variant % 3 === 1 ? 2.22 : 2.19, height: 0.12, maxW: 0.44, maxH: 0.26, font: propFont("hangingsign", p?.font, ctx.rng) }, fill === "paper" ? "ink" : "paper");
     else em.add(new Pen(m).ellipse(0.55, 2.18, 0.09, 0.09), "metal", { tone: 1, stroke: null });
   },
   milestone(kit, _s, variant, ctx, p) {
@@ -689,7 +689,7 @@ export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number
     em.add(new Pen(m).M(-0.2, 0).L(0.2, 0).L(0.2, 0.55).Q(0.2, 0.8, 0, 0.8).Q(-0.2, 0.8, -0.2, 0.55).Z(), "stone", { tone: 0, width: 0.55 });
     em.add(new Pen(m).M(-0.2, 0.55).Q(-0.2, 0.8, 0, 0.8).Q(0.2, 0.8, 0.2, 0.55).Z(), "accent", { tone: 0, width: 0.4 });
     em.add(new Pen(m).rrect(-0.13, 0.31, 0.26, 0.15, 0.02), "paper", { stroke: null });
-    drawText(kit, m, propText("milestone", p?.text, ctx.rng, variant), { cx: 0, cy: 0.385, height: 0.08, maxW: 0.22, maxH: 0.12 }, "ink");
+    drawText(kit, m, propText("milestone", p?.text, ctx.rng, variant), { cx: 0, cy: 0.385, height: 0.08, maxW: 0.22, maxH: 0.12, font: propFont("milestone", p?.font, ctx.rng) }, "ink");
   },
   townsign(kit, _s, variant, ctx, p) {
     // panneau d'entrée d'agglomération : cadre rouge, fond blanc, nom de la ville
@@ -698,7 +698,7 @@ export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number
     em.add(new Pen(m).rrect(-0.8, 1.41, 1.6, 0.68, 0.05), "red", { tone: 0, width: 0.55 });
     em.add(new Pen(m).rrect(-0.74, 1.47, 1.48, 0.56, 0.03), "white", { tone: 0, stroke: null });
     const name = propText("townsign", p?.text, ctx.rng, variant);
-    drawText(kit, m, name.replace(/-sur-/i, "\nsur "), { cx: 0, cy: 1.75, height: 0.17, maxW: 1.32, maxH: 0.44, leading: 1.4 }, "black");
+    drawText(kit, m, name.replace(/-sur-/i, "\nsur "), { cx: 0, cy: 1.75, height: 0.17, maxW: 1.32, maxH: 0.44, leading: 1.4, font: propFont("townsign", p?.font, ctx.rng) }, "black");
   },
   streetsign(kit, _s, variant, ctx, p) {
     // plaque de rue émaillée sur son poteau
@@ -706,7 +706,7 @@ export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number
     em.add(strokeVar(new Pen(m), [[0, 0], [0, 2.5]], [0.035, 0.03]), "metal", { width: 0.4 });
     em.add(new Pen(m).rrect(0.04, 2.19, 0.84, 0.22, 0.03), "white", { tone: 0, width: 0.45 });
     em.add(new Pen(m).rrect(0.06, 2.21, 0.8, 0.18, 0.02), "blue", { tone: 0, stroke: null });
-    drawText(kit, m, propText("streetsign", p?.text, ctx.rng, variant), { cx: 0.46, cy: 2.3, height: 0.06, maxW: 0.72, maxH: 0.14, leading: 1.3 }, "white");
+    drawText(kit, m, propText("streetsign", p?.text, ctx.rng, variant), { cx: 0.46, cy: 2.3, height: 0.06, maxW: 0.72, maxH: 0.14, leading: 1.3, font: propFont("streetsign", p?.font, ctx.rng) }, "white");
   },
   puddle(kit, size, _v, ctx) {
     const em = kit.em;

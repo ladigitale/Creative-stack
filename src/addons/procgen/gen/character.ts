@@ -11,6 +11,7 @@
  */
 import { ARCHETYPES, AGES } from "../rig/humanoid";
 import { buildCharacter, type Built } from "./character/build";
+import { FONT_IDS } from "../fonts/index";
 import {
   ANIMALS, BAGS, BEARDS, BELTS, BOTTOMS, BROWS, COLLARS, DETAILS, EARS, EYES, EYE_COLORS, FIGURES, GLASSES, GLOVES, HAIRS, HAIR_COLORS, HATS, HEAD_SHAPES, ITEMS, LEVELS, LIPS, MOODS, MUSTACHES, NOSES, OUTFITS, OVERS, PATTERNS, ROLES_CHAR, SHOES, SKIN_TONES, TOPS,
   type Look, resolveColors, resolveLook,
@@ -72,6 +73,7 @@ export const characterSchema = {
   shirtText: { type: "string", default: "", doc: "Texte imprimé sur le devant du haut (t-shirt, maillot) ; `\\n` = retour à la ligne ; capitales, lettres accentuées comprises" },
   shirtName: { type: "string", default: "", doc: "Nom imprimé en haut du dos (maillot) ; « auto » = nom généré selon la graine" },
   shirtNumber: { type: "string", default: "", doc: "Numéro de maillot : grand au dos, petit sur la poitrine" },
+  shirtFont: { type: "enum", default: "auto", options: ["auto", ...FONT_IDS], doc: "Police des textes imprimés (auto : Bebas Neue pour nom et numéro, au choix de la graine pour un texte libre ; procgen = police à traits)" },
   detail: { type: "enum", default: "auto", options: ["auto", "high", "crowd"], doc: "Finesse du maillage : high (héros), crowd (foule, ≈ 2× plus rapide), auto (héros pour les acteurs, foule pour les couches)" },
 } as const;
 

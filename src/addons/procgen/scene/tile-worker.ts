@@ -21,6 +21,7 @@ import type { Asset } from "../gen/types";
 import { buildCharacterFromKey } from "../gen/character";
 import type { Look } from "../gen/character/look";
 import { type PackedBuilt, packBuilt } from "../gen/character/pack";
+import { loadTextAssets, loadTextAssetsFor } from "../fonts/index";
 import { Mesh } from "../geom/mesh";
 import type { SceneModel } from "./compose";
 import { type TileJob, type TileRunner, MainThreadRunner, composeTile } from "./infinite";
@@ -126,7 +127,7 @@ export function serveTileWorker(scope: unknown) {
   const self = scope as Scope;
   const cache = new Map<string, Asset>();
   let sent = new Set<string>();
-  self.onmessage = (e) => {
+  self.onmessage = async (e) => {
     const r = e.data;
     if ("reset" in r) {
       sent = new Set();
@@ -135,6 +136,9 @@ export function serveTileWorker(scope: unknown) {
     if ("char" in r) {
       // personnage construit pour le pool de `prefetchCharacters` (même script, autre instance)
       try {
+        // police des textes imprimés (et icônes) chargée dans ce worker avant la construction
+        const lk = r.char.look;
+        await loadTextAssets(lk.printFont ? [lk.printFont] : [], /\{[a-z0-9-]+\}/.test(`${lk.printFront ?? ""}${lk.printName ?? ""}`));
         const transfer: Transferable[] = [];
         const char = packBuilt(buildCharacterFromKey(r.char.look, r.char.vkey), transfer);
         self.postMessage({ id: r.id, char }, transfer);
@@ -145,6 +149,7 @@ export function serveTileWorker(scope: unknown) {
     }
     const t0 = Date.now();
     try {
+      await loadTextAssetsFor(r.job.recipe);
       if (cache.size > 600) {
         cache.clear();
         sent = new Set();

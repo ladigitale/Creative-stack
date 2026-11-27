@@ -462,7 +462,29 @@ Ancres : personnages `head.top`, `head.center`, `hand.r.grip`, `hand.l.grip`, `b
 
 ### Texte et noms
 
-Procgen écrit avec sa propre police à traits (capitales, lettres accentuées, chiffres, ponctuation courante ; `\n` = retour à la ligne), identique en 3D (lettres en relief, ou imprimées sur le tissu) et en vectoriel. Un texte laissé à `auto` est un nom généré par la graine (toujours le même pour la même graine) ; `none` n'écrit rien.
+Un texte s'écrit à l'identique en 3D (lettres en relief, peintes à plat sur un panneau, ou imprimées sur le tissu) et en vectoriel ; `\n` = retour à la ligne. Un texte laissé à `auto` est un nom généré par la graine (toujours le même pour la même graine) ; `none` n'écrit rien.
+
+**Polices** (paramètre `font` des bâtiments et des objets, `shirtFont` des personnages, `adsFont` du terrain ; `auto` = choisie selon le style du bâtiment ou l'objet, toujours la même pour une graine) :
+
+| `font` | Police | Usage |
+|---|---|---|
+| `procgen` | police à traits intégrée (capitales) | toujours disponible, repli |
+| `inter` | Inter gras | signalétique, panneaux d'entrée de ville, plaques de rue |
+| `playfair` | Playfair Display gras | boutiques chic, bourg |
+| `slab` | Roboto Slab gras | enseignes, poteaux indicateurs |
+| `pacifico` | Pacifico | néons, plage |
+| `lobster` | Lobster | enseignes rétro, affiches |
+| `fraktur` | UnifrakturMaguntia | châteaux, chapelles, tavernes |
+| `rye` | Rye | western, ferme, vapeur |
+| `stencil` | Black Ops One | pochoir, caisses, militaire |
+| `pixel` | Press Start 2P | jeux rétro |
+| `bebas` | Bebas Neue | maillots (défaut des noms et numéros), stade |
+| `caveat` | Caveat gras | écriture manuscrite, ardoises |
+| `bangers` | Bangers | bande dessinée, t-shirts |
+
+Contours issus de Google Fonts (licence OFL), convertis par `scripts/build-procgen-fonts.mjs` ; chaque police n'est téléchargée que si la scène peut s'en servir (lu dans la recette), avant la composition. Crénage de la police compris, casse et accents gardés (sauf `procgen`, en capitales).
+
+**Icônes** dans n'importe quel texte : `{nom}`, par exemple `"{croissant} Boulangerie"`, `"I {heart} Paris"`, `"Garage {car}"`. Environ 230 pictogrammes Lucide (licence ISC) : commerces (croissant, coffee, beer, wine, pizza, utensils, cake, ice-cream-cone, fish, beef, shopping-cart, store, scissors, pill, cross, book, flower…), transports (car, bus, bike, train-front, plane, ship, anchor, fuel, circle-parking…), signalétique (arrow-right, arrow-left, info, triangle-alert, ban, wifi, phone, map-pin, toilet…), lieux (house, hotel, church, castle, landmark, school, hospital, tent…), nature et météo (sun, cloud-rain, snowflake, leaf, tree-pine, mountain, waves…), sport et fête (trophy, medal, star, heart, music, ticket, party-popper…). Un nom inconnu est ignoré.
 
 | Où | Paramètre | Rendu |
 |---|---|---|

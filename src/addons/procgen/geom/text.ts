@@ -6,6 +6,35 @@
 import { type V3, cross, dot, norm, sub } from "../core/math";
 import { type LayoutOptions, type P2, layoutText } from "../core/font";
 import { Mesh } from "./mesh";
+import { orientRings, triangulateWithHoles } from "./triangulate";
+
+/**
+ * Contours pleins (lettres d'une police) extrudés de 0 à `depth` : face avant (+z), face arrière si `back`, flancs
+ * sauf `flat` (lettres peintes à fleur d'un panneau).
+ */
+export function fillMesh(rings: P2[][], depth: number, role: number, back = true, flat = false): Mesh {
+  const m = new Mesh();
+  for (const { outer, holes } of orientRings(rings)) {
+    const { pts, tris } = triangulateWithHoles(outer, holes);
+    if (!tris.length) continue;
+    const face = (z: number, nz: number) => {
+      const b = m.vertexCount;
+      for (const p of pts) m.vertex([p[0], p[1], z], [0, 0, nz], role);
+      for (let t = 0; t < tris.length; t += 3) nz > 0 ? m.tri(b + tris[t], b + tris[t + 1], b + tris[t + 2]) : m.tri(b + tris[t], b + tris[t + 2], b + tris[t + 1]);
+    };
+    face(depth, 1);
+    if (back && !flat) face(0, -1);
+    if (flat) continue;
+    for (const r of [outer, ...holes])
+      for (let i = 0; i < r.length; i++) {
+        const a = r[i], b = r[(i + 1) % r.length];
+        const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy);
+        if (l < 1e-9) continue;
+        quad(m, [a[0], a[1], 0], [b[0], b[1], 0], [b[0], b[1], depth], [a[0], a[1], depth], [dy / l, -dx / l, 0], role);
+      }
+  }
+  return m;
+}
 
 const SHARP = Math.cos(100 * (Math.PI / 180));
 
@@ -123,8 +152,11 @@ export function textMesh(text: string, o: TextMeshOptions): { mesh: Mesh; width:
   if (o.maxHeight && fullH * cap > o.maxHeight) cap = o.maxHeight / fullH;
   // centré verticalement sur l'ensemble des lignes
   const oy = (lay.height - 1) / 2 - 0.5;
-  const polys = lay.polys.map((pl) => pl.map(([x, y]) => [x * cap, (y + oy) * cap] as P2));
-  const mesh = strokeMesh(polys, wgt * cap, o.depth ?? cap * 0.15, o.role, o.back ?? true, o.flat ?? false);
+  const tr = (l: P2[][]) => l.map((pl) => pl.map(([x, y]) => [x * cap, (y + oy) * cap] as P2));
+  const depth = o.depth ?? cap * 0.15, back = o.back ?? true, flat = o.flat ?? false;
+  const mesh = strokeMesh(tr(lay.polys), wgt * cap, depth, o.role, back, flat);
+  if (lay.fills.length) mesh.append(fillMesh(tr(lay.fills), depth, o.role, back, flat));
+  if (lay.icons.length) mesh.append(strokeMesh(tr(lay.icons), lay.iconHW * cap, depth, o.role, back, flat));
   // onglets et bouts carrés peuvent déborder d'un rien : ramené dans la largeur demandée
   const b = mesh.bounds();
   const w = b.max[0] - b.min[0];
@@ -190,6 +222,57 @@ export function printMesh(polys: P2[][], hw: number, project: (q: P2) => Surface
         else m.quad(s, s + 3, s + 2, s + 1);
       }
     }
+  return m;
+}
+
+/**
+ * Lettres pleines imprimées sur une surface courbe : triangles du glyphe recoupés (arêtes de `maxSeg` au plus) puis
+ * projetés sommet par sommet ; un triangle dont un sommet tombe hors surface est omis.
+ */
+export function printFills(rings: P2[][], project: (q: P2) => SurfacePoint, role: number, maxSeg: number): Mesh {
+  const m = new Mesh();
+  const cache = new Map<string, number>();
+  const vert = (q: P2): number => {
+    const k = `${q[0].toFixed(6)},${q[1].toFixed(6)}`;
+    let v = cache.get(k);
+    if (v === undefined) {
+      const s = project(q);
+      v = s ? m.vertex(s.p, s.n, role) : -1;
+      cache.set(k, v);
+    }
+    return v;
+  };
+  const mid = (a: P2, b: P2): P2 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const emit = (a: P2, b: P2, c: P2, depth: number) => {
+    const la = Math.hypot(b[0] - a[0], b[1] - a[1]), lb = Math.hypot(c[0] - b[0], c[1] - b[1]), lc = Math.hypot(a[0] - c[0], a[1] - c[1]);
+    if (depth < 6 && Math.max(la, lb, lc) > maxSeg) {
+      // coupe de l'arête la plus longue (pas de fissure : un point milieu est partagé par ses deux triangles)
+      if (la >= lb && la >= lc) {
+        const m0 = mid(a, b);
+        emit(a, m0, c, depth + 1);
+        emit(m0, b, c, depth + 1);
+      } else if (lb >= lc) {
+        const m0 = mid(b, c);
+        emit(a, b, m0, depth + 1);
+        emit(a, m0, c, depth + 1);
+      } else {
+        const m0 = mid(c, a);
+        emit(a, b, m0, depth + 1);
+        emit(m0, b, c, depth + 1);
+      }
+      return;
+    }
+    const ia = vert(a), ib = vert(b), ic = vert(c);
+    if (ia < 0 || ib < 0 || ic < 0) return;
+    const A = m.getPos(ia), B = m.getPos(ib), C = m.getPos(ic);
+    const ok = dot(cross(sub(B, A), sub(C, A)), m.getNrm(ia)) >= 0;
+    if (ok) m.tri(ia, ib, ic);
+    else m.tri(ia, ic, ib);
+  };
+  for (const { outer, holes } of orientRings(rings)) {
+    const { pts, tris } = triangulateWithHoles(outer, holes);
+    for (let t = 0; t < tris.length; t += 3) emit(pts[tris[t]], pts[tris[t + 1]], pts[tris[t + 2]], 0);
+  }
   return m;
 }
 

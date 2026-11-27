@@ -12,10 +12,11 @@ const walk = (d) => {
   for (const f of readdirSync(d).sort()) {
     const p = `${d}/${f}`;
     if (statSync(p).isDirectory()) walk(p);
-    else if (f.endsWith(".ts") && !f.endsWith(".spec.ts") && p !== out) files.push(p);
+    else if ((f.endsWith(".ts") || f.endsWith(".json")) && !f.endsWith(".spec.ts") && p !== out) files.push(p);
   }
 };
-for (const d of ["core", "geom", "gen", "rig"]) walk(`${root}src/addons/procgen/${d}`);
+// polices comprises : leurs contours entrent dans les maillots imprimés
+for (const d of ["core", "geom", "gen", "rig", "fonts"]) walk(`${root}src/addons/procgen/${d}`);
 for (const f of ["expr", "noise", "rng"]) files.push(`${root}src/shared/${f}.ts`);
 const h = createHash("sha1");
 for (const p of files) h.update(p.slice(root.length)).update("\0").update(readFileSync(p)).update("\0");

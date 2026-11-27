@@ -11,6 +11,7 @@ import { dispatch, listStoreIds } from "../interactive";
 import { Issues } from "./core/schema";
 import { type Recipe, type SceneModel, composeSceneAsync, groundHeight } from "./scene/compose";
 import { prefetchCharacters } from "./scene/char-pool";
+import { getFont, iconsLoaded, loadTextAssets, textAssetsOf } from "./fonts/index";
 import { SCENES } from "./scene/library";
 import { footballRecipe, parseFootball } from "./scene/football";
 import { mergeEmitters, readProcgenEmitters } from "./scene/emitters";
@@ -439,6 +440,17 @@ export class SonicProcgen extends HTMLElement {
         if (r.physics) issues.add({ path: "physics", code: "info", message: "monde infini : physique 3D des scènes finies seulement (ignorée)" });
         r = { ...r, ground: false, layers: [], paths: [], size: [20, 20], physics: undefined };
       }
+      // polices et icônes que la recette peut écrire : chargées avant la composition (3D) ; en vectoriel, la scène est
+      // recomposée dès qu'elles arrivent (dessinée d'abord avec la police à traits)
+      const txt = textAssetsOf(full);
+      const txtMissing = txt.fonts.some((f) => !getFont(f)) || (txt.icons && !iconsLoaded());
+      const txtReady = txtMissing ? loadTextAssets(txt.fonts, txt.icons).catch(() => undefined) : Promise.resolve();
+      if (mode === "vector" && txtMissing)
+        txtReady.then(() => {
+          if (this.sceneKey !== key) return;
+          this.sceneKey = "";
+          this.onData();
+        });
       if (mode === "vector") {
         // composition vectorielle : sans maillage, rapide, synchrone
         const t0 = performance.now();
@@ -466,7 +478,8 @@ export class SonicProcgen extends HTMLElement {
       const input = { recipe: r, seed: seed as string, params, edits, mobile: isMobile() };
       const prog = (f: number) => ((this.progress = f), this.updateLoader(), this.queueOut());
       // personnages préparés d'abord (cache du navigateur, workers en parallèle), puis composition
-      prefetchCharacters(input, (f) => prog(f * 0.9), signal)
+      txtReady
+        .then(() => (signal.cancelled ? 0 : prefetchCharacters(input, (f) => prog(f * 0.9), signal)))
         .catch(() => 0)
         .then((n) => (signal.cancelled ? null : composeSceneAsync(input, { signal, onProgress: (done, total) => prog((n ? 0.9 : 0) + (n ? 0.1 : 1) * (total ? done / total : 0)) })))
         .then((model) => {

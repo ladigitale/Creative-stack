@@ -15,6 +15,7 @@ import { type PartList, partsBounds, partsToMesh } from "./parts";
 import type { Rng } from "../core/rng";
 import { pickTrade, resolveText, shopName, townName } from "../core/names";
 import { textMesh } from "../geom/text";
+import { AD_FONTS, FONT_IDS, pickFont } from "../fonts/index";
 
 /** Textes des panneaux du stade : liste « A|B|C », ou commerces et villes générés. */
 function adTexts(v: unknown, rng: Rng): string[] {
@@ -67,7 +68,7 @@ function disc(m: Mesh, c: [number, number], r: number, y: number, role: number) 
   for (let i = 0; i < n; i++) m.tri(o, ring[(i + 1) % n], ring[i]);
 }
 
-export type PitchSpec = { L: number; W: number; gw: number; box: number; boxW: number; six: number; sixW: number; spot: number; circle: number; margin: number; boards: boolean; /** Textes des panneaux (tour à tour) ; vide : bande blanche stylisée. */ ads?: string[] };
+export type PitchSpec = { L: number; W: number; gw: number; box: number; boxW: number; six: number; sixW: number; spot: number; circle: number; margin: number; boards: boolean; /** Textes des panneaux (tour à tour) ; vide : bande blanche stylisée. */ ads?: string[]; /** Police de chaque texte (même rang). */ adFonts?: string[] };
 
 /** Terrain tracé : bandes de tonte, lignes, points, arcs, poteaux de corner, panneaux. */
 export function pitchMesh(s: PitchSpec): Mesh {
@@ -142,9 +143,10 @@ export function pitchMesh(s: PitchSpec): Mesh {
         P.push({ t: "box", c: [cx, 0.45, cz], h: alongX ? [hl, 0.45, 0.04] : [0.04, 0.45, hl], role });
         const ink = role === "white" || role === "yellow" ? "black" : "white";
         const ad = ads.length ? ads[(k - 1) % ads.length] : "";
+        const font = s.adFonts?.[(k - 1) % ads.length];
         if (ad) {
           // texte face au terrain
-          const t = textMesh(ad, { height: 0.42, maxWidth: hl * 2 - 0.5, maxHeight: 0.72, role: ROLE[ink], depth: 0.012, flat: true, weight: 0.12 });
+          const t = textMesh(ad, { height: 0.42, maxWidth: hl * 2 - 0.5, maxHeight: 0.72, role: ROLE[ink], depth: 0.012, flat: true, weight: 0.12, font });
           const inward = alongX ? (cz < 0 ? 0 : Math.PI) : cx < 0 ? Math.PI / 2 : -Math.PI / 2;
           const off: V3 = alongX ? [0, 0, cz < 0 ? 0.045 : -0.045] : [cx < 0 ? 0.045 : -0.045, 0, 0];
           texts.append(t.mesh, m4Compose([cx + off[0], 0.47, cz + off[2]], [0, Math.sin(inward / 2), 0, Math.cos(inward / 2)]));
@@ -265,6 +267,7 @@ export const sport = defineGenerator({
     circle: { type: "number", default: 9.15, min: 1, max: 12, unit: "m", doc: "Rayon du rond central" },
     margin: { type: "number", default: 6, min: 1, max: 15, unit: "m", doc: "Herbe tondue autour des lignes" },
     boards: { type: "bool", default: true, doc: "Panneaux publicitaires autour du terrain" },
+    adsFont: { type: "enum", default: "auto", options: ["auto", ...FONT_IDS], doc: "Police des panneaux (auto : variée d'un panneau à l'autre)" },
     ads: { type: "string", default: "auto", doc: "Textes des panneaux, séparés par `|` (tour à tour) ; « auto » = commerces et villes générés ; « none » = bandes blanches sans texte" },
     rows: { type: "int", default: 10, min: 1, max: 30, doc: "Rangs de gradins" },
     fill: { type: "number", default: 0.85, min: 0, max: 1, doc: "Taux de remplissage de la tribune" },
@@ -290,6 +293,7 @@ export const sport = defineGenerator({
       return { generator: "sport", mesh, colors, anchors: { top: { pos: [0, h, -depth], rot, scale: 1 } }, footprint: { hx: p.length / 2, hz: depth / 2, r: Math.hypot(p.length / 2, depth / 2) }, height: h, extra: { label: "tribune", affords: ["look"] } };
     }
     const spec: PitchSpec = { L: p.length, W: p.width, gw: p.goalWidth, box: p.box, boxW: p.boxWidth, six: p.six, sixW: p.sixWidth, spot: p.spot, circle: p.circle, margin: p.margin, boards: !!p.boards, ads: adTexts(p.ads, ctx.rng) };
+    spec.adFonts = spec.ads!.map((_, i) => pickFont(p.adsFont, AD_FONTS, (l) => ctx.rng.fork(`police${i}`).pick(l)));
     const mesh = pitchMesh(spec);
     const anchors: Record<string, Anchor> = { center: { pos: [0, 0, 0], rot, scale: 1 } };
     for (const sd of [-1, 1]) anchors[sd > 0 ? "goal.east" : "goal.west"] = { pos: [(sd * spec.L) / 2, 0, 0], rot, scale: 1 };
