@@ -20,7 +20,8 @@ import type { ProcgenEmitters } from "../scene/emitters";
 import type { Aabb } from "../../../shared/sim/grid";
 import type { Hit } from "../../../shared/sim/emitter";
 import { type M4, type V3, clamp, m4Compose, m4Point, mix, qAxis, qMul, smoothstep, sub } from "../core/math";
-import { FaceState, bindExpr } from "./expr";
+import { FaceState, bindExpr, exprTexture } from "./expr";
+import { requestCharacterLod } from "../scene/char-pool";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
 import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
@@ -80,6 +81,8 @@ type ActorRT = {
   model: ActorModel;
   mesh: THREE.Mesh;
   mats: MaterialPair;
+  /** Niveaux de détail : géométrie complète (0) et allégée (1, arrivée plus tard d'un worker), visage de chacune. */
+  lods?: { geo: [THREE.BufferGeometry, THREE.BufferGeometry]; tex: [THREE.Texture, THREE.Texture]; range: [[number, number], [number, number]]; cur: 0 | 1 };
   /** Animation (humanoïde ou animal) : pose, longueur de pas, longueur de jambe. */
   mo: Motion;
   pos: V3;
@@ -318,6 +321,9 @@ export class ProcgenView {
   private poseFrustum = new THREE.Frustum();
   private poseFrustumOn = false;
   private poseSphere = new THREE.Sphere();
+  /** Pixels (CSS) par mètre à 1 m de la caméra (perspective) ou partout (orthographique) : choix du niveau de détail. */
+  private lodPx = 0;
+  private lodPersp = true;
   /** Monde infini : tuiles chargées autour du point suivi (null : scène finie). */
   /** Conduite : véhicules et montures actifs, inclinaisons de caisse, véhicules détachés de leur tuile (monde infini). */
   private vehicles = new Map<string, VehRT>();
@@ -712,6 +718,55 @@ export class ProcgenView {
     };
     this.actors.set(a.id, rt);
     this.poseActor(rt, 0);
+    this.loadLod(rt);
+  }
+
+  /** Version allégée d'un personnage détaillé, construite par le pool de workers puis gardée en réserve. */
+  private loadLod(rt: ActorRT) {
+    const ex = rt.model.asset.extra as { look?: import("../gen/character/look").Look; vkey?: string } | undefined;
+    if (rt.model.asset.generator !== "character" || !ex?.look || !ex.vkey || ex.look.detail === "crowd") return;
+    const model = this.model;
+    void requestCharacterLod(ex.look, ex.vkey).then((b) => {
+      if (!b || this.disposed || this.model !== model || this.actors.get(rt.model.id) !== rt || rt.lods) return;
+      const e0 = rt.model.asset.expr, e1 = b.expr;
+      // mêmes canaux de visage (sinon les poids ne correspondraient pas) et même squelette
+      if (JSON.stringify(e0?.channels ?? []) !== JSON.stringify(e1?.channels ?? [])) return;
+      if (b.skeleton.count !== rt.model.asset.skeleton?.count) return;
+      const geo = toGeometry(b.mesh);
+      geo.setAttribute("aObj", new THREE.Float32BufferAttribute(new Array(b.mesh.vertexCount).fill(rt.model.obj), 1));
+      geo.boundingSphere = (rt.mesh.geometry.boundingSphere ?? new THREE.Sphere()).clone();
+      if (e1) geo.userData.expr = e1;
+      const U = rt.mats.uniforms;
+      const r0 = U.uExprRange.value as THREE.Vector2;
+      rt.lods = {
+        geo: [rt.mesh.geometry, geo],
+        tex: [U.uExprTex.value as THREE.Texture, e1 ? exprTexture(e1) : (U.uExprTex.value as THREE.Texture)],
+        range: [[r0.x, r0.y], e1 ? [e1.base, e1.count] : [0, 0]],
+        cur: 0,
+      };
+      this.dirty = true;
+    });
+  }
+
+  /** Niveau de détail d'après la taille à l'écran (hystérésis : pas de va-et-vient). Détail complet en rendu soigné. */
+  private pickLod(a: ActorRT, full: boolean) {
+    const L = a.lods;
+    if (!L) return;
+    let want: 0 | 1 = 0;
+    if (!full && this.lodPx > 0) {
+      const h = a.model.asset.height;
+      let px = h * this.lodPx;
+      if (this.lodPersp) {
+        const c = this.camera.position;
+        px /= Math.max(0.1, Math.hypot(a.pos[0] - c.x, a.pos[1] + h * 0.5 - c.y, a.pos[2] - c.z));
+      }
+      want = px < (L.cur === 1 ? 170 : 140) ? 1 : 0;
+    }
+    if (want === L.cur) return;
+    L.cur = want;
+    a.mesh.geometry = L.geo[want];
+    a.mats.uniforms.uExprTex.value = L.tex[want];
+    (a.mats.uniforms.uExprRange.value as THREE.Vector2).set(L.range[want][0], L.range[want][1]);
   }
 
   private clearScene() {
@@ -720,6 +775,11 @@ export class ProcgenView {
     this.softs = null;
     this.softObjM.clear();
     this.settle = null;
+    for (const a of this.actors.values()) {
+      if (!a.lods) continue;
+      for (const g of a.lods.geo) if (g !== a.mesh.geometry) g.dispose();
+      if (a.lods.tex[1] !== a.lods.tex[0]) a.lods.tex[1].dispose();
+    }
     for (const o of [...this.scene.children]) {
       // particules : gardées d'un modèle à l'autre (relues par applyFx)
       if (o === this.fxGroup) continue;
@@ -3821,6 +3881,14 @@ export class ProcgenView {
     }
     this.camera = applyView(this.view, w / h, this.extent, this.ortho, this.persp, target, this.snapReq ?? undefined, this.frame);
     (this.camera as THREE.Camera).updateMatrixWorld();
+    {
+      // niveau de détail des personnages : d'après leur taille à l'écran ; complet pour les captures et le rendu soigné
+      const pc = this.camera as THREE.PerspectiveCamera, oc = this.camera as THREE.OrthographicCamera;
+      this.lodPersp = !!pc.isPerspectiveCamera;
+      this.lodPx = this.lodPersp ? h / (2 * Math.tan((pc.fov * Math.PI) / 360)) : (h * oc.zoom) / Math.max(1e-6, oc.top - oc.bottom);
+      const full = !!this.snapReq || !!this.photo?.spec || jitter !== undefined;
+      for (const a of this.actors.values()) if (a.lods) this.pickLod(a, full);
+    }
     const pu0 = (this.post.material as THREE.ShaderMaterial).uniforms;
     const xf = this.snapReq ? marginTransform(this.snapReq.rw, this.snapReq.rh, this.snapReq.m, this.frame.rx, this.frame.ry) : [1, 1, 0, 0];
     (pu0.uUvXf.value as THREE.Vector4).set(xf[0], xf[1], xf[2], xf[3]);

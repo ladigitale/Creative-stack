@@ -106,8 +106,8 @@ export function prepareCharacter(p: Record<string, unknown>, ctx: { rng: import(
 }
 
 /** Asset d'un personnage construit (le même pour une construction sur place ou venue d'un worker). */
-export function characterAsset(look: Look, colors: Record<string, string>, built: Built) {
-  return { generator: "character", mesh: built.mesh, skeleton: built.skeleton, anchors: built.anchors, footprint: built.footprint, height: built.height, colors, blink: true, ...(built.expr ? { expr: built.expr } : {}), ...(built.soft.length ? { soft: built.soft } : {}), extra: { look } };
+export function characterAsset(look: Look, colors: Record<string, string>, built: Built, vkey?: string) {
+  return { generator: "character", mesh: built.mesh, skeleton: built.skeleton, anchors: built.anchors, footprint: built.footprint, height: built.height, colors, blink: true, ...(built.expr ? { expr: built.expr } : {}), ...(built.soft.length ? { soft: built.soft } : {}), extra: { look, ...(vkey ? { vkey } : {}) } };
 }
 
 export function buildCharacterFromKey(look: Look, vkey: string): Built {
@@ -127,6 +127,6 @@ export const character = defineGenerator({
       built = buildCharacter(look, v);
       storeCharacter(key, built);
     }
-    return characterAsset(look, colors, built);
+    return characterAsset(look, colors, built, v.key);
   },
 });
