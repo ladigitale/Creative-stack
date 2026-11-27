@@ -1637,13 +1637,15 @@ export function footballRecipe(spec: FootballSpec): Record<string, unknown> {
           shirtName: "auto",
           shirtNumber: String(i + 1),
           shirtFont: "bebas",
+          // nom de l'équipe sur la poitrine, au-dessus du petit numéro
+          shirtText: t.name.toUpperCase(),
           colors: { top: gk ? t.keeper : t.shirt, bottom: t.shorts, detail: t.pattern === "plain" ? t.socks : t.shorts, leather: "#1a1a1a" },
         },
       };
     });
   }
   const layers: unknown[] = [
-    { id: "terrain", gen: "sport.pitch", place: { at: [{ x: 0, z: 0, yaw: 0 }] }, params: { length: L, width: W, goalWidth: dim.gw, box: dim.box[0], boxWidth: dim.box[1], six: dim.six[0], sixWidth: dim.six[1], spot: dim.spot, circle: dim.circle, boards: stand, margin } },
+    { id: "terrain", gen: "sport.pitch", place: { at: [{ x: 0, z: 0, yaw: 0 }] }, params: { length: L, width: W, goalWidth: dim.gw, box: dim.box[0], boxWidth: dim.box[1], six: dim.six[0], sixWidth: dim.six[1], spot: dim.spot, circle: dim.circle, boards: stand, margin, ads: `Allez les ${spec.teams[0].name} !|auto|{trophy} ${spec.teams[1].name}|auto|auto|{star} ${spec.teams[0].name}|auto|auto` } },
     { id: "buts", gen: "sport.goal", place: { at: [{ x: L / 2, z: 0, yaw: 90 }, { x: -L / 2, z: 0, yaw: -90 }] }, params: { width: dim.gw, height: dim.gh } },
     { id: "ballon", gen: "ball.soccer", place: { at: [{ x: 0, z: 0 }] } },
   ];
