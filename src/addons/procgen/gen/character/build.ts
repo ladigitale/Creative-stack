@@ -25,12 +25,22 @@ import type { Look } from "./look";
 
 export type Built = { mesh: Mesh; skeleton: Skeleton; anchors: Record<string, Anchor>; footprint: Asset["footprint"]; height: number; soft: SoftPiece[]; expr?: Asset["expr"] };
 
-/** Proportions, squelette et kit de construction d'un personnage (partagé avec les tests de pose des accessoires). */
-export function characterKit(look: Look, v: Rng) {
-  const P = proportions({
+function lookProportions(look: Look) {
+  return proportions({
     height: look.height, archetype: look.archetype as Archetype, age: look.age as Age, build: look.build, shape: look.shape, headSize: look.headSize, belly: look.belly,
     legs: look.body.legs, arms: look.body.arms, neck: look.body.neck, shoulders: look.body.shoulders, hips: look.body.hips, posture: look.body.posture, asym: look.body.asym,
   });
+}
+
+/** Squelette et taille seuls (rapide) : doublure d'un personnage pendant le repérage des constructions à lancer. */
+export function characterSkeleton(look: Look) {
+  const P = lookProportions(look);
+  return { skel: buildHumanoid(P), H: P.H };
+}
+
+/** Proportions, squelette et kit de construction d'un personnage (partagé avec les tests de pose des accessoires). */
+export function characterKit(look: Look, v: Rng) {
+  const P = lookProportions(look);
   const skel = buildHumanoid(P);
   const H = P.H;
   const crowd = look.detail === "crowd";

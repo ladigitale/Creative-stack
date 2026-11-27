@@ -67,7 +67,7 @@
     "catalog": "node scripts/build-catalog.mjs && node scripts/build-library.mjs",
     "build": "node scripts/build-catalog.mjs && node scripts/build-library.mjs && node scripts/build-addons.mjs",
     "test": "vitest",
-    "test:ci": "node scripts/build-catalog.mjs && node scripts/build-library.mjs && node scripts/build-vectorize-worker.mjs --check && node scripts/build-sketch-worker.mjs --check && node scripts/build-anchor-worker.mjs --check && vitest run",
+    "test:ci": "node scripts/build-catalog.mjs && node scripts/build-library.mjs && node scripts/build-vectorize-worker.mjs --check && node scripts/build-sketch-worker.mjs --check && node scripts/build-anchor-worker.mjs --check && node scripts/build-procgen-version.mjs --check && vitest run",
     "worker:vectorize": "node scripts/build-vectorize-worker.mjs",
     "worker:sketch": "node scripts/build-sketch-worker.mjs",
     "worker:anchor": "node scripts/build-anchor-worker.mjs"
