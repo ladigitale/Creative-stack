@@ -312,7 +312,7 @@ class TightField extends Field {
     });
   }
   /** Évaluation : une primitive dont la boîte élargie ne contient pas le point compte comme lointaine (pas de calcul). */
-  override evalXYZ(px: number, py: number, pz: number, cand?: { prims: number[]; blends: Blend[] }, out?: Float64Array): { d: number; owner: number } {
+  override evalXYZ(px: number, py: number, pz: number, cand?: { prims: number[]; blends: Blend[] }, out?: Float64Array, _exact = false): { d: number; owner: number } {
     const c = cand ?? this.local([px, py, pz]);
     if (!out || out.length < this.prims.length) out = this.buf.length >= this.prims.length ? this.buf : (this.buf = new Float64Array(this.prims.length));
     const P = this.padded;
@@ -325,7 +325,7 @@ class TightField extends Field {
         out[i] = far * 4;
         continue;
       }
-      const v = primDist(px, py, pz, this.prims[i]);
+      const v = this.primDistance(i, px, py, pz);
       out[i] = v;
       if (v < d || owner < 0) {
         if (v < d) d = v;

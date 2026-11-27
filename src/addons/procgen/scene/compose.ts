@@ -15,7 +15,7 @@ import { motionFor } from "../rig/motion";
 import { resolveDeep, type Scope } from "../core/expr";
 import { Rng } from "../core/rng";
 import { type Issue, Issues, resolveParams, suggest } from "../core/schema";
-import { Mesh } from "../geom/mesh";
+import { Mesh, compactMesh } from "../geom/mesh";
 import { GENERATORS, resolveGeneratorId } from "../gen/index";
 import type { Asset, SoftPiece } from "../gen/types";
 import { scalePiece } from "../gen/soft";
@@ -1041,6 +1041,8 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
   for (const o of objects) if (o.jointTile) o.jointTile.tile = tileKeys.indexOf(o.jointTile.key);
   const minY = terrain ? Math.min(...objects.map((o) => o.pos[1]), 0) - 1 : 0;
   const maxY = Math.max(2, ...objects.map((o) => o.pos[1] + o.height));
+  // maillages gardés par la scène : tableaux typés à la taille exacte (mémoire divisée par trois environ)
+  for (const me of [ground, roads, water, ...tiles.values(), ...[...groups.values()].map((g) => g.mesh), ...actors.map((a) => a.asset.mesh)]) if (me) compactMesh(me);
   const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
   return {
     size,

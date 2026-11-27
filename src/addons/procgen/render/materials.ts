@@ -89,17 +89,20 @@ export function makeMaterials(shared: Shared, roles: { value: Float32Array }, sk
 /** Géométrie three.js d'un maillage procgen. */
 export function toGeometry(m: Mesh): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(m.pos, 3));
-  g.setAttribute("normal", new THREE.Float32BufferAttribute(m.nrm, 3));
+  // maillage compacté (`compactMesh`) : copie directe de ses Float32Array (le rendu réécrit certains sommets : terrain
+  // creusé, objets fusionnés déplacés ; le maillage de la scène, partagé par le cache, ne doit pas les voir)
+  const f32 = (a: ArrayLike<number>, n: number) => (a instanceof Float32Array ? new THREE.BufferAttribute(a.slice(), n) : new THREE.Float32BufferAttribute(a as number[], n));
+  g.setAttribute("position", f32(m.pos, 3));
+  g.setAttribute("normal", f32(m.nrm, 3));
   g.setAttribute("aRole", new THREE.Float32BufferAttribute(m.role, 1));
-  g.setAttribute("aAO", new THREE.Float32BufferAttribute(m.ao, 1));
-  g.setAttribute("aFlex", new THREE.Float32BufferAttribute(m.flex, 1));
+  g.setAttribute("aAO", f32(m.ao, 1));
+  g.setAttribute("aFlex", f32(m.flex, 1));
   g.setAttribute("aObj", new THREE.Float32BufferAttribute(m.obj, 1));
   const n = m.vertexCount;
   g.setAttribute("aSkinIdx", new THREE.Float32BufferAttribute(m.skin ?? new Array(n * 4).fill(0), 4));
-  g.setAttribute("aSkinW", new THREE.Float32BufferAttribute(m.weight ?? new Array(n * 4).fill(0).map((_, k) => (k % 4 === 0 ? 1 : 0)), 4));
-  g.setAttribute("aMorph", new THREE.Float32BufferAttribute(m.morph ?? new Array(n * 3).fill(0), 3));
-  g.setAttribute("aBlend", new THREE.Float32BufferAttribute(m.blend ?? new Array(n).fill(0), 1));
+  g.setAttribute("aSkinW", m.weight ? f32(m.weight, 4) : new THREE.Float32BufferAttribute(new Array(n * 4).fill(0).map((_, k) => (k % 4 === 0 ? 1 : 0)), 4));
+  g.setAttribute("aMorph", m.morph ? f32(m.morph, 3) : new THREE.Float32BufferAttribute(new Float32Array(n * 3), 3));
+  g.setAttribute("aBlend", m.blend ? f32(m.blend, 1) : new THREE.Float32BufferAttribute(new Float32Array(n), 1));
   g.setIndex(n > 65535 ? new THREE.Uint32BufferAttribute(m.idx, 1) : new THREE.Uint16BufferAttribute(m.idx, 1));
   g.computeBoundingSphere();
   g.computeBoundingBox();

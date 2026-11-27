@@ -171,18 +171,139 @@ function primBounds(f: FieldPrim): { min: V3; max: V3 } {
 const smin = (a: number, b: number, k: number) => {
   if (k <= 0) return Math.min(a, b);
   const h = clamp(0.5 + (0.5 * (b - a)) / k, 0, 1);
+  // hors du rayon de soudure, le minimum exact (b + (a − b) n'est pas toujours a au dernier bit près)
+  if (h === 1) return a;
+  if (h === 0) return b;
   return mix(b, a, h) - k * h * (1 - h);
 };
+
+/*
+ * Primitives compilées : chaque primitive simple (sans bosses ni découpes) est rangée dans un tableau plat avec ses
+ * constantes précalculées (vecteur de l'axe, longueurs, inverses), et son type devient un entier. L'évaluation du
+ * champ, qui fait l'essentiel du temps de génération, n'accède plus aux objets ni ne compare de chaînes. Les calculs
+ * sont faits dans le même ordre que `primDist` : résultat identique au bit près.
+ */
+const K_GENERIC = 0, K_CAPSULE = 1, K_ELLIPSOID = 2, K_BOX = 3, K_SPHERE = 4;
+const STRIDE = 16;
+
+function compilePrims(prims: FieldPrim[]): { kind: Uint8Array; C: Float64Array } {
+  const kind = new Uint8Array(prims.length);
+  const C = new Float64Array(prims.length * STRIDE);
+  prims.forEach((f, i) => {
+    const o = i * STRIDE;
+    switch (f.kind) {
+      case "capsule": {
+        const { a, b, ra: r1, rb: r2 } = f;
+        const bx = b[0] - a[0], by = b[1] - a[1], bz = b[2] - a[2];
+        const l2 = bx * bx + by * by + bz * bz;
+        const rr = r1 - r2;
+        C.set([a[0], a[1], a[2], bx, by, bz, l2, rr, l2 - rr * rr, 1 / l2, r1, r2, Math.sign(rr) * rr * rr, Math.max(r1, r2)], o);
+        kind[i] = K_CAPSULE;
+        break;
+      }
+      case "ellipsoid":
+        C.set([f.c[0], f.c[1], f.c[2], f.r[0], f.r[1], f.r[2], -Math.min(f.r[0], f.r[1], f.r[2])], o);
+        kind[i] = K_ELLIPSOID;
+        break;
+      case "box":
+        C.set([f.c[0], f.c[1], f.c[2], f.h[0], f.h[1], f.h[2], f.round], o);
+        kind[i] = K_BOX;
+        break;
+      case "sphere":
+        C.set([f.c[0], f.c[1], f.c[2], f.r], o);
+        kind[i] = K_SPHERE;
+        break;
+    }
+  });
+  return { kind, C };
+}
+
+/** Distance à la primitive compilée `i` (repli sur `primDist` pour les autres). */
+function compiledDist(kind: Uint8Array, C: Float64Array, prims: FieldPrim[], i: number, px: number, py: number, pz: number): number {
+  const k = kind[i];
+  if (k === K_GENERIC) return primDist(px, py, pz, prims[i]);
+  const d = baseDist(k, C, i * STRIDE, px, py, pz);
+  const f = prims[i];
+  return f.bump || f.clip ? addExtras(d, f, px, py, pz) : d;
+}
+
+/** Bosses et découpes, appliquées comme dans `primDist`. */
+function addExtras(d: number, f: FieldPrim, px: number, py: number, pz: number): number {
+  if (f.bump) d += f.bump.amp * noise3(px * f.bump.freq + f.bump.seed, py * f.bump.freq, pz * f.bump.freq - f.bump.seed);
+  if (f.clip)
+    for (const c of f.clip) {
+      const e = px * c.n[0] + py * c.n[1] + pz * c.n[2] - c.d;
+      d = c.k ? smax(d, e, c.k) : Math.max(d, e);
+    }
+  return d;
+}
+
+function baseDist(kind: number, C: Float64Array, o: number, px: number, py: number, pz: number): number {
+  switch (kind) {
+    case K_CAPSULE: {
+      const qx = px - C[o], qy = py - C[o + 1], qz = pz - C[o + 2];
+      const l2 = C[o + 6];
+      if (l2 < 1e-12) return Math.sqrt(qx * qx + qy * qy + qz * qz) - C[o + 13];
+      const bx = C[o + 3], by = C[o + 4], bz = C[o + 5];
+      const a2 = C[o + 8], il2 = C[o + 9];
+      const y = qx * bx + qy * by + qz * bz;
+      const z = y - l2;
+      const xx = qx * l2 - bx * y, xy = qy * l2 - by * y, xz = qz * l2 - bz * y;
+      const x2 = xx * xx + xy * xy + xz * xz;
+      const y2 = y * y * l2;
+      const z2 = z * z * l2;
+      const k = C[o + 12] * x2;
+      if (Math.sign(z) * a2 * z2 > k) return Math.sqrt(x2 + z2) * il2 - C[o + 11];
+      if (Math.sign(y) * a2 * y2 < k) return Math.sqrt(x2 + y2) * il2 - C[o + 10];
+      return (Math.sqrt(x2 * a2 * il2) + y * C[o + 7]) * il2 - C[o + 10];
+    }
+    case K_ELLIPSOID: {
+      const rx = C[o + 3], ry = C[o + 4], rz = C[o + 5];
+      const qx = px - C[o], qy = py - C[o + 1], qz = pz - C[o + 2];
+      const ax = qx / rx, ay = qy / ry, az = qz / rz;
+      const k0 = Math.sqrt(ax * ax + ay * ay + az * az);
+      const bx = ax / rx, by = ay / ry, bz = az / rz;
+      const k1 = Math.sqrt(bx * bx + by * by + bz * bz);
+      return k1 > 1e-12 ? (k0 * (k0 - 1)) / k1 : C[o + 6];
+    }
+    case K_BOX: {
+      const round = C[o + 6];
+      const qx = Math.abs(px - C[o]) - C[o + 3] + round, qy = Math.abs(py - C[o + 1]) - C[o + 4] + round, qz = Math.abs(pz - C[o + 2]) - C[o + 5] + round;
+      const mx = Math.max(qx, 0), my = Math.max(qy, 0), mz = Math.max(qz, 0);
+      return Math.sqrt(mx * mx + my * my + mz * mz) + Math.min(Math.max(qx, qy, qz), 0) - round;
+    }
+    case K_SPHERE:
+      return Math.hypot(px - C[o], py - C[o + 1], pz - C[o + 2]) - C[o + 3];
+  }
+  return NaN;
+}
 
 /** Champ combiné, évaluable en tout point. */
 export class Field {
   readonly prims: FieldPrim[];
   readonly blends: Blend[];
   private boxes: { min: V3; max: V3 }[];
+  private kind: Uint8Array;
+  private C: Float64Array;
   constructor(prims: FieldPrim[], blends: Blend[] = []) {
     this.prims = prims;
     this.blends = blends.filter((b) => b.a !== b.b && b.a < prims.length && b.b < prims.length);
     this.boxes = prims.map(primBounds);
+    const c = compilePrims(prims);
+    this.kind = c.kind;
+    this.C = c.C;
+    // marge de sautage du bruit : 0 hors soudure, 1,25 × le plus grand rayon de soudure sinon (au-delà, le min adouci
+    // vaut exactement l'autre distance : borne basse ou vraie valeur donnent le même résultat)
+    this.bumpSkip = new Float64Array(prims.length).fill(-1);
+    prims.forEach((f, i) => f.bump && c.kind[i] !== K_GENERIC && (this.bumpSkip[i] = 0));
+    for (const b of this.blends)
+      for (const q of [b.a, b.b]) if (this.bumpSkip[q] >= 0) this.bumpSkip[q] = Math.max(this.bumpSkip[q], 1.25 * b.k);
+  }
+  /** Primitives à bosses : leur bruit n'est calculé que si elles peuvent compter (−1 : toujours calculé). */
+  private bumpSkip: Float64Array;
+  /** Distance à la primitive `i` seule (compilée). */
+  primDistance(i: number, px: number, py: number, pz: number): number {
+    return compiledDist(this.kind, this.C, this.prims, i, px, py, pz);
   }
   bounds(): { min: V3; max: V3 } {
     const min: V3 = [Infinity, Infinity, Infinity];
@@ -218,7 +339,7 @@ export class Field {
         const ds = prims.map((q) => {
           const f = this.prims[q];
           if (f.bump) bump = Math.max(bump, Math.abs(f.bump.amp));
-          const d = primDist(cx, cy, cz, f);
+          const d = this.primDistance(q, cx, cy, cz);
           if (d < dmin) dmin = d;
           return d;
         });
@@ -237,14 +358,32 @@ export class Field {
   eval(p: V3, cand?: { prims: number[]; blends: Blend[] }, out?: Float64Array): { d: number; owner: number } {
     return this.evalXYZ(p[0], p[1], p[2], cand, out);
   }
-  evalXYZ(px: number, py: number, pz: number, cand?: { prims: number[]; blends: Blend[] }, out?: Float64Array): { d: number; owner: number } {
+  /**
+   * `exact` : toutes les distances écrites dans `out` sont exactes (élagage par l'appelant) ; sinon une primitive à
+   * bosses trop loin pour compter reçoit une borne basse sans que son bruit soit calculé.
+   */
+  evalXYZ(px: number, py: number, pz: number, cand?: { prims: number[]; blends: Blend[] }, out?: Float64Array, exact = false): { d: number; owner: number } {
     const c = cand ?? this.local([px, py, pz]);
     if (this.scratch.length < this.prims.length) this.scratch = new Float64Array(this.prims.length);
     const ds = out ?? this.scratch;
     let d = Infinity;
     let owner = -1;
+    const kind = this.kind, C = this.C, prims = this.prims, bumpSkip = this.bumpSkip;
     for (const i of c.prims) {
-      const v = primDist(px, py, pz, this.prims[i]);
+      let v: number;
+      const skip = exact ? -1 : bumpSkip[i];
+      if (skip >= 0) {
+        // borne basse sans le bruit ni les découpes (qui ne font qu'augmenter la distance) : si elle ne bat pas la
+        // meilleure distance (marge de soudure comprise), la vraie non plus ; `ds` reçoit la borne, plus petite : les
+        // élagages qui la lisent restent prudents
+        const base = baseDist(kind[i], C, i * STRIDE, px, py, pz);
+        const amp = Math.abs(prims[i].bump!.amp) * 1.1;
+        if (base - amp >= d + skip) {
+          ds[i] = base - amp;
+          continue;
+        }
+        v = addExtras(base, prims[i], px, py, pz);
+      } else v = compiledDist(kind, C, prims, i, px, py, pz);
       ds[i] = v;
       if (v < d) {
         d = v;
@@ -380,7 +519,7 @@ export function polygonize(field: Field, opts: PolygonizeOptions): Polygonized {
             for (let si = bi; si < Math.min(nx, bi + B); si += S) {
               const ek = Math.min(nz, sk + S), ej = Math.min(ny, sj + S), ei = Math.min(nx, si + S);
               const cx = org[0] + ((si + ei - 1) / 2) * cell, cy = org[1] + ((sj + ej - 1) / 2) * cell, cz = org[2] + ((sk + ek - 1) / 2) * cell;
-              const rc = field.evalXYZ(cx, cy, cz, cand, scratch);
+              const rc = field.evalXYZ(cx, cy, cz, cand, scratch, true);
               if (Number.isFinite(rc.d) && Math.abs(rc.d) > skipR + bumpPad) {
                 for (let k = sk; k < ek; k++)
                   for (let j = sj; j < ej; j++)
