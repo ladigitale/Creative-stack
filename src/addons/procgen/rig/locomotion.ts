@@ -249,11 +249,20 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const aimDir = (out: Record<string, Q>, s: "l" | "r", dir: V3, elbowDeg: number, twistDeg = 0, pronDeg = 0) => {
     const sg = s === "l" ? 1 : -1;
     const d = norm(dir);
-    // sens de flexion du coude : vers l'avant (ou vers le haut si le bras pointe déjà devant), tourné par `twist`
-    const fw: V3 = Math.abs(d[2]) > 0.9 ? [0, 1, 0] : [0, 0, 1];
-    const b0 = norm(sub(fw, scale(d, dot(fw, d))));
+    // sens de flexion du coude : le coude reste vers le bas. Bras bas : l'avant-bras se plie vers l'avant ; bras
+    // devant ou de côté : il remonte (la main monte, le coude reste dessous) ; bras levé au-dessus de la tête : la
+    // main revient vers la tête (coude vers l'extérieur), jamais coude pointé vers le haut. Tourné ensuite par `twist`
+    const f0 = sub([0, 0, 1], scale(d, d[2]));
+    const u0 = sub([0, 1, 0], scale(d, d[1]));
+    const lu = len(u0);
     const mid = sub([-sg, 0, 0], scale(d, -sg * d[0]));
-    const m0 = len(mid) > 1e-4 ? norm(mid) : norm(cross(d, b0));
+    const mm = len(mid) > 1e-4 ? norm(mid) : ([0, 0, 1] as V3);
+    const fwd = len(f0) > 0.15 ? norm(f0) : lu > 1e-4 ? scale(u0, 1 / lu) : mm;
+    const e = smoothstep(-0.5, 0.3, d[1]);
+    let bb = add(scale(fwd, 1 - e), scale(u0, e * 2));
+    bb = add(bb, scale(mm, e * Math.max(0, 1 - lu * 2.5)));
+    const b0 = len(bb) > 1e-4 ? norm(bb) : fwd;
+    const m0 = norm(sub(mm, scale(b0, dot(mm, b0)))) as V3;
     const tw = twistDeg * DEG;
     const bend = norm(add(scale(b0, Math.cos(tw)), scale(m0, Math.sin(tw))));
     const ui = sk.index[`upperarm.${s}`];
@@ -550,20 +559,26 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       // crawl : corps à l'horizontale à la surface, bras en moulinet alternés (entrée devant, traction sous le
       // corps, sortie à la hanche, retour coude haut au-dessus de l'eau), battements de jambes, roulis du corps et
       // respiration sur le côté tous les deux mouvements
-      swimK = 1;
+      // à l'arrêt ou presque : surplace (corps droit, tête hors de l'eau, bras qui brassent en surface, jambes qui
+      // pédalent) ; en avançant : crawl couché
+      swimK = smoothstep(0.15, 0.55, st.speed) * 0.98 + 0.02;
       const c = at * 0.75;
+      const CR: Record<string, Q> = {}, TR: Record<string, Q> = {};
       for (const [s2, sg2, ph2] of [["r", -1, 0], ["l", 1, 0.5]] as const) {
         const a = TAU * (c + ph2);
         const rec = Math.sin(a) < 0;
-        aimDir(over, s2, [sg2 * 0.2, Math.cos(a), Math.sin(a)], rec ? 70 * -Math.sin(a) + 15 : 20, rec ? 40 : 10, 30);
-        over[`clavicle.${s2}`] = qAxis([0, 0, 1], sg2 * 12 * Math.max(0, Math.cos(a)) * DEG);
+        aimDir(CR, s2, [sg2 * 0.2, Math.cos(a), Math.sin(a)], rec ? 70 * -Math.sin(a) + 15 : 20, rec ? 40 : 10, 30);
+        CR[`clavicle.${s2}`] = qAxis([0, 0, 1], sg2 * 12 * Math.max(0, Math.cos(a)) * DEG);
+        const sc = Math.sin(at * 2.2 * TAU + ph2 * Math.PI);
+        aimDir(TR, s2, [sg2 * 0.85, -0.25, 0.35 + 0.3 * sc], 35, 0, 60 * sc);
       }
+      for (const k of new Set([...Object.keys(CR), ...Object.keys(TR)])) over[k] = qSlerp(TR[k] ?? qId(), CR[k] ?? qId(), swimK);
       const roll = Math.sin(TAU * c);
       over.spine = qEuler(0, 18 * roll * DEG, 0);
       over.chest = qEuler(0, 10 * roll * DEG, 0);
       const breath = Math.max(0, Math.sin(TAU * c * 0.5)) ** 2;
-      over.neck = qEuler(-25 * DEG, 0, 0);
-      over.head = qEuler(-15 * DEG, 55 * breath * DEG, 0);
+      over.neck = qEuler(-25 * swimK * DEG, 0, 0);
+      over.head = qEuler(-15 * swimK * DEG, 55 * breath * swimK * DEG, 0);
       swimBob = Math.sin(TAU * c * 2) * leg * 0.015;
       swimKick = Math.sin(at * 3 * TAU);
       break;
@@ -583,8 +598,10 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
         aimDir(over, s2, [sg2 * 0.3, 1, 0.45 - 0.15 * up], 30 + 40 * (1 - up), 20, 60);
         over[`clavicle.${s2}`] = qAxis([0, 0, 1], sg2 * (14 + 8 * up) * DEG);
       }
-      over.spine = qEuler(-8 * DEG, 0, 0);
-      over.head = qEuler(-14 * DEG, 0, 0);
+      // buste contre la paroi, tête levée vers la prise suivante
+      over.spine = qEuler(7 * DEG, 0, 0);
+      over.chest = qEuler(4 * DEG, 0, 0);
+      over.head = qEuler(-22 * DEG, 0, 0);
       break;
     }
     case "mantle": {
@@ -1015,14 +1032,17 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   if (swimK > 0) {
     // nage : le corps bascule à l'horizontale autour du bassin, posé à la surface (l'appelant met l'acteur au niveau
     // de l'eau) ; jambes tendues qui battent, pointes allongées
-    const th = 82 * DEG * w;
-    const sY = -leg * 0.06 + swimBob;
+    const th = 82 * DEG * w * swimK;
+    const sY = mix(-leg * 0.68, -leg * 0.06, swimK) + swimBob;
     pelvisOffset[0] = 0;
     pelvisOffset[1] = sY - info.hipY * Math.cos(th) + (1 - w) * info.hipY;
     pelvisOffset[2] = -info.hipY * Math.sin(th);
     for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) {
-      rot[`thigh.${s2}`] = qSlerp(rot[`thigh.${s2}`] ?? qId(), qAxis([1, 0, 0], (12 * sg2 * swimKick - 4) * DEG), w);
-      rot[`shin.${s2}`] = qSlerp(rot[`shin.${s2}`] ?? qId(), hinge(sk, `shin.${s2}`, -(12 + 8 * Math.max(0, sg2 * swimKick))), w);
+      // battements (crawl) ou pédalage (surplace : cuisses levées, genoux pliés qui tournent)
+      const pd = Math.sin(st.time * 2.4 * TAU + (sg2 > 0 ? 0 : Math.PI));
+      const thK = mix(-(35 + 15 * pd), 12 * sg2 * swimKick - 4, swimK), shK = mix(-(55 + 25 * pd), -(12 + 8 * Math.max(0, sg2 * swimKick)), swimK);
+      rot[`thigh.${s2}`] = qSlerp(rot[`thigh.${s2}`] ?? qId(), qAxis([1, 0, 0], thK * DEG), w);
+      rot[`shin.${s2}`] = qSlerp(rot[`shin.${s2}`] ?? qId(), hinge(sk, `shin.${s2}`, shK), w);
       rot[`foot.${s2}`] = qSlerp(rot[`foot.${s2}`] ?? qId(), qAxis([1, 0, 0], 50 * DEG), w);
     }
     pose = { rot, root: toWorld(pelvisOffset), rootRot: qMul(yawQ, qAxis([1, 0, 0], th)) };
