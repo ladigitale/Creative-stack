@@ -121,7 +121,8 @@ export function parseFootball(v: unknown): FootballSpec {
     const pat = ["plain", "stripes", "vstripes"].includes(String(t.pattern)) ? (String(t.pattern) as TeamSpec["pattern"]) : d.pattern;
     return { name: typeof t.name === "string" && t.name.trim() ? t.name.trim().slice(0, 24) : d.name, shirt: col(t.shirt, d.shirt), shorts: col(t.shorts, d.shorts), socks: col(t.socks, d.socks), keeper: col(t.keeper, d.keeper), pattern: pat };
   };
-  const teams = Array.isArray(o.teams) ? o.teams : [];
+  // tableau, ou objet indexé (certains DataProviders publient les listes ainsi)
+  const teams: unknown[] = Array.isArray(o.teams) ? o.teams : o.teams && typeof o.teams === "object" ? Object.values(o.teams as object) : [];
   const human = o.human === "none" || o.human === -1 || o.human === false ? -1 : o.human === "away" || o.human === 1 ? 1 : 0;
   return {
     side,
