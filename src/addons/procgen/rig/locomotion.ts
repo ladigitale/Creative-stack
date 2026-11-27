@@ -52,6 +52,11 @@ export type MotionState = {
   fallV?: number;
   landK?: number;
   slideK?: number;
+  /**
+   * Sol sous l'acteur : hauteur (m) au point (x, z) du repère de l'acteur (x à gauche, z devant), relative à ses
+   * pieds. Absent : sol plat. Les pieds s'y posent (pente, marche), le bassin descend sur le plus bas.
+   */
+  ground?: (x: number, z: number) => number;
 };
 
 export type RigInfo = {
@@ -74,7 +79,8 @@ export function stepLength(info: RigInfo, speed: number): number {
   const vn = speed / leg;
   const run = smoothstep(1.6, 2.6, vn);
   const walk = leg * clamp(0.38 + 0.2 * vn, 0.3, 0.85);
-  const runL = leg * clamp(0.75 + 0.22 * vn, 0.85, 1.7);
+  // course : le pas s'allonge avec la vitesse (cadence ≈ 2,7 à 3,3 pas/s), jusqu'à ~2,3 jambes au sprint
+  const runL = leg * clamp(0.62 + 0.24 * vn, 0.85, 2.35);
   return mix(walk, runL, run);
 }
 
@@ -219,10 +225,11 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const amp = m.amp;
   // la jambe d'appui, presque tendue, fait d'elle-même monter le bassin à mi-appui et descendre au double appui
   // (abaissement exact par IK) : le rebond ajouté ne fait plus qu'accentuer la course
-  const bobAmp = leg * mix(0.006, 0.045, run) * Math.min(1, vn * 1.2) * m.bob * moving * (1 + 0.35 * nz(t * 0.27, 43));
-  const bob = run > 0.5 ? -bobAmp * (0.5 + 0.5 * Math.cos(TAU * 2 * (phi - 0.18))) : -bobAmp * (0.5 + 0.5 * Math.cos(TAU * 2 * phi));
+  const bobAmp = leg * mix(0.006, 0.032, run) * Math.min(1, vn * 1.2) * m.bob * moving * (1 + 0.35 * nz(t * 0.27, 43));
+  // course : au plus bas à mi-appui (genou d'appui fléchi ~40°), au plus haut au milieu du vol
+  const bob = run > 0.5 ? -bobAmp * (0.5 + 0.5 * Math.cos(TAU * 2 * (phi - 0.165))) : -bobAmp * (0.5 + 0.5 * Math.cos(TAU * 2 * phi));
   // genou d'appui fléchi de ~10° à la marche (amorti), plus en course ; au repos à peine déverrouillé
-  const crouch = leg * (mix(0.002, 0.045, run) * moving + 0.002);
+  const crouch = leg * (mix(0.002, 0.018, run) * moving + 0.002);
   const breathe = Math.sin(t * TAU * 0.23 + rnd(1) * 6);
   const idleSway = (1 - moving) * leg * 0.008 * Math.sin(t * TAU * 0.11 + rnd(2) * 6);
   const pelvisYaw = 7 * DEG * Math.sin(TAU * phi) * moving * amp;
@@ -233,7 +240,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const ws = still * Math.tanh(2.6 * Math.sin((t * TAU) / (7 + rnd(4) * 5) + rnd(5) * 6)) * (0.7 + 0.3 * rnd(6));
   const hipRoll = 5 * DEG * ws;
   const sway = leg * 0.03 * Math.sin(TAU * phi) * moving * (1 - run * 0.6) + idleSway + leg * 0.04 * ws;
-  const lean = (m.lean + mix(5, 14, run) * moving * Math.min(1, vn * 1.5) + 2 * (1 - moving)) * DEG;
+  const lean = (m.lean + mix(5, 18, run) * moving * Math.min(1, vn * 1.5) + 2 * (1 - moving)) * DEG;
   // poussée de chaque pas : le buste se penche un peu plus à l'impulsion, se redresse à l'attaque du talon
   const push = moving * 1.5 * DEG * Math.sin(TAU * 2 * (phi + 0.1));
   const turnLean = clamp(st.turn * v * 0.15, -0.3, 0.3);
@@ -1002,29 +1009,58 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const hangY = hangLift * w;
   const climbY = climbLift * w;
   const pelvisOffset: V3 = [sway, bob0 - drop + jumpY + hangY + climbY, hangSwing * leg * 0.04 * w];
-  const beta = mix(0.62, 0.38, run);
+  // appui : 62 % du cycle en marche ; en course, la distance parcourue au sol reste d'environ une jambe quelle que
+  // soit la vitesse (c'est la durée d'appui qui raccourcit) : ~33 % du cycle au footing, ~23 % au sprint
+  const beta = mix(0.62, clamp((leg * 0.85) / stride, 0.2, 0.4), run);
   const lift = leg * mix(0.075, 0.2, run) * Math.min(1, vn * 1.3) * moving;
+  // course : talon ramené haut derrière (vers la fesse) puis genou qui monte ; plus haut quand on va vite
+  const runLift = leg * (0.3 + 0.25 * smoothstep(4, 7.5, vn)) * Math.min(1, vn * 0.5) * moving;
+  /**
+   * Pied à la phase `u` de son cycle (0 = attaque, appui jusqu'à `beta`, puis jambe libre) : position (repère de
+   * l'acteur, avant = +z), inclinaison (> 0 : talon levé), appui.
+   * Marche : appui centré sur le double appui, arc bas. Course (Novacheck, 1998) : le pied se pose à peine devant la
+   * hanche (≈ 30 % de l'appui devant), quitte le sol loin derrière sur la plante ; en jambe libre il reste d'abord
+   * derrière en montant (talon vers la fesse), passe sous la hanche genou haut, se tend devant puis revient un peu en
+   * arrière juste avant de se poser (il ne frappe pas le sol en avant du corps).
+   */
+  const gaitFoot = (u: number): { z: number; y: number; pitch: number; planted: boolean } => {
+    const span = stride * beta;
+    // marche
+    let zw: number, yw: number, pw: number;
+    // course
+    const zLand = span * 0.38, zOff = zLand - span;
+    let zr: number, yr: number, pr: number;
+    if (u < beta) {
+      zw = stride * (beta / 2 - u) - stride * (beta - 0.5) * 0.5;
+      yw = 0;
+      const heel = 1 - smoothstep(0, 0.12, u);
+      const toeOff = smoothstep(beta - 0.22, beta, u);
+      pw = heel * -12 + toeOff * 28;
+      zr = zLand - stride * u;
+      yr = 0;
+      // attaque médio-pied (pointe à peine relevée), pied à plat à mi-appui, poussée sur la plante
+      // cheville en extension à la poussée (~55°) : la jambe arrière reste longue, le bassin n'a pas à descendre
+      pr = -6 * (1 - smoothstep(0, 0.08, u)) + 55 * smoothstep(beta * 0.4, beta, u) ** 1.3;
+    } else {
+      const sw = (u - beta) / (1 - beta);
+      const e = sw * sw * (3 - 2 * sw);
+      zw = stride * (-beta / 2 + beta * e) - stride * (beta - 0.5) * 0.5;
+      yw = lift * Math.sin(Math.PI * sw) ** 1.2;
+      pw = mix(28, -14, smoothstep(0, 0.85, sw));
+      const reach = leg * 0.1;
+      zr = zOff + (zLand + reach - zOff) * smoothstep(0.1, 0.84, sw) - reach * smoothstep(0.84, 1, sw);
+      yr = runLift * Math.sin(Math.PI * Math.pow(sw, 0.72)) ** 1.3;
+      pr = mix(45, -8, smoothstep(0.05, 0.85, sw));
+    }
+    return { z: mix(zw, zr, run) * moving, y: mix(yw, yr, run), pitch: mix(pw, pr, run) * moving, planted: u < beta || moving < 0.05 };
+  };
   const feetLocal: Record<"l" | "r", { p: V3; pitch: number; planted: boolean }> = { l: { p: [0, 0, 0], pitch: 0, planted: true }, r: { p: [0, 0, 0], pitch: 0, planted: true } };
   for (const [s, off] of [["l", 0], ["r", 0.5]] as const) {
     const sx = s === "l" ? info.hipX * 0.9 : -info.hipX * 0.9;
     const u = (((phi + off) % 1) + 1) % 1;
-    let z: number, y: number, pitch: number;
-    if (u < beta) {
-      // appui centré sur le double appui : le talon attaque autant devant que l'autre pied pousse derrière
-      z = stride * (beta / 2 - u) - stride * (beta - 0.5) * 0.5;
-      y = 0;
-      const heel = 1 - smoothstep(0, 0.12, u);
-      const toeOff = smoothstep(beta - 0.22, beta, u);
-      pitch = (heel * -12 + toeOff * 28) * moving;
-    } else {
-      const sw = (u - beta) / (1 - beta);
-      const e = sw * sw * (3 - 2 * sw);
-      z = stride * (-beta / 2 + beta * e) - stride * (beta - 0.5) * 0.5;
-      y = lift * Math.sin(Math.PI * sw) ** 1.2;
-      pitch = mix(28, -14, smoothstep(0, 0.85, sw)) * moving;
-    }
-    z *= moving;
-    feetLocal[s] = { p: [sx + sway * 0.2, y, z + info.footLen * 0.05], pitch, planted: u < beta || moving < 0.05 };
+    const g = gaitFoot(u);
+    const z = g.z, y = g.y, pitch = g.pitch;
+    feetLocal[s] = { p: [sx + sway * 0.2, y, z + info.footLen * 0.05], pitch, planted: g.planted };
     if (sit > 0) feetLocal[s].p = [sx * 1.15, 0, mix(feetLocal[s].p[2], info.thigh * 0.95, sit)];
     // véhicule, monture : pieds au plancher, dans le vide de part et d'autre, ou sur les pédales
     const sf = sit > 0 ? st.seatFoot : undefined;
@@ -1072,9 +1108,58 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       feetLocal[s] = { p: [sx * 0.6, (0.12 * back + 0.35 * swing) * L * w, (-0.35 * back + 0.75 * swing) * L * w], pitch: 30 * swing * w, planted: false };
     }
   }
-  // passes : position du bassin, puis IK, puis abaissement si hors d'atteinte
+  // course : bassin à hauteur constante, assez bas pour que la jambe atteigne tout l'appui (pose devant, poussée loin
+  // derrière sur la plante), plutôt que d'attendre chaque image : sinon il plonge à chaque attaque et remonte à
+  // mi-appui, l'inverse d'une vraie foulée (le rebond `bob` donne alors le creux à mi-appui)
+  if (run > 0.01 && moving > 0.01 && sit === 0) {
+    const Lr = leg * 0.985;
+    const h0 = info.hipY + standLift - info.ankleY;
+    let needMax = 0;
+    for (let k = 0; k <= 8; k++) {
+      const f = gaitFoot((k / 8) * beta * 0.999);
+      const ay = f.pitch > 0 ? Math.sin(f.pitch * DEG) * info.footLen * 0.55 : 0;
+      const hz = Math.abs(f.z + info.footLen * 0.05);
+      needMax = Math.max(needMax, h0 - ay - Math.sqrt(Math.max(0, Lr * Lr - hz * hz)));
+    }
+    const k = run * Math.max(0, needMax - bobAmp * 0.5);
+    drop += k;
+    pelvisOffset[1] -= k;
+  }
+  // terrain sous les pieds (pente, marche) : chaque pied se pose sur le sol à sa place et suit sa pente, le bassin
+  // descend sur le pied le plus bas (l'autre jambe se plie) ; seulement pour les pieds posés « normalement »
+  const footFree = sit === 0 && hangY === 0 && climbY === 0 && mantleK < 0 && fallK === 0 && swimK === 0 && gK === 0;
+  const groundAt = (x: number, z: number) => (st.ground ? clamp(st.ground(x, z), -leg * 0.6, leg * 0.6) : 0);
+  let gOff = 0;
+  if (st.ground && footFree) {
+    const gs: number[] = [];
+    for (const s of ["l", "r"] as const) {
+      if (kickFoot && s === "r") continue;
+      const f = feetLocal[s];
+      const g = groundAt(f.p[0], f.p[2]);
+      f.p[1] += g;
+      // pente le long du pied (talon → pointe) : le pied posé s'y couche, le pied en l'air à moitié
+      const slope = Math.atan2(groundAt(f.p[0], f.p[2] - info.footLen * 0.35) - groundAt(f.p[0], f.p[2] + info.footLen * 0.6), info.footLen * 0.95) / DEG;
+      f.pitch += clamp(slope, -35, 35) * (f.planted ? 1 : 0.5);
+      gs.push(g);
+    }
+    gOff = gs.length ? Math.min(...gs) : 0;
+    pelvisOffset[1] += gOff;
+  }
+  // semelle : talon, plante et pointe du pied au repos (repère de repos), où que soit l'os ; recalés après l'IK
+  const soleRest = (s: "l" | "r") => {
+    const fb = sk.bone(`foot.${s}`)!, tb = sk.bone(`toe.${s}`);
+    const A = fb.head, B = fb.tail, T = tb ? tb.tail : fb.tail;
+    return [
+      { bone: sk.index[`foot.${s}`], p: [A[0], 0.012, A[2] - info.footLen * 0.3] as V3 },
+      { bone: sk.index[`foot.${s}`], p: [B[0], 0.006, B[2]] as V3 },
+      { bone: tb ? sk.index[`toe.${s}`] : sk.index[`foot.${s}`], p: [T[0], 0.006, T[2]] as V3 },
+    ];
+  };
+  const soleCorr = { l: 0, r: 0 };
+  let soleDone = false;
+  // passes : position du bassin, puis IK, puis abaissement si hors d'atteinte, puis semelle posée exactement
   let pose: Pose = { rot, root: toWorld(pelvisOffset), rootRot: yawQ };
-  for (let pass = 0; pass < (swimK > 0 || gK > 0 ? 0 : 2); pass++) {
+  for (let pass = 0; pass < (swimK > 0 || gK > 0 ? 0 : 3); pass++) {
     pose = { rot, root: toWorld([pelvisOffset[0], pelvisOffset[1], pelvisOffset[2]]), rootRot: yawQ };
     const W = sk.world(pose);
     const Wq = sk.worldQuats(W);
@@ -1085,7 +1170,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       const pelvisI = sk.index.pelvis;
       const hip = sk.headOf(W, `thigh.${s}`);
       const f = feetLocal[s];
-      const ankleTarget = toWorld([f.p[0], f.p[1] + info.ankleY + (f.pitch > 0 ? Math.sin(f.pitch * DEG) * info.footLen * 0.55 : 0), f.p[2]]);
+      const ankleTarget = toWorld([f.p[0], f.p[1] + soleCorr[s] + info.ankleY + (f.pitch > 0 ? Math.sin(f.pitch * DEG) * info.footLen * 0.55 : 0), f.p[2]]);
       const fwd = toWorld([0, 0, 1]);
       const pole = sub(fwd, rootPos);
       // jambe levée devant (coup de pied, enjambée haute) : la direction du genou passe progressivement de l'avant au
@@ -1117,8 +1202,33 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     }
     if (worst < 0.995 && pass === 0) {
       drop += Math.max(need, 0) + leg * 0.001;
-      pelvisOffset[1] = bob0 - drop + jumpY;
-    } else if (pass === 0) break;
+      pelvisOffset[1] = bob0 - drop + jumpY + hangY + climbY + gOff;
+      continue;
+    }
+    if (soleDone || !footFree) break;
+    soleDone = true;
+    // semelle : le point le plus bas d'un pied en appui touche exactement le sol (talon à l'attaque, plante à plat,
+    // pointe à la poussée) ; un pied en l'air ne passe jamais dessous. Sinon la pointe s'enfonçait à la poussée et le
+    // pied flottait au repos
+    const S = sk.skinMatrices(sk.world({ rot, root: toWorld(pelvisOffset), rootRot: yawQ }));
+    const cy = Math.cos(rootYaw), sy = Math.sin(rootYaw);
+    let moved = false;
+    for (const s of ["l", "r"] as const) {
+      if (kickFoot && s === "r") continue;
+      let minY = Infinity;
+      for (const c of soleRest(s)) {
+        const M = S[c.bone], q = c.p;
+        const wx = M[0] * q[0] + M[4] * q[1] + M[8] * q[2] + M[12] - rootPos[0];
+        const wy = M[1] * q[0] + M[5] * q[1] + M[9] * q[2] + M[13] - rootPos[1];
+        const wz = M[2] * q[0] + M[6] * q[1] + M[10] * q[2] + M[14] - rootPos[2];
+        // retour au repère de l'acteur (rotation inverse du lacet) pour lire le sol
+        const lx = wx * cy - wz * sy, lz = wx * sy + wz * cy;
+        minY = Math.min(minY, wy - groundAt(lx, lz));
+      }
+      const corr = feetLocal[s].planted ? -minY : Math.max(0, -minY);
+      if (Math.abs(corr) > 0.0005) (soleCorr[s] += corr), (moved = true);
+    }
+    if (!moved) break;
   }
   // garde-fou bras / tête / cuisses, une fois les jambes posées (la cuisse qui avance compte)
   clearHead(sk, rot, st.action === "eat" || st.action === "drink" || st.action === "think" || st.action === "sleep" || st.action === "comb" || st.action === "archery");

@@ -3293,6 +3293,12 @@ export class ProcgenView {
         return;
       }
     }
+    // sol sous les pieds (relief, marches, passerelles) : chaque pied se pose à sa hauteur, en repère de l'acteur
+    const m = this.model;
+    if (m && (m.terrain || m.decks?.length) && !a.onObj && !a.ride && !a.hidden) {
+      const cy = Math.cos(a.dispYaw), sy = Math.sin(a.dispYaw), x0 = a.pos[0], y0 = a.pos[1], z0 = a.pos[2];
+      st.ground = (x, z) => groundHeight(m, x0 + x * cy + z * sy, z0 - x * sy + z * cy, y0) - y0;
+    }
     const { pose: raw } = a.mo.pose(st);
     // fondu au changement d'action ou d'assise (pas de saut d'une pose à l'autre)
     const pose = a.blend.apply(raw, `${a.action}|${a.mood}|${st.seatY ? 1 : 0}|${a.ride ? 1 : 0}`, _dt);
