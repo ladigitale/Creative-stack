@@ -30,7 +30,7 @@ const MOUTH: Record<string, [number, number, number]> = { neutral: [0.12, 0, 1],
 /** Paupière supérieure descendue par humeur (0 = rentrée sous l'arcade). */
 const LID: Record<string, number> = { sleepy: 0.42, angry: 0.16, sad: 0.12 };
 /** Occlusion des pièces de peau du visage (paupières) : celle de la peau de l'orbite, assombrie par le modelage. */
-const LID_AO = 0.6;
+const LID_AO = 0.84;
 /** Ouverture de bouche du canal `talk`. */
 const TALK_OPEN = 0.55;
 
@@ -324,7 +324,8 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     const lipK = hf.mouthHidden ? 0.35 : 1;
     // épaisseur des lèvres (styles non dessinés) selon leur type ; la lèvre inférieure est la plus pleine
     const fullK = ({ thin: 1.0, medium: 1.35, full: 1.7 } as Record<string, number>)[look.lips] ?? 1.3;
-    const N = 10;
+    // assez de points et de côtés pour que les lèvres restent rondes de près (5 côtés faisaient des bandes facettées)
+    const N = toon ? 10 : 16;
     const curveY = (t: number) => hf.mouthY + curve * amp * (2 * (t - 0.5)) ** 2 - curve * amp * 0.4;
     const lip = (dir: 1 | -1, rk: number) => {
       const pts: V3[] = [], radii: number[] = [];
@@ -332,17 +333,25 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
         const t = i / N;
         const x = mix(-mw, mw, t);
         const sw = Math.sin(t * Math.PI) ** 0.7;
-        const r = toon ? (eyeR * 0.075 * (0.45 + 0.55 * Math.sin(t * Math.PI)) + eyeR * 0.015) * rk * lipK : eyeR * 0.11 * fullK * rk * lipK * (0.3 + 0.7 * Math.sin(t * Math.PI) ** 0.6);
+        // lèvre inférieure : plus pleine et ronde au centre ; supérieure : plus fine, deux lobes (arc de Cupidon)
+        const prof = dir > 0 ? 0.3 + 0.7 * Math.sin(t * Math.PI) ** 0.6 : 0.22 + 0.78 * Math.sin(t * Math.PI) ** 0.9;
+        const r = toon ? (eyeR * 0.075 * (0.45 + 0.55 * Math.sin(t * Math.PI)) + eyeR * 0.015) * rk * lipK : eyeR * 0.11 * fullK * rk * lipK * prof;
+        const bow = toon || dir < 0 ? 0 : Math.exp(-(((t - 0.4) / 0.08) ** 2)) + Math.exp(-(((t - 0.6) / 0.08) ** 2)) - 0.7 * Math.exp(-(((t - 0.5) / 0.045) ** 2));
         // lèvres (styles non dessinés) : bourrelet posé au-dessus (lèvre supérieure) ou au-dessous (inférieure) de la ligne
         // de bouche, à demi enfoncé dans la peau
-        const y = curveY(t) + (dir > 0 ? open * oh * 0.32 : -open * oh * 0.68) * sw + (toon ? 0 : dir * r * 0.8);
+        const y = curveY(t) + (dir > 0 ? open * oh * 0.32 : -open * oh * 0.68) * sw + (toon ? 0 : dir * r * 0.8 + bow * r * 0.35);
         const s = hit(surf, x, y);
-        pts.push(madd(s.p, s.n, toon ? eyeR * 0.02 : -r * 0.35));
+        pts.push(madd(s.p, s.n, toon ? eyeR * 0.02 : -r * 0.22));
         radii.push(r);
       }
       // styles dessinés : bouche = trait sombre ; sinon lèvres de la couleur des lèvres du personnage (seules lèvres du
       // visage : elles suivent la parole et les humeurs), séparées par une fine ligne sombre
-      add_(tube(pts, radii, toon ? ROLE.mouth : ROLE.sky, crowd ? 4 : 5, true, true), null);
+      const lipM = tube(pts, radii, toon ? ROLE.mouth : ROLE.sky, crowd ? 4 : toon ? 5 : 10, true, true);
+      if (!toon) {
+        // commissures fondues vers la peau : la couleur des lèvres s'éteint au lieu de s'arrêter net
+        lipM.blend = Array.from({ length: lipM.vertexCount }, (_, i) => ROLE.skin + Math.min(0.85, Math.max(0, (Math.abs(lipM.pos[i * 3]) / mw - 0.72) / 0.28) ** 1.4 * 0.85));
+      }
+      add_(lipM, null);
     };
     lip(1, toon ? 1 : 0.85);
     lip(-1, toon ? 0.85 : 1.05);

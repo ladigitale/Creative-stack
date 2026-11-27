@@ -171,10 +171,10 @@ export function buildCharacter(look: Look, v: Rng): Built {
       zones.push([[sx * (eyeX - eyeR * 0.45), eyeY + eyeR * 0.55, zf], [eyeR * 1.15, eyeR * 0.9, P.headD * 0.5], 0.24]); // orbite, côté nez
       zones.push([[sx * (eyeX + eyeR * 1.3), eyeY - eyeR * 2.6, zf], [eyeR * 1.6, eyeR * 1.3, P.headD * 0.5], 0.05]); // creux sous la pommette
       zones.push([[sx * hw * 0.46, eyeY + eyeR * 1.2, headC[2]], [hw * 0.07, hh * 0.08, P.headD * 0.3], 0.08]); // tempe
-      zones.push([[sx * hw * 0.09, noseTip[1] - hh * 0.005, zf], [hw * 0.045, hh * 0.03, P.headD * 0.4], 0.16]); // narine
+      zones.push([[sx * hw * 0.09, noseTip[1] - hh * 0.005, zf], [hw * 0.045, hh * 0.03, P.headD * 0.4], 0.08]); // narine
     }
-    zones.push([[0, noseTip[1] - hh * 0.035, zf], [hw * 0.07, hh * 0.022, P.headD * 0.5], 0.12]); // sous le nez
-    zones.push([[0, mouthY - hh * 0.06, zf], [hw * 0.1, hh * 0.018, P.headD * 0.5], 0.14]); // sillon mentonnier
+    zones.push([[0, noseTip[1] - hh * 0.035, zf], [hw * 0.07, hh * 0.022, P.headD * 0.5], 0.07]); // sous le nez
+    zones.push([[0, mouthY - hh * 0.06, zf], [hw * 0.12, hh * 0.022, P.headD * 0.5], 0.06]); // sillon mentonnier
     for (let vv = 0; vv < head.vertexCount; vv++) {
       if (head.role[vv] !== ROLE.skin) continue;
       const p = head.getPos(vv);
