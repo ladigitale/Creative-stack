@@ -12,6 +12,19 @@ import { Mesh } from "../geom/mesh";
 import { box } from "../geom/prims";
 import { ROLE, type Role } from "../style/roles";
 import { type PartList, partsBounds, partsToMesh } from "./parts";
+import type { Rng } from "../core/rng";
+import { pickTrade, resolveText, shopName, townName } from "../core/names";
+import { textMesh } from "../geom/text";
+
+/** Textes des panneaux du stade : liste « A|B|C », ou commerces et villes générés. */
+function adTexts(v: unknown, rng: Rng): string[] {
+  const auto = () =>
+    Array.from({ length: 8 }, (_, i) => {
+      const r = rng.fork(`pub${i}`);
+      return i % 3 === 2 ? `${townName(r)} Sports` : shopName(pickTrade(r), r.fork("nom"));
+    }).join("|");
+  return resolveText(v, auto).split("|").map((x) => x.trim()).filter(Boolean);
+}
 import { type Anchor, defineGenerator } from "./types";
 
 export const SPORT_KINDS = ["pitch", "goal", "stand"] as const;
@@ -54,7 +67,7 @@ function disc(m: Mesh, c: [number, number], r: number, y: number, role: number) 
   for (let i = 0; i < n; i++) m.tri(o, ring[(i + 1) % n], ring[i]);
 }
 
-export type PitchSpec = { L: number; W: number; gw: number; box: number; boxW: number; six: number; sixW: number; spot: number; circle: number; margin: number; boards: boolean };
+export type PitchSpec = { L: number; W: number; gw: number; box: number; boxW: number; six: number; sixW: number; spot: number; circle: number; margin: number; boards: boolean; /** Textes des panneaux (tour à tour) ; vide : bande blanche stylisée. */ ads?: string[] };
 
 /** Terrain tracé : bandes de tonte, lignes, points, arcs, poteaux de corner, panneaux. */
 export function pitchMesh(s: PitchSpec): Mesh {
@@ -112,10 +125,12 @@ export function pitchMesh(s: PitchSpec): Mesh {
       P.push({ t: "rod", a: c, b: [c[0], 1.5, c[2]], r: 0.02, role: "yellow" });
       P.push({ t: "box", c: [c[0] - sd * 0.17, 1.38, c[2]], h: [0.17, 0.11, 0.008], role: sd > 0 ? "red" : "yellow" });
     }
+  const texts = new Mesh();
   if (s.boards) {
     const roles: Role[] = ["red", "blue", "white", "yellow", "black", "accent", "green", "orange"];
     const d = Math.min(4, margin - 1.5);
     let k = 0;
+    const ads = s.ads ?? [];
     const run = (a: [number, number], b: [number, number]) => {
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]), seg = 6, nn = Math.max(1, Math.round(len / seg));
       for (let i = 0; i < nn; i++) {
@@ -125,8 +140,17 @@ export function pitchMesh(s: PitchSpec): Mesh {
         const role = roles[(k++ * 5 + 3) % roles.length];
         const hl = len / nn / 2 - 0.04;
         P.push({ t: "box", c: [cx, 0.45, cz], h: alongX ? [hl, 0.45, 0.04] : [0.04, 0.45, hl], role });
-        // bande blanche (logo stylisé)
-        P.push({ t: "box", c: [cx, 0.5, cz], h: alongX ? [hl * 0.5, 0.12, 0.045] : [0.045, 0.12, hl * 0.5], role: role === "white" ? "black" : "white" });
+        const ink = role === "white" || role === "yellow" ? "black" : "white";
+        const ad = ads.length ? ads[(k - 1) % ads.length] : "";
+        if (ad) {
+          // texte face au terrain
+          const t = textMesh(ad, { height: 0.42, maxWidth: hl * 2 - 0.5, maxHeight: 0.72, role: ROLE[ink], depth: 0.012, flat: true, weight: 0.12 });
+          const inward = alongX ? (cz < 0 ? 0 : Math.PI) : cx < 0 ? Math.PI / 2 : -Math.PI / 2;
+          const off: V3 = alongX ? [0, 0, cz < 0 ? 0.045 : -0.045] : [cx < 0 ? 0.045 : -0.045, 0, 0];
+          texts.append(t.mesh, m4Compose([cx + off[0], 0.47, cz + off[2]], [0, Math.sin(inward / 2), 0, Math.cos(inward / 2)]));
+        } else
+          // bande blanche (logo stylisé)
+          P.push({ t: "box", c: [cx, 0.5, cz], h: alongX ? [hl * 0.5, 0.12, 0.045] : [0.045, 0.12, hl * 0.5], role: ink });
       }
     };
     run([-L / 2 + 2, -W / 2 - d], [L / 2 - 2, -W / 2 - d]);
@@ -137,6 +161,7 @@ export function pitchMesh(s: PitchSpec): Mesh {
     }
   }
   m.append(partsToMesh(P, 0.7));
+  if (texts.vertexCount) m.append(texts);
   return m;
 }
 
@@ -240,6 +265,7 @@ export const sport = defineGenerator({
     circle: { type: "number", default: 9.15, min: 1, max: 12, unit: "m", doc: "Rayon du rond central" },
     margin: { type: "number", default: 6, min: 1, max: 15, unit: "m", doc: "Herbe tondue autour des lignes" },
     boards: { type: "bool", default: true, doc: "Panneaux publicitaires autour du terrain" },
+    ads: { type: "string", default: "auto", doc: "Textes des panneaux, séparés par `|` (tour à tour) ; « auto » = commerces et villes générés ; « none » = bandes blanches sans texte" },
     rows: { type: "int", default: 10, min: 1, max: 30, doc: "Rangs de gradins" },
     fill: { type: "number", default: 0.85, min: 0, max: 1, doc: "Taux de remplissage de la tribune" },
     color1: { type: "string", default: "", doc: "Maillots des supporters (1re équipe), #rrggbb" },
@@ -263,7 +289,7 @@ export const sport = defineGenerator({
       const colors = { ...(hex(p.color1) ? { cloth1: p.color1 } : {}), ...(hex(p.color2) ? { cloth2: p.color2 } : {}) };
       return { generator: "sport", mesh, colors, anchors: { top: { pos: [0, h, -depth], rot, scale: 1 } }, footprint: { hx: p.length / 2, hz: depth / 2, r: Math.hypot(p.length / 2, depth / 2) }, height: h, extra: { label: "tribune", affords: ["look"] } };
     }
-    const spec: PitchSpec = { L: p.length, W: p.width, gw: p.goalWidth, box: p.box, boxW: p.boxWidth, six: p.six, sixW: p.sixWidth, spot: p.spot, circle: p.circle, margin: p.margin, boards: !!p.boards };
+    const spec: PitchSpec = { L: p.length, W: p.width, gw: p.goalWidth, box: p.box, boxW: p.boxWidth, six: p.six, sixW: p.sixWidth, spot: p.spot, circle: p.circle, margin: p.margin, boards: !!p.boards, ads: adTexts(p.ads, ctx.rng) };
     const mesh = pitchMesh(spec);
     const anchors: Record<string, Anchor> = { center: { pos: [0, 0, 0], rot, scale: 1 } };
     for (const sd of [-1, 1]) anchors[sd > 0 ? "goal.east" : "goal.west"] = { pos: [(sd * spec.L) / 2, 0, 0], rot, scale: 1 };

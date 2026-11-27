@@ -7,6 +7,9 @@ import { box, cylinder, ellipsoid, extrude, lathe, ngon, tube } from "../geom/pr
 import { ROLE } from "../style/roles";
 import { type Asset, defineGenerator } from "./types";
 import { buildJoints } from "./joints";
+import { Rng } from "../core/rng";
+import { propText } from "../core/names";
+import { type TextMeshOptions, textMesh } from "../geom/text";
 
 const put = (m: Mesh, part: Mesh, p: V3, rot?: [number, number, number]) => m.append(part, m4Compose(p, rot ? qEuler(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG) : [0, 0, 0, 1]));
 const asset = (generator: string, mesh: Mesh, hx: number, hz: number, h: number, anchors: Asset["anchors"] = {}): Asset => ({ generator, mesh, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: h });
@@ -22,12 +25,19 @@ const PROPS = [
   // terrasse
   "table", "chair", "parasol", "hanginglantern", "garland",
   // signalétique, sol
-  "hangingsign", "milestone", "puddle",
+  "hangingsign", "milestone", "puddle", "townsign", "streetsign",
 ] as const;
 export type PropKind = (typeof PROPS)[number];
 
-function build(kind: string, size: number, variant: number): Asset {
+/** Texte posé sur une face (lecture vers +z locale), centré en `at`, tourné de `yaw` degrés. */
+function letters(m: Mesh, text: string, o: Omit<TextMeshOptions, "back">, at: V3, yaw = 0) {
+  if (!text) return;
+  put(m, textMesh(text, { depth: 0.006, weight: 0.1, flat: true, ...o, back: false }).mesh, at, [0, yaw, 0]);
+}
+
+function build(kind: string, size: number, variant: number, textParam: unknown = "auto", rng: Rng = new Rng("prop")): Asset {
   const m = new Mesh();
+  const text = () => propText(kind, textParam, rng, variant);
   const W = ROLE.wood, M = ROLE.metal, S = ROLE.stone;
   switch (kind) {
     case "lamp": {
@@ -104,13 +114,22 @@ function build(kind: string, size: number, variant: number): Asset {
       for (let i = 0; i < 6; i++) put(m, ellipsoid(0.12, 0.1, 0.12, [ROLE.flower, ROLE.leaf2, ROLE.accent][i % 3], 7, 4), [-0.9 + i * 0.36, 0.98, 0.1]);
       return asset(kind, m, 1.25, 0.6, 2.4);
     }
-    case "signpost":
+    case "signpost": {
       put(m, cylinder(0.06, 0.05, 2.4, W, 6), [0, 0, 0]);
-      for (let i = 0; i < 2 + (variant % 2); i++) {
-        const arrow = extrude([[-0.5, -0.12], [0.38, -0.12], [0.55, 0], [0.38, 0.12], [-0.5, 0.12]], 0.05, ROLE.paper, 0.01);
-        put(m, arrow, [0.35, 2.05 - i * 0.35, -0.025], [0, (i * 70 + variant * 40) % 360, 0]);
+      const n = 2 + (variant % 2);
+      // destinations : « A|B|C », ou noms de villes et distances
+      const dest = text().split("|");
+      for (let i = 0; i < n; i++) {
+        const yaw = (i * 70 + variant * 40) % 360;
+        const arrow = new Mesh();
+        arrow.append(extrude([[-0.5, -0.12], [0.38, -0.12], [0.55, 0], [0.38, 0.12], [-0.5, 0.12]], 0.05, ROLE.paper, 0.01), m4Compose([0, 0, -0.025]));
+        const t = (dest[i] ?? "").trim();
+        letters(arrow, t, { height: 0.12, maxWidth: 0.84, maxHeight: 0.15, role: ROLE.ink }, [-0.03, 0, 0.025]);
+        letters(arrow, t, { height: 0.12, maxWidth: 0.84, maxHeight: 0.15, role: ROLE.ink }, [-0.03, 0, -0.025], 180);
+        put(m, arrow, [0.52 * Math.cos((yaw * Math.PI) / 180), 2.05 - i * 0.35, -0.52 * Math.sin((yaw * Math.PI) / 180)], [0, yaw, 0]);
       }
-      return asset(kind, m, 0.6, 0.6, 2.4);
+      return asset(kind, m, 1.05, 1.05, 2.4);
+    }
     case "lantern":
       put(m, cylinder(0.04, 0.04, 1.6, M, 6), [0, 0, 0]);
       put(m, lathe([[0.02, 0], [0.12, -0.02], [0.13, -0.28], [0.06, -0.33], [0, -0.33]], ROLE.lamp, 8), [0, 1.95, 0]);
@@ -211,7 +230,11 @@ function build(kind: string, size: number, variant: number): Asset {
       // panneau d'affichage sur deux pieds, affiche et cadre
       put(m, box(1.25, 0.85, 0.04, ROLE.paper), [0, 1.65, 0]);
       put(m, box(1.15, 0.75, 0.01, [ROLE.accent, ROLE.water, ROLE.leaf2, ROLE.cloth1][variant % 4]), [0, 1.65, 0.045]);
-      put(m, box(0.5, 0.2, 0.012, ROLE.paper), [-0.4, 1.95, 0.05]);
+      {
+        const poster = text();
+        if (poster) letters(m, poster, { height: 0.3, maxWidth: 1.95, maxHeight: 1.1, role: variant % 4 === 0 ? ROLE.paper : ROLE.ink }, [0, 1.65, 0.055]);
+        else put(m, box(0.5, 0.2, 0.012, ROLE.paper), [-0.4, 1.95, 0.05]);
+      }
       put(m, box(1.3, 0.05, 0.08, M), [0, 2.52, 0]);
       put(m, box(1.3, 0.05, 0.08, M), [0, 0.78, 0]);
       for (const x of [-0.9, 0.9]) put(m, box(0.05, 0.85, 0.05, M), [x, 0.85, -0.06]);
@@ -492,7 +515,13 @@ function build(kind: string, size: number, variant: number): Asset {
       put(m, lathe([[0.08, -0.008], [0.08, 0.008]], M, 8, false), [0, 2.42, 0.18], [0, 0, 90]);
       const shape: [number, number][] = variant % 3 === 0 ? ngon(14, 0.26) : variant % 3 === 1 ? [[-0.25, 0.2], [0.25, 0.2], [0.25, -0.05], [0, -0.3], [-0.25, -0.05]] : [[-0.3, -0.18], [0.3, -0.18], [0.3, 0.18], [-0.3, 0.18]];
       put(m, extrude(shape, 0.04, [ROLE.accent, ROLE.wood, ROLE.leaf2, ROLE.paper][variant % 4], 0.01), [-0.02, 2.2, 0.55], [0, 90, 0]);
-      put(m, extrude(ngon(10, 0.09), 0.012, ROLE.metal), [0.02, 2.2, 0.55], [0, 90, 0]);
+      {
+        // un mot de métier sur chaque face ; sans texte, le médaillon de métal
+        const word = text();
+        const bg = [ROLE.accent, ROLE.wood, ROLE.leaf2, ROLE.paper][variant % 4];
+        if (word) for (const sx of [1, -1]) letters(m, word, { height: 0.1, maxWidth: 0.42, maxHeight: 0.24, role: bg === ROLE.paper ? ROLE.ink : ROLE.paper }, [sx * 0.021, variant % 3 === 1 ? 2.25 : 2.2, 0.55], sx > 0 ? 90 : -90);
+        else put(m, extrude(ngon(10, 0.09), 0.012, ROLE.metal), [0.02, 2.2, 0.55], [0, 90, 0]);
+      }
       for (const dz of [0.4, 0.7]) put(m, box(0.006, 0.05, 0.006, M), [0, 2.5, dz]);
       return asset(kind, m, 0.2, 0.75, 2.75);
     }
@@ -501,7 +530,29 @@ function build(kind: string, size: number, variant: number): Asset {
       put(m, box(0.2, 0.3, 0.12, S, 0.03), [0, 0.3, 0]);
       put(m, cylinder(0.2, 0.2, 0.24, ROLE.accent, 10), [0, 0.6, -0.12], [90, 0, 0]);
       put(m, box(0.12, 0.08, 0.005, ROLE.paper), [0, 0.38, 0.122]);
+      letters(m, text(), { height: 0.07, maxWidth: 0.2, maxHeight: 0.12, role: ROLE.ink, depth: 0.004 }, [0, 0.38, 0.127]);
       return asset(kind, m, 0.22, 0.14, 0.8);
+    }
+    case "townsign": {
+      // panneau d'entrée d'agglomération : cadre rouge, fond blanc, nom de la ville
+      const name = text();
+      for (const x of [-0.62, 0.62]) put(m, cylinder(0.035, 0.035, 2.1, M, 6), [x, 0, -0.04]);
+      put(m, box(0.8, 0.34, 0.02, ROLE.red, 0.03), [0, 1.75, 0]);
+      put(m, box(0.74, 0.28, 0.022, ROLE.white, 0.02), [0, 1.75, 0.004]);
+      letters(m, name.replace(/-sur-/i, "\nsur "), { height: 0.17, maxWidth: 1.32, maxHeight: 0.42, role: ROLE.black, leading: 1.4 }, [0, 1.75, 0.026]);
+      put(m, box(0.8, 0.34, 0.012, M), [0, 1.75, -0.03]);
+      return asset(kind, m, 0.85, 0.12, 2.1);
+    }
+    case "streetsign": {
+      // plaque de rue émaillée sur son poteau
+      const name = text();
+      put(m, cylinder(0.035, 0.03, 2.5, M, 6), [0, 0, 0]);
+      put(m, box(0.42, 0.11, 0.012, ROLE.white, 0.02), [0.46, 2.3, 0]);
+      for (const sz of [1, -1]) {
+        put(m, box(0.4, 0.09, 0.006, ROLE.blue, 0.015), [0.46, 2.3, sz * 0.012]);
+        letters(m, name, { height: 0.06, maxWidth: 0.72, maxHeight: 0.14, role: ROLE.white, depth: 0.004, leading: 1.3 }, [0.46, 2.3, sz * 0.018], sz > 0 ? 0 : 180);
+      }
+      return asset(kind, m, 0.9, 0.06, 2.45);
     }
     case "puddle": {
       // flaque : plan d'eau irrégulier à fleur de sol
@@ -527,9 +578,10 @@ export const prop = defineGenerator({
     kind: { type: "enum", default: "crate", options: PROPS, doc: "Objet" },
     size: { type: "number", default: 1, min: 0.3, max: 4, doc: "Échelle (caisse, tonneau, meule)" },
     variant: { type: "int", default: 0, min: 0, max: 7, doc: "Variante" },
+    text: { type: "string", default: "auto", doc: "Texte des objets qui en portent : townsign (nom de la ville), streetsign (nom de la rue), signpost (destinations séparées par `|`), billboard (affiche), hangingsign (mot de métier), milestone (distance). « auto » = généré selon la graine, « none » = aucun ; `\\n` = retour à la ligne" },
   },
-  build(p) {
-    return build(p.kind, p.size, p.variant);
+  build(p, ctx) {
+    return build(p.kind, p.size, p.variant, p.text, ctx.rng);
   },
 });
 

@@ -17,6 +17,7 @@ import { Rng } from "../../core/rng";
 import { type Annex, type Look, type Plan, type WinKind, buildPlan } from "../buildplan";
 import { type Affine, type P2, Pen, compose, scallop, strokeVar, translate } from "../shape";
 import type { Kit } from "./kit";
+import { drawText } from "./text";
 import type { ObjectDrawer } from "./types";
 
 type Ctx = { kit: Kit; plan: Plan; look: Look; rng: Rng; night: number; time: number; decay: number; shutters: number; balconies: number };
@@ -414,6 +415,7 @@ function win(c: Ctx, m: Affine, x: number, y: number, w: number, h: number, kind
 function openings(c: Ctx, m: Affine, front: boolean, tone: number) {
   const { plan, look } = c;
   const st = plan.st;
+  const bands: { u: number; w: number; y: number }[] = [];
   for (let f = 0; f < plan.floors; f++) {
     const y0 = plan.floorY(f), fh = plan.fhs[f];
     for (let b = 0; b < plan.bays; b++) {
@@ -424,7 +426,8 @@ function openings(c: Ctx, m: Affine, front: boolean, tone: number) {
         continue;
       }
       if (front && f === 0 && plan.shop && st !== "chapelle") {
-        shopFront(c, m, u, plan.plinth + 0.3, plan.bayWs[b] - 0.55, fh - 1.0, tone, r);
+        shopFront(c, m, u, plan.plinth + 0.3, plan.bayWs[b] - 0.55, fh - 1.0, tone, r, !plan.sign);
+        bands.push({ u, w: plan.bayWs[b] - 0.55, y: plan.plinth + 0.3 + fh - 1.0 + 0.2 });
         continue;
       }
       if (!front && r.chance(0.35)) continue;
@@ -434,6 +437,17 @@ function openings(c: Ctx, m: Affine, front: boolean, tone: number) {
       const wy = f === 0 ? y0 + (plan.modern ? 0.5 : st === "chapelle" ? fh * 0.3 : 0.8) : y0 + fh * 0.24;
       win(c, m, u, wy, ww, wh, st === "chapelle" ? "lancet" : look.win, tone, r, f, front);
       if (f > 0 && front && !plan.modern && r.chance(c.balconies)) balcony(c, m, u, wy, ww, tone);
+    }
+  }
+  // enseigne : lettres sur le mur au-dessus de la devanture, ou sur le bandeau le plus central (un seul niveau)
+  if (front && plan.sign && plan.shop && st !== "chapelle") {
+    if (plan.floors >= 2) {
+      const paint = st === "neon" ? "lamp" : plan.modern ? "metal" : c.rng.fork("lettres").pick(["ink", "ink", "accent", "metal"]);
+      drawText(c.kit, m, plan.sign, { cx: 0, cy: plan.floorY(1) + 0.42, height: 0.42, maxW: plan.W - 1.2, maxH: 0.52, weight: 0.1 }, paint);
+    } else if (bands.length) {
+      // un seul niveau : le bandeau passe sous l'avancée du toit, l'enseigne est peinte en haut de la vitrine
+      const bd = bands.reduce((a, b) => (Math.abs(b.u) < Math.abs(a.u) ? b : a));
+      drawText(c.kit, m, plan.sign, { cx: bd.u, cy: bd.y - 1.22, height: 0.2, maxW: bd.w - 0.4, maxH: 0.36, weight: 0.11 }, "paper");
     }
   }
   const em = c.kit.em;
@@ -560,7 +574,7 @@ function door(c: Ctx, m: Affine, x: number, y: number, w: number, h: number, ton
   }
 }
 
-function shopFront(c: Ctx, m: Affine, x: number, y: number, w: number, h: number, tone: number, r: Rng) {
+function shopFront(c: Ctx, m: Affine, x: number, y: number, w: number, h: number, tone: number, r: Rng, lettering = true) {
   const em = c.kit.em;
   const lit = c.night > 0.2;
   em.add(new Pen(m).rect(x - w / 2 - 0.15, y - 0.3, w + 0.3, h + 0.45), c.look.door, { tone, width: 0.65 });
@@ -597,7 +611,7 @@ function shopFront(c: Ctx, m: Affine, x: number, y: number, w: number, h: number
     letters.rrect(lx, sy + 0.12, 0.05, 0.2, 0.01).rrect(lx + 0.07, sy + 0.12, Math.max(0.05, Math.min(ww, x + w / 2 - 0.3 - lx)), 0.13, 0.03);
     lx += ww + 0.18;
   }
-  em.add(letters, "paper", { tone: 1, stroke: null });
+  if (lettering) em.add(letters, "paper", { tone: 1, stroke: null });
   if (r.chance(0.45)) {
     const px = x + w / 2 + 0.25;
     em.line(new Pen(m).M(px, sy + 0.6).L(px + 0.75, sy + 0.6).M(px, sy + 0.25).Q(px + 0.4, sy + 0.32, px + 0.7, sy + 0.6), "metal", 0.8, { tone: -1 });

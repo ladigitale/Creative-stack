@@ -18,6 +18,8 @@ import type { Rng } from "../core/rng";
 import { Mesh } from "../geom/mesh";
 import { box, cylinder, ellipsoid, extrude, lathe, ngon } from "../geom/prims";
 import { ROLE } from "../style/roles";
+import { TRADES, signText } from "../core/names";
+import { textMesh } from "../geom/text";
 import { type Anchor, defineGenerator } from "./types";
 import { type JointSpec, MAX_JOINTS, buildJoints, jointLocal, jointPoint } from "./joints";
 
@@ -125,6 +127,8 @@ export const building = defineGenerator({
     walls: { type: "enum", default: "auto", options: WALLS, doc: "Parement des murs (auto = selon le style)" },
     roofing: { type: "enum", default: "auto", options: ROOFING, doc: "Couverture (auto = selon le style)" },
     shop: { type: "bool", default: false, doc: "Vitrine au rez-de-chaussée" },
+    sign: { type: "string", default: "auto", doc: "Enseigne d'une boutique (vitrine ou style boutique), en lettres en relief au-dessus de la devanture : texte libre (`\\n` = retour à la ligne), « auto » = nom généré selon le métier et la graine, « none » = aucune" },
+    trade: { type: "enum", default: "auto", options: ["auto", ...TRADES], doc: "Métier de la boutique (nom généré de l'enseigne)" },
     balconies: { type: "number", default: 0.2, min: 0, max: 1, doc: "Probabilité de balcon par fenêtre d'étage" },
     shutters: { type: "number", default: 0.6, min: 0, max: 1, doc: "Probabilité de volets" },
     ornament: { type: "number", default: -1, min: -1, max: 1, doc: "Richesse du décor (modillons, clés, pilastres, jardinières) ; −1 = selon la graine" },
@@ -191,6 +195,7 @@ export const building = defineGenerator({
       const front: Face = { o: [0, 0, D / 2], yaw: 0, w: W, kind: "front", jet };
       const back: Face = { o: [0, 0, -D / 2], yaw: Math.PI, w: W, kind: "back", jet };
       const shopFront = (p.shop || st === "boutique") && floors >= 1 && !(st === "chapelle");
+      const shopBands: { u: number; w: number; y: number; role: number }[] = [];
       for (const face of [front, back]) {
         const r = rng.fork(face.kind);
         const blind = face.kind === "back" ? 0.35 : 0;
@@ -206,7 +211,8 @@ export const building = defineGenerator({
               continue;
             }
             if (face.kind === "front" && f === 0 && shopFront) {
-              shopWindow(face, u, plinth + 0.3, bayW[b] - 0.55, fh[0] - 1.0, look, r);
+              const panel = shopWindow(face, u, plinth + 0.3, bayW[b] - 0.55, fh[0] - 1.0, look, r);
+              shopBands.push({ u, w: bayW[b] - 0.55, y: plinth + 0.3 + fh[0] - 1.0 + 0.3, role: panel });
               continue;
             }
             if (r.chance(blind) || (face.kind === "back" && f === 0 && r.chance(0.3))) continue;
@@ -436,6 +442,23 @@ export const building = defineGenerator({
         }
       }
       // ---- enseignes, néons, tuyauteries
+      if (shopFront) {
+        const text = signText(p, rng);
+        if (text) {
+          const tr = rng.fork("lettres");
+          if (floors >= 2) {
+            // lettres en relief sur le mur, entre la devanture et les fenêtres de l'étage
+            const role = st === "neon" ? ROLE.lamp : modern ? ROLE.metal : tr.pick([ROLE.ink, ROLE.ink, ROLE.accent, look.trim === ROLE.trim ? ROLE.metal : look.trim]);
+            const t = textMesh(text, { height: 0.42, maxWidth: W - 1.2, maxHeight: 0.52, role, depth: 0.05, back: false, weight: 0.1 });
+            add(t.mesh, at(front, 0, floorY(1) + 0.16 + t.height / 2, jet + 0.02));
+          } else if (shopBands.length) {
+            // une seule devanture : sur le bandeau d'enseigne le plus central
+            const bd = shopBands.reduce((a, b) => (Math.abs(b.u) < Math.abs(a.u) ? b : a));
+            const t = textMesh(text, { height: 0.17, maxWidth: bd.w - 0.6, maxHeight: 0.2, role: bd.role === ROLE.paper ? ROLE.ink : ROLE.paper, depth: 0.012, back: false, weight: 0.11 });
+            add(t.mesh, at(front, bd.u, bd.y, 0.23));
+          }
+        }
+      }
       if (shopFront || st === "boutique") {
         const sr = rng.fork("sign");
         if (sr.chance(0.7)) hangingSign(W / 2 - 0.3, plinth + fh[0] + 0.3, D / 2, sr);
@@ -761,7 +784,7 @@ export const building = defineGenerator({
         }
       }
 
-      function shopWindow(f: Face, u: number, y: number, w: number, h: number, lk: Look, r: Rng) {
+      function shopWindow(f: Face, u: number, y: number, w: number, h: number, lk: Look, r: Rng): number {
         const q = yawQ(f.yaw);
         const P = (du: number, dy: number, dz: number) => at(f, u + du, y + dy, dz);
         // devanture en bois : coffrage, pilastres, bandeau d'enseigne, allège
@@ -771,7 +794,8 @@ export const building = defineGenerator({
         for (const sx of [-1, 1]) B(0.12, h / 2 + 0.3, 0.1, wood, P(sx * (w / 2 + 0.1), h / 2 + 0.1, 0.06), q);
         B(w / 2 + 0.3, 0.26, 0.12, wood, P(0, h + 0.3, 0.08), q);
         B(w / 2 + 0.36, 0.04, 0.17, lk.trim, P(0, h + 0.58, 0.09), q);
-        B(w / 2 - 0.25, 0.12, 0.02, r.chance(0.5) ? ROLE.paper : ROLE.accent, P(0, h + 0.3, 0.21), q);
+        const panel = r.chance(0.5) ? ROLE.paper : ROLE.accent;
+        B(w / 2 - 0.25, 0.12, 0.02, panel, P(0, h + 0.3, 0.21), q);
         // petits bois de vitrine
         const cols = Math.max(2, Math.round(w / 0.55));
         for (let k = 1; k < cols; k++) B(0.02, h / 2, 0.03, wood, P(-w / 2 + (k * w) / cols, h / 2, 0.035), q);
@@ -786,6 +810,7 @@ export const building = defineGenerator({
           }
           for (let k = 0; k < n; k += 1) B(sw / 2, 0.08, 0.012, k % 2 ? ROLE.paper : ROLE.accent, P(-w / 2 - 0.25 + (k + 0.5) * sw, h - 0.17, 1.0), q);
         }
+        return panel;
       }
 
       function balcony(f: Face, u: number, y: number, w: number, lk: Look, r: Rng) {
