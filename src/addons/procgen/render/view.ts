@@ -19,7 +19,7 @@ import { ProcgenEmitterLayer, tagsOf } from "./emitters";
 import type { ProcgenEmitters } from "../scene/emitters";
 import type { Aabb } from "../../../shared/sim/grid";
 import type { Hit } from "../../../shared/sim/emitter";
-import { type M4, type V3, clamp, m4Compose, m4Point, qAxis, qMul, sub } from "../core/math";
+import { type M4, type V3, clamp, m4Compose, m4Point, mix, qAxis, qMul, smoothstep, sub } from "../core/math";
 import { FaceState, bindExpr } from "./expr";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
@@ -48,11 +48,12 @@ import type { TileWorld } from "../scene/infinite";
 import type { NavGrid } from "../scene/nav";
 import { type Terrain, type TerrainEdit, readTerrainEdits } from "../scene/terrain";
 import { actorRadius, separate, slideStep, steerAround } from "../scene/crowd";
+import { maxTopAt, nearestEdge, standable, supportAt, topAt, wallAhead } from "../scene/surfaces";
 import { type DriveInput, type DriveState, type Route, type SeatPose, type VehicleSpec, ObstacleSet, doorFor, obbOverlap, followRoute, newDriveState, newRoute, obstaclesOf, planRoute, readInput, seatFor, seatNames, sideApproach, stepDrive, steerPartValue, vehicleSpecOf, wheelPartValue } from "../scene/drive";
 import { worldRoads } from "../scene/world-roads";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain"; payload: Record<string, unknown> };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain" | "grab"; payload: Record<string, unknown> };
 /** État publié de la physique : chargement, erreur, ou corps (10 fois par seconde au plus tant que ça bouge). */
 export type PhysicsOut = ({ status: "loading" | "error"; error?: string } | ({ status: "ready" } & RigidState)) | null;
 
@@ -99,6 +100,16 @@ type ActorRT = {
   reachY?: number;
   /** Durée demandée pour l'action en cours (s). */
   actionDur?: number;
+  /** Escalade en cours : objet, hauteur du rebord, phase (montée, suspendu, rétablissement), élévation du corps. */
+  climbSt?: { obj: ObjectInfo; top: number; phase: "up" | "hang" | "mantle"; t: number; lift: number; hangOnly: boolean; from?: [number, number]; to?: [number, number]; liftFrom?: number };
+  /** Élévation du corps imposée à la pose (escalade), vitesse verticale (chute), réception, glissade. */
+  liftY?: number;
+  vy?: number;
+  landT?: number;
+  slideV?: [number, number];
+  slideK?: number;
+  /** Objet dont l'acteur occupe le sommet (null : au sol). */
+  onObj?: string | null;
   /** Retouche du relief en cours (avancée avec l'action) et compteur de retouches de l'acteur. */
   shape?: TerrainEdit & { id: string };
   shapeN?: number;
@@ -1155,11 +1166,20 @@ export class ProcgenView {
             if (spm && atTarget) then = { action: it.action as Action, spot: o.anchors[sa] };
             // grimper, se suspendre : jusqu'à l'ancre visée (ou le haut de l'objet), monté depuis son pied
             if (atTarget && (it.action === "climb" || it.action === "hang") && !then) {
-              const sp = (an && o.anchors[an]) || o.anchors.top || ([o.pos[0], o.pos[1] + (o.height ?? 2), o.pos[2]] as V3);
-              then = { action: it.action as Action, spot: sp };
+              // au pied de la paroi : bord de l'objet le plus proche de l'acteur (on ne marche pas dans l'objet)
+              if (standable(o) && !an) {
+                const e = nearestEdge(o, a.pos[0], a.pos[2]);
+                then = { action: it.action as Action, spot: e.p };
+                [x, z] = [e.p[0] + e.n[0] * 0.5, e.p[2] + e.n[1] * 0.5];
+              } else then = { action: it.action as Action, spot: (an && o.anchors[an]) || o.anchors.top || ([o.pos[0], o.pos[1] + (o.height ?? 2), o.pos[2]] as V3) };
+            }
+            // déjà sur l'objet (un gradin) : on grimpe le gradin suivant, droit devant, sans détour
+            if (then && (then.action === "climb" || then.action === "hang") && a.onObj === o.id && standable(o)) {
+              this.startClimb(a, o, then.action === "hang", false);
+              continue;
             }
             const p = (sm && o.anchors[`approach.${sm[1]}`]) || ap || (sa && o.anchors[sa]) || o.anchors.door || o.pos;
-            [x, z] = [p[0], p[2]];
+            if (!(then && (then.action === "climb" || then.action === "hang") && standable(o) && !an)) [x, z] = [p[0], p[2]];
           }
         }
         this.goto(a, x, z, it.target);
@@ -2630,6 +2650,15 @@ export class ProcgenView {
     const mv = a.mo.kind === "animal" ? this.vehicles.get(a.model.id) : undefined;
     if (mv && (mv.occ.size || mv.route || mv.input || mv.rolling)) return this.updateMount(a, dt);
     const leg = a.mo.legLength;
+    if (a.climbSt) {
+      this.updateClimb(a, dt);
+      // face à la paroi : le cap affiché rejoint le cap logique
+      const tt = turnToward(a.dispYaw, a.yaw, dt);
+      a.dispYaw = tt.yaw;
+      a.turnRate = 0;
+      this.poseActor(a, dt);
+      return void this.updateFace(a, dt);
+    }
     let vx = 0, vz = 0;
     let want = 0;
     if (a.drive) {
@@ -2682,6 +2711,10 @@ export class ProcgenView {
             a.reachY = sp[1] - groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
             a.action = g.then.action;
             a.actionTime = 0;
+            if (g.then.action === "climb" || g.then.action === "hang") {
+              const o = m.objects.find((ob) => !!g.target && (ob.id === g.target || g.target.startsWith(ob.id + ".")));
+              if (o && standable(o)) this.startClimb(a, o, g.then.action === "hang", false);
+            }
           }
           if (g) this.onEvent({ type: "arrive", payload: { actor: a.model.id, x: round(a.pos[0]), z: round(a.pos[2]), target: g.target ?? null } });
         }
@@ -2737,14 +2770,16 @@ export class ProcgenView {
       const nx = a.pos[0] + fx * step, nz = a.pos[2] + fz * step;
       // obstacles (murs, objets, eau) : hors d'un chemin planifié, l'acteur glisse le long au lieu de traverser
       // à la nage, l'eau est praticable (elle bloque les marcheurs)
-      const free = (x: number, z: number) => !m.nav || a.action === "swim" || m.nav.free(x, z);
+      // sur un sommet (ou en l'air), la grille du sol ne s'applique pas : on peut marcher jusqu'au bord et tomber
+      const aloft = !!a.onObj || a.pos[1] > groundHeight(m, a.pos[0], a.pos[2], a.pos[1]) + 0.2;
+      const free = (x: number, z: number) => (aloft ? maxTopAt(m.objects, x, z) <= a.pos[1] + 0.32 * leg : !m.nav || a.action === "swim" || m.nav.free(x, z));
       if (a.path) {
         a.pos[0] = nx;
         a.pos[2] = nz;
       } else if (!slideStep(a.pos, nx, nz, free) && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
       a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
-    a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+    this.settleOnSupport(a, dt);
     // nageur : à la surface de l'eau quand elle recouvre le sol
     if (a.action === "swim") {
       const wl = this.waterAt(a.pos[0], a.pos[2]);
@@ -2809,6 +2844,161 @@ export class ProcgenView {
   }
 
   /** Visage : humeur (transition douce), bouche selon l'action, regard vers la cible `look`. */
+  /**
+   * Commence à grimper (ou à se suspendre) sur un objet : face au bord le plus proche, au pied de la paroi. `grab` :
+   * l'acteur tombe et se rattrape au rebord (il reste où il est, suspendu). Objet bas (moins d'une jambe) : on y
+   * monte directement d'un rétablissement.
+   */
+  private startClimb(a: ActorRT, o: ObjectInfo, hangOnly: boolean, grab: boolean) {
+    const m = this.model!;
+    const leg = a.mo.legLength;
+    const e = nearestEdge(o, a.pos[0], a.pos[2]);
+    let top = e.p[1];
+    let n: [number, number] = e.n;
+    let feet = a.onObj ? a.pos[1] : groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+    if (!grab) {
+      // la vraie paroi : vers l'objet (depuis le sol), ou droit devant (depuis un gradin du même objet)
+      const tx = a.onObj ? Math.sin(a.yaw) : o.pos[0] - a.pos[0], tz = a.onObj ? Math.cos(a.yaw) : o.pos[2] - a.pos[2];
+      const l = Math.hypot(tx, tz) || 1;
+      const w = wallAhead(m.objects, a.pos[0], a.pos[2], tx / l, tz / l, feet, 0.32 * leg, Math.max(2.5, o.footprint.r * 2));
+      if (w) {
+        n = [-tx / l, -tz / l];
+        top = w.top;
+        a.pos[0] = w.p[0] + n[0] * 0.3;
+        a.pos[2] = w.p[2] + n[1] * 0.3;
+      } else {
+        a.pos[0] = e.p[0] + e.n[0] * 0.3;
+        a.pos[2] = e.p[2] + e.n[1] * 0.3;
+      }
+      if (!a.onObj) feet = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+    }
+    a.yaw = Math.atan2(-n[0], -n[1]);
+    a.pos[1] = grab ? groundHeight(m, a.pos[0], a.pos[2], a.pos[1]) : feet;
+    const need = Math.max(0, top - a.pos[1] - 2.35 * leg);
+    const low = top - a.pos[1] < leg * 1.1;
+    a.climbSt = { obj: o, top, phase: grab ? "hang" : low ? "mantle" : "up", t: 0, lift: grab ? need : 0, hangOnly };
+    a.standAt = undefined;
+    a.vy = 0;
+    a.path = null;
+    a.goal = null;
+    a.speed = 0;
+    a.actionTime = 0;
+    a.actionWeight = 1;
+    a.action = grab ? "hang" : low ? "mantle" : "climb";
+  }
+
+  /** Escalade : montée le long de la paroi, suspension au rebord, rétablissement, puis debout sur le sommet. */
+  private updateClimb(a: ActorRT, dt: number) {
+    const c = a.climbSt!;
+    const leg = a.mo.legLength;
+    c.t += dt;
+    a.actionTime += dt;
+    a.actionWeight = 1;
+    const need = Math.max(0, c.top - a.pos[1] - 2.35 * leg);
+    if (c.phase === "up") {
+      a.action = "climb";
+      c.lift = Math.min(need, c.lift + 0.6 * leg * dt);
+      if (c.lift >= need - 1e-3) [c.phase, c.t, a.actionTime] = [c.hangOnly ? "hang" : "mantle", 0, 0];
+    } else if (c.phase === "hang") {
+      a.action = "hang";
+      c.lift += (need - c.lift) * Math.min(1, dt * 8);
+      if (!c.hangOnly && c.t > 0.8) [c.phase, c.t, a.actionTime] = ["mantle", 0, 0];
+    }
+    if (c.phase === "mantle") {
+      a.action = "mantle";
+      if (!c.from) {
+        // on passe au-dessus du rebord, et on se pose à 45 cm du bord, sur le sommet
+        const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);
+        c.from = [a.pos[0], a.pos[2]];
+        c.to = [a.pos[0] + fx * (0.3 + 0.45), a.pos[2] + fz * (0.3 + 0.45)];
+        c.liftFrom = c.lift;
+        // hauteur réelle du sommet là où l'on se pose (un rocher est plus haut au centre qu'au bord)
+        const tl = maxTopAt(this.model!.objects, c.to[0], c.to[1]);
+        c.top = Number.isFinite(tl) ? tl : c.top;
+      }
+      const k = Math.min(1, c.t / 1.3);
+      c.lift = mix(c.liftFrom ?? 0, c.top - a.pos[1], smoothstep(0.1, 0.85, k));
+      const h = smoothstep(0.45, 1, k);
+      const x = mix(c.from[0], c.to![0], h), z = mix(c.from[1], c.to![1], h);
+      if (k >= 1) {
+        a.pos = [x, c.top, z];
+        a.onObj = c.obj.id;
+        a.climbSt = undefined;
+        a.liftY = undefined;
+        a.action = "idle";
+        a.actionTime = 0;
+        this.onEvent({ type: "arrive", payload: { actor: a.model.id, x: round(x), z: round(z), target: c.obj.id, on: c.obj.id } });
+        return;
+      }
+      a.pos[0] = x;
+      a.pos[2] = z;
+    }
+    a.liftY = c.lift;
+  }
+
+  /**
+   * Appui de l'acteur : le plus haut sommet d'objet atteignable ou le sol. En l'air il tombe (gravité), se rattrape
+   * à un rebord à portée de main, et fléchit à la réception ; sur une pente trop raide du relief, il glisse.
+   */
+  private settleOnSupport(a: ActorRT, dt: number) {
+    const m = this.model!;
+    const leg = a.mo.legLength;
+    const g = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+    a.landT = Math.max(0, (a.landT ?? 0) - dt);
+    if (a.ride || (a.seatY ?? 0) > 0 || a.mo.kind !== "humanoid") {
+      a.pos[1] = g;
+      return;
+    }
+    const sup = supportAt(m.objects, g, a.pos[0], a.pos[2], a.pos[1], 0.32 * leg);
+    if (a.pos[1] > sup.y + 0.02) {
+      a.vy = (a.vy ?? 0) - 9.81 * dt;
+      a.pos[1] = Math.max(sup.y, a.pos[1] + a.vy * dt);
+      // se rattraper : un rebord à portée de main pendant la chute (pas quand on descend exprès vers un but)
+      if (a.vy < -1 && !a.goal && !a.drive) {
+        for (const o of m.objects) {
+          if (Math.abs(a.pos[0] - o.pos[0]) > o.footprint.r + 1 || Math.abs(a.pos[2] - o.pos[2]) > o.footprint.r + 1 || !standable(o)) continue;
+          const e = nearestEdge(o, a.pos[0], a.pos[2]);
+          const above = e.p[1] - a.pos[1];
+          if (e.d > -0.05 && e.d < 0.45 && above > 1.5 * leg && above < 2.45 * leg) {
+            this.startClimb(a, o, false, true);
+            this.onEvent({ type: "grab", payload: { actor: a.model.id, on: o.id } });
+            return;
+          }
+        }
+      }
+      if (a.pos[1] <= sup.y + 1e-4) {
+        if ((a.vy ?? 0) < -2.5) a.landT = 0.35;
+        a.vy = 0;
+      }
+    } else {
+      if ((a.vy ?? 0) < -2.5) a.landT = 0.35;
+      a.vy = 0;
+      a.pos[1] = sup.y;
+    }
+    a.onObj = sup.obj?.id ?? null;
+    // glissade : relief plus raide que 35° sous les pieds (hors sommets d'objets)
+    const n = !sup.obj && m.terrain && Math.abs(a.pos[1] - g) < 0.05 ? m.terrain.normal(a.pos[0], a.pos[2]) : null;
+    const v = a.slideV ?? [0, 0];
+    if (n && n[1] < 0.82) {
+      const l = Math.hypot(n[0], n[2]) || 1;
+      const acc = 9.81 * Math.sqrt(1 - n[1] * n[1]) - 2.5;
+      v[0] += (n[0] / l) * Math.max(0, acc) * dt;
+      v[1] += (n[2] / l) * Math.max(0, acc) * dt;
+    } else {
+      const f = Math.exp(-dt * 5);
+      v[0] *= f;
+      v[1] *= f;
+    }
+    const sp = Math.hypot(v[0], v[1]);
+    if (sp > 0.02) {
+      a.pos[0] += v[0] * dt;
+      a.pos[2] += v[1] * dt;
+      a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+    }
+    a.slideV = sp > 0.02 ? v : undefined;
+    a.slideK = (a.slideK ?? 0) + ((sp > 0.4 ? 1 : 0) - (a.slideK ?? 0)) * Math.min(1, dt * 6);
+  }
+
   private updateFace(a: ActorRT, dt: number) {
     if (!a.face.active) return;
     a.face.step(dt, a.mood, a.action === "idle" && a.speed > 2.5 ? "run" : a.action, this.lookAngles(a), a.model.seed);
@@ -2856,7 +3046,7 @@ export class ProcgenView {
   private poseActor(a: ActorRT, _dt: number) {
     const sk = a.model.asset.skeleton!;
     const pivot = a.speed < 0.3 && !a.ride && a.action !== "sit" && a.action !== "sleep" ? Math.min(0.6, Math.abs(a.turnRate) * 0.18) : 0;
-    const st: MotionState = { speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" ? a.reachY : undefined };
+    const st: MotionState = { speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
     const { pose: raw } = a.mo.pose(st);
     // fondu au changement d'action ou d'assise (pas de saut d'une pose à l'autre)
     const pose = a.blend.apply(raw, `${a.action}|${a.mood}|${st.seatY ? 1 : 0}|${a.ride ? 1 : 0}`, _dt);
@@ -3037,9 +3227,10 @@ export class ProcgenView {
     const free = (x: number, z: number) => !m.nav || m.nav.free(x, z);
     const pinned = (a: ActorRT) => ((a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0) || a.action === "hang" || a === this.drag?.actor || a === this.settle?.d.actor || !!this.vehicles.get(a.model.id);
     const push = (a: ActorRT, dx: number, dz: number) => {
-      if (slideStep(a.pos, a.pos[0] + dx, a.pos[2] + dz, free)) a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+      if (slideStep(a.pos, a.pos[0] + dx, a.pos[2] + dz, free) && !a.onObj) a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
     };
-    separate(L, free, pinned, (a) => (a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1])));
+    // sur un sommet, la hauteur reste celle du sommet (la chute éventuelle est gérée à l'image suivante)
+    separate(L, free, (a) => pinned(a) || !!a.climbSt, (a) => void (!a.onObj && (a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]))));
     // véhicules et montures (au sol) : file de disques le long de la caisse
     for (const v of this.vehicles.values()) {
       if (!v.o || v.spec.medium === "air") continue;

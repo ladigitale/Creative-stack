@@ -8,6 +8,7 @@
  * Statiques uniques (bâtiments) : fusionnés par tuile spatiale ; objets répétés (arbres, rochers, objets) : instanciés ;
  * personnages : acteurs animés.
  */
+import { type TopGrid, topGridOf } from "./surfaces";
 import { type M4, type V3, DEG, clamp, m4Compose, m4Mul, m4Point, qAxis, qRot, sub } from "../core/math";
 import { type JointInfo, jointChain, jointInfo } from "../gen/joints";
 import { motionFor } from "../rig/motion";
@@ -113,6 +114,9 @@ export type Recipe = {
   emitters?: Record<string, unknown>;
 };
 
+/** Générateurs dont le dessus porte un acteur (escalade, marche sur un sommet) : leur carte de hauteurs est calculée. */
+const STANDABLE_GEN = /^(rock|prop|container|structure|seat|wall|street|pet|tool|assembly)(\.|$)/;
+
 export type ObjectInfo = {
   id: string;
   layer: string;
@@ -140,6 +144,8 @@ export type ObjectInfo = {
   onWater?: boolean;
   onPath?: boolean;
   walkable?: boolean;
+  /** Dessus réel du modèle (cases de hauteur, repère du modèle) : on peut s'y tenir debout. Voir `scene/surfaces.ts`. */
+  top?: TopGrid;
   /** Emprises qui gênent vraiment (tronçons de clôture, garde-corps d'un ouvrage) : `[x, z, hx, hz, yaw]` monde. */
   blockers?: [number, number, number, number, number][];
   /** Corps physique demandé (couche ou point `at`, ballons par défaut quand la scène a `physics`). */
@@ -530,7 +536,7 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
       const f = qRot(a.rot, [0, 0, 1]);
       seatYaw[k] = yaw + Math.atan2(f[0], f[2]);
     }
-    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, ...(Object.keys(seatYaw).length ? { seatYaw } : {}), footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(affords ? { affords } : {}), ...(physics ? { physics } : {}), ...(body && !isActor ? { body } : {}), ...(jointsA ? { joints: jointsA.map((j) => jointInfo(j)) } : {}) });
+    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, ...(Object.keys(seatYaw).length ? { seatYaw } : {}), footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(STANDABLE_GEN.test(generator) && !isActor ? { top: topGridOf(asset.mesh, fp.hx, fp.hz) } : {}), ...(affords ? { affords } : {}), ...(physics ? { physics } : {}), ...(body && !isActor ? { body } : {}), ...(jointsA ? { joints: jointsA.map((j) => jointInfo(j)) } : {}) });
     const segs = asset.extra?.segments as [number, number, number, number, number][] | undefined;
     if (segs) {
       // clôtures le long d'un tracé : chaque tronçon bloque sa bande, de petits disques jalonnent le tracé
