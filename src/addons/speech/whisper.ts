@@ -15,7 +15,15 @@ export const DEFAULT_SILENCE_MS = 700;
 /** Durée maximale d'un segment envoyé au modèle (Whisper travaille par fenêtres de 30 s). */
 export const MAX_SEGMENT_MS = 15_000;
 /** Seuil RMS par défaut (0..1) au-dessus duquel une trame compte comme de la parole. */
-export const DEFAULT_THRESHOLD = 0.015;
+export const DEFAULT_THRESHOLD = 0.01;
+/**
+ * Marge du seuil adaptatif au-dessus du bruit de fond : bruit × 2, ou bruit + `NOISE_MARGIN` si c'est moins. Sur
+ * téléphone, le gain automatique du micro remonte le bruit dans les silences : avec bruit × 3, le seuil passait
+ * au-dessus de la voix et plus rien n'était détecté.
+ */
+export const NOISE_MARGIN = 0.02;
+/** Bruit de fond retenu au plus pendant l'écoute de démarrage (au-delà, c'est déjà de la voix). */
+const WARMUP_NOISE_MAX = 0.04;
 
 /* ------------------------------------------------------------------ */
 /* Signal                                                              */
@@ -98,13 +106,15 @@ export type SegmenterOptions = {
   preRollMs?: number;
   /** Trame d'analyse (ms), défaut 30. */
   frameMs?: number;
+  /** Écoute du bruit de fond avant de chercher la parole (ms, 300). */
+  warmupMs?: number;
 };
 
 /**
  * Détection d'activité vocale (VAD) sur l'énergie RMS, par trames de 30 ms : une phrase commence
  * à la première trame au-dessus du seuil et se termine après `silenceMs` de silence, ou à
- * `maxMs`. Le seuil effectif suit le bruit de fond (trois fois son niveau moyen, au moins
- * `threshold`). `push` rend les segments terminés, à la fréquence d'entrée.
+ * `maxMs`. Le seuil effectif suit le bruit de fond (2 fois son niveau moyen, ou + `NOISE_MARGIN` si c'est moins,
+ * au moins `threshold`), mesuré pendant `warmupMs` avant de chercher la parole. `push` rend les segments terminés, à la fréquence d'entrée.
  */
 export class SpeechSegmenter {
   readonly sampleRate: number;
@@ -115,6 +125,11 @@ export class SpeechSegmenter {
   private readonly preRollMax: number;
   private readonly threshold: number;
   private noise = 0;
+  /** Trames d'écoute du bruit de fond au démarrage (aucune parole cherchée pendant ce temps). */
+  private warm = 0;
+  private readonly warmFrames: number;
+  /** Énergie RMS de la dernière trame (niveau du micro, pour un vumètre). */
+  lastEnergy = 0;
   private speaking = false;
   private chunks: Float32Array[] = [];
   private length = 0;
@@ -134,6 +149,9 @@ export class SpeechSegmenter {
     this.minSpeech = ms(o.minSpeechMs ?? 200);
     this.preRollMax = ms(o.preRollMs ?? 300);
     this.threshold = Math.max(0.0005, o.threshold ?? DEFAULT_THRESHOLD);
+    // 300 ms de bruit de fond mesuré avant de chercher la parole : sinon, dans une pièce bruyante, le bruit des
+    // premières trames ouvrait une « phrase » qui ne se fermait qu'au bout de maxMs (15 s).
+    this.warmFrames = Math.max(1, Math.round((o.warmupMs ?? 300) / (o.frameMs ?? 30)));
   }
 
   /** Une phrase est en cours. */
@@ -143,7 +161,7 @@ export class SpeechSegmenter {
 
   /** Seuil effectif (bruit de fond compris). */
   get level(): number {
-    return Math.max(this.threshold, this.noise * 3);
+    return Math.max(this.threshold, Math.min(this.noise * 2, this.noise + NOISE_MARGIN));
   }
 
   push(block: Float32Array): Float32Array[] {
@@ -176,8 +194,18 @@ export class SpeechSegmenter {
 
   private step(frame: Float32Array): Float32Array | null {
     const e = rms(frame);
-    const loud = e >= this.level;
+    this.lastEnergy = e;
     const copy = frame.slice();
+    if (this.warm < this.warmFrames) {
+      this.warm++;
+      // trame la plus calme (on peut déjà parler), jamais au-delà d'un niveau de voix : bruit de fond, pas parole
+      this.noise = Math.min(this.warm === 1 ? e : this.noise, e, WARMUP_NOISE_MAX);
+      this.preRoll.push(copy);
+      this.preRollLen += copy.length;
+      while (this.preRollLen - this.preRoll[0].length >= this.preRollMax) this.preRollLen -= this.preRoll.shift()!.length;
+      return null;
+    }
+    const loud = e >= this.level;
     if (!this.speaking) {
       if (!loud) {
         this.noise = this.noise ? this.noise * 0.95 + e * 0.05 : e;

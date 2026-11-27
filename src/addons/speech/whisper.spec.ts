@@ -108,7 +108,7 @@ describe("SpeechSegmenter (VAD)", () => {
   it("le seuil suit le bruit de fond", () => {
     const vad = new SpeechSegmenter({ sampleRate: 16_000, threshold: 0.01 });
     vad.push(hush(1000, 16_000, 0.008));
-    expect(vad.level).toBeGreaterThan(0.02);
+    expect(vad.level).toBeGreaterThan(0.012);
     // Un bruit stable ne déclenche pas de phrase.
     expect(vad.push(hush(3000, 16_000, 0.008))).toEqual([]);
   });
@@ -371,5 +371,16 @@ describe("sonic-listen engine=whisper", () => {
     expect(auto.getState()).toMatchObject({ engine: "native", supported: true });
     const autoW = await mount({ id: `w${++uid}`, engine: "auto" });
     expect(autoW.getState()).toMatchObject({ engine: "whisper", supported: true });
+  });
+});
+
+describe("détection de parole sur téléphone (gain automatique du micro)", () => {
+  it("bruit de fond remonté par le gain (RMS ~0,03) : une voix 2 fois plus forte est quand même détectée", () => {
+    const rate = 16000;
+    const seg = new SpeechSegmenter({ sampleRate: rate, silenceMs: 400 });
+    // bruit de fond fort (sinus d'amplitude 0,042 → RMS ~0,03), puis voix (RMS ~0,064), puis retour au bruit
+    const out = seg.push(join(tone(1500, rate, 0.042, 90), tone(800, rate, 0.09, 220), tone(700, rate, 0.042, 90)));
+    expect(out.length).toBe(1);
+    expect(seg.lastEnergy).toBeGreaterThan(0);
   });
 });

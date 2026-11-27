@@ -13,45 +13,142 @@
       "name": "sonic-speak",
       "description": "Synthèse vocale (speechSynthesis), invisible. Texte : text, ou text-from (DataProvider ou dp.chemin lu en direct, l'emporte sur text), ou commande control {say: {n, text}} (la forme {say: {n, text, lang, voice, rate, pitch, volume}} règle une seule lecture). auto : parle à chaque nouvelle valeur de text-from (pas la valeur présente au chargement). for=\"idBouton\" : le clic dit le texte courant, dans le geste (la première lecture exige un geste sous Chrome et Safari). control {say:n, stop:n, pause:n, resume:n, toggle:n} (compteurs). Réglages lang (fr-FR…), voice (nom ou partie de nom, ex. « Amélie », « Google »), rate 0.1..10 (1), pitch 0..2 (1), volume 0..1 (1) ; params = DP {lang, voice, rate, pitch, volume} prioritaire sur les attributs. Longs textes lus phrase par phrase (Chrome coupe au-delà de ~15 s). État <id>State (ou out-data-provider) {status idle|ready|denied|error|unsupported, error, supported, allowed, active, speaking, paused, pending, voices:[{name, lang, local}] (liste chargée après coup par le navigateur), charIndex (position du mot dit, -1 hors lecture), word, spoken (texte lu), voice (voix utilisée ou null), settings}. target = store qui reçoit speak:start {text, lang, voice}, speak:word {word, charIndex} (seulement avec boundary), speak:end {text, complete, interrupted, error}",
       "props": {
-        "text": { "type": "string", "description": "texte à dire" },
-        "text-from": { "type": "string", "description": "DataProvider ou dp.chemin dont la valeur (texte ou nombre) est le texte, lu en direct ; l'emporte sur text" },
-        "auto": { "type": "boolean", "description": "parle à chaque nouvelle valeur de text-from" },
-        "lang": { "type": "string", "description": "langue BCP 47 (fr-FR, en-US…) ; choisit aussi une voix de cette langue" },
-        "voice": { "type": "string", "description": "nom ou partie du nom d'une voix (voir voices dans l'état)" },
-        "rate": { "type": "number", "description": "vitesse 0.1..10 (1)" },
-        "pitch": { "type": "number", "description": "hauteur 0..2 (1)" },
-        "volume": { "type": "number", "description": "volume 0..1 (1)" },
-        "params": { "type": "string", "description": "DP de réglages en direct {lang, voice, rate, pitch, volume}, prioritaire sur les attributs" },
-        "control": { "type": "string", "description": "DP de pilotage : compteurs {say, stop, pause, resume, toggle} ; say accepte {n, text}" },
-        "for": { "type": "string", "description": "ids dont le clic dit le texte courant, dans le geste" },
-        "boundary": { "type": "boolean", "description": "envoie aussi speak:word à chaque mot (si le navigateur le permet)" },
-        "target": { "type": "string", "description": "id du store qui reçoit speak:start, speak:word, speak:end" },
-        "out-data-provider": { "type": "string", "description": "DP d'état (défaut <id>State)" }
+        "text": {
+          "type": "string",
+          "description": "texte à dire"
+        },
+        "text-from": {
+          "type": "string",
+          "description": "DataProvider ou dp.chemin dont la valeur (texte ou nombre) est le texte, lu en direct ; l'emporte sur text"
+        },
+        "auto": {
+          "type": "boolean",
+          "description": "parle à chaque nouvelle valeur de text-from"
+        },
+        "lang": {
+          "type": "string",
+          "description": "langue BCP 47 (fr-FR, en-US…) ; choisit aussi une voix de cette langue"
+        },
+        "voice": {
+          "type": "string",
+          "description": "nom ou partie du nom d'une voix (voir voices dans l'état)"
+        },
+        "rate": {
+          "type": "number",
+          "description": "vitesse 0.1..10 (1)"
+        },
+        "pitch": {
+          "type": "number",
+          "description": "hauteur 0..2 (1)"
+        },
+        "volume": {
+          "type": "number",
+          "description": "volume 0..1 (1)"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {lang, voice, rate, pitch, volume}, prioritaire sur les attributs"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {say, stop, pause, resume, toggle} ; say accepte {n, text}"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic dit le texte courant, dans le geste"
+        },
+        "boundary": {
+          "type": "boolean",
+          "description": "envoie aussi speak:word à chaque mot (si le navigateur le permet)"
+        },
+        "target": {
+          "type": "string",
+          "description": "id du store qui reçoit speak:start, speak:word, speak:end"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        }
       },
-      "emits": ["speak:start", "speak:word", "speak:end"]
+      "emits": [
+        "speak:start",
+        "speak:word",
+        "speak:end"
+      ]
     },
     {
       "name": "sonic-listen",
-      "description": "Reconnaissance vocale (SpeechRecognition / webkitSpeechRecognition), invisible. Absente de Firefox (status unsupported) ; Chrome envoie l'audio aux serveurs de Google (le dire à l'utilisateur). engine : native (défaut, reconnaissance du navigateur), whisper (sur l'appareil, rien n'est envoyé : modèle Whisper de la liste blanche de l'application, attribut model, défaut whisper-tiny ≈ 40 Mo téléchargés au premier usage puis en cache, consentement demandé par l'application ; première phrase lente ; fonctionne aussi sous Firefox), auto (whisper si l'application l'a configuré, sinon natif). Whisper : phrases découpées au silence (silence-ms, défaut 700 ; 15 s au plus), interim = « … » pendant la transcription, confidence 0, pas d'alternatives ; load first-use (défaut) | auto (préchargement) | consent ; consent-provider = DP (\"accepted\"/true accepte, \"declined\"/false refuse) ; control {load:n, accept:n, decline:n} en plus. for=\"idBouton\" : le clic démarre ou arrête l'écoute, dans le geste ; control {start:n, stop:n, abort:n, toggle:n, clear:n} (compteurs ; stop livre la dernière phrase, abort l'abandonne, clear vide transcript). Réglages lang (fr-FR…), continuous (écoute sans s'arrêter après une phrase : relancée automatiquement quand le navigateur coupe, délai croissant, abandon après plusieurs coupures rapides), interim (texte provisoire pendant la phrase), max-alternatives 1..10, phrases (mots-clés séparés par des virgules : comparés en mots entiers, sans accents ni casse) ; params = DP {lang, continuous, interim, maxAlternatives, phrases} prioritaire sur les attributs. Permissions-Policy microphone (iframe : allow=\"microphone\"). État <id>State (ou out-data-provider) {status idle|requesting|ready|denied|error|unsupported, error (no-speech, not-allowed, network, audio-capture traduits), supported, allowed, active (écoute voulue), listening (micro ouvert), interim, final (dernière phrase), transcript (phrases cumulées), confidence 0..1, alternatives [{text, confidence}], match {phrase, text, n} (n augmente à chaque mot-clé reconnu) ou null, restarts, settings, engine (native|whisper effectif), loading (0..100 pendant le téléchargement du modèle, sinon null), modelReady, modelPhase (idle|checking|awaiting-consent|declined|downloading|loading|ready|error|unsupported : afficher un bouton de consentement sur awaiting-consent), modelSize (octets ou null), transcribing}. target = store qui reçoit listen:result {text, confidence, isFinal} (phrases définitives ; aussi provisoires avec interim) et listen:match {phrase, text}",
+      "description": "Reconnaissance vocale (SpeechRecognition / webkitSpeechRecognition), invisible. Absente de Firefox (status unsupported) ; Chrome envoie l'audio aux serveurs de Google (le dire à l'utilisateur). engine : native (défaut, reconnaissance du navigateur), whisper (sur l'appareil, rien n'est envoyé : modèle Whisper de la liste blanche de l'application, attribut model, défaut whisper-tiny ≈ 40 Mo téléchargés au premier usage puis en cache, consentement demandé par l'application ; première phrase lente ; fonctionne aussi sous Firefox), auto (whisper si l'application l'a configuré, sinon natif). Whisper : phrases découpées au silence (silence-ms, défaut 700 ; 15 s au plus), interim = « … » pendant la transcription, confidence 0, pas d'alternatives ; load first-use (défaut) | auto (préchargement) | consent ; consent-provider = DP (\"accepted\"/true accepte, \"declined\"/false refuse) ; control {load:n, accept:n, decline:n} en plus. for=\"idBouton\" : le clic démarre ou arrête l'écoute, dans le geste ; control {start:n, stop:n, abort:n, toggle:n, clear:n} (compteurs ; stop livre la dernière phrase, abort l'abandonne, clear vide transcript). Réglages lang (fr-FR…), continuous (écoute sans s'arrêter après une phrase : relancée automatiquement quand le navigateur coupe, délai croissant, abandon après plusieurs coupures rapides), interim (texte provisoire pendant la phrase), max-alternatives 1..10, phrases (mots-clés séparés par des virgules : comparés en mots entiers, sans accents ni casse) ; params = DP {lang, continuous, interim, maxAlternatives, phrases} prioritaire sur les attributs. Permissions-Policy microphone (iframe : allow=\"microphone\"). État <id>State (ou out-data-provider) {status idle|requesting|ready|denied|error|unsupported, error (no-speech, not-allowed, network, audio-capture traduits), supported, allowed, active (écoute voulue), listening (micro ouvert), interim, final (dernière phrase), transcript (phrases cumulées), confidence 0..1, alternatives [{text, confidence}], match {phrase, text, n} (n augmente à chaque mot-clé reconnu) ou null, restarts, settings, engine (native|whisper effectif), loading (0..100 pendant le téléchargement du modèle, sinon null), modelReady, modelPhase (idle|checking|awaiting-consent|declined|downloading|loading|ready|error|unsupported : afficher un bouton de consentement sur awaiting-consent), modelSize (octets ou null), transcribing}. target = store qui reçoit listen:result {text, confidence, isFinal} (phrases définitives ; aussi provisoires avec interim) et listen:match {phrase, text} Whisper, diagnostic : micLevel 0..1 (vumètre ~10 Hz), voice (parole captée), audioState (moteur audio du navigateur, relancé s'il est en pause), audioBlocks (blocs reçus du micro, 0 = rien ne passe). Détection de parole : 300 ms d'écoute du bruit de fond, seuil = bruit × 2 ou bruit + 0,02 (gain automatique des micros de téléphone).",
       "props": {
-        "lang": { "type": "string", "description": "langue BCP 47 (fr-FR, en-US…), défaut : langue du navigateur" },
-        "continuous": { "type": "boolean", "description": "écoute continue (relancée si le navigateur coupe)" },
-        "interim": { "type": "boolean", "description": "publie le texte provisoire et envoie listen:result isFinal false" },
-        "max-alternatives": { "type": "number", "description": "nombre d'hypothèses par phrase 1..10 (1)" },
-        "phrases": { "type": "string", "description": "mots-clés séparés par des virgules (« suivant, précédent, stop ») : match et listen:match" },
-        "engine": { "type": "string", "description": "native (défaut, navigateur), whisper (sur l'appareil), auto (whisper si configuré, sinon natif)" },
-        "model": { "type": "string", "description": "whisper : alias du modèle dans la liste blanche de l'application (défaut whisper-tiny)" },
-        "silence-ms": { "type": "number", "description": "whisper : silence qui termine une phrase, en ms (700)" },
-        "threshold": { "type": "number", "description": "whisper : seuil d'énergie RMS de la parole 0..1 (0.015), relevé si le bruit de fond est fort" },
-        "load": { "type": "string", "description": "whisper : first-use (défaut, au premier démarrage), auto (préchargement), consent (toujours demander)" },
-        "consent-provider": { "type": "string", "description": "whisper : DP du consentement au téléchargement (\"accepted\" ou true accepte, \"declined\" ou false refuse)" },
-        "params": { "type": "string", "description": "DP de réglages en direct {lang, continuous, interim, maxAlternatives, phrases}" },
-        "control": { "type": "string", "description": "DP de pilotage : compteurs {start, stop, abort, toggle, clear} ; avec engine=whisper aussi {load, accept, decline}" },
-        "for": { "type": "string", "description": "ids dont le clic démarre ou arrête l'écoute, dans le geste" },
-        "target": { "type": "string", "description": "id du store qui reçoit listen:result et listen:match" },
-        "out-data-provider": { "type": "string", "description": "DP d'état (défaut <id>State)" }
+        "lang": {
+          "type": "string",
+          "description": "langue BCP 47 (fr-FR, en-US…), défaut : langue du navigateur"
+        },
+        "continuous": {
+          "type": "boolean",
+          "description": "écoute continue (relancée si le navigateur coupe)"
+        },
+        "interim": {
+          "type": "boolean",
+          "description": "publie le texte provisoire et envoie listen:result isFinal false"
+        },
+        "max-alternatives": {
+          "type": "number",
+          "description": "nombre d'hypothèses par phrase 1..10 (1)"
+        },
+        "phrases": {
+          "type": "string",
+          "description": "mots-clés séparés par des virgules (« suivant, précédent, stop ») : match et listen:match"
+        },
+        "engine": {
+          "type": "string",
+          "description": "native (défaut, navigateur), whisper (sur l'appareil), auto (whisper si configuré, sinon natif)"
+        },
+        "model": {
+          "type": "string",
+          "description": "whisper : alias du modèle dans la liste blanche de l'application (défaut whisper-tiny)"
+        },
+        "silence-ms": {
+          "type": "number",
+          "description": "whisper : silence qui termine une phrase, en ms (700)"
+        },
+        "threshold": {
+          "type": "number",
+          "description": "whisper : seuil d'énergie RMS de la parole 0..1 (0.015), relevé si le bruit de fond est fort"
+        },
+        "load": {
+          "type": "string",
+          "description": "whisper : first-use (défaut, au premier démarrage), auto (préchargement), consent (toujours demander)"
+        },
+        "consent-provider": {
+          "type": "string",
+          "description": "whisper : DP du consentement au téléchargement (\"accepted\" ou true accepte, \"declined\" ou false refuse)"
+        },
+        "params": {
+          "type": "string",
+          "description": "DP de réglages en direct {lang, continuous, interim, maxAlternatives, phrases}"
+        },
+        "control": {
+          "type": "string",
+          "description": "DP de pilotage : compteurs {start, stop, abort, toggle, clear} ; avec engine=whisper aussi {load, accept, decline}"
+        },
+        "for": {
+          "type": "string",
+          "description": "ids dont le clic démarre ou arrête l'écoute, dans le geste"
+        },
+        "target": {
+          "type": "string",
+          "description": "id du store qui reçoit listen:result et listen:match"
+        },
+        "out-data-provider": {
+          "type": "string",
+          "description": "DP d'état (défaut <id>State)"
+        }
       },
-      "emits": ["listen:result", "listen:match"]
+      "emits": [
+        "listen:result",
+        "listen:match"
+      ]
     }
   ]
 }
