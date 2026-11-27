@@ -85,6 +85,8 @@ type IfState = {
   publisher: Publisher | null;
   update: VoidFunction;
   observer: MutationObserver | null;
+  /** Dernier résultat rendu : une mutation du DataProvider qui ne change pas la condition ne redessine rien. */
+  last: boolean | null;
 };
 
 const ifStates = new WeakMap<HTMLElement, IfState>();
@@ -113,12 +115,18 @@ function bindIf(el: LitHost): void {
     state = {
       rule: null,
       publisher: null,
-      update: () => el.requestUpdate(),
+      update: () => {
+        const st = ifStates.get(el);
+        if (st?.rule && st.publisher && st.last !== null && evaluateIf(st.publisher.get(), st.rule) === st.last) return;
+        el.requestUpdate();
+      },
       observer: null,
+      last: null,
     };
     ifStates.set(el, state);
   }
   unbindPublisher(state);
+  state.last = null;
 
   const rule = readIfRule(el);
   const hasRule =
@@ -191,9 +199,9 @@ function patchIf(ctor: CustomElementConstructor): void {
     attachIfController(this);
     const state = ifStates.get(this);
     if (!state?.rule || !state.publisher) return render.call(this);
-    return evaluateIf(state.publisher.get(), state.rule)
-      ? html`<slot></slot>`
-      : nothing;
+    const on = evaluateIf(state.publisher.get(), state.rule);
+    state.last = on;
+    return on ? html`<slot></slot>` : nothing;
   };
 }
 

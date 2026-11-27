@@ -83,6 +83,25 @@ describe("sonic-if (Concorde classique complété)", () => {
     expect(showsSlot(el)).toBe(true);
   });
 
+  it("une mutation qui ne change pas la condition ne redessine pas", async () => {
+    const pub = PublisherManager.get("compatIf4");
+    pub.set({ phase: "play", t: 0 });
+    const el = (await mount('<sonic-if dataProvider="compatIf4" key="phase" equals="play">Jeu</sonic-if>')) as LitEl & { render(): unknown };
+    let renders = 0;
+    const render = el.render.bind(el);
+    el.render = () => (renders++, render());
+    for (let t = 1; t <= 5; t++) pub.set({ phase: "play", t });
+    await tick();
+    await el.updateComplete;
+    expect(renders).toBe(0);
+    expect(showsSlot(el)).toBe(true);
+    pub.set({ phase: "over", t: 6 });
+    await tick();
+    await el.updateComplete;
+    expect(renders).toBe(1);
+    expect(showsSlot(el)).toBe(false);
+  });
+
   it("réagit à un changement d'attribut", async () => {
     PublisherManager.get("compatIf3").set({ lvl: 3 });
     const el = await mount('<sonic-if dataProvider="compatIf3" key="lvl" gt="5"></sonic-if>');

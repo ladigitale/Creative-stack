@@ -208,6 +208,55 @@ export type SceneModel = {
 
 /** Générateurs animés (acteurs skinnés, jamais mis en cache ni instanciés). */
 const ACTOR_GENS = new Set(["character", "animal"]);
+
+/**
+ * Cache d'assets entre compositions : une recomposition (glisser validé, paramètre modifié) ne reconstruit pas les
+ * mêmes arbres, rochers ou bâtiments. La clé contient les paramètres résolus, le chemin et l'état exact de l'aléa du
+ * constructeur ; on garde l'état de l'aléa après construction et les messages émis, rejoués à l'identique : le
+ * résultat est le même bit à bit qu'une construction neuve. Les assets ne sont jamais modifiés après construction
+ * (le monde infini les partage déjà entre tuiles). Personnages et animaux ont leur propre cache.
+ */
+type CachedAsset = { asset: Asset; after: [number, number, number, number]; issues: Issue[]; weight: number };
+const ASSET_LRU = new Map<string, CachedAsset>();
+const ASSET_LRU_MAX = 600;
+/** Budget en sommets (≈ 180 octets chacun en `number[]`) : ≈ 4 M sommets, ≈ 700 Mo au pire ; en pratique bien moins. */
+const ASSET_LRU_VERTS = 4_000_000;
+let assetLruVerts = 0;
+const assetWeight = (a: Asset) =>
+  (a.mesh?.vertexCount ?? 0) + (a.body?.vertexCount ?? 0) + (a.softFrozen?.vertexCount ?? 0) + (a.joints ?? []).reduce((s, j) => s + (j.mesh?.vertexCount ?? 0), 0);
+/** Vide le cache d'assets (tests, libération mémoire). */
+export function clearAssetCache() {
+  ASSET_LRU.clear();
+  assetLruVerts = 0;
+}
+function lruGet(k: string): CachedAsset | undefined {
+  const e = ASSET_LRU.get(k);
+  if (e) {
+    ASSET_LRU.delete(k);
+    ASSET_LRU.set(k, e);
+  }
+  return e;
+}
+function lruSet(k: string, e: CachedAsset) {
+  if (e.weight > ASSET_LRU_VERTS / 4) return;
+  ASSET_LRU.set(k, e);
+  assetLruVerts += e.weight;
+  for (const [ok, oe] of ASSET_LRU) {
+    if (ASSET_LRU.size <= ASSET_LRU_MAX && assetLruVerts <= ASSET_LRU_VERTS) break;
+    ASSET_LRU.delete(ok);
+    assetLruVerts -= oe.weight;
+  }
+}
+/** Messages d'un générateur : transmis et enregistrés pour être rejoués quand l'asset sort du cache. */
+class TeeIssues extends Issues {
+  constructor(private readonly to: Issues, readonly rec: Issue[]) {
+    super();
+  }
+  override add(i: Issue) {
+    this.rec.push(i);
+    this.to.add(i);
+  }
+}
 const INSTANCEABLE = new Set(["textile", "tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water"]);
 /** Tailles fines (pas d'arrondi au quart de mètre). */
 const FINE = new Set(["ball", "seat", "structure", "water"]);
@@ -469,11 +518,23 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     let asset = ACTOR_GENS.has(gen.id) ? undefined : assetCache.get(key);
     const fresh = !asset;
     if (!asset) {
-      try {
-        asset = input.assetBuilder?.(gen.id, resolved, { rng, issues, path }) ?? gen.build(resolved as never, { rng, issues, path });
-      } catch (e) {
-        issues.add({ path, code: "info", message: `échec du générateur : ${(e as Error).message}` });
-        return null;
+      // cache de module : seulement hors tuiles (qui ont le leur) et sans constructeur de substitution
+      const gk = !tile && !input.assetBuilder && !ACTOR_GENS.has(gen.id) ? `${key}|${path}|${rng.key}|${rng.snapshot().join(",")}` : null;
+      const hit = gk ? lruGet(gk) : undefined;
+      if (hit) {
+        asset = hit.asset;
+        rng.restore(hit.after);
+        for (const i of hit.issues) issues.add(i);
+      } else {
+        const rec: Issue[] = [];
+        const iss = gk ? new TeeIssues(issues, rec) : issues;
+        try {
+          asset = input.assetBuilder?.(gen.id, resolved, { rng, issues: iss, path }) ?? gen.build(resolved as never, { rng, issues: iss, path });
+        } catch (e) {
+          issues.add({ path, code: "info", message: `échec du générateur : ${(e as Error).message}` });
+          return null;
+        }
+        if (gk) lruSet(gk, { asset, after: rng.snapshot(), issues: rec, weight: assetWeight(asset) });
       }
       if (!ACTOR_GENS.has(gen.id)) assetCache.set(key, asset);
     }

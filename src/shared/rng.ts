@@ -75,6 +75,13 @@ export class Rng {
     }
     return list[list.length - 1][0];
   }
+  /** État interne (pour rejouer un tirage mis en cache : `restore` remet exactement la suite au même point). */
+  snapshot(): [number, number, number, number] {
+    return [this.s0, this.s1, this.s2, this.s3];
+  }
+  restore(s: readonly [number, number, number, number]) {
+    [this.s0, this.s1, this.s2, this.s3] = s;
+  }
   /** Gaussienne (Box-Muller), moyenne 0, écart-type 1. */
   normal(): number {
     const u = 1 - this.next();

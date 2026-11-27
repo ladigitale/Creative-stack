@@ -130,7 +130,9 @@ export class SonicProcgen extends HTMLElement {
   private ro: ResizeObserver | null = null;
   private io: IntersectionObserver | null = null;
   private outTimer = 0;
-  private lastOut = "";
+  /** Signature par clé du dernier `state-out` publié, et l'objet publié (une écriture d'ailleurs force une publication complète). */
+  private lastOutKeys = new Map<string, string>();
+  private lastOutObj: unknown = null;
   private gesture = new Gesture();
   /** Objet sélectionné (tap ou clé `select`). */
   private selectedId: string | null = null;
@@ -848,11 +850,20 @@ export class SonicProcgen extends HTMLElement {
       ambiance: this.ambianceOut,
       ...(this.infSpec && this.view instanceof ProcgenView ? { infinite: this.view.infiniteState(), tiles: this.tileEdits } : {}),
     };
-    const sig = JSON.stringify(next);
-    if (sig !== this.lastOut) {
-      this.lastOut = sig;
-      set(out, next);
+    // publication par clé : un abonné à `ids` ou `status` n'est pas réveillé quand seuls les acteurs bougent
+    const keys = Object.keys(next) as (keyof typeof next)[];
+    const sigs = new Map<string, string>();
+    for (const k of keys) sigs.set(k, JSON.stringify(next[k]) ?? "undefined");
+    const same = prev === this.lastOutObj && prev !== null && sigs.size === this.lastOutKeys.size && keys.every((k) => this.lastOutKeys.has(k));
+    if (!same) set(out, next);
+    else {
+      const changed = keys.filter((k) => sigs.get(k) !== this.lastOutKeys.get(k));
+      if (!changed.length) return;
+      if (changed.length > keys.length / 2) set(out, next);
+      else for (const k of changed) set(`${out}.${k}`, next[k]);
     }
+    this.lastOutKeys = sigs;
+    this.lastOutObj = (publisherAt(out) as unknown as Publisher).get();
   }
 
   private writeSelection(id: string | null) {
