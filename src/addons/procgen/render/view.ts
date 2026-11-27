@@ -314,6 +314,10 @@ export class ProcgenView {
   private softs: SoftLayer | null = null;
   private softObjM = new Map<number, Float64Array>();
   private frustum = new THREE.Frustum();
+  /** Champ de la caméra de l'image précédente : les acteurs hors champ (marge pour leur ombre) gardent leur pose. */
+  private poseFrustum = new THREE.Frustum();
+  private poseFrustumOn = false;
+  private poseSphere = new THREE.Sphere();
   /** Monde infini : tuiles chargées autour du point suivi (null : scène finie). */
   /** Conduite : véhicules et montures actifs, inclinaisons de caisse, véhicules détachés de leur tuile (monde infini). */
   private vehicles = new Map<string, VehRT>();
@@ -3216,6 +3220,19 @@ export class ProcgenView {
     const sk = a.model.asset.skeleton!;
     const pivot = a.speed < 0.3 && !a.ride && a.action !== "sit" && a.action !== "sleep" ? Math.min(0.6, Math.abs(a.turnRate) * 0.18) : 0;
     const st: MotionState = { speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
+    // hors champ (avec une marge pour l'ombre portée) : position suivie, pose gardée (déjà posé au moins une fois)
+    if (this.poseFrustumOn && a.mesh.userData.world) {
+      const h = a.model.asset.height;
+      this.poseSphere.center.set(a.pos[0], a.pos[1] + h * 0.5, a.pos[2]);
+      this.poseSphere.radius = h * 1.6 + 0.5;
+      if (!this.poseFrustum.intersectsSphere(this.poseSphere)) {
+        a.mesh.position.set(a.pos[0], a.pos[1], a.pos[2]);
+        if (a.ride) a.dispYaw = a.yaw;
+        a.mesh.rotation.set(0, a.dispYaw, 0);
+        a.mesh.updateMatrix();
+        return;
+      }
+    }
     const { pose: raw } = a.mo.pose(st);
     // fondu au changement d'action ou d'assise (pas de saut d'une pose à l'autre)
     const pose = a.blend.apply(raw, `${a.action}|${a.mood}|${st.seatY ? 1 : 0}|${a.ride ? 1 : 0}`, _dt);
@@ -3493,6 +3510,12 @@ export class ProcgenView {
     }
     // parties mobiles : passage doux vers l'état voulu (même à l'arrêt de l'animation)
     if (this.states.moving) this.finishIms(this.states.step(this.play ? dt : 1e6));
+    {
+      const cam = this.camera;
+      cam.updateMatrixWorld();
+      this.poseFrustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+      this.poseFrustumOn = !this.snapReq && !this.photo?.spec;
+    }
     const anim = this.animated;
     if (this.turfModel !== this.model) {
       this.turfModel = this.model;
