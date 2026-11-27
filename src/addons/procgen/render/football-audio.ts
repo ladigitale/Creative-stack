@@ -60,7 +60,9 @@ export class FootballAudio {
   };
 
   private build() {
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     // bus : filtre de ralenti → compresseur → volume
     const comp = c.createDynamicsCompressor();
     comp.threshold.value = -18;
@@ -118,7 +120,9 @@ export class FootballAudio {
   /** Une image : tension du jeu (0 … 1, ballon près d'un but, occasion), ralenti, temps calme pour les chants. */
   update(dt: number, excite: number, slow: boolean, calm: boolean) {
     if (!this.ok || !this.bed) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const t = c.currentTime;
     this.excite += (excite - this.excite) * Math.min(1, dt * 1.5);
     this.bed.gain.gain.setTargetAtTime(0.16 + 0.3 * this.excite, t, 0.3);
@@ -136,7 +140,9 @@ export class FootballAudio {
   /** Voix en masse : bruit coloré par des formants de voyelle, enveloppe montée puis tenue puis chute. */
   private crowd(level: number, attack: number, hold: number, release: number, formants: [number, number][], sweep = 0) {
     if (!this.ok) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const t = c.currentTime;
     const out = c.createGain();
     out.gain.setValueAtTime(0.0001, t);
@@ -175,7 +181,9 @@ export class FootballAudio {
   /** Applaudissements : rafales de claquements. */
   applause(dur = 2.5, level = 0.35) {
     if (!this.ok) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const t = c.currentTime;
     const s = this.loop();
     const hp = c.createBiquadFilter();
@@ -201,7 +209,9 @@ export class FootballAudio {
   /** Chant de tribune : clap-clap-clapclapclap sur un tambour, deux fois. */
   private chant() {
     if (!this.ok) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const t0 = c.currentTime + 0.05;
     const beat = 0.32;
     const pattern = [0, 1, 2, 2.5, 3, 4.5, 5, 6, 6.5, 7];
@@ -215,7 +225,9 @@ export class FootballAudio {
     this.crowd(0.18, 0.4, beat * 14, 0.8, [[520, 1], [1040, 0.5]]);
   }
   private clap(t: number, level: number) {
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const s = c.createBufferSource();
     s.buffer = this.noise;
     const bp = c.createBiquadFilter();
@@ -231,7 +243,9 @@ export class FootballAudio {
     s.stop(t + 0.2);
   }
   private drum(t: number, level: number) {
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const o = c.createOscillator();
     o.frequency.setValueAtTime(110, t);
     o.frequency.exponentialRampToValueAtTime(48, t + 0.25);
@@ -245,7 +259,9 @@ export class FootballAudio {
   }
   /** Cornes de supporters après un but. */
   private horns() {
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     for (let k = 0; k < 4; k++) {
       const t = c.currentTime + 0.4 + k * 0.45 + Math.random() * 0.2;
       const o = c.createOscillator();
@@ -270,7 +286,9 @@ export class FootballAudio {
   /** Sifflet de l'arbitre : `blasts` coups (durées en s), trille de la bille. */
   whistle(blasts: number[] = [0.35]) {
     if (!this.ok) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     let t = c.currentTime + 0.02;
     for (const d of blasts) {
       const o = c.createOscillator();
@@ -304,7 +322,9 @@ export class FootballAudio {
   /** Frappe du ballon : coup sourd (cuir), plus clair et plus fort selon la puissance. */
   kick(power: number) {
     if (!this.ok) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const t = c.currentTime;
     const k = Math.max(0.15, Math.min(1, power / 28));
     const o = c.createOscillator();
@@ -334,7 +354,9 @@ export class FootballAudio {
   /** Rebond sur la pelouse. */
   bounce(speed: number) {
     if (!this.ok) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const t = c.currentTime;
     const k = Math.max(0.05, Math.min(0.5, speed / 20));
     const o = c.createOscillator();
@@ -351,7 +373,9 @@ export class FootballAudio {
   /** Poteau : métal creux qui résonne (partiels inharmoniques). */
   post() {
     if (!this.ok) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const t = c.currentTime;
     for (const [f, a, d] of [[520, 0.2, 1.4], [1310, 0.12, 0.9], [2210, 0.08, 0.6], [3170, 0.05, 0.4]] as const) {
       const o = c.createOscillator();
@@ -369,7 +393,9 @@ export class FootballAudio {
   /** Filet qui se tend. */
   net() {
     if (!this.ok) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const t = c.currentTime;
     const s = c.createBufferSource();
     s.buffer = this.noise;
@@ -388,7 +414,9 @@ export class FootballAudio {
   /** Contact : tacle, chute (choc sourd dans l'herbe). */
   thud(level = 0.35) {
     if (!this.ok) return;
-    const c = this.ctx!;
+    // contexte fermé entre-temps (son programmé avec un délai, recomposition du match) : rien à jouer
+    const c = this.ctx;
+    if (!c) return;
     const t = c.currentTime;
     const s = c.createBufferSource();
     s.buffer = this.noise;

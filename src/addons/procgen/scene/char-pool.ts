@@ -31,6 +31,18 @@ type WorkerLike = {
 };
 
 let workerFactory: (() => unknown) | null = null;
+/** Délai maximal d'une construction dans un worker (un personnage détaillé prend moins d'une seconde sur ordinateur). */
+const JOB_TIMEOUT_MS = 60000;
+/** Délai maximal d'une opération du cache du navigateur (IndexedDB peut ne jamais répondre sur certains iOS). */
+const DB_TIMEOUT_MS = 4000;
+const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
+  new Promise((res) => {
+    const t = setTimeout(() => res(fallback), ms);
+    p.then(
+      (v) => (clearTimeout(t), res(v)),
+      () => (clearTimeout(t), res(fallback)),
+    );
+  });
 let poolSize = 0;
 let pool: CharacterPool | null = null;
 
@@ -49,7 +61,7 @@ export function setProcgenCharacterWorkers(f: (() => unknown) | null, size?: num
 class CharacterPool {
   private workers: { w: WorkerLike; busy: boolean }[] = [];
   private queue: { job: CharJob; done: (b: PackedBuilt | null) => void }[] = [];
-  private wait = new Map<number, { done: (b: PackedBuilt | null) => void; slot: { w: WorkerLike; busy: boolean } }>();
+  private wait = new Map<number, { done: (b: PackedBuilt | null) => void; slot: { w: WorkerLike; busy: boolean }; timer: ReturnType<typeof setTimeout> }>();
   private seq = 0;
   dead = false;
 
@@ -86,10 +98,14 @@ class CharacterPool {
       const { job, done } = this.queue.shift()!;
       const id = ++this.seq;
       slot.busy = true;
-      this.wait.set(id, { done, slot });
+      // un worker tué par le système (mémoire, onglet en arrière-plan) ne prévient pas toujours : passé ce délai, il est
+      // arrêté et le personnage sera construit sur le fil principal (sinon le chargement attend pour toujours)
+      const timer = setTimeout(() => this.kill(slot), JOB_TIMEOUT_MS);
+      this.wait.set(id, { done, slot, timer });
       try {
         slot.w.postMessage({ id, char: { look: job.look, vkey: job.vkey } });
       } catch {
+        clearTimeout(timer);
         this.wait.delete(id);
         done(null);
         this.kill(slot);
@@ -101,6 +117,7 @@ class CharacterPool {
     const w = this.wait.get(r.id);
     if (!w) return;
     this.wait.delete(r.id);
+    clearTimeout(w.timer);
     w.slot.busy = false;
     w.done(r.char ?? null);
     this.pump();
@@ -113,7 +130,7 @@ class CharacterPool {
       /* déjà arrêté */
     }
     this.workers = this.workers.filter((s) => s !== slot);
-    for (const [id, w] of this.wait) if (w.slot === slot) (this.wait.delete(id), w.done(null));
+    for (const [id, w] of this.wait) if (w.slot === slot) (clearTimeout(w.timer), this.wait.delete(id), w.done(null));
     if (!this.workers.length) {
       this.dead = true;
       for (const q of this.queue.splice(0)) q.done(null);
@@ -125,7 +142,7 @@ class CharacterPool {
     this.workers = [];
     this.dead = true;
     for (const q of this.queue.splice(0)) q.done(null);
-    for (const w of this.wait.values()) w.done(null);
+    for (const w of this.wait.values()) (clearTimeout(w.timer), w.done(null));
     this.wait.clear();
   }
 }
@@ -139,7 +156,7 @@ let dbp: Promise<IDBDatabase | null> | null = null;
 
 function db(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === "undefined") return Promise.resolve(null);
-  dbp ??= new Promise((res) => {
+  dbp ??= withTimeout(new Promise<IDBDatabase | null>((res) => {
     try {
       const r = indexedDB.open(DB, 1);
       r.onupgradeneeded = () => {
@@ -152,7 +169,7 @@ function db(): Promise<IDBDatabase | null> {
     } catch {
       res(null);
     }
-  });
+  }), DB_TIMEOUT_MS, null);
   return dbp;
 }
 
@@ -162,7 +179,7 @@ async function dbGet(keys: string[]): Promise<Map<string, PackedBuilt>> {
   const out = new Map<string, PackedBuilt>();
   const d = await db();
   if (!d || !keys.length) return out;
-  return new Promise((res) => {
+  return withTimeout(new Promise<Map<string, PackedBuilt>>((res) => {
     try {
       const tx = d.transaction(STORE, "readonly");
       const s = tx.objectStore(STORE);
@@ -178,7 +195,7 @@ async function dbGet(keys: string[]): Promise<Map<string, PackedBuilt>> {
     } catch {
       res(out);
     }
-  });
+  }), DB_TIMEOUT_MS, out);
 }
 
 async function dbPut(entries: [string, PackedBuilt][]) {
