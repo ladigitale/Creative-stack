@@ -108,6 +108,9 @@ type ActorRT = {
   landT?: number;
   slideV?: [number, number];
   slideK?: number;
+  /** Nage : prochain point visé dans l'eau, pause en cours (s). */
+  swimTo?: [number, number];
+  swimPause?: number;
   /** Objet dont l'acteur occupe le sommet (null : au sol). */
   onObj?: string | null;
   /** Retouche du relief en cours (avancée avec l'action) et compteur de retouches de l'acteur. */
@@ -2724,6 +2727,32 @@ export class ProcgenView {
         vx = dx / d;
         vz = dz / d;
       }
+    } else if (a.action === "swim" && this.waterAt(a.pos[0], a.pos[2]) !== null) {
+      // nageur : toujours en mouvement dans l'eau, longueurs de crawl puis pauses pour jouer (sur place, bras qui
+      // brassent) ; la cible suivante est tirée dans l'eau (bord du bassin évité)
+      a.wanderT -= dt;
+      if (a.wanderT <= 0 || !a.swimTo) {
+        const r1 = Math.abs(Math.sin(a.model.seed * 12.9 + this.time * 3.1)), r2 = Math.abs(Math.sin(a.model.seed * 7.7 + this.time * 1.7));
+        a.swimPause = r1 < 0.3 ? 1.5 + 2 * r2 : 0;
+        let tx = a.pos[0], tz = a.pos[2];
+        for (let k = 0; k < 8; k++) {
+          const ang = (r1 * 17 + k * 2.4) % (Math.PI * 2), d = 2 + 4 * ((r2 + k * 0.37) % 1);
+          const cx = a.pos[0] + Math.cos(ang) * d, cz = a.pos[2] + Math.sin(ang) * d;
+          if (this.waterAt(cx, cz) !== null && this.waterAt(cx + 0.6, cz) !== null && this.waterAt(cx - 0.6, cz) !== null && this.waterAt(cx, cz + 0.6) !== null && this.waterAt(cx, cz - 0.6) !== null) {
+            [tx, tz] = [cx, cz];
+            break;
+          }
+        }
+        a.swimTo = [tx, tz];
+        a.wanderT = a.swimPause + 4 + 4 * r2;
+      }
+      const dx = a.swimTo[0] - a.pos[0], dz = a.swimTo[1] - a.pos[2], d = Math.hypot(dx, dz);
+      if ((a.swimPause ?? 0) > 0) a.swimPause = Math.max(0, a.swimPause! - dt);
+      else if (d > 0.3) {
+        want = 0.85 * leg / 0.85;
+        vx = dx / d;
+        vz = dz / d;
+      } else a.wanderT = 0;
     } else if ((a.model.behavior === "wander" || a.model.behavior === "patrol") && !(a.action === "sit" && (a.seatY ?? 0) > 0) && a.action !== "sleep") {
       a.wanderT -= dt;
       if (a.wanderT <= 0) {
@@ -2898,6 +2927,16 @@ export class ProcgenView {
     if (c.phase === "up") {
       a.action = "climb";
       c.lift = Math.min(need, c.lift + 0.6 * leg * dt);
+      // collé à la paroi : on la cherche à hauteur de poitrine et l'on s'y tient à ~28 cm (une falaise recule)
+      const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);
+      const chest = a.pos[1] + c.lift + 1.15 * leg;
+      for (let d2 = -0.4; d2 <= 1.6; d2 += 0.05)
+        if (maxTopAt(this.model!.objects, a.pos[0] + fx * d2, a.pos[2] + fz * d2) >= chest) {
+          const k = Math.min(1, dt * 6) * (d2 - 0.28);
+          a.pos[0] += fx * k;
+          a.pos[2] += fz * k;
+          break;
+        }
       if (c.lift >= need - 1e-3) [c.phase, c.t, a.actionTime] = [c.hangOnly ? "hang" : "mantle", 0, 0];
     } else if (c.phase === "hang") {
       a.action = "hang";
@@ -3324,6 +3363,11 @@ export class ProcgenView {
       this.stepVehicles(dt * this.speed);
       for (const a of this.actors.values()) if (a !== this.drag?.actor && a !== this.settle?.d.actor) this.updateActor(a, dt * this.speed);
       this.separateActors();
+      // nageurs : position, vitesse et phase vers le shader de l'eau (rides, écume)
+      const sw = this.shared.uSwim.value as THREE.Vector4[];
+      let ns = 0;
+      for (const a of this.actors.values()) if (a.action === "swim" && !a.hidden && ns < 8) sw[ns++].set(a.pos[0], a.pos[2], a.speed, a.model.seed * 3.1);
+      this.shared.uSwimN.value = ns;
       // relief retouché par les acteurs : maillage réécrit au plus ~8 fois par seconde
       this.terrainWait -= dt;
       if (this.terrainDirty && this.terrainWait <= 0) {

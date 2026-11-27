@@ -243,6 +243,8 @@ uniform float uIdBase;
 uniform float uHighlight;
 uniform float uGroundY;
 uniform float uWaterY;
+uniform vec4 uSwim[8];
+uniform int uSwimN;
 uniform float uDetail;
 uniform float uEnv;
 uniform vec4 uLightPos[12];
@@ -625,6 +627,21 @@ void main() {
     float fr = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 4.0);
     float ripple = vnoise(vec3(vPosW.x * 1.3 + uTime * 0.3, uTime * 0.2, vPosW.z * 1.3)) + vnoise(vec3(vPosW.x * 3.1 - uTime * 0.4, 0.0, vPosW.z * 3.7));
     lit = mix(lit, uFogColor, fr * 0.6) + uSun * smoothstep(1.5, 1.75, ripple) * 0.07;
+    // reflets mouvants au fond (caustiques) : réseau de lignes claires qui ondule
+    vec2 cp = vPosW.xz * 1.8 + vec2(vnoise(vec3(vPosW.xz * 0.9, uTime * 0.35)), vnoise(vec3(vPosW.xz * 0.9 + 7.0, uTime * 0.35))) * 1.6;
+    float cau = pow(1.0 - abs(sin(cp.x * 2.6 + uTime * 0.7) * sin(cp.y * 2.6 - uTime * 0.6)), 10.0);
+    lit += uSun * cau * 0.09 * (1.0 - fr);
+    // nageurs : rides concentriques qui s'éloignent, écume autour du corps (plus forte quand on nage vite)
+    for (int i = 0; i < 8; i++) {
+      if (i >= uSwimN) break;
+      vec4 sw = uSwim[i];
+      float r = length(vPosW.xz - sw.xy);
+      if (r > 4.0) continue;
+      float ring = sin(r * 13.0 - uTime * 7.0 + sw.w) * exp(-r * 1.3) * (0.45 + 0.55 * min(sw.z, 1.5));
+      lit += uSun * max(ring, 0.0) * 0.16;
+      float splash = (1.0 - smoothstep(0.12, 0.45 + 0.35 * min(sw.z, 1.5), r)) * (0.3 + 0.5 * min(sw.z, 1.2)) * (0.75 + 0.25 * vnoise(vec3(vPosW.xz * 9.0, uTime * 3.0)));
+      lit = mix(lit, uSun * 0.95, clamp(splash, 0.0, 0.75));
+    }
   }
   // brouillard profondeur + hauteur, couleur d'horizon
   float fz = clamp((vViewZ - uFogNear) / max(uFogRange, 1.0), 0.0, 3.0);

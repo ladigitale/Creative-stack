@@ -42,6 +42,9 @@ export function sharedUniforms(): Shared {
     uShadowTexel: { value: new THREE.Vector2(1 / 2048, 1 / 2048) },
     uGroundY: { value: 0 },
     uWaterY: { value: -1000 },
+    // nageurs (x, z, vitesse, phase) : rides et écume sur l'eau autour d'eux
+    uSwim: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },
+    uSwimN: { value: 0 },
     uDetail: { value: 1 },
     uEnv: { value: 0 },
     uIdBase: { value: -1 },
