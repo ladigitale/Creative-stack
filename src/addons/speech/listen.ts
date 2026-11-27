@@ -66,6 +66,14 @@ export type ListenState = DeviceBaseState & {
   modelSize: number | null;
   /** Whisper : une phrase est en cours de transcription. */
   transcribing: boolean;
+  /** Whisper : niveau du micro 0..1 (vumètre, ~10 fois par seconde), 0 hors écoute. */
+  micLevel: number;
+  /** Whisper : de la parole est en train d'être captée (phrase en cours). */
+  voice: boolean;
+  /** Whisper : état du moteur audio du navigateur (`running`, `suspended`, `interrupted`, `closed`), `null` hors écoute. */
+  audioState: string | null;
+  /** Whisper : blocs de son reçus du micro depuis le début de l'écoute (0 = le micro ne délivre rien). */
+  audioBlocks: number;
 };
 
 /** Phrases en attente de transcription au plus (les plus anciennes sont abandonnées au-delà). */
@@ -178,6 +186,10 @@ export class SonicListen extends DeviceElement<ListenState> {
     modelPhase: "idle",
     modelSize: null,
     transcribing: false,
+    micLevel: 0,
+    voice: false,
+    audioState: null,
+    audioBlocks: 0,
   };
 
   private live: Partial<ListenSettings> = {};
@@ -589,6 +601,9 @@ export class SonicListen extends DeviceElement<ListenState> {
 
   // ─── Whisper : micro, phrases, transcription ──────────────────────────────────────────────────────────────────
 
+  private levelAt = 0;
+  private audioBlocks = 0;
+
   private startWhisper(): boolean {
     if (!this.state.supported) return false;
     if (this.wanted && this.ctx) return true;
@@ -646,6 +661,15 @@ export class SonicListen extends DeviceElement<ListenState> {
         threshold: num(this.threshold, 0.0005, 1) ?? DEFAULT_THRESHOLD,
       });
       proc.onaudioprocess = (e) => this.onAudio(e, gen);
+      // Moteur audio resté en pause (mobile : demande de permission du micro, appel, autre appli) : relancé, état publié.
+      const syncState = () => {
+        if (gen !== this.gen) return;
+        this.patch({ audioState: ctx.state });
+        if (ctx.state !== "running" && ctx.state !== "closed" && this.wanted) void ctx.resume?.()?.catch?.(() => undefined);
+      };
+      ctx.onstatechange = syncState;
+      this.audioBlocks = 0;
+      syncState();
     } catch (e) {
       this.wanted = false;
       this.closeMic();
@@ -668,7 +692,16 @@ export class SonicListen extends DeviceElement<ListenState> {
     const ib = e.inputBuffer;
     const channels: Float32Array[] = [];
     for (let c = 0; c < ib.numberOfChannels; c++) channels.push(ib.getChannelData(c));
-    for (const s of seg.push(downmix(channels))) {
+    const segments = seg.push(downmix(channels));
+    this.audioBlocks++;
+    // vumètre : niveau (RMS ramené à 0..1, échelle racine pour voir les voix faibles) et parole captée
+    const now = performance.now();
+    if (now - this.levelAt > 100) {
+      this.levelAt = now;
+      const lvl = Math.round(Math.min(1, Math.sqrt(seg.lastEnergy * 4)) * 100) / 100;
+      if (lvl !== this.state.micLevel || seg.inSpeech !== this.state.voice || this.audioBlocks !== this.state.audioBlocks) this.patch({ micLevel: lvl, voice: seg.inSpeech, audioBlocks: this.audioBlocks }, false);
+    }
+    for (const s of segments) {
       this.enqueue(s, seg.sampleRate, gen);
       if (!this.whisperSettings?.continuous) {
         // Une seule phrase hors mode continu, comme la reconnaissance du navigateur.
@@ -744,7 +777,7 @@ export class SonicListen extends DeviceElement<ListenState> {
     this.gen++;
     this.queue = [];
     this.closeMic();
-    this.patch({ active: false, listening: false, interim: "", transcribing: false, status: this.state.supported ? "ready" : "unsupported" });
+    this.patch({ active: false, listening: false, interim: "", transcribing: false, micLevel: 0, voice: false, audioState: null, status: this.state.supported ? "ready" : "unsupported" });
     return true;
   }
 

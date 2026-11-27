@@ -196,3 +196,14 @@ la confidentialité : dès que la reconnaissance locale est possible, elle passe
 - La reconnaissance exige une page HTTPS et, souvent, une connexion réseau.
 - Certaines voix de synthèse sont en ligne (`local: false`) : le texte lu part chez l'éditeur.
 - Sur iPhone, la synthèse ne parle qu'après un geste, et un onglet en arrière-plan se tait.
+
+### Diagnostic de la dictée Whisper
+
+État en plus pendant l'écoute : `micLevel` (niveau du micro 0..1, ~10 fois par seconde, pour un vumètre),
+`voice` (une phrase est en cours de capture), `audioState` (moteur audio du navigateur : `running` ; s'il passe en
+pause, il est relancé) et `audioBlocks` (blocs de son reçus : s'il reste à 0, le micro ne délivre rien).
+
+Détection de parole : 300 ms d'écoute du bruit de fond au démarrage (trame la plus calme retenue), puis seuil =
+bruit × 2, ou bruit + 0,02 si c'est moins (au moins `threshold`, 0,01). Les micros de téléphone ont un gain
+automatique qui remonte le bruit dans les silences : un seuil proportionnel au bruit (× 3) passait au-dessus de la voix.
+
