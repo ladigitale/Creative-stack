@@ -357,16 +357,20 @@ export function buildHeadField(k: Kit): HeadField {
   }
   const mus = look.mustache;
   if (mus !== "none" && !chibi) {
-    const spec = { thin: [0.012, 1.0, 0.02], pencil: [0.007, 0.9, 0.0], walrus: [0.03, 1.2, 0.07], handlebar: [0.015, 1.05, -0.02] }[mus] ?? [0.012, 1, 0.02];
-    const r0 = hh * spec[0], w = mouthW * spec[1];
+    const spec = { thin: [0.012, 1.0, 0.02], pencil: [0.007, 0.9, 0.0], walrus: [0.03, 1.2, 0.045], handlebar: [0.015, 1.05, -0.02] }[mus] ?? [0.012, 1, 0.02];
+    // entre le nez et la bouche : centrée dans l'espace entre le bas du nez et le haut de la lèvre supérieure, jamais
+    // plus épaisse que cet espace (sinon elle monte sur le nez ou couvre la bouche)
+    const noseBottom = noseTip[1] - tipR[1];
+    const lipTop = mouthY + lh * 0.9 + hh * 0.004;
+    const gap = Math.max(hh * 0.012, noseBottom - lipTop);
+    const r0 = Math.min(hh * spec[0], gap * 0.5), w = mouthW * spec[1];
+    const midY = (noseBottom + lipTop) / 2;
     const pts: V3[] = [];
     const N = 7;
     for (let i = 0; i <= N; i++) {
       const t = (i / N) * 2 - 1;
-      // jamais sur le nez : sous son bout (les gros nez ronds des styles cartoon descendent jusque-là, et le lancer de
-      // rayon posait le milieu de la moustache dessus)
-      const noseBottom = noseTip[1] - tipR[1] - r0 * 1.3;
-      const y = Math.min(mouthY + lh * 1.1 + hh * 0.032, noseBottom) - hh * spec[2] * t * t + (mus === "walrus" ? -hh * 0.01 : 0);
+      // les pointes peuvent descendre le long des commissures (morse, guidon), pas le milieu
+      const y = midY - hh * spec[2] * t * t;
       const s = hit(skin, t * w, y);
       pts.push(madd(s.p, s.n, r0 * 0.55));
     }
