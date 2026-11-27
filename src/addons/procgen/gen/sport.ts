@@ -24,7 +24,12 @@ function adTexts(v: unknown, rng: Rng): string[] {
       const r = rng.fork(`pub${i}`);
       return i % 3 === 2 ? `${townName(r)} Sports` : shopName(pickTrade(r), r.fork("nom"));
     }).join("|");
-  return resolveText(v, auto).split("|").map((x) => x.trim()).filter(Boolean);
+  // « auto » dans une liste (« Allez les Lions !|auto|auto ») : un nom généré à cette place
+  const gen = auto().split("|");
+  return resolveText(v, auto)
+    .split("|")
+    .map((x, i) => (x.trim() === "auto" ? gen[i % gen.length] : x.trim()))
+    .filter(Boolean);
 }
 import { type Anchor, defineGenerator } from "./types";
 
@@ -268,7 +273,7 @@ export const sport = defineGenerator({
     margin: { type: "number", default: 6, min: 1, max: 15, unit: "m", doc: "Herbe tondue autour des lignes" },
     boards: { type: "bool", default: true, doc: "Panneaux publicitaires autour du terrain" },
     adsFont: { type: "enum", default: "auto", options: ["auto", ...FONT_IDS], doc: "Police des panneaux (auto : variée d'un panneau à l'autre)" },
-    ads: { type: "string", default: "auto", doc: "Textes des panneaux, séparés par `|` (tour à tour) ; « auto » = commerces et villes générés ; « none » = bandes blanches sans texte" },
+    ads: { type: "string", default: "auto", doc: "Textes des panneaux, séparés par `|` (tour à tour) ; « auto » = commerces et villes générés (aussi un élément de la liste : « Allez !|auto|auto ») ; « none » = bandes blanches sans texte ; `{nom}` = icône" },
     rows: { type: "int", default: 10, min: 1, max: 30, doc: "Rangs de gradins" },
     fill: { type: "number", default: 0.85, min: 0, max: 1, doc: "Taux de remplissage de la tribune" },
     color1: { type: "string", default: "", doc: "Maillots des supporters (1re équipe), #rrggbb" },
