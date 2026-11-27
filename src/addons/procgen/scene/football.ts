@@ -1111,6 +1111,7 @@ export class FootballMatch {
       if (b.p[1] <= R) {
         b.p[1] = R;
         if (b.v[1] < -1.2) {
+          if (b.v[1] < -2.5) this.emit("bounce", { speed: Math.round(-b.v[1] * 10) / 10 });
           b.v[1] = -b.v[1] * 0.55;
           b.v[0] *= 0.86;
           b.v[2] *= 0.86;
