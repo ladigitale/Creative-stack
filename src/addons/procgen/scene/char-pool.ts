@@ -13,6 +13,7 @@
 import { Mesh } from "../geom/mesh";
 import { type Look } from "../gen/character/look";
 import { type PackedBuilt, unpackBuilt } from "../gen/character/pack";
+import type { Built } from "../gen/character/build";
 import { PROCGEN_BUILD_VERSION } from "../gen/character/version";
 import { characterSkeleton } from "../gen/character/build";
 import { cachedCharacter, characterAsset, prepareCharacter, storeCharacter } from "../gen/character";
@@ -221,12 +222,12 @@ export async function collectCharacterJobs(input: ComposeInput, onProgress?: (f:
     if (gen !== "character") return null;
     const { look, colors, v, key } = prepareCharacter(params, ctx);
     const built = cachedCharacter(key);
-    if (built) return characterAsset(look, colors, built) as Asset;
+    if (built) return characterAsset(look, colors, built, v.key) as Asset;
     if (!jobs.has(key)) jobs.set(key, { key, look, vkey: v.key });
     // doublure : squelette et taille, sans maillage (le placement s'en contente)
     const { skel, H } = characterSkeleton(look);
     const hx = H * 0.14;
-    return characterAsset(look, colors, { mesh: new Mesh(), skeleton: skel, anchors: {}, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: H, soft: [] }) as Asset;
+    return characterAsset(look, colors, { mesh: new Mesh(), skeleton: skel, anchors: {}, footprint: { hx, hz: H * 0.09, r: Math.max(hx, H * 0.12) }, height: H, soft: [] }, v.key) as Asset;
   };
   await composeSceneAsync({ ...input, assetBuilder }, { signal, onProgress: (d, t) => onProgress?.(t ? d / t : 0) });
   return [...jobs.values()].slice(0, 96);
@@ -276,4 +277,40 @@ export async function prefetchCharacters(input: ComposeInput, onProgress?: (f: n
   );
   void dbPut(fresh);
   return done;
+}
+
+/* ---------- niveau de détail ---------- */
+
+const lodWait = new Map<string, Promise<Built | null>>();
+
+/**
+ * Version allégée d'un personnage (même apparence, maillage « foule » : même squelette, même visage, ≈ 4 fois moins de
+ * triangles) pour l'afficher de loin. Cache en mémoire, puis du navigateur, puis pool de workers ; `null` sans workers
+ * (jamais de construction sur le fil principal pour un LOD).
+ */
+export function requestCharacterLod(look: Look, vkey: string): Promise<Built | null> {
+  if (look.detail === "crowd") return Promise.resolve(null);
+  const lite: Look = { ...look, detail: "crowd" };
+  const key = JSON.stringify({ look: lite, seed: vkey.split("/").slice(-2)[0] });
+  const hit = cachedCharacter(key);
+  if (hit) return Promise.resolve(hit);
+  if (!workerFactory) return Promise.resolve(null);
+  let p = lodWait.get(key);
+  if (!p) {
+    p = (async () => {
+      const found = await dbGet([key]);
+      let b = found.get(key) ?? null;
+      if (!b) {
+        if (!pool || pool.dead) pool = new CharacterPool(workerFactory!, poolSize || 2);
+        b = await pool.run({ key, look: lite, vkey });
+        if (b) void dbPut([[key, b]]);
+      }
+      if (!b) return null;
+      const built = cachedCharacter(key) ?? unpackBuilt(b);
+      storeCharacter(key, built);
+      return built;
+    })().finally(() => lodWait.delete(key));
+    lodWait.set(key, p);
+  }
+  return p;
 }
