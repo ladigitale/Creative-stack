@@ -17,7 +17,9 @@ import { type M4, type V3, DEG, add, clamp, cross, dot, m4Dir, madd, norm, scale
 import { ARCHETYPES } from "../../rig/humanoid";
 import type { Skeleton } from "../../rig/skeleton";
 import type { Projector } from "../project";
-import { type P2, Pen, type Shape, hull, lerp2, strokeVar } from "../shape";
+import { type Affine, type P2, Pen, type Shape, hull, lerp2, strokeVar } from "../shape";
+import { type TextBox, textPen } from "./text";
+import { balanceLines } from "../../core/font";
 import { Emitter, Frame } from "./kit";
 import type { AnimalSpec } from "../../gen/character/animal";
 import { drawPartsOn } from "./parts";
@@ -1314,6 +1316,34 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         pk.rrect(q[0] - headW * 0.18, q[1] - headW * 0.25, headW * 0.36, headW * 0.28, headW * 0.03);
       }
       em.add(pk, over === "none" ? "cloth1" : "cloth3", { tone: -1, width: 0.4 });
+    }
+    // texte imprimé : devant de face, nom et numéro de dos (même police qu'en 3D)
+    if (top !== "none" && (p.printFront || p.printName || p.printNumber)) {
+      const frame = (side: 1 | -1, c: V3): Affine => {
+        const o = S(c), ax = S(madd(c, lft, side)), ay = S(madd(c, up, 1));
+        return [ax[0] - o[0], ax[1] - o[1], ay[0] - o[0], ay[1] - o[1], o[0], o[1]];
+      };
+      const maxW = shoulderHalf * 1.25;
+      const printText = (m: Affine, text: string, b: TextBox, paint: string) => {
+        const pen = textPen(m, b.maxW && b.maxH ? balanceLines(text, b.maxW / b.maxH, b.weight) : text, { leading: 1.35, ...b });
+        if (pen) em.add(pen, paint, { stroke: null });
+      };
+      if (facing > 0.35 && over !== "apron" && over !== "armor") {
+        const m = frame(1, madd(lvChest.c, fwd, lvChest.df ?? lvChest.d));
+        const num = p.printNumber ? String(p.printNumber) : "";
+        if (p.printFront) {
+          printText(m, String(p.printFront), { cx: 0, cy: num ? H * 0.03 : 0, height: H * 0.042, maxW, maxH: num ? H * 0.06 : H * 0.11, weight: 0.13 }, "yellow");
+          if (num) printText(m, num, { cx: 0, cy: -H * 0.035, height: H * 0.04, maxW: maxW * 0.5, maxH: H * 0.05, weight: 0.14 }, "yellow");
+        } else if (num) printText(m, num, { cx: shoulderHalf * 0.35, cy: H * 0.01, height: H * 0.038, maxW: maxW * 0.4, maxH: H * 0.045, weight: 0.14 }, "yellow");
+      } else if (facing < -0.35) {
+        const m = frame(-1, madd(lvChest.c, fwd, -lvChest.d));
+        let y = H * 0.07;
+        if (p.printName) {
+          printText(m, String(p.printName), { cx: 0, cy: y, height: H * 0.03, maxW: maxW * 0.95, maxH: H * 0.04, weight: 0.13 }, "yellow");
+          y -= H * 0.06;
+        }
+        if (p.printNumber) printText(m, String(p.printNumber), { cx: 0, cy: y - H * 0.04, height: H * 0.1, maxW: maxW * 0.9, maxH: H * 0.12, weight: 0.13 }, "yellow");
+      }
     }
   };
 

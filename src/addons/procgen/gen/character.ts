@@ -68,7 +68,10 @@ export const characterSchema = {
   item: { type: "enum", default: "auto", options: auto(ITEMS), doc: "Objet tenu (main droite, prise refermée)" },
   mood: { type: "enum", default: "neutral", options: MOODS, doc: "Expression du visage (et posture d'animation)" },
   outfit: { type: "string", default: "auto", doc: `Garde-robe : ${Object.keys(OUTFITS).join(", ")} ou auto` },
-  colors: { type: "object", default: {}, doc: "Surcharges de couleurs : {top, bottom, detail, leather, hat, lips} en #rrggbb" },
+  colors: { type: "object", default: {}, doc: "Surcharges de couleurs : {top, bottom, detail, leather, hat, lips, print} en #rrggbb (print : texte et numéro imprimés, par défaut contrasté avec le haut)" },
+  shirtText: { type: "string", default: "", doc: "Texte imprimé sur le devant du haut (t-shirt, maillot) ; `\\n` = retour à la ligne ; capitales, lettres accentuées comprises" },
+  shirtName: { type: "string", default: "", doc: "Nom imprimé en haut du dos (maillot) ; « auto » = nom généré selon la graine" },
+  shirtNumber: { type: "string", default: "", doc: "Numéro de maillot : grand au dos, petit sur la poitrine" },
   detail: { type: "enum", default: "auto", options: ["auto", "high", "crowd"], doc: "Finesse du maillage : high (héros), crowd (foule, ≈ 2× plus rapide), auto (héros pour les acteurs, foule pour les couches)" },
 } as const;
 

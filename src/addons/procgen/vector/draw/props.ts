@@ -7,6 +7,8 @@ import { type P2, Pen, compose, strokeVar } from "../shape";
 import type { Kit } from "./kit";
 import type { DrawCtx, ObjectDrawer } from "./types";
 import { MORE_PROPS } from "./more";
+import { drawText } from "./text";
+import { propText } from "../../core/names";
 
 type M = [number, number, number, number, number, number];
 
@@ -25,12 +27,12 @@ export const drawProp: ObjectDrawer = (kit, p, ctx) => {
   const fpx = o.footprint.hx / o.scale, fpz = o.footprint.hz / o.scale;
   if (kind !== "boat") kit.castShadow(ctx.env.shadows, fpx * 0.9, fpz * 0.9, (o.height / o.scale) * (kind === "lamp" || kind === "lantern" || kind === "signpost" ? 0.25 : 0.8), ctx.env.ground, em.z0 - 0.5, em.layer, em.depth, kind === "barrel" || kind === "well" || kind === "haystack" || kind === "campfire" || kind === "fountain" || kind === "kiosk" || kind === "parasol");
   if (kind === "puddle") { MORE_PROPS.puddle(kit, size, variant, ctx); return; }
-  if (fn) fn(kit, size, variant, ctx);
-  else if (MORE_PROPS[kind]) MORE_PROPS[kind](kit, size, variant, ctx);
+  if (fn) fn(kit, size, variant, ctx, p);
+  else if (MORE_PROPS[kind]) MORE_PROPS[kind](kit, size, variant, ctx, p);
   else drawGeneric(kit, p, ctx);
 };
 
-const PROPS: Record<string, (kit: Kit, size: number, variant: number, ctx: DrawCtx) => void> = {
+const PROPS: Record<string, (kit: Kit, size: number, variant: number, ctx: DrawCtx, p?: Record<string, unknown>) => void> = {
   lamp(kit, _s, _v, ctx) {
     const { m } = kit.elev();
     const em = kit.em;
@@ -249,16 +251,22 @@ const PROPS: Record<string, (kit: Kit, size: number, variant: number, ctx: DrawC
     val.Z();
     em.add(val, "accent", { tone: -1, width: 0.5 });
   },
-  signpost(kit, _s, variant) {
+  signpost(kit, _s, variant, ctx, p) {
     const { m } = kit.elev();
     const em = kit.em;
     em.add(strokeVar(new Pen(m), [[0, 0], [0, 2.45]], [0.06, 0.05]), "wood", { tone: 0, width: 0.6 });
     const n = 2 + (variant % 2);
+    const dest = propText("signpost", p?.text, ctx.rng, variant).split("|");
     for (let i = 0; i < n; i++) {
       const dir = (i + variant) % 2 ? 1 : -1;
       const y = 2.05 - i * 0.36;
       const pen = new Pen(compose(m, [dir, 0, 0, 1, 0, 0])).M(-0.1, y - 0.12).L(0.62, y - 0.12).L(0.78, y).L(0.62, y + 0.12).L(-0.1, y + 0.12).Z();
       em.add(pen, "paper", { tone: 0, width: 0.6 });
+      const label = (dest[i] ?? "").trim();
+      if (label || p?.text !== undefined) {
+        drawText(kit, m, label, { cx: dir * 0.3, cy: y, height: 0.12, maxW: 0.74, maxH: 0.16 }, "ink");
+        continue;
+      }
       // lettrage peint : mots de longueurs variées, capitale plus haute
       const t = new Pen(compose(m, [dir, 0, 0, 1, 0, 0]));
       let x = 0.0;

@@ -7,6 +7,8 @@ import { Rng } from "../../core/rng";
 import { type Affine, type P2, Pen, compose, hull, scallop, strokeVar } from "../shape";
 import type { Kit } from "./kit";
 import type { DrawCtx, ObjectDrawer } from "./types";
+import { drawText } from "./text";
+import { propText } from "../../core/names";
 
 type M = Affine;
 const lx = (kit: Kit) => (kit.L[0] < 0 ? 1 : -1); // côté ombré à l'écran
@@ -357,7 +359,7 @@ export function drawRockKind(kit: Kit, kind: string, p: Record<string, unknown>,
 
 /* ------------------------------------------------------------------ objets de décor */
 
-export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number, ctx: DrawCtx) => void> = {
+export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number, ctx: DrawCtx, p?: Record<string, unknown>) => void> = {
   fountain(kit, size, _v, ctx) {
     const R = 1.6 * size;
     const em = kit.em;
@@ -402,11 +404,16 @@ export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number
     em.add(new Pen(m).rect(0.6, 0.9, 0.8, 1.3), "paper", { tone: 0, width: 0.4 });
     em.add(new Pen(m).rect(0.68, 1.4, 0.64, 0.7), "accent", { stroke: null });
   },
-  billboard(kit, _s, variant) {
+  billboard(kit, _s, variant, ctx, p) {
     const { m } = kit.elev(), em = kit.em;
     em.add(new Pen(m).rect(-1.0, 0, 0.1, 1.2).rect(0.9, 0, 0.1, 1.2), "wood", { tone: -1, width: 0.4 });
     em.add(new Pen(m).rect(-1.3, 1.1, 2.6, 1.5), "paper", { tone: 0, width: 0.6 });
     em.add(new Pen(m).rect(-1.2, 1.2, 2.4, 1.3), ["accent", "water", "leaf2"][variant % 3], { tone: 0, stroke: null });
+    const poster = propText("billboard", p?.text, ctx.rng, variant);
+    if (poster) {
+      drawText(kit, m, poster, { cx: 0, cy: 1.85, height: 0.34, maxW: 2.1, maxH: 1.1 }, "paper");
+      return;
+    }
     em.add(new Pen(m).ellipse(-0.5, 1.85, 0.42, 0.42), "paper", { tone: 1, stroke: null });
     const tx = new Pen(m);
     for (let k = 0; k < 3; k++) tx.rrect(0.1, 2.1 - k * 0.25, 0.9 - k * 0.2, 0.12, 0.05);
@@ -662,7 +669,7 @@ export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number
     em.add(bulbs, "lamp", { kind: "glow", width: 0.3 });
     em.add(bulbs2, "accent", { kind: "glow", width: 0.3 });
   },
-  hangingsign(kit, _s, variant) {
+  hangingsign(kit, _s, variant, ctx, p) {
     const { m } = kit.elev(), em = kit.em;
     em.add(strokeVar(new Pen(m), [[0, 0], [0, 2.7]], [0.05, 0.045]), "wood", { width: 0.4 });
     em.add(new Pen(m).rect(0, 2.53, 0.6, 0.04), "metal", { stroke: null });
@@ -673,13 +680,33 @@ export const MORE_PROPS: Record<string, (kit: Kit, size: number, variant: number
     else if (variant % 3 === 1) sign.poly([[0.3, 2.4], [0.8, 2.4], [0.8, 2.15], [0.55, 1.9], [0.3, 2.15]]);
     else sign.rrect(0.25, 2.0, 0.6, 0.38, 0.04);
     em.add(sign, fill, { tone: 0, width: 0.55 });
-    em.add(new Pen(m).ellipse(0.55, 2.18, 0.09, 0.09), "metal", { tone: 1, stroke: null });
+    const word = propText("hangingsign", p?.text, ctx.rng, variant);
+    if (word) drawText(kit, m, word, { cx: 0.55, cy: variant % 3 === 1 ? 2.22 : 2.19, height: 0.12, maxW: 0.44, maxH: 0.26 }, fill === "paper" ? "ink" : "paper");
+    else em.add(new Pen(m).ellipse(0.55, 2.18, 0.09, 0.09), "metal", { tone: 1, stroke: null });
   },
-  milestone(kit) {
+  milestone(kit, _s, variant, ctx, p) {
     const m = kit.board(), em = kit.em;
     em.add(new Pen(m).M(-0.2, 0).L(0.2, 0).L(0.2, 0.55).Q(0.2, 0.8, 0, 0.8).Q(-0.2, 0.8, -0.2, 0.55).Z(), "stone", { tone: 0, width: 0.55 });
     em.add(new Pen(m).M(-0.2, 0.55).Q(-0.2, 0.8, 0, 0.8).Q(0.2, 0.8, 0.2, 0.55).Z(), "accent", { tone: 0, width: 0.4 });
-    em.add(new Pen(m).rrect(-0.1, 0.3, 0.2, 0.06, 0.02).rrect(-0.07, 0.2, 0.14, 0.05, 0.02), "ink", { stroke: null, alpha: 0.75 });
+    em.add(new Pen(m).rrect(-0.13, 0.31, 0.26, 0.15, 0.02), "paper", { stroke: null });
+    drawText(kit, m, propText("milestone", p?.text, ctx.rng, variant), { cx: 0, cy: 0.385, height: 0.08, maxW: 0.22, maxH: 0.12 }, "ink");
+  },
+  townsign(kit, _s, variant, ctx, p) {
+    // panneau d'entrée d'agglomération : cadre rouge, fond blanc, nom de la ville
+    const m = kit.board(), em = kit.em;
+    for (const x of [-0.62, 0.62]) em.add(strokeVar(new Pen(m), [[x, 0], [x, 1.45]], [0.035, 0.035]), "metal", { width: 0.4 });
+    em.add(new Pen(m).rrect(-0.8, 1.41, 1.6, 0.68, 0.05), "red", { tone: 0, width: 0.55 });
+    em.add(new Pen(m).rrect(-0.74, 1.47, 1.48, 0.56, 0.03), "white", { tone: 0, stroke: null });
+    const name = propText("townsign", p?.text, ctx.rng, variant);
+    drawText(kit, m, name.replace(/-sur-/i, "\nsur "), { cx: 0, cy: 1.75, height: 0.17, maxW: 1.32, maxH: 0.44, leading: 1.4 }, "black");
+  },
+  streetsign(kit, _s, variant, ctx, p) {
+    // plaque de rue émaillée sur son poteau
+    const m = kit.board(), em = kit.em;
+    em.add(strokeVar(new Pen(m), [[0, 0], [0, 2.5]], [0.035, 0.03]), "metal", { width: 0.4 });
+    em.add(new Pen(m).rrect(0.04, 2.19, 0.84, 0.22, 0.03), "white", { tone: 0, width: 0.45 });
+    em.add(new Pen(m).rrect(0.06, 2.21, 0.8, 0.18, 0.02), "blue", { tone: 0, stroke: null });
+    drawText(kit, m, propText("streetsign", p?.text, ctx.rng, variant), { cx: 0.46, cy: 2.3, height: 0.06, maxW: 0.72, maxH: 0.14, leading: 1.3 }, "white");
   },
   puddle(kit, size, _v, ctx) {
     const em = kit.em;

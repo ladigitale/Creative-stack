@@ -1614,12 +1614,10 @@ export function footballRecipe(spec: FootballSpec): Record<string, unknown> {
     const t = spec.teams[team];
     form.forEach(([role, hx, hz], i) => {
       const gk = role === "gk";
-      const seed = spec.seed * 101 + team * 31 + i * 7;
       actors[`${team ? "b" : "a"}${i + 1}`] = {
         at: [hx * (team ? -1 : 1) * (L / 2), hz * (W / 2)],
         params: {
           archetype: "realistic",
-          seed,
           top: gk ? "long" : "tee",
           bottom: "shorts",
           shoes: "shoes",
@@ -1635,6 +1633,9 @@ export function footballRecipe(spec: FootballSpec): Record<string, unknown> {
           pattern: gk ? "plain" : t.pattern,
           age: "adult",
           beard: i % 4 === 1 ? "stubble" : "auto",
+          // nom au dos (généré par la graine du joueur), numéro au dos et sur la poitrine
+          shirtName: "auto",
+          shirtNumber: String(i + 1),
           colors: { top: gk ? t.keeper : t.shirt, bottom: t.shorts, detail: t.pattern === "plain" ? t.socks : t.shorts, leather: "#1a1a1a" },
         },
       };

@@ -9,7 +9,9 @@ import { Mesh } from "../../geom/mesh";
 import { box, ellipsoid } from "../../geom/prims";
 import { edgeZero, splitByLabel } from "../../geom/rolecut";
 import { VertexIndex, mixWeights, weightsOf, writeWeights } from "../../geom/transfer";
-import { type Archetype, type Age, buildHumanoid, proportions } from "../../rig/humanoid";
+import { type Archetype, type Age, type Proportions, buildHumanoid, proportions } from "../../rig/humanoid";
+import { type P2, balanceLines, layoutText } from "../../core/font";
+import { type SurfacePoint, printMesh } from "../../geom/text";
 import { computeWeights } from "../../rig/weights";
 import { type Skeleton, qFromBasis } from "../../rig/skeleton";
 import { ROLE } from "../../style/roles";
@@ -257,6 +259,18 @@ export function buildCharacter(look: Look, v: Rng): Built {
     decalMesh.append(m.mesh);
   }
 
+  /* ---------- texte imprimé sur le haut (devant, nom et numéro au dos) ---------- */
+  const printed = printTop(look, bf, field, H, cell, P);
+  if (printed.vertexCount) {
+    printed.skin = new Array(printed.vertexCount * 4).fill(0);
+    printed.weight = new Array(printed.vertexCount * 4).fill(0);
+    for (let vv = 0; vv < printed.vertexCount; vv++) {
+      const nb = allIdx.nearest(printed.getPos(vv), 10);
+      writeWeights(printed.skin, printed.weight, vv, nb >= 0 ? weightsOf(mesh, nb) : new Map([[bi("chest"), 1]]));
+    }
+    decalMesh.append(printed);
+  }
+
   /* ---------- objet tenu ---------- */
   if (item) {
     // outils : manche dans l'axe de la main, tête vers l'avant ou en travers (même repère qu'en vectoriel)
@@ -351,6 +365,80 @@ function cutRoles(mesh: Mesh, owner: Int32Array, field: Field, patterns: (Patter
     },
     origin2,
   );
+}
+
+/**
+ * Lettres imprimées sur le torse : texte du devant (et petit numéro), nom et grand numéro au dos. Chaque point du plan
+ * du texte est projeté sur le vêtement par un rayon horizontal (de face pour le devant, de dos pour le dos), puis
+ * décollé d'un cheveu ; le devant se lit de face, le dos de dos.
+ */
+function printTop(look: Look, bf: ReturnType<typeof buildBodyField>, field: Field, H: number, cell: number, P: Proportions): Mesh {
+  const out = new Mesh();
+  if (!look.printFront && !look.printName && !look.printNumber) return out;
+  const { chestC, chestR } = bf;
+  const lift = H * 0.001;
+  const role = ROLE.yellow;
+  const zFar = chestR[2] * 3 + H * 0.2;
+  const surf = (side: 1 | -1) => (q: P2): SurfacePoint => {
+    const x = side * q[0];
+    // marche prudente puis dichotomie sur le passage du zéro (la distance du champ n'est qu'approchée : un pas plein
+    // peut s'enfoncer de plusieurs centimètres)
+    const z0 = chestC[2] + side * zFar;
+    const d = (t: number) => field.distance([x, q[1], z0 - side * t]);
+    let t0 = 0, t = 0, dt = d(0);
+    while (dt > H * 0.0004 && t < zFar * 2) {
+      t0 = t;
+      t += Math.max(dt * 0.5, H * 0.0004);
+      dt = d(t);
+    }
+    if (t >= zFar * 2) return null;
+    let a = t0, b = t;
+    for (let i = 0; i < 14; i++) {
+      const mid = (a + b) / 2;
+      if (d(mid) > 0) a = mid;
+      else b = mid;
+    }
+    const p: V3 = [x, q[1], z0 - side * a];
+    const n = field.gradient(p, H * 0.004);
+    if (n[2] * side < 0.25) return null;
+    return { p: madd(p, n, lift), n };
+  };
+  const put = (text0: string, side: 1 | -1, cx: number, cy: number, cap: number, maxW: number, maxH: number, weight: number) => {
+    const text = balanceLines(text0, maxW / Math.max(1e-6, maxH), weight);
+    const lay = layoutText(text, { weight, leading: 1.35 });
+    let c = cap;
+    if ((lay.width + weight * 2) * c > maxW) c = maxW / (lay.width + weight * 2);
+    if ((lay.height + weight * 2) * c > maxH) c = maxH / (lay.height + weight * 2);
+    const oy = (lay.height - 1) / 2 - 0.5;
+    const polys = lay.polys.map((pl) => pl.map(([x, y]) => [cx + x * c, cy + (y + oy) * c] as P2));
+    out.append(printMesh(polys, weight * c, surf(side), role, Math.max(cell * 0.7, H * 0.006)));
+    return c * (lay.height + weight * 2);
+  };
+  const maxW = Math.max(chestR[0] * 1.35, P.shoulderHalf * 1.25);
+  const top = P.shoulderY - H * 0.035;
+  const waist = P.hipY + H * 0.05;
+  const coveredFront = look.over === "apron" || look.over === "armor";
+  if (!coveredFront) {
+    const hasNum = !!look.printNumber;
+    if (look.printFront) {
+      const cy = hasNum ? chestC[1] + chestR[1] * 0.22 : chestC[1] - chestR[1] * 0.05;
+      put(look.printFront, 1, 0, cy, H * 0.042, maxW, hasNum ? chestR[1] * 0.55 : chestR[1] * 1.1, 0.13);
+      if (hasNum) put(look.printNumber!, 1, 0, chestC[1] - chestR[1] * 0.38, H * 0.04, maxW * 0.5, chestR[1] * 0.45, 0.14);
+    } else if (hasNum) put(look.printNumber!, 1, chestR[0] * 0.32, chestC[1] + chestR[1] * 0.05, H * 0.038, maxW * 0.4, chestR[1] * 0.4, 0.14);
+  }
+  // dos : nom sous le col, grand numéro dessous
+  let y = top;
+  if (look.printName) {
+    const cap = H * 0.03;
+    const h = put(look.printName, -1, 0, y - cap * 0.6, cap, maxW * 0.95, H * 0.04, 0.13);
+    y -= h + H * 0.018;
+  }
+  if (look.printNumber) {
+    const avail = Math.max(H * 0.05, y - waist);
+    const cap = Math.min(H * 0.115, avail * 0.82);
+    put(look.printNumber, -1, 0, y - cap * 0.55, cap, maxW * 0.9, avail, 0.13);
+  }
+  return out;
 }
 
 /** Bouton, boucle, poche : posés sur la surface du champ, orientés selon la normale. */

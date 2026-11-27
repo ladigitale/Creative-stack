@@ -6,6 +6,8 @@
  * l'emporte toujours. Chaque emplacement tire sur sa propre branche d'aléa : imposer le chapeau ne change pas la barbe.
  */
 import type { Rng } from "../../core/rng";
+import { normalizeText } from "../../core/font";
+import { playerName } from "../../core/names";
 import { TOOL_KINDS } from "../tool";
 import { type AnimalSpec, ANIMAL_NAMES, animalKey, matchAnimal, resolveAnimal } from "./animal";
 import type { Issues } from "../../core/schema";
@@ -113,6 +115,12 @@ export type Look = {
   cape: string;
   /** Ce qui passe en tissu simulé et en mèches : `none`, `cloth`, `hair`, `all`. */
   soft: string;
+  /** Texte imprimé sur le devant du haut (capitales de la police procgen), absent si aucun. */
+  printFront?: string;
+  /** Nom au dos (maillot), absent si aucun. */
+  printName?: string;
+  /** Numéro au dos (et petit numéro sur le devant), absent si aucun. */
+  printNumber?: string;
 };
 
 type W = Record<string, number>;
@@ -395,7 +403,19 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
     headShape, eyes, brows: brows2, nose, lips, ears, beard, mustache, glasses: glasses2, freckles: freckles2, blush, wrinkles: wrinkles2, detail: s("detail"),
     cape: ["short", "long"].includes(String(pp.cape)) ? String(pp.cape) : "none",
     soft: ["cloth", "hair", "all"].includes(String(pp.soft)) ? String(pp.soft) : "none",
+    ...prints(pp, rng, top),
   };
+}
+
+/** Textes imprimés sur le haut : `shirtText` (devant), `shirtName` (dos ; « auto » = nom généré), `shirtNumber`. */
+function prints(pp: LookInput, rng: Rng, top: string): Pick<Look, "printFront" | "printName" | "printNumber"> {
+  if (top === "none") return {};
+  const str = (k: string) => (pp[k] == null ? "" : String(pp[k]).trim());
+  const front = normalizeText(str("shirtText").replace(/\\n/g, "\n")).slice(0, 48);
+  const nm = str("shirtName");
+  const name = normalizeText(nm === "auto" ? playerName(rng.fork("auto/shirtName")) : nm).replace(/\n/g, " ").slice(0, 16);
+  const num = normalizeText(str("shirtNumber")).replace(/\s/g, "").slice(0, 3);
+  return { ...(front.trim() ? { printFront: front } : {}), ...(name.trim() ? { printName: name.trim() } : {}), ...(num ? { printNumber: num } : {}) };
 }
 
 /** Couleurs propres du personnage (rôle → #rrggbb), cohérentes avec la carnation et l'âge. */
@@ -437,6 +457,8 @@ export function resolveColors(pp: LookInput, look: Look, rng: Rng, issues: Issue
     accent: typeof c.hat === "string" && HEX.test(c.hat) ? (c.hat as string) : rng.fork("hatcolor").pick([outfit[2], outfit[0], outfit[1], "#8a4b3a", "#3f5468"]),
     eye: iris,
     ink: "#1b1617",
+    // impression du haut (texte, numéro) : couleur donnée, sinon contrastée avec le haut
+    yellow: typeof c.print === "string" && HEX.test(c.print) ? (c.print as string) : luminance(oc("top", 0)) > 0.45 ? "#1d1c22" : "#f3efe4",
     // lèvres et pommettes (rôle libre « sky » réservé au ciel sur les décors, propre au personnage ici)
     sky: typeof c.lips === "string" && HEX.test(c.lips) ? (c.lips as string) : mixHex(skin, "#b04a4a", 0.32 + dark * 0.1),
     // peau ombrée : taches de rousseur, rides, barbe de trois jours
@@ -459,6 +481,11 @@ export function resolveColors(pp: LookInput, look: Look, rng: Rng, issues: Issue
         }
       : {}),
   } as const;
+}
+
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 export function mixHex(a: string, b: string, k: number): string {
