@@ -90,7 +90,8 @@ export function buildHeadField(k: Kit): HeadField {
     // menton étroit et un peu avancé : il effile le bas du visage (V doux) au lieu d'élargir la mâchoire
     const cw = shape === "square" ? 0.13 : shape === "round" ? 0.11 : 0.1;
     sk("skull", { kind: "ellipsoid", c: add(chinPt, [0, 0, hd * 0.02]), r: [hw * cw, hh * 0.07, hd * 0.11] });
-    for (const sx of [1, -1]) sk("skull", { kind: "ellipsoid", c: add(headC, [sx * hw * 0.27, -hh * 0.07, hd * 0.24]), r: [hw * 0.13, hh * 0.085, hd * 0.13] });
+    // joues : coussins larges et plats (de petites boules faisaient des bosses de chaque côté du nez)
+    for (const sx of [1, -1]) sk("skull", { kind: "ellipsoid", c: add(headC, [sx * hw * 0.25, -hh * 0.08, hd * 0.2]), r: [hw * 0.17, hh * 0.12, hd * 0.15] });
     sk("skull", { kind: "ellipsoid", c: add(headC, [0, hh * 0.11, hd * (arch === "heroic" || arch === "realistic" ? 0.37 : 0.35)]), r: [hw * 0.33, hh * (arch === "heroic" || arch === "realistic" ? 0.07 : 0.06), hd * 0.1] });
   }
   // moignon de cou, plus fin que le cou du corps (qui l'enveloppe en bas)
@@ -127,9 +128,12 @@ export function buildHeadField(k: Kit): HeadField {
     const K = sty * ageK;
     const browK = rf.range(0.25, 1) * (0.45 + 0.55 * masc) * K;
     const boneK = rf.range(0.3, 1) * K;
-    const jawK = (rf.range(0, 1) * (0.3 + 0.7 * masc) + (shape === "square" ? 0.35 : 0)) * K;
+    rf.range(0, 1); // ancien tirage de l'angle de mâchoire : gardé pour ne pas changer les tirages suivants
     const foldK = (rf.range(0.2, 0.8) + (look.age === "elder" ? 0.6 : 0)) * K;
     const cleft = masc > 0.5 && rf.chance(arch === "heroic" ? 0.5 : 0.22) && look.age !== "child";
+    // Chaque relief est un ellipsoïde presque enfoui dont seule la calotte dépasse. Il doit être large et très plat
+    // (grande profondeur r[2]) : son bord coupe alors la peau sous un angle rasant, sans pli sombre ; une union douce
+    // plus large n'aide pas, elle gonfle la peau tout autour (bosses)
     const put = (x: number, y: number, r: V3, out: number) => {
       if (out <= hh * 0.0015) return;
       const s = hit(base, x, y);
@@ -142,30 +146,22 @@ export function buildHeadField(k: Kit): HeadField {
     };
     for (const sx of [1, -1]) {
       // arcade sourcilière : plus saillante au-dessus du milieu de l'œil, s'efface vers la tempe
-      put(sx * eyeX * 0.8, eyeY + eyeR * 1.6, [eyeR * 1.25, eyeR * 0.5, eyeR * 0.7], eyeR * 0.22 * browK);
+      put(sx * eyeX * 0.8, eyeY + eyeR * 1.6, [eyeR * 1.6, eyeR * 0.75, eyeR * 2.2], eyeR * 0.22 * browK);
       // pommette (os zygomatique) : sous le coin externe de l'œil, filant vers l'oreille
-      put(sx * (eyeX + eyeR * 0.7), eyeY - eyeR * 1.75, [eyeR * 1.4, eyeR * 0.65, eyeR * 0.9], eyeR * 0.2 * boneK);
-      putCap([sx * (eyeX + eyeR * 1.2), eyeY - eyeR * 1.6], [sx * hw * 0.43, eyeY - eyeR * 1.2], eyeR * 0.6, eyeR * 0.09 * boneK);
-      // sillon nasogénien : bord du coussin de la joue, de l'aile du nez au coin de la bouche
-      putCap([sx * hw * 0.095, noseTipY - hh * 0.005], [sx * mouthW * 1.12, mouthY - hh * 0.035], hh * 0.022, hh * 0.008 * foldK);
+      put(sx * (eyeX + eyeR * 0.8), eyeY - eyeR * 1.75, [eyeR * 1.9, eyeR * 1.0, eyeR * 2.6], eyeR * 0.2 * boneK);
+      // sillon nasogénien : bord du coussin de la joue, de l'aile du nez au coin de la bouche (crête basse et large)
+      putCap([sx * hw * 0.095, noseTipY - hh * 0.005], [sx * mouthW * 1.12, mouthY - hh * 0.035], hh * 0.045, hh * 0.006 * foldK);
       // philtrum : deux crêtes du nez à la lèvre supérieure
       putCap([sx * mouthW * 0.14, noseTipY - hh * 0.04], [sx * mouthW * 0.2, mouthY + hh * 0.035], hh * 0.009, hh * 0.0045 * K);
     }
-    // angles de la mâchoire (gonion), vus de côté
-    for (const sx of [1, -1]) {
-      const y = mouthY - hh * 0.07, z = headC[2] - hd * 0.02;
-      const e = base.raycast([sx * hw * 1.2, y, z], [-sx, 0, 0], hw * 1.2, hh * 0.0005);
-      if (e && jawK > 0.05) {
-        const r: V3 = [hw * 0.07, hh * 0.075, hd * 0.12];
-        relief.push(sk("relief", { kind: "ellipsoid", c: add(e, [sx * (hw * 0.03 * jawK - r[0]), -hh * 0.01, 0]), r }));
-      }
-    }
+    // (plus de relief à l'angle de la mâchoire : il faisait une bosse sous l'oreille, de trois quarts ; la mâchoire
+    // carrée vient de la forme du visage)
     // menton : coussin du muscle mentonnier, fendu chez certains
     const cy = chinPt[1] + hh * 0.03;
-    if (cleft) for (const sx of [1, -1]) put(sx * hw * 0.045, cy, [hw * 0.06, hh * 0.045, hd * 0.06], hd * 0.022 * K);
-    else put(0, cy, [hw * 0.085, hh * 0.042, hd * 0.07], hd * 0.016 * K);
-    // fondu large : les reliefs se lisent comme des volumes sous la peau, jamais comme des bosses posées dessus
-    const rk = hw * 0.12;
+    if (cleft) for (const sx of [1, -1]) put(sx * hw * 0.045, cy, [hw * 0.07, hh * 0.055, hd * 0.16], hd * 0.022 * K);
+    else put(0, cy, [hw * 0.1, hh * 0.055, hd * 0.18], hd * 0.016 * K);
+    // fondu court (voir plus haut : un fondu large gonfle la peau)
+    const rk = hw * 0.035;
     const skullIdx = set.prims.map((_, i) => i).filter((i) => set.group[i] === "skull");
     for (const a of relief) for (const b of skullIdx) set.extraBlends.push({ a, b, k: rk });
   }
