@@ -45,6 +45,9 @@ export function sharedUniforms(): Shared {
     // nageurs (x, z, vitesse, phase) : rides et écume sur l'eau autour d'eux
     uSwim: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },
     uSwimN: { value: 0 },
+    // gazon d'un terrain de sport (x0, z0, x1, z1) et largeur des bandes de tonte (0 : aucun)
+    uTurf: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uTurfW: { value: 0 },
     uDetail: { value: 1 },
     uEnv: { value: 0 },
     uIdBase: { value: -1 },

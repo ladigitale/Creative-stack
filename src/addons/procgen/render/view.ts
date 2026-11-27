@@ -51,6 +51,8 @@ import { actorRadius, separate, slideStep, steerAround } from "../scene/crowd";
 import { maxTopAt, nearestEdge, standable, supportAt, topAt, wallAhead } from "../scene/surfaces";
 import { type DriveInput, type DriveState, type Route, type SeatPose, type VehicleSpec, ObstacleSet, doorFor, obbOverlap, followRoute, newDriveState, newRoute, obstaclesOf, planRoute, readInput, seatFor, seatNames, sideApproach, stepDrive, steerPartValue, vehicleSpecOf, wheelPartValue } from "../scene/drive";
 import { worldRoads } from "../scene/world-roads";
+import { FootballDirector, type Puppet } from "./football";
+import type { FootballSpec } from "../scene/football";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
 export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain" | "grab"; payload: Record<string, unknown> };
@@ -121,6 +123,8 @@ type ActorRT = {
   /** Point libre devant l'assise, où l'acteur se relève. */
   standAt?: [number, number];
   drive: { vx: number; vz: number } | null;
+  /** Marionnette (mode football) : posée là où le moteur de match la met, sans navigation ni évitement. */
+  puppet?: Puppet | null;
   /** Dans un véhicule ou sur une monture : place, étape (portière qui s'ouvre, assis, descente), pose. */
   ride?: RideRT;
   /** Ordre `drive` reçu pendant la montée : joué une fois assis. */
@@ -248,6 +252,13 @@ export class ProcgenView {
   maxDpr = 2;
   play = true;
   speed = 1;
+  /** Mode football : réglages demandés, directeur de match (créé sur le modèle composé), résumé publié. */
+  private footballSpec: { spec: FootballSpec; hud?: boolean; keyboard?: boolean; touch?: boolean } | null = null;
+  private football: FootballDirector | null = null;
+  private footballModel: unknown = null;
+  private turfModel: unknown = null;
+  footballOut: Record<string, unknown> | null = null;
+  onFootball: () => void = () => {};
   private frameTimes: number[] = [];
   private gov: Governor = newGovernor();
   /** Taille de rendu à appliquer au prochain rendu (jamais hors d'un rendu : `setSize` efface le canevas). */
@@ -2647,6 +2658,7 @@ export class ProcgenView {
   /* ---------------- animation des acteurs ---------------- */
 
   private updateActor(a: ActorRT, dt: number) {
+    if (a.puppet) return this.updatePuppet(a, a.puppet, dt);
     const m = this.model!;
     // à bord d'un véhicule : suit sa place ; monture conduite : son allure suit la conduite
     if (a.ride && this.updateRider(a, dt)) return void this.updateFace(a, dt);
@@ -2870,6 +2882,107 @@ export class ProcgenView {
     }
     this.poseActor(a, dt);
     this.updateFace(a, dt);
+  }
+
+  /** Marionnette du mode football : position, cap, allure et geste dictés par le moteur de match. */
+  private updatePuppet(a: ActorRT, p: Puppet, dt: number) {
+    const dist = Math.hypot(p.x - a.pos[0], p.z - a.pos[2]);
+    a.pos[0] = p.x;
+    a.pos[1] = p.y;
+    a.pos[2] = p.z;
+    a.speed = p.speed;
+    // saut de position (remise en place, ralenti rejoué) : pas de foulée fantôme
+    if (dist < 2) a.phase += dist / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
+    let dy = p.yaw - a.dispYaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    const turn = dy * (1 - Math.exp(-dt * 14));
+    a.yaw = p.yaw;
+    a.dispYaw += turn;
+    a.turnRate = dt > 0 ? clamp(turn / dt, -6, 6) : 0;
+    a.turn = a.turnRate;
+    if (p.action !== a.action) a.action = p.action as ActorRT["action"];
+    a.actionTime = p.actionTime;
+    const target = a.action === "idle" ? 0 : 1;
+    a.actionWeight += (target - a.actionWeight) * (1 - Math.exp(-dt * 10));
+    a.blinkT -= dt;
+    let blink = 0;
+    if (a.blinkT < 0.14) blink = Math.sin(clamp(1 - a.blinkT / 0.14, 0, 1) * Math.PI);
+    if (a.blinkT <= 0) a.blinkT = 2 + ((a.model.seed * 17.1 + this.time) % 4);
+    a.mats.uniforms.uBlink.value = blink;
+    this.poseActor(a, dt);
+    this.updateFace(a, dt);
+  }
+
+  /* ---------------- mode football ---------------- */
+
+  /** Active (ou retire, `null`) le mode football sur la scène composée. */
+  setFootball(spec: { spec: FootballSpec; hud?: boolean; keyboard?: boolean; touch?: boolean } | null) {
+    const same = JSON.stringify(spec) === JSON.stringify(this.footballSpec);
+    if (same) return;
+    this.footballSpec = spec;
+    this.football?.dispose();
+    this.football = null;
+    this.footballModel = null;
+    this.footballOut = null;
+    if (spec) this.touch();
+  }
+  /** Commandes venues du DataProvider (`football.input`). */
+  setFootballInput(v: unknown) {
+    this.football?.setInput(v);
+  }
+
+  /** Gazon des terrains de sport de la scène (bandes de tonte, plaques atténuées) pour le shader. */
+  private setTurf() {
+    const o = this.model?.objects.find((x) => x.generator === "sport" && String(x.params.kind ?? "pitch") === "pitch");
+    const u = this.shared.uTurf.value as THREE.Vector4;
+    if (!o) {
+      this.shared.uTurfW.value = 0;
+      return;
+    }
+    const L = Number(o.params.length ?? 105), W = Number(o.params.width ?? 68), mg = Number(o.params.margin ?? 6);
+    const along = Math.abs(Math.sin(o.yaw)) > 0.7;
+    const hx = (along ? W : L) / 2 + mg, hz = (along ? L : W) / 2 + mg;
+    u.set(o.pos[0] - hx, o.pos[2] - hz, o.pos[0] + hx, o.pos[2] + hz);
+    this.shared.uTurfW.value = L / Math.max(6, Math.round(L / 5.5) | 1);
+  }
+
+  private ensureFootball() {
+    if (!this.footballSpec || !this.model || this.footballModel === this.model) return;
+    this.football?.dispose();
+    this.footballModel = this.model;
+    const ball = this.balls?.bodies.find((b) => /^ballon\./.test(b.id))?.id ?? this.balls?.bodies[0]?.id ?? null;
+    const host = {
+      canvas: this.canvas,
+      scene: this.scene,
+      puppets: () => {
+        const out = new Map<string, ActorRT>();
+        for (const a of this.actors.values()) out.set(a.model.id, a);
+        return out;
+      },
+      pinBall: (pos: V3, vel: V3, dt: number) => {
+        if (ball && this.balls?.pin(ball, pos, vel, dt)) this.ballsDirty = true;
+      },
+      setCamera: (c: { cx: number; cy: number; cz: number; yaw: number; pitch: number; dist: number; fov: number }) => {
+        const v = this.view;
+        v.camera = "perspective";
+        v.cx = c.cx;
+        v.cy = c.cy;
+        v.cz = c.cz;
+        v.yaw = c.yaw;
+        v.pitch = c.pitch;
+        v.fov = c.fov;
+        v.zoom = Math.max(0.05, (this.extent * 1.25 * 0.55) / (Math.max(1, c.dist) * Math.tan(((c.fov * Math.PI) / 180) / 2)));
+        this.dirty = true;
+      },
+      emit: (type: string, payload: Record<string, unknown>) => this.onEvent({ type: type as GameEvent["type"], payload }),
+    };
+    const fs = this.footballSpec;
+    this.football = new FootballDirector(host, fs.spec, { hud: fs.hud, keyboard: fs.keyboard, touch: fs.touch });
+    this.football.onSummary = (s) => {
+      this.footballOut = s;
+      this.onFootball();
+    };
   }
 
   /** Visage : humeur (transition douce), bouche selon l'action, regard vers la cible `look`. */
@@ -3264,7 +3377,7 @@ export class ProcgenView {
     const L = [...this.actors.values()].filter((a) => !a.hidden && !a.ride);
     if (!L.length) return;
     const free = (x: number, z: number) => !m.nav || m.nav.free(x, z);
-    const pinned = (a: ActorRT) => ((a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0) || a.action === "hang" || a === this.drag?.actor || a === this.settle?.d.actor || !!this.vehicles.get(a.model.id);
+    const pinned = (a: ActorRT) => !!a.puppet || ((a.action === "sit" || a.action === "sleep") && (a.seatY ?? 0) > 0) || a.action === "hang" || a === this.drag?.actor || a === this.settle?.d.actor || !!this.vehicles.get(a.model.id);
     const push = (a: ActorRT, dx: number, dz: number) => {
       if (slideStep(a.pos, a.pos[0] + dx, a.pos[2] + dz, free) && !a.onObj) a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
     };
@@ -3358,6 +3471,17 @@ export class ProcgenView {
     // parties mobiles : passage doux vers l'état voulu (même à l'arrêt de l'animation)
     if (this.states.moving) this.finishIms(this.states.step(this.play ? dt : 1e6));
     const anim = this.animated;
+    if (this.turfModel !== this.model) {
+      this.turfModel = this.model;
+      this.setTurf();
+    }
+    if (this.footballSpec && this.model) {
+      this.ensureFootball();
+      if (this.football) {
+        this.football.step(dt);
+        this.speed = this.football.timeScale;
+      }
+    }
     if (anim) {
       this.time += dt * this.speed;
       this.stepVehicles(dt * this.speed);
@@ -3735,6 +3859,8 @@ export class ProcgenView {
   }
 
   dispose() {
+    this.football?.dispose();
+    this.football = null;
     this.finBank?.dispose();
     this.finTable?.dispose();
     this.disposed = true;

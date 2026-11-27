@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qFromTo, qMul, qRot, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header"] as const;
 /** Poses à bord (posées par la conduite, pas des ordres d'acteur) : mains au volant, à califourchon, à la rame. */
 export const RIDE_ACTIONS = ["drive", "ride", "row"] as const;
 export type Action = (typeof ACTIONS)[number] | (typeof RIDE_ACTIONS)[number];
@@ -330,6 +330,12 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   // danse : pas marqués (décalage des pieds) ; nage : corps à l'horizontale ; escalade : élévation le long de la paroi
   let footOff: { l: V3; r: V3 } | null = null;
   let swimK = 0, swimBob = 0, swimKick = 0;
+  // poses au sol ou en vol (tacle glissé, plongeon du gardien, chute, tête) : bascule du corps entier `gBody`, bassin
+  // posé en `gPel` (repère de l'acteur), jambes en rotations directes (pas d'appui au sol)
+  let gK = 0;
+  let gBody: Q = qId();
+  let gPel: V3 = [0, 0, 0];
+  const gLeg: Record<string, Q> = {};
   let climbLift = 0, climbPh = 0, mantleK = -1;
   const settle = at < 0.6 ? 1 + 0.08 * Math.sin((at / 0.6) * Math.PI) * (1 - at / 0.6) * 2 : 1;
   const raiseArm = (s: "l" | "r", abduct: number, forward: number, elbowDeg: number) => {
@@ -553,6 +559,80 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       over.spine = qEuler(0, 10 * side * bounce * DEG, 6 * sw * DEG);
       over.chest = qEuler(-3 * DEG, -6 * sw * DEG, -4 * sw * DEG);
       over.head = qEuler((6 * bounce - 3) * DEG, 8 * sw * DEG, 5 * sw * DEG);
+      break;
+    }
+    case "tackle": {
+      // tacle glissé (0,75 s de glissade puis 0,55 s au sol, relevé) : couché en arrière sur la hanche, jambe droite
+      // tendue devant ras du sol, jambe gauche repliée dessous, main gauche au sol derrière, bras droit en balancier
+      gK = 1;
+      const e = smoothstep(0, 0.2, at) * (1 - smoothstep(1.05, 1.35, at));
+      gBody = qAxis([1, 0, 0], -58 * DEG * e);
+      gPel = [0, mix(info.hipY, leg * 0.2, e), -leg * 0.15 * e];
+      gLeg["thigh.r"] = qAxis([1, 0, 0], -34 * DEG * e);
+      gLeg["shin.r"] = hinge(sk, "shin.r", -6 * e);
+      gLeg["foot.r"] = qAxis([1, 0, 0], 25 * DEG * e);
+      gLeg["thigh.l"] = qMul(qAxis([0, 0, 1], 12 * DEG * e), qAxis([1, 0, 0], 8 * DEG * e));
+      gLeg["shin.l"] = hinge(sk, "shin.l", -105 * e);
+      aimDir(over, "l", [0.45, -0.55, -0.7], 15, 0, 0);
+      aimDir(over, "r", [-0.55, 0.45, 0.55], 45, 0, 20);
+      over.neck = qEuler(22 * e * DEG, 0, 0);
+      over.head = qEuler(18 * e * DEG, 0, 0);
+      break;
+    }
+    case "diveleft":
+    case "diveright": {
+      // plongeon du gardien : appel (0,15 s), vol à l'horizontale bras tendus vers le ballon, réception sur le flanc,
+      // relevé (1,4 s en tout)
+      gK = 1;
+      const side = st.action === "diveleft" ? 1 : -1;
+      const fly = smoothstep(0.05, 0.3, at), land = smoothstep(0.5, 0.75, at), up = smoothstep(1.0, 1.4, at);
+      const e = fly * (1 - up);
+      gBody = qMul(qAxis([0, 0, 1], -side * 82 * DEG * e), qAxis([1, 0, 0], 8 * DEG * e));
+      const hy = mix(leg * 0.95, leg * 0.22, land);
+      gPel = [-side * leg * 0.25 * e, mix(info.hipY, hy, e), 0];
+      for (const s2 of ["l", "r"] as const) {
+        gLeg[`thigh.${s2}`] = qAxis([1, 0, 0], -(12 + (s2 === "l" ? 6 : -4) * side) * DEG * e);
+        gLeg[`shin.${s2}`] = hinge(sk, `shin.${s2}`, -(18 + 30 * land * (s2 === "l" ? 1 : 0.3)) * e);
+        gLeg[`foot.${s2}`] = qAxis([1, 0, 0], 30 * DEG * e);
+      }
+      // bras au-dessus de la tête, mains jointes vers le ballon ; après la réception, ils ramènent le ballon
+      for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) aimDir(over, s2, [sg2 * 0.4 + side * 0.15, 1, mix(0.35, 0.9, land)], mix(10, 60, land), 0, 0);
+      over.neck = qEuler(0, 0, side * 14 * e * DEG);
+      over.head = qEuler(0, 0, side * 10 * e * DEG);
+      break;
+    }
+    case "fall": {
+      // chute fauché : le corps part en avant, les mains amortissent, couché 0,6 s, se relève sur un genou (1,5 s)
+      gK = 1;
+      const down = smoothstep(0, 0.4, at), up = smoothstep(0.95, 1.5, at);
+      const e = down * (1 - up);
+      const kneel = smoothstep(0.85, 1.15, at) * (1 - smoothstep(1.25, 1.5, at));
+      gBody = qAxis([1, 0, 0], mix(78, 20, kneel) * DEG * e);
+      gPel = [0, mix(info.hipY, mix(leg * 0.2, leg * 0.62, kneel), e), leg * 0.45 * e];
+      gLeg["thigh.l"] = qAxis([1, 0, 0], mix(-6, -95, kneel) * DEG * e);
+      gLeg["shin.l"] = hinge(sk, "shin.l", mix(-12, -85, kneel) * e);
+      gLeg["thigh.r"] = qAxis([1, 0, 0], mix(-14, 10, kneel) * DEG * e);
+      gLeg["shin.r"] = hinge(sk, "shin.r", mix(-35, -95, kneel) * e);
+      for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) aimDir(over, s2, [sg2 * 0.35, mix(0.35, -0.6, kneel), 0.85], mix(55, 20, kneel), 0, 0);
+      over.neck = qEuler(-30 * e * (1 - kneel) * DEG, 0, 0);
+      break;
+    }
+    case "header": {
+      // tête : appel, détente (0,25 s), coup de tête du buste en avant, réception (0,8 s)
+      gK = 1;
+      const jump = Math.sin(clamp(at / 0.6, 0, 1) * Math.PI);
+      const crouch = (1 - smoothstep(0, 0.12, at)) * smoothstep(0, 0.04, at) + smoothstep(0.55, 0.62, at) * (1 - smoothstep(0.62, 0.8, at));
+      const nod = smoothstep(0.18, 0.28, at) * (1 - smoothstep(0.3, 0.45, at));
+      gBody = qAxis([1, 0, 0], (-12 * (1 - nod) * jump + 18 * nod) * DEG);
+      gPel = [0, info.hipY + leg * 0.4 * jump - leg * 0.12 * crouch, 0];
+      for (const s2 of ["l", "r"] as const) {
+        gLeg[`thigh.${s2}`] = qAxis([1, 0, 0], -(10 + 25 * jump * (s2 === "r" ? 1 : 0.5) + 40 * crouch) * DEG);
+        gLeg[`shin.${s2}`] = hinge(sk, `shin.${s2}`, -(10 + 45 * jump + 60 * crouch));
+        gLeg[`foot.${s2}`] = qAxis([1, 0, 0], 25 * jump * DEG);
+      }
+      for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) aimDir(over, s2, [sg2 * 0.9, 0.15 + 0.3 * jump, 0.25], 50, 0, 0);
+      over.neck = qEuler(25 * nod * DEG, 0, 0);
+      over.head = qEuler(20 * nod * DEG, 0, 0);
       break;
     }
     case "swim": {
@@ -956,7 +1036,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   }
   // passes : position du bassin, puis IK, puis abaissement si hors d'atteinte
   let pose: Pose = { rot, root: toWorld(pelvisOffset), rootRot: yawQ };
-  for (let pass = 0; pass < (swimK > 0 ? 0 : 2); pass++) {
+  for (let pass = 0; pass < (swimK > 0 || gK > 0 ? 0 : 2); pass++) {
     pose = { rot, root: toWorld([pelvisOffset[0], pelvisOffset[1], pelvisOffset[2]]), rootRot: yawQ };
     const W = sk.world(pose);
     const Wq = sk.worldQuats(W);
@@ -1046,6 +1126,15 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       rot[`foot.${s2}`] = qSlerp(rot[`foot.${s2}`] ?? qId(), qAxis([1, 0, 0], 50 * DEG), w);
     }
     pose = { rot, root: toWorld(pelvisOffset), rootRot: qMul(yawQ, qAxis([1, 0, 0], th)) };
+    return { pose, feet: { l: toWorld(feetLocal.l.p), r: toWorld(feetLocal.r.p) } };
+  }
+  if (gK > 0) {
+    // corps entier basculé autour du bassin, posé en `gPel` : la racine compense la rotation (repos : bassin à hipY)
+    const Rb = qSlerp(qId(), gBody, w);
+    const P: V3 = [gPel[0] * w, mix(info.hipY, gPel[1], w), gPel[2] * w];
+    for (const k of Object.keys(gLeg)) rot[k] = qSlerp(rot[k] ?? qId(), gLeg[k], w);
+    const hip = qRot(Rb, [0, info.hipY, 0]);
+    pose = { rot, root: toWorld(sub(P, hip)), rootRot: qMul(yawQ, Rb) };
     return { pose, feet: { l: toWorld(feetLocal.l.p), r: toWorld(feetLocal.r.p) } };
   }
   pose = { rot, root: toWorld(pelvisOffset), rootRot: yawQ };

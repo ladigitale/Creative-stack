@@ -47,6 +47,25 @@ export class BallWorld {
   private inZone = new Map<string, Set<string>>();
   /** Ballons cachés (`hidden`) : hors simulation, sans événement. */
   hidden = new Set<string>();
+  /** Ballons menés de l'extérieur (`pin`, mode football) : ni gravité, ni contacts, rotation tirée du déplacement. */
+  pinned = new Set<string>();
+
+  /** Place un ballon mené de l'extérieur à `pos` ; il roule (tourne) du chemin parcouru, ou tourne sur lui-même en vol. */
+  pin(id: string, pos: V3, vel: V3, dt: number): boolean {
+    const b = this.byId.get(id);
+    if (!b) return false;
+    this.pinned.add(id);
+    const dx = pos[0] - b.pos[0], dz = pos[2] - b.pos[2], d = Math.hypot(dx, dz);
+    if (d > 1e-5 && d < 5) b.spin = qNorm(qMul(qAxis([dz / d, 0, -dx / d], d / b.r), b.spin));
+    else if (d < 5 && dt > 0 && pos[1] > b.r * 1.5) {
+      const v = Math.hypot(vel[0], vel[2]);
+      if (v > 0.5) b.spin = qNorm(qMul(qAxis([vel[2] / v, 0, -vel[0] / v], (v / b.r) * dt), b.spin));
+    }
+    b.pos = [...pos];
+    b.vel = [...vel];
+    b.awake = true;
+    return true;
+  }
 
   /** `skip` : ballons laissés à un autre moteur (physique 3D Rapier quand la scène a `physics`). */
   constructor(model: SceneModel, skip?: (o: ObjectInfo) => boolean) {
@@ -102,7 +121,7 @@ export class BallWorld {
     if (!this.bodies.length || dt <= 0) return;
     // contacts acteurs : réveillent les ballons touchés
     for (const b of this.bodies) {
-      if (this.hidden.has(b.id)) continue;
+      if (this.hidden.has(b.id) || this.pinned.has(b.id)) continue;
       for (const a of actors) {
         const dx = b.pos[0] - a.pos[0], dz = b.pos[2] - a.pos[2];
         const d = Math.hypot(dx, dz), min = b.r + a.r;
@@ -131,7 +150,7 @@ export class BallWorld {
     const n = Math.min(64, Math.max(1, Math.ceil(dt / (1 / 120)), Math.ceil((vmax * dt) / MAX_MOVE)));
     const h = dt / n;
     for (let s = 0; s < n; s++) {
-      for (const b of this.bodies) if (b.awake && !this.hidden.has(b.id)) this.integrate(b, h, height, free);
+      for (const b of this.bodies) if (b.awake && !this.hidden.has(b.id) && !this.pinned.has(b.id)) this.integrate(b, h, height, free);
       this.collide(free);
     }
     for (const b of this.bodies) {
@@ -151,7 +170,7 @@ export class BallWorld {
         }
         this.inZone.set(b.id, cur);
       }
-      if (b.grounded && Math.hypot(b.vel[0], b.vel[1], b.vel[2]) < 0.03) {
+      if (b.grounded && !this.pinned.has(b.id) && Math.hypot(b.vel[0], b.vel[1], b.vel[2]) < 0.03) {
         b.vel = [0, 0, 0];
         b.awake = false;
         const r3 = (x: number) => Math.round(x * 100) / 100;
