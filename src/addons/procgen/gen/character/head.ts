@@ -122,7 +122,8 @@ export function buildHeadField(k: Kit): HeadField {
     const rf = v.fork("relief");
     const masc = look.figure === "masculine" ? 1 : look.figure === "feminine" ? 0 : 0.5;
     const ageK = look.age === "child" ? 0.3 : look.age === "teen" ? 0.65 : look.age === "elder" ? 1.25 : 1;
-    const sty = { realistic: 1, heroic: 1.15, stylized: 0.6, cartoon: 0.4, chibi: 0 }[arch];
+    // modérés : au-delà, les reliefs se lisent comme des bosses et des creux ronds sur les joues et la mâchoire
+    const sty = { realistic: 0.4, heroic: 0.5, stylized: 0.3, cartoon: 0.2, chibi: 0 }[arch];
     const K = sty * ageK;
     const browK = rf.range(0.25, 1) * (0.45 + 0.55 * masc) * K;
     const boneK = rf.range(0.3, 1) * K;
@@ -144,7 +145,7 @@ export function buildHeadField(k: Kit): HeadField {
       put(sx * eyeX * 0.8, eyeY + eyeR * 1.6, [eyeR * 1.25, eyeR * 0.5, eyeR * 0.7], eyeR * 0.22 * browK);
       // pommette (os zygomatique) : sous le coin externe de l'œil, filant vers l'oreille
       put(sx * (eyeX + eyeR * 0.7), eyeY - eyeR * 1.75, [eyeR * 1.4, eyeR * 0.65, eyeR * 0.9], eyeR * 0.2 * boneK);
-      putCap([sx * (eyeX + eyeR * 1.2), eyeY - eyeR * 1.6], [sx * hw * 0.43, eyeY - eyeR * 1.2], eyeR * 0.45, eyeR * 0.14 * boneK);
+      putCap([sx * (eyeX + eyeR * 1.2), eyeY - eyeR * 1.6], [sx * hw * 0.43, eyeY - eyeR * 1.2], eyeR * 0.6, eyeR * 0.09 * boneK);
       // sillon nasogénien : bord du coussin de la joue, de l'aile du nez au coin de la bouche
       putCap([sx * hw * 0.095, noseTipY - hh * 0.005], [sx * mouthW * 1.12, mouthY - hh * 0.035], hh * 0.022, hh * 0.008 * foldK);
       // philtrum : deux crêtes du nez à la lèvre supérieure
@@ -163,7 +164,8 @@ export function buildHeadField(k: Kit): HeadField {
     const cy = chinPt[1] + hh * 0.03;
     if (cleft) for (const sx of [1, -1]) put(sx * hw * 0.045, cy, [hw * 0.06, hh * 0.045, hd * 0.06], hd * 0.022 * K);
     else put(0, cy, [hw * 0.085, hh * 0.042, hd * 0.07], hd * 0.016 * K);
-    const rk = hw * 0.05;
+    // fondu large : les reliefs se lisent comme des volumes sous la peau, jamais comme des bosses posées dessus
+    const rk = hw * 0.12;
     const skullIdx = set.prims.map((_, i) => i).filter((i) => set.group[i] === "skull");
     for (const a of relief) for (const b of skullIdx) set.extraBlends.push({ a, b, k: rk });
   }

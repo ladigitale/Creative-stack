@@ -264,19 +264,21 @@ float finH(vec2 uv, vec2 gx, vec2 gy, float layer) { return textureGrad(uHeights
 
 const vec2 POISSON[12] = vec2[](vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621), vec2(0.962, -0.195), vec2(0.473, -0.480),
   vec2(0.519, 0.767), vec2(0.185, -0.893), vec2(0.507, 0.064), vec2(0.896, 0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598));
-float shadowAt(vec4 sc, float ndl) {
+/** Ombre portée filtrée (PCF) ; soft élargit la pénombre et le biais (peau : ombres du nez, des sourcils, de la
+ * mâchoire en dégradé, sans arête crénelée ni acné sur les courbes du visage). */
+float shadowAt(vec4 sc, float ndl, float soft) {
   if (uShadowOn < 0.5) return 1.0;
   vec3 c = sc.xyz / sc.w * 0.5 + 0.5;
   if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
-  float bias = mix(0.0022, 0.0005, clamp(ndl, 0.0, 1.0));
+  float bias = mix(0.0022, 0.0005, clamp(ndl, 0.0, 1.0)) * mix(1.0, 2.5, step(1.5, soft));
   float a = hash13(vec3(gl_FragCoord.xy, 1.0)) * 6.2831;
   mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));
   float s = 0.0;
   for (int i = 0; i < 12; i++) {
-    float d = texture(uShadowMap, c.xy + R * POISSON[i] * uShadowTexel * 1.8).r;
+    float d = texture(uShadowMap, c.xy + R * POISSON[i] * uShadowTexel * 1.8 * soft).r;
     s += c.z - bias > d ? 0.0 : 1.0;
   }
-  return s / 12.0;
+  return soft > 1.5 ? smoothstep(0.0, 1.0, s / 12.0) : s / 12.0;
 }
 
 /** Variation de valeur procédurale selon le rôle (veinage du bois, taches de pierre, macro-variation du sol). */
@@ -319,7 +321,13 @@ float roleTexture(int role, vec3 p, vec3 n) {
     return (weave - 0.5) * 0.05 + heather * 0.09 + threads * 0.09 + (vnoise(p * 55.0) - 0.5) * 0.06 + (vnoise(p * 9.0) - 0.5) * 0.06;
   }
   if (role == 20) return (vnoise(p * 70.0) - 0.5) * 0.05 + (vnoise(p * 12.0) - 0.5) * 0.03; // cuir : grain serré
-  if (role == 21) return (vnoise(p * 90.0) - 0.5) * 0.035 + (fbm3(p * 14.0) - 0.5) * 0.06 + (vnoise(p * 260.0) - 0.5) * 0.025 * (1.0 - smoothstep(0.0008, 0.0025, length(fwidth(p)))); // peau : grain, pores de près, nuances douces
+  if (role == 21) {
+    // peau : nuances très douces (de larges taches font sale), grain et pores qui n'apparaissent que de près
+    float fw = length(fwidth(p));
+    float near = 1.0 - smoothstep(0.0006, 0.002, fw);
+    float pores = smoothstep(0.62, 0.86, vnoise(p * 520.0)) * near;
+    return (fbm3(p * 9.0) - 0.5) * 0.03 + (vnoise(p * 90.0) - 0.5) * 0.025 * (1.0 - smoothstep(0.002, 0.006, fw)) + (vnoise(p * 260.0) - 0.5) * 0.02 * near - pores * 0.014;
+  }
   if (role == 22) return (vnoise(vec3(p.x * 90.0, p.y * 9.0, p.z * 90.0)) - 0.5) * 0.09 + (fbm3(p * 10.0) - 0.5) * 0.04; // cheveux : mèches claires et sombres
   if (role == 14) return (vnoise(vec3(p.x * 160.0, p.y * 4.0, p.z * 160.0)) - 0.5) * 0.08 + (fbm3(p * 6.0) - 0.5) * 0.1; // métal : brossé, patine
   if (role >= 32 || role == 26) return (vnoise(p * 40.0) - 0.5) * 0.05 + (fbm3(p * 5.0) - 0.5) * 0.06; // plastique, peint : grain, usure douce
@@ -410,7 +418,12 @@ void main() {
       float strand = 1.0 - smoothstep(0.0015, 0.005, fp);
       h = vnoise(vec3(q.x * 120.0, q.y * 14.0, q.z * 120.0)) * 0.006 * strand + fbm3(vec3(q.x * 30.0, q.y * 6.0, q.z * 30.0)) * 0.014 * mid;
     }
-    else if (role == 21) h = vnoise(q * 220.0) * 0.0009 * fine + fbm3(q * 40.0) * 0.0024 * mid; // grain de peau, à peine (un visage bosselé fait sale)
+    else if (role == 21) {
+      // peau : pores (creux fins, ~2 mm) et grain très serré de près, ondulations à peine marquées à mi-distance
+      // (un visage bosselé fait sale)
+      float pf = 1.0 - smoothstep(0.0005, 0.0016, fp);
+      h = -smoothstep(0.62, 0.86, vnoise(q * 520.0)) * 0.00035 * pf + vnoise(q * 900.0) * 0.00012 * pf + vnoise(q * 220.0) * 0.0005 * fine + fbm3(q * 40.0) * 0.0012 * mid;
+    }
     else if (role == 20) h = vnoise(q * 120.0) * 0.003 * fine + fbm3(vec3(q.x * 16.0, q.y * 42.0, q.z * 16.0)) * 0.012 * mid; // grain, plis du cuir
     else if (role == 28) h = vnoise(q * 90.0) * 0.001 * fine;
     else if (role == 14) h = vnoise(vec3(q.x * 300.0, q.y * 5.0, q.z * 300.0)) * 0.0007 * fine + fbm3(q * 11.0) * 0.006 * mid; // métal brossé, cabossé
@@ -521,7 +534,7 @@ void main() {
   vec3 dn = fwidth(vNormalW);
   float edgeWear = clamp((dn.x + dn.y + dn.z) * 2.2, 0.0, 1.0) * uDetail;
   float ndl = dot(N, uSunDir);
-  float sh = shadowAt(vShadow, ndl);
+  float sh = shadowAt(vShadow, ndl, role >= 21 && role <= 24 ? 6.0 : 1.0);
   float light;
   // touche de pinceau : plus fine (16 et 44 cycles/m) ; plus de taches de 15 cm qui déchirent les bandes d'ombre
   // personnages (tissus, cuir, peau, cheveux) : touche plus fine et plus légère, accrochée au corps (repère local :
@@ -531,7 +544,7 @@ void main() {
   float brush = ((fbm3(bp * 16.0) - 0.5) * 0.75 + (vnoise(bp * 44.0) - 0.5) * 0.25) * uBrush * (chr ? 0.4 : 1.0);
   if (uShading < 0.5) light = clamp(ndl * 0.5 + 0.5, 0.0, 1.0) * 0.6 + 0.4;        // flat : lumière douce, sans bandes
   else if (uShading < 1.5) {                                                       // toon : bandes à seuil perturbé
-    float x = clamp((ndl + brush * (role == 21 ? 0.5 : 1.0)) * 0.5 + 0.5, 0.0, 1.0);
+    float x = clamp((ndl + brush * (role == 21 ? 0.25 : 1.0)) * 0.5 + 0.5, 0.0, 1.0);
     x *= mix(1.0, 0.3, (1.0 - sh) * uShadowStrength);
     float k = x * uBands;
     // peau : transitions de bandes adoucies (un visage en marches dures paraît grossier)
@@ -539,6 +552,12 @@ void main() {
     float bsoft = role == 21 ? max(uBandSoft, 0.32) : chr ? max(uBandSoft, 0.2) : uBandSoft;
     float q = (floor(k) + smoothstep(1.0 - max(bsoft * uBands, 0.001), 1.0, fract(k))) / uBands;
     light = clamp(q * uBands / (uBands - 1.0), 0.0, 1.0);
+    // peau : dégradé continu (une bande, même adoucie, découpe le visage en plaques au bord déchiqueté), à peine
+    // resserré pour garder la lecture peinte du style
+    if (role == 21) {
+      float c = clamp((x * uBands - 0.5) / (uBands - 1.0), 0.0, 1.0);
+      light = mix(c * c * (3.0 - 2.0 * c), light, 0.15);
+    }
   } else {
     light = clamp(ndl + brush * 0.5, 0.0, 1.0);
     light = mix(light, light * light * (3.0 - 2.0 * light), uShading < 2.5 ? 0.6 : 0.0);
@@ -550,11 +569,40 @@ void main() {
   float contact = 1.0 - (1.0 - smoothstep(0.0, 0.35, vPosW.y - uGroundY)) * 0.18 * uAOStrength * step(0.2, abs(N.y - 1.0));
   vec3 amb = mix(uAmbGround, uAmbSky, N.y * 0.5 + 0.5);
   vec3 lit = base * (amb * (role == 21 ? 0.54 : 0.62) * ao * contact + uSun * light * shadow * mix(0.85, 1.0, ao));
+  vec3 Vv = normalize(cameraPosition - vPosW);
   if (role == 21) {
-    // peau : diffusion chaude au terminateur (lumière qui traverse la peau), creux un peu plus marqués
-    float term = clamp(light * (1.0 - light) * 4.0, 0.0, 1.0);
-    lit += base * vec3(0.24, 0.07, 0.03) * term * shadow;
+    // peau : diffusion sous la surface. La lumière déborde dans l'ombre (rougie : le rouge porte plus loin que le vert
+    // et le bleu) et réchauffe le terminateur ; les creux restent un peu plus marqués
+    vec3 wrapK = vec3(0.42, 0.2, 0.12);
+    vec3 wrapL = clamp((vec3(ndl) + wrapK) / (1.0 + wrapK), 0.0, 1.0) - vec3(clamp(ndl, 0.0, 1.0));
+    float term = exp(-pow(ndl * 2.6, 2.0));
+    lit += base * uSun * (wrapL * 0.55 + vec3(0.2, 0.06, 0.025) * term) * mix(1.0, sh, uShadowStrength * 0.6);
     lit *= mix(1.0, 0.86, 1.0 - ao);
+    // reflets : deux lobes (film gras net + peau plus mate), Fresnel du ciel sur les bords ; bandes : reflet plus discret
+    if (uShading > 0.5) {
+      vec3 Hs = normalize(uSunDir + Vv);
+      float nh = max(dot(N, Hs), 0.0), nv = max(dot(N, Vv), 0.0);
+      float F = 0.028 + 0.972 * pow(1.0 - max(dot(Vv, Hs), 0.0), 5.0);
+      float a1 = 0.09, a2 = 0.2;
+      float D1 = a1 / (3.14159 * pow(nh * nh * (a1 - 1.0) + 1.0, 2.0));
+      float D2 = a2 / (3.14159 * pow(nh * nh * (a2 - 1.0) + 1.0, 2.0));
+      float spec = (D1 * 0.3 + D2 * 0.5) * 0.25 * max(ndl, 0.0) * F;
+      float sk = uShading < 1.5 ? 0.55 : 1.0;
+      lit += uSun * min(spec, 1.5) * sk * mix(1.0, sh, uShadowStrength) * ao;
+      lit += mix(uAmbGround, uAmbSky, N.y * 0.5 + 0.5) * pow(1.0 - nv, 4.0) * 0.12 * sk * ao;
+    }
+  }
+  if (role == 23 || role == 24) {
+    // yeux : globe humide. Blanc ombré vers les bords (il est rond), reflet net du soleil et du ciel sur la cornée
+    float nv = max(dot(N, Vv), 0.0);
+    if (role == 24) lit *= mix(0.78, 1.0, smoothstep(0.15, 0.75, nv));
+    vec3 Hs = normalize(uSunDir + Vv);
+    float nh = max(dot(N, Hs), 0.0);
+    float a = 0.004;
+    float D = a / (3.14159 * pow(nh * nh * (a - 1.0) + 1.0, 2.0));
+    float F = 0.04 + 0.96 * pow(1.0 - nv, 5.0);
+    lit += uSun * min(D * 0.25 * max(ndl, 0.0), 6.0) * 0.5 * mix(1.0, sh, uShadowStrength);
+    lit += mix(uAmbGround, uAmbSky * 1.2, smoothstep(-0.2, 0.4, reflect(-Vv, N).y)) * F * 0.5;
   }
   lit *= 1.0 + edgeWear * 0.16 * (role >= 21 && role <= 25 ? 0.0 : 1.0);
   // lumières ponctuelles (feux, lampes, fenêtres) : chaudes, surtout la nuit

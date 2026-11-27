@@ -208,9 +208,16 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     // réaliste : œil en amande moins ouvert, paupière qui couvre le haut de l'iris, cils fins
     const real = arch === "realistic";
     const ew = eyeR * dims[0], eh = eyeR * dims[1] * (sleepyMood ? 0.6 : wide) * (real ? 0.94 : 1);
-    const ctr = madd(s.p, s.n, -eyeR * (toon ? 0.12 : 0.32));
+    // globe juste sous la peau : l'ouverture de l'œil est dessinée par les paupières, pas par une fente où le globe
+    // perce la peau (elle cachait l'iris dès qu'un relief, arcade ou pommette, la décalait)
+    const ctr = madd(s.p, s.n, -eyeR * (toon ? 0.12 : 0.1));
     eyeCenters.push(ctr);
     const T = (m: Mesh, off: V3 = [0, 0, 0]) => m.transform(m4Compose(add(ctr, rot(qe, off)), qe));
+    // blanc et paupières (styles non dessinés) : orientés comme la peau autour de l'œil (qui fuit vers la tempe), l'iris
+    // gardant le regard droit. Sinon la peau du côté du nez recouvre le blanc, l'ouverture se décale vers la tempe et
+    // l'iris paraît loucher vers le nez
+    const qs: Q = qe;
+    const Ts = (m: Mesh, off: V3 = [0, 0, 0]) => m.transform(m4Compose(add(ctr, rot(qs, off)), qs));
     // regard : iris et pupille glissent sur le globe (le reflet reste en place)
     const G = (off: V3, rx: number, ry: number, depth: number): V3 => {
       const dx = pose.gx * rx, dy = pose.gy * ry;
@@ -218,27 +225,34 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     };
     if (toon) {
       // œil « cartoon » : iris coloré plein, pupille, reflet, ligne de cils
-      add_(T(ellipsoid(ew * 0.74, eh, eyeR * 0.3, ROLE.eye, sg(16), sg(9))), ctr[1]);
-      add_(T(ellipsoid(ew * 0.38, eh * 0.52, eyeR * 0.2, ROLE.ink, sg(12), sg(6)), G([0, -eh * 0.08, eyeR * 0.14], ew * 0.3, eh * 0.38, eyeR * 2)), ctr[1]);
-      add_(T(ellipsoid(eyeR * 0.2, eyeR * 0.2, eyeR * 0.12, ROLE.eyeWhite, sg(8), sg(5)), [ew * 0.25, eh * 0.38, eyeR * 0.24]), ctr[1]);
+      add_(T(irisRim(ellipsoid(ew * 0.74, eh, eyeR * 0.3, ROLE.eye, sg(22), sg(12)), ew * 0.74, eh, 0.55)), ctr[1]);
+      add_(T(ellipsoid(ew * 0.38, eh * 0.52, eyeR * 0.2, ROLE.ink, sg(20), sg(10)), G([0, -eh * 0.08, eyeR * 0.14], ew * 0.3, eh * 0.38, eyeR * 2)), ctr[1]);
+      add_(T(ellipsoid(eyeR * 0.2, eyeR * 0.2, eyeR * 0.12, ROLE.eyeWhite, sg(14), sg(7)), [ew * 0.25, eh * 0.38, eyeR * 0.24]), ctr[1]);
     } else {
-      add_(T(ellipsoid(ew, eh, eyeR * 0.42, ROLE.eyeWhite, sg(16), sg(9))), ctr[1]);
+      // globe aplati (demi-profondeur sd) : affleure la peau sur toute la largeur, sans faire saillie
+      const sd = eyeR * 0.34;
+      add_(Ts(scleraCorners(ellipsoid(ew, eh, sd, ROLE.eyeWhite, sg(24), sg(13)), ew)), ctr[1]);
+      // iris et pupille : lentilles qui épousent le globe (bombées juste au-dessus du blanc, bord qui y plonge) ; avant,
+      // l'iris dépassait à peine du blanc, qui le tronquait d'un côté (regard qui louche, iris coupé net)
       const ri = Math.min(ew * 0.6, eh * 0.9);
       const gx = (ew - ri) * 0.62, gy = Math.max(0, eh - ri) * 0.6 + eh * 0.12;
-      add_(T(ellipsoid(ri, ri, eyeR * 0.3, ROLE.eye, sg(14), sg(7)), G([0, -eh * 0.04, eyeR * 0.2], gx, gy, eyeR * 0.9)), ctr[1]);
-      add_(T(ellipsoid(ri * 0.45, ri * 0.45, eyeR * 0.22, ROLE.ink, sg(10), sg(5)), G([0, -eh * 0.04, eyeR * 0.31], gx, gy, eyeR * 0.9)), ctr[1]);
-      add_(T(ellipsoid(eyeR * 0.13, eyeR * 0.13, eyeR * 0.08, ROLE.eyeWhite, sg(6), sg(4)), [ri * 0.38, ri * 0.4 - eh * 0.04, eyeR * 0.4]), ctr[1]);
+      // rayon de courbure du globe au sommet : l'iris glisse sur la vraie surface quand le regard bouge
+      const curv = (ew * ew) / sd;
+      add_(T(irisRim(ellipsoid(ri, ri, eyeR * 0.12, ROLE.eye, sg(24), sg(10)), ri, ri, 0.7), G([0, -eh * 0.04, sd - eyeR * 0.085], gx, gy, curv)), ctr[1]);
+      add_(T(ellipsoid(ri * 0.45, ri * 0.45, eyeR * 0.07, ROLE.ink, sg(14), sg(6)), G([0, -eh * 0.04, sd - eyeR * 0.02], gx, gy, curv)), ctr[1]);
+      add_(T(ellipsoid(eyeR * 0.11, eyeR * 0.11, eyeR * 0.06, ROLE.eyeWhite, sg(8), sg(4)), [ri * 0.36, ri * 0.38 - eh * 0.04, sd + eyeR * 0.02]), ctr[1]);
     }
     // paupière supérieure (coque de peau) : descendue (yeux mi-clos) ou rentrée sous l'arcade, toujours présente
-    const lidDrop = shape === "sleepy" || sleepyMood ? 0.42 : Math.max(LID[mood] ?? 0, real ? 0.1 : 0);
+    // réaliste : la paupière effleure le haut de l'iris (plus bas, le regard paraît renfrogné au repos)
+    const lidDrop = shape === "sleepy" || sleepyMood ? 0.42 : Math.max(LID[mood] ?? 0, real ? 0.04 : 0);
     const lid = ellipsoid(ew * 1.08, eh * 0.75, eyeR * 0.5, ROLE.skin, sg(14), sg(8));
     // peau du visage (tête) : son occlusion est assombrie autour de l'œil ; la paupière prend la même valeur
     lid.ao = lid.ao.map((a) => a * LID_AO);
-    if (lidDrop > 0) add_(T(lid, [0, eh * (1.1 - lidDrop * 1.4), eyeR * 0.05]), ctr[1]);
+    if (lidDrop > 0) add_(Ts(lid, [0, eh * (1.1 - lidDrop * 1.4), eyeR * 0.05]), ctr[1]);
     else {
       // rentrée : aplatie et enfoncée derrière l'arcade (rien ne dépasse de la peau)
       lid.transform(m4Compose([0, 0, 0], [0, 0, 0, 1], [0.85, 0.6, 0.4]));
-      add_(T(lid, [0, eh * 0.95, -eyeR * (toon ? 0.62 : 0.5)]), ctr[1]);
+      add_(Ts(lid, [0, eh * 0.95, -eyeR * (toon ? 0.85 : 0.5)]), ctr[1]);
     }
     // ligne de cils : arc le long du bord supérieur, plus épais vers l'extérieur
     if (!(arch === "chibi" && shape === "round")) {
@@ -249,7 +263,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
         const a = Math.PI * (1 - t);
         const x = Math.cos(a) * ew * 1.02 * sx;
         const y = Math.sin(a) * (lidDrop > 0 ? eh * 0.12 : top) + (lidDrop > 0 ? top : 0) - (1 - Math.sin(a)) * eh * 0.08;
-        pts.push(add(ctr, rot(qe, [x, y, eyeR * (toon ? 0.2 : 0.3) * Math.sin(a) + eyeR * 0.08])));
+        pts.push(add(ctr, rot(qs, [x, y, eyeR * (toon ? 0.2 : 0.3) * Math.sin(a) + eyeR * 0.08])));
         rr.push(eyeR * (toon ? 0.07 : real ? 0.05 : 0.06) * (0.5 + 0.9 * (sx > 0 ? t : 1 - t) ** 1.2));
       }
       add_(tube(pts, rr, ROLE.ink, crowd ? 4 : 5, true, true), ctr[1]);
@@ -260,9 +274,9 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
       const crease: V3[] = [], cr: number[] = [], lower: V3[] = [], lr: number[] = [];
       for (let i = 0; i <= 8; i++) {
         const t = i / 8, a = Math.PI * (1 - t), x = Math.cos(a) * ew * sx;
-        crease.push(add(ctr, rot(qe, [x * 1.04, eh * 1.28 + Math.sin(a) * eh * 0.22 - (lidDrop > 0 ? eh * lidDrop * 0.3 : 0), eyeR * 0.22 + Math.sin(a) * eyeR * 0.12])));
+        crease.push(add(ctr, rot(qs, [x * 1.04, eh * 1.28 + Math.sin(a) * eh * 0.22 - (lidDrop > 0 ? eh * lidDrop * 0.3 : 0), eyeR * 0.22 + Math.sin(a) * eyeR * 0.12])));
         cr.push(eyeR * 0.028 * Math.sin(Math.min(1, t * 1.3) * Math.PI) ** 0.6 + eyeR * 0.004);
-        lower.push(add(ctr, rot(qe, [x * 0.98, -eh * 0.98 - Math.sin(a) * eh * 0.12, eyeR * 0.3 + Math.sin(a) * eyeR * 0.08])));
+        lower.push(add(ctr, rot(qs, [x * 0.98, -eh * 0.98 - Math.sin(a) * eh * 0.12, eyeR * 0.3 + Math.sin(a) * eyeR * 0.08])));
         lr.push(eyeR * 0.035 * Math.sin(t * Math.PI) ** 0.5 + eyeR * 0.004);
       }
       add_(tube(crease, cr, ROLE.mouth, 4, true, true), ctr[1]);
@@ -285,7 +299,8 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
         const t = i / N;
         const bx = sx * (eyeX + eyeR * mix(-1.0, 1.1, t) * spec[2]);
         const peak = brow === "arched" ? Math.sin(Math.min(1, t / 0.65) * Math.PI * 0.5) * (t > 0.65 ? 1 - (t - 0.65) * 1.6 : 1) : Math.sin(t * Math.PI);
-        const by = eyeY + eyeR * (1.5 * Math.max(0.8, dims[1]) + raise + (1 - t) * browIn * 0.7 + peak * spec[1] * 0.6);
+        // tête du sourcil (côté nez) un peu relevée : sans elle, un sourcil arqué fronce le visage au repos
+        const by = eyeY + eyeR * (1.5 * Math.max(0.8, dims[1]) + raise + (1 - t) * browIn * 0.7 + peak * spec[1] * 0.6 + (1 - t) ** 2 * 0.18);
         const r = eyeR * spec[0] * (arch === "realistic" ? 0.9 : 1) * (0.55 + 0.45 * Math.sin(Math.min(1, t * 1.15) * Math.PI) ** 0.5) * (brow === "bushy" ? 0.85 + 0.3 * Math.abs(Math.sin(i * 2.7)) : 1);
         pts.push(onSkin(bx, by, r * 0.35));
         radii.push(r);
@@ -356,6 +371,31 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
   return { mesh: face, morph, eyeCenters };
 }
 
+
+/**
+ * Iris : anneau sombre au bord (limbe) et fines stries rayonnantes, par mélange vers l'encre sommet par sommet (l'iris
+ * est construit centré à l'origine). C'est ce cerne qui détache l'iris du blanc et donne un regard précis.
+ */
+function irisRim(m: Mesh, rx: number, ry: number, k: number): Mesh {
+  m.blend = new Array(m.vertexCount).fill(0);
+  for (let i = 0; i < m.vertexCount; i++) {
+    const x = m.pos[i * 3] / rx, y = m.pos[i * 3 + 1] / ry;
+    const r = Math.min(1, Math.hypot(x, y));
+    const fib = 0.3 * (0.5 + 0.5 * Math.sin(Math.atan2(y, x) * 23 + Math.sin(Math.atan2(y, x) * 7) * 2)) * Math.max(0, r - 0.35);
+    const rim = Math.max(0, (r - 0.62) / 0.38) ** 1.5;
+    m.blend[i] = ROLE.ink + Math.min(0.9, (rim * 0.85 + fib) * k);
+  }
+  return m;
+}
+/** Blanc de l'œil : coins rosés vers la peau (caroncule côté nez, coin externe) plutôt qu'un blanc uniforme collé. */
+function scleraCorners(m: Mesh, rx: number): Mesh {
+  m.blend = new Array(m.vertexCount).fill(0);
+  for (let i = 0; i < m.vertexCount; i++) {
+    const x = Math.abs(m.pos[i * 3] / rx);
+    m.blend[i] = ROLE.skin + Math.min(0.55, Math.max(0, (x - 0.62) / 0.38) ** 1.6 * 0.55);
+  }
+  return m;
+}
 
 /** Rotation d'un vecteur par un quaternion. */
 function rot(q: Q, v: V3): V3 {
