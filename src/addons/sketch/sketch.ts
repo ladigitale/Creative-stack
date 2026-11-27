@@ -170,6 +170,17 @@ const WORKER_MIN = 150;
 /** Rendu par la carte graphique plus rapide que ça (ms) : la vue est aussi refaite pendant les gestes. */
 const LIVE_GL_MS = 150;
 
+/** Distance (px d'écran) au-delà de laquelle un appui qui ferme un menu devient un geste d'outil. */
+const DISMISS_SLOP = 12;
+
+/** Un sonic-pop (Concorde) est-il ouvert ? L'appui extérieur qui le ferme ne doit pas tracer. */
+function popOpen(): boolean {
+  const ctor = typeof customElements !== "undefined" ? (customElements.get("sonic-pop") as unknown as { pops?: Set<{ open?: boolean }> } | undefined) : undefined;
+  if (!ctor?.pops) return false;
+  for (const pop of ctor.pops) if (pop.open) return true;
+  return false;
+}
+
 @customElement("sonic-sketch")
 export class SonicSketch extends LitElement implements SonicFrameSource, SonicFrameConsumerHost {
   static styles = css`
@@ -476,7 +487,9 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     zoomRange: () => [MIN_ZOOM, MAX_ZOOM],
     fit: () => this.fit(),
   });
-  private mode: "none" | "draw" | "erase" | "pan" | "pick" | "select" = "none";
+  private mode: "none" | "draw" | "erase" | "pan" | "pick" | "select" | "dismiss" = "none";
+  /** Appui qui ferme un menu (sonic-pop ouvert) : retenu, il ne devient un geste d'outil que s'il se déplace nettement. */
+  private dismissDown: { p: { x: number; y: number }; e: PointerEvent; pen: ReturnType<typeof readPen>; barrel: boolean } | null = null;
   /** Régions d'aplat sélectionnées (par référence : une région remplacée sort de la sélection). */
   private selected = new Set<Region>();
   private selectStart: { x: number; y: number } | null = null;
@@ -1364,6 +1377,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     if (r === "pinch") {
       // Un second doigt : c'est un geste de vue, le trait commencé est abandonné.
       this.cancelStroke();
+      this.dismissDown = null;
       this.mode = "none";
       this.pointer = null;
       return;
@@ -1376,6 +1390,18 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     }
     if (e.pointerType === "mouse" && e.button !== 0) { this.nav.up(e.pointerId); return; }
     this.pointer = e.pointerId;
+    // Un menu est ouvert : cet appui sert d'abord à le fermer. Rien n'est tracé (ni pipette, ni sélection) tant que
+    // le pointeur ne s'est pas nettement déplacé ; un simple tapotement ne laisse aucune trace.
+    if (popOpen()) {
+      this.mode = "dismiss";
+      this.dismissDown = { p, e, pen, barrel };
+      return;
+    }
+    this.beginTool(p, e, tool, pen, barrel);
+  }
+
+  /** Démarre l'outil courant au point d'appui (pipette, sélection, trait ou gomme). */
+  private beginTool(p: { x: number; y: number }, e: PointerEvent, tool: string, pen: ReturnType<typeof readPen>, barrel: boolean): void {
     if (barrel && this.penBarrel === "pick") {
       this.mode = "pick";
       this.pick(e, false);
@@ -1411,6 +1437,15 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     this.refreshCursor();
     if (this.nav.move(e.pointerId, p)) return;
     if (e.pointerId !== this.pointer) return;
+    if (this.mode === "dismiss") {
+      const d = this.dismissDown;
+      if (!d || Math.hypot(p.x - d.p.x, p.y - d.p.y) < DISMISS_SLOP) return;
+      // Déplacement net : c'était bien un geste d'outil, il part du point d'appui.
+      this.dismissDown = null;
+      this.mode = "none";
+      this.beginTool(d.p, d.e, this.currentTool(), d.pen, d.barrel);
+      if (this.mode === "none") return;
+    }
     if (this.mode === "pick") { this.pick(e, false); return; }
     if (this.mode === "draw") {
       const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
@@ -1474,6 +1509,7 @@ export class SonicSketch extends LitElement implements SonicFrameSource, SonicFr
     else if (this.mode === "pick") this.pick(e, e.type === "pointerup");
     else if (this.mode === "select" && e.type === "pointerup") this.selectAt(this.local(e), e.shiftKey);
     else if (this.mode === "pan") this.settleLater();
+    this.dismissDown = null;
     this.pointer = null;
     this.mode = "none";
     if (!this.hover) this.lastPtr = null;
