@@ -168,3 +168,25 @@ describe("personnage : style réaliste", () => {
     expect(asset.expr?.channels).toContain("happy");
   });
 });
+
+describe("personnage : grains de beauté et bijoux", () => {
+  const count = (params: Record<string, unknown>, role: number) => {
+    const { asset } = build({ archetype: "realistic", hat: "none", item: "none", bag: "none", hair: "short", collar: "none", ...params }, "bijoux-test");
+    return Array.from(asset.mesh.role).filter((r) => r === role).length;
+  };
+  it("bijoux en or ou argent (rôle propre), collier selon l'encolure, rien par défaut chez l'animal", () => {
+    expect(count({ jewelry: "none" }, ROLE.orange)).toBe(0);
+    const ear = count({ jewelry: "earrings" }, ROLE.orange);
+    expect(ear).toBeGreaterThan(20);
+    expect(count({ jewelry: "all", top: "tank" }, ROLE.orange)).toBeGreaterThan(ear);
+    expect(count({ jewelry: "necklace", top: "tee" }, ROLE.orange)).toBeGreaterThan(20);
+    // col roulé : le collier est caché, il n'est pas construit
+    expect(count({ jewelry: "necklace", top: "sweater", collar: "turtle" }, ROLE.orange)).toBe(0);
+    const { asset } = build({ animal: "cat", hat: "none", item: "none" }, "bijoux-chat");
+    expect((asset.extra as { look: Look }).look.jewelry).toBe("none");
+  });
+  it("grains de beauté : quelques taches en plus sur le visage", () => {
+    const none = count({ moles: "none", freckles: "none", beard: "none" }, ROLE.bark);
+    expect(count({ moles: "strong", freckles: "none", beard: "none" }, ROLE.bark)).toBeGreaterThan(none);
+  });
+});

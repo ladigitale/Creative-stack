@@ -13,7 +13,7 @@ import { ARCHETYPES, AGES } from "../rig/humanoid";
 import { buildCharacter, type Built } from "./character/build";
 import { FONT_IDS } from "../fonts/index";
 import {
-  ANIMALS, BAGS, BEARDS, BELTS, BOTTOMS, BROWS, COLLARS, DETAILS, EARS, EYES, EYE_COLORS, FIGURES, GLASSES, GLOVES, HAIRS, HAIR_COLORS, HATS, HEAD_SHAPES, ITEMS, LEVELS, LIPS, MOODS, MUSTACHES, NOSES, OUTFITS, OVERS, PATTERNS, ROLES_CHAR, SHOES, SKIN_TONES, TOPS,
+  ANIMALS, BAGS, BEARDS, BELTS, BOTTOMS, BROWS, COLLARS, DETAILS, EARS, EYES, EYE_COLORS, FIGURES, GLASSES, GLOVES, HAIRS, HAIR_COLORS, HATS, HEAD_SHAPES, ITEMS, JEWELRY, LEVELS, LIPS, MOODS, MUSTACHES, NOSES, OUTFITS, OVERS, PATTERNS, ROLES_CHAR, SHOES, SKIN_TONES, TOPS,
   type Look, resolveColors, resolveLook,
 } from "./character/look";
 import { Rng } from "../core/rng";
@@ -51,6 +51,8 @@ export const characterSchema = {
   mustache: { type: "enum", default: "auto", options: auto(MUSTACHES), doc: "Moustache" },
   glasses: { type: "enum", default: "auto", options: auto(GLASSES), doc: "Lunettes" },
   freckles: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Taches de rousseur" },
+  moles: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Grains de beauté (light : un ou deux, strong : plusieurs)" },
+  jewelry: { type: "enum", default: "auto", options: auto(JEWELRY), doc: "Bijoux en métal : boucles d'oreilles (anneaux ou clous), collier à pendentif, anneau de nez, ou tout" },
   blush: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Joues rosées" },
   wrinkles: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Rides (auto : selon l'âge)" },
   top: { type: "enum", default: "auto", options: auto(TOPS), doc: "Haut" },
@@ -69,7 +71,7 @@ export const characterSchema = {
   item: { type: "enum", default: "auto", options: auto(ITEMS), doc: "Objet tenu (main droite, prise refermée)" },
   mood: { type: "enum", default: "neutral", options: MOODS, doc: "Expression du visage (et posture d'animation)" },
   outfit: { type: "string", default: "auto", doc: `Garde-robe : ${Object.keys(OUTFITS).join(", ")} ou auto` },
-  colors: { type: "object", default: {}, doc: "Surcharges de couleurs : {top, bottom, detail, leather, hat, lips, print} en #rrggbb (print : texte et numéro imprimés, par défaut contrasté avec le haut)" },
+  colors: { type: "object", default: {}, doc: "Surcharges de couleurs : {top, bottom, detail, leather, hat, lips, print, jewelry} en #rrggbb (print : texte et numéro imprimés, par défaut contrasté avec le haut ; jewelry : bijoux, or ou argent par défaut)" },
   shirtText: { type: "string", default: "", doc: "Texte imprimé sur le devant du haut (t-shirt, maillot) ; `\\n` = retour à la ligne ; capitales, lettres accentuées comprises" },
   shirtName: { type: "string", default: "", doc: "Nom imprimé en haut du dos (maillot) ; « auto » = nom généré selon la graine" },
   shirtNumber: { type: "string", default: "", doc: "Numéro de maillot : grand au dos, petit sur la poitrine" },
@@ -122,7 +124,7 @@ export function buildCharacterFromKey(look: Look, vkey: string): Built {
 export const character = defineGenerator({
   id: "character",
   label: "Personnage",
-  doc: "Humanoïde skinné (quaternions duaux) : proportions par archétype et silhouette variée, tête et mains fines (4 doigts + pouce, prise refermée sur l'objet), visage paramétrique (yeux, iris, sourcils, nez, lèvres, oreilles, barbe, moustache, lunettes, rides, taches de rousseur), garde-robe en couches (cols, gilets, vestes, tablier, salopette, robe, plastron, ceinture, boutons, poches, gants, bottes, motifs), 16 coiffures, 15 couvre-chefs, rôles sociaux qui biaisent les tirages. Bords de couleur nets. Animé par la scène.",
+  doc: "Humanoïde skinné (quaternions duaux) : proportions par archétype et silhouette variée, tête et mains fines (4 doigts + pouce, prise refermée sur l'objet), visage paramétrique (yeux, iris, sourcils, nez, lèvres, oreilles, barbe, moustache, lunettes, rides, taches de rousseur, grains de beauté, bijoux : boucles d'oreilles, collier, anneau de nez), garde-robe en couches (cols, gilets, vestes, tablier, salopette, robe, plastron, ceinture, boutons, poches, gants, bottes, motifs), 16 coiffures, 15 couvre-chefs, rôles sociaux qui biaisent les tirages. Bords de couleur nets. Animé par la scène.",
   tags: ["personnage", "humain", "foule", "pnj", "héros"],
   schema: characterSchema,
   build(p, ctx) {

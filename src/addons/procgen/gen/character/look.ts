@@ -67,6 +67,8 @@ export const BEARDS = ["none", "stubble", "short", "full", "goatee", "long", "ch
 export const MUSTACHES = ["none", "thin", "pencil", "walrus", "handlebar"] as const;
 export const GLASSES = ["none", "round", "square", "half"] as const;
 export const LEVELS = ["none", "light", "strong"] as const;
+/** Bijoux : boucles d'oreilles, collier, anneau de nez, ou tout. */
+export const JEWELRY = ["none", "earrings", "necklace", "nosering", "all"] as const;
 export const FIGURES = ["feminine", "masculine", "androgynous"] as const;
 export const ROLES_CHAR = ["villager", "merchant", "guard", "noble", "sailor", "farmer", "wizard", "worker", "child", "traveler", "scholar", "cook"] as const;
 
@@ -109,6 +111,10 @@ export type Look = {
   mustache: string;
   glasses: string;
   freckles: string;
+  /** Grains de beauté : `none`, `light` (un ou deux), `strong` (plusieurs). */
+  moles: string;
+  /** Bijoux : `none`, `earrings`, `necklace`, `nosering`, `all`. */
+  jewelry: string;
   blush: string;
   wrinkles: string;
   detail: string;
@@ -149,6 +155,8 @@ const BASE: Record<string, W> = {
   ears: { small: 1, round: 2, large: 0.6, pointed: 0.05 },
   glasses: { none: 12, round: 0.5, square: 0.5, half: 0.3 },
   freckles: { none: 6, light: 1, strong: 0.4 },
+  moles: { none: 3, light: 1.3, strong: 0.25 },
+  jewelry: { none: 5, earrings: 1.2, necklace: 0.8, nosering: 0.08, all: 0.3 },
   blush: { none: 3, light: 2, strong: 0.5 },
   age: { adult: 6, elder: 1.4, teen: 1, child: 0.6 },
   outfit: Object.fromEntries(Object.keys(OUTFITS).map((k) => [k, 1])),
@@ -356,6 +364,14 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
     if (elder) (w.half = (w.half ?? 0) + 0.8), (w.round = (w.round ?? 0) + 0.6);
   });
   const freckles = choose("freckles");
+  const moles = choose("moles", (w) => {
+    if (young) (w.none = (w.none ?? 0) + 6), (w.strong = 0);
+    if (s("age") === "elder" || age === "elder") w.strong = (w.strong ?? 0) + 0.5;
+  });
+  const jewelry = choose("jewelry", (w) => {
+    if (fem) (w.earrings = (w.earrings ?? 0) + 2.2), (w.all = (w.all ?? 0) + 0.4), (w.necklace = (w.necklace ?? 0) + 0.6);
+    if (age === "child") (w.none = (w.none ?? 0) + 8), (w.necklace = 0), (w.nosering = 0), (w.all = 0);
+  });
   // réaliste : pas de joues roses de dessin animé (sauf demande)
   const blush = s("archetype") === "realistic" && (pp.blush ?? "auto") === "auto" ? "none" : choose("blush");
   const wrinkles = s("wrinkles") !== "auto" ? s("wrinkles") : elder ? pick(rng.fork("auto/wrinkles"), { light: 1, strong: 1.2 }) : age === "adult" ? pick(rng.fork("auto/wrinkles"), { none: 6, light: 1 }) : "none";
@@ -388,7 +404,7 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
   }
   const animalSpec = animal === "custom" ? resolveAnimal("custom", pp.animalSpec && Object.keys(pp.animalSpec as object).length ? pp.animalSpec : { ears: { shape: "round" } }) : resolveAnimal(animal, pp.animalSpec);
   if (animalSpec && animal === "none") animal = "custom";
-  let glasses2 = glasses, freckles2 = freckles, wrinkles2 = wrinkles, brows2 = brows;
+  let glasses2 = glasses, freckles2 = freckles, wrinkles2 = wrinkles, brows2 = brows, moles2 = moles, jewelry2 = jewelry;
   if (animal !== "none") {
     if (s("hair") === "auto") hair = "none";
     if (s("brows") === "auto") brows2 = "none";
@@ -396,6 +412,8 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
     mustache = "none";
     if (s("glasses") === "auto") glasses2 = "none";
     if (s("freckles") === "auto") freckles2 = "none";
+    if (s("moles") === "auto") moles2 = "none";
+    if (s("jewelry") === "auto") jewelry2 = "none";
     if (s("wrinkles") === "auto") wrinkles2 = "none";
   }
   return {
@@ -403,7 +421,7 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
     animalSpec,
     role, figure, archetype: s("archetype"), age, height, build, shape, headSize, belly, body,
     top, bottom, over, collar, belt, details, gloves, shoes, pattern, hair, hat, bag, item, mood: s("mood"),
-    headShape, eyes, brows: brows2, nose, lips, ears, beard, mustache, glasses: glasses2, freckles: freckles2, blush, wrinkles: wrinkles2, detail: s("detail"),
+    headShape, eyes, brows: brows2, nose, lips, ears, beard, mustache, glasses: glasses2, freckles: freckles2, moles: moles2, jewelry: jewelry2, blush, wrinkles: wrinkles2, detail: s("detail"),
     cape: ["short", "long"].includes(String(pp.cape)) ? String(pp.cape) : "none",
     soft: ["cloth", "hair", "all"].includes(String(pp.soft)) ? String(pp.soft) : "none",
     ...prints(pp, rng, top),
@@ -471,6 +489,8 @@ export function resolveColors(pp: LookInput, look: Look, rng: Rng, issues: Issue
     // peau ombrée : taches de rousseur, rides, barbe de trois jours
     bark: look.beard === "stubble" ? mixHex(skin, hair, 0.42) : shade(skin, 0.3),
     metal,
+    // bijoux (rôle « orange », libre sur un personnage humain) : couleur donnée, sinon or (le plus souvent) ou argent
+    orange: typeof c.jewelry === "string" && HEX.test(c.jewelry) ? (c.jewelry as string) : rng.fork("jewelcolor").pick(["#d4af5a", "#d4af5a", "#c9a04a", "#c8ccd2", "#e0c9a0"]),
     flower: rng.fork("flowercolor").pick(["#d38a5c", "#d07a8f", "#e2c25a", "#9a7ac4", "#e8e0d0"]),
     paper: look.over === "apron" || look.hat === "toque" ? "#ece6da" : "#e8dcc4",
     // paille (rôle « leaf2 » : texture tachetée, sans le mélange de pente des rôles de sol)
