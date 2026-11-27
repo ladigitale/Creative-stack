@@ -11,6 +11,7 @@ import { dispatch, listStoreIds } from "../interactive";
 import { Issues } from "./core/schema";
 import { type Recipe, type SceneModel, composeSceneAsync, groundHeight } from "./scene/compose";
 import { SCENES } from "./scene/library";
+import { footballRecipe, parseFootball } from "./scene/football";
 import { mergeEmitters, readProcgenEmitters } from "./scene/emitters";
 import { readTerrainEdits } from "./scene/terrain";
 import { resolveStyle } from "./style/style";
@@ -302,6 +303,7 @@ export class SonicProcgen extends HTMLElement {
     this.viewSync = { key: "", modelKey: "" };
     if (!v) return null;
     v.onEvent = (e: GameEvent) => this.emit(e);
+    if (v instanceof ProcgenView) v.onFootball = () => this.queueOut();
     v.onFrame = () => this.queueOut();
     if (v instanceof ProcgenView) {
       this.photoKey = "";
@@ -365,7 +367,10 @@ export class SonicProcgen extends HTMLElement {
     const d = this.data();
     // scène : composition seulement si la recette, la graine, les paramètres ou les éditions changent
     const sceneName = String(d.scene ?? this.getAttribute("scene") ?? "village");
-    const recipe = (d.recipe && typeof d.recipe === "object" ? d.recipe : null) as Recipe | null;
+    // mode football : la recette du stade vient des réglages du match (équipes, nombre de joueurs)
+    const footIn = (d.football && typeof d.football === "object" ? d.football : d.football === true ? {} : null) as Json | null;
+    const footSpec = footIn ? parseFootball(footIn) : null;
+    const recipe = (footSpec ? footballRecipe(footSpec) : d.recipe && typeof d.recipe === "object" ? d.recipe : null) as Recipe | null;
     const seed = d.seed ?? this.getAttribute("seed") ?? 1;
     const params = (d.params && typeof d.params === "object" ? d.params : {}) as Json;
     const edits = normEdits(d.edit);
@@ -589,6 +594,11 @@ export class SonicProcgen extends HTMLElement {
         this.issues = [...this.issues.filter((i) => !String((i as { path: string }).path).startsWith("drive.")), ...unknown.map((id) => ({ path: `drive.${id}`, code: "unknown", message: `« ${id} » ne se conduit pas (véhicule ou monture attendu)`, didYouMean: suggest(id, this.model!.objects.filter((o) => o.affords?.includes("drive")).map((o) => o.id)) }))];
       }
     }
+    // match de football : moteur, caméra, cinématiques et commandes sur la scène composée (rendu 3D)
+    if (this.view instanceof ProcgenView) {
+      this.view.setFootball(footSpec && this.model ? { spec: footSpec, hud: footIn!.hud !== false, keyboard: footIn!.keyboard !== false, touch: footIn!.touch !== false } : null);
+      this.view.setFootballInput(footIn?.input);
+    }
     // relief retouché : recette `terrain` ⊕ clé `terrain` du DataProvider, rejoué en entier à chaque changement
     if (this.view instanceof ProcgenView) {
       const rt = (recipe as { terrain?: unknown } | null)?.terrain;
@@ -757,6 +767,7 @@ export class SonicProcgen extends HTMLElement {
       svg: this.svgOut,
       balls: this.view?.ballState() ?? {},
       ...(this.view instanceof ProcgenView ? { vehicles: this.view.vehicleState() } : {}),
+      ...(this.view instanceof ProcgenView && this.view.footballOut ? { football: this.view.footballOut } : {}),
       ...(this.view instanceof ProcgenView && this.model?.physics ? { physics: this.view.physOut, queries: this.view.queryOut } : {}),
       ...(this.view instanceof ProcgenView ? this.view.emitState() : {}),
       ids: this.idsList(),

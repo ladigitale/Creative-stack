@@ -245,6 +245,8 @@ uniform float uGroundY;
 uniform float uWaterY;
 uniform vec4 uSwim[8];
 uniform int uSwimN;
+uniform vec4 uTurf;
+uniform float uTurfW;
 uniform float uDetail;
 uniform float uEnv;
 uniform vec4 uLightPos[12];
@@ -362,8 +364,15 @@ void main() {
     // herbe : plaques plus sèches (jaunies) et plus drues (vert sombre) : la teinte se lit mieux que la seule valeur
     float dry = smoothstep(0.4, 0.68, fbm3(vec3(vPosW.x, 0.0, vPosW.z) * 0.45));
     float lush = smoothstep(0.46, 0.74, fbm3(vec3(vPosW.x + 17.0, 0.0, vPosW.z - 9.0) * 0.8));
-    base = mix(base, base * vec3(1.22, 1.1, 0.66), min(1.0, dry * 1.5 * uTexture));
-    base = mix(base, base * vec3(0.7, 0.88, 0.74), min(1.0, lush * 1.3 * uTexture));
+    // gazon entretenu (terrain de sport) : plaques très atténuées, bandes de tonte alternées
+    float turf = uTurfW > 0.0 ? step(uTurf.x, vPosW.x) * step(vPosW.x, uTurf.z) * step(uTurf.y, vPosW.z) * step(vPosW.z, uTurf.w) : 0.0;
+    float pk = 1.0 - 0.8 * turf;
+    base = mix(base, base * vec3(1.22, 1.1, 0.66), min(1.0, dry * 1.5 * uTexture * pk));
+    base = mix(base, base * vec3(0.7, 0.88, 0.74), min(1.0, lush * 1.3 * uTexture * pk));
+    if (turf > 0.0) {
+      float band = mod(floor((vPosW.x - uTurf.x) / uTurfW), 2.0);
+      base *= mix(1.06, 0.88, band);
+    }
   }
   vec3 N = normalize(vNormalW);
   if (!gl_FrontFacing) N = -N;

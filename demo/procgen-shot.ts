@@ -3,10 +3,11 @@ import { composeScene } from "../src/addons/procgen/scene/compose";
 import { SCENES } from "../src/addons/procgen/scene/library";
 import { resolveStyle } from "../src/addons/procgen/style/style";
 import { ProcgenView } from "../src/addons/procgen/render/view";
+import { footballRecipe, parseFootball } from "../src/addons/procgen/scene/football";
 
 const q = new URLSearchParams(location.search);
 const name = q.get("scene") ?? "village";
-const recipe = q.get("recipe") ? JSON.parse(q.get("recipe")!) : SCENES[name];
+const recipe = q.get("football") ? footballRecipe(parseFootball(JSON.parse(q.get("football")!))) : q.get("recipe") ? JSON.parse(q.get("recipe")!) : SCENES[name];
 const t0 = performance.now();
 const model = composeScene({ recipe, seed: q.get("seed") ?? 1 });
 const ms = performance.now() - t0;
@@ -20,6 +21,7 @@ for (const k of ["camera", "yaw", "pitch", "zoom", "cx", "cy", "cz"]) if (q.get(
 view.setView(v);
 view.setAnim({ play: q.get("play") !== "0" });
 if (q.get("actors")) view.setActors(JSON.parse(q.get("actors")!));
+if (q.get("football") && q.get("match") !== "0") view.setFootball({ spec: parseFootball(JSON.parse(q.get("football")!)) });
 (window as any).__view = view;
 const wait = Number(q.get("t") ?? 1.5);
 setTimeout(() => {
