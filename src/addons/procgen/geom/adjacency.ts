@@ -44,3 +44,26 @@ export function adjacencyCSR(mesh: Mesh): Adjacency {
   off[n] = w;
   return { off, nbr: nbr.subarray(0, w) };
 }
+
+/**
+ * Lissage d'une valeur par sommet (moyenne avec les voisins, `iterations` passes) : occlusion calculée par lancer de
+ * rayons, bruitée à petite échelle, ramenée à ses variations larges.
+ */
+export function smoothScalar(mesh: Mesh, values: ArrayLike<number> & { [i: number]: number }, iterations: number, k = 0.6) {
+  const { off, nbr } = adjacencyCSR(mesh);
+  const n = mesh.vertexCount;
+  const tmp = new Float64Array(n);
+  for (let it = 0; it < iterations; it++) {
+    for (let v = 0; v < n; v++) {
+      const a = off[v], b = off[v + 1];
+      if (b === a) {
+        tmp[v] = values[v];
+        continue;
+      }
+      let s = 0;
+      for (let q = a; q < b; q++) s += values[nbr[q]];
+      tmp[v] = values[v] + k * (s / (b - a) - values[v]);
+    }
+    for (let v = 0; v < n; v++) values[v] = tmp[v];
+  }
+}

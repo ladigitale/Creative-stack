@@ -6,6 +6,7 @@ import { type V3, DEG, dot, len, m4Compose, madd, mix, norm, qAxis, qFromTo, qId
 import type { Rng } from "../../core/rng";
 import { Field, polygonize, primDist } from "../../geom/implicit";
 import { Mesh } from "../../geom/mesh";
+import { smoothScalar } from "../../geom/adjacency";
 import { box, ellipsoid } from "../../geom/prims";
 import { edgeZero, splitByLabel } from "../../geom/rolecut";
 import { VertexIndex, mixWeights, weightsOf, writeWeights } from "../../geom/transfer";
@@ -113,9 +114,14 @@ export function buildCharacter(look: Look, v: Rng): Built {
   /* ---------- tête ---------- */
   const hf = buildHeadField(k);
   const hField = new Field(hf.set.prims, hf.blends);
-  const headCell = P.headH / (crowd ? 14 : 32);
-  const hp = polygonize(hField, { cell: headCell, smooth: 3, ao: true, exactOwner: true, aoSteps: 3 });
+  // tête plus fine que le corps : mâchoire, nez, lèvres et oreilles sans facettes ni bosses en gros plan
+  const headCell = P.headH / (crowd ? 14 : 42);
+  // lissage plus poussé que le corps : les raccords entre volumes du visage (joues, mâchoire, menton) se fondent
+  const hp = polygonize(hField, { cell: headCell, smooth: crowd ? 3 : 10, ao: true, exactOwner: true, aoSteps: 3 });
   const head = hp.mesh;
+  // occlusion de la tête : celle du lancer de rayons est bruitée à cette finesse (voiles clairs et sombres sur le
+  // front et les joues) ; on n'en garde que les variations larges (orbites, sous le nez, sous le menton)
+  if (head.ao && !crowd) smoothScalar(head, head.ao, 12);
   // poids : tête rigide au-dessus du menton, poids de la peau la plus proche (cou, buste) en dessous
   const trunk = new Set(["neck", "chest", "spine", "clavicle.l", "clavicle.r"].map(bi));
   const bodyIdx = new VertexIndex(mesh, cell * 2, (vv) => mesh.pos[vv * 3 + 1] > P.crotchY && trunk.has(dominant(mesh, vv)));
@@ -163,7 +169,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
     const zones: [V3, V3, number][] = [];
     for (const sx of [1, -1]) {
       zones.push([[sx * (eyeX - eyeR * 0.45), eyeY + eyeR * 0.55, zf], [eyeR * 1.15, eyeR * 0.9, P.headD * 0.5], 0.24]); // orbite, côté nez
-      zones.push([[sx * (eyeX + eyeR * 1.3), eyeY - eyeR * 2.6, zf], [eyeR * 1.1, eyeR * 0.9, P.headD * 0.5], 0.1]); // creux sous la pommette
+      zones.push([[sx * (eyeX + eyeR * 1.3), eyeY - eyeR * 2.6, zf], [eyeR * 1.6, eyeR * 1.3, P.headD * 0.5], 0.05]); // creux sous la pommette
       zones.push([[sx * hw * 0.46, eyeY + eyeR * 1.2, headC[2]], [hw * 0.07, hh * 0.08, P.headD * 0.3], 0.08]); // tempe
       zones.push([[sx * hw * 0.09, noseTip[1] - hh * 0.005, zf], [hw * 0.045, hh * 0.03, P.headD * 0.4], 0.16]); // narine
     }
@@ -174,7 +180,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
       const p = head.getPos(vv);
       let d = 0;
       for (const [c, r, k] of zones) d += k * g(p, c, r);
-      head.ao[vv] *= 1 - Math.min(0.6, d * 2 * sculptK);
+      head.ao[vv] *= 1 - Math.min(0.45, d * 1.4 * sculptK);
     }
   }
   if (arch !== "chibi" && !look.animalSpec) {
