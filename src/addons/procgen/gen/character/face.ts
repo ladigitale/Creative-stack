@@ -3,7 +3,7 @@
  * paupière), sourcils, bouche, lunettes, rides, taches de rousseur. Tous suivent l'os de la tête ; les yeux portent le
  * morph de clignement.
  */
-import { type Q, type V3, DEG, add, cross, m4Compose, madd, mix, norm, qAxis, qFromTo, qMul } from "../../core/math";
+import { type Q, type V3, DEG, add, cross, m4Compose, madd, mix, norm, qAxis, qFromTo, qMul, scale as scale3 } from "../../core/math";
 import type { Field } from "../../geom/implicit";
 import { Mesh } from "../../geom/mesh";
 import { ellipsoid, tube } from "../../geom/prims";
@@ -152,6 +152,67 @@ export function buildFace(k: Kit, hf: HeadField, crowd = false): FaceMeshes {
       const s = hit(hf.skin, x, y);
       const r = hh * fr.range(0.004, 0.008);
       add_(ellipsoid(r, r, r * 0.25, ROLE.bark, sg(6), sg(3)).transform(m4Compose(s.p, qFromTo([0, 0, 1], s.n))));
+    }
+  }
+
+  /* ---------- grains de beauté ---------- */
+  if (look.moles !== "none" && !look.animalSpec) {
+    const n = look.moles === "strong" ? 3 + Math.floor(v.fork("moles/n").range(0, 3)) : 1 + (v.fork("moles/n").chance(0.4) ? 1 : 0);
+    const ml = v.fork("moles");
+    const spots: [number, number][] = [];
+    for (let i = 0, tries = 0; i < n && tries < 40; tries++) {
+      // joues, tempes, menton, au-dessus de la lèvre : jamais sur les yeux, le nez ni la bouche
+      const x = ml.range(-0.36, 0.36) * hw, y = ml.range(hf.mouthY - hh * 0.07, eyeY + eyeR * 1.2);
+      const nearEye = Math.abs(Math.abs(x) - eyeX) < eyeR * 1.5 && Math.abs(y - eyeY) < eyeR * 1.3;
+      const nearNose = Math.abs(x) < hw * 0.1 && y < eyeY && y > hf.noseTipY - hh * 0.05;
+      const nearMouth = Math.abs(x) < hf.mouthW * 1.1 && Math.abs(y - hf.mouthY) < hh * 0.035;
+      if (nearEye || nearNose || nearMouth || spots.some(([a, b]) => Math.hypot(a - x, b - y) < hw * 0.12)) continue;
+      spots.push([x, y]);
+      i++;
+      const sk = hit(hf.skin, x, y);
+      const r = hh * ml.range(0.006, 0.011);
+      // petite bosse brun foncé, à peine en relief
+      add_(ellipsoid(r, r * ml.range(0.85, 1), r * 0.4, ROLE.bark, sg(10), sg(5)).transform(m4Compose(madd(sk.p, sk.n, -r * 0.1), qFromTo([0, 0, 1], sk.n))));
+    }
+  }
+
+  /* ---------- bijoux ---------- */
+  const jw = look.jewelry;
+  if (jw !== "none" && !crowd) {
+    const MT = ROLE.orange;
+    const js = v.fork("bijoux");
+    // anneau (tore) : centre, deux axes du plan de l'anneau, rayon, épaisseur
+    const ring = (c: V3, a: V3, b: V3, R: number, r: number, from = 0, to = Math.PI * 2) => {
+      const pts: V3[] = [];
+      const N = 18;
+      for (let i = 0; i <= N; i++) {
+        const t = from + ((to - from) * i) / N;
+        pts.push(add(c, add(scale3(a, Math.cos(t) * R), scale3(b, Math.sin(t) * R))));
+      }
+      add_(tube(pts, pts.map(() => r), MT, 6, false, false));
+    };
+    if ((jw === "earrings" || jw === "all") && !look.animalSpec) {
+      const hoop = js.chance(0.55);
+      const er = hh * 0.11 * ({ small: 0.82, round: 1, large: 1.22, pointed: 1 } as Record<string, number>)[look.ears];
+      hf.ears.forEach((e, i) => {
+        const sx = i === 0 ? 1 : -1;
+        // lobe : bas de l'oreille, un peu en dehors du crâne
+        const lobe: V3 = add(e, [sx * er * 0.42, -er * 0.88, -er * 0.12]);
+        if (hoop) {
+          const R = hh * js.range(0.035, 0.05);
+          ring(add(lobe, [sx * hh * 0.004, -R * 0.95, 0]), [0, 1, 0], norm([sx * 0.45, 0, 1]), R, hh * 0.005);
+        } else {
+          add_(ellipsoid(hh * 0.012, hh * 0.012, hh * 0.008, MT, sg(10), sg(6)).transform(m4Compose(add(lobe, [sx * hh * 0.006, 0, 0]), qFromTo([0, 0, 1], [sx, 0, 0]))));
+          // pendant : goutte sous le clou
+          if (js.chance(0.5)) add_(ellipsoid(hh * 0.01, hh * 0.018, hh * 0.008, MT, sg(10), sg(6)).transform(m4Compose(add(lobe, [sx * hh * 0.006, -hh * 0.03, 0]), [0, 0, 0, 1])));
+        }
+      });
+    }
+    if ((jw === "nosering" || jw === "all") && !look.animalSpec) {
+      const sx = js.chance(0.5) ? 1 : -1;
+      const nr = P.headW * (arch === "chibi" ? 0.05 : toon ? 0.08 : 0.075);
+      const c: V3 = add(hf.noseTip, [sx * nr * 0.78, -nr * 0.55, -nr * 0.25]);
+      ring(c, [0, 1, 0], norm([sx, 0, 0.6]), hh * 0.014, hh * 0.0032, Math.PI * 0.6, Math.PI * 2.4);
     }
   }
   while (morph.length < face.vertexCount * 3) morph.push(0);

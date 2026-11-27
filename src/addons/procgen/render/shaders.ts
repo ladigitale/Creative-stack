@@ -545,7 +545,8 @@ void main() {
   if (uShading < 0.5) light = clamp(ndl * 0.5 + 0.5, 0.0, 1.0) * 0.6 + 0.4;        // flat : lumière douce, sans bandes
   else if (uShading < 1.5) {                                                       // toon : bandes à seuil perturbé
     float x = clamp((ndl + brush * (role == 21 ? 0.25 : 1.0)) * 0.5 + 0.5, 0.0, 1.0);
-    x *= mix(1.0, 0.3, (1.0 - sh) * uShadowStrength);
+    // personnages : ombre portée moins profonde (un visage passe vite au noir sous un chapeau ou une branche)
+    x *= mix(1.0, chr ? 0.6 : 0.3, (1.0 - sh) * uShadowStrength);
     float k = x * uBands;
     // peau : transitions de bandes adoucies (un visage en marches dures paraît grossier)
     // vêtements : transitions adoucies aussi (une marche nette sur chaque pli fait des ombres en escalier)
@@ -562,13 +563,13 @@ void main() {
     light = clamp(ndl + brush * 0.5, 0.0, 1.0);
     light = mix(light, light * light * (3.0 - 2.0 * light), uShading < 2.5 ? 0.6 : 0.0);
   }
-  float shadow = mix(1.0, sh, uShadowStrength);
+  float shadow = mix(1.0, sh, uShadowStrength * (chr ? 0.55 : 1.0));
   if (uShading > 0.5 && uShading < 1.5) shadow = 1.0; // déjà dans les bandes
-  float ao = (role == 13 ? 1.0 : mix(1.0, vAO, uAOStrength)) * finAO;
+  float ao = (role == 13 ? 1.0 : mix(1.0, vAO, uAOStrength * (chr ? 0.6 : 1.0))) * finAO;
   // contact au sol : assombrit le pied des objets
   float contact = 1.0 - (1.0 - smoothstep(0.0, 0.35, vPosW.y - uGroundY)) * 0.18 * uAOStrength * step(0.2, abs(N.y - 1.0));
   vec3 amb = mix(uAmbGround, uAmbSky, N.y * 0.5 + 0.5);
-  vec3 lit = base * (amb * (role == 21 ? 0.54 : 0.62) * ao * contact + uSun * light * shadow * mix(0.85, 1.0, ao));
+  vec3 lit = base * (amb * (chr ? 0.7 : 0.62) * ao * contact + uSun * light * shadow * mix(0.85, 1.0, ao));
   vec3 Vv = normalize(cameraPosition - vPosW);
   if (role == 21) {
     // peau : diffusion sous la surface. La lumière déborde dans l'ombre (rougie : le rouge porte plus loin que le vert
@@ -616,6 +617,11 @@ void main() {
     float vis = smoothstep(-0.1, 0.4, ndl) * mix(1.0, sh, uShadowStrength) * ao;
     float hk = uShading < 1.5 ? 0.6 : 1.0;
     lit += (uSun * s1 * 0.07 + base * uSun * s2 * 0.22) * vis * hk;
+  }
+  if (chr || role == 31) {
+    // personnages : lumière d'appoint venue de l'observateur (réflecteur de portrait) : le côté à l'ombre d'un visage
+    // reste lisible au lieu de tomber dans le noir
+    lit += base * (uSun * 0.16 + uAmbSky * 0.1) * max(dot(N, Vv), 0.0) * mix(0.6, 1.0, ao);
   }
   if (role == 23 || role == 24) {
     // yeux : globe humide. Blanc ombré vers les bords (il est rond), reflet net du soleil et du ciel sur la cornée

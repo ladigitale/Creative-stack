@@ -847,6 +847,19 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         em.add(d, "bark", { stroke: null, alpha: 0.75 });
       }
     }
+    // grains de beauté : un ou deux (light), plusieurs (strong), places tirées du nom des paramètres (stables)
+    const ml = lvl(p.moles);
+    if (ml) {
+      const spots: [number, number][] = [[0.55, -0.42], [-0.62, -0.18], [0.3, 0.32], [-0.35, -0.62], [0.7, 0.05]];
+      const d = new Pen();
+      for (const [mx, my] of spots.slice(0, ml >= 1 ? 4 : 1)) {
+        const v = vis(mx, my);
+        if (v < 0.2) continue;
+        const q = S(onHead(mx, my));
+        d.ellipse(q[0], q[1], eyeR * 0.07, eyeR * 0.07);
+      }
+      em.add(d, "bark", { stroke: null, alpha: 0.95 });
+    }
     // rides
     const wr = lvl(p.wrinkles) || (p.age === "elder" ? 0.5 : 0);
     if (wr) {

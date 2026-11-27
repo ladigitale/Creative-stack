@@ -7,7 +7,7 @@ import type { Rng } from "../../core/rng";
 import { Field, polygonize, primDist } from "../../geom/implicit";
 import { Mesh } from "../../geom/mesh";
 import { smoothScalar } from "../../geom/adjacency";
-import { box, ellipsoid } from "../../geom/prims";
+import { box, ellipsoid, tube } from "../../geom/prims";
 import { edgeZero, splitByLabel } from "../../geom/rolecut";
 import { VertexIndex, mixWeights, weightsOf, writeWeights } from "../../geom/transfer";
 import { type Archetype, type Age, type Proportions, buildHumanoid, proportions } from "../../rig/humanoid";
@@ -277,6 +277,20 @@ export function buildCharacter(look: Look, v: Rng): Built {
     decalMesh.append(printed);
   }
 
+  /* ---------- collier ---------- */
+  if ((look.jewelry === "necklace" || look.jewelry === "all") && look.collar !== "turtle" && !crowd) {
+    const neck = buildNecklace(k, field, H, cell, v.fork("collier"));
+    if (neck.vertexCount) {
+      neck.skin = new Array(neck.vertexCount * 4).fill(0);
+      neck.weight = new Array(neck.vertexCount * 4).fill(0);
+      for (let vv = 0; vv < neck.vertexCount; vv++) {
+        const nb = allIdx.nearest(neck.getPos(vv), 10);
+        writeWeights(neck.skin, neck.weight, vv, nb >= 0 ? weightsOf(mesh, nb) : new Map([[bi("chest"), 1]]));
+      }
+      decalMesh.append(neck);
+    }
+  }
+
   /* ---------- objet tenu ---------- */
   if (item) {
     // outils : manche dans l'axe de la main, tête vers l'avant ou en travers (même repère qu'en vectoriel)
@@ -501,6 +515,48 @@ function joinExpr(face: NonNullable<Asset["expr"]> | { count: number; channels: 
     off += h.vertexCount;
   });
   return { base, count, channels, data };
+}
+
+/**
+ * Collier : chaîne qui épouse la base du cou (lancers de rayon vers l'axe du cou, sur la peau ou le col), plus basse
+ * devant, avec un pendentif ; en métal.
+ */
+function buildNecklace(k: ReturnType<typeof characterKit>["k"], field: Field, H: number, cell: number, r: Rng): Mesh {
+  const out = new Mesh();
+  // encolure ouverte (débardeur, robe, torse nu) : chaîne longue à pendentif ; haut fermé : collier court au-dessus du
+  // col (une chaîne longue passerait sous le tissu, seul le pendentif dépasserait)
+  const open = k.look.top === "tank" || k.look.top === "dress" || k.look.top === "none";
+  const base = k.at("neck", open ? 0.42 : 0.62);
+  const nr = k.rad("neck", 0);
+  const R = nr * 2.6;
+  const drop = H * (open ? r.range(0.05, 0.075) : r.range(0.008, 0.014));
+  const th = H * 0.0022;
+  const pts: V3[] = [];
+  const N = 28;
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    const dir: V3 = [Math.sin(a), 0, Math.cos(a)];
+    // haut sur la nuque, descend en douceur jusqu'au creux de la poitrine devant (jamais sur l'épaule)
+    const y = base[1] - drop * ((1 + Math.cos(a)) / 2) ** 2.2;
+    const o: V3 = [base[0] + dir[0] * R, y, base[2] + dir[2] * R];
+    const hitP = field.raycast(o, [-dir[0], 0, -dir[2]], R, H * 0.0005);
+    if (!hitP) return out;
+    // posée sur le tissu : le maillage polygonisé (puis lissé) s'écarte du champ jusqu'à une demi-cellule
+    pts.push(madd(hitP, dir, th * 1.6 + cell * (open ? 0.45 : 0.12)));
+  }
+  // tracé lissé (une chaîne tombe en courbe ; les lancers de rayon sautent d'une surface à l'autre)
+  for (let it = 0; it < 4; it++) {
+    const prev = pts.map((p) => [...p] as V3);
+    for (let i = 1; i < pts.length - 1; i++) for (let c = 0; c < 3; c++) pts[i][c] = (prev[i - 1][c] + prev[i][c] * 2 + prev[i + 1][c]) / 4;
+  }
+  out.append(tube(pts, pts.map(() => th), ROLE.orange, 5, false, false));
+  if (!open) return out;
+  // pendentif : goutte au point le plus bas
+  const front = pts[0];
+  const pend = ellipsoid(H * 0.0045, H * 0.007, H * 0.0025, ROLE.orange, 10, 6);
+  pend.transform(m4Compose([front[0], front[1] - H * 0.007, front[2] + th], qId()));
+  out.append(pend);
+  return out;
 }
 
 function skinRigid(m: Mesh, bone: number) {
