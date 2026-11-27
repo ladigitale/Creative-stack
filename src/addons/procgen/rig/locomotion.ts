@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qFromTo, qMul, qRot, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle"] as const;
 /** Poses à bord (posées par la conduite, pas des ordres d'acteur) : mains au volant, à califourchon, à la rame. */
 export const RIDE_ACTIONS = ["drive", "ride", "row"] as const;
 export type Action = (typeof ACTIONS)[number] | (typeof RIDE_ACTIONS)[number];
@@ -44,6 +44,14 @@ export type MotionState = {
    * (`y` sous les pieds de l'acteur, écart latéral, avance), `pedal` = tours de pédalier (vélo), `r` son rayon.
    */
   seatFoot?: { y: number; spread: number; fwd: number; pedal?: number; r?: number };
+  /** Grimper, se suspendre, se rétablir : élévation du corps imposée par l'appelant (m au-dessus des pieds posés). */
+  liftY?: number;
+  /** Escalade : le grimpeur progresse (1) ou se tient agrippé (0). */
+  climbing?: number;
+  /** Chute (vitesse verticale, m/s, < 0 en tombant), réception (0 … 1), glissade sur une pente (0 … 1). */
+  fallV?: number;
+  landK?: number;
+  slideK?: number;
 };
 
 export type RigInfo = {
@@ -313,7 +321,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   // danse : pas marqués (décalage des pieds) ; nage : corps à l'horizontale ; escalade : élévation le long de la paroi
   let footOff: { l: V3; r: V3 } | null = null;
   let swimK = 0, swimBob = 0, swimKick = 0;
-  let climbLift = 0, climbPh = 0;
+  let climbLift = 0, climbPh = 0, mantleK = -1;
   const settle = at < 0.6 ? 1 + 0.08 * Math.sin((at / 0.6) * Math.PI) * (1 - at / 0.6) * 2 : 1;
   const raiseArm = (s: "l" | "r", abduct: number, forward: number, elbowDeg: number) => {
     const sg = s === "l" ? 1 : -1;
@@ -566,8 +574,8 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       const ub = sk.bone("upperarm.r")!, fb = sk.bone("forearm.r")!;
       const reach = ub.head[1] + len(sub(ub.tail, ub.head)) + len(sub(fb.tail, fb.head));
       const top = st.reachY !== undefined ? Math.max(0, st.reachY - reach) : leg * 1.6;
-      climbLift = Math.min(top, at * leg * 0.45);
-      const going = climbLift < top - 1e-3 ? 1 : 0.25;
+      climbLift = st.liftY !== undefined ? st.liftY : Math.min(top, at * leg * 0.45);
+      const going = st.liftY !== undefined ? st.climbing ?? 1 : climbLift < top - 1e-3 ? 1 : 0.25;
       climbPh = at * 0.8;
       for (const [s2, sg2, ph2] of [["r", -1, 0], ["l", 1, 0.5]] as const) {
         const u = (((climbPh + ph2) % 1) + 1) % 1;
@@ -577,6 +585,24 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       }
       over.spine = qEuler(-8 * DEG, 0, 0);
       over.head = qEuler(-14 * DEG, 0, 0);
+      break;
+    }
+    case "mantle": {
+      // se rétablir sur un rebord (1,3 s) : traction (les mains descendent du dessus de la tête à la poitrine), poussée
+      // sur les bras tendus (le buste passe au-dessus du rebord, un genou monte), puis on se redresse. L'élévation
+      // du corps (liftY) et l'avancée au-dessus du rebord sont menées par l'appelant
+      const k = clamp(at / 1.3, 0, 1);
+      const pull = smoothstep(0, 0.45, k), push = smoothstep(0.45, 0.8, k), stand = smoothstep(0.8, 1, k);
+      for (const [s2, sg2] of [["r", -1], ["l", 1]] as const) {
+        const dir: V3 = push > 0 ? [sg2 * 0.25, mix(0.1, -1, push), mix(0.7, 0.3, push)] : [sg2 * 0.3, mix(1, 0.1, pull), mix(0.3, 0.7, pull)];
+        aimDir(over, s2, dir, push > 0 ? mix(110, 8, push) : mix(15, 110, pull), 20, 40);
+        over[`clavicle.${s2}`] = qAxis([0, 0, 1], sg2 * mix(18, 0, push) * DEG);
+      }
+      over.spine = qEuler(mix(5, 32, push) * (1 - stand) * DEG, 0, 0);
+      over.chest = qEuler(mix(0, 12, push) * (1 - stand) * DEG, 0, 0);
+      over.head = qEuler(-10 * (1 - stand) * DEG, 0, 0);
+      climbLift = st.liftY ?? 0;
+      mantleK = k;
       break;
     }
     case "hang": {
@@ -592,7 +618,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       over.head = qEuler(-6 * DEG, 0, 0);
       const ub = sk.bone("upperarm.r")!, fb = sk.bone("forearm.r")!, hb = sk.bone("hand.r")!;
       const reach = ub.head[1] + len(sub(ub.tail, ub.head)) + len(sub(fb.tail, fb.head)) + len(sub(hb.tail, hb.head)) * 0.5;
-      hangLift = st.reachY !== undefined ? Math.max(0, st.reachY - reach) : leg * 0.35;
+      hangLift = st.liftY !== undefined ? st.liftY : st.reachY !== undefined ? Math.max(0, st.reachY - reach) : leg * 0.35;
       hangSwing = sw;
       break;
     }
@@ -789,6 +815,20 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     rot[k] = qSlerp(base, qMul(qSlerp(base, q, gain), off), wb);
   }
 
+  // chute (bras écartés, jambes repliées), réception (flexion) et glissade (accroupi, bras en balancier, buste de
+  // profil) : par-dessus toute action, au poids de leur intensité
+  const fallK = clamp(-(st.fallV ?? 0) / 3, 0, 1), slideK = clamp(st.slideK ?? 0, 0, 1), landK = clamp(st.landK ?? 0, 0, 1);
+  if (fallK > 0 || slideK > 0) {
+    const O: Record<string, Q> = {};
+    const k2 = Math.max(fallK, slideK);
+    for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) aimDir(O, s2, fallK >= slideK ? [sg2 * 0.75, 0.55, 0.25] : [sg2 * 0.95, 0.15, sg2 > 0 ? 0.25 : -0.15], fallK >= slideK ? 30 : 20, 0, 0);
+    if (slideK > fallK) {
+      O.spine = qEuler(12 * DEG, 30 * DEG, 0);
+      O.head = qEuler(0, -25 * DEG, 0);
+    }
+    for (const [n, q] of Object.entries(O)) rot[n] = qSlerp(rot[n] ?? qId(), q, k2);
+  }
+
   // micro-variations lissées de chaque articulation du haut du corps (amplitude, orientation) : elles se superposent
   // à toutes les poses, au repos comme pendant un geste, et changent d'un personnage à l'autre
   const JIT: [string, number, number][] = [["spine", 1.5, 0.23], ["chest", 2, 0.31], ["neck", 1.5, 0.27], ["head", 3.5, 0.37], ["clavicle", 1.5, 0.29], ["upperarm", 3.5, 0.41], ["forearm", 3, 0.47], ["hand", 5, 0.53]];
@@ -819,7 +859,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     return [r[0] + rootPos[0], r[1] + rootPos[1], r[2] + rootPos[2]];
   };
   const seatTop = st.seatY && st.seatY > 0 ? Math.min(info.hipY * 0.95, st.seatY + info.thigh * 0.18) : info.thigh * 0.25;
-  let drop = crouch + jumpCrouch + sit * (info.hipY - seatTop) + stanceDrop * w;
+  let drop = crouch + jumpCrouch + sit * (info.hipY - seatTop) + stanceDrop * w + leg * (0.1 * slideK + 0.14 * landK);
   // squelette de repos aux genoux un peu pliés : le bassin remonte pour que la jambe d'appui soit vraiment tendue
   // (sinon tout le monde se tient accroupi, genoux à 20°)
   const standLift = Math.max(0, leg * 0.999 - (info.hipY - info.ankleY)) * (1 - sit);
@@ -864,13 +904,20 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       const o = stance[s], k = w * (1 - moving);
       feetLocal[s].p = [feetLocal[s].p[0] + o[0] * leg * k, feetLocal[s].p[1] + o[1] * leg * k, feetLocal[s].p[2] + o[2] * leg * k];
     }
+    // chute : pieds repliés sous soi ; glissade : pieds décalés comme sur une planche
+    if (fallK > 0) feetLocal[s] = { p: [feetLocal[s].p[0], feetLocal[s].p[1] + leg * 0.16 * fallK, feetLocal[s].p[2] - leg * 0.05 * fallK], pitch: 20 * fallK, planted: false };
+    if (slideK > 0) feetLocal[s].p = [feetLocal[s].p[0] + (s === "l" ? 0.08 : -0.08) * leg * slideK, feetLocal[s].p[1], feetLocal[s].p[2] + (s === "l" ? 0.18 : -0.18) * leg * slideK];
     if (footOff) {
       const o = footOff[s];
       feetLocal[s].p = [feetLocal[s].p[0] + o[0] * w, feetLocal[s].p[1] + o[1] * w, feetLocal[s].p[2] + o[2] * w];
       if (o[1] > 1e-3) feetLocal[s].planted = false;
     }
-    // escalade : pieds sur la paroi devant soi, qui montent en alternance avec la main opposée
-    if (climbY > 0) {
+    // rétablissement : pieds qui pendent, puis le genou droit monte sur le rebord, puis les deux pieds s'y posent
+    if (mantleK >= 0) {
+      const on = smoothstep(0.55, 0.95, mantleK);
+      const knee = s === "r" ? Math.sin(clamp((mantleK - 0.45) / 0.4, 0, 1) * Math.PI) : 0;
+      feetLocal[s] = { p: [feetLocal[s].p[0], climbY - leg * mix(0.45, 0, on) + leg * 0.4 * knee, leg * (0.15 + 0.25 * knee) * (1 - on)], pitch: 0, planted: on > 0.98 };
+    } else if (climbY > 0) {
       const u = (((climbPh + (s === "l" ? 0 : 0.5)) % 1) + 1) % 1;
       const up = u < 0.5 ? Math.sin(u * TAU) : 0;
       feetLocal[s] = { p: [feetLocal[s].p[0] * 0.9, climbY + leg * (0.08 + 0.3 * up), leg * 0.3], pitch: -10, planted: false };
