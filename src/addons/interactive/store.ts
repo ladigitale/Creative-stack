@@ -2,6 +2,7 @@ import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import jsonata from "jsonata";
 import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
+import { StrictGetMode, getStrictGetMode } from "@supersoniks/concorde/utils/strictGet";
 import { registerInteractiveHelpers } from "./helpers";
 import {
   dispatch as registryDispatch,
@@ -129,7 +130,7 @@ export class SonicStore extends LitElement {
   private bootstrap(): void {
     if (!this.id) return;
     this.compileReducer();
-    this.state = this.restore() ?? this.clone(this.initial);
+    this.state = own(this.restore() ?? this.clone(this.initial));
     this.historyStack = [];
     this.lastError = null;
     this.publish();
@@ -249,16 +250,18 @@ export class SonicStore extends LitElement {
         return;
       }
       if (result === undefined) return;
-      const encoded = JSON.stringify(result);
-      if (encoded !== undefined && encoded.length > this.maxStateBytes) {
+      // partage structurel : seuls les nœuds neufs du résultat sont normalisés (sémantique JSON) et gelés
+      const next = own(result);
+      if (jsonSize(next) > this.maxStateBytes) {
         this.fail(`état trop gros (max ${this.maxStateBytes} octets)`);
         return;
       }
       if (this.history > 0 && !this.skipsHistory(action.type)) {
-        this.historyStack.push(this.clone(this.state));
+        // états immuables : l'historique garde les références
+        this.historyStack.push(this.state);
         if (this.historyStack.length > this.history) this.historyStack.shift();
       }
-      this.state = result;
+      this.state = next;
       this.lastError = null;
       this.publish();
     } catch (err) {
@@ -267,7 +270,7 @@ export class SonicStore extends LitElement {
   }
 
   private reset(): void {
-    this.state = this.clone(this.initial);
+    this.state = own(this.clone(this.initial));
     this.historyStack = [];
     this.lastError = null;
     this.publish();
@@ -282,10 +285,12 @@ export class SonicStore extends LitElement {
   private publish(): void {
     const id = this.dpId();
     if (!id) return;
-    const payload =
+    // racine gelée : Concorde ne clone pas, et les sous-arbres inchangés (même référence) ne notifient personne
+    const payload = Object.freeze(
       this.state && typeof this.state === "object"
         ? { ...(this.state as object), lastError: this.lastError }
-        : { value: this.state, lastError: this.lastError };
+        : { value: this.state, lastError: this.lastError },
+    );
     set(id, payload as never);
     this.scheduleSave();
   }
@@ -382,12 +387,74 @@ export function errorMessage(err: unknown): string {
 
 /**
  * État à réduire : la valeur courante du DataProvider (sans `lastError`) quand l'état et cette valeur sont des
- * objets ; sinon l'état interne. Copie simple (pas de proxy de DataProvider dans l'évaluation JSONata).
+ * objets ; sinon l'état interne. Les valeurs publiées sont gelées : elles sont partagées telles quelles (JSONata ne
+ * modifie pas son entrée). Avec le radar `strictGet` de Concorde (proxys de lecture), copie JSON simple : pas de
+ * proxy de DataProvider dans l'évaluation.
  */
 export function syncedState(state: unknown, current: unknown): unknown {
   if (!state || typeof state !== "object" || Array.isArray(state)) return state;
   if (!current || typeof current !== "object" || Array.isArray(current)) return state;
   const rest = { ...(current as Record<string, unknown>) };
   delete rest.lastError;
-  return JSON.parse(JSON.stringify(rest));
+  if (getStrictGetMode() !== StrictGetMode.Off) return JSON.parse(JSON.stringify(rest));
+  return own(rest);
+}
+
+function isPlain(v: object): boolean {
+  if (Array.isArray(v)) return true;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * Valeur d'état possédée par le store : mêmes règles qu'un aller-retour JSON (clés `undefined` ou fonctions
+ * retirées, `undefined` → `null` dans un tableau, nombres non finis → `null`, objets non simples sérialisés), puis
+ * gel. Les sous-arbres déjà gelés (état précédent, valeurs publiées) sont repris tels quels : le coût est
+ * proportionnel aux nœuds neufs. Les nœuds neufs sont ceux que JSONata vient de construire : ils sont normalisés
+ * sur place.
+ */
+export function own<T>(v: T): T {
+  if (v === null || typeof v !== "object") {
+    if (typeof v === "number") return (Number.isFinite(v) ? (v === 0 ? 0 : v) : null) as T;
+    return v;
+  }
+  if (Object.isFrozen(v)) return v;
+  if (!isPlain(v)) return own(JSON.parse(JSON.stringify(v)) as T);
+  if (Array.isArray(v)) {
+    for (let i = 0; i < v.length; i++) {
+      const x = v[i];
+      v[i] = x === undefined || typeof x === "function" || typeof x === "symbol" ? null : own(x);
+    }
+  } else {
+    const o = v as Record<string, unknown>;
+    for (const k of Object.keys(o)) {
+      const x = o[k];
+      if (x === undefined || typeof x === "function" || typeof x === "symbol") delete o[k];
+      else o[k] = own(x);
+    }
+  }
+  return Object.freeze(v);
+}
+
+const SIZE = new WeakMap<object, number>();
+
+/** Longueur de `JSON.stringify(v)` (valeur déjà passée par `own`), mise en cache par sous-arbre gelé. */
+export function jsonSize(v: unknown): number {
+  if (v === null || v === undefined) return 4;
+  if (typeof v === "string") return JSON.stringify(v).length;
+  if (typeof v !== "object") return String(JSON.stringify(v)).length;
+  const hit = SIZE.get(v);
+  if (hit !== undefined) return hit;
+  let n = 2;
+  if (Array.isArray(v)) {
+    for (let i = 0; i < v.length; i++) n += (i ? 1 : 0) + jsonSize(v[i]);
+  } else {
+    let first = true;
+    for (const k of Object.keys(v)) {
+      n += (first ? 0 : 1) + JSON.stringify(k).length + 1 + jsonSize((v as Record<string, unknown>)[k]);
+      first = false;
+    }
+  }
+  if (Object.isFrozen(v)) SIZE.set(v, n);
+  return n;
 }
