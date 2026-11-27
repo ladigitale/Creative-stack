@@ -326,7 +326,7 @@ float roleTexture(int role, vec3 p, vec3 n) {
     float fw = length(fwidth(p));
     float near = 1.0 - smoothstep(0.0006, 0.002, fw);
     float pores = smoothstep(0.62, 0.86, vnoise(p * 520.0)) * near;
-    return (fbm3(p * 9.0) - 0.5) * 0.03 + (vnoise(p * 90.0) - 0.5) * 0.025 * (1.0 - smoothstep(0.002, 0.006, fw)) + (vnoise(p * 260.0) - 0.5) * 0.02 * near - pores * 0.014;
+    return (fbm3(p * 9.0) - 0.5) * 0.03 + (vnoise(p * 90.0) - 0.5) * 0.025 * (1.0 - smoothstep(0.002, 0.006, fw)) + (vnoise(p * 260.0) - 0.5) * 0.015 * near - pores * 0.004;
   }
   if (role == 22) return (vnoise(vec3(p.x * 90.0, p.y * 9.0, p.z * 90.0)) - 0.5) * 0.09 + (fbm3(p * 10.0) - 0.5) * 0.04; // cheveux : mèches claires et sombres
   if (role == 14) return (vnoise(vec3(p.x * 160.0, p.y * 4.0, p.z * 160.0)) - 0.5) * 0.08 + (fbm3(p * 6.0) - 0.5) * 0.1; // métal : brossé, patine
@@ -422,7 +422,7 @@ void main() {
       // peau : pores (creux fins, ~2 mm) et grain très serré de près, ondulations à peine marquées à mi-distance
       // (un visage bosselé fait sale)
       float pf = 1.0 - smoothstep(0.0005, 0.0016, fp);
-      h = -smoothstep(0.62, 0.86, vnoise(q * 520.0)) * 0.00035 * pf + vnoise(q * 900.0) * 0.00012 * pf + vnoise(q * 220.0) * 0.0005 * fine + fbm3(q * 40.0) * 0.0012 * mid;
+      h = -smoothstep(0.62, 0.86, vnoise(q * 520.0)) * 0.00015 * pf + vnoise(q * 900.0) * 0.00012 * pf + vnoise(q * 220.0) * 0.0005 * fine + fbm3(q * 40.0) * 0.0012 * mid;
     }
     else if (role == 20) h = vnoise(q * 120.0) * 0.003 * fine + fbm3(vec3(q.x * 16.0, q.y * 42.0, q.z * 16.0)) * 0.012 * mid; // grain, plis du cuir
     else if (role == 28) h = vnoise(q * 90.0) * 0.001 * fine;
@@ -591,6 +591,31 @@ void main() {
       lit += uSun * min(spec, 1.5) * sk * mix(1.0, sh, uShadowStrength) * ao;
       lit += mix(uAmbGround, uAmbSky, N.y * 0.5 + 0.5) * pow(1.0 - nv, 4.0) * 0.12 * sk * ao;
     }
+  }
+  if (role == 31 && uShading > 0.5) {
+    // lèvres (seul usage de ce rôle sur un personnage) : humides, reflet net et un peu de lumière diffusée
+    vec3 Hs = normalize(uSunDir + Vv);
+    float nh = max(dot(N, Hs), 0.0), nv = max(dot(N, Vv), 0.0);
+    float a = 0.05;
+    float D = a / (3.14159 * pow(nh * nh * (a - 1.0) + 1.0, 2.0));
+    lit += uSun * min(D * 0.25 * max(ndl, 0.0), 3.0) * 0.12 * mix(1.0, sh, uShadowStrength) * ao;
+    lit += mix(uAmbGround, uAmbSky, N.y * 0.5 + 0.5) * pow(1.0 - nv, 4.0) * 0.1 * ao;
+    lit += base * uSun * vec3(0.12, 0.03, 0.02) * exp(-pow(ndl * 2.6, 2.0));
+  }
+  if (role == 22 && uShading > 0.5) {
+    // cheveux : reflets en bande le long des mèches (Kajiya-Kay), mèches supposées descendre du sommet du crâne ;
+    // un reflet blanc net et un second, plus large, teinté par la couleur des cheveux
+    // normale lisse (sans le relief des mèches) : sinon le reflet suit chaque bosse et fait des traînées grasses
+    vec3 Ng0 = normalize(vNormalW) * (gl_FrontFacing ? 1.0 : -1.0);
+    vec3 Tn = vec3(0.0, 1.0, 0.0) - Ng0 * Ng0.y;
+    Tn = length(Tn) > 1e-3 ? normalize(Tn) : vec3(0.0, 0.0, 1.0);
+    float jit = (vnoise(vec3(vPosL.x * 320.0, vPosL.y * 12.0, vPosL.z * 320.0)) - 0.5) * 0.3 + (vnoise(vec3(vPosL.x * 60.0, vPosL.y * 4.0, vPosL.z * 60.0)) - 0.5) * 0.12;
+    vec3 Hs = normalize(uSunDir + Vv);
+    float th1 = dot(normalize(Tn + Ng0 * (0.08 + jit)), Hs), th2 = dot(normalize(Tn - Ng0 * (0.12 - jit)), Hs);
+    float s1 = pow(sqrt(max(0.0, 1.0 - th1 * th1)), 160.0), s2 = pow(sqrt(max(0.0, 1.0 - th2 * th2)), 28.0);
+    float vis = smoothstep(-0.1, 0.4, ndl) * mix(1.0, sh, uShadowStrength) * ao;
+    float hk = uShading < 1.5 ? 0.6 : 1.0;
+    lit += (uSun * s1 * 0.07 + base * uSun * s2 * 0.22) * vis * hk;
   }
   if (role == 23 || role == 24) {
     // yeux : globe humide. Blanc ombré vers les bords (il est rond), reflet net du soleil et du ciel sur la cornée

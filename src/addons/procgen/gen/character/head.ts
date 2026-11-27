@@ -403,6 +403,19 @@ export function buildHeadField(k: Kit): HeadField {
     shell(T, [front(0.7), nape()], curlB);
     const side = v.chance(0.5) ? 1 : -1;
     if (hair === "short" || hair === "curly" || hair === "wavy") hairPrim("hair", { kind: "ellipsoid", c: [hw * v.range(-0.06, 0.06), yF + hh * 0.09, Fz - hd * 0.17], r: [hw * 0.36, hh * 0.09, hd * 0.2], bump: curlB });
+    if ((hair === "short" || hair === "crop" || hair === "sidepart" || hair === "wavy") && !chibi && !an) {
+      // lisière irrégulière : quelques mèches courtes qui débordent du bord droit de la coupe (sinon un casque posé)
+      const hv = v.fork("lisiere");
+      const n = 7;
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        const x = hw * mix(-0.34, 0.34, t) + hw * hv.range(-0.02, 0.02);
+        const y = yF + hh * (0.035 + 0.05 * Math.abs(t - 0.5) * 2 + hv.range(-0.012, 0.012));
+        const s0 = hit(base, x, y);
+        const th = hair === "crop" ? hairT * 0.5 : hairT * 0.6;
+        hairPrim("hair", { kind: "ellipsoid", c: madd(add(s0.p, [0, -hh * hv.range(0.0, 0.015), 0]), s0.n, th * 0.3), r: [hw * hv.range(0.04, 0.06), hh * hv.range(0.03, 0.05), th] });
+      }
+    }
     if (hair === "sidepart") {
       hairPrim("hair", { kind: "capsule", a: [-side * hw * 0.28, yF + hh * 0.17, Fz - hd * 0.18], b: [side * hw * 0.3, yF + hh * 0.06, Fz - hd * 0.1], ra: hh * 0.1, rb: hh * 0.075 });
       hairPrim("hair", { kind: "ellipsoid", c: [side * hw * 0.22, yF + hh * 0.03, Fz - hd * 0.16], r: [hw * 0.2, hh * 0.1, hd * 0.2] });
