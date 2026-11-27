@@ -7,6 +7,7 @@ import { safeMediaUrl } from "../../shared/media/urls";
 import { isFrameSource, type SonicFrameConsumerHost, type SonicFrameSource, type SonicMediaRef } from "../../shared/mediaRef";
 import { BRUSH_DEFAULTS, History, Stabilizer, StampWalker, blendOp, place, rng, sanitizeBrush, type BrushSettings, type Pt } from "./brush";
 import { drawTip, tipFromValue, tipGeometry } from "./tip";
+import { drawShape, isShapeTool, type P, type ShapeTool } from "./shapes";
 import { ROTATE_STEP, ViewGestures, fitBox, invert, multiply, sanitizeView2D, screenToWorld, viewMatrix, type View2D } from "../../shared/view2d";
 import { ViewSync } from "../../shared/view-sync";
 import { pickColorAt, readCanvasPixel, type Pixel } from "../../shared/pick";
@@ -35,6 +36,8 @@ export type PaintState = {
   tool: string;
   color: string;
   size: number;
+  /** Numéro de la prochaine pastille (`tool="badge"`). */
+  badge: number;
   /** Dernière couleur prélevée à la pipette (`tool="pick"` ou Alt + clic), calques compris. */
   picked: string | null;
   /** Dernier enregistrement (`control.save`) : à brancher sur `sonic-media-download source="…last"`. */
@@ -83,6 +86,15 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   @property({ type: Number }) spacing = BRUSH_DEFAULTS.spacing;
   @property({ type: Number }) smoothing = BRUSH_DEFAULTS.smoothing;
   @property({ type: String }) tool = BRUSH_DEFAULTS.tool;
+  /** Texte posé par l'outil `text` (aussi en direct : `text` dans `brush-from`). */
+  @property({ type: String }) text = "";
+  /** Outils `rect` et `ellipse` : forme pleine (aussi en direct : `fill` dans `brush-from`). */
+  @property({ type: Boolean }) fill = false;
+  /**
+   * L'image de départ (`in-data-provider`) donne sa taille à la toile (réduite au besoin à la taille maximale) :
+   * annoter une capture ou une photo à ses vraies dimensions. Annulation et pastilles repartent de zéro.
+   */
+  @property({ type: Boolean, attribute: "size-from-image" }) sizeFromImage = false;
   @property({ type: Boolean }) pressure = true;
   /** Stylets (voir sonic-sketch) : bout gomme, bouton latéral, orientation, doigt, courbe et simulation de pression. */
   @property({ type: String, attribute: "pen-eraser" }) penEraser = "erase";
@@ -181,6 +193,10 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   private blendBase: HTMLCanvasElement | null = null;
   private blendLayer: HTMLCanvasElement | null = null;
   private blendMode: GlobalCompositeOperation = "source-over";
+  /** Forme en cours (outil de forme) : point d'appui, image d'avant le geste, forme réellement dessinée. */
+  private shape: { tool: ShapeTool; from: P; base: HTMLCanvasElement; drawn: boolean } | null = null;
+  /** Rang (`strokes`) des pastilles posées : la suivante porte leur nombre + 1, annulation comprise. */
+  private badges: number[] = [];
 
   /* ---- toile navigable : image hors écran + vue */
   private buf: HTMLCanvasElement | null = null;
@@ -368,7 +384,24 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
       img.src = url;
       await img.decode();
       if (token !== this.loadToken || !this.image()) return;
-      this.pushHistory();
+      if (this.sizeFromImage && img.naturalWidth > 0 && img.naturalHeight > 0) {
+        let iw = img.naturalWidth, ih = img.naturalHeight;
+        const k = Math.min(1, MAX_SIDE / Math.max(iw, ih), Math.sqrt(MAX_PIXELS / (iw * ih)));
+        iw = Math.max(16, Math.floor(iw * k));
+        ih = Math.max(16, Math.floor(ih * k));
+        this.width = iw;
+        this.height = ih;
+        this.autoFit = true;
+        await this.updateComplete;
+        if (token !== this.loadToken || !this.image()) return;
+        // Les étapes d'annulation d'une toile d'une autre taille ne se rejouent pas.
+        this.history = new History<ImageData>(Math.max(0, Math.min(100, this.undoLevels)));
+        this.strokes = 0;
+        if (this.navigable) this.fit();
+      } else {
+        this.pushHistory();
+      }
+      this.badges = [];
       this.fillBackground();
       const ctx = this.ctx();
       if (!ctx) return;
@@ -556,6 +589,32 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   private toolName(): string {
     const t = typeof this.live.tool === "string" ? this.live.tool : this.tool;
     return t === "hand" || t === "erase" || t === "pick" ? t : "paint";
+  }
+
+  /** Outil de forme choisi (attribut `tool` ou `brush-from`), sinon `null`. */
+  private shapeTool(): ShapeTool | null {
+    const t = typeof this.live.tool === "string" ? this.live.tool : this.tool;
+    return isShapeTool(t) ? t : null;
+  }
+
+  private nextBadge(): number {
+    return this.badges.filter((s) => s <= this.strokes).length + 1;
+  }
+
+  /** Remet l'image d'avant le geste puis dessine la forme jusqu'au point `to`. */
+  private drawShapeTo(to: P): void {
+    const sh = this.shape, ctx = this.ctx();
+    if (!sh || !ctx) return;
+    const { w, h } = this.dims();
+    const b = this.brush();
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "copy";
+    ctx.drawImage(sh.base, 0, 0);
+    ctx.restore();
+    const text = typeof this.live.text === "string" ? this.live.text : this.text;
+    const fill = typeof this.live.fill === "boolean" ? this.live.fill : this.live.fill === "true" ? true : this.live.fill === "false" ? false : this.fill;
+    sh.drawn = drawShape(ctx, sh.tool, sh.from, to, { color: b.color, size: b.size, opacity: b.opacity, fill, text, n: this.nextBadge() }, w, h);
   }
 
   private local(e: { clientX: number; clientY: number }): { x: number; y: number } {
@@ -763,6 +822,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     const before = this.undoLevels > 0 ? this.history.dropLast() : null;
     if (ctx && before) ctx.putImageData(before, 0, 0);
     this.endBlend();
+    this.shape = null;
     if (this.pointer !== null) {
       try { this.canvasEl.releasePointerCapture(this.pointer); } catch { /* déjà relâché */ }
       this.heldTouches.add(this.pointer);
@@ -850,6 +910,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     const before = this.undoLevels > 0 ? this.history.dropLast() : null;
     if (ctx && before) ctx.putImageData(before, 0, 0);
     this.endBlend();
+    this.shape = null;
     this.drawing = false;
     this.penOverride = null;
     this.touch();
@@ -859,6 +920,20 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.penStart(e);
     this.pushHistory();
     this.drawing = true;
+    const shapeTool = this.shapeTool();
+    const img = this.image();
+    if (shapeTool && img) {
+      const { w, h } = this.dims();
+      const base = document.createElement("canvas");
+      base.width = w;
+      base.height = h;
+      base.getContext("2d")?.drawImage(img, 0, 0);
+      const pt = this.toCanvas(e);
+      this.shape = { tool: shapeTool, from: { x: pt.x, y: pt.y }, base, drawn: false };
+      this.drawShapeTo(pt);
+      this.touch();
+      return;
+    }
     this.stab.reset();
     this.walker.reset();
     this.draw = rng((Math.random() * 4294967296) >>> 0);
@@ -874,6 +949,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     if (this.navigable && this.nav.move(e.pointerId, this.local(e))) return;
     if (this.picking && e.pointerId === this.pointer) { this.pick(e, false); return; }
     if (!this.drawing || e.pointerId !== this.pointer) return;
+    if (this.shape) { this.drawShapeTo(this.toCanvas(e)); this.touch(); return; }
     const b = this.brush();
     const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
     for (const ev of events.length ? events : [e]) {
@@ -908,6 +984,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
       if (!this.drawing) { this.pointer = null; return; }
     }
     if (!this.drawing || (e.pointerId !== undefined && e.pointerId !== this.pointer)) return;
+    if (this.shape) { this.endShape(e); return; }
     const b = this.brush();
     // Le lissage laisse la pointe en retard : on la ramène sur le pointeur pour finir le trait.
     if (e.type === "pointerup" && b.smoothing > 0) {
@@ -927,6 +1004,31 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
     this.strokes++;
     this.touch();
   };
+
+  /** Fin d'une forme : fondue dans la toile, ou geste oublié s'il n'a rien dessiné (clic sans glisser, annulation). */
+  private endShape(e: PointerEvent): void {
+    const sh = this.shape;
+    if (!sh) return;
+    if (e.type === "pointerup") this.drawShapeTo(this.toCanvas(e));
+    else sh.drawn = false;
+    this.shape = null;
+    this.stopStrokeWatch();
+    try { this.canvasEl.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
+    this.pointer = null;
+    this.drawing = false;
+    this.penOverride = null;
+    if (sh.drawn) {
+      this.strokes++;
+      this.badges = this.badges.filter((s) => s < this.strokes);
+      if (sh.tool === "badge") this.badges.push(this.strokes);
+    } else {
+      const ctx = this.ctx();
+      const before = this.undoLevels > 0 ? this.history.dropLast() : null;
+      if (ctx && before) ctx.putImageData(before, 0, 0);
+      else if (ctx) { ctx.save(); ctx.globalCompositeOperation = "copy"; ctx.drawImage(sh.base, 0, 0); ctx.restore(); }
+    }
+    this.touch();
+  }
 
   /* ------------------------------------------------------------ pipette */
 
@@ -1058,6 +1160,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   }
 
   clear(): void {
+    this.badges = [];
     this.pushHistory();
     this.fillBackground();
   }
@@ -1122,7 +1225,7 @@ export class SonicPaint extends LitElement implements SonicFrameSource, SonicFra
   getState(): PaintState {
     const { w, h } = this.dims();
     const b = this.brush();
-    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" || this.toolName() === "pick" ? this.toolName() : b.tool, color: b.color, picked: this.picked, size: b.size, last: this.last, stored: this.stored, exported: this.exported, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
+    return { status: this.error ? "error" : "ready", error: this.error, width: w, height: h, strokes: this.strokes, drawing: this.drawing, canUndo: this.history.canUndo, canRedo: this.history.canRedo, tool: this.toolName() === "hand" || this.toolName() === "pick" ? this.toolName() : (this.shapeTool() ?? b.tool), badge: this.nextBadge(), color: b.color, picked: this.picked, size: b.size, last: this.last, stored: this.stored, exported: this.exported, x: this.navigable ? this.view.x : w / 2, y: this.navigable ? this.view.y : h / 2, zoom: this.navigable ? this.view.zoom : 1, rotation: this.navigable ? this.view.rotation : 0, viewWidth: this.navigable ? this.disp.w : 0, viewHeight: this.navigable ? this.disp.h : 0 };
   }
 
   private publish(): void {

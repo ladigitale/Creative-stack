@@ -9,7 +9,7 @@ Addon `@supersoniks/creative-stack/device` : les API « appareil » du navigateu
 | `sonic-wake-lock` | Écran toujours allumé | `acquire`, `release`, `toggle` |
 | `sonic-orientation` | Orientation de l'écran, capteurs de mouvement | `lock {type}`, `unlock`, `sensors`, `stop` ; réglage `smoothing` |
 | `sonic-geolocation` | Position GPS, lieux proches (distance, relèvement) | `start`, `stop`, `once` |
-| `sonic-clipboard` | Copier, lire le presse-papiers (texte) | `copy {text}`, `read` |
+| `sonic-clipboard` | Copier, lire le presse-papiers (texte) ; recevoir une image collée, copier une image | `copy {text}`, `read`, `readImage`, `copyImage` |
 | `sonic-share` | Partage natif, repli par copie | `share {title, text, url}` |
 | `sonic-vibrate` | Vibration (Android) | `vibrate {pattern}`, `stop` |
 | `sonic-nfc` | Tags NFC : lire, écrire texte / URL / JSON (Chrome Android) | `scan`, `stop`, `write {text \| url \| records}`, `makeReadOnly` (avec `allow-lock`) |
@@ -160,6 +160,12 @@ Clés : `fullscreen`, `pointerLock`, `wakeLock`, `gamepad`, `midi`, `orientation
 **`sonic-orientation`** — `type` / `angle` suivent l'écran. `lock {type}` : `landscape`, `portrait`, `natural`, `any`, `portrait-primary`, `portrait-secondary`, `landscape-primary`, `landscape-secondary` ; sur mobile, souvent seulement en plein écran. `smoothing` (0 à 0,95) lisse les capteurs, aussi en clé de réglage de `control` (`{ smoothing: 0.5 }`, appliqué en direct, prioritaire sur l'attribut tant qu'il est présent ; publié dans l'état) ; `alpha` (boussole) est lissé par le plus court chemin sur le cercle.
 
 **`sonic-clipboard`** — `text` : texte copié par défaut. La lecture (`read`) n'a lieu que sur commande, avec la permission du navigateur ; le texte lu (tronqué à 10 000 caractères) est publié dans le DataProvider : ne pas s'en servir pour des données sensibles.
+
+Images : `paste` reçoit l'image collée dans la page (Ctrl + V, sans permission) et la publie en `SonicMediaRef` dans `ref-provider`, avec une action vers `target` (`action-type`, défaut `paste`, charge `{...payload, image: {mime, size, width, height}}`) ; `readImage` fait la même chose depuis un bouton (geste et permission du navigateur). `file-from` désigne une image produite par la page (URL `blob:`) : `for`, `copy` sans texte ou `copyImage` la copient en PNG ; avec `wait`, le clic réserve le presse-papiers et l'image y arrive dès que le prochain média est publié dans `file-from`.
+
+```json
+{ "tagName": "sonic-clipboard", "attributes": { "id": "pp", "paste": "", "ref-provider": "capture.image", "target": "ui", "file-from": "toileState.last", "wait": "", "for": "copier" } }
+```
 
 **`sonic-share`** — `title`, `text`, `url` (http ou https seulement : `javascript:` et `data:` sont refusés). Sans partage natif, `fallback="copy"` (défaut) copie `texte + url`. Annuler la feuille de partage incrémente `cancelled`, ce n'est pas une erreur.
 

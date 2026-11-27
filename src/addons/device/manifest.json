@@ -173,7 +173,7 @@
     },
     {
       "name": "sonic-clipboard",
-      "description": "Presse-papiers texte. Commandes control {copy:{n, text}, read:n} ; for = copie l'attribut text. La lecture n'a lieu que sur commande, jamais seule (permission du navigateur). État <id>State {status, error, supported, allowed, active, copied, text}. Iframe : allow=\"clipboard-write; clipboard-read\"",
+      "description": "Presse-papiers : texte et images. Texte : commandes control {copy:{n, text}, read:n} ; for = copie l'attribut text ; la lecture n'a lieu que sur commande, jamais seule (permission du navigateur). IMAGE COLLÉE : paste (booléen) reçoit l'image que l'utilisateur colle dans la page (Ctrl + V, capture d'écran comprise ; aucune permission) et la publie en SonicMediaRef {url blob:, mime, width, height} dans ref-provider (à brancher sur sonic-paint in-data-provider, sonic-still…), avec une action vers target : {type: action-type (défaut paste), payload: {...payload, image: {mime, size, width, height}}} ; commande readImage = bouton « Coller » (geste + permission). COPIER UNE IMAGE : file-from = DP d'un SonicMediaRef (blob: seulement, ex. peintureState.last) ; for (ou commandes copy / copyImage) la copie en PNG ; wait = le clic attend le prochain média publié dans file-from (produit par une action autour du bouton, ex. save d'un sonic-paint). État <id>State {status, error, supported, allowed, active, copied, text, images, image {mime, size, width, height}, imagesCopied}. Iframe : allow=\"clipboard-write; clipboard-read\"",
       "props": {
         "control": {
           "type": "string",
@@ -190,6 +190,35 @@
         "text": {
           "type": "string",
           "description": "texte copié par défaut"
+        },
+        "paste": {
+          "type": "boolean",
+          "description": "reçoit les images collées dans la page"
+        },
+        "ref-provider": {
+          "type": "string",
+          "description": "DP qui reçoit l'image collée (SonicMediaRef)"
+        },
+        "target": {
+          "type": "string",
+          "description": "store qui reçoit une action à chaque image reçue"
+        },
+        "action-type": {
+          "type": "string",
+          "default": "paste",
+          "description": "type de l'action envoyée à target"
+        },
+        "payload": {
+          "type": "string",
+          "description": "charge utile JSON (objet) de l'action, complétée par image"
+        },
+        "file-from": {
+          "type": "string",
+          "description": "DP d'un SonicMediaRef (URL blob:) : l'image à copier"
+        },
+        "wait": {
+          "type": "boolean",
+          "description": "le clic attend le prochain média de file-from"
         }
       }
     },
