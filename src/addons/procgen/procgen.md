@@ -15,6 +15,8 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 { "tagName": "sonic-shader", "attributes": { "channel0": "#scene", "image": "<pixel-art.glsl>", "render-size": "320x180", "style": "image-rendering:pixelated" } }
 ```
 
+**Chargement** : pendant la composition d'une scène, une carte avec barre de progression (« Composition de la scène… 42 % », puis « Mise en scène… ») s'affiche au premier chargement ; une fine barre en haut pendant une recomposition. Rien n'apparaît si la scène arrive en moins de 150 ms. Attribut `loader="none"` pour le retirer (l'appli peut lire `state-out.status.progress`).
+
 ## Clés lues dans `dataProvider`
 
 | Clé | Rôle |
@@ -24,7 +26,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `ambiance` | Direction artistique d'un mot (voir Ambiances) : `realiste`, `militaire`, `cartoon`, `jouet`, `cyber`, `alien`, `silhouette`, `noir`, `voxel`, `retro`, `horreur`, `western`, `pastel`, `tableau`, `onirique`, ou `{base, …surcharges}` ; aussi attribut `ambiance`, clé `ambiance` de la recette ou jeton de style |
 | `photo` | Rendu soigné quand la scène est immobile : `true` ou `{moteur, echantillons, rebonds, attente, filtre, tramage, niveaux, touche, echelle}` (voir Rendu soigné) ; aussi attribut `photo` |
 | `exportSvg` | Compteur : chaque changement publie le SVG de la vue dans `state-out.svg` (mode vectoriel) |
-| `football` | Match de football jouable (rendu 3D, voir Football) : `true` ou `{players: 5\|7\|11, minutes, level, human: "home"\|"away"\|"none", teams: [{name, shirt, shorts, socks, keeper, pattern}], cinematics, hud, keyboard, touch, seed, input}` ; prioritaire sur `recipe` et `scene` |
+| `football` | Match de football jouable (rendu 3D, voir Football) : `true` ou `{players: 5\|7\|11, minutes, level, human: "home"\|"away"\|"none", teams: [{name, shirt, shorts, socks, keeper, pattern}], cinematics, hud, keyboard, touch, sound, seed, input}` ; prioritaire sur `recipe` et `scene` |
 | `recipe` | Recette complète (prioritaire sur `scene`, voir plus bas) |
 | `seed` | Graine. Même graine = même monde ; chaque objet a sa sous-graine, donc modifier un objet ne bouge pas les autres |
 | `params` | Paramètres exposés par la recette (ex. `village` : `maisons`, `habitants`) |
@@ -132,6 +134,7 @@ Un match complet, jouable, dans un stade composé à partir des réglages (rendu
 - **Jeu** : ballon physique (vol, effet, rebonds, roulement freiné, poteaux, transversale, filets), conduite de balle, passes au sol et lobées, tirs (puissance à la touche tenue), têtes, tacles debout et glissés, gardiens qui se placent, plongent, captent ou repoussent. Les équipes gérées pressent, marquent, se replacent, font des appels ; `level` (0 … 1) règle l'adversaire.
 - **Caméra** : vue de haut fixe qui suit le ballon. **Cinématiques** (`cinematics: false` pour les couper) : grosse occasion, arrêt, poteau, tacle (ralenti, caméra au ras du sol), but (le buteur qui célèbre, puis ralenti rejoué derrière le but, passé par une touche d'action), penalty, coup d'envoi, mi-temps, fin du match.
 - **Commandes** (`human` : l'équipe jouée ; le joueur contrôlé a un anneau jaune) : clavier (flèches ou ZQSD/WASD, Maj sprint, Espace tir tenu, J ou X passe, K ou C ballon long, L ou V tacle, Tab ou E changer de joueur), manette (stick, A passe, B tir, X ballon long, Y/LB changer, RB/RT sprint), écran tactile (stick virtuel à gauche, boutons TIR, PASSE, LONG ; en défense TIR fait un tacle glissé, PASSE change de joueur). Entrée externe : `football.input = {x, z (-1…1, haut de l'écran = z négatif), sprint, pass, shoot, lob, tackle, switch}` ; `keyboard: false` / `touch: false` coupent les commandes intégrées.
+- **Son** (généré en Web Audio, aucun fichier ; `sound: false` pour le couper, modifiable en cours de match) : rumeur de la foule qui monte quand le ballon approche d'un but, « ooh » sur une occasion, un arrêt ou un poteau, clameur et cornes au but, applaudissements, chants rythmés avec tambour pendant les temps calmes, sifflet de l'arbitre (coup d'envoi, faute, penalty, mi-temps, fin), frappes selon leur puissance, rebonds, poteau qui résonne, filet, chocs des tacles ; au ralenti, le son est étouffé. Le son démarre au premier geste de l'utilisateur (règle des navigateurs).
 - **Habillage** (`hud: false` pour le retirer) : tableau d'affichage, bandeaux (BUT !, QUEL ARRÊT !, PENALTY…), barres de cinéma, jauge de tir.
 - **Sorties** : `state-out.football` `{phase: intro|setpiece|play|goal|halftime|fulltime, half, minute, score, teams, possession, ctrl, set: {kind, team, ready}, cine}` ; événements `kickoff`, `kick`, `shot`, `save`, `header`, `tackle`, `foul`, `post`, `goal {team, player, own, score, minute}`, `throwin`, `corner`, `goalkick`, `freekick`, `penalty`, `miss`, `possession`, `halftime`, `fulltime {score, winner}`.
 - Gestes ajoutés aux personnages : `tackle` (tacle glissé), `diveleft`, `diveright` (plongeon du gardien), `fall` (chute, relevé sur un genou), `header` (tête en extension).

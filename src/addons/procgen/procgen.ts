@@ -150,6 +150,11 @@ export class SonicProcgen extends HTMLElement {
   private idsVersion = 0;
   private composeMs = 0;
   private composing = false;
+  /** Indicateur de chargement (attribut `loader="none"` pour le retirer). */
+  private loader!: HTMLDivElement;
+  private loaderFill!: HTMLDivElement;
+  private loaderPct!: HTMLDivElement;
+  private loaderT = 0;
   private progress = 0;
   private pending: { cancelled: boolean } | null = null;
   /** Modèle composé arrivé pendant un glisser : adopté au lâcher (la scène ne change pas sous le doigt). */
@@ -170,12 +175,35 @@ export class SonicProcgen extends HTMLElement {
     super();
     this.root = this.attachShadow({ mode: "open" });
     const style = document.createElement("style");
-    style.textContent = ":host{display:block;position:relative;min-height:120px;contain:content}.stage{position:absolute;inset:0}canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}:host([interactive=false]) canvas{touch-action:auto}";
+    style.textContent =
+      ":host{display:block;position:relative;min-height:120px;contain:content}.stage{position:absolute;inset:0}canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}:host([interactive=false]) canvas{touch-action:auto}" +
+      // chargement : carte centrée au premier chargement, fine barre en haut pendant une recomposition
+      ".ld{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;opacity:0;transition:opacity .35s;font:600 13px/1.3 system-ui,sans-serif;color:#f4f1ea}.ld.on{opacity:1}" +
+      ".ld.first{background:radial-gradient(circle at 50% 45%,#2a3140,#14181f)}.ld .card{display:grid;gap:10px;justify-items:center;min-width:180px;padding:16px 20px}" +
+      ".ld .bar{width:min(220px,60vw);height:6px;border-radius:3px;background:rgb(255 255 255 / .18);overflow:hidden}.ld .fill{height:100%;width:0;border-radius:3px;background:#f2d230;transition:width .25s}" +
+      ".ld .pct{font-variant-numeric:tabular-nums;letter-spacing:.04em}.ld.thin{place-items:start stretch}.ld.thin .card{display:block;padding:0;min-width:0}.ld.thin .bar{width:100%;height:3px;border-radius:0;background:transparent}.ld.thin .fill{border-radius:0}.ld.thin .pct{display:none}" +
+      ".ld.wait .fill{width:35%!important;animation:ldw 1.1s ease-in-out infinite}@keyframes ldw{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}" +
+      "@media (prefers-reduced-motion:reduce){.ld,.ld .fill{transition:none}.ld.wait .fill{animation:none}}";
     this.stage = document.createElement("div");
     this.stage.className = "stage";
     this.canvas = document.createElement("canvas");
     this.stage.append(this.canvas);
-    this.root.append(style, this.stage);
+    this.loader = document.createElement("div");
+    this.loader.className = "ld";
+    this.loader.setAttribute("role", "progressbar");
+    this.loader.setAttribute("aria-label", "Chargement de la scène");
+    const card = document.createElement("div");
+    card.className = "card";
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    this.loaderFill = document.createElement("div");
+    this.loaderFill.className = "fill";
+    bar.append(this.loaderFill);
+    this.loaderPct = document.createElement("div");
+    this.loaderPct.className = "pct";
+    card.append(bar, this.loaderPct);
+    this.loader.append(card);
+    this.root.append(style, this.stage, this.loader);
   }
 
   /**
@@ -429,15 +457,21 @@ export class SonicProcgen extends HTMLElement {
       this.pending = signal;
       const t0 = performance.now();
       this.composing = true;
+      this.progress = 0;
+      this.updateLoader();
       this.queueOut(true);
-      composeSceneAsync({ recipe: r, seed: seed as string, params, edits, mobile: isMobile() }, { signal, onProgress: (done, total) => ((this.progress = total ? done / total : 0), this.queueOut()) })
+      composeSceneAsync({ recipe: r, seed: seed as string, params, edits, mobile: isMobile() }, { signal, onProgress: (done, total) => ((this.progress = total ? done / total : 0), this.updateLoader(), this.queueOut()) })
         .then((model) => {
           if (!model || signal.cancelled) return;
           const adopt = () => {
             if (signal.cancelled) return;
             this.pending = null;
-            this.composing = false;
             this.model = model;
+            // mise en scène : montage des maillages puis première image, avant de retirer l'indicateur
+            this.loaderFill.style.width = "95%";
+            this.loaderPct.textContent = "Mise en scène…";
+            this.composing = false;
+            requestAnimationFrame(() => requestAnimationFrame(() => this.updateLoader()));
             this.composeMs = Math.round(performance.now() - t0);
             this.issues = [...issues.list, ...model.issues, ...this.emitIssues];
             this.error = "";
@@ -599,6 +633,7 @@ export class SonicProcgen extends HTMLElement {
     if (this.view instanceof ProcgenView) {
       this.view.setFootball(footSpec && this.model ? { spec: footSpec, hud: footIn!.hud !== false, keyboard: footIn!.keyboard !== false, touch: footIn!.touch !== false } : null);
       this.view.setFootballInput(footIn?.input);
+      this.view.setFootballSound(footIn?.sound !== false);
     }
     // relief retouché : recette `terrain` ⊕ clé `terrain` du DataProvider, rejoué en entier à chaque changement
     if (this.view instanceof ProcgenView) {
@@ -664,8 +699,42 @@ export class SonicProcgen extends HTMLElement {
     if (this.view instanceof ProcgenView && d.emit !== undefined) this.view.emitOrders(d.emit);
   }
 
+  /**
+   * Indicateur de chargement : composition (0 → 90 %), puis mise en scène (montage des maillages, premières images)
+   * jusqu'à 100 % ; carte centrée tant qu'aucune scène n'est affichée, sinon fine barre en haut.
+   */
+  private updateLoader() {
+    const el = this.loader;
+    if (!el) return;
+    const busy = this.composing && !this.error && this.getAttribute("loader") !== "none";
+    clearTimeout(this.loaderT);
+    if (!busy) {
+      if (el.classList.contains("on")) {
+        this.loaderFill.style.width = "100%";
+        this.loaderPct.textContent = "100 %";
+      }
+      el.classList.remove("on");
+      return;
+    }
+    const first = !this.model;
+    const p = Math.max(0, Math.min(1, this.progress));
+    // rien d'affiché pendant les toutes premières 150 ms : une scène qui arrive vite ne clignote pas
+    const show = () => {
+      el.classList.toggle("first", first);
+      el.classList.toggle("thin", !first);
+      el.classList.toggle("wait", p <= 0);
+      this.loaderFill.style.width = `${Math.round(p * 90)}%`;
+      this.loaderPct.textContent = p > 0 ? `Composition de la scène… ${Math.round(p * 90)} %` : "Composition de la scène…";
+      el.setAttribute("aria-valuenow", String(Math.round(p * 90)));
+      el.classList.add("on");
+    };
+    if (el.classList.contains("on")) show();
+    else this.loaderT = window.setTimeout(show, 150);
+  }
+
   private fail(msg: string) {
     this.error = msg;
+    this.updateLoader();
     this.queueOut(true);
   }
 

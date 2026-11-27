@@ -2931,6 +2931,12 @@ export class ProcgenView {
   setFootballInput(v: unknown) {
     this.football?.setInput(v);
   }
+  /** Son du match (`football.sound`), sans relancer le match. */
+  setFootballSound(on: boolean) {
+    this.footballSound = on;
+    this.football?.setSound(on);
+  }
+  private footballSound = true;
 
   /** Gazon des terrains de sport de la scène (bandes de tonte, plaques atténuées) pour le shader. */
   private setTurf() {
@@ -2978,7 +2984,7 @@ export class ProcgenView {
       emit: (type: string, payload: Record<string, unknown>) => this.onEvent({ type: type as GameEvent["type"], payload }),
     };
     const fs = this.footballSpec;
-    this.football = new FootballDirector(host, fs.spec, { hud: fs.hud, keyboard: fs.keyboard, touch: fs.touch });
+    this.football = new FootballDirector(host, fs.spec, { hud: fs.hud, keyboard: fs.keyboard, touch: fs.touch, sound: this.footballSound });
     this.football.onSummary = (s) => {
       this.footballOut = s;
       this.onFootball();

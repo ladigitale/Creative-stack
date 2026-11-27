@@ -14,6 +14,7 @@ import * as THREE from "three";
 import type { V3 } from "../core/math";
 import { PITCH_TOP } from "../gen/sport";
 import { FootballMatch, type FootballInput, type FootballSpec, NO_INPUT } from "../scene/football";
+import { FootballAudio } from "./football-audio";
 
 export type Puppet = { x: number; z: number; y: number; yaw: number; speed: number; action: string; actionTime: number };
 export type PuppetActor = { puppet?: Puppet | null };
@@ -74,15 +75,19 @@ export class FootballDirector {
   private keyboard: boolean;
   private shootHold = 0;
   private skipHeld = true;
+  /** Ambiance sonore générée (null : coupée à la création). */
+  readonly audio: FootballAudio | null;
+  private spike = 0;
   /** Vitesse du temps de la vue voulue par le mode (ralenti). */
   timeScale = 1;
   onSummary: (s: Record<string, unknown>) => void = () => {};
 
-  constructor(host: FootballHost, spec: FootballSpec, opts: { hud?: boolean; keyboard?: boolean; touch?: boolean } = {}) {
+  constructor(host: FootballHost, spec: FootballSpec, opts: { hud?: boolean; keyboard?: boolean; touch?: boolean; sound?: boolean } = {}) {
     this.host = host;
     this.match = new FootballMatch(spec);
     this.ids = this.match.players.map((p) => p.id);
     this.hud = opts.hud !== false;
+    this.audio = typeof window !== "undefined" ? new FootballAudio(opts.sound !== false) : null;
     this.keyboard = opts.keyboard !== false;
     const L = this.match.dim.L;
     this.game = { cx: 0, cy: 0, cz: 0, yaw: 0, pitch: 60, dist: L > 80 ? 33 : L > 50 ? 28 : 22, fov: 34 };
@@ -113,6 +118,7 @@ export class FootballDirector {
     (this.ring.material as THREE.Material).dispose();
     this.ui?.remove();
     this.ui = null;
+    this.audio?.dispose();
     for (const id of this.ids) {
       const a = this.host.puppets().get(id);
       if (a) a.puppet = null;
@@ -207,6 +213,80 @@ export class FootballDirector {
     this.stepCine(dt);
     this.stepCamera(dt);
     this.updateUi(dt);
+    this.stepAudio(dt, slow < 0.8);
+  }
+
+  /** Tension du jeu pour la foule : ballon près d'un but, occasions récentes, but. */
+  private stepAudio(dt: number, slow: boolean) {
+    if (!this.audio) return;
+    const m = this.match;
+    this.spike = Math.max(0, this.spike - dt * 0.35);
+    const d = m.dim.L / 2 - Math.abs(m.ball.p[0]);
+    const near = Math.max(0, 1 - d / (m.dim.L * 0.3));
+    const e = m.phase === "goal" ? 1 : m.phase === "play" || m.phase === "setpiece" ? Math.min(1, 0.22 + 0.45 * near * near + this.spike) : 0.2;
+    this.audio.update(dt, e, slow || !!this.replay, m.phase === "play" && e < 0.35);
+  }
+
+  /** Sons des événements du match. */
+  private sound(type: string, p: Record<string, unknown>) {
+    const a = this.audio;
+    if (!a) return;
+    switch (type) {
+      case "kick":
+        if (p.kind !== "throw") a.kick(Number(p.speed) || 8);
+        if (p.kind === "shot") this.spike = Math.max(this.spike, 0.5);
+        break;
+      case "header":
+        a.kick(11);
+        break;
+      case "bounce":
+        a.bounce(Number(p.speed) || 3);
+        break;
+      case "save":
+        a.ooh(1);
+        a.applause(2.2, 0.25);
+        this.spike = 0.6;
+        break;
+      case "post":
+        a.post();
+        a.ooh(1.1);
+        this.spike = 0.7;
+        break;
+      case "miss":
+        a.ooh(0.7);
+        break;
+      case "goal":
+        a.net();
+        a.roar();
+        break;
+      case "foul":
+        a.whistle([0.28]);
+        a.thud(0.45);
+        a.boo();
+        break;
+      case "penalty":
+        a.whistle([0.6]);
+        break;
+      case "tackle":
+        if (p.slide) a.thud(0.4);
+        break;
+      case "kickoff":
+        a.whistle([0.5]);
+        break;
+      case "halftime":
+        a.whistle([0.45, 0.45]);
+        a.applause(3, 0.3);
+        break;
+      case "fulltime":
+        a.whistle([0.45, 0.45, 1.1]);
+        a.applause(5, 0.4);
+        break;
+    }
+  }
+
+  /** Coupe ou remet le son sans relancer le match. */
+  setSound(on: boolean) {
+    this.audio?.setEnabled(on);
   }
 
   private applyPuppets() {
@@ -236,6 +316,8 @@ export class FootballDirector {
 
   private onMatchEvent(type: string, payload: Record<string, unknown>) {
     const m = this.match;
+    this.sound(type, payload);
+    if (type === "bounce") return;
     if (type === "cine") {
       if (!m.spec.cinematics && payload.kind !== "intro") return;
       const kind = String(payload.kind);
