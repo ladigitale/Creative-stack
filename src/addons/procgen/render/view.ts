@@ -243,6 +243,16 @@ export class ProcgenView {
   physVersion = 0;
   private dirty = true;
   private shadowDirty = true;
+  /**
+   * Ombres en deux temps : la carte du décor (`shadowStaticRT`) n'est refaite que quand le décor, le soleil ou le
+   * cadrage changent (`shadowDirty`) ; quand seuls les acteurs ou les ballons bougent (`shadowDyn`), sa profondeur est
+   * recopiée dans la carte finale et on n'y dessine qu'eux. Le résultat est le même qu'une carte refaite en entier
+   * (profondeur la plus proche), pour bien moins de triangles.
+   */
+  private shadowDyn = false;
+  private shadowStaticRT: THREE.WebGLRenderTarget | null = null;
+  /** Instances qui bougent à chaque image (ballons) : dessinées avec les acteurs, pas dans le décor. */
+  private dynIms = new Set<THREE.Object3D>();
   private time = 0;
   private last = 0;
   private raf = 0;
@@ -539,6 +549,7 @@ export class ProcgenView {
     this.balls = bw.count ? bw : null;
     this.ballSlots.clear();
     this.ballAwake.clear();
+    this.dynIms.clear();
     this.ballsDirty = !!this.balls && this.hiddenIds.size > 0;
     if (this.balls) this.balls.hidden = new Set([...this.hiddenIds].filter((id) => this.balls!.byId.has(id)));
     for (const g of model.instances) {
@@ -3442,9 +3453,15 @@ export class ProcgenView {
     for (const im of touched) {
       im.instanceMatrix.needsUpdate = true;
       im.computeBoundingSphere();
+      if (!this.dynIms.has(im)) {
+        // premier mouvement de ce groupe : il quitte la carte du décor
+        this.dynIms.add(im);
+        this.shadowDirty = true;
+      }
     }
     if (touched.size) {
-      this.dirty = this.shadowDirty = true;
+      this.dirty = true;
+      this.shadowDyn = true;
       this.contentVersion++;
     }
   }
@@ -3506,7 +3523,7 @@ export class ProcgenView {
         this.refreshTerrain();
       }
       if (this.actors.size) {
-        this.shadowDirty = true;
+        this.shadowDyn = true;
         this.contentVersion++;
       }
       if (this.balls) this.stepBalls(dt * this.speed);
@@ -3659,29 +3676,86 @@ export class ProcgenView {
     // prairies : pas d'ombre portée (des dizaines de milliers de brins), mais elles reçoivent celles du décor
     const mv = this.meadows.group.visible;
     this.meadows.group.visible = false;
-    const swap: [THREE.Mesh, THREE.Material][] = [];
-    this.scene.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (mesh.isMesh && mesh.userData.depth) {
-        swap.push([mesh, mesh.material as THREE.Material]);
-        mesh.material = mesh.userData.depth;
-      }
-    });
     this.shared.uShadowOn.value = 0;
     this.fxGroup.visible = false;
     // les copies des émetteurs ne portent pas d'ombre : la carte n'est pas refaite pour elles
     const emitVis = this.emitters.group.visible;
     this.emitters.group.visible = false;
-    this.renderer.setRenderTarget(this.shadowRT);
-    this.renderer.setClearColor(0xffffff, 1);
-    this.renderer.clear(true, true, true);
-    this.renderer.render(this.scene, lc);
-    for (const [mesh, mat] of swap) mesh.material = mat;
+    const dyn: THREE.Object3D[] = [];
+    for (const a of this.actors.values()) if (a.mesh.parent === this.scene) dyn.push(a.mesh);
+    for (const im of this.dynIms) if (im.parent === this.scene) dyn.push(im);
+    if (!dyn.length) {
+      this.depthRender(this.scene, lc, this.shadowRT, true);
+    } else {
+      const dynSet = new Set(dyn);
+      if (this.shadowDirty || !this.shadowStaticRT) {
+        const W = this.shadowRT.width, H = this.shadowRT.height;
+        if (!this.shadowStaticRT || this.shadowStaticRT.width !== W) {
+          this.shadowStaticRT?.dispose();
+          const dt = new THREE.DepthTexture(W, H);
+          dt.type = THREE.UnsignedIntType;
+          this.shadowStaticRT = new THREE.WebGLRenderTarget(W, H, { depthTexture: dt, depthBuffer: true });
+        }
+        const vis = dyn.map((o) => o.visible);
+        for (const o of dyn) o.visible = false;
+        this.depthRender(this.scene, lc, this.shadowStaticRT, true);
+        dyn.forEach((o, i) => (o.visible = vis[i]));
+      }
+      this.copyDepth(this.shadowStaticRT!, this.shadowRT);
+      // seulement les objets mobiles : les autres enfants de la scène sont masqués le temps de la passe
+      const hidden: THREE.Object3D[] = [];
+      for (const o of this.scene.children) if (o.visible && !dynSet.has(o)) {
+        o.visible = false;
+        hidden.push(o);
+      }
+      this.depthRender(this.scene, lc, this.shadowRT, false, dyn);
+      for (const o of hidden) o.visible = true;
+    }
     this.meadows.group.visible = mv;
     this.fxGroup.visible = true;
     this.emitters.group.visible = emitVis;
     this.shared.uShadowOn.value = this.style?.shadows === false ? 0 : 1;
     this.shadowDirty = false;
+    this.shadowDyn = false;
+  }
+
+  /** Rendu de profondeur (matériaux d'ombre) dans `rt` ; `roots` limite l'échange de matériaux à ces objets. */
+  private depthRender(scene: THREE.Object3D, lc: THREE.Camera, rt: THREE.WebGLRenderTarget, clear: boolean, roots?: THREE.Object3D[]) {
+    const swap: [THREE.Mesh, THREE.Material][] = [];
+    const visit = (o: THREE.Object3D) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh && mesh.userData.depth) {
+        swap.push([mesh, mesh.material as THREE.Material]);
+        mesh.material = mesh.userData.depth;
+      }
+    };
+    if (roots) for (const r of roots) r.traverse(visit);
+    else scene.traverse(visit);
+    this.renderer.setRenderTarget(rt);
+    if (clear) {
+      this.renderer.setClearColor(0xffffff, 1);
+      this.renderer.clear(true, true, true);
+    }
+    this.renderer.render(scene, lc);
+    for (const [mesh, mat] of swap) mesh.material = mat;
+  }
+
+  /** Copie exacte de la profondeur d'une carte vers une autre (même taille, même format). */
+  private copyDepth(src: THREE.WebGLRenderTarget, dst: THREE.WebGLRenderTarget) {
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    this.renderer.setRenderTarget(dst);
+    const props = this.renderer.properties;
+    const fs = (props.get(src) as { __webglFramebuffer?: WebGLFramebuffer }).__webglFramebuffer;
+    const fd = (props.get(dst) as { __webglFramebuffer?: WebGLFramebuffer }).__webglFramebuffer;
+    if (!fs || !fd) {
+      this.renderer.setClearColor(0xffffff, 1);
+      this.renderer.clear(true, true, true);
+      return;
+    }
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fs);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fd);
+    gl.blitFramebuffer(0, 0, src.width, src.height, 0, 0, dst.width, dst.height, gl.DEPTH_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fd);
   }
 
   /** `jitter` : rang d'une image accumulée du rendu soigné (sous-pixel décalé, soleil décalé dans un cône). */
@@ -3777,7 +3851,7 @@ export class ProcgenView {
         this.shadowDirty = true;
       }
     }
-    if (this.style?.shadows !== false && this.shadowDirty) this.shadowPass();
+    if (this.style?.shadows !== false && (this.shadowDirty || this.shadowDyn)) this.shadowPass();
     for (const d of this.fxMeshes) d.mat.uniforms.uViewH.value = this.rt!.height;
     this.renderer.setRenderTarget(this.rt);
     this.renderer.setClearColor(0x000000, 0);
@@ -3881,6 +3955,7 @@ export class ProcgenView {
     this.emitters.dispose();
     this.rt?.dispose();
     this.shadowRT.dispose();
+    this.shadowStaticRT?.dispose();
     this.stack.dispose();
     this.photo?.dispose();
     clearTimeout(this.photoTimer);
