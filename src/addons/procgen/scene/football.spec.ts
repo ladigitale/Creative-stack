@@ -66,3 +66,10 @@ describe("football", () => {
     expect((r.layers as { gen: string }[]).map((l) => l.gen)).toEqual(expect.arrayContaining(["sport.pitch", "sport.goal", "ball.soccer"]));
   });
 });
+
+describe("football : réglages", () => {
+  it("lit les équipes publiées en objet indexé", () => {
+    const s = parseFootball({ teams: { 0: { name: "Lions" }, 1: { name: "Aigles" } } });
+    expect(s.teams.map((t) => t.name)).toEqual(["Lions", "Aigles"]);
+  });
+});

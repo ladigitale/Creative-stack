@@ -368,7 +368,8 @@ export class SonicProcgen extends HTMLElement {
     // scène : composition seulement si la recette, la graine, les paramètres ou les éditions changent
     const sceneName = String(d.scene ?? this.getAttribute("scene") ?? "village");
     // mode football : la recette du stade vient des réglages du match (équipes, nombre de joueurs)
-    const footIn = (d.football && typeof d.football === "object" ? d.football : d.football === true ? {} : null) as Json | null;
+    // copie simple (le DataProvider peut publier des objets enveloppés) : les listes y redeviennent des tableaux
+    const footIn = (d.football && typeof d.football === "object" ? JSON.parse(JSON.stringify(d.football)) : d.football === true ? {} : null) as Json | null;
     const footSpec = footIn ? parseFootball(footIn) : null;
     const recipe = (footSpec ? footballRecipe(footSpec) : d.recipe && typeof d.recipe === "object" ? d.recipe : null) as Recipe | null;
     const seed = d.seed ?? this.getAttribute("seed") ?? 1;
