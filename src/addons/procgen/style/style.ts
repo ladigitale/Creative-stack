@@ -44,6 +44,16 @@ export const PALETTES: Record<string, Palette> = {
   nuit: { skyTop: "#141d33", skyHorizon: "#34466b", sun: "#a9bde6", ambientSky: "#5a6f9c", ambientGround: "#2a3043", contrast: 0.95 },
   neon: { skyTop: "#0d0b1f", skyHorizon: "#3a1f4f", sun: "#c49cff", ambientSky: "#3b2f6b", ambientGround: "#1d1830", roles: { lamp: "#ff5fb8", glass: "#56e0ff", accent: "#ff4f9a", wall: "#4a4a63", road: "#2e2d3c" } },
   papier: { skyTop: "#efe7d6", skyHorizon: "#f3ecdd", sun: "#fffaf0", ambientSky: "#d9d2c3", ambientGround: "#b9b0a0", chroma: 0.35 },
+  // couleurs relevées sur des photos de jour (valeurs et teintes naturelles, chroma modérée) : herbe et feuillage vert
+  // olive sombre, terre et pierre grises chaudes, tuiles terre cuite, enduit beige, ciel bleu profond qui pâlit à l'horizon
+  realiste: {
+    skyTop: "#4f86c6", skyHorizon: "#cfdbe6", sun: "#fff3df", ambientSky: "#9fbad8", ambientGround: "#6a6152", chroma: 0.95, contrast: 1.06,
+    roles: {
+      ground: "#6e5d47", grass: "#5b7a35", path: "#a08a68", road: "#55575a", stone: "#8f8a82", wall: "#cfc4b0", trim: "#b3a68f", roof: "#94503a",
+      wood: "#6f5137", bark: "#4b3d32", leaf: "#3f5f2a", leaf2: "#5c7633", flower: "#c9566a", water: "#355f73", metal: "#8c9096", glass: "#4d6678",
+      cloth1: "#5e6a7a", cloth2: "#3b3d44", cloth3: "#b9ab8f", leather: "#4a3426", hair: "#3b2a22", eyeWhite: "#ece8e1", snow: "#f1f3f5",
+    },
+  },
   abysses: { skyTop: "#0c2c3c", skyHorizon: "#2c6c7a", sun: "#bfeef0", ambientSky: "#2d6372", ambientGround: "#123540", chroma: 0.9, roles: { ground: "#5c7a6c", stone: "#5d7480", leaf: "#3f8a74", leaf2: "#6aa07a", flower: "#e08870" } },
 };
 
@@ -142,6 +152,9 @@ export const STYLE_PRESETS: Record<string, Partial<StyleTokens>> = {
   papier: { palette: "papier", shading: "toon", bands: 2, paper: 0.9, grain: 0.25, chroma: 0.4 },
   abysses: { palette: "abysses", fog: 1.4, fogHeight: 0.2, lightElevation: 70, shadowStrength: 0.4, rim: 0.5 },
   aquarelle: { shading: "soft", brush: 0.6, paper: 0.7, grain: 0.1, chroma: 0.8, texture: 0.9 },
+  // photoréaliste : palette naturelle, lumière continue (sans bandes ni coup de pinceau), ombres et occlusion franches,
+  // matières plus présentes, très peu de grain, brume légère d'atmosphère
+  realiste: { palette: "realiste", shading: "lit", brush: 0, bandSoftness: 0, grain: 0.04, texture: 0.85, ssao: 0.75, shadowStrength: 0.85, ao: 0.9, fog: 0.35, fogHeight: 0.25, rim: 0.12, vignette: 0.12, lightElevation: 42, detail: 1 },
 };
 
 /**
