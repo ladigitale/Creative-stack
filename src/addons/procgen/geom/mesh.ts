@@ -216,3 +216,24 @@ export class Mesh {
 }
 
 export const dirOf = m4Dir;
+
+/**
+ * Maillage terminé ramené à des tableaux typés à la taille exacte (attributs en `Float32Array` : la précision que
+ * reçoit la carte graphique ; rôles en octets, indices en entiers non signés). Environ trois fois moins de mémoire
+ * qu'en tableaux JavaScript agrandis au fil des `push`. Le maillage reste lisible (lectures indexées, `append` dans un
+ * autre maillage, `clone`), mais ne peut plus recevoir de sommets. Rend le même objet ; sans effet s'il l'est déjà.
+ */
+export function compactMesh(m: Mesh): Mesh {
+  const a = m as unknown as Record<string, ArrayLike<number> | null>;
+  if (a.pos instanceof Float32Array) return m;
+  const f32 = (k: string) => {
+    const v = a[k];
+    if (v && !(v instanceof Float32Array)) a[k] = Float32Array.from(v);
+  };
+  for (const k of ["pos", "nrm", "ao", "flex", "weight", "morph", "blend"]) f32(k);
+  if (!(a.role instanceof Uint8Array)) a.role = Uint8Array.from(a.role!);
+  if (!(a.obj instanceof Int32Array)) a.obj = Int32Array.from(a.obj!);
+  if (!(a.idx instanceof Uint32Array)) a.idx = Uint32Array.from(a.idx!);
+  if (a.skin && !(a.skin instanceof Uint16Array)) a.skin = Uint16Array.from(a.skin);
+  return m;
+}
