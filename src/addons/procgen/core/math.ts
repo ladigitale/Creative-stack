@@ -7,7 +7,8 @@
 
 export type V3 = [number, number, number];
 export type Q = [number, number, number, number];
-export type M4 = Float64Array;
+/** Matrice 4×4 colonne-major. Les tableaux simples évitent l'allocation d'un ArrayBuffer dans les chemins chauds (pose). */
+export type M4 = Float64Array | number[];
 
 export const v3 = (x = 0, y = 0, z = 0): V3 => [x, y, z];
 export const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -121,20 +122,22 @@ export function m4(): M4 {
 }
 /** Matrice translation · rotation · échelle. */
 export function m4Compose(p: V3, q: Q = [0, 0, 0, 1], s: V3 | number = 1): M4 {
-  const [sx, sy, sz] = typeof s === "number" ? [s, s, s] : s;
-  const [x, y, z, w] = q;
+  let sx: number, sy: number, sz: number;
+  if (typeof s === "number") sx = sy = sz = s;
+  else { sx = s[0]; sy = s[1]; sz = s[2]; }
+  const x = q[0], y = q[1], z = q[2], w = q[3];
   const x2 = x + x, y2 = y + y, z2 = z + z;
   const xx = x * x2, xy = x * y2, xz = x * z2, yy = y * y2, yz = y * z2, zz = z * z2;
   const wx = w * x2, wy = w * y2, wz = w * z2;
-  const m = new Float64Array(16);
-  m[0] = (1 - (yy + zz)) * sx; m[1] = (xy + wz) * sx; m[2] = (xz - wy) * sx;
-  m[4] = (xy - wz) * sy; m[5] = (1 - (xx + zz)) * sy; m[6] = (yz + wx) * sy;
-  m[8] = (xz + wy) * sz; m[9] = (yz - wx) * sz; m[10] = (1 - (xx + yy)) * sz;
-  m[12] = p[0]; m[13] = p[1]; m[14] = p[2]; m[15] = 1;
-  return m;
+  return [
+    (1 - (yy + zz)) * sx, (xy + wz) * sx, (xz - wy) * sx, 0,
+    (xy - wz) * sy, (1 - (xx + zz)) * sy, (yz + wx) * sy, 0,
+    (xz + wy) * sz, (yz - wx) * sz, (1 - (xx + yy)) * sz, 0,
+    p[0], p[1], p[2], 1,
+  ];
 }
 export function m4Mul(a: M4, b: M4): M4 {
-  const o = new Float64Array(16);
+  const o: number[] = new Array(16);
   for (let c = 0; c < 4; c++)
     for (let r = 0; r < 4; r++)
       o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];

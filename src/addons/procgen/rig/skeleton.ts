@@ -98,7 +98,18 @@ export class Skeleton {
 
   /** Matrices de skinning (monde de la pose · inverse du repos). */
   skinMatrices(world: M4[]): M4[] {
-    return world.map((w, i) => m4Mul(w, m4Compose(scale(this.bones[i].head, -1))));
+    // w · translation(−tête) : rotation inchangée, translation = w·(−tête) ; même ordre d'opérations que m4Mul.
+    return world.map((a, i) => {
+      const h = this.bones[i].head;
+      const hx = -h[0], hy = -h[1], hz = -h[2];
+      return [
+        a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11],
+        a[0] * hx + a[4] * hy + a[8] * hz + a[12] * 1,
+        a[1] * hx + a[5] * hy + a[9] * hz + a[13] * 1,
+        a[2] * hx + a[6] * hy + a[10] * hz + a[14] * 1,
+        a[3] * hx + a[7] * hy + a[11] * hz + a[15] * 1,
+      ];
+    });
   }
 
   /** Rotations monde (quaternions) issues des matrices monde. */
@@ -191,7 +202,7 @@ export function qFromBasis(a0: V3, f0: V3, a1: V3, f1: V3): Q {
   const [x0, y0, z0] = basis(a0, f0);
   const [x1, y1, z1] = basis(a1, f1);
   // R = B1 · B0^T, en matrice colonne-major
-  const m = new Float64Array(16);
+  const m: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   for (let r = 0; r < 3; r++)
     for (let c = 0; c < 3; c++) m[c * 4 + r] = x1[r] * x0[c] + y1[r] * y0[c] + z1[r] * z0[c];
   m[15] = 1;
