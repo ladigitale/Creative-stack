@@ -129,7 +129,29 @@ describe("locomotion", () => {
 });
 
 describe("fondu entre poses au changement d'action", () => {
-  it("la pose rejoint la nouvelle action sans saut, en ≈ 0,35 s", async () => {
+  it("un saut de la pose visée au milieu d'un geste est absorbé, un mouvement continu passe tel quel", async () => {
+    const { PoseBlend } = await import("./motion");
+    const bl = new PoseBlend();
+    const q = (a: number): [number, number, number, number] => [Math.sin(a / 2), 0, 0, Math.cos(a / 2)];
+    const angle = (r: number[]) => 2 * Math.atan2(r[0], r[3]);
+    // rotation continue (2 rad/s) : rendue exactement
+    let out = 0;
+    for (let i = 0; i < 30; i++) out = angle(bl.apply({ rot: { a: q(i * 2 / 60) }, root: [0, 0, 0] }, "k", 1 / 60).rot.a);
+    expect(out).toBeCloseTo(29 * 2 / 60, 6);
+    // saut de 1,2 rad d'une image à l'autre : aucune image ne bouge de plus de 0,15 rad
+    let prev = out, worst = 0;
+    for (let i = 30; i < 90; i++) {
+      const a = (i < 45 ? i * 2 / 60 : i * 2 / 60 + 1.2);
+      const o = angle(bl.apply({ rot: { a: q(a) }, root: [0, 0, 0] }, "k", 1 / 60).rot.a);
+      worst = Math.max(worst, Math.abs(o - prev));
+      prev = o;
+    }
+    expect(worst).toBeLessThan(0.15);
+    // et la cible est rejointe
+    expect(prev).toBeCloseTo(89 * 2 / 60 + 1.2, 2);
+  });
+
+  it("la pose rejoint la nouvelle action sans saut (inertialisation : ~94 % en 0,35 s)", async () => {
     const { PoseBlend } = await import("./motion");
     const qa: [number, number, number, number] = [0, 0, 0, 1];
     const qb: [number, number, number, number] = [Math.sin(0.5), 0, 0, Math.cos(0.5)]; // 57° autour de x
@@ -142,7 +164,10 @@ describe("fondu entre poses au changement d'action", () => {
     const f1 = bl.apply(pb, "wave", 1 / 60);
     expect(angle(f1.rot["upperarm.r"])).toBeLessThan(0.05);
     let last = f1;
-    for (let i = 0; i < 30; i++) last = bl.apply(pb, "wave", 1 / 60);
+    for (let i = 0; i < 21; i++) last = bl.apply(pb, "wave", 1 / 60);
+    // à 0,35 s : presque arrivé
+    expect(angle(last.rot["upperarm.r"])).toBeGreaterThan(0.9);
+    for (let i = 0; i < 40; i++) last = bl.apply(pb, "wave", 1 / 60);
     expect(angle(last.rot["upperarm.r"])).toBeCloseTo(1, 3);
     expect(last.root[1]).toBeCloseTo(0.1, 5);
   });

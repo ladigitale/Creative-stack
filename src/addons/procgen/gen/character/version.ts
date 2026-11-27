@@ -1,2 +1,2 @@
 // Fichier généré par scripts/build-procgen-version.mjs — ne pas modifier à la main.
-export const PROCGEN_BUILD_VERSION = "e9e5a63ab00df55d";
+export const PROCGEN_BUILD_VERSION = "3469d274e4a158f9";

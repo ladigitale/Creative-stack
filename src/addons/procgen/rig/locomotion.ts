@@ -136,34 +136,55 @@ function clearHead(sk: Skeleton, rot: Record<string, Q>, touch: boolean) {
     const ui = sk.index[`upperarm.${s}`], hand = sk.index[`hand.${s}`];
     if (ui === undefined || hand === undefined) continue;
     const hr = sk.bones[hand].radius[0] * (touch ? 0.5 : 1.3);
-    for (let it = 0; it < 10; it++) {
+    // petits pas nombreux : la correction suit un chemin continu (de grands pas bifurquent d'une image à l'autre)
+    for (let it = 0; it < 24; it++) {
       const W = sk.world({ rot, root: [0, 0, 0] });
       const c = scale(add(sk.headOf(W, "head"), sk.tailOf(W, "head")), 0.5);
       const pts = [sk.headOf(W, `forearm.${s}`), sk.headOf(W, `hand.${s}`), sk.tailOf(W, `hand.${s}`), scale(add(sk.headOf(W, `forearm.${s}`), sk.headOf(W, `hand.${s}`)), 0.5)];
-      let worst = 0, wp: V3 | null = null, from: V3 = c;
+      // chaque point qui entre dans un obstacle pousse le bras en proportion de son enfoncement (somme continue :
+      // pas de « pire point » qui change d'une image à l'autre, pas de pas minimal qui ferait sauter le bras)
+      const sh = sk.headOf(W, `upperarm.${s}`);
+      const total: V3 = [0, 0, 0];
+      let worst = 0;
+      const pushFrom = (p: V3, from: V3, pen: number) => {
+        if (pen <= 0) return;
+        worst = Math.max(worst, pen);
+        const arm = sub(p, sh), an = norm(arm);
+        // poussée prise perpendiculaire au bras ; quand elle s'aligne sur lui (bras tendu au-dessus de la tête), elle
+        // glisse progressivement vers l'extérieur du corps au lieu de pointer au hasard
+        // le bras est toujours repoussé de son côté : composante latérale de la poussée prise en valeur absolue (une
+        // main qui passe au-dessus du centre de la tête ne fait plus basculer le bras d'un côté à l'autre)
+        const p0 = norm(sub(p, from));
+        const push: V3 = [(s === "l" ? 1 : -1) * Math.abs(p0[0]), p0[1], p0[2]];
+        const pp = sub(push, scale(an, dot(push, an)));
+        const out0: V3 = [s === "l" ? 1 : -1, 0, 0];
+        const op = sub(out0, scale(an, dot(out0, an)));
+        const wP = smoothstep(0.15, 0.45, len(pp));
+        const dir = add(scale(len(pp) > 1e-9 ? norm(pp) : op, wP), scale(len(op) > 1e-9 ? norm(op) : [0, 0, 1], 1 - wP));
+        const ax = cross(an, dir);
+        const la = len(ax);
+        if (la < 1e-6) return;
+        const k = Math.min(0.06, pen / Math.max(1e-3, len(arm)));
+        total[0] += (ax[0] / la) * k;
+        total[1] += (ax[1] / la) * k;
+        total[2] += (ax[2] / la) * k;
+      };
       for (const p of pts) {
-        const pen = R + hr - len(sub(p, c));
-        if (pen > worst) (worst = pen), (wp = p), (from = c);
+        pushFrom(p, c, R + hr - len(sub(p, c)));
         for (const t of ["l", "r"]) {
           if (sk.index[`thigh.${t}`] === undefined) continue;
           const a = sk.headOf(W, `thigh.${t}`), b = sk.tailOf(W, `thigh.${t}`);
           const ab = sub(b, a);
           const u = Math.max(0, Math.min(1, dot(sub(p, a), ab) / Math.max(1e-9, dot(ab, ab))));
           const q = add(a, scale(ab, u));
-          const pen2 = thighR(t) + hr * 0.6 - len(sub(p, q));
-          if (pen2 > worst) (worst = pen2), (wp = p), (from = q);
+          pushFrom(p, q, thighR(t) + hr * 0.6 - len(sub(p, q)));
         }
       }
-      if (!wp || worst < 1e-4) break;
-      const sh = sk.headOf(W, `upperarm.${s}`);
-      // rotation à l'épaule qui éloigne le point fautif de l'obstacle (axe ⟂ bras et poussée)
-      const arm = sub(wp, sh), push = norm(sub(wp, from));
-      let ax = cross(arm, push);
-      if (len(ax) < 1e-6) ax = [0, 0, 1];
-      const ang = Math.min(0.25, worst / Math.max(1e-3, len(arm)) + 0.01);
+      const ang = Math.min(0.06, len(total));
+      if (worst < 1e-4 || ang < 1e-6) break;
       const Wq = sk.worldQuats(W);
       const parent = Wq[sk.parentIdx[ui]];
-      const axL = qRot(qConj(parent), norm(ax));
+      const axL = qRot(qConj(parent), norm(total));
       rot[`upperarm.${s}`] = qMul(qAxis(axL, ang), rot[`upperarm.${s}`] ?? qId());
     }
   }
@@ -257,7 +278,12 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     const lu = len(u0);
     const mid = sub([-sg, 0, 0], scale(d, -sg * d[0]));
     const mm = len(mid) > 1e-4 ? norm(mid) : ([0, 0, 1] as V3);
-    const fwd = len(f0) > 0.15 ? norm(f0) : lu > 1e-4 ? scale(u0, 1 / lu) : mm;
+    // repli progressif (et non par seuil) quand le bras s'aligne sur l'avant : le coude ne bascule jamais d'un coup
+    const lf = len(f0);
+    const fb = lu > 1e-4 ? scale(u0, 1 / lu) : mm;
+    const wF = smoothstep(0.05, 0.3, lf);
+    const fm = add(scale(lf > 1e-6 ? scale(f0, 1 / lf) : fb, wF), scale(fb, 1 - wF));
+    const fwd = len(fm) > 1e-4 ? norm(fm) : mm;
     const e = smoothstep(-0.5, 0.3, d[1]);
     let bb = add(scale(fwd, 1 - e), scale(u0, e * 2));
     bb = add(bb, scale(mm, e * Math.max(0, 1 - lu * 2.5)));
@@ -538,24 +564,36 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       stance = { l: [0.05, 0, 0], r: [-0.05, 0, 0] };
       stanceDrop = leg * (0.02 + 0.045 * (1 - bounce));
       const sw = Math.sin(beat * Math.PI);
-      if (move === 0) {
-        // bras pliés qui balancent en opposition
-        aimArm(over, "l", 25 + 25 * sw, 18, 95, 30);
-        aimArm(over, "r", 25 - 25 * sw, 18, 95, 30);
-      } else if (move === 1) {
-        // bras levés qui ondulent d'un côté à l'autre
-        for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) aimDir(over, s2, [sg2 * 0.45 + 0.35 * sw, 1, 0.25], 25, 0, 10);
-      } else if (move === 2) {
-        // disco : le bras droit pointe en haut puis traverse en bas, l'autre main sur la hanche
-        aimDir(over, "r", side > 0 ? [-0.55, 0.85, 0.3] : [0.35, -0.6, 0.6], 6, 0, 0);
-        aimArm(over, "l", 10, 35, 105, -40);
-      } else {
-        // épaules qui roulent, avant-bras devant
-        aimArm(over, "l", 40, 14, 100, 35);
-        aimArm(over, "r", 40, 14, 100, 35);
-        over["clavicle.l"] = qAxis([0, 0, 1], 9 * Math.max(0, sw) * DEG);
-        over["clavicle.r"] = qAxis([0, 0, 1], 9 * Math.min(0, sw) * DEG);
-      }
+      // enchaînements de bras : chacun écrit dans sa propre table ; sur le dernier temps d'une phrase de 8, la figure
+      // suivante se fond dans la courante (aucun saut de bras au changement de figure)
+      const arms = (mv: number): Record<string, Q> => {
+        const o: Record<string, Q> = {};
+        if (mv === 0) {
+          // bras pliés qui balancent en opposition
+          aimArm(o, "l", 25 + 25 * sw, 18, 95, 30);
+          aimArm(o, "r", 25 - 25 * sw, 18, 95, 30);
+        } else if (mv === 1) {
+          // bras levés qui ondulent d'un côté à l'autre
+          for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) aimDir(o, s2, [sg2 * 0.45 + 0.35 * sw, 1, 0.25], 25, 0, 10);
+        } else if (mv === 2) {
+          // disco : le bras droit monte en haut puis traverse en bas, en va-et-vient continu ; l'autre main sur la hanche
+          const u = 0.5 - 0.5 * Math.cos(beat * Math.PI);
+          const up: V3 = [-0.55, 0.85, 0.3], down: V3 = [0.35, -0.6, 0.6];
+          aimDir(o, "r", [down[0] + (up[0] - down[0]) * u, down[1] + (up[1] - down[1]) * u, down[2] + (up[2] - down[2]) * u], 6, 0, 0);
+          aimArm(o, "l", 10, 35, 105, -40);
+        } else {
+          // épaules qui roulent, avant-bras devant
+          aimArm(o, "l", 40, 14, 100, 35);
+          aimArm(o, "r", 40, 14, 100, 35);
+          o["clavicle.l"] = qAxis([0, 0, 1], 9 * Math.max(0, sw) * DEG);
+          o["clavicle.r"] = qAxis([0, 0, 1], 9 * Math.min(0, sw) * DEG);
+        }
+        return o;
+      };
+      const cur = arms(move);
+      const fade = smoothstep(7, 8, beat % 8);
+      const next = fade > 0 ? arms((move + 1) % 4) : null;
+      for (const n of new Set([...Object.keys(cur), ...Object.keys(next ?? {})])) over[n] = next ? qSlerp(cur[n] ?? qId(), next[n] ?? qId(), fade) : cur[n];
       over.spine = qEuler(0, 10 * side * bounce * DEG, 6 * sw * DEG);
       over.chest = qEuler(-3 * DEG, -6 * sw * DEG, -4 * sw * DEG);
       over.head = qEuler((6 * bounce - 3) * DEG, 8 * sw * DEG, 5 * sw * DEG);
@@ -1050,7 +1088,13 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       const ankleTarget = toWorld([f.p[0], f.p[1] + info.ankleY + (f.pitch > 0 ? Math.sin(f.pitch * DEG) * info.footLen * 0.55 : 0), f.p[2]]);
       const fwd = toWorld([0, 0, 1]);
       const pole = sub(fwd, rootPos);
-      const sitPole: V3 = sit > 0 ? add(pole, [0, sit * 0.7, 0]) : pole;
+      // jambe levée devant (coup de pied, enjambée haute) : la direction du genou passe progressivement de l'avant au
+      // haut, sinon le repère du genou dégénère quand la jambe s'aligne sur l'avant (la jambe pivoterait d'un demi-tour)
+      const ld = norm(sub(ankleTarget, hip));
+      const pn = norm(pole);
+      const fwdUp = smoothstep(0.25, 0.8, dot(pn, ld));
+      const pole2: V3 = fwdUp > 0 ? add(scale(pn, 1 - fwdUp), [0, fwdUp, 0]) : pole;
+      const sitPole: V3 = sit > 0 ? add(pole2, [0, sit * 0.7, 0]) : pole2;
       const ik = twoBoneIK(hip, ankleTarget, info.thigh, info.shin, norm(sitPole));
       worst = Math.min(worst, ik.reach);
       // abaissement juste suffisant pour que la jambe atteigne sa cible presque tendue (genou jamais verrouillé)

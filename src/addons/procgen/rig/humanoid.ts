@@ -160,7 +160,7 @@ export function buildHumanoid(P: Proportions): Skeleton {
     const elbow = madd(shoulder, arm, P.upperArm);
     const wrist = madd(elbow, fore, P.foreArm);
     const handTip = madd(wrist, fore, P.handLen);
-    add_({ name: `upperarm.${s}`, parent: `clavicle.${s}`, head: shoulder, tail: elbow, radius: [r(0.031), r(0.027)], swing: 120, twist: [-90, 90] });
+    add_({ name: `upperarm.${s}`, parent: `clavicle.${s}`, head: shoulder, tail: elbow, radius: [r(0.031), r(0.027)], swing: 145, twist: [-90, 90], cone: [sx * 0.55, -0.25, 0.8] });
     add_({ name: `forearm.${s}`, parent: `upperarm.${s}`, head: elbow, tail: wrist, radius: [r(0.029), r(0.017)], swing: 150, twist: [-80, 80] });
     add_({ name: `hand.${s}`, parent: `forearm.${s}`, head: wrist, tail: handTip, radius: [r(0.024) * P.hand, r(0.02) * P.hand], swing: 75, twist: [-20, 20] });
     const hip: V3 = [sx * P.hipHalf * 0.8, P.hipY - H * 0.012, 0];
@@ -172,7 +172,7 @@ export function buildHumanoid(P: Proportions): Skeleton {
     // articulations des orteils posées assez haut pour que la semelle (rayon + épaisseur de chaussure) reste au sol
     const ball: V3 = [ankle[0], Math.max(H * 0.018, r(0.026) * footR + H * 0.009), ankle[2] + P.footLen * 0.62];
     const toe: V3 = [ankle[0], Math.max(H * 0.016, r(0.022) * footR + H * 0.009), ankle[2] + P.footLen * 0.85];
-    add_({ name: `thigh.${s}`, parent: "pelvis", head: hip, tail: knee, radius: [r(0.062), r(0.045)], swing: 120, twist: [-40, 40] });
+    add_({ name: `thigh.${s}`, parent: "pelvis", head: hip, tail: knee, radius: [r(0.062), r(0.045)], swing: 130, twist: [-40, 40], cone: [sx * 0.15, -0.55, 0.82] });
     add_({ name: `shin.${s}`, parent: `thigh.${s}`, head: knee, tail: ankleG, radius: [r(0.042), r(0.028)], swing: 150, twist: [-10, 10] });
     add_({ name: `foot.${s}`, parent: `shin.${s}`, head: ankleG, tail: ball, radius: [r(0.03) * footR, r(0.03) * footR], swing: 50, twist: [-15, 15] });
     add_({ name: `toe.${s}`, parent: `foot.${s}`, head: ball, tail: toe, radius: [r(0.026) * footR, r(0.022) * footR], swing: 60, twist: [-5, 5] });

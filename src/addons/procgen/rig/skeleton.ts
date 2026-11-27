@@ -8,7 +8,7 @@
  *
  * Contraintes en swing-twist : un cône autour de l'axe de l'os (`swing`, en degrés) et une plage de torsion (`twist`).
  */
-import { type M4, type Q, type V3, DEG, clamp, dot, m4Compose, m4Mul, m4Point, m4Quat, norm, qAxis, qConj, qId, qMul, qNorm, qRot, scale, sub, len } from "../core/math";
+import { type M4, type Q, type V3, DEG, clamp, cross, dot, qFromTo, m4Compose, m4Mul, m4Point, m4Quat, norm, qAxis, qConj, qId, qMul, qNorm, qRot, scale, sub, len } from "../core/math";
 
 export type BoneDef = {
   name: string;
@@ -23,6 +23,12 @@ export type BoneDef = {
   swing?: number;
   /** Torsion autorisée autour de l'axe de l'os (°) [min, max]. */
   twist?: [number, number];
+  /**
+   * Centre du cône de swing (direction de l'os, repère de repos) ; absent = l'axe de repos. Une épaule ou une hanche
+   * dont le cône est centré devant-côté garde son seul point singulier (la direction opposée) derrière le corps, où
+   * aucun geste ne va : un bras levé au-dessus de la tête reste stable.
+   */
+  cone?: V3;
 };
 
 export type Pose = {
@@ -60,6 +66,7 @@ export class Skeleton {
     this.children = out.map(() => []);
     this.parentIdx.forEach((p, i) => p >= 0 && this.children[p].push(i));
     this.axis = out.map((b) => norm(sub(b.tail, b.head)));
+    this.coneAxis = out.map((b, i) => (b.cone ? norm(b.cone) : this.axis[i]));
     this.length = out.map((b) => len(sub(b.tail, b.head)));
   }
 
@@ -128,31 +135,52 @@ export class Skeleton {
   }
 
   /** Applique les contraintes swing-twist à une rotation locale. */
-  limit(i: number, q: Q): Q {
+  /**
+   * Rotation locale bornée : direction de l'os ramenée dans le cône de swing (centre `cone`, demi-angle `swing`),
+   * torsion autour de l'os bornée. La torsion se mesure le long du chemin repos → centre du cône → direction : il n'est
+   * singulier qu'à l'opposé du centre du cône. Continu partout ailleurs (plus de bras ou de jambe qui bascule d'un
+   * coup quand le geste passe près d'un demi-tour).
+   */
+  limit(i: number, q0: Q): Q {
     const b = this.bones[i];
-    if (b.swing === undefined && !b.twist) return q;
-    const ax = this.axis[i];
-    // décomposition swing-twist autour de l'axe de l'os
-    const pr = dot([q[0], q[1], q[2]], ax);
-    let twist: Q = qNorm([ax[0] * pr, ax[1] * pr, ax[2] * pr, q[3]]);
-    if (twist[3] < 0) twist = [-twist[0], -twist[1], -twist[2], -twist[3]];
-    let swing = qMul(q, qConj(twist));
-    if (b.twist) {
-      const ang = 2 * Math.atan2(dot([twist[0], twist[1], twist[2]], ax), twist[3]) / DEG;
-      const c = clamp(ang, b.twist[0], b.twist[1]);
-      if (c !== ang) twist = qAxis(ax, c * DEG);
-    }
+    if (b.swing === undefined && !b.twist) return q0;
+    const q: Q = q0[3] < 0 ? [-q0[0], -q0[1], -q0[2], -q0[3]] : q0;
+    const ax = this.axis[i], c = this.coneAxis[i];
+    const d = qRot(q, ax);
+    const toC = qFromTo(ax, c);
+    // référence : repos → centre du cône → direction voulue (amène l'axe sur `d`)
+    const ref = qMul(qFromTo(c, d), toC);
+    let tw = qMul(qConj(ref), q);
+    if (tw[3] < 0) tw = [-tw[0], -tw[1], -tw[2], -tw[3]];
+    let dd = d;
+    let changed = false;
     if (b.swing !== undefined) {
-      const w = clamp(swing[3], -1, 1);
-      const ang = (2 * Math.acos(Math.abs(w))) / DEG;
+      const cosA = clamp(dot(c, d), -1, 1);
+      const ang = Math.acos(cosA) / DEG;
       if (ang > b.swing) {
-        const axis: V3 = [swing[0], swing[1], swing[2]];
-        swing = qAxis(len(axis) > 1e-9 ? axis : [1, 0, 0], Math.sign(w || 1) * b.swing * DEG);
+        let k = cross(c, d);
+        if (len(k) < 1e-9) k = Math.abs(c[0]) < 0.9 ? cross(c, [1, 0, 0]) : cross(c, [0, 1, 0]);
+        dd = qRot(qAxis(norm(k), b.swing * DEG), c);
+        changed = true;
       }
     }
-    return qNorm(qMul(swing, twist));
+    if (b.twist) {
+      const ang = (2 * Math.atan2(dot([tw[0], tw[1], tw[2]], ax), tw[3])) / DEG;
+      // au-delà d'une borne, la torsion revient vers 0 en approchant le demi-tour (même valeur à +180° et −180°) :
+      // une torsion demandée qui franchit le demi-tour ne fait plus sauter l'os d'une borne à l'autre
+      const [lo, hi] = b.twist;
+      const cl = ang > hi ? (hi * (180 - ang)) / Math.max(1e-6, 180 - hi) : ang < lo ? (lo * (180 + ang)) / Math.max(1e-6, 180 + lo) : ang;
+      if (cl !== ang) {
+        tw = qAxis(ax, cl * DEG);
+        changed = true;
+      }
+    }
+    if (!changed) return q0;
+    const ref2 = dd === d ? ref : qMul(qFromTo(c, dd), toC);
+    return qNorm(qMul(ref2, tw));
   }
 
+  private coneAxis: V3[];
   /** Rotation monde → rotation locale de l'os `i`, connaissant la rotation monde du parent. */
   static toLocal(parentWorld: Q, world: Q): Q {
     return qNorm(qMul(qConj(parentWorld), world));
