@@ -3,6 +3,7 @@ import { set, get } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./index";
 import { policyAllows, deviceError, describeElement } from "../../shared/device/base";
 import { parsePattern, safeShareUrl } from "./index";
+import { pastedImage } from "./clipboard";
 import type { SonicFullscreen } from "./fullscreen";
 import type { SonicPointerLock } from "./pointer-lock";
 import type { SonicWakeLock } from "./wake-lock";
@@ -657,6 +658,103 @@ describe("sonic-clipboard", () => {
     expect(el.getState().status).toBe("denied");
     stub(navigator, "clipboard", val(undefined));
     expect(await el.run("copy")).toBe(false);
+    expect(el.getState().status).toBe("unsupported");
+  });
+});
+
+// ─── sonic-clipboard : images ────────────────────────────────────────────────────────────────────────────────────
+describe("sonic-clipboard (images)", () => {
+  const png = () => new Blob(["png"], { type: "image/png" });
+  beforeEach(() => {
+    stub(globalThis, "createImageBitmap", val(vi.fn(async () => ({ width: 320, height: 200, close() {} }))));
+    stub(URL, "createObjectURL", val(vi.fn(() => "blob:test/1")));
+    stub(URL, "revokeObjectURL", val(vi.fn()));
+  });
+
+  it("pastedImage : le fichier image du collage, rien pour du texte", () => {
+    const file = new File(["x"], "capture.png", { type: "image/png" });
+    expect(pastedImage({ files: [file], items: [] } as unknown as DataTransfer)).toBe(file);
+    expect(pastedImage({ files: [], items: [{ kind: "file", type: "image/jpeg", getAsFile: () => file }] } as unknown as DataTransfer)).toBe(file);
+    expect(pastedImage({ files: [new File(["x"], "a.txt", { type: "text/plain" })], items: [{ kind: "string", type: "text/plain" }] } as unknown as DataTransfer)).toBeNull();
+    expect(pastedImage(null)).toBeNull();
+  });
+
+  it("paste : l'image collée est publiée dans ref-provider et annoncée au store", async () => {
+    const actions: unknown[] = [];
+    document.body.insertAdjacentHTML("beforeend", `<sonic-store id="uiColle" initial='{"n":0}' reducer="$state"></sonic-store>`);
+    document.addEventListener("sonic-clipboard-image", (e) => actions.push((e as CustomEvent).detail), { once: true });
+    const el = await mount<SonicClipboard>(`<sonic-clipboard id="cbi1" paste ref-provider="colle.image" target="uiColle" payload='{"from":"clip"}'></sonic-clipboard>`, "sonic-clipboard");
+    const ev = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, "clipboardData", { value: { files: [new File(["x"], "c.png", { type: "image/png" })], items: [] } });
+    document.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(el.getState().images).toBe(1));
+    expect(el.getState().image).toEqual({ mime: "image/png", size: 1, width: 320, height: 200 });
+    expect(get("colle.image")).toMatchObject({ url: "blob:test/1", mime: "image/png", width: 320, height: 200 });
+    expect(actions).toEqual([{ mime: "image/png", size: 1, width: 320, height: 200 }]);
+  });
+
+  it("sans l'attribut paste, ou sans image, le collage est laissé au navigateur", async () => {
+    const off = await mount<SonicClipboard>(`<sonic-clipboard id="cbi2"></sonic-clipboard>`, "sonic-clipboard");
+    const ev = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, "clipboardData", { value: { files: [new File(["x"], "c.png", { type: "image/png" })], items: [] } });
+    document.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(off.getState().images).toBe(0);
+    off.remove();
+    await mount<SonicClipboard>(`<sonic-clipboard id="cbi3" paste></sonic-clipboard>`, "sonic-clipboard");
+    const text = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(text, "clipboardData", { value: { files: [], items: [{ kind: "string", type: "text/plain" }] } });
+    document.dispatchEvent(text);
+    expect(text.defaultPrevented).toBe(false);
+  });
+
+  it("readImage : lit l'image sur commande ; rien d'utilisable = erreur", async () => {
+    stub(navigator, "clipboard", val({ read: vi.fn(async () => [{ types: ["text/plain", "image/png"], getType: async () => png() }]) }));
+    const el = await mount<SonicClipboard>(`<sonic-clipboard id="cbi4"></sonic-clipboard>`, "sonic-clipboard");
+    expect(await el.run("readImage")).toBe(true);
+    expect(el.getState().images).toBe(1);
+    (navigator.clipboard.read as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ types: ["text/plain"], getType: async () => new Blob(["t"]) }]);
+    expect(await el.run("readImage")).toBe(false);
+    expect(el.getState().error).toContain("pas d'image");
+  });
+
+  it("copyImage : copie l'image de file-from en PNG ; wait attend le prochain média", async () => {
+    const written: Record<string, unknown>[] = [];
+    class Item { constructor(public items: Record<string, unknown>) {} }
+    stub(globalThis, "ClipboardItem", val(Item));
+    stub(navigator, "clipboard", val({ write: vi.fn(async (items: Item[]) => { for (const it of items) written.push({ png: await it.items["image/png"] }); }) }));
+    stub(globalThis, "fetch", val(vi.fn(async () => ({ blob: async () => png() }))));
+    set("exp.last", { url: "blob:test/a", mime: "image/png" });
+    const el = await mount<SonicClipboard>(`<button id="cpi">copier</button><sonic-clipboard id="cbi5" file-from="exp.last"></sonic-clipboard>`, "sonic-clipboard");
+    expect(await el.run("copy")).toBe(true);
+    expect(written).toHaveLength(1);
+    expect((written[0].png as Blob).type).toBe("image/png");
+    expect(el.getState().imagesCopied).toBe(1);
+    expect(fetch).toHaveBeenLastCalledWith("blob:test/a");
+
+    el.wait = true;
+    await el.updateComplete;
+    const pending = el.run("copyImage");
+    await wait(5);
+    expect(written).toHaveLength(1);
+    expect(el.getState().status).toBe("requesting");
+    set("exp.last", { url: "blob:test/b", mime: "image/png" });
+    expect(await pending).toBe(true);
+    expect(fetch).toHaveBeenLastCalledWith("blob:test/b");
+    expect(el.getState().imagesCopied).toBe(2);
+  });
+
+  it("copyImage : rien à copier, URL non blob: refusée, API absente", async () => {
+    stub(globalThis, "ClipboardItem", val(class { constructor(public items: unknown) {} }));
+    stub(navigator, "clipboard", val({ write: vi.fn(async () => undefined) }));
+    set("exp2.last", { url: "https://exemple.org/a.png", mime: "image/png" });
+    const el = await mount<SonicClipboard>(`<sonic-clipboard id="cbi6" file-from="exp2.last"></sonic-clipboard>`, "sonic-clipboard");
+    expect(await el.run("copyImage")).toBe(false);
+    expect(el.getState().error).toContain("rien à copier");
+    expect(navigator.clipboard.write).not.toHaveBeenCalled();
+    stub(globalThis, "ClipboardItem", val(undefined));
+    expect(await el.run("copyImage")).toBe(false);
     expect(el.getState().status).toBe("unsupported");
   });
 });

@@ -14,7 +14,8 @@
 | `color` `size` `hardness` `opacity` | Couleur CSS, diamètre (1 à 512), bord net (0 flou, 1 net), opacité de chaque empreinte |
 | `spacing` | Écart entre empreintes, en fraction du diamètre (0,12) |
 | `smoothing` | Lissage du tracé, 0 à 0,95 : plus haut, plus stable et plus en retard |
-| `tool` | `paint`, `erase` (gomme : rend transparent) ou `pick` (pipette, voir plus bas) |
+| `tool` | `paint`, `erase` (gomme : rend transparent), `pick` (pipette, voir plus bas) ou une forme : `line`, `arrow`, `rect`, `ellipse`, `text`, `badge`, `pixelate` (voir « Annoter une image ») |
+| `text` `fill` | Texte de l'outil `text` ; `rect` et `ellipse` pleins |
 | `pressure` | La pression du stylet module le diamètre (par défaut oui) |
 | `tip` | Pointe personnalisée : un chemin SVG `d` (étoile, feuille, tampon…), dessinée à la taille du pinceau et nette à toute taille. Vide : disque doux |
 | `tip-from` | DP d'une forme utilisée comme pointe : chaîne `d`, `{ d }` ou une forme de `sonic-vector-library` (choisir une forme change le pinceau) |
@@ -28,6 +29,7 @@
 | `stamp-from` | Sources d'images fondues dans la toile à la commande `stamp` (sélecteurs `#id` séparés par des virgules, du dessous vers le dessus) : voir « Calques » |
 | `view-sync` | Toile navigable : DP de vue partagée `{ x, y, zoom, rotation }`, lu et écrit (voir « Calques ») |
 | `in-data-provider` | Image de départ (`SonicMediaRef`, par exemple une photo de `sonic-file-open`) : dessinée à la place de la toile |
+| `size-from-image` | L'image de départ donne sa taille à la toile (réduite au besoin à 4096 px de côté) ; annulation et pastilles repartent de zéro |
 | `undo-levels` | Étapes d'annulation gardées (20 par défaut, 0 pour aucune) |
 | `readonly` | Ne peint plus (affichage seul) |
 | `hidden-preview` | Toile invisible : elle ne sert que de source d'images |
@@ -35,6 +37,25 @@
 État : `{ status, error, width, height, strokes, drawing, canUndo, canRedo, tool, color, picked, size, last }`. `save` enregistre un PNG dans `last` (`{ url blob:, mime, width, height, size }`) : brancher `sonic-media-download source="peintureState.last"`.
 
 Les variations aléatoires sont tirées d'une graine par trait : un trait se dessine de la même façon à chaque fois.
+
+## Annoter une image
+
+Les outils de forme se tirent du point d'appui au point courant ; la forme suit le pointeur puis se fond dans les pixels au lever (une étape d'annulation). Ils prennent la couleur, l'épaisseur (`size`) et l'opacité du pinceau, par attributs ou par `brush-from`.
+
+| `tool` | Forme |
+|---|---|
+| `line` `arrow` | Trait droit ; flèche dont la pointe est au point de lever |
+| `rect` `ellipse` | Contour, ou forme pleine avec `fill` |
+| `text` | Le texte de `text` (ou `brush-from.text`), posé au point, avec un liseré contrasté ; caractères de 4 × `size` |
+| `badge` | Pastille numérotée : 1, 2, 3… (l'état publie `badge`, le prochain numéro ; annuler rend le numéro) |
+| `pixelate` | Zone pixellisée, pour masquer une information |
+
+Un clic sans glisser ne dessine rien pour les formes tirées. Capture d'écran collée, annotée, puis téléchargée ou recopiée :
+
+```json
+{ "tagName": "sonic-clipboard", "attributes": { "id": "pp", "paste": "", "ref-provider": "capture.image", "file-from": "toileState.last", "wait": "", "for": "copier" } }
+{ "tagName": "sonic-paint", "attributes": { "id": "toile", "navigable": "", "size-from-image": "", "in-data-provider": "capture.image", "brush-from": "pinceau", "control": "toileCtl", "out-data-provider": "toileState" } }
+```
 
 ## Toile navigable (`navigable`)
 
