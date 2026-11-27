@@ -252,7 +252,7 @@ function buildDynamic(k: Kit, hf: HeadField, crowd: boolean, asym: number, pose:
     else {
       // rentrée : aplatie et enfoncée derrière l'arcade (rien ne dépasse de la peau)
       lid.transform(m4Compose([0, 0, 0], [0, 0, 0, 1], [0.85, 0.6, 0.4]));
-      add_(Ts(lid, [0, eh * 0.95, -eyeR * (toon ? 0.85 : 0.5)]), ctr[1]);
+      add_(Ts(lid, [0, eh * 0.95, -eyeR * (toon ? 1.3 : 0.5)]), ctr[1]);
     }
     // ligne de cils : arc le long du bord supérieur, plus épais vers l'extérieur
     if (!(arch === "chibi" && shape === "round")) {
