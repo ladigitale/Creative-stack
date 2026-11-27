@@ -4,6 +4,7 @@
  * graine. Listes génériques (racines toponymiques, noms de famille très répandus) : aucune marque, aucune personne.
  */
 import type { Rng } from "./rng";
+import { PROP_FONTS, SIGN_FONTS, pickFont } from "../fonts/index";
 
 const ROOTS = ["Beau", "Bel", "Mont", "Roche", "Fon", "Clair", "Mar", "Lan", "Pont", "Val", "Bois", "Champ", "Bourg", "Ver", "Mor", "Bran", "Cour", "Pré", "Lou", "Bel-Air", "Haut", "Ros", "Cha", "Gué", "Mai", "Ker", "Ville", "Lor", "Sar"];
 const SUFFIXES = ["ac", "ville", "court", "y", "ières", "ange", "heim", "mont", "val", "fort", "lieu", "bourg", "ière", "ay", "oux", "eilles", "agne", "is", "on", "ain"];
@@ -112,4 +113,15 @@ export function propText(kind: string, v: unknown, rng: Rng, variant = 0): strin
       return resolveText(t, () => String(rng.fork("borne").int(1, 40)));
   }
   return "";
+}
+
+/** Police de l'enseigne d'une boutique : donnée, ou tirée selon le style du bâtiment. */
+export function signFont(p: Record<string, unknown>, rng: Rng): string {
+  const st = String(p.style ?? "bourg");
+  return pickFont(p.font, SIGN_FONTS[st] ?? SIGN_FONTS.bourg, (l) => rng.fork("police").pick(l));
+}
+
+/** Police d'un objet de décor qui écrit. */
+export function propFont(kind: string, p: unknown, rng: Rng): string {
+  return pickFont(p, PROP_FONTS[kind] ?? [], (l) => rng.fork("police").pick(l));
 }

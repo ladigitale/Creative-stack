@@ -9,7 +9,7 @@
 import { DEG } from "../core/math";
 import { Rng } from "../core/rng";
 import { ROLES } from "../style/roles";
-import { signText } from "../core/names";
+import { signFont, signText } from "../core/names";
 
 export type WinKind = "rect" | "arch" | "segment" | "mullion" | "lancet" | "wide" | "shoji";
 export type RoofMat = "tuile" | "ardoise" | "chaume" | "zinc" | "lauze" | "kawara";
@@ -65,6 +65,8 @@ export type Plan = {
   shop: boolean;
   /** Texte de l'enseigne (boutique), vide si aucune. */
   sign: string;
+  /** Police de l'enseigne. */
+  signFont: string;
   annexes: Annex[];
   /** Tirages des édifices singuliers. */
   tilt: number;
@@ -185,7 +187,7 @@ export function buildPlan(p: Record<string, unknown>, rngIn: Rng): Plan {
   const bays = Number(p.bays ?? 3);
   let bayWs: number[] = [], fhs: number[] = [], W = 0, D = Number(p.depth ?? 7), plinth = 0.5, jet = 0, doorBay = 0, margin = 0.35;
   let roofKind = "gable";
-  const plan = { st, singular, modern, bays, floors, look, shop: !!p.shop || st === "boutique", sign: !!p.shop || st === "boutique" ? signText(p, rngIn) : "", annexes: [] as Annex[], tilt: 0, round: false, R: 3, crenel: false, keeper: 1 } as Plan;
+  const plan = { st, singular, modern, bays, floors, look, shop: !!p.shop || st === "boutique", sign: !!p.shop || st === "boutique" ? signText(p, rngIn) : "", signFont: signFont(p, rngIn), annexes: [] as Annex[], tilt: 0, round: false, R: 3, crenel: false, keeper: 1 } as Plan;
   if (singular) {
     const r = rng.fork("singular");
     if (st === "moulin") plan.tilt = r.range(0, 45) * DEG;

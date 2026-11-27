@@ -443,11 +443,11 @@ function openings(c: Ctx, m: Affine, front: boolean, tone: number) {
   if (front && plan.sign && plan.shop && st !== "chapelle") {
     if (plan.floors >= 2) {
       const paint = st === "neon" ? "lamp" : plan.modern ? "metal" : c.rng.fork("lettres").pick(["ink", "ink", "accent", "metal"]);
-      drawText(c.kit, m, plan.sign, { cx: 0, cy: plan.floorY(1) + 0.42, height: 0.42, maxW: plan.W - 1.2, maxH: 0.52, weight: 0.1 }, paint);
+      drawText(c.kit, m, plan.sign, { cx: 0, cy: plan.floorY(1) + 0.42, height: 0.42, maxW: plan.W - 1.2, maxH: 0.52, weight: 0.1, font: plan.signFont }, paint);
     } else if (bands.length) {
       // un seul niveau : le bandeau passe sous l'avancée du toit, l'enseigne est peinte en haut de la vitrine
       const bd = bands.reduce((a, b) => (Math.abs(b.u) < Math.abs(a.u) ? b : a));
-      drawText(c.kit, m, plan.sign, { cx: bd.u, cy: bd.y - 1.22, height: 0.2, maxW: bd.w - 0.4, maxH: 0.36, weight: 0.11 }, "paper");
+      drawText(c.kit, m, plan.sign, { cx: bd.u, cy: bd.y - 1.22, height: 0.2, maxW: bd.w - 0.4, maxH: 0.36, weight: 0.11, font: plan.signFont }, "paper");
     }
   }
   const em = c.kit.em;

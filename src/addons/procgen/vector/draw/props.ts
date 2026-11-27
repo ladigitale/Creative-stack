@@ -8,7 +8,7 @@ import type { Kit } from "./kit";
 import type { DrawCtx, ObjectDrawer } from "./types";
 import { MORE_PROPS } from "./more";
 import { drawText } from "./text";
-import { propText } from "../../core/names";
+import { propFont, propText } from "../../core/names";
 
 type M = [number, number, number, number, number, number];
 
@@ -264,7 +264,7 @@ const PROPS: Record<string, (kit: Kit, size: number, variant: number, ctx: DrawC
       em.add(pen, "paper", { tone: 0, width: 0.6 });
       const label = (dest[i] ?? "").trim();
       if (label || p?.text !== undefined) {
-        drawText(kit, m, label, { cx: dir * 0.3, cy: y, height: 0.12, maxW: 0.74, maxH: 0.16 }, "ink");
+        drawText(kit, m, label, { cx: dir * 0.3, cy: y, height: 0.12, maxW: 0.74, maxH: 0.16, font: propFont("signpost", p?.font, ctx.rng) }, "ink");
         continue;
       }
       // lettrage peint : mots de longueurs variées, capitale plus haute

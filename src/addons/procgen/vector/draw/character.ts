@@ -1325,7 +1325,8 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       };
       const maxW = shoulderHalf * 1.25;
       const printText = (m: Affine, text: string, b: TextBox, paint: string) => {
-        const pen = textPen(m, b.maxW && b.maxH ? balanceLines(text, b.maxW / b.maxH, b.weight) : text, { leading: 1.35, ...b });
+        const font = p.printFont ? String(p.printFont) : undefined;
+        const pen = textPen(m, b.maxW && b.maxH ? balanceLines(text, b.maxW / b.maxH, b.weight, font) : text, { leading: 1.35, font, ...b });
         if (pen) em.add(pen, paint, { stroke: null });
       };
       if (facing > 0.35 && over !== "apron" && over !== "armor") {

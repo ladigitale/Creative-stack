@@ -6,6 +6,7 @@
  */
 
 export type P2 = [number, number];
+import { type OutlineFont, getFont, getIcon } from "../fonts/index";
 type Glyph = { w: number; p: P2[][] };
 
 const D = Math.PI / 180;
@@ -100,8 +101,14 @@ export function normalizeText(s: string): string {
 }
 
 export type TextLayout = {
-  /** Polylignes, hauteur de capitale 1, centrées horizontalement ; la ligne du haut a sa ligne de base en y = 0. */
+  /** Traits de la police à traits (demi-épaisseur = `weight`), hauteur de capitale 1, centrés horizontalement ; la
+   * ligne du haut a sa ligne de base en y = 0. */
   polys: P2[][];
+  /** Contours pleins d'une police (`font`), à orienter par `orientRings` (trous compris). */
+  fills: P2[][];
+  /** Traits des icônes `{nom}` (demi-épaisseur `iconHW`). */
+  icons: P2[][];
+  iconHW: number;
   /** Largeur de la plus longue ligne (hauteur de capitale = 1). */
   width: number;
   /** Hauteur totale des lignes (capitales seules). */
@@ -110,51 +117,106 @@ export type TextLayout = {
 };
 
 export type LayoutOptions = {
-  /** Interlettrage en hauteurs de capitale (défaut 0,22 + graisse). */
+  /** Interlettrage en hauteurs de capitale (défaut 0,22 + graisse ; 0 pour une police à contours). */
   tracking?: number;
   /** Graisse : demi-épaisseur du trait en hauteurs de capitale (sert à l'interlettrage). */
   weight?: number;
-  /** Interligne (défaut 1,5). */
+  /** Interligne (défaut 1,5 ; 1,4 pour une police à contours). */
   leading?: number;
   /** Alignement des lignes. */
   align?: "center" | "left" | "right";
+  /** Police (`fonts/index.ts`) ; absente, inconnue ou pas chargée : police à traits de procgen. */
+  font?: string;
 };
 
+/** Taille d'une icône (hauteurs de capitale), décalage sous la ligne de base, marge de chaque côté. */
+const ICON = { size: 1.2, drop: 0.1, gap: 0.14 };
+const ICON_RE = /(\{[a-z0-9-]+\})/;
+
+/** Caractère tracé par une police à contours (base sans accent ou capitale en repli), ou null. */
+function fontChar(font: OutlineFont, ch: string): string | null {
+  if (font.has(ch)) return ch;
+  const base = ch.normalize("NFD")[0];
+  if (font.has(base)) return base;
+  const lig = LIGATURES[ch];
+  if (lig && [...lig].every((c) => font.has(c))) return lig;
+  const up = ch.toUpperCase();
+  return font.has(up) ? up : null;
+}
+
 /**
- * Mise en page : glyphes enchaînés, lignes séparées par `\n`. Les coordonnées sont en hauteurs de capitale (1 = une
- * capitale). Tout le texte tient dans x ∈ [−width/2, width/2], y ∈ [−height + 1, 1] (ligne de base du bas en
- * y = −(lines − 1)·leading).
+ * Mise en page : glyphes enchaînés, lignes séparées par `\n`, icônes `{nom}` dans le texte. Les coordonnées sont en
+ * hauteurs de capitale (1 = une capitale). Tout le texte tient dans x ∈ [−width/2, width/2] ; ligne de base du bas
+ * en y = −(lines − 1)·leading.
  */
 export function layoutText(text: string, o: LayoutOptions = {}): TextLayout {
+  const font = o.font && o.font !== "procgen" ? getFont(o.font) : null;
   const wgt = o.weight ?? 0.09;
   const track = (o.tracking ?? 0.22 + wgt * 2) * 6;
-  const leading = o.leading ?? 1.5;
-  const lines = normalizeText(text).split("\n");
-  const polys: P2[][] = [];
+  const ftrack = o.tracking ?? 0;
+  const leading = o.leading ?? (font ? 1.4 : 1.5);
+  const lines = String(text ?? "").split("\n");
+  const polys: P2[][] = [], fills: P2[][] = [], icons: P2[][] = [];
+  let iconHW = 0;
   let width = 0;
+  type Item = { kind: 0 | 1 | 2; pts: P2[] };
   const laid = lines.map((line) => {
-    const out: P2[][] = [];
+    const out: Item[] = [];
     let x = 0;
-    let first = true;
-    let lastGlyph: { x: number; w: number } | null = null;
-    for (const ch of [...line.normalize("NFD")]) {
-      if (ch === " ") {
-        x += 2.4 + track * 0.5;
+    for (const part of line.split(ICON_RE)) {
+      if (!part) continue;
+      const ic = part.match(/^\{([a-z0-9-]+)\}$/);
+      if (ic) {
+        const g = getIcon(ic[1]);
+        if (!g) continue;
+        iconHW = g.hw * ICON.size;
+        x += x > 0 ? ICON.gap : 0;
+        for (const l of g.lines) out.push({ kind: 2, pts: l.map(([a, b]) => [x + a * ICON.size, b * ICON.size - ICON.drop] as P2) });
+        x += ICON.size + ICON.gap;
         continue;
       }
-      const mark = MARKS[ch];
-      if (mark) {
-        const prev: { x: number; w: number } | null = lastGlyph;
-        if (prev) for (const pl of mark(prev.x + prev.w / 2, prev.w)) out.push(pl);
+      if (font) {
+        let prev = "";
+        for (const c0 of part) {
+          const ch = fontChar(font, c0);
+          if (!ch) continue;
+          for (const c of ch) {
+            const g = font.glyph(c);
+            if (!g) continue;
+            if (prev) x += font.kern(prev, c) + ftrack;
+            for (const r of g.rings) out.push({ kind: 1, pts: r.map(([a, b]) => [a + x, b] as P2) });
+            x += g.adv;
+            prev = c;
+          }
+        }
         continue;
       }
-      const g = G[ch];
-      if (!g) continue;
-      if (!first) x += track;
-      first = false;
-      for (const pl of g.p) out.push(pl.map(([a, b]) => [a + x, b] as P2));
-      lastGlyph = { x, w: g.w };
-      x += g.w;
+      // police à traits (unités de grille : 6 = une capitale)
+      let gx = 0;
+      let first = true;
+      let lastGlyph: { x: number; w: number } | null = null;
+      const seg: P2[][] = [];
+      for (const ch of [...normalizeText(part).normalize("NFD")]) {
+        if (ch === " ") {
+          gx += 2.4 + track * 0.5;
+          continue;
+        }
+        const mark = MARKS[ch];
+        if (mark) {
+          const prevG: { x: number; w: number } | null = lastGlyph;
+          if (prevG) for (const pl of mark(prevG.x + prevG.w / 2, prevG.w)) seg.push(pl);
+          continue;
+        }
+        const g = G[ch];
+        if (!g) continue;
+        if (!first) gx += track;
+        first = false;
+        for (const pl of g.p) seg.push(pl.map(([a, b]) => [a + gx, b] as P2));
+        lastGlyph = { x: gx, w: g.w };
+        gx += g.w;
+      }
+      for (const pl of seg) out.push({ kind: 0, pts: pl.map(([a, b]) => [x + a / 6, b / 6] as P2) });
+      x += gx / 6;
     }
     width = Math.max(width, x);
     return { out, w: x };
@@ -162,10 +224,10 @@ export function layoutText(text: string, o: LayoutOptions = {}): TextLayout {
   const align = o.align ?? "center";
   laid.forEach(({ out, w }, li) => {
     const dx = align === "left" ? -width / 2 : align === "right" ? width / 2 - w : -w / 2;
-    const dy = -li * leading * 6;
-    for (const pl of out) polys.push(pl.map(([a, b]) => [(a + dx) / 6, (b + dy) / 6] as P2));
+    const dy = -li * leading;
+    for (const it of out) (it.kind === 0 ? polys : it.kind === 1 ? fills : icons).push(it.pts.map(([a, b]) => [a + dx, b + dy] as P2));
   });
-  return { polys, width: width / 6, height: 1 + (lines.length - 1) * leading, lines: lines.length };
+  return { polys, fills, icons, iconHW, width, height: 1 + (lines.length - 1) * leading, lines: lines.length };
 }
 
 /** Distance d'un point au tracé (segments), sans la demi-épaisseur. Boîte englobante pour sortir vite. */
@@ -208,9 +270,9 @@ export class StrokeField {
  * Texte d'une seule ligne trop allongé pour sa zone (largeur / hauteur `aspect`) : coupé en deux au blanc le plus
  * central, ce qui permet des lettres plus grandes. Les mots très courts ne restent pas seuls sur une ligne.
  */
-export function balanceLines(text: string, aspect: number, weight = 0.1): string {
+export function balanceLines(text: string, aspect: number, weight = 0.1, font?: string): string {
   if (text.includes("\n") || !text.includes(" ")) return text;
-  const lay = layoutText(text, { weight });
+  const lay = layoutText(text, { weight, font });
   if (lay.width / Math.max(1e-6, aspect) <= 1.6) return text;
   const mid = text.length / 2;
   let best = -1;

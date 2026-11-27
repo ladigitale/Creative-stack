@@ -1,6 +1,7 @@
 /** Banc visuel procgen (sans Concorde) : ?scene=…&style=…&camera=…&seed=…&t=… → rendu, puis window.__ready. */
 import { composeScene } from "../src/addons/procgen/scene/compose";
 import { SCENES } from "../src/addons/procgen/scene/library";
+import { loadTextAssetsFor } from "../src/addons/procgen/fonts/index";
 import { resolveStyle } from "../src/addons/procgen/style/style";
 import { ProcgenView } from "../src/addons/procgen/render/view";
 import { footballRecipe, parseFootball } from "../src/addons/procgen/scene/football";
@@ -8,6 +9,7 @@ import { footballRecipe, parseFootball } from "../src/addons/procgen/scene/footb
 const q = new URLSearchParams(location.search);
 const name = q.get("scene") ?? "village";
 const recipe = q.get("football") ? footballRecipe(parseFootball(JSON.parse(q.get("football")!))) : q.get("recipe") ? JSON.parse(q.get("recipe")!) : SCENES[name];
+await loadTextAssetsFor(recipe);
 const t0 = performance.now();
 const model = composeScene({ recipe, seed: q.get("seed") ?? 1 });
 const ms = performance.now() - t0;

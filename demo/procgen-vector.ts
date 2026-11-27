@@ -4,12 +4,14 @@
  * → rendu, puis `window.__ready` et `window.__stats`.
  */
 import { SCENES } from "../src/addons/procgen/scene/library";
+import { loadTextAssetsFor } from "../src/addons/procgen/fonts/index";
 import { composeVector } from "../src/addons/procgen/vector/compose";
 import { VectorView } from "../src/addons/procgen/vector/view";
 
 const q = new URLSearchParams(location.search);
 const name = q.get("scene") ?? "village";
 const recipe = q.get("recipe") ? JSON.parse(q.get("recipe")!) : SCENES[name];
+await loadTextAssetsFor(recipe);
 const t0 = performance.now();
 const model = composeVector({ recipe, seed: q.get("seed") ?? 1, params: q.get("params") ? JSON.parse(q.get("params")!) : undefined });
 const ms = performance.now() - t0;

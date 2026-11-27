@@ -8,6 +8,7 @@
 import type { Rng } from "../../core/rng";
 import { normalizeText } from "../../core/font";
 import { playerName } from "../../core/names";
+import { SHIRT_NUMBER_FONTS, SHIRT_TEXT_FONTS, pickFont } from "../../fonts/index";
 import { TOOL_KINDS } from "../tool";
 import { type AnimalSpec, ANIMAL_NAMES, animalKey, matchAnimal, resolveAnimal } from "./animal";
 import type { Issues } from "../../core/schema";
@@ -121,6 +122,8 @@ export type Look = {
   printName?: string;
   /** Numéro au dos (et petit numéro sur le devant), absent si aucun. */
   printNumber?: string;
+  /** Police des textes imprimés (`fonts/index.ts`), absente : police à traits de procgen. */
+  printFont?: string;
 };
 
 type W = Record<string, number>;
@@ -408,14 +411,18 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
 }
 
 /** Textes imprimés sur le haut : `shirtText` (devant), `shirtName` (dos ; « auto » = nom généré), `shirtNumber`. */
-function prints(pp: LookInput, rng: Rng, top: string): Pick<Look, "printFront" | "printName" | "printNumber"> {
+function prints(pp: LookInput, rng: Rng, top: string): Pick<Look, "printFront" | "printName" | "printNumber" | "printFont"> {
   if (top === "none") return {};
   const str = (k: string) => (pp[k] == null ? "" : String(pp[k]).trim());
-  const front = normalizeText(str("shirtText").replace(/\\n/g, "\n")).slice(0, 48);
+  const font = pickFont(pp.shirtFont, str("shirtText") ? SHIRT_TEXT_FONTS : SHIRT_NUMBER_FONTS, (l) => rng.fork("auto/shirtFont").pick(l));
+  // police à contours : casse et signes gardés (la mise en page écarte ce qu'elle ne sait pas tracer)
+  const clean = (t: string) => (font === "procgen" ? normalizeText(t) : t.replace(/[\u0000-\u0009\u000b-\u001f]/g, ""));
+  const front = clean(str("shirtText").replace(/\\n/g, "\n")).slice(0, 48);
   const nm = str("shirtName");
-  const name = normalizeText(nm === "auto" ? playerName(rng.fork("auto/shirtName")) : nm).replace(/\n/g, " ").slice(0, 16);
-  const num = normalizeText(str("shirtNumber")).replace(/\s/g, "").slice(0, 3);
-  return { ...(front.trim() ? { printFront: front } : {}), ...(name.trim() ? { printName: name.trim() } : {}), ...(num ? { printNumber: num } : {}) };
+  const name = clean(nm === "auto" ? playerName(rng.fork("auto/shirtName")).toUpperCase() : nm).replace(/\n/g, " ").slice(0, 16);
+  const num = clean(str("shirtNumber")).replace(/\s/g, "").slice(0, 3);
+  const any = front.trim() || name.trim() || num;
+  return { ...(front.trim() ? { printFront: front } : {}), ...(name.trim() ? { printName: name.trim() } : {}), ...(num ? { printNumber: num } : {}), ...(any && font !== "procgen" ? { printFont: font } : {}) };
 }
 
 /** Couleurs propres du personnage (rôle → #rrggbb), cohérentes avec la carnation et l'âge. */

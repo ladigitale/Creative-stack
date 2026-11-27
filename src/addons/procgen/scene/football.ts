@@ -1636,6 +1636,7 @@ export function footballRecipe(spec: FootballSpec): Record<string, unknown> {
           // nom au dos (généré par la graine du joueur), numéro au dos et sur la poitrine
           shirtName: "auto",
           shirtNumber: String(i + 1),
+          shirtFont: "bebas",
           colors: { top: gk ? t.keeper : t.shirt, bottom: t.shorts, detail: t.pattern === "plain" ? t.socks : t.shorts, leather: "#1a1a1a" },
         },
       };

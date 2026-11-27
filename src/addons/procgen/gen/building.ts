@@ -18,7 +18,8 @@ import type { Rng } from "../core/rng";
 import { Mesh } from "../geom/mesh";
 import { box, cylinder, ellipsoid, extrude, lathe, ngon } from "../geom/prims";
 import { ROLE } from "../style/roles";
-import { TRADES, signText } from "../core/names";
+import { TRADES, signFont, signText } from "../core/names";
+import { FONT_IDS } from "../fonts/index";
 import { textMesh } from "../geom/text";
 import { type Anchor, defineGenerator } from "./types";
 import { type JointSpec, MAX_JOINTS, buildJoints, jointLocal, jointPoint } from "./joints";
@@ -129,6 +130,7 @@ export const building = defineGenerator({
     shop: { type: "bool", default: false, doc: "Vitrine au rez-de-chaussée" },
     sign: { type: "string", default: "auto", doc: "Enseigne d'une boutique (vitrine ou style boutique), en lettres en relief au-dessus de la devanture : texte libre (`\\n` = retour à la ligne), « auto » = nom généré selon le métier et la graine, « none » = aucune" },
     trade: { type: "enum", default: "auto", options: ["auto", ...TRADES], doc: "Métier de la boutique (nom généré de l'enseigne)" },
+    font: { type: "enum", default: "auto", options: ["auto", ...FONT_IDS], doc: "Police de l'enseigne (auto : selon le style, ex. fraktur pour un château, pacifico pour le néon ; procgen = police à traits)" },
     balconies: { type: "number", default: 0.2, min: 0, max: 1, doc: "Probabilité de balcon par fenêtre d'étage" },
     shutters: { type: "number", default: 0.6, min: 0, max: 1, doc: "Probabilité de volets" },
     ornament: { type: "number", default: -1, min: -1, max: 1, doc: "Richesse du décor (modillons, clés, pilastres, jardinières) ; −1 = selon la graine" },
@@ -444,17 +446,18 @@ export const building = defineGenerator({
       // ---- enseignes, néons, tuyauteries
       if (shopFront) {
         const text = signText(p, rng);
+        const font = signFont(p, rng);
         if (text) {
           const tr = rng.fork("lettres");
           if (floors >= 2) {
             // lettres en relief sur le mur, entre la devanture et les fenêtres de l'étage
             const role = st === "neon" ? ROLE.lamp : modern ? ROLE.metal : tr.pick([ROLE.ink, ROLE.ink, ROLE.accent, look.trim === ROLE.trim ? ROLE.metal : look.trim]);
-            const t = textMesh(text, { height: 0.42, maxWidth: W - 1.2, maxHeight: 0.52, role, depth: 0.05, back: false, weight: 0.1 });
+            const t = textMesh(text, { height: 0.42, maxWidth: W - 1.2, maxHeight: 0.52, role, depth: 0.05, back: false, weight: 0.1, font });
             add(t.mesh, at(front, 0, floorY(1) + 0.16 + t.height / 2, jet + 0.02));
           } else if (shopBands.length) {
             // une seule devanture : sur le bandeau d'enseigne le plus central
             const bd = shopBands.reduce((a, b) => (Math.abs(b.u) < Math.abs(a.u) ? b : a));
-            const t = textMesh(text, { height: 0.17, maxWidth: bd.w - 0.6, maxHeight: 0.2, role: bd.role === ROLE.paper ? ROLE.ink : ROLE.paper, depth: 0.012, back: false, weight: 0.11 });
+            const t = textMesh(text, { height: 0.17, maxWidth: bd.w - 0.6, maxHeight: 0.2, role: bd.role === ROLE.paper ? ROLE.ink : ROLE.paper, depth: 0.012, back: false, weight: 0.11, font });
             add(t.mesh, at(front, bd.u, bd.y, 0.23));
           }
         }
