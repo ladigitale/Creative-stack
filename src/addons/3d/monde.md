@@ -520,7 +520,9 @@ payload: {emitter, count}}` avec `events: ["expire"]`. La sortie (`out-data-prov
 et `emitters` (`{<id>: {alive, emitted, dropped, expired, ms, near?}}`, 10 fois par seconde au plus) ; l'événement DOM
 `monde-hit` porte les mêmes touches. Les copies n'apparaissent jamais dans `nodes`.
 
-`trail` (système de particules semé par chaque copie) et `burst` (salve au point d'impact) relient un émetteur aux par## Particules : feu, fumée, étincelles, pluie
+`trail` (système de particules semé par chaque copie) et `burst` (salve au point d'impact) relient un émetteur aux particules. Pas encore : les modèles `gen` (procgen) émis, le tap sur une copie.
+
+## Particules : feu, fumée, étincelles, pluie
 
 `particles` projette de la matière, de la fumée ou de la lumière : purement visuel (ni contact ni événement), un appel
 de dessin par système en 3D (mouvement calculé par le GPU) et un dessin par système en 2D. `vent` (`[x, y, z]`, m/s)
@@ -536,6 +538,19 @@ pousse les systèmes qui y sont sensibles (`wind`).
 }
 ```
 
+**Usages** (`mode`) : trois façons de faire naître les grains, à choisir selon l'effet, pas seulement selon le débit.
+
+| `mode` | Pour | Naissances |
+|---|---|---|
+| `salve` (`burst`) | explosion, impact, éclaboussure, étincelles | tous les grains d'un coup, sur ordre (`fx`, `burst` d'un émetteur, `then`) ; opacité pleine dès la naissance |
+| `flux` (`stream`) | fumée de cheminée, vapeur, feu, braises | en continu à la source (`rate` par seconde) ; chaque grain monte en opacité au lieu de surgir |
+| `nappe` (`ambient`) | brouillard au sol, brume, pluie, neige, feuilles qui tombent | population déjà en place au démarrage (âges répartis sur la vie, comme si le système tournait depuis longtemps), grains qui entrent et sortent en fondu, système entier qui s'installe en `appear` secondes |
+
+Sans `mode`, celui du préréglage (`brume`, `pluie`, `neige`, `feuilles` : `nappe`), sinon `flux` si `rate` > 0 et
+`salve` sinon. Une salve n'émet pas en continu (`rate` 0 sauf s'il est écrit) ; un flux ou une nappe sans `rate`
+reçoit de quoi garder le tampon aux quatre cinquièmes. Un système de flux ou de nappe accepte aussi des salves (`fx`).
+Pour une brume, garder une opacité constante (`[0.2, 0.2]`) : les fondus s'occupent de l'entrée et de la sortie.
+
 Préréglages (un jeu de valeurs par défaut, toute clé écrite le remplace) : feu, lumière (`feu`, `etincelles`, `braise`,
 `lueur`, `eclair`, `magie`), gaz (`fumee`, `vapeur`, `brume`, `poussiere`), liquide (`eclaboussure`, `gouttes`,
 `bulles`, `pluie`), solide (`debris`, `eclats`, `feuilles`, `neige`, `confettis`).
@@ -545,6 +560,7 @@ Préréglages (un jeu de valeurs par défaut, toute clé écrite le remplace) : 
 | `from`, `offset`, `at` | Source : instance suivie (le système la suit, `offset` dans son repère), sinon point |
 | `shape`, `extent` | Forme de naissance : `point`, `sphere`, `box`, `ring` ; rayon ou demi-côtés |
 | `dir`, `spread`, `speed` | Direction, écart (degrés), vitesse `[min, max]` |
+| `mode`, `fade`, `appear` | Usage (`salve`, `flux`, `nappe`, voir plus haut) ; fondus d'entrée et de sortie de chaque grain en fraction de sa vie (`[0.3, 0.35]`, 0,5 au plus ; par défaut `[0.08, 0]` en flux, `[0.25, 0.25]` en nappe, aucun en salve) ; montée du système entier à son démarrage (s ; 2 par défaut en nappe) |
 | `rate`, `burst`, `life`, `max` | Naissances par seconde, grains d'une salve, durée de vie `[min, max]`, grains au plus (4 000 par système, 16 000 en tout) |
 | `gravity`, `rise`, `drag`, `turbulence`, `wind` | Chute, poussée vers le haut, frottement, remous, sensibilité au vent |
 | `size`, `color`, `opacity` | Taille `[début, fin]` (m), rampe de 1 à 4 couleurs, opacité `[début, fin]` |
@@ -556,8 +572,6 @@ Préréglages (un jeu de valeurs par défaut, toute clé écrite le remplace) : 
 **Salves** (clé `fx` du DataProvider) : `{"fx": {"boum": {"n": 3, "at": [3, 0, 2], "scale": 1.5, "color": "#66ccff"}}}`,
 une salve à chaque hausse de `n` (`count` : nombre de grains). Un système à `rate` > 0 émet en continu à sa source.
 La scène doit tourner (`play` en 3D). En style `toon`, les grains ont un bord net.
-
-ticules. Pas encore : les modèles `gen` (procgen) émis, le tap sur une copie.
 
 ## Monde infini
 

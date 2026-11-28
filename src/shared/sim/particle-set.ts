@@ -113,6 +113,8 @@ export class ParticleSet {
       const s = sys.spec;
       if (s.rate > 0 && !this.trailed.has(s.id)) {
         const src = this.source(s);
+        // nappe : population déjà en place au premier pas, plutôt qu'une vague de naissances simultanées
+        if (s.mode === "nappe" && !sys.filled) sys.prefill(sys.steady(), this.now, src.at, src.yaw);
         sys.continuous(dt, this.now, src.at, src.yaw);
       }
       if (sys.pending.length) {

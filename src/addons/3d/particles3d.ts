@@ -5,7 +5,7 @@
 import * as THREE from "three";
 import type { Monde } from "../../shared/monde/format";
 import { ParticleSet } from "../../shared/sim/particle-set";
-import { createParticleMesh, disposeParticleMesh, particleQuad, uploadParticles, type ParticleMesh } from "../../shared/sim/particles-gl";
+import { createParticleMesh, disposeParticleMesh, particleQuad, tickParticleMesh, uploadParticles, type ParticleMesh } from "../../shared/sim/particles-gl";
 
 type Drawn = ParticleMesh;
 
@@ -27,7 +27,7 @@ export class ParticleLayer extends ParticleSet {
     const hard = m.look === "toon" ? 1 : 0;
     this.drawn = this.systems.map((sys) => {
       const d = createParticleMesh(sys, this.quad, { hard: hard > 0, vent: this.vent });
-      d.mat.uniforms.uNow.value = this.now;
+      tickParticleMesh(d, this.now);
       this.group.add(d.mesh);
       return d;
     });
@@ -45,7 +45,7 @@ export class ParticleLayer extends ParticleSet {
     this.step(dt);
     for (const d of this.drawn) {
       uploadParticles(d);
-      d.mat.uniforms.uNow.value = this.now;
+      tickParticleMesh(d, this.now);
     }
     this.placeLights();
     return this.active;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accelOf, ParticleSystem, positionAt, readParticles, type V3 } from "./particles";
+import { accelOf, opacityAt, ParticleSystem, positionAt, readParticles, type V3 } from "./particles";
 import { ParticleSet } from "./particle-set";
 import { readMonde } from "../monde/format";
 
@@ -86,5 +86,50 @@ describe("systèmes d'un monde", () => {
     expect(sys.spawned).toBeGreaterThan(30);
     expect(Math.abs(sys.p0[0] - 3)).toBeLessThan(0.5);
     expect(set.active).toBe(true);
+  });
+});
+
+describe("usages : salve, flux, nappe", () => {
+  it("mode déduit : préréglage, débit, ou donné (alias anglais)", () => {
+    expect(one({ preset: "etincelles" }).s.mode).toBe("salve");
+    expect(one({ preset: "fumee" }).s.mode).toBe("flux");
+    expect(one({ preset: "brume" }).s.mode).toBe("nappe");
+    expect(one({ rate: 5 }).s.mode).toBe("flux");
+    expect(one({ preset: "fumee", mode: "burst" }).s).toMatchObject({ mode: "salve", rate: 0 });
+    const n = one({ mode: "ambient", max: 80, life: [4, 6] }).s;
+    expect(n.mode).toBe("nappe");
+    expect(n.rate).toBeGreaterThan(0);
+    expect(one({ mode: "pschitt" }).issues.some((i) => i.path === "particles.p.mode")).toBe(true);
+  });
+  it("fondus : une fumée monte en opacité, une brume entre et sort en douceur, une salve part pleine", () => {
+    const fumee = one({ preset: "fumee" }).s;
+    expect(opacityAt(fumee, 0)).toBe(0);
+    expect(opacityAt(fumee, 0.2)).toBeGreaterThan(0.35);
+    const brume = one({ preset: "brume" }).s;
+    expect(opacityAt(brume, 0)).toBe(0);
+    expect(opacityAt(brume, 1)).toBe(0);
+    expect(opacityAt(brume, 0.5)).toBeCloseTo(0.2, 5);
+    const salve = one({ preset: "eclats" }).s;
+    expect(opacityAt(salve, 0)).toBe(1);
+  });
+  it("nappe préremplie : population établie dès le premier pas, âges répartis, système qui s'installe en fondu", () => {
+    const set = new ParticleSet();
+    set.set(readMonde({ particles: { b: { preset: "brume", rate: 6 } } }));
+    set.step(1 / 60);
+    const sys = set.systems[0];
+    const now = set.now;
+    const ages = [...sys.born].filter((b) => b > -1e8).map((b) => now - b);
+    expect(ages.length).toBeGreaterThan(30);
+    // pas de vague : les âges couvrent la vie (6 à 10 s), pas tous nés à l'instant
+    expect(Math.max(...ages)).toBeGreaterThan(4);
+    expect(ages.filter((a) => a < 0.5).length).toBeLessThan(ages.length / 4);
+    expect(sys.presence(now)).toBeLessThan(0.05);
+    expect(sys.presence(now + 3)).toBeCloseTo(1, 5);
+  });
+  it("flux : une image très longue ne lâche pas une rafale", () => {
+    const { s } = one({ preset: "fumee", max: 200 });
+    const sys = new ParticleSystem(s);
+    sys.continuous(5, 5, [0, 0, 0]);
+    expect(sys.spawned).toBeLessThanOrEqual(Math.ceil(s.rate * 0.25));
   });
 });

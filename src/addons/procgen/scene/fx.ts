@@ -25,7 +25,7 @@ export const FX_ALIASES: Record<string, string> = {
 const EXTRA: Record<string, Record<string, unknown>> = {
   embruns: { preset: "vapeur", rate: 16, life: [1, 2.2], speed: [0.5, 1.2], spread: 70, rise: 0.25, drag: 1.2, turbulence: 0.4, size: [0.18, 0.9], color: ["#ffffff", "#d8ecf6"], opacity: [0.5, 0], shape: "box", extent: [0.4, 0.05, 0.15] },
   petales: { preset: "feuilles", color: ["#fbcfe8", "#f9a8d4", "#fff1f2"], size: [0.06, 0.06], gravity: 0.35 },
-  poussieres: { preset: "brume", rate: 10, life: [5, 9], speed: [0.05, 0.2], size: [0.035, 0.035], color: ["#fff4d6"], opacity: [0, 0.7], sprite: "disque", blend: "add", turbulence: 0.5, wind: 0.5, extent: [8, 1.2, 8], offset: [0, 1.4, 0] },
+  poussieres: { preset: "brume", rate: 10, life: [5, 9], speed: [0.05, 0.2], size: [0.035, 0.035], color: ["#fff4d6"], opacity: [0.6, 0.6], fade: [0.3, 0.3], sprite: "disque", blend: "add", turbulence: 0.5, wind: 0.5, extent: [8, 1.2, 8], offset: [0, 1.4, 0] },
 };
 
 const WEATHER = ["rain", "snow", "leaves", "petals", "none"] as const;
@@ -178,7 +178,7 @@ export function planFx(input: FxInput, model: Pick<SceneModel, "objects" | "size
   // ---- brume au sol et poussière en suspension sur toute la scène
   const area = Math.max(1, model.size[0] * model.size[1]);
   const mi = effect(f.mist, "brume");
-  if (mi) plans.push({ id: "mist", raw: { extent: [model.size[0] / 2, 0.3, model.size[1] / 2], offset: [0, 0.4, 0], size: [3, 6.5], opacity: [0.16, 0], ...mi.raw }, src: { kind: "area" }, nSrc: 1, weight: (mi.intensity * area) / 144 });
+  if (mi) plans.push({ id: "mist", raw: { extent: [model.size[0] / 2, 0.3, model.size[1] / 2], offset: [0, 0.4, 0], size: [3, 6.5], opacity: [0.16, 0.16], ...mi.raw }, src: { kind: "area" }, nSrc: 1, weight: (mi.intensity * area) / 144 });
   const du = effect(f.dust ?? f.motes, "poussieres");
   if (du) plans.push({ id: "dust", raw: du.raw, src: { kind: "view" }, nSrc: 1, weight: du.intensity * 0.015 });
   // ---- effets attachés aux objets d'un calque
@@ -425,7 +425,14 @@ export class SceneFx {
         spec.extent = [ex, spec.extent[1], ez];
         rate = Math.min(spec.rate * ((4 * ex * ez) / Math.max(1, s.area)), (spec.max / Math.max(0.1, spec.life[1])) * 0.95);
       }
-      s.acc += dt * rate;
+      if (spec.mode === "nappe" && !s.sys.filled) {
+        // nappe : grains déjà en place, âges répartis sur leur vie, partagés entre les sources
+        const total = s.sys.steady(rate);
+        s.sys.filled = true;
+        pts.forEach((p) => s.sys.prefill(total / pts.length, this.now, p));
+      }
+      // une image très longue (onglet repris) ne lâche pas d'un coup tout ce qui aurait dû naître
+      s.acc += Math.min(dt, 0.25) * rate;
       let n = Math.floor(s.acc);
       if (n <= 0) continue;
       s.acc -= n;
