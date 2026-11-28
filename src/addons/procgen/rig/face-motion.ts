@@ -34,6 +34,7 @@ export function handPose(action: string, t: number): Record<string, number> {
     case "fightkick":
     case "hang":
     case "climb":
+    case "ski":
       return { "fist.l": 1, "fist.r": 1 };
     case "sword":
       return { "fist.l": 0.6, "fist.r": 1 };

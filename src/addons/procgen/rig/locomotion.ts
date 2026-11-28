@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qFromTo, qMul, qRot, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header", "dive", "cook", "chop"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header", "dive", "cook", "chop", "ski"] as const;
 /** Poses à bord (posées par la conduite, pas des ordres d'acteur) : mains au volant, à califourchon, à la rame. */
 export const RIDE_ACTIONS = ["drive", "ride", "row"] as const;
 export type Action = (typeof ACTIONS)[number] | (typeof RIDE_ACTIONS)[number];
@@ -248,7 +248,8 @@ function clearHead(sk: Skeleton, rot: Record<string, Q>, touch: boolean) {
 export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootPos: V3 = [0, 0, 0], rootYaw = 0): { pose: Pose; feet: { l: V3; r: V3 } } {
   const m = MOOD[st.mood] ?? MOOD.neutral;
   const leg = info.thigh + info.shin;
-  const v = Math.max(0, st.speed);
+  // ski : on glisse, les jambes ne font pas de pas (pieds parallèles portés par le corps)
+  const v = st.action === "ski" ? 0 : Math.max(0, st.speed);
   const vn = v / leg;
   const moving = smoothstep(0.03, 0.35, v);
   const run = smoothstep(1.6, 2.6, vn);
@@ -281,7 +282,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const pelvisRoll = 4 * DEG * Math.sin(TAU * phi * 2 + Math.PI / 2) * moving * (1 - run * 0.5);
   // contrapposto au repos : le poids passe d'une jambe à l'autre toutes les 7 à 12 s (maintien, puis bascule
   // lente) ; bassin décalé au-dessus de la jambe d'appui, hanche libre qui descend, épaules en sens inverse
-  const still = (1 - moving) * (["sit", "sleep", "drive", "ride", "row", "jump", "kick", "bow"].includes(st.action) ? 1 - clamp(st.actionWeight, 0, 1) : 1);
+  const still = (1 - moving) * (["sit", "sleep", "drive", "ride", "row", "jump", "kick", "bow", "ski"].includes(st.action) ? 1 - clamp(st.actionWeight, 0, 1) : 1);
   const ws = still * Math.tanh(2.6 * Math.sin((t * TAU) / (7 + rnd(4) * 5) + rnd(5) * 6)) * (0.7 + 0.3 * rnd(6));
   const hipRoll = 5 * DEG * ws;
   const sway = leg * 0.03 * Math.sin(TAU * phi) * moving * (1 - run * 0.6) + idleSway + leg * 0.04 * ws;
@@ -991,6 +992,21 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
         over.head = qEuler(-18 * k * DEG, 0, 0);
         over.neck = qEuler(-8 * k * DEG, 0, 0);
       }
+      break;
+    }
+    case "ski": {
+      // ski : position de descente (genoux fléchis, buste penché, regard devant), pieds parallèles écartés de la largeur
+      // du bassin ; en avançant, poussée alternée des bâtons (main qui plante devant, puis repousse vers l'arrière)
+      const mv = smoothstep(0.3, 1.2, st.speed);
+      for (const [s2, sg2, ph2] of [["l", 1, 0], ["r", -1, Math.PI]] as const) {
+        const sw = Math.sin(at * TAU * 0.8 + ph2) * mv;
+        reachArm(over, s2, [sg2 * face.ua * 0.6, info.hipY + face.ua * (0.02 + 0.18 * Math.max(0, sw)), face.ua * (0.5 + 0.4 * sw)]);
+      }
+      over.spine = qEuler(16 * DEG, 0, 0);
+      over.chest = qEuler(6 * DEG, 0, 0);
+      over.head = qEuler(-14 * DEG, 0, 0);
+      stance = { l: [0.09, 0, 0.03], r: [-0.09, 0, -0.03] };
+      stanceDrop = leg * (0.09 + 0.012 * Math.sin(at * TAU * 1.6) * mv);
       break;
     }
     case "cook": {

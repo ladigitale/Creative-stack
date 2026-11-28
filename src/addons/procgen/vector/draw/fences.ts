@@ -220,7 +220,7 @@ export const drawVehicle: ObjectDrawer = (kit, p, ctx) => {
   const o = ctx.obj;
   const { m } = zElev(kit);
   const t = ctx.env.time;
-  const water = kind === "rowboat" || kind === "sailboat";
+  const water = kind === "rowboat" || kind === "sailboat" || kind === "jetski";
   if (!water && kind !== "balloon") kit.castShadow(ctx.env.shadows, o.footprint.hx / o.scale, o.footprint.hz / o.scale, 0.6, ctx.env.ground, em.z0 - 0.5, em.layer, em.depth);
   if ((PART_VEHICLES as readonly string[]).includes(kind)) {
     // portières, coffre : figés à leur état (clé `states`)

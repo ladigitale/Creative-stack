@@ -46,6 +46,10 @@ export type VehicleSpec = {
   passengerPose: SeatPose;
   /** Pédalage (vélo) : les pieds tournent avec la vitesse. */
   pedal?: boolean;
+  /** Deux-roues : la caisse se penche vers l'intérieur du virage (moto, scooter). */
+  bank?: boolean;
+  /** À califourchon : hauteur des pieds sous la selle (m ; repose-pieds, plancher) ; absent : jambes pendantes. */
+  feet?: number;
 };
 
 type Base = Omit<VehicleSpec, "kind" | "mount" | "hx" | "hz" | "wheelbase"> & { wheelbase: number };
@@ -68,6 +72,11 @@ export const VEHICLE_KINDS: Record<string, Base> = {
   sailboat: V("water", 3.5, 30, 4, 1, 0.8, { pose: "sit", lean: 0.12 }),
   balloon: V("air", 2, 60, 3, 0.6, 0.8, { pose: "stand", passengerPose: "stand", lean: 0 }),
   locomotive: V("rails", 5, 0, 12, 1.2, 3, { pose: "drive", passengerPose: "stand", lean: 0 }),
+  motorbike: V("ground", 1.44, 38, 22, 5, 8, { lean: 0.45, pose: "ride", passengerPose: "ride", bank: true, feet: 0.48 }),
+  scooter: V("ground", 1.18, 42, 12, 3, 6, { lean: 0.35, pose: "ride", passengerPose: "ride", bank: true, feet: 0.52 }),
+  jetski: V("water", 1.6, 40, 15, 4, 3, { lean: 0.28, pose: "ride", passengerPose: "ride", bank: true, feet: 0.42 }),
+  snowmobile: V("ground", 1.7, 32, 16, 4, 5, { lean: 0.1, pose: "ride", passengerPose: "ride", feet: 0.5 }),
+  sled: V("ground", 0.9, 25, 7, 1.5, 3, { lean: 0.06, pose: "sit", passengerPose: "sit" }),
 };
 
 /** Montures (`animal`) : espèce → vitesse (m/s) au galop ; la selle est l'ancre `seat.rider` (dos). */

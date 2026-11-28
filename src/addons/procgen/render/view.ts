@@ -2061,7 +2061,7 @@ export class ProcgenView {
     if (!info) return;
     const sc = this.frameOf(v).scale;
     if (rd.pose === "ride") {
-      a.seatFoot = v.spec.pedal ? { y: top - 0.56 * sc, spread: info.hipX * 0.9, fwd: 0.19 * sc, pedal: v.s.dist / (sc * 5.3), r: 0.17 * sc } : { y: top - a.mo.legLength * 0.78, spread: Math.max(info.hipX * 1.3, v.spec.hx * 0.8), fwd: 0.05 };
+      a.seatFoot = v.spec.pedal ? { y: top - 0.56 * sc, spread: info.hipX * 0.9, fwd: 0.19 * sc, pedal: v.s.dist / (sc * 5.3), r: 0.17 * sc } : v.spec.feet !== undefined ? { y: top - v.spec.feet * sc, spread: info.hipX * 1.25, fwd: 0.12 * sc } : { y: top - a.mo.legLength * 0.78, spread: Math.max(info.hipX * 1.3, v.spec.hx * 0.8), fwd: 0.05 };
       return;
     }
     const local = this.seatLocal(v, rd.seat) ?? [0, 0.5, 0];
@@ -2468,7 +2468,7 @@ export class ProcgenView {
         pitch = -Math.atan2(hf - hb, 2 * a) + clamp(-s.lon * 0.006, -0.03, 0.03);
         roll = Math.atan2(hl - hr, 2 * b);
         // vélo : penché vers l'intérieur du virage ; voiture : la caisse roule vers l'extérieur
-        roll += sp.pedal ? -clamp(Math.atan(s.lat / 9.81), -sp.lean, sp.lean) : clamp(s.lat / 6, -1, 1) * sp.lean;
+        roll += sp.pedal || sp.bank ? -clamp(Math.atan(s.lat / 9.81), -sp.lean, sp.lean) : clamp(s.lat / 6, -1, 1) * sp.lean;
       }
     }
     const k = 1 - Math.exp(-dt * 8);

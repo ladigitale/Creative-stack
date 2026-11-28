@@ -299,6 +299,36 @@ export function buildCharacter(look: Look, v: Rng): Built {
     skinRigid(item.mesh, bi("hand.r"));
   }
 
+  /* ---------- skis, raquettes : pièces rigides liées au pied ---------- */
+  const gear = new Mesh();
+  if (look.snow === "skis" || look.snow === "snowshoes")
+    for (const s of ["l", "r"] as const) {
+      const fb = k.B(`foot.${s}`);
+      const ax = fb.head[0], az = fb.head[2] + P.footLen * 0.3;
+      const g = new Mesh();
+      if (look.snow === "skis") {
+        // ski : long et étroit sous la chaussure, spatule relevée à l'avant, talon un peu relevé, fixation
+        const half = H * 0.46, w = H * 0.022;
+        g.append(box(w, H * 0.003, half, ROLE.blue), m4Compose([ax, H * 0.001, az], qId()));
+        g.append(box(w, H * 0.003, H * 0.03, ROLE.blue), m4Compose([ax, H * 0.011, az + half + H * 0.026], qAxis([1, 0, 0], -32 * DEG)));
+        g.append(box(w, H * 0.003, H * 0.015, ROLE.blue), m4Compose([ax, H * 0.004, az - half - H * 0.013], qAxis([1, 0, 0], 15 * DEG)));
+        g.append(box(w * 1.05, H * 0.006, P.footLen * 0.55, ROLE.ink), m4Compose([ax, H * 0.008, az], qId()));
+      } else {
+        // raquette : cadre ovale (tube), tamis tendu, sangle sur le pied
+        const n = 14, rx = H * 0.07, rz = H * 0.16;
+        const ring: V3[] = Array.from({ length: n + 1 }, (_, i) => {
+          const a = (i / n) * Math.PI * 2;
+          const r2 = Math.sin(a) < 0 ? 0.75 : 1;
+          return [ax + Math.cos(a) * rx, H * 0.006, az + Math.sin(a) * rz * r2] as V3;
+        });
+        g.append(tube(ring, ring.map(() => H * 0.005), ROLE.ink, 5, false, false));
+        g.append(ellipsoid(rx * 0.95, H * 0.002, rz * 0.85, ROLE.paper, 10, 4), m4Compose([ax, H * 0.004, az + rz * 0.05], qId()));
+        g.append(box(P.footLen * 0.28, H * 0.008, H * 0.012, ROLE.ink), m4Compose([ax, H * 0.022, az - P.footLen * 0.05], qId()));
+      }
+      skinRigid(g, bi(`foot.${s}`));
+      gear.append(g);
+    }
+
   /* ---------- assemblage ---------- */
   mesh.append(head);
   const faceBase = mesh.vertexCount;
@@ -306,6 +336,7 @@ export function buildCharacter(look: Look, v: Rng): Built {
   for (const h of hands) mesh.append(h);
   if (decalMesh.vertexCount) mesh.append(decalMesh);
   if (item) mesh.append(item.mesh);
+  if (gear.vertexCount) mesh.append(gear);
 
   /* ---------- ancres ---------- */
   const hand = k.B("hand.r");
