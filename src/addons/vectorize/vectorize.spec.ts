@@ -258,7 +258,7 @@ describe("sonic-vectorize : SVG donné en texte", () => {
     expect(svgTextOf({ svg: "<svg></svg>" })).toBe("<svg></svg>");
     expect(svgTextOf("<svgx/>")).toBeNull();
     expect(svgTextOf("bonjour <svg/>")).toBeNull();
-    expect(svgTextOf("<svg>" + "x".repeat(1_000_001))).toBeNull();
+    expect(svgTextOf("<svg>" + "x".repeat(4_000_001))).toBeNull();
     const texts: string[] = [];
     let n = 0;
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => `blob:t${++n}`, revokeObjectURL: () => {} }));

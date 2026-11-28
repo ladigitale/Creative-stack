@@ -51,7 +51,8 @@ export type GcodeState = DeviceBaseState & {
   ready: boolean;
   /** Incrémenté à chaque programme produit (utilisable comme `trigger`). */
   seq: number;
-  kind: "vector" | "image" | null;
+  /** `program` : G-code importé, gardé tel quel. */
+  kind: "vector" | "image" | "program" | null;
   lines: number;
   /** Emprise du programme en mm. */
   bbox: GcodeStats["bbox"];
@@ -67,6 +68,14 @@ export type GcodeState = DeviceBaseState & {
   colors: FoundColor[];
   settings: GcodeSettings;
 };
+
+/** Programme importé (`{gcode: [...]}` de `sonic-laser-import drawing-provider`), ou null. */
+function gcodeOf(v: unknown): string[] | null {
+  const g = v && typeof v === "object" ? (v as { gcode?: unknown }).gcode : null;
+  if (Array.isArray(g) && g.length && g.every((l) => typeof l === "string")) return g as string[];
+  if (typeof g === "string" && g.trim()) return g.split(/\r?\n/);
+  return null;
+}
 
 type SvgSource = Element & { toSvg(): string | null };
 const hasSvg = (el: unknown): el is SvgSource => !!el && typeof (el as SvgSource).toSvg === "function";
@@ -150,7 +159,7 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
   private live: Record<string, unknown> = {};
   private unsubLive: (() => void) | null = null;
   private unsubSvg: (() => void) | null = null;
-  private svgInput: { url: string } | { text: string } | null = null;
+  private svgInput: { url: string } | { text: string } | { gcode: string[] } | null = null;
   private watch: ReturnType<typeof setInterval> | null = null;
   private building = false;
   private dirty = false;
@@ -210,7 +219,8 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
         const read = (v: unknown): void => {
           const ref = svgRefOf(v);
           const text = ref ? null : svgTextOf(v);
-          const next = ref ?? (text ? { text } : null);
+          const prog = ref || text ? null : gcodeOf(v);
+          const next = ref ?? (text ? { text } : prog ? { gcode: prog } : null);
           if (JSON.stringify(next) !== JSON.stringify(this.svgInput)) {
             this.svgInput = next;
             this.dirty = true;
@@ -378,6 +388,7 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
 
     let svg: string | null = null;
     if (s.input !== "image") {
+      if (this.svgInput && "gcode" in this.svgInput) return this.passThrough(this.svgInput.gcode, issues, s);
       if (this.svgInput && "text" in this.svgInput) svg = this.svgInput.text;
       else if (this.svgInput) {
         try {
@@ -464,6 +475,28 @@ export class SonicGcode extends DeviceElement<GcodeState> implements SonicGcodeS
       estimateS: stats.estimateS, burnMm: stats.burnMm, travelMm: stats.travelMm, issues, skipped, settings: s,
     });
     this.emit("sonic-gcode-ready", { lines: lines.length, bbox: stats.bbox });
+    return true;
+  }
+
+  /** Programme déjà préparé (fichier G-code importé) : gardé tel quel, analysé et prévisualisé. */
+  private passThrough(gcode: string[], issues: string[], s: GcodeSettings): boolean {
+    const lines = gcode.map((l) => l.replace(/\(.*?\)|;.*$/g, "").trim()).filter((l) => l && !l.startsWith("$"));
+    if (!lines.length) return this.giveUp("programme vide", issues, false);
+    if (lines.length > MAX_GCODE_LINES) return this.giveUp(`programme trop long (${lines.length} lignes)`, issues, false);
+    if (s.tool === "laser" && lines.some((l) => /\bM0*3\b/i.test(l))) issues.push("M3 du programme remplacé par M4 à l'envoi (puissance dynamique)");
+    issues.push("programme importé : envoyé tel quel (réglages, taille et position ignorés)");
+    const stats = analyzeGcode(lines, TOOLPATH_DEFAULTS.travelSpeed);
+    this.program = lines;
+    this.gcodeSeq++;
+    if (this.state.colors.length) this.patch({ colors: [] }, false);
+    this.drawPreview(lines, stats, s.maxS);
+    const b = stats.bbox;
+    this.patch({
+      status: "ready", error: null, active: true, ready: true, seq: this.gcodeSeq, kind: "program", lines: lines.length, bbox: b,
+      sizeMm: b ? { w: Math.round(b.w * 100) / 100, h: Math.round(b.h * 100) / 100 } : null,
+      estimateS: stats.estimateS, burnMm: stats.burnMm, travelMm: stats.travelMm, issues, skipped: {}, settings: s,
+    });
+    this.emit("sonic-gcode-ready", { lines: lines.length, bbox: b });
     return true;
   }
 

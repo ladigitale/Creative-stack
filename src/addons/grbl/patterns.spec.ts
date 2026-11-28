@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { get, set } from "@supersoniks/concorde/core/utils/PublisherProxy";
 import "./index";
-import { CUT, ENGRAVE, getPattern, patternParams, PATTERNS } from "./patterns";
+import { CUT, ENGRAVE, getPattern, notch, patternParams, PATTERNS, polyhedronJoint, slotWidth } from "./patterns";
 import { analyzeGcode, prepareJob } from "./codec";
 import { readSvgShapes, svgToGcode, TOOLPATH_DEFAULTS, type LaserOp } from "./toolpath";
 import type { SonicLaserPattern } from "./pattern";
@@ -31,6 +31,9 @@ describe("modèles paramétriques", () => {
       expect(st.bbox!.w).toBeLessThanOrEqual(out.widthMm + 0.5);
       expect(st.bbox!.h).toBeLessThanOrEqual(out.heightMm + 0.5);
       expect(prepareJob(res.lines, { tool: "laser", maxS: 0 }).error).toBeNull();
+      expect(out.advice.length, def.id).toBeGreaterThan(0);
+      expect(out.advice.every((t) => typeof t === "string" && t.length > 10)).toBe(true);
+      for (const n of out.svg.match(/-?\d+(\.\d+)?/g)!.map(Number)) expect(Number.isFinite(n)).toBe(true);
     });
   }
 
@@ -56,6 +59,121 @@ describe("modèles paramétriques", () => {
   });
 });
 
+/** Contours (sous-chemins) des chemins découpés, en points. */
+function cutPolys(svg: string): [number, number][][] {
+  const out: [number, number][][] = [];
+  for (const m of svg.matchAll(/<path d="([^"]+)" fill="none" stroke="#e11d48"/g)) {
+    for (const sub of m[1].split(/(?=M)/)) {
+      const nums = sub.match(/-?\d+(\.\d+)?/g);
+      if (!nums || /[ACHQV]/.test(sub)) continue;
+      const pts: [number, number][] = [];
+      for (let i = 0; i + 1 < nums.length; i += 2) pts.push([+nums[i], +nums[i + 1]]);
+      out.push(pts);
+    }
+  }
+  return out;
+}
+
+describe("boîtes et assemblages", () => {
+  it("nouvelles familles et conseils au catalogue", () => {
+    for (const id of ["boite-charniere", "boite-coulissante", "boite-couvercle", "boite-tiroir", "boite-polygone", "croisillon", "polyedre", "abat-jour", "formes"]) {
+      expect(getPattern(id), id).not.toBeNull();
+    }
+    expect(getPattern("abat-jour")!.family).toBe("assemblages");
+  });
+
+  it("fente = épaisseur − serrage − trait", () => {
+    expect(slotWidth(3, 0.05, 0.1)).toBeCloseTo(2.85, 6);
+    expect(slotWidth(0.5, 0.3, 0.3)).toBe(0.3);
+  });
+
+  it("forme croisée : fentes de la bonne largeur, chacune sur la moitié de la hauteur", () => {
+    const def = getPattern("croisillon")!;
+    for (const forme of [0, 1, 2, 3]) {
+      const p = patternParams(def, { forme, hauteur: 100, epaisseur: 3, serrage: 0.05, trait: 0.1 });
+      const out = def.build(p);
+      const [a, b] = cutPolys(out.svg);
+      const xs = a.map((q) => q[0]);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const bx = b.map((q) => q[0]);
+      const cxb = (Math.min(...bx) + Math.max(...bx)) / 2;
+      const slotPts = (pts: [number, number][], c: number) => pts.filter((q) => Math.abs(Math.abs(q[0] - c) - 1.425) < 0.02);
+      const sa = slotPts(a, cx), sb = slotPts(b, cxb);
+      expect(sa.length, `forme ${forme}`).toBe(4);
+      expect(sb.length, `forme ${forme}`).toBe(4);
+      // Fond de la fente haute (A) et de la fente basse (B), dans le même rang : elles se recouvrent de 0,4 mm à mi-hauteur.
+      const yA = Math.max(...sa.map((q) => q[1])), yB = Math.min(...sb.map((q) => q[1]));
+      expect(yA - yB).toBeCloseTo(0.4, 1);
+      if (forme === 0 || forme === 2) {
+        // Sapin et boule : l'axe va du haut au bas de la pièce, les fentes se rejoignent au milieu.
+        // A garde le bas intact, B garde le haut intact.
+        const yTop = Math.min(...b.map((q) => q[1])), yBot = Math.max(...a.map((q) => q[1]));
+        expect((yA + yB) / 2).toBeCloseTo((yTop + yBot) / 2, 1);
+      }
+    }
+  });
+
+  it("encoche d'un contour convexe : remplace le bord du haut", () => {
+    const sq: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
+    const n = notch(sq, 5, 2, 5, true);
+    expect(n).toContainEqual([4, 5]);
+    expect(n).toContainEqual([6, 5]);
+    expect(n.length).toBe(8);
+    const m = notch(sq, 5, 2, 5, false);
+    expect(m).toContainEqual([4, 5]);
+    expect(m.some(([, y]) => y === 10)).toBe(true);
+  });
+
+  it("abat-jour : N modules, fentes à mi-hauteur élargies pour l'angle de croisement", () => {
+    const def = getPattern("abat-jour")!;
+    const out = def.build(patternParams(def, { modules: 12, hauteur: 120, epaisseur: 3, serrage: 0, trait: 0, ajours: 0 }));
+    const polys = cutPolys(out.svg);
+    expect(polys.length).toBe(12);
+    const m = polys[0];
+    const y0 = Math.min(...m.map((q) => q[1]));
+    // Fond de la fente du haut à H/2.
+    const deep = m.filter((q) => Math.abs(q[1] - y0 - 60) < 1e-6);
+    expect(deep.length).toBe(4); // fond de la fente haute et de la fente basse
+    const xsTop = deep.map((q) => q[0]).sort((a, b) => a - b);
+    expect(xsTop[1] - xsTop[0]).toBeCloseTo(3 / Math.sin(Math.PI / 6), 1);
+    expect(out.notes.join(" ")).toContain("12 modules");
+  });
+
+  it("polyèdre : une face par face du solide, un connecteur par arête", () => {
+    const def = getPattern("polyedre")!;
+    const counts = [[0, 4, 6], [1, 6, 12], [2, 8, 12], [3, 12, 30], [4, 20, 30]];
+    for (const [solide, faces, edges] of counts) {
+      const out = def.build(patternParams(def, { solide, arete: 80, ajours: 0 }));
+      expect(cutPolys(out.svg).length, `solide ${solide}`).toBe(faces + edges);
+    }
+    const j = polyhedronJoint(3, Math.PI / 2);
+    expect(j.len).toBeCloseTo(j.s0 + 2 * j.d, 6);
+    // Les faces reculées ne se touchent pas à l'arête : écart entre leurs chants > épaisseur.
+    for (const d of [Math.acos(1 / 3), Math.PI / 2, Math.acos(-Math.sqrt(5) / 3)]) {
+      const k = polyhedronJoint(3, d);
+      expect(2 * k.s0 * Math.sin(d / 2)).toBeGreaterThan(3);
+    }
+  });
+
+  it("boîte polygonale : mortaises de la largeur de fente, une paroi par côté", () => {
+    const def = getPattern("boite-polygone")!;
+    const out = def.build(patternParams(def, { cotes: 6, epaisseur: 3, serrage: 0.05, trait: 0.1, couvercle: 0 }));
+    const polys = cutPolys(out.svg);
+    // fond + 12 mortaises + 6 parois
+    expect(polys.length).toBe(1 + 12 + 6);
+    const mort = polys.filter((q) => q.length === 4 && Math.max(...q.map((v) => v[0])) - Math.min(...q.map((v) => v[0])) < 20);
+    const side = (q: [number, number][]) => Math.min(...[0, 1].map((i) => Math.hypot(q[i + 1][0] - q[i][0], q[i + 1][1] - q[i][1])));
+    expect(mort.length).toBeGreaterThanOrEqual(12);
+    for (const q of mort.slice(0, 12)) expect(side(q)).toBeCloseTo(2.85, 1);
+  });
+
+  it("charnière vivante : fentes ouvertes dans le couvercle", () => {
+    const def = getPattern("boite-charniere")!;
+    const out = def.build(patternParams(def, {}));
+    expect((out.svg.match(/ H/g) ?? []).length).toBeGreaterThan(20);
+  });
+});
+
 describe("sonic-laser-pattern", () => {
   it("publie le SVG et suit les paramètres en direct", async () => {
     set("patCtl", { pattern: "porte-cles", params: { largeur: 80 } });
@@ -63,8 +181,9 @@ describe("sonic-laser-pattern", () => {
     const el = document.querySelector("sonic-laser-pattern") as SonicLaserPattern;
     await el.updateComplete;
     await wait(20);
-    const st = get("patState") as { pattern: string; widthMm: number; svg: string; specs: unknown[]; catalog: unknown[] };
+    const st = get("patState") as { pattern: string; widthMm: number; svg: string; specs: unknown[]; catalog: unknown[]; advice: string[] };
     expect(st.pattern).toBe("porte-cles");
+    expect(st.advice.length).toBeGreaterThan(0);
     expect(st.widthMm).toBe(80);
     expect(st.svg).toContain('width="80mm"');
     expect(st.catalog.length).toBe(PATTERNS.length);
