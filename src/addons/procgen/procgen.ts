@@ -14,6 +14,7 @@ import { prefetchCharacters } from "./scene/char-pool";
 import { getFont, iconsLoaded, loadTextAssets, textAssetsOf } from "./fonts/index";
 import { SCENES } from "./scene/library";
 import { footballRecipe, parseFootball } from "./scene/football";
+import { parseRace, raceRecipe } from "./scene/race";
 import { mergeEmitters, readProcgenEmitters } from "./scene/emitters";
 import { readTerrainEdits } from "./scene/terrain";
 import { resolveStyle } from "./style/style";
@@ -335,7 +336,10 @@ export class SonicProcgen extends HTMLElement {
     this.viewSync = { key: "", modelKey: "" };
     if (!v) return null;
     v.onEvent = (e: GameEvent) => this.emit(e);
-    if (v instanceof ProcgenView) v.onFootball = () => this.queueOut();
+    if (v instanceof ProcgenView) {
+      v.onFootball = () => this.queueOut();
+      v.onRace = () => this.queueOut();
+    }
     v.onFrame = () => this.queueOut();
     if (v instanceof ProcgenView) {
       this.photoKey = "";
@@ -403,7 +407,11 @@ export class SonicProcgen extends HTMLElement {
     // copie simple (le DataProvider peut publier des objets enveloppés) : les listes y redeviennent des tableaux
     const footIn = (d.football && typeof d.football === "object" ? JSON.parse(JSON.stringify(d.football)) : d.football === true ? {} : null) as Json | null;
     const footSpec = footIn ? parseFootball(footIn) : null;
-    const recipe = (footSpec ? footballRecipe(footSpec) : d.recipe && typeof d.recipe === "object" ? d.recipe : null) as Recipe | null;
+    // mode course : le circuit, le décor et les voitures viennent des réglages de la course (caméra, son et commandes
+    // exclus de la clé : ils changent sans relancer la course)
+    const raceIn = (!footSpec && d.race && typeof d.race === "object" ? JSON.parse(JSON.stringify(d.race)) : !footSpec && d.race === true ? {} : null) as Json | null;
+    const raceSpec = raceIn ? parseRace({ ...raceIn, camera: undefined }) : null;
+    const recipe = (footSpec ? footballRecipe(footSpec) : raceSpec ? raceRecipe(raceSpec) : d.recipe && typeof d.recipe === "object" ? d.recipe : null) as Recipe | null;
     const seed = d.seed ?? this.getAttribute("seed") ?? 1;
     const params = (d.params && typeof d.params === "object" ? d.params : {}) as Json;
     const edits = normEdits(d.edit);
@@ -655,6 +663,12 @@ export class SonicProcgen extends HTMLElement {
       this.view.setFootball(footSpec && this.model ? { spec: footSpec, hud: footIn!.hud !== false, keyboard: footIn!.keyboard !== false, touch: footIn!.touch !== false } : null);
       this.view.setFootballInput(footIn?.input);
       this.view.setFootballSound(footIn?.sound !== false);
+      this.view.setRace(raceSpec && this.model ? { spec: raceSpec, hud: raceIn!.hud !== false, keyboard: raceIn!.keyboard !== false, touch: raceIn!.touch !== false, restart: Number(raceIn!.restart) || 0 } : null);
+      this.view.setRaceCamera(raceIn ? parseRace({ camera: raceIn.camera }).camera : null);
+      this.view.setRaceInput(raceIn?.input);
+      this.view.setRaceSound(raceIn?.sound !== false);
+    } else if (raceSpec && !this.issues.some((x) => (x as { path?: string }).path === "race")) {
+      this.issues = [...this.issues, { path: "race", code: "info", message: "mode course en rendu 3D seulement" }];
     }
     // relief retouché : recette `terrain` ⊕ clé `terrain` du DataProvider, rejoué en entier à chaque changement
     if (this.view instanceof ProcgenView) {
@@ -859,6 +873,7 @@ export class SonicProcgen extends HTMLElement {
       balls: this.view?.ballState() ?? {},
       ...(this.view instanceof ProcgenView ? { vehicles: this.view.vehicleState() } : {}),
       ...(this.view instanceof ProcgenView && this.view.footballOut ? { football: this.view.footballOut } : {}),
+      ...(this.view instanceof ProcgenView && this.view.raceOut ? { race: this.view.raceOut } : {}),
       ...(this.view instanceof ProcgenView && this.model?.physics ? { physics: this.view.physOut, queries: this.view.queryOut } : {}),
       ...(this.view instanceof ProcgenView ? this.view.emitState() : {}),
       ids: this.idsList(),
