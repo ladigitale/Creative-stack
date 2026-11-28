@@ -84,8 +84,8 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   const wOf = (m: string) => MW[m] ?? 0;
   // valeurs résolues par `gen/character/look.ts` : les nouvelles se dessinent sur une base proche + détails
   const top0 = String(p.top ?? "tee"), bottom0 = String(p.bottom ?? "trousers"), shoes = String(p.shoes ?? "shoes");
-  const top = top0 === "shirt" || top0 === "tunic" ? "long" : top0 === "dress" ? "robe" : top0;
-  const bottom = bottom0 === "overalls" ? "trousers" : bottom0;
+  const top = top0 === "shirt" || top0 === "tunic" ? "long" : top0 === "dress" ? "robe" : top0 === "swimsuit" ? "tank" : top0;
+  const bottom = bottom0 === "overalls" ? "trousers" : bottom0 === "swim" ? "shorts" : bottom0;
   const over = String(p.over ?? "none"), collar = String(p.collar ?? "none"), belt = String(p.belt ?? "none"), details = String(p.details ?? "none");
   const gloves = String(p.gloves ?? "none") === "gloves", pattern = String(p.pattern ?? "plain");
   const hair0 = String(p.hat) !== "none" && p.hair === "mohawk" ? "short" : String(p.hair ?? "short");

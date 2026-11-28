@@ -723,6 +723,21 @@ void main() {
     for (int i = 0; i < 8; i++) {
       if (i >= uSwimN) break;
       vec4 sw = uSwim[i];
+      if (sw.z < 0.0) {
+        // plongeur : silhouette sombre et floue sous la surface (plus pâle en profondeur), bulles qui remontent
+        vec2 fw = vec2(sin(sw.w), cos(sw.w));
+        vec2 q = vPosW.xz - sw.xy - fw * 0.45;
+        float al = dot(q, fw), ac = dot(q, vec2(fw.y, -fw.x));
+        float dep = -sw.z;
+        float blur = 0.12 + dep * 0.35;
+        float body = 1.0 - smoothstep(0.0, blur, length(vec2(al / 0.85, ac / 0.22)) - 1.0 + 0.0);
+        lit = mix(lit, lit * vec3(0.32, 0.4, 0.46), body * mix(0.85, 0.45, clamp(dep / 1.5, 0.0, 1.0)));
+        vec2 hb = vPosW.xz - (sw.xy + fw * 1.15);
+        float bub = (1.0 - smoothstep(0.02, 0.07, length(hb + 0.12 * vec2(sin(uTime * 2.3), cos(uTime * 1.7)) * fract(uTime * 0.9))));
+        bub += (1.0 - smoothstep(0.02, 0.05, length(hb - 0.1 * vec2(cos(uTime * 1.9), sin(uTime * 2.6)) * fract(uTime * 1.3 + 0.4))));
+        lit = mix(lit, uSun * 0.95, clamp(bub, 0.0, 1.0) * 0.8);
+        continue;
+      }
       float r = length(vPosW.xz - sw.xy);
       if (r > 4.0) continue;
       float ring = sin(r * 13.0 - uTime * 7.0 + sw.w) * exp(-r * 1.3) * (0.45 + 0.55 * min(sw.z, 1.5));

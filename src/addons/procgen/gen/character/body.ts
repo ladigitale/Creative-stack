@@ -232,7 +232,20 @@ export function buildBodyField(k: Kit): BodyField {
   const knee = B("shin.l").head[1];
   const decals: Decal[] = [];
   const frontZ = (y: number) => chestC[2] + chestR[2] * Math.sqrt(Math.max(0.2, 1 - ((y - chestC[1]) / chestR[1]) ** 2)) + thick;
-  if (top !== "none") {
+  if (top === "swimsuit") {
+    // maillot : tissu collant (fin), encolure dégagée au-dessus de la poitrine, bretelles fines vers les épaules
+    const pat = torsoPat();
+    const yN = chestC[1] + chestR[1] * 0.38;
+    for (const i of torsoIdx) put("chest", { ...inflate(set.prims[i], thick * 0.35, C1), clip: [{ n: [0, 1, 0], d: yN, k: H * 0.004 }] }, k.skel.bones[set.bone[i]].name, { pattern: pat });
+    for (const sx of [1, -1]) {
+      const sd = sx > 0 ? "l" : "r";
+      const a: V3 = [sx * chestR[0] * 0.42, yN - H * 0.004, frontZ(yN) - thick * 0.7];
+      const b: V3 = add(at(`clavicle.${sd}`, 0.55), [0, rad(`clavicle.${sd}`, 0.55) * bw + thick * 0.4, 0]);
+      const c: V3 = [sx * chestR[0] * 0.4, chestC[1] - chestR[1] * 0.1, chestC[2] - chestR[2] - thick * 0.4];
+      put("chest", { kind: "capsule", a, b, ra: H * 0.0035, rb: H * 0.0035, role: C1, tag: 0 }, "chest");
+      put("chest", { kind: "capsule", a: b, b: c, ra: H * 0.0035, rb: H * 0.0035, role: C1, tag: 0 }, "chest");
+    }
+  } else if (top !== "none") {
     const pat = torsoPat();
     for (const i of torsoIdx) put("chest", inflate(set.prims[i], thick, C1), k.skel.bones[set.bone[i]].name, { pattern: pat, covers: i });
     const longTop = top === "coat" || top === "robe" || top === "tunic" || top === "dress";
@@ -356,12 +369,14 @@ export function buildBodyField(k: Kit): BodyField {
   const bottom = look.bottom;
   const covered = top === "robe" || top === "dress";
   if (!covered) {
-    put("pelvis", inflate(set.prims[pelvisIdx], thick * 0.6, C2), "pelvis", { covers: pelvisIdx });
+    put("pelvis", inflate(set.prims[pelvisIdx], thick * (bottom === "swim" ? 0.35 : 0.6), C2), "pelvis", { covers: pelvisIdx });
     for (const s of ["l", "r"]) {
       if (bottom === "trousers" || bottom === "overalls") {
         put("thigh", cap(`thigh.${s}`, 0, 1, thick * 0.6, C2, bw), `thigh.${s}`, { covers: groups.thigh[s === "l" ? 0 : 1] });
         put("shin", cap(`shin.${s}`, 0, 0.92, thick * 0.6, C2, 1.04), `shin.${s}`);
       } else if (bottom === "shorts") put("thigh", cap(`thigh.${s}`, 0, 0.62, thick * 0.7, C2, bw * 1.08), `thigh.${s}`);
+      // bas de maillot : échancré, à ras de l'aine
+      else if (bottom === "swim") put("thigh", cap(`thigh.${s}`, 0, 0.1, thick * 0.35, C2, bw * 1.01), `thigh.${s}`);
     }
     if (bottom === "skirt" || bottom === "longskirt") {
       const endY = bottom === "longskirt" ? P.ankleY + H * 0.05 : knee + H * 0.03;

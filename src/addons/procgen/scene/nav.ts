@@ -168,7 +168,9 @@ export class NavGrid {
         out.push(this.center(anchor[0], anchor[1]));
       }
     }
-    out.push(to);
+    // arrivée : le point demandé s'il est praticable, sinon le bord libre le plus proche (une destination tirée dans
+    // l'eau ou dans un mur menait le marcheur tout droit dedans)
+    out.push(this.free(to[0], to[1]) ? to : this.center(g[0], g[1]));
     out[0] = from;
     return out;
   }

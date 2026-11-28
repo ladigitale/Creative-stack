@@ -277,6 +277,17 @@ export class SoftLayer {
     return moved;
   }
 
+  /** Retire les pièces d'un acteur (changement de tenue). */
+  removeActor(actor: string) {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const rt = this.items[i];
+      if (rt.actor !== actor) continue;
+      rt.mesh.removeFromParent();
+      rt.mesh.geometry.dispose();
+      this.items.splice(i, 1);
+    }
+  }
+
   /** Pièces d'un propriétaire (acteur ou objet). */
   of(owner: { actor?: string; obj?: number }): SoftRT[] {
     return this.items.filter((r) => (owner.actor !== undefined ? r.actor === owner.actor : r.obj === owner.obj));
