@@ -249,13 +249,16 @@ export class ProcgenView {
   private dirty = true;
   private shadowDirty = true;
   /**
-   * Ombres en deux temps : la carte du décor (`shadowStaticRT`) n'est refaite que quand le décor, le soleil ou le
+   * Ombres en deux temps : la carte du décor (`shadowStatic`, une par cascade) n'est refaite que quand le décor, le soleil ou le
    * cadrage changent (`shadowDirty`) ; quand seuls les acteurs ou les ballons bougent (`shadowDyn`), sa profondeur est
    * recopiée dans la carte finale et on n'y dessine qu'eux. Le résultat est le même qu'une carte refaite en entier
    * (profondeur la plus proche), pour bien moins de triangles.
    */
   private shadowDyn = false;
-  private shadowStaticRT: THREE.WebGLRenderTarget | null = null;
+  /** Cartes du décor seul, par cascade (fine, large). */
+  private shadowStatic: [THREE.WebGLRenderTarget | null, THREE.WebGLRenderTarget | null] = [null, null];
+  /** Cascade large : tout ce que voit la caméra (moitié de la définition de la fine). */
+  private shadowRT2: THREE.WebGLRenderTarget;
   /** Instances qui bougent à chaque image (ballons) : dessinées avec les acteurs, pas dans le décor. */
   private dynIms = new Set<THREE.Object3D>();
   private time = 0;
@@ -363,6 +366,10 @@ export class ProcgenView {
     depthTex.type = THREE.UnsignedIntType;
     this.shadowRT = new THREE.WebGLRenderTarget(SM, SM, { depthTexture: depthTex, depthBuffer: true });
     this.shared.uShadowMap.value = depthTex;
+    const depthTex2 = new THREE.DepthTexture(SM / 2, SM / 2);
+    depthTex2.type = THREE.UnsignedIntType;
+    this.shadowRT2 = new THREE.WebGLRenderTarget(SM / 2, SM / 2, { depthTexture: depthTex2, depthBuffer: true });
+    this.shared.uShadowMap2.value = depthTex2;
     (this.shared.uShadowTexel.value as THREE.Vector2).set(1 / SM, 1 / SM);
     const postMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
@@ -3774,12 +3781,103 @@ export class ProcgenView {
     return out.slice(0, 8);
   }
 
-  /** Zone que la carte d'ombre couvre en scène finie (centre et rayon visibles). */
+  /**
+   * Boîte de ce que la caméra voit de la scène finie : rayons d'une grille de 7 × 7 points de l'écran coupés par la
+   * boîte de la scène (entrée et sortie), plus la caméra si elle est dedans. Null hors scène finie ou si rien n'est vu.
+   */
+  private visibleBox(cam: THREE.Camera): { min: V3; max: V3 } | null {
+    if (this.inf || !this.model) return null;
+    const b = this.model.bounds;
+    const lo = [b.min[0], b.min[1] - 0.5, b.min[2]], hi = [b.max[0], b.max[1] + 0.5, b.max[2]];
+    const min: V3 = [Infinity, Infinity, Infinity], max: V3 = [-Infinity, -Infinity, -Infinity];
+    const add = (p: THREE.Vector3) => {
+      min[0] = Math.min(min[0], p.x); min[1] = Math.min(min[1], p.y); min[2] = Math.min(min[2], p.z);
+      max[0] = Math.max(max[0], p.x); max[1] = Math.max(max[1], p.y); max[2] = Math.max(max[2], p.z);
+    };
+    const o = new THREE.Vector3(), e = new THREE.Vector3(), d = new THREE.Vector3();
+    for (let i = 0; i <= 6; i++)
+      for (let j = 0; j <= 6; j++) {
+        o.set(-1 + i / 3, -1 + j / 3, -1).unproject(cam as THREE.PerspectiveCamera);
+        e.set(-1 + i / 3, -1 + j / 3, 1).unproject(cam as THREE.PerspectiveCamera);
+        d.subVectors(e, o);
+        // rayon ∩ boîte (méthode des dalles) sur le segment proche → lointain
+        let t0 = 0, t1 = 1;
+        for (let k = 0; k < 3 && t0 <= t1; k++) {
+          const ok = o.getComponent(k), dk = d.getComponent(k);
+          if (Math.abs(dk) < 1e-9) {
+            if (ok < lo[k] || ok > hi[k]) t1 = -1;
+            continue;
+          }
+          const a1 = (lo[k] - ok) / dk, a2 = (hi[k] - ok) / dk;
+          t0 = Math.max(t0, Math.min(a1, a2));
+          t1 = Math.min(t1, Math.max(a1, a2));
+        }
+        if (t0 > t1) continue;
+        add(o.clone().addScaledVector(d, t0));
+        add(o.clone().addScaledVector(d, t1));
+      }
+    return Number.isFinite(min[0]) ? { min, max } : null;
+  }
+
+  /** Zone que la cascade fine couvre en scène finie (autour de la cible) ; `shadowFar` : tout le visible. */
   private shadowFocus: { c: THREE.Vector3; r: number } | null = null;
+  private shadowFar: { c: THREE.Vector3; r: number } | null = null;
+
+  /** Caméra de lumière orthographique de demi-taille `R` centrée en `c`, profondeur à l'échelle de la scène `Rs`. */
+  private lightCam(c: THREE.Vector3, R: number, Rs: number) {
+    const sun = this.shared.uSunDir.value as THREE.Vector3;
+    const lc = new THREE.OrthographicCamera(-R, R, R, -R, 0.1, Math.max(R, Rs) * 4);
+    lc.position.copy(c).addScaledVector(sun, Math.max(R, Rs) * 2);
+    lc.lookAt(c);
+    lc.updateMatrixWorld();
+    lc.updateProjectionMatrix();
+    return lc;
+  }
+
+  /**
+   * Réglages d'une cascade : matrice, flou des bords et biais en mètres (pas en texels : une ombre garde la même
+   * douceur quelle que soit la carte qui la porte ; jamais moins de 1,8 texel).
+   */
+  private setCascade(i: 0 | 1, lc: THREE.OrthographicCamera, R: number, Rs: number, size: number) {
+    const u = this.shared;
+    const texW = (2 * R) / size;
+    ((i ? u.uShadowMatrix2 : u.uShadowMatrix).value as THREE.Matrix4).multiplyMatrices(lc.projectionMatrix, lc.matrixWorldInverse);
+    (i ? u.uShadowKernel2 : u.uShadowKernel).value = Math.max(texW * 1.8, 0.015) / (2 * R);
+    // biais d'origine (0,0005 de la profondeur de la scène) : déjà fixe en mètres, la profondeur de la carte suit la scène
+    (i ? u.uShadowBiasW2 : u.uShadowBiasW).value = (0.0005 * Rs) / Math.max(R, Rs);
+  }
+
+  /** Carte d'une cascade : décor en cache (refait si `shadowDirty`), puis objets mobiles par-dessus. */
+  private renderCascade(i: 0 | 1, lc: THREE.Camera, rt: THREE.WebGLRenderTarget, dyn: THREE.Object3D[]) {
+    if (!dyn.length) return void this.depthRender(this.scene, lc, rt, true);
+    const dynSet = new Set(dyn);
+    let st = this.shadowStatic[i];
+    if (this.shadowDirty || !st) {
+      const W = rt.width, H = rt.height;
+      if (!st || st.width !== W) {
+        st?.dispose();
+        const dt = new THREE.DepthTexture(W, H);
+        dt.type = THREE.UnsignedIntType;
+        st = this.shadowStatic[i] = new THREE.WebGLRenderTarget(W, H, { depthTexture: dt, depthBuffer: true });
+      }
+      const vis = dyn.map((o) => o.visible);
+      for (const o of dyn) o.visible = false;
+      this.depthRender(this.scene, lc, st, true);
+      dyn.forEach((o, k) => (o.visible = vis[k]));
+    }
+    this.copyDepth(st!, rt);
+    // seulement les objets mobiles : les autres enfants de la scène sont masqués le temps de la passe
+    const hidden: THREE.Object3D[] = [];
+    for (const o of this.scene.children) if (o.visible && !dynSet.has(o)) {
+      o.visible = false;
+      hidden.push(o);
+    }
+    this.depthRender(this.scene, lc, rt, false, dyn);
+    for (const o of hidden) o.visible = true;
+  }
 
   private shadowPass() {
     const m = this.model!;
-    const sun = this.shared.uSunDir.value as THREE.Vector3;
     const b = m.bounds;
     let c = new THREE.Vector3((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
     let R = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2;
@@ -3790,21 +3888,27 @@ export class ProcgenView {
       const q = (2 * R) / this.shadowRT.width;
       c = new THREE.Vector3(Math.round(x / q) * q, this.inf.world.height(x, z), Math.round(z / q) * q);
     }
-    // scène finie : carte cadrée sur ce que montre la caméra quand elle n'en voit qu'une partie (gros plan net) ;
-    // profondeur de la carte gardée à l'échelle de la scène (les ombres venues de hors champ restent)
     const Rs = R;
+    const snap = (p: THREE.Vector3, r: number, size: number) => {
+      const q = (2 * r) / size;
+      return new THREE.Vector3(Math.round(p.x / q) * q, Math.round(p.y / q) * q, Math.round(p.z / q) * q);
+    };
+    // cascade fine : cadrée sur la cible quand la caméra n'en voit qu'une partie (gros plan net)
     if (!this.inf && this.shadowFocus && this.shadowFocus.r < R * 0.7) {
-      const f = this.shadowFocus;
-      R = Math.max(1.5, f.r);
-      const q = (2 * R) / this.shadowRT.width;
-      c = new THREE.Vector3(Math.round(f.c.x / q) * q, Math.round(f.c.y / q) * q, Math.round(f.c.z / q) * q);
+      R = Math.max(1.5, this.shadowFocus.r);
+      c = snap(this.shadowFocus.c, R, this.shadowRT.width);
     }
-    const lc = new THREE.OrthographicCamera(-R, R, R, -R, 0.1, Math.max(R, Rs) * 4);
-    lc.position.copy(c).addScaledVector(sun, Math.max(R, Rs) * 2);
-    lc.lookAt(c);
-    lc.updateMatrixWorld();
-    lc.updateProjectionMatrix();
-    (this.shared.uShadowMatrix.value as THREE.Matrix4).multiplyMatrices(lc.projectionMatrix, lc.matrixWorldInverse);
+    // cascade large : tout le visible, seulement si la fine n'en couvre pas déjà l'essentiel
+    let far: { c: THREE.Vector3; R: number } | null = null;
+    if (!this.inf && this.shadowFar && R < Rs * 0.7 && this.shadowFar.r > R * 1.15) {
+      const RF = Math.min(this.shadowFar.r, Rs);
+      far = { R: RF, c: snap(RF >= Rs ? new THREE.Vector3((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2) : this.shadowFar.c, RF, this.shadowRT2.width) };
+    }
+    const lc = this.lightCam(c, R, Rs);
+    this.setCascade(0, lc, R, Rs, this.shadowRT.width);
+    const lc2 = far ? this.lightCam(far.c, far.R, Rs) : null;
+    if (lc2 && far) this.setCascade(1, lc2, far.R, Rs, this.shadowRT2.width);
+    this.shared.uShadowOn2.value = far ? 1 : 0;
     // prairies : pas d'ombre portée (des dizaines de milliers de brins), mais elles reçoivent celles du décor
     const mv = this.meadows.group.visible;
     this.meadows.group.visible = false;
@@ -3816,33 +3920,8 @@ export class ProcgenView {
     const dyn: THREE.Object3D[] = [];
     for (const a of this.actors.values()) if (a.mesh.parent === this.scene) dyn.push(a.mesh);
     for (const im of this.dynIms) if (im.parent === this.scene) dyn.push(im);
-    if (!dyn.length) {
-      this.depthRender(this.scene, lc, this.shadowRT, true);
-    } else {
-      const dynSet = new Set(dyn);
-      if (this.shadowDirty || !this.shadowStaticRT) {
-        const W = this.shadowRT.width, H = this.shadowRT.height;
-        if (!this.shadowStaticRT || this.shadowStaticRT.width !== W) {
-          this.shadowStaticRT?.dispose();
-          const dt = new THREE.DepthTexture(W, H);
-          dt.type = THREE.UnsignedIntType;
-          this.shadowStaticRT = new THREE.WebGLRenderTarget(W, H, { depthTexture: dt, depthBuffer: true });
-        }
-        const vis = dyn.map((o) => o.visible);
-        for (const o of dyn) o.visible = false;
-        this.depthRender(this.scene, lc, this.shadowStaticRT, true);
-        dyn.forEach((o, i) => (o.visible = vis[i]));
-      }
-      this.copyDepth(this.shadowStaticRT!, this.shadowRT);
-      // seulement les objets mobiles : les autres enfants de la scène sont masqués le temps de la passe
-      const hidden: THREE.Object3D[] = [];
-      for (const o of this.scene.children) if (o.visible && !dynSet.has(o)) {
-        o.visible = false;
-        hidden.push(o);
-      }
-      this.depthRender(this.scene, lc, this.shadowRT, false, dyn);
-      for (const o of hidden) o.visible = true;
-    }
+    this.renderCascade(0, lc, this.shadowRT, dyn);
+    if (lc2) this.renderCascade(1, lc2, this.shadowRT2, dyn);
     this.meadows.group.visible = mv;
     this.fxGroup.visible = true;
     this.emitters.group.visible = emitVis;
@@ -3982,12 +4061,29 @@ export class ProcgenView {
       }
     }
     {
-      // cadrage de la carte d'ombre : demi-diagonale visible autour de la cible (arrondie : pas de scintillement)
+      // ombres en deux cascades. Fine : demi-diagonale visible autour de la cible (gros plan net). Large : tout ce que
+      // la caméra voit de la scène (son champ coupé par la boîte de la scène) — une caméra rasante voit loin derrière
+      // sa cible, et un objet visible hors de toute carte perdrait son ombre en tournant ou en zoomant. Rayons arrondis
+      // à des paliers de 1,25, centres calés sur les texels : pas de scintillement.
       const hv = (cam as THREE.PerspectiveCamera).isPerspectiveCamera ? camDist * Math.tan(((cam as THREE.PerspectiveCamera).fov * Math.PI) / 360) : (cam as THREE.OrthographicCamera).top / Math.max(1e-3, (cam as THREE.OrthographicCamera).zoom);
-      const r = Math.pow(1.25, Math.ceil(Math.log(Math.max(0.5, hv * Math.hypot(1, w / h) * 1.35)) / Math.log(1.25)));
+      const step = (x: number) => Math.pow(1.25, Math.ceil(Math.log(Math.max(0.5, x)) / Math.log(1.25)));
+      const r = step(hv * Math.hypot(1, w / h) * 1.35);
       const prev = this.shadowFocus;
       if (!prev || prev.r !== r || prev.c.distanceTo(tgt) > r * 0.05) {
         this.shadowFocus = { c: tgt.clone(), r };
+        this.shadowDirty = true;
+      }
+      const vis = this.visibleBox(cam);
+      if (vis) {
+        const c = new THREE.Vector3((vis.min[0] + vis.max[0]) / 2, (vis.min[1] + vis.max[1]) / 2, (vis.min[2] + vis.max[2]) / 2);
+        const rf = step(Math.max(1.5, (Math.hypot(vis.max[0] - vis.min[0], vis.max[1] - vis.min[1], vis.max[2] - vis.min[2]) / 2) * 1.08));
+        const pf = this.shadowFar;
+        if (!pf || pf.r !== rf || pf.c.distanceTo(c) > rf * 0.05) {
+          this.shadowFar = { c, r: rf };
+          this.shadowDirty = true;
+        }
+      } else if (this.shadowFar) {
+        this.shadowFar = null;
         this.shadowDirty = true;
       }
     }
@@ -4095,7 +4191,8 @@ export class ProcgenView {
     this.emitters.dispose();
     this.rt?.dispose();
     this.shadowRT.dispose();
-    this.shadowStaticRT?.dispose();
+    this.shadowRT2.dispose();
+    for (const st of this.shadowStatic) st?.dispose();
     this.stack.dispose();
     this.photo?.dispose();
     clearTimeout(this.photoTimer);

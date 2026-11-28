@@ -40,6 +40,15 @@ export function sharedUniforms(): Shared {
     uShadowMap: { value: null },
     uShadowMatrix: { value: new THREE.Matrix4() },
     uShadowTexel: { value: new THREE.Vector2(1 / 2048, 1 / 2048) },
+    /** Rayon du flou des ombres (fraction de la carte) et biais (profondeur), réglés en mètres par shadowPass. */
+    uShadowKernel: { value: 1 / 2048 },
+    uShadowBiasW: { value: 0.0005 },
+    /** Cascade large (tout le visible) : carte, matrice, flou, biais ; uShadowOn2 = 0 quand la fine suffit. */
+    uShadowMap2: { value: null },
+    uShadowMatrix2: { value: new THREE.Matrix4() },
+    uShadowKernel2: { value: 1 / 2048 },
+    uShadowBiasW2: { value: 0.0005 },
+    uShadowOn2: { value: 0 },
     uGroundY: { value: 0 },
     uWaterY: { value: -1000 },
     // nageurs (x, z, vitesse, phase) : rides et écume sur l'eau autour d'eux

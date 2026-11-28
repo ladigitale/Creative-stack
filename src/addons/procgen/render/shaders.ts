@@ -59,6 +59,7 @@ uniform float uTime;
 uniform float uWind;
 uniform vec2 uWindDir;
 uniform mat4 uShadowMatrix;
+uniform mat4 uShadowMatrix2;
 flat out float vRole;
 flat out float vObj;
 out float vAO;
@@ -68,6 +69,7 @@ out vec3 vPosL;
 out vec3 vNormL;
 out float vViewZ;
 out vec4 vShadow;
+out vec4 vShadow2;
 flat out float vVar;
 out float vBlend;
 #ifdef BLADE
@@ -182,6 +184,7 @@ void main() {
   vBlend = aBlend;
   #endif
   vShadow = uShadowMatrix * wp;
+  vShadow2 = uShadowMatrix2 * wp;
   vec4 mv = viewMatrix * wp;
   vViewZ = -mv.z;
   gl_Position = projectionMatrix * mv;
@@ -201,6 +204,7 @@ in vec3 vPosL;
 in vec3 vNormL;
 in float vViewZ;
 in vec4 vShadow;
+in vec4 vShadow2;
 flat in float vVar;
 in float vBlend;
 #ifdef BLADE
@@ -239,6 +243,12 @@ uniform float uShadowOn;
 uniform float uShadowStrength;
 uniform sampler2D uShadowMap;
 uniform vec2 uShadowTexel;
+uniform float uShadowKernel;
+uniform float uShadowBiasW;
+uniform sampler2D uShadowMap2;
+uniform float uShadowKernel2;
+uniform float uShadowBiasW2;
+uniform float uShadowOn2;
 uniform float uIdBase;
 uniform float uHighlight;
 uniform float uGroundY;
@@ -264,21 +274,43 @@ float finH(vec2 uv, vec2 gx, vec2 gy, float layer) { return textureGrad(uHeights
 
 const vec2 POISSON[12] = vec2[](vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621), vec2(0.962, -0.195), vec2(0.473, -0.480),
   vec2(0.519, 0.767), vec2(0.185, -0.893), vec2(0.507, 0.064), vec2(0.896, 0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598));
-/** Ombre portée filtrée (PCF) ; soft élargit la pénombre et le biais (peau : ombres du nez, des sourcils, de la
- * mâchoire en dégradé, sans arête crénelée ni acné sur les courbes du visage). */
-float shadowAt(vec4 sc, float ndl, float soft) {
-  if (uShadowOn < 0.5) return 1.0;
+/** Ombre portée filtrée (PCF) d'une cascade ; -1 hors de sa carte. Flou et biais en mètres (voir setCascade). */
+float shadowMapAt(sampler2D map, vec4 sc, float ndl, float soft, float kernel, float biasW) {
   vec3 c = sc.xyz / sc.w * 0.5 + 0.5;
-  if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
-  float bias = mix(0.0022, 0.0005, clamp(ndl, 0.0, 1.0)) * mix(1.0, 2.5, step(1.5, soft));
+  if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return -1.0;
+  // biais fixe en profondeur, plus grand sur les faces rasantes ; flou : rayon fixe en mètres
+  float bias = biasW * mix(4.4, 1.0, clamp(ndl, 0.0, 1.0)) * mix(1.0, 2.5, step(1.5, soft));
   float a = hash13(vec3(gl_FragCoord.xy, 1.0)) * 6.2831;
   mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));
   float s = 0.0;
   for (int i = 0; i < 12; i++) {
-    float d = texture(uShadowMap, c.xy + R * POISSON[i] * uShadowTexel * 1.8 * soft).r;
+    float d = texture(map, c.xy + R * POISSON[i] * kernel * soft).r;
     s += c.z - bias > d ? 0.0 : 1.0;
   }
   return soft > 1.5 ? smoothstep(0.0, 1.0, s / 12.0) : s / 12.0;
+}
+
+/** Distance au bord de la carte (0 au bord, 0,5 au centre) : fondu entre cascades près du bord de la fine. */
+float shadowEdge(vec4 sc) {
+  vec2 c = sc.xy / sc.w * 0.5 + 0.5;
+  return min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y));
+}
+
+/**
+ * Ombre portée en deux cascades : la fine (autour de la cible) là où elle couvre le point, sinon la large (tout ce
+ * que voit la caméra), avec un fondu sur les 8 % du bord de la fine ; hors des deux, éclairé.
+ * soft élargit la pénombre et le biais (peau : ombres du nez, des sourcils, de la mâchoire en dégradé, sans arête
+ * crénelée ni acné sur les courbes du visage).
+ */
+float shadowAt(vec4 sc, float ndl, float soft) {
+  if (uShadowOn < 0.5) return 1.0;
+  float near = shadowMapAt(uShadowMap, sc, ndl, soft, uShadowKernel, uShadowBiasW);
+  if (uShadowOn2 < 0.5) return near < 0.0 ? 1.0 : near;
+  float k = near < 0.0 ? 0.0 : smoothstep(0.0, 0.08, shadowEdge(sc));
+  if (k >= 1.0) return near;
+  float far = shadowMapAt(uShadowMap2, vShadow2, ndl, soft, uShadowKernel2, uShadowBiasW2);
+  if (far < 0.0) far = 1.0;
+  return near < 0.0 ? far : mix(far, near, k);
 }
 
 /** Variation de valeur procédurale selon le rôle (veinage du bois, taches de pierre, macro-variation du sol). */
