@@ -109,7 +109,7 @@ export function svgRefOf(v: unknown): { url: string } | null {
 }
 
 /** Taille maximale d'un SVG donné en texte à `svg-from`. */
-export const MAX_SVG_TEXT = 1_000_000;
+export const MAX_SVG_TEXT = 4_000_000;
 
 /** SVG donné en texte (`"<svg …>…</svg>"`, ou `{svg: "…"}`), ou null. */
 export function svgTextOf(v: unknown): string | null {
@@ -132,7 +132,7 @@ export function svgTextOf(v: unknown): string | null {
  * ses formes sont lues telles quelles (courbes, couleurs et opacités exactes ; voir `parseSvgDocument`) au lieu
  * d'être tracées depuis l'image ; sinon la source d'images est tracée comme d'habitude. Avec `auto`, chaque
  * nouveau fichier est lu dès qu'il arrive. `keep-colors` marque le résultat : couleurs d'origine à garder.
- * Le DP peut aussi donner le SVG en texte (`"<svg…>"` ou `{svg}`, 1 Mo max ; ex. l'entrée d'un artefact-outil) :
+ * Le DP peut aussi donner le SVG en texte (`"<svg…>"` ou `{svg}`, 4 Mo max ; ex. l'entrée d'un artefact-outil) :
  * il est lu de la même façon, sans être affiché ni exécuté (scripts et liens ignorés par `parseSvgDocument`).
  */
 @customElement("sonic-vectorize")
