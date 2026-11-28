@@ -130,36 +130,98 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   const parts: { key: number; draw: () => void }[] = [];
   const P2s = (pts: V3[]) => pts.map(S);
 
-  // pieds / chaussures
+  // pieds / chaussures : un vrai pied humain en volume (sections du talon aux orteils, plante à plat), projeté puis
+  // contourné : talon étroit et rond, cou-de-pied qui descend de la cheville, avant-pied large, orteils fins
+  const FOOT_T = [0, 0.06, 0.18, 0.32, 0.5, 0.66, 0.76, 0.88, 0.96, 1];
+  const FOOT_W = [0.07, 0.115, 0.13, 0.135, 0.145, 0.185, 0.195, 0.18, 0.15, 0.09];
+  const FOOT_H = [0.1, 0.2, 0.27, 0.3, 0.2, 0.13, 0.1, 0.075, 0.06, 0.035];
   const foot = (s: "l" | "r", shade: number) => {
-    const an = J(`foot.${s}`), ball = J(`toe.${s}`), toe = T(`toe.${s}`);
-    const fd = norm(sub(toe, an));
-    const fl = Math.hypot(...sub(toe, an));
-    const heel = madd(an, fd, -fl * 0.28);
-    const r = R(`foot.${s}`, 0) * 1.15;
-    const tipP = madd(toe, fd, fl * 0.08);
-    const pts = [madd(heel, [0, 1, 0], r * 0.35), lerp3(an, ball, 0.35), ball, madd(tipP, [0, 1, 0], r * 0.05)];
-    const fill = shoes === "barefoot" || shoes === "sandals" ? "skin" : "leather";
-    const pen = strokeVar(new Pen(), P2s(pts), [r * 0.8, r * 1.0, r * 1.0, r * 0.7]);
-    em.add(pen, fill, { tone: -shade });
-    // largeur de l'avant-pied (visible de face, où la longueur du pied disparaît en raccourci)
-    {
-      const lat = norm(cross([0, 1, 0], fd));
-      const c = lerp3(ball, tipP, 0.25);
-      const w = r * 1.05;
-      em.add(strokeVar(new Pen(), P2s([madd(c, lat, -w), madd(c, lat, w)]), [r * 0.62, r * 0.62]), fill, { tone: -shade });
-    }
-    if (shoes === "sandals") {
-      const st = new Pen();
-      for (const t of [0.35, 0.7]) {
-        const q = S(lerp3(pts[0], pts[3], t));
-        st.M(q[0] - r * 0.6, q[1] + r * 0.7).L(q[0] + r * 0.6, q[1] + r * 0.7);
+    const an = J(`foot.${s}`), toe = T(`toe.${s}`);
+    const fd0 = sub(toe, an);
+    const fd = norm([fd0[0], fd0[1] * 0.35, fd0[2]] as V3);
+    const lat = norm(cross([0, 1, 0], fd));
+    const upF = norm(cross(fd, lat));
+    const fl = Math.hypot(...fd0);
+    const r = R(`foot.${s}`, 0);
+    const shod = shoes !== "barefoot" && shoes !== "sandals";
+    // longueur du pied : du talon (en arrière de la cheville) au bout des orteils ; une chaussure l'allonge un peu
+    const L = fl * 1.4 * (shod ? 1.08 : 1);
+    const heel = madd(an, fd, -fl * 0.3 - (shod ? fl * 0.04 : 0));
+    // plante au niveau du sol : sous la cheville de sa hauteur au-dessus du bout du pied, plus l'épaisseur des orteils
+    const drop = Math.max(r * 0.6, dot(sub(an, toe), upF) + r * 0.45);
+    const base = madd(heel, upF, -drop);
+    const inflate = shod ? 1.14 : 1;
+    const at = (t: number, wl: number, h: number): V3 => madd(madd(madd(base, fd, t * L), lat, wl), upF, h);
+    const pts: P2[] = [];
+    FOOT_T.forEach((t, k) => {
+      const w = FOOT_W[k] * L * inflate, h = FOOT_H[k] * L * (shod && t > 0.3 ? 1.12 : 1);
+      for (const a of [0, 0.5, 1, 1.5, 2, 2.5, 3]) {
+        // section : fond plat, dessus bombé
+        const c = Math.cos((a / 3) * Math.PI), sn = Math.sin((a / 3) * Math.PI);
+        pts.push(S(at(t, c * w, sn * h)));
       }
-      em.line(st, "leather", 1.2, { tone: -1 });
-    } else if (fill === "leather") {
-      // semelle
-      const sole = strokeVar(new Pen(), P2s([madd(heel, [0, 1, 0], -r * 0.25), lerp3(an, ball, 0.5).map((v, i) => (i === 1 ? v - r * 0.72 : v)) as V3, madd(toe, [0, 1, 0], -r * 0.42)]), [r * 0.22, r * 0.22, r * 0.18]);
-      em.add(sole, "leather", { tone: -1, stroke: null, alpha: 0.8 });
+    });
+    const fill = shod ? "leather" : "skin";
+    // raquette sous le pied (dessinée avant lui) : cadre ovale et tamis
+    if (p.snow === "snowshoes") {
+      const ring: P2[] = [];
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        ring.push(S(at(0.5 + Math.sin(a) * (Math.sin(a) > 0 ? 0.95 : 0.75), Math.cos(a) * L * 0.42, 0.01 * L)));
+      }
+      em.add(new Pen().smooth(hull(ring), true), "paper", { tone: -shade, width: 0.9 });
+    }
+    em.add(new Pen().smooth(hull(pts), true), fill, { tone: -shade });
+    // ski : long et étroit sous la chaussure, spatule relevée devant
+    if (p.snow === "skis") {
+      const sk0 = S(at(-1.35, 0, 0.01 * L)), sk1 = S(at(2.1, 0, 0.01 * L)), tip = S(at(2.3, 0, 0.12 * L));
+      em.line(new Pen().M(sk0[0], sk0[1]).L(sk1[0], sk1[1]).Q(S(at(2.25, 0, 0.02 * L))[0], S(at(2.25, 0, 0.02 * L))[1], tip[0], tip[1]), "blue", 2.2, { tone: -shade });
+    }
+    if (shod) {
+      // semelle : bande sombre au ras du sol, du talon au bout
+      const sole: P2[] = [];
+      FOOT_T.forEach((t, k) => {
+        const w = FOOT_W[k] * L * inflate * 1.02;
+        for (const sd of [-1, 1]) for (const h of [0, 0.035 * L]) sole.push(S(at(t, sd * w, h)));
+      });
+      em.add(new Pen().smooth(hull(sole), true), "leather", { tone: -1, stroke: null, alpha: 0.85 });
+      // lacets / cou-de-pied (chaussures basses)
+      if (shoes === "shoes") {
+        const ln = new Pen();
+        for (const t of [0.36, 0.44, 0.52]) {
+          const h = (FOOT_H[3] + (FOOT_H[5] - FOOT_H[3]) * ((t - 0.32) / 0.34)) * L * 1.12;
+          const a = S(at(t, -FOOT_W[4] * L * 0.45, h)), b = S(at(t, FOOT_W[4] * L * 0.45, h));
+          ln.M(a[0], a[1]).L(b[0], b[1]);
+        }
+        em.line(ln, "leather", 0.8, { tone: -1 });
+      }
+    } else {
+      // orteils : quatre sillons sur l'avant du pied (vus de face ou de trois quarts), ongle du gros orteil
+      const tw = FOOT_W[7] * L;
+      const big = s === "l" ? 1 : -1;
+      const tl = new Pen();
+      for (const f of [-0.45, -0.05, 0.3, 0.6]) {
+        const x = f * big * tw;
+        const a = S(at(0.86, x, 0.08 * L)), b = S(at(1.0, x * 0.75, 0.035 * L));
+        tl.M(a[0], a[1]).L(b[0], b[1]);
+      }
+      em.line(tl, "skin", 0.7, { tone: -1.2, alpha: 0.55 });
+      if (shoes === "sandals") {
+        // brides : une sur l'avant-pied, une au cou-de-pied ; semelle fine
+        const st = new Pen();
+        for (const [t, h] of [[0.62, 0.15], [0.3, 0.31]] as const) {
+          const w = FOOT_W[Math.round(t * 9)] * L * 1.05;
+          const a = S(at(t, -w, h * L * 0.4)), m = S(at(t, 0, h * L * 1.02)), b = S(at(t, w, h * L * 0.4));
+          st.M(a[0], a[1]).Q(m[0], m[1], b[0], b[1]);
+        }
+        em.line(st, "leather", 1.4, { tone: -1 });
+        const sole: P2[] = [];
+        FOOT_T.forEach((t, k) => {
+          const w = FOOT_W[k] * L * 1.06;
+          for (const sd of [-1, 1]) for (const h of [-0.005 * L, 0.02 * L]) sole.push(S(at(t, sd * w, h)));
+        });
+        em.add(new Pen().smooth(hull(sole), true), "leather", { tone: -0.5, stroke: null });
+      }
     }
   };
 

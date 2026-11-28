@@ -24,7 +24,7 @@ export type HandProp = {
 };
 
 /** Actions qui font apparaître un objet en main. */
-export const PROP_ACTIONS = new Set(["drink", "eat", "cook", "chop"]);
+export const PROP_ACTIONS = new Set(["drink", "eat", "cook", "chop", "ski"]);
 
 const at = (m: Mesh, part: Mesh, p: V3, axis?: V3, ang = 0) => m.append(part, m4Compose(p, axis ? qAxis(axis, ang) : [0, 0, 0, 1]));
 
@@ -113,6 +113,19 @@ export function propsFor(action: string, sk: Skeleton, food?: { kind: string; va
       at(kn, box(0.012 * k, 0.009 * k, 0.05 * k, ROLE.ink, 0.004 * k), add(p0, [0, 0, -0.01 * k]));
       at(kn, box(0.003 * k, 0.018 * k, 0.07 * k, ROLE.metal, 0.002 * k), add(p0, [0, 0.006 * k, -0.12 * k]));
       out.push({ bone: "hand.r", mesh: kn });
+      break;
+    }
+    case "ski": {
+      // bâtons de ski : poignée dans chaque poing, tige qui descend sous le poing, rondelle près de la pointe
+      for (const [b, side, bone] of [[hr, -1, "hand.r"], [hl, 1, "hand.l"]] as const) {
+        const m = new Mesh();
+        const p0 = palm(b, side);
+        const L = 1.15 * k;
+        at(m, cylinder(0.016 * k, 0.016 * k, 0.12 * k, ROLE.ink, 8), add(p0, [0, 0, 0.06 * k]), [1, 0, 0], -Math.PI / 2);
+        at(m, cylinder(0.008 * k, 0.006 * k, L, ROLE.metal, 6), add(p0, [0, 0, -0.04 * k]), [1, 0, 0], -Math.PI / 2);
+        at(m, cylinder(0.045 * k, 0.045 * k, 0.006 * k, ROLE.ink, 10), add(p0, [0, 0, -L + 0.06 * k]), [1, 0, 0], -Math.PI / 2);
+        out.push({ bone, mesh: m });
+      }
       break;
     }
   }

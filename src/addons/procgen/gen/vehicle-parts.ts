@@ -17,7 +17,7 @@ import { type JointSpec, hingeJoint, scaleJoint, slideJoint } from "./joints";
 type VB = { P: PartList; J: JointSpec[]; anchors: Record<string, V3>; axle: number };
 const vb = (): VB => ({ P: [], J: [], anchors: {}, axle: 0 });
 
-export const PART_VEHICLES = ["moderncar", "van", "bus", "truck", "tractor", "wagon", "locomotive"] as const;
+export const PART_VEHICLES = ["moderncar", "van", "bus", "truck", "tractor", "wagon", "locomotive", "motorbike", "scooter", "jetski", "snowmobile", "sled"] as const;
 /** Hauteur du dessus du rail de `structure.rails` (m). */
 export const RAIL_TOP = 0.29;
 
@@ -278,6 +278,95 @@ function locomotive(B: VB, paint: Role) {
   B.anchors["seat.driver"] = [0.5, 1.9, -1.6];
 }
 
+/** Roue seule dans l'axe (deux-roues) : `wheel.N`, enfant de `steer.f` si elle braque. */
+function single(B: VB, z: number, r: number, w: number, rim: Role, steer: boolean) {
+  const n = B.axle++;
+  const parts: PartList = [disc([0, r, z], r, w / 2, "ink", 18), disc([w / 2 + 0.004, r, z], r * 0.6, 0.006, rim, 14), disc([-w / 2 - 0.004, r, z], r * 0.6, 0.006, rim, 14)];
+  if (steer) B.J.push({ name: "steer.f", label: "direction", kind: "rotation", pivot: [0, r, z], axis: [0, 1, 0], range: [-35, 35], parts: [], initial: 0.5, openable: false });
+  B.J.push(hingeJoint(`wheel.${n}`, n === 0 ? "roue avant" : "roue arrière", parts, [0, r, z], [1, 0, 0], 360, { openable: false, ...(steer ? { parent: "steer.f" } : {}) }));
+}
+
+function motorbike(B: VB, paint: Role) {
+  const P = B.P;
+  // moto routière : réservoir, selle biplace, moteur et carters, fourche télescopique, guidon, phare, échappement
+  single(B, 0.72, 0.32, 0.13, "metal", true);
+  single(B, -0.72, 0.33, 0.16, "metal", false);
+  P.push({ t: "blob", c: [0, 0.86, 0.2], r: [0.17, 0.12, 0.28], role: paint });
+  P.push(bx([0, 0.84, -0.3], [0.14, 0.05, 0.3], "black", undefined, 0.04));
+  P.push(bx([0, 0.5, 0.02], [0.15, 0.17, 0.24], "metal", undefined, 0.05), bx([0, 0.44, 0.02], [0.17, 0.1, 0.14], "ink", undefined, 0.04));
+  P.push(rod([0, 0.62, -0.35], [0, 0.33, -0.72], 0.025, "ink"), rod([0, 0.86, -0.15], [0, 0.6, -0.62], 0.025, "ink"));
+  // capot de selle et feu arrière, garde-boue au-dessus de la roue
+  P.push(bx([0, 0.8, -0.66], [0.1, 0.06, 0.14], paint, [8, 0, 0], 0.03), bx([0, 0.79, -0.81], [0.06, 0.025, 0.01], "red"));
+  P.push(bx([0, 0.7, -0.8], [0.07, 0.012, 0.16], "ink", [-20, 0, 0]));
+  for (const sx of [-1, 1]) P.push(rod([sx * 0.07, 0.32, 0.72], [sx * 0.07, 0.98, 0.5], 0.022, "metal"));
+  P.push(rod([-0.36, 1.03, 0.43], [0.36, 1.03, 0.43], 0.014, "ink"), rod([0, 0.98, 0.5], [0, 1.03, 0.45], 0.02, "ink"));
+  for (const sx of [-1, 1]) P.push(rod([sx * 0.36, 1.03, 0.43], [sx * 0.44, 1.03, 0.4], 0.02, "black"));
+  P.push({ t: "blob", c: [0, 0.92, 0.62], r: [0.09, 0.09, 0.06], role: "lamp" });
+  P.push({ t: "tube", pts: [[0, 0.55, 0.62], [0, 0.65, 0.78], [0, 0.6, 0.9]], r: 0.03, role: paint });
+  P.push(rod([0.16, 0.35, 0.0], [0.18, 0.42, -0.85], 0.045, "metal", 0.05));
+  for (const sx of [-1, 1]) P.push(rod([sx * 0.1, 0.38, -0.05], [sx * 0.24, 0.38, -0.05], 0.018, "ink"));
+  Object.assign(B.anchors, { "seat.driver": [0, 0.88, -0.22], "seat.0": [0, 0.9, -0.52] });
+}
+
+function scooter(B: VB, paint: Role) {
+  const P = B.P;
+  // scooter : petites roues, plancher plat, tablier avant, coque arrière sous la selle, colonne de direction
+  single(B, 0.6, 0.22, 0.11, "metal", true);
+  single(B, -0.58, 0.22, 0.12, "metal", false);
+  P.push(bx([0, 0.3, 0.05], [0.17, 0.04, 0.32], "ink", undefined, 0.02));
+  P.push({ t: "blob", c: [0, 0.55, -0.42], r: [0.2, 0.24, 0.36], role: paint });
+  P.push(bx([0, 0.8, -0.38], [0.15, 0.05, 0.28], "black", undefined, 0.04));
+  P.push({ t: "plate", c: [0, 0, 0.38], pts: [[-0.2, 0.32], [0.2, 0.32], [0.17, 0.92], [-0.17, 0.92]], d: 0.03, rot: [-12, 0, 0], role: paint });
+  P.push(rod([0, 0.3, 0.6], [0, 1.02, 0.45], 0.03, paint), rod([-0.32, 1.04, 0.44], [0.32, 1.04, 0.44], 0.016, "ink"));
+  P.push({ t: "blob", c: [0, 1.0, 0.5], r: [0.1, 0.06, 0.05], role: "lamp" });
+  P.push({ t: "tube", pts: [[0, 0.3, 0.52], [0, 0.42, 0.62], [0, 0.4, 0.75]], r: 0.04, role: paint });
+  Object.assign(B.anchors, { "seat.driver": [0, 0.85, -0.3], "seat.0": [0, 0.87, -0.58] });
+}
+
+function jetski(B: VB, paint: Role) {
+  const P = B.P;
+  // scooter des mers : coque profilée (étrave relevée), selle, colonne et guidon, bande de couleur, poignée arrière
+  const hull: [number, number][] = [[-1.3, 0.01], [0.9, 0.0], [1.4, 0.32], [1.3, 0.48], [0.4, 0.62], [-1.3, 0.55]];
+  P.push(side(hull, 0.42, "white"));
+  P.push(side([[-1.25, 0.5], [0.5, 0.58], [1.25, 0.46], [1.32, 0.38], [-1.25, 0.4]], 0.43, paint));
+  P.push(bx([0, 0.72, -0.45], [0.2, 0.08, 0.5], "black", undefined, 0.05));
+  P.push(rod([0, 0.6, 0.45], [0, 0.95, 0.3], 0.06, paint), rod([-0.32, 0.97, 0.28], [0.32, 0.97, 0.28], 0.016, "ink"));
+  P.push(bx([0, 0.66, 0.75], [0.25, 0.05, 0.35], paint, [-8, 0, 0], 0.03), bx([0, 0.74, 0.62], [0.15, 0.06, 0.03], "glass", [-25, 0, 0]));
+  P.push(rod([-0.15, 0.62, -1.28], [0.15, 0.62, -1.28], 0.018, "metal"));
+  Object.assign(B.anchors, { "seat.driver": [0, 0.8, -0.25], "seat.0": [0, 0.82, -0.75] });
+}
+
+function snowmobile(B: VB, paint: Role) {
+  const P = B.P;
+  // motoneige : deux skis directeurs à spatule relevée, chenille arrière sur galets, carénage, pare-brise, selle
+  for (const sx of [-1, 1]) {
+    P.push(bx([sx * 0.42, 0.03, 0.75], [0.06, 0.02, 0.45], "metal"), { t: "tube", pts: [[sx * 0.42, 0.03, 1.15], [sx * 0.42, 0.1, 1.32], [sx * 0.42, 0.22, 1.36]], r: 0.03, role: "metal" });
+    P.push(rod([sx * 0.42, 0.05, 0.75], [sx * 0.22, 0.42, 0.62], 0.025, "ink"));
+  }
+  P.push(bx([0, 0.24, -0.45], [0.26, 0.17, 0.75], "ink", undefined, 0.08));
+  for (const z of [-1.0, -0.6, -0.2, 0.15]) P.push(rod([-0.27, 0.18, z], [0.27, 0.18, z], 0.07, "metal"));
+  P.push({ t: "blob", c: [0, 0.55, 0.55], r: [0.38, 0.22, 0.6], role: paint });
+  P.push(side([[-1.2, 0.42], [0.2, 0.45], [0.25, 0.6], [-1.2, 0.62]], 0.3, paint));
+  P.push(bx([0, 0.72, -0.5], [0.2, 0.07, 0.55], "black", undefined, 0.05));
+  P.push(bx([0, 0.86, 0.32], [0.3, 0.14, 0.01], "glass", [-35, 0, 0]));
+  P.push(rod([-0.34, 0.86, 0.15], [0.34, 0.86, 0.15], 0.016, "ink"), rod([0, 0.7, 0.25], [0, 0.86, 0.17], 0.03, "ink"));
+  P.push({ t: "blob", c: [0, 0.58, 1.1], r: [0.12, 0.06, 0.04], role: "lamp" });
+  Object.assign(B.anchors, { "seat.driver": [0, 0.82, -0.3], "seat.0": [0, 0.84, -0.8] });
+}
+
+function sled(B: VB, paint: Role) {
+  const P = B.P;
+  // luge en bois : deux patins cintrés relevés à l'avant, traverses, plateau à lattes, corde de traction
+  for (const sx of [-1, 1]) {
+    P.push({ t: "tube", pts: [[sx * 0.2, 0.03, -0.5], [sx * 0.2, 0.02, 0.35], [sx * 0.2, 0.08, 0.52], [sx * 0.2, 0.22, 0.56], [sx * 0.2, 0.26, 0.45]], r: 0.016, role: "metal" });
+    for (const z of [-0.4, 0.0, 0.35]) P.push(rod([sx * 0.2, 0.03, z], [sx * 0.2, 0.2, z], 0.016, "wood"));
+  }
+  for (let k = 0; k < 6; k++) P.push(bx([-0.15 + k * 0.06, 0.22, -0.05], [0.025, 0.012, 0.48], paint === "ink" ? "wood" : "wood"));
+  for (const z of [-0.45, 0.4]) P.push(bx([0, 0.205, z], [0.23, 0.02, 0.03], paint));
+  P.push({ t: "tube", pts: [[-0.2, 0.26, 0.45], [0, 0.18, 0.75], [0.2, 0.26, 0.45]], r: 0.008, role: "cloth1" });
+  Object.assign(B.anchors, { "seat.driver": [0, 0.24, -0.1] });
+}
+
 export function vehicleParts(kind: string, paint: Role, variant: number): VB {
   const B = vb();
   switch (kind) {
@@ -301,6 +390,21 @@ export function vehicleParts(kind: string, paint: Role, variant: number): VB {
       break;
     case "locomotive":
       locomotive(B, paint);
+      break;
+    case "motorbike":
+      motorbike(B, paint);
+      break;
+    case "scooter":
+      scooter(B, paint);
+      break;
+    case "jetski":
+      jetski(B, paint);
+      break;
+    case "snowmobile":
+      snowmobile(B, paint);
+      break;
+    case "sled":
+      sled(B, paint);
       break;
   }
   return B;

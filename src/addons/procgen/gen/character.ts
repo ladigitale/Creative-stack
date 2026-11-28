@@ -53,6 +53,7 @@ export const characterSchema = {
   freckles: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Taches de rousseur" },
   moles: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Grains de beauté (light : un ou deux, strong : plusieurs)" },
   jewelry: { type: "enum", default: "auto", options: auto(JEWELRY), doc: "Bijoux en métal : boucles d'oreilles (anneaux ou clous), collier à pendentif, anneau de nez, ou tout" },
+  snow: { type: "enum", default: "none", options: ["none", "skis", "snowshoes"], doc: "Aux pieds sur la neige : skis (avec l'action ski : glisse et bâtons) ou raquettes" },
   blush: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Joues rosées" },
   wrinkles: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Rides (auto : selon l'âge)" },
   top: { type: "enum", default: "auto", options: auto(TOPS), doc: "Haut (swimsuit : maillot de bain)" },
