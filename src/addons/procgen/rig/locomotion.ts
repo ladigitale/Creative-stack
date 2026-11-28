@@ -48,6 +48,8 @@ export type MotionState = {
   liftY?: number;
   /** Escalade : le grimpeur progresse (1) ou se tient agrippé (0). */
   climbing?: number;
+  /** Escalade pilotée : cycles accomplis depuis le pied de la paroi (voir `CLIMB`) ; absent : tiré de `actionTime`. */
+  climbQ?: number;
   /** Chute (vitesse verticale, m/s, < 0 en tombant), réception (0 … 1), glissade sur une pente (0 … 1). */
   fallV?: number;
   landK?: number;
@@ -69,6 +71,45 @@ export type RigInfo = {
   footLen: number;
   hipX: number;
 };
+
+/**
+ * Escalade « en croix », comme on l'enseigne : trois appuis sur quatre, un seul membre bouge à la fois, dans l'ordre
+ * main droite, pied gauche, main gauche, pied droit ; on monte en poussant sur les jambes, pas en tirant sur les bras :
+ * le corps ne s'élève que lorsqu'il se redresse sur le pied qui vient de se poser (deux paliers par cycle). `q` compte
+ * les cycles depuis le pied de la paroi ; `step` (m) = hauteur gagnée à chaque redressement.
+ */
+export const CLIMB = {
+  /** Hauteur gagnée par redressement, en longueurs de jambe (deux par cycle). */
+  step: 0.2,
+  /** Durée d'un cycle complet (quatre mouvements), en secondes. */
+  cycle: 2.4,
+  /** Fenêtres de chaque mouvement dans le cycle [début, fin) ; redressement juste après chaque pas. */
+  win: { handR: [0, 0.2], footL: [0.25, 0.38], handL: [0.5, 0.7], footR: [0.75, 0.88] } as Record<"handR" | "footL" | "handL" | "footR", [number, number]>,
+  stand: [[0.38, 0.5], [0.88, 1]] as [number, number][],
+};
+
+/** Élévation du corps (m au-dessus des pieds au départ) après `q` cycles : paliers, nulle au départ. */
+export function climbLiftAt(q: number, step: number): number {
+  const k = Math.floor(q), u = q - k;
+  const [a, b] = CLIMB.stand;
+  return Math.max(0, 2 * step * k - step + step * smoothstep(a[0], a[1], u) + step * smoothstep(b[0], b[1], u));
+}
+
+/**
+ * Prise d'un membre à l'instant `q` : hauteur absolue de la prise (m, depuis le pied de la paroi, avant la hauteur
+ * propre du membre) et avancement du mouvement en cours (`move` ∈ [0, 1], 0 = posé). Chaque membre change de prise une
+ * fois par cycle, dans sa fenêtre ; ses prises sont espacées de deux redressements.
+ */
+export function climbHold(q: number, limb: keyof typeof CLIMB.win, step: number): { from: number; to: number; k: number; move: number } {
+  const k = Math.floor(q), u = q - k;
+  const [w0, w1] = CLIMB.win[limb];
+  // hauteur de la prise n° i : les pieds montent d'un pas au-dessus de l'autre pied, les mains au-dessus du corps
+  const base = limb === "footL" ? step : limb === "footR" ? 2 * step : limb === "handR" ? -step : 0;
+  const at = (i: number) => Math.max(limb.startsWith("foot") ? 0 : -Infinity, 2 * step * i + base);
+  if (u < w0) return { from: at(k - 1), to: at(k - 1), k: k - 1, move: 0 };
+  if (u >= w1) return { from: at(k), to: at(k), k, move: 0 };
+  return { from: at(k - 1), to: at(k), k, move: smoothstep(w0, w1, u) || 1e-6 };
+}
 
 export function rigInfo(sk: Skeleton): RigInfo {
   const th = sk.bone("thigh.l")!, sh = sk.bone("shin.l")!, ft = sk.bone("foot.l")!;
@@ -727,24 +768,72 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       break;
     }
     case "climb": {
-      // escalade (paroi, échelle, filet) : la main droite et le pied gauche montent ensemble, puis l'inverse ; le
-      // corps s'élève jusqu'à la prise visée (reachY) ou un mètre et demi, puis reste agrippé
-      const ub = sk.bone("upperarm.r")!, fb = sk.bone("forearm.r")!;
-      const reach = ub.head[1] + len(sub(ub.tail, ub.head)) + len(sub(fb.tail, fb.head));
+      // escalade en croix (voir CLIMB) : chaque main se pose sur une vraie prise de la paroi (IK du bras), bras tendus
+      // quand elle est haute, fléchis quand le corps est monté jusqu'à elle ; la main qui change de prise se décolle de
+      // la paroi, monte en arc et se referme sur la suivante. Le regard la précède, puis descend vers le pied à poser.
+      const ub = sk.bone("upperarm.r")!, fb = sk.bone("forearm.r")!, hb = sk.bone("hand.r")!;
+      const armLen = len(sub(ub.tail, ub.head)) + len(sub(fb.tail, fb.head)) + len(sub(hb.tail, hb.head)) * 0.45;
+      const step = CLIMB.step * leg;
+      const reach = ub.head[1] + armLen;
       const top = st.reachY !== undefined ? Math.max(0, st.reachY - reach) : leg * 1.6;
-      climbLift = st.liftY !== undefined ? st.liftY : Math.min(top, at * leg * 0.45);
-      const going = st.liftY !== undefined ? st.climbing ?? 1 : climbLift < top - 1e-3 ? 1 : 0.25;
-      climbPh = at * 0.8;
-      for (const [s2, sg2, ph2] of [["r", -1, 0], ["l", 1, 0.5]] as const) {
-        const u = (((climbPh + ph2) % 1) + 1) % 1;
-        const up = going * (u < 0.5 ? Math.sin(u * TAU) : 0);
-        aimDir(over, s2, [sg2 * 0.3, 1, 0.45 - 0.15 * up], 30 + 40 * (1 - up), 20, 60);
-        over[`clavicle.${s2}`] = qAxis([0, 0, 1], sg2 * (14 + 8 * up) * DEG);
+      // avancement : piloté par l'appelant (climbQ) ou par le temps, jusqu'au palier qui atteint le sommet visé
+      let q = st.climbQ ?? at / CLIMB.cycle;
+      let going = st.climbing ?? 1;
+      if (st.climbQ === undefined && climbLiftAt(q, step) > top) {
+        // sommet visé atteint : dernier instant où l'élévation ne le dépasse pas (dichotomie, la montée est monotone)
+        let lo = 0, hi = q;
+        for (let i = 0; i < 24; i++) {
+          const mid = (lo + hi) / 2;
+          if (climbLiftAt(mid, step) > top) hi = mid;
+          else lo = mid;
+        }
+        // arrêté sur une position stable : fin d'un redressement, les quatre membres posés (jamais une main en l'air)
+        q = Math.floor(lo * 2) / 2;
+        going = 0;
       }
-      // buste contre la paroi, tête levée vers la prise suivante
-      over.spine = qEuler(7 * DEG, 0, 0);
-      over.chest = qEuler(4 * DEG, 0, 0);
-      over.head = qEuler(-22 * DEG, 0, 0);
+      climbLift = st.liftY !== undefined ? Math.min(st.liftY, climbLiftAt(q, step) + 1e-6) : climbLiftAt(q, step);
+      climbPh = q;
+      // paroi à ~28 cm devant le bassin ; prises des mains un peu en retrait de sa face
+      const wallZ = leg * 0.33;
+      const holdJit = (k: number, limb: number) => ((Math.sin((k * 7.13 + limb * 3.7 + st.seed) * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      let lookUp = 0, lookDown = 0, lookSide = 0, reachSide = 0;
+      for (const [s2, sg2, limb, li] of [["r", -1, "handR", 1], ["l", 1, "handL", 2]] as const) {
+        const ua = sk.bone(`upperarm.${s2}`)!;
+        const h = climbHold(q, limb, step);
+        const yAt = (k: number, y: number) => y + ua.head[1] + armLen * (0.93 + 0.05 * holdJit(k, li));
+        const xAt = (k: number) => ua.head[0] * (1 + 0.5 * holdJit(k, li + 4)) + sg2 * 0.02;
+        const yFrom = yAt(h.k - 1, h.from), yTo = yAt(h.k, h.to);
+        const m2 = h.move > 0 ? h.move : 1;
+        const ease = smoothstep(0, 1, m2);
+        const arc = h.move > 0 ? Math.sin(Math.PI * m2) : 0;
+        const y = mix(yFrom, yTo, ease) - climbLift;
+        const x = mix(xAt(h.k - 1), xAt(h.k), ease) + sg2 * 0.06 * leg * arc;
+        // la main quitte la paroi (≈ 12 cm) pendant son mouvement ; posée, elle reste contre la prise
+        const z = wallZ - 0.03 * leg - 0.14 * leg * arc;
+        reachArm(over, s2, [x, y, z], 0.9, [sg2 * 0.85, -0.45, -0.3]);
+        over[`clavicle.${s2}`] = qAxis([0, 0, 1], sg2 * clamp(((y - ua.head[1]) / armLen) * 22, 0, 22) * DEG);
+        // poignet : la paume se referme sur la prise (doigts vers la paroi), ouverte pendant le mouvement
+        over[`hand.${s2}`] = qAxis([1, 0, 0], mix(28, 5, arc) * DEG);
+        if (h.move > 0) {
+          lookUp = Math.max(lookUp, Math.sin(Math.PI * Math.min(1, m2 * 1.3)));
+          reachSide = sg2 * arc;
+        }
+      }
+      // pieds : le regard descend vers le pied qui cherche sa prise
+      for (const [limb, sg2] of [["footL", 1], ["footR", -1]] as const) {
+        const h = climbHold(q, limb, step);
+        if (h.move > 0) {
+          lookDown = Math.max(lookDown, Math.sin(Math.PI * Math.min(1, h.move * 1.2)));
+          lookSide = sg2 * Math.sin(Math.PI * h.move);
+        }
+      }
+      // à l'arrêt (agrippé, sommet visé atteint) : on souffle, et l'on secoue une main de temps en temps
+      const rest = 1 - going;
+      // buste près de la paroi ; il s'allonge du côté de la main qui monte, le bassin part de l'autre côté
+      over.spine = qEuler((8 - 4 * lookDown) * DEG, 0, -5 * reachSide * DEG);
+      over.chest = qEuler((3 - 6 * lookUp) * DEG, 4 * reachSide * DEG, -3 * reachSide * DEG);
+      over.neck = qEuler((-6 * lookUp + 10 * lookDown) * DEG, 0, 0);
+      over.head = qEuler((-18 - 16 * lookUp + 30 * lookDown - 3 * rest * Math.sin(at * 1.7)) * DEG, (14 * lookSide + 8 * reachSide) * DEG, 0);
       break;
     }
     case "mantle": {
@@ -1026,7 +1115,17 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   const bob0 = bob + standLift;
   const hangY = hangLift * w;
   const climbY = climbLift * w;
-  const pelvisOffset: V3 = [sway, bob0 - drop + jumpY + hangY + climbY, hangSwing * leg * 0.04 * w];
+  // escalade : le bassin passe au-dessus du pied d'appui (sur le pied gauche après l'avoir posé, puis sur le droit) et
+  // reste près de la paroi ; il s'en écarte un peu quand un pied cherche sa prise, pour la voir
+  let climbShift = 0, climbBack = 0;
+  if (st.action === "climb" && mantleK < 0) {
+    const u = climbPh - Math.floor(climbPh);
+    const [a1, b1] = CLIMB.stand;
+    climbShift = leg * 0.07 * (2 * (smoothstep(a1[0] - 0.04, a1[1], u) - smoothstep(b1[0] - 0.04, b1[1], u)) - 1) * w;
+    const fl = climbHold(climbPh, "footL", CLIMB.step * leg).move, fr = climbHold(climbPh, "footR", CLIMB.step * leg).move;
+    climbBack = leg * (0.06 - 0.05 * Math.sin(Math.PI * Math.max(fl, fr))) * w;
+  }
+  const pelvisOffset: V3 = [sway + climbShift, bob0 - drop + jumpY + hangY + climbY, hangSwing * leg * 0.04 * w + climbBack];
   // appui : 62 % du cycle en marche ; en course, la distance parcourue au sol reste d'environ une jambe quelle que
   // soit la vitesse (c'est la durée d'appui qui raccourcit) : ~33 % du cycle au footing, ~23 % au sprint
   const beta = mix(0.62, clamp((leg * 0.85) / stride, 0.2, 0.4), run);
@@ -1106,10 +1205,19 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       const on = smoothstep(0.55, 0.95, mantleK);
       const knee = s === "r" ? Math.sin(clamp((mantleK - 0.45) / 0.4, 0, 1) * Math.PI) : 0;
       feetLocal[s] = { p: [feetLocal[s].p[0], climbY - leg * mix(0.45, 0, on) + leg * 0.4 * knee, leg * (0.15 + 0.25 * knee) * (1 - on)], pitch: 0, planted: on > 0.98 };
-    } else if (climbY > 0) {
-      const u = (((climbPh + (s === "l" ? 0 : 0.5)) % 1) + 1) % 1;
-      const up = u < 0.5 ? Math.sin(u * TAU) : 0;
-      feetLocal[s] = { p: [feetLocal[s].p[0] * 0.9, climbY + leg * (0.08 + 0.3 * up), leg * 0.3], pitch: -10, planted: false };
+    } else if (st.action === "climb" && w > 0.01) {
+      // pied sur sa prise : pointe posée (carre interne), genou ouvert ; celui qui change de prise se décolle de la
+      // paroi, monte haut (pas haut, genou vers la poitrine) et se repose un pas au-dessus de l'autre pied
+      const step = CLIMB.step * leg;
+      const h = climbHold(climbPh, s === "l" ? "footL" : "footR", step);
+      const m2 = h.move > 0 ? h.move : 1;
+      const arc = h.move > 0 ? Math.sin(Math.PI * m2) : 0;
+      const jx = ((Math.sin((h.k * 5.31 + (s === "l" ? 11 : 17) + st.seed) * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      const x = sx * (1.35 + 0.3 * jx);
+      const y = mix(h.from, h.to, smoothstep(0, 1, m2)) + leg * 0.06 * arc;
+      const z = leg * 0.3 - leg * 0.16 * arc;
+      const p: V3 = [x, y, z];
+      feetLocal[s] = { p: [mix(feetLocal[s].p[0], p[0], w), mix(feetLocal[s].p[1], p[1], w), mix(feetLocal[s].p[2], p[2], w)], pitch: mix(feetLocal[s].pitch, mix(-6, 18, arc), w), planted: false };
     }
     if (kickFoot && s === "r") feetLocal[s] = { p: kickFoot.p.map((x) => x * w) as V3, pitch: kickFoot.pitch * w, planted: false };
     // suspendu : pieds dans le vide, pointes vers le bas, jambes qui suivent le balancement avec retard
@@ -1145,7 +1253,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   }
   // terrain sous les pieds (pente, marche) : chaque pied se pose sur le sol à sa place et suit sa pente, le bassin
   // descend sur le pied le plus bas (l'autre jambe se plie) ; seulement pour les pieds posés « normalement »
-  const footFree = sit === 0 && hangY === 0 && climbY === 0 && mantleK < 0 && fallK === 0 && swimK === 0 && gK === 0;
+  const footFree = sit === 0 && hangY === 0 && climbY === 0 && !(st.action === "climb" && w > 0.01) && mantleK < 0 && fallK === 0 && swimK === 0 && gK === 0;
   const groundAt = (x: number, z: number) => (st.ground ? clamp(st.ground(x, z), -leg * 0.6, leg * 0.6) : 0);
   let gOff = 0;
   if (st.ground && footFree) {
@@ -1197,7 +1305,9 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       const pn = norm(pole);
       const fwdUp = smoothstep(0.25, 0.8, dot(pn, ld));
       const pole2: V3 = fwdUp > 0 ? add(scale(pn, 1 - fwdUp), [0, fwdUp, 0]) : pole;
-      const sitPole: V3 = sit > 0 ? add(pole2, [0, sit * 0.7, 0]) : pole2;
+      const sitPole0: V3 = sit > 0 ? add(pole2, [0, sit * 0.7, 0]) : pole2;
+      // escalade : genoux ouverts vers l'extérieur (position « grenouille »), hanches près de la paroi
+      const sitPole: V3 = st.action === "climb" && mantleK < 0 ? add(scale(sitPole0, 0.55), qRot(yawQ, [s === "l" ? 0.8 : -0.8, 0, 0])) : sitPole0;
       const ik = twoBoneIK(hip, ankleTarget, info.thigh, info.shin, norm(sitPole));
       worst = Math.min(worst, ik.reach);
       // abaissement juste suffisant pour que la jambe atteigne sa cible presque tendue (genou jamais verrouillé)

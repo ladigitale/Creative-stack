@@ -26,7 +26,7 @@ import { characterAsset } from "../gen/character";
 import { inSwimwear, swimwear, type Look } from "../gen/character/look";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
-import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
+import { ACTIONS, CLIMB, climbLiftAt, type Action, type MotionState } from "../rig/locomotion";
 import { type Motion, PoseBlend, motionFor, turnToward } from "../rig/motion";
 import { dualQuat } from "../rig/skeleton";
 import { type StyleTokens, resolveColors } from "../style/style";
@@ -50,7 +50,7 @@ import { InfiniteGpu } from "./infinite-gpu";
 import type { TileWorld } from "../scene/infinite";
 import type { NavGrid } from "../scene/nav";
 import { type Terrain, type TerrainEdit, readTerrainEdits } from "../scene/terrain";
-import { actorRadius, separate, slideStep, steerAround } from "../scene/crowd";
+import { STUCK_REPLAN, actorRadius, separate, slideStep, steerAround, unstick, walkStep, wanderTarget } from "../scene/crowd";
 import { maxTopAt, nearestEdge, standable, supportAt, topAt, wallAhead } from "../scene/surfaces";
 import { type DriveInput, type DriveState, type Route, type SeatPose, type VehicleSpec, ObstacleSet, doorFor, obbOverlap, followRoute, newDriveState, newRoute, obstaclesOf, planRoute, readInput, seatFor, seatNames, sideApproach, stepDrive, steerPartValue, vehicleSpecOf, wheelPartValue } from "../scene/drive";
 import { worldRoads } from "../scene/world-roads";
@@ -58,7 +58,7 @@ import { FootballDirector, type Puppet } from "./football";
 import type { FootballSpec } from "../scene/football";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain" | "grab"; payload: Record<string, unknown> };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain" | "grab" | "noClimb"; payload: Record<string, unknown> };
 /** État publié de la physique : chargement, erreur, ou corps (10 fois par seconde au plus tant que ça bouge). */
 export type PhysicsOut = ({ status: "loading" | "error"; error?: string } | ({ status: "ready" } & RigidState)) | null;
 
@@ -116,7 +116,11 @@ type ActorRT = {
   /** Durée demandée pour l'action en cours (s). */
   actionDur?: number;
   /** Escalade en cours : objet, hauteur du rebord, phase (montée, suspendu, rétablissement), élévation du corps. */
-  climbSt?: { obj: ObjectInfo; top: number; phase: "up" | "hang" | "mantle"; t: number; lift: number; hangOnly: boolean; from?: [number, number]; to?: [number, number]; liftFrom?: number };
+  climbSt?: { obj: ObjectInfo; top: number; phase: "up" | "hang" | "mantle"; t: number; lift: number; hangOnly: boolean; q: number; from?: [number, number]; to?: [number, number]; liftFrom?: number };
+  /** Grimper sans paroi à portée : signalé une fois (`noClimb`), l'acteur reste au sol. */
+  climbMiss?: boolean;
+  /** Temps passé sans avancer sur un chemin (s) : au-delà de 0,7 s, le chemin est recalculé. */
+  stuckT?: number;
   /** Élévation du corps imposée à la pose (escalade), vitesse verticale (chute), réception, glissade. */
   liftY?: number;
   vy?: number;
@@ -257,13 +261,16 @@ export class ProcgenView {
   private dirty = true;
   private shadowDirty = true;
   /**
-   * Ombres en deux temps : la carte du décor (`shadowStaticRT`) n'est refaite que quand le décor, le soleil ou le
+   * Ombres en deux temps : la carte du décor (`shadowStatic`, une par cascade) n'est refaite que quand le décor, le soleil ou le
    * cadrage changent (`shadowDirty`) ; quand seuls les acteurs ou les ballons bougent (`shadowDyn`), sa profondeur est
    * recopiée dans la carte finale et on n'y dessine qu'eux. Le résultat est le même qu'une carte refaite en entier
    * (profondeur la plus proche), pour bien moins de triangles.
    */
   private shadowDyn = false;
-  private shadowStaticRT: THREE.WebGLRenderTarget | null = null;
+  /** Cartes du décor seul, par cascade (fine, large). */
+  private shadowStatic: [THREE.WebGLRenderTarget | null, THREE.WebGLRenderTarget | null] = [null, null];
+  /** Cascade large : tout ce que voit la caméra (moitié de la définition de la fine). */
+  private shadowRT2: THREE.WebGLRenderTarget;
   /** Instances qui bougent à chaque image (ballons) : dessinées avec les acteurs, pas dans le décor. */
   private dynIms = new Set<THREE.Object3D>();
   private time = 0;
@@ -371,6 +378,10 @@ export class ProcgenView {
     depthTex.type = THREE.UnsignedIntType;
     this.shadowRT = new THREE.WebGLRenderTarget(SM, SM, { depthTexture: depthTex, depthBuffer: true });
     this.shared.uShadowMap.value = depthTex;
+    const depthTex2 = new THREE.DepthTexture(SM / 2, SM / 2);
+    depthTex2.type = THREE.UnsignedIntType;
+    this.shadowRT2 = new THREE.WebGLRenderTarget(SM / 2, SM / 2, { depthTexture: depthTex2, depthBuffer: true });
+    this.shared.uShadowMap2.value = depthTex2;
     (this.shared.uShadowTexel.value as THREE.Vector2).set(1 / SM, 1 / SM);
     const postMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
@@ -1283,6 +1294,7 @@ export class ProcgenView {
       const sig = JSON.stringify(it);
       if (sig === a.lastIntent) continue;
       a.lastIntent = sig;
+      a.climbMiss = false;
       if (it.mood) a.mood = String(it.mood);
       if (it.look !== undefined) a.look = typeof it.look === "string" ? it.look : "";
       // conduite : monter, descendre, conduire (le reste de l'intention est ignoré)
@@ -2867,6 +2879,8 @@ export class ProcgenView {
       this.poseActor(a, dt);
       return void this.updateFace(a, dt);
     }
+    // grimper (ou se suspendre) sans paroi en cours : jamais dans le vide, on va à la paroi la plus proche
+    if ((a.action === "climb" || a.action === "hang") && !a.goal && !a.drive && !a.climbMiss && a.mo.kind === "humanoid") this.climbNearest(a);
     let vx = 0, vz = 0;
     let want = 0;
     if (a.drive) {
@@ -2969,10 +2983,8 @@ export class ProcgenView {
           const end = Math.hypot(a.pos[0] - p.points[0][0], a.pos[2] - p.points[0][1]) < 4 ? p.points[p.points.length - 1] : p.points[0];
           [tx, tz] = end;
         } else {
-          const ang = (a.model.seed * 3.7 + this.time * 1.3) % (Math.PI * 2);
-          const r = 3 + ((a.model.seed + this.time) % 5);
-          tx = clamp(a.pos[0] + Math.cos(ang) * r, -m.size[0] / 2 + 1, m.size[0] / 2 - 1);
-          tz = clamp(a.pos[2] + Math.sin(ang) * r, -m.size[1] / 2 + 1, m.size[1] / 2 - 1);
+          // une direction au hasard dont le point d'arrivée est libre (pas dans une maison, un objet, l'eau)
+          [tx, tz] = wanderTarget(a.pos, a.model.seed, this.time, m.size, m.nav);
         }
         a.wantSpeed = (1.1 + ((a.model.seed * 13) % 1) * 0.4) * leg / 0.85;
         this.goto(a, tx, tz);
@@ -3007,12 +3019,25 @@ export class ProcgenView {
       // sur un sommet (ou en l'air), la grille du sol ne s'applique pas : on peut marcher jusqu'au bord et tomber
       const aloft = !!a.onObj || a.pos[1] > groundHeight(m, a.pos[0], a.pos[2], a.pos[1]) + 0.2;
       const free = (x: number, z: number) => (aloft ? maxTopAt(m.objects, x, z) <= a.pos[1] + 0.32 * leg : !m.nav || (wet(a.action) && this.dressedForWater(a)) || m.nav.free(x, z));
-      if (a.path) {
-        a.pos[0] = nx;
-        a.pos[2] = nz;
-      } else if (!slideStep(a.pos, nx, nz, free) && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
+      // chemin ou pas, on ne traverse rien : un virage coupé (cap en retard sur le chemin) glisse le long du mur
+      const w = walkStep(a.pos, nx, nz, free);
+      if (w.blocked && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
+      // coincé sur un chemin (coin, autre acteur) : on recalcule le chemin depuis là où l'on est
+      if (a.path && a.goal) {
+        a.stuckT = w.moved < step * 0.25 ? (a.stuckT ?? 0) + dt : 0;
+        if (a.stuckT > STUCK_REPLAN) {
+          a.stuckT = 0;
+          const g = a.goal;
+          const keep = { seat: g.seat, kick: g.kick, then: g.then };
+          this.goto(a, g.x, g.z, g.target);
+          if (a.goal) Object.assign(a.goal, Object.fromEntries(Object.entries(keep).filter(([, v]) => v !== undefined)));
+        }
+      }
       a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
+    // dans un obstacle (apparu là, poussé par la foule, objet déplacé sur lui) : on en sort vers la case libre la plus
+    // proche, au lieu d'y circuler librement
+    if (!a.onObj && !wet(a.action) && !(a.seatY ?? 0)) unstick(a.pos, m.nav, dt);
     this.settleOnSupport(a, dt);
     // nageur : à la surface de l'eau quand elle recouvre le sol ; plongeur : descend sous la surface (apnée), glisse,
     // remonte et reprend la nage au bout de `duration` (4 s par défaut)
@@ -3217,6 +3242,41 @@ export class ProcgenView {
    * l'acteur tombe et se rattrape au rebord (il reste où il est, suspendu). Objet bas (moins d'une jambe) : on y
    * monte directement d'un rétablissement.
    */
+  /**
+   * `climb` / `hang` sans cible (ou donné à la création de la scène) : l'acteur marche jusqu'au pied de la paroi la plus
+   * proche (objet sur lequel on peut se tenir, plus haut qu'une demi-jambe, à 8 m au plus) et la grimpe ; sans paroi, il
+   * reste au sol (action `idle`) et l'événement `noClimb` le signale, une fois.
+   */
+  private climbNearest(a: ActorRT) {
+    const m = this.model!;
+    const leg = a.mo.legLength;
+    const hang = a.action === "hang";
+    const feet = a.onObj ? a.pos[1] : groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+    let best: { o: ObjectInfo; e: ReturnType<typeof nearestEdge> } | null = null;
+    for (const o of m.objects) {
+      if (!standable(o) || o.id === a.onObj) continue;
+      if (Math.abs(o.pos[0] - a.pos[0]) > o.footprint.r + 8 || Math.abs(o.pos[2] - a.pos[2]) > o.footprint.r + 8) continue;
+      const e = nearestEdge(o, a.pos[0], a.pos[2]);
+      if (e.d > 8 || e.p[1] - feet < (hang ? 1.5 : 0.5) * leg) continue;
+      if (!best || e.d < best.e.d) best = { o, e };
+    }
+    if (!best) {
+      a.climbMiss = true;
+      const was = a.action;
+      a.action = "idle";
+      a.actionTime = 0;
+      this.onEvent({ type: "noClimb", payload: { actor: a.model.id, action: was, reason: "aucune paroi à moins de 8 m" } });
+      return;
+    }
+    const { o, e } = best;
+    if (e.d < 0.6) return void this.startClimb(a, o, hang, false);
+    const action = a.action;
+    a.action = "idle";
+    this.goto(a, e.p[0] + e.n[0] * 0.5, e.p[2] + e.n[1] * 0.5, o.id);
+    if (a.goal) a.goal.then = { action, spot: e.p };
+    else a.climbMiss = true;
+  }
+
   private startClimb(a: ActorRT, o: ObjectInfo, hangOnly: boolean, grab: boolean) {
     const m = this.model!;
     const leg = a.mo.legLength;
@@ -3244,7 +3304,8 @@ export class ProcgenView {
     a.pos[1] = grab ? groundHeight(m, a.pos[0], a.pos[2], a.pos[1]) : feet;
     const need = Math.max(0, top - a.pos[1] - 2.35 * leg);
     const low = top - a.pos[1] < leg * 1.1;
-    a.climbSt = { obj: o, top, phase: grab ? "hang" : low ? "mantle" : "up", t: 0, lift: grab ? need : 0, hangOnly };
+    a.climbSt = { obj: o, top, phase: grab ? "hang" : low ? "mantle" : "up", t: 0, lift: grab ? need : 0, hangOnly, q: 0 };
+    a.climbMiss = false;
     a.standAt = undefined;
     a.vy = 0;
     a.path = null;
@@ -3265,7 +3326,9 @@ export class ProcgenView {
     const need = Math.max(0, c.top - a.pos[1] - 2.35 * leg);
     if (c.phase === "up") {
       a.action = "climb";
-      c.lift = Math.min(need, c.lift + 0.6 * leg * dt);
+      // en croix : main, pied opposé, autre main, autre pied ; le corps monte quand il se redresse sur le pied posé
+      c.q += dt / CLIMB.cycle;
+      c.lift = Math.min(need, Math.max(c.lift, climbLiftAt(c.q, CLIMB.step * leg)));
       // collé à la paroi : on la cherche à hauteur de poitrine et l'on s'y tient à ~28 cm (une falaise recule)
       const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);
       const chest = a.pos[1] + c.lift + 1.15 * leg;
@@ -3427,7 +3490,7 @@ export class ProcgenView {
     // nager ou plonger hors de l'eau (en route vers le bassin) : il marche ; sous l'eau, l'apnée
     const inWater = wet(a.action) && this.waterAt(a.pos[0], a.pos[2]) !== null;
     const act: Action = wet(a.action) && !inWater ? "idle" : a.action === "dive" && !a.under ? "swim" : a.action;
-    const st: MotionState = { diveTilt: a.diveTilt, speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: act, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
+    const st: MotionState = { diveTilt: a.diveTilt, speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: act, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, ...(a.climbSt?.phase === "up" ? { climbQ: a.climbSt.q } : {}), fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
     // hors champ (avec une marge pour l'ombre portée) : position suivie, pose gardée (déjà posé au moins une fois)
     if (this.poseFrustumOn && a.mesh.userData.world) {
       const h = a.model.asset.height;
@@ -3875,12 +3938,103 @@ export class ProcgenView {
     return out.slice(0, 8);
   }
 
-  /** Zone que la carte d'ombre couvre en scène finie (centre et rayon visibles). */
+  /**
+   * Boîte de ce que la caméra voit de la scène finie : rayons d'une grille de 7 × 7 points de l'écran coupés par la
+   * boîte de la scène (entrée et sortie), plus la caméra si elle est dedans. Null hors scène finie ou si rien n'est vu.
+   */
+  private visibleBox(cam: THREE.Camera): { min: V3; max: V3 } | null {
+    if (this.inf || !this.model) return null;
+    const b = this.model.bounds;
+    const lo = [b.min[0], b.min[1] - 0.5, b.min[2]], hi = [b.max[0], b.max[1] + 0.5, b.max[2]];
+    const min: V3 = [Infinity, Infinity, Infinity], max: V3 = [-Infinity, -Infinity, -Infinity];
+    const add = (p: THREE.Vector3) => {
+      min[0] = Math.min(min[0], p.x); min[1] = Math.min(min[1], p.y); min[2] = Math.min(min[2], p.z);
+      max[0] = Math.max(max[0], p.x); max[1] = Math.max(max[1], p.y); max[2] = Math.max(max[2], p.z);
+    };
+    const o = new THREE.Vector3(), e = new THREE.Vector3(), d = new THREE.Vector3();
+    for (let i = 0; i <= 6; i++)
+      for (let j = 0; j <= 6; j++) {
+        o.set(-1 + i / 3, -1 + j / 3, -1).unproject(cam as THREE.PerspectiveCamera);
+        e.set(-1 + i / 3, -1 + j / 3, 1).unproject(cam as THREE.PerspectiveCamera);
+        d.subVectors(e, o);
+        // rayon ∩ boîte (méthode des dalles) sur le segment proche → lointain
+        let t0 = 0, t1 = 1;
+        for (let k = 0; k < 3 && t0 <= t1; k++) {
+          const ok = o.getComponent(k), dk = d.getComponent(k);
+          if (Math.abs(dk) < 1e-9) {
+            if (ok < lo[k] || ok > hi[k]) t1 = -1;
+            continue;
+          }
+          const a1 = (lo[k] - ok) / dk, a2 = (hi[k] - ok) / dk;
+          t0 = Math.max(t0, Math.min(a1, a2));
+          t1 = Math.min(t1, Math.max(a1, a2));
+        }
+        if (t0 > t1) continue;
+        add(o.clone().addScaledVector(d, t0));
+        add(o.clone().addScaledVector(d, t1));
+      }
+    return Number.isFinite(min[0]) ? { min, max } : null;
+  }
+
+  /** Zone que la cascade fine couvre en scène finie (autour de la cible) ; `shadowFar` : tout le visible. */
   private shadowFocus: { c: THREE.Vector3; r: number } | null = null;
+  private shadowFar: { c: THREE.Vector3; r: number } | null = null;
+
+  /** Caméra de lumière orthographique de demi-taille `R` centrée en `c`, profondeur à l'échelle de la scène `Rs`. */
+  private lightCam(c: THREE.Vector3, R: number, Rs: number) {
+    const sun = this.shared.uSunDir.value as THREE.Vector3;
+    const lc = new THREE.OrthographicCamera(-R, R, R, -R, 0.1, Math.max(R, Rs) * 4);
+    lc.position.copy(c).addScaledVector(sun, Math.max(R, Rs) * 2);
+    lc.lookAt(c);
+    lc.updateMatrixWorld();
+    lc.updateProjectionMatrix();
+    return lc;
+  }
+
+  /**
+   * Réglages d'une cascade : matrice, flou des bords et biais en mètres (pas en texels : une ombre garde la même
+   * douceur quelle que soit la carte qui la porte ; jamais moins de 1,8 texel).
+   */
+  private setCascade(i: 0 | 1, lc: THREE.OrthographicCamera, R: number, Rs: number, size: number) {
+    const u = this.shared;
+    const texW = (2 * R) / size;
+    ((i ? u.uShadowMatrix2 : u.uShadowMatrix).value as THREE.Matrix4).multiplyMatrices(lc.projectionMatrix, lc.matrixWorldInverse);
+    (i ? u.uShadowKernel2 : u.uShadowKernel).value = Math.max(texW * 1.8, 0.015) / (2 * R);
+    // biais d'origine (0,0005 de la profondeur de la scène) : déjà fixe en mètres, la profondeur de la carte suit la scène
+    (i ? u.uShadowBiasW2 : u.uShadowBiasW).value = (0.0005 * Rs) / Math.max(R, Rs);
+  }
+
+  /** Carte d'une cascade : décor en cache (refait si `shadowDirty`), puis objets mobiles par-dessus. */
+  private renderCascade(i: 0 | 1, lc: THREE.Camera, rt: THREE.WebGLRenderTarget, dyn: THREE.Object3D[]) {
+    if (!dyn.length) return void this.depthRender(this.scene, lc, rt, true);
+    const dynSet = new Set(dyn);
+    let st = this.shadowStatic[i];
+    if (this.shadowDirty || !st) {
+      const W = rt.width, H = rt.height;
+      if (!st || st.width !== W) {
+        st?.dispose();
+        const dt = new THREE.DepthTexture(W, H);
+        dt.type = THREE.UnsignedIntType;
+        st = this.shadowStatic[i] = new THREE.WebGLRenderTarget(W, H, { depthTexture: dt, depthBuffer: true });
+      }
+      const vis = dyn.map((o) => o.visible);
+      for (const o of dyn) o.visible = false;
+      this.depthRender(this.scene, lc, st, true);
+      dyn.forEach((o, k) => (o.visible = vis[k]));
+    }
+    this.copyDepth(st!, rt);
+    // seulement les objets mobiles : les autres enfants de la scène sont masqués le temps de la passe
+    const hidden: THREE.Object3D[] = [];
+    for (const o of this.scene.children) if (o.visible && !dynSet.has(o)) {
+      o.visible = false;
+      hidden.push(o);
+    }
+    this.depthRender(this.scene, lc, rt, false, dyn);
+    for (const o of hidden) o.visible = true;
+  }
 
   private shadowPass() {
     const m = this.model!;
-    const sun = this.shared.uSunDir.value as THREE.Vector3;
     const b = m.bounds;
     let c = new THREE.Vector3((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
     let R = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2;
@@ -3891,21 +4045,27 @@ export class ProcgenView {
       const q = (2 * R) / this.shadowRT.width;
       c = new THREE.Vector3(Math.round(x / q) * q, this.inf.world.height(x, z), Math.round(z / q) * q);
     }
-    // scène finie : carte cadrée sur ce que montre la caméra quand elle n'en voit qu'une partie (gros plan net) ;
-    // profondeur de la carte gardée à l'échelle de la scène (les ombres venues de hors champ restent)
     const Rs = R;
+    const snap = (p: THREE.Vector3, r: number, size: number) => {
+      const q = (2 * r) / size;
+      return new THREE.Vector3(Math.round(p.x / q) * q, Math.round(p.y / q) * q, Math.round(p.z / q) * q);
+    };
+    // cascade fine : cadrée sur la cible quand la caméra n'en voit qu'une partie (gros plan net)
     if (!this.inf && this.shadowFocus && this.shadowFocus.r < R * 0.7) {
-      const f = this.shadowFocus;
-      R = Math.max(1.5, f.r);
-      const q = (2 * R) / this.shadowRT.width;
-      c = new THREE.Vector3(Math.round(f.c.x / q) * q, Math.round(f.c.y / q) * q, Math.round(f.c.z / q) * q);
+      R = Math.max(1.5, this.shadowFocus.r);
+      c = snap(this.shadowFocus.c, R, this.shadowRT.width);
     }
-    const lc = new THREE.OrthographicCamera(-R, R, R, -R, 0.1, Math.max(R, Rs) * 4);
-    lc.position.copy(c).addScaledVector(sun, Math.max(R, Rs) * 2);
-    lc.lookAt(c);
-    lc.updateMatrixWorld();
-    lc.updateProjectionMatrix();
-    (this.shared.uShadowMatrix.value as THREE.Matrix4).multiplyMatrices(lc.projectionMatrix, lc.matrixWorldInverse);
+    // cascade large : tout le visible, seulement si la fine n'en couvre pas déjà l'essentiel
+    let far: { c: THREE.Vector3; R: number } | null = null;
+    if (!this.inf && this.shadowFar && R < Rs * 0.7 && this.shadowFar.r > R * 1.15) {
+      const RF = Math.min(this.shadowFar.r, Rs);
+      far = { R: RF, c: snap(RF >= Rs ? new THREE.Vector3((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2) : this.shadowFar.c, RF, this.shadowRT2.width) };
+    }
+    const lc = this.lightCam(c, R, Rs);
+    this.setCascade(0, lc, R, Rs, this.shadowRT.width);
+    const lc2 = far ? this.lightCam(far.c, far.R, Rs) : null;
+    if (lc2 && far) this.setCascade(1, lc2, far.R, Rs, this.shadowRT2.width);
+    this.shared.uShadowOn2.value = far ? 1 : 0;
     // prairies : pas d'ombre portée (des dizaines de milliers de brins), mais elles reçoivent celles du décor
     const mv = this.meadows.group.visible;
     this.meadows.group.visible = false;
@@ -3917,33 +4077,8 @@ export class ProcgenView {
     const dyn: THREE.Object3D[] = [];
     for (const a of this.actors.values()) if (a.mesh.parent === this.scene) dyn.push(a.mesh);
     for (const im of this.dynIms) if (im.parent === this.scene) dyn.push(im);
-    if (!dyn.length) {
-      this.depthRender(this.scene, lc, this.shadowRT, true);
-    } else {
-      const dynSet = new Set(dyn);
-      if (this.shadowDirty || !this.shadowStaticRT) {
-        const W = this.shadowRT.width, H = this.shadowRT.height;
-        if (!this.shadowStaticRT || this.shadowStaticRT.width !== W) {
-          this.shadowStaticRT?.dispose();
-          const dt = new THREE.DepthTexture(W, H);
-          dt.type = THREE.UnsignedIntType;
-          this.shadowStaticRT = new THREE.WebGLRenderTarget(W, H, { depthTexture: dt, depthBuffer: true });
-        }
-        const vis = dyn.map((o) => o.visible);
-        for (const o of dyn) o.visible = false;
-        this.depthRender(this.scene, lc, this.shadowStaticRT, true);
-        dyn.forEach((o, i) => (o.visible = vis[i]));
-      }
-      this.copyDepth(this.shadowStaticRT!, this.shadowRT);
-      // seulement les objets mobiles : les autres enfants de la scène sont masqués le temps de la passe
-      const hidden: THREE.Object3D[] = [];
-      for (const o of this.scene.children) if (o.visible && !dynSet.has(o)) {
-        o.visible = false;
-        hidden.push(o);
-      }
-      this.depthRender(this.scene, lc, this.shadowRT, false, dyn);
-      for (const o of hidden) o.visible = true;
-    }
+    this.renderCascade(0, lc, this.shadowRT, dyn);
+    if (lc2) this.renderCascade(1, lc2, this.shadowRT2, dyn);
     this.meadows.group.visible = mv;
     this.fxGroup.visible = true;
     this.emitters.group.visible = emitVis;
@@ -4083,12 +4218,29 @@ export class ProcgenView {
       }
     }
     {
-      // cadrage de la carte d'ombre : demi-diagonale visible autour de la cible (arrondie : pas de scintillement)
+      // ombres en deux cascades. Fine : demi-diagonale visible autour de la cible (gros plan net). Large : tout ce que
+      // la caméra voit de la scène (son champ coupé par la boîte de la scène) — une caméra rasante voit loin derrière
+      // sa cible, et un objet visible hors de toute carte perdrait son ombre en tournant ou en zoomant. Rayons arrondis
+      // à des paliers de 1,25, centres calés sur les texels : pas de scintillement.
       const hv = (cam as THREE.PerspectiveCamera).isPerspectiveCamera ? camDist * Math.tan(((cam as THREE.PerspectiveCamera).fov * Math.PI) / 360) : (cam as THREE.OrthographicCamera).top / Math.max(1e-3, (cam as THREE.OrthographicCamera).zoom);
-      const r = Math.pow(1.25, Math.ceil(Math.log(Math.max(0.5, hv * Math.hypot(1, w / h) * 1.35)) / Math.log(1.25)));
+      const step = (x: number) => Math.pow(1.25, Math.ceil(Math.log(Math.max(0.5, x)) / Math.log(1.25)));
+      const r = step(hv * Math.hypot(1, w / h) * 1.35);
       const prev = this.shadowFocus;
       if (!prev || prev.r !== r || prev.c.distanceTo(tgt) > r * 0.05) {
         this.shadowFocus = { c: tgt.clone(), r };
+        this.shadowDirty = true;
+      }
+      const vis = this.visibleBox(cam);
+      if (vis) {
+        const c = new THREE.Vector3((vis.min[0] + vis.max[0]) / 2, (vis.min[1] + vis.max[1]) / 2, (vis.min[2] + vis.max[2]) / 2);
+        const rf = step(Math.max(1.5, (Math.hypot(vis.max[0] - vis.min[0], vis.max[1] - vis.min[1], vis.max[2] - vis.min[2]) / 2) * 1.08));
+        const pf = this.shadowFar;
+        if (!pf || pf.r !== rf || pf.c.distanceTo(c) > rf * 0.05) {
+          this.shadowFar = { c, r: rf };
+          this.shadowDirty = true;
+        }
+      } else if (this.shadowFar) {
+        this.shadowFar = null;
         this.shadowDirty = true;
       }
     }
@@ -4196,7 +4348,8 @@ export class ProcgenView {
     this.emitters.dispose();
     this.rt?.dispose();
     this.shadowRT.dispose();
-    this.shadowStaticRT?.dispose();
+    this.shadowRT2.dispose();
+    for (const st of this.shadowStatic) st?.dispose();
     this.stack.dispose();
     this.photo?.dispose();
     clearTimeout(this.photoTimer);

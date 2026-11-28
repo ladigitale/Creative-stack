@@ -63,6 +63,14 @@ export type Player = {
   holding: number;
   /** Fatigue légère du sprint (0 … 1). */
   tire: number;
+  /** Hauteur du corps au-dessus du sol (m) : plongeon du gardien (le corps quitte le sol), saut. */
+  lift?: number;
+  /** Plongeon : côté (±1 sur l'axe latéral du gardien), hauteur visée du corps (m), durée jusqu'au ballon (s). */
+  diveDir?: number;
+  diveH?: number;
+  diveT?: number;
+  /** Gardien debout face à un tir : mains portées vers le point de passage [latéral, hauteur] (m). */
+  handAim?: [number, number];
 };
 
 export type Ball = { p: [number, number, number]; v: [number, number, number]; owner: number; last: number; lastTeam: 0 | 1 | -1; /** effet latéral (m/s²) */ curl: number; inGoal: number };
@@ -72,6 +80,8 @@ export type FootballEvent = { type: string; payload: Record<string, unknown> };
 
 export type Phase = "intro" | "setpiece" | "play" | "goal" | "halftime" | "fulltime";
 export type SetPiece = { kind: "kickoff" | "throwin" | "corner" | "goalkick" | "freekick" | "penalty"; team: 0 | 1; spot: [number, number]; taker: number; t: number; ready: boolean };
+
+import { type Collider, type Flight, aimShot, bodyColliders, collide, flightPath, flightStep, goalColliders } from "./football-physics";
 
 const G = 9.81;
 const R = 0.11;
@@ -643,30 +653,8 @@ export class FootballMatch {
       for (let k = 0; k <= 30; k++) out.push(this.predictRaw(k / 10));
       return out;
     }
-    let [x, y, z] = b.p, [vx, vy, vz] = b.v;
-    const h = 0.05;
-    out.push([x, y, z]);
-    for (let s = 1; s <= 60; s++) {
-      vy -= G * h;
-      x += vx * h;
-      y += vy * h;
-      z += vz * h;
-      if (y <= R) {
-        y = R;
-        if (vy < -1.5) {
-          vy = -vy * 0.5;
-          vx *= 0.85;
-          vz *= 0.85;
-        } else vy = 0;
-      }
-      if (y <= R + 0.01) {
-        const sp = hyp(vx, vz);
-        const k = sp > 0 ? Math.max(0, sp - 1.7 * h) / sp : 0;
-        vx *= k;
-        vz *= k;
-      }
-      if (s % 2 === 0) out.push([x, y, z]);
-    }
+    // même intégrateur que le vol réel (traînée, effet, rebonds) : le gardien lit la vraie trajectoire
+    for (const q of flightPath({ p: [...b.p], v: [...b.v], curl: b.curl }, 0.1, 31)) out.push(q);
     return out;
   }
   private predictRaw(t: number): [number, number, number] {
@@ -675,28 +663,10 @@ export class FootballMatch {
       const o = this.players[b.owner];
       return [b.p[0] + o.vel[0] * t, R, b.p[2] + o.vel[1] * t];
     }
-    let [x, y, z] = b.p, [vx, vy, vz] = b.v;
-    const h = 0.05;
-    for (let s = 0; s < t; s += h) {
-      vy -= G * h;
-      x += vx * h;
-      y += vy * h;
-      z += vz * h;
-      if (y <= R) {
-        y = R;
-        if (vy < -1.5) {
-          vy = -vy * 0.5;
-          vx *= 0.85;
-          vz *= 0.85;
-        } else vy = 0;
-      }
-      if (y <= R + 0.01) {
-        const sp = hyp(vx, vz);
-        const k = sp > 0 ? Math.max(0, sp - 1.7 * h) / sp : 0;
-        vx *= k;
-        vz *= k;
-      }
-    }
+    const f: Flight = { p: [...b.p], v: [...b.v], curl: b.curl };
+    const h = 0.025;
+    for (let s = 0; s < t; s += h) flightStep(f, Math.min(h, t - s));
+    const [x, y, z] = f.p;
     return [x, y, z];
   }
 
@@ -803,28 +773,56 @@ export class FootballMatch {
       }
       return;
     }
-    // tir en approche : plongeon
-    if (b.owner < 0 && b.v[0] * d < -6) {
-      const tx = (g[0] - b.p[0]) / (b.v[0] || 1e-6);
-      if (tx > 0 && tx < 1.4) {
-        const cz = b.p[2] + b.v[2] * tx, cy = b.p[1] + b.v[1] * tx - 0.5 * G * tx * tx;
-        if (Math.abs(cz) < this.dim.gw / 2 + 0.6 && cy < this.dim.gh + 0.4) {
-          const lateral = cz - p.pos[1];
-          const reflex = 0.12 + (1 - lv) * 0.18;
-          if (tx > reflex && Math.abs(lateral) > 0.7 && p.dive <= 0) {
-            const sp = hyp(b.v[0], b.v[2]);
-            const reach = clamp(1.05 - (sp - 14) * 0.025 - Math.abs(lateral) * 0.08 + lv * 0.15, 0.15, 0.95) * p.skill;
-            const save = this.rand() < reach;
-            const aimZ = save ? cz : cz - Math.sign(lateral) * (0.7 + this.rand() * 0.5);
-            const t = Math.max(0.25, tx - 0.05);
-            p.dive = 0.9;
-            p.diveV = [((g[0] + d * 0.4 - p.pos[0]) / t) * 0.5, (aimZ - p.pos[1]) / t];
-            // côté du plongeon vu du gardien (il fait face au jeu, vers +d)
-            const right = (aimZ - p.pos[1]) * d < 0;
-            this.setAction(p, right ? "diveright" : "diveleft");
-            p.yaw = Math.atan2(d, 0);
-            return;
-          }
+    // tir en approche : il lit la trajectoire (traînée et effet compris), réagit après un temps de réflexe et plonge
+    // vers le point où le ballon franchira sa ligne, aussi loin que son allonge le permet. Aucun tirage : l'arrêt a
+    // lieu si sa main ou son corps touche réellement le ballon (voir stepBall / bodyHit).
+    // hors tir : mains au repos, pieds au sol
+    if (p.dive <= 0) {
+      p.handAim = undefined;
+      p.lift = 0;
+    }
+    if (b.owner < 0 && b.v[0] * d < -6 && p.dive <= 0 && p.down <= 0) {
+      const lineX = g[0] + d * 0.4;
+      const path = flightPath({ p: [...b.p], v: [...b.v], curl: b.curl }, 0.02, 80);
+      let tx = -1, cz = 0, cy = 0;
+      for (let k = 1; k < path.length; k++) {
+        const a0 = (path[k - 1][0] - lineX) * d, a1 = (path[k][0] - lineX) * d;
+        if (a0 > 0 && a1 <= 0) {
+          const u = a0 / (a0 - a1);
+          tx = (k - 1 + u) * 0.02;
+          cz = path[k - 1][2] + (path[k][2] - path[k - 1][2]) * u;
+          cy = path[k - 1][1] + (path[k][1] - path[k - 1][1]) * u;
+          break;
+        }
+      }
+      const reflex = 0.12 + (1 - lv) * 0.18;
+      p.handAim = undefined;
+      if (tx > 0 && tx < 1.4 && Math.abs(cz) < this.dim.gw / 2 + 0.8 && cy < this.dim.gh + 0.5) {
+        const lateral = cz - p.pos[1];
+        // mains vers le ballon dès qu'il a réagi : côté gauche du gardien = latéral positif (il fait face à +d)
+        if (tx < 1.4 - reflex) {
+          p.handAim = [-lateral * d, clamp(cy, 0.2, 2.45)];
+          // ballon au ras de la transversale : détente verticale
+          p.lift = cy > 2.1 ? Math.min(0.45, (cy - 2.1) * 1.2) : 0;
+        }
+        // debout, ses bras couvrent ~0,9 m de chaque côté et jusqu'à 2,45 m de haut : au-delà, il plonge (un tir bas
+        // à ses pieds le fait se coucher dès 35 cm)
+        if (tx > reflex && (Math.abs(lateral) > (cy < 0.6 ? 0.35 : 0.9) || cy > 2.55)) {
+          p.handAim = undefined;
+          const t = Math.max(0.2, tx - reflex * 0.5);
+          // allonge du plongeon : appel, détente et bras, selon le talent et le niveau
+          const reach = (1.5 + 0.8 * p.skill + 0.4 * lv) * clamp(t / 0.5, 0.6, 1);
+          const go = clamp(lateral - Math.sign(lateral) * 0.85, -reach, reach);
+          p.dive = 0.95;
+          p.diveT = t;
+          p.diveDir = Math.sign((cz - p.pos[1]) * d || 1) * -1;
+          p.diveH = clamp(cy - 0.15, 0.2, this.dim.gh - 0.3);
+          p.diveV = [((g[0] + d * 0.4 - p.pos[0]) / t) * 0.5, go / t];
+          // côté du plongeon vu du gardien (il fait face au jeu, vers +d)
+          const right = (cz - p.pos[1]) * d < 0;
+          this.setAction(p, right ? "diveright" : "diveleft");
+          p.yaw = Math.atan2(d, 0);
+          return;
         }
       }
     }
@@ -920,10 +918,10 @@ export class FootballMatch {
     const tz = side + (this.rand() - 0.5) * 2 * err;
     const ty = clamp(0.2 + power * 1.2 + (this.rand() - 0.35) * err * 1.2, 0.15, 3.2);
     const sp = 15 + power * 15;
-    const dx = g[0] - p.pos[0], dz = tz - p.pos[1], dl = hyp(dx, dz) || 1;
-    const t = dl / sp;
-    const vy = (ty - R + 0.5 * G * t * t) / t;
-    this.kick(i, [(dx / dl) * sp, Math.min(vy, 9), (dz / dl) * sp], "shot", -1, (this.rand() - 0.5) * 3 * power);
+    // effet : brossé pour rentrer vers le but ; la visée en tient compte, comme la traînée (vrai vol simulé)
+    const curl = (this.rand() - 0.5) * 3 * power;
+    const v = aimShot([p.pos[0], R + 0.02, p.pos[1]], [g[0], ty, tz], sp, curl);
+    this.kick(i, [v[0], Math.min(v[1], 9), v[2]], "shot", -1, curl);
   }
 
   private passTo(i: number, j: number, lofted: boolean) {
@@ -1034,11 +1032,17 @@ export class FootballMatch {
         }
       } else if (p.dive > 0) {
         p.dive -= dt;
-        vx = p.diveV[0] * Math.max(0, (p.dive - 0.35) / 0.55);
-        vz = p.diveV[1] * Math.max(0, (p.dive - 0.35) / 0.55);
+        // détente latérale tenue jusqu'au ballon, puis le corps retombe ; le corps monte vers la hauteur du ballon
+        const el = 0.95 - p.dive, tt = p.diveT ?? 0.5;
+        const push = el < tt ? 1 : Math.max(0, 1 - (el - tt) / 0.25);
+        vx = p.diveV[0] * push;
+        vz = p.diveV[1] * push;
+        const up = Math.min(1, el / Math.max(0.12, tt));
+        p.lift = el < tt ? (p.diveH ?? 0.3) * Math.sin((up * Math.PI) / 2) : Math.max(0, (p.diveH ?? 0.3) - 0.5 * G * (el - tt) ** 2);
         acc = 80;
         if (p.dive <= 0) {
           p.dive = 0;
+          p.lift = 0;
           p.down = 0.5;
         }
       } else if (p.down > 0) {
@@ -1090,77 +1094,40 @@ export class FootballMatch {
   private stepBall(dt: number) {
     const b = this.ball;
     if (b.owner >= 0) return this.dribble(dt);
-    const n = Math.max(1, Math.ceil((hyp(b.v[0], b.v[1], b.v[2]) * dt) / 0.08));
+    const n = Math.max(1, Math.ceil((hyp(b.v[0], b.v[1], b.v[2]) * dt) / 0.06));
     const h = dt / n;
     const { L, W, gw, gh } = this.dim;
+    // colliders invisibles : poteaux et transversales (capsules 3D), corps des joueurs à cet instant
+    this.goalCols ??= [...goalColliders(L / 2, gw, gh), ...goalColliders(-L / 2, gw, gh)];
+    const bodies: { i: number; cols: Collider[] }[] = [];
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i];
+      // le tireur ne se reprend pas le ballon dans les pieds ; un joueur loin du ballon est ignoré
+      if (p.noTouch > 0 || hyp(p.pos[0] - b.p[0], p.pos[1] - b.p[2]) > 4) continue;
+      bodies.push({ i, cols: this.collidersOf(p) });
+    }
     for (let s = 0; s < n; s++) {
-      const sp = hyp(b.v[0], b.v[1], b.v[2]);
-      // traînée de l'air et effet (le ballon brossé tourne : force latérale)
-      const drag = 0.011 * sp;
-      for (let k = 0; k < 3; k++) b.v[k] -= b.v[k] * drag * h;
-      if (b.curl && b.p[1] > R + 0.02) {
-        const hs = hyp(b.v[0], b.v[2]) || 1;
-        b.v[0] += (b.v[2] / hs) * b.curl * h;
-        b.v[2] += (-b.v[0] / hs) * b.curl * h;
+      const ox = b.p[0], oy = b.p[1], oz = b.p[2];
+      const impact = flightStep(b as Flight, h);
+      if (impact > 2.5) this.emit("bounce", { speed: Math.round(impact * 10) / 10 });
+      for (const c of this.goalCols) {
+        const hit = collide(b as Flight, c);
+        if (hit && hit.vn > 6) this.post(b);
       }
-      b.v[1] -= G * h;
-      const ox = b.p[0], oz = b.p[2];
-      b.p[0] += b.v[0] * h;
-      b.p[1] += b.v[1] * h;
-      b.p[2] += b.v[2] * h;
-      if (b.p[1] <= R) {
-        b.p[1] = R;
-        if (b.v[1] < -1.2) {
-          if (b.v[1] < -2.5) this.emit("bounce", { speed: Math.round(-b.v[1] * 10) / 10 });
-          b.v[1] = -b.v[1] * 0.55;
-          b.v[0] *= 0.86;
-          b.v[2] *= 0.86;
-          b.curl *= 0.5;
-        } else b.v[1] = 0;
-      }
-      if (b.p[1] <= R + 0.01) {
-        const hs = hyp(b.v[0], b.v[2]);
-        const k = hs > 0 ? Math.max(0, hs - 1.7 * h) / hs : 0;
-        b.v[0] *= k;
-        b.v[2] *= k;
-        b.curl = 0;
-      }
-      // poteaux et barre : cylindres de 6 cm
-      for (const gx of [L / 2, -L / 2]) {
-        for (const pz of [gw / 2 + 0.06, -gw / 2 - 0.06]) {
-          if (b.p[1] > gh + 0.1) continue;
-          const dx = b.p[0] - gx, dz = b.p[2] - pz, d = hyp(dx, dz);
-          if (d < R + 0.06) {
-            const nx = dx / (d || 1), nz = dz / (d || 1);
-            const vn = b.v[0] * nx + b.v[2] * nz;
-            if (vn < 0) {
-              b.v[0] -= 1.7 * vn * nx;
-              b.v[2] -= 1.7 * vn * nz;
-              b.p[0] = gx + nx * (R + 0.07);
-              b.p[2] = pz + nz * (R + 0.07);
-              if (-vn > 6) this.post(b);
-            }
-          }
-        }
-        if (Math.abs(b.p[2]) < gw / 2 + 0.06) {
-          const dx = b.p[0] - gx, dy = b.p[1] - (gh + 0.06), d = hyp(dx, dy);
-          if (d < R + 0.06) {
-            const nx = dx / (d || 1), ny = dy / (d || 1);
-            const vn = b.v[0] * nx + b.v[1] * ny;
-            if (vn < 0) {
-              b.v[0] -= 1.7 * vn * nx;
-              b.v[1] -= 1.7 * vn * ny;
-              b.p[0] = gx + nx * (R + 0.07);
-              b.p[1] = gh + 0.06 + ny * (R + 0.07);
-              if (-vn > 6) this.post(b);
-            }
-          }
+      for (const { i, cols } of bodies) {
+        for (const c of cols) {
+          const hit = collide(b as Flight, c);
+          if (!hit) continue;
+          this.bodyHit(i, hit.part, hit.vn, hit.rel);
+          if (b.owner >= 0) return;
+          break;
         }
       }
       // filets : le ballon entré dans le but est freiné et retenu (profondeur 2 m)
       const side = Math.sign(b.p[0]);
       const inside = Math.abs(b.p[0]) > L / 2 && Math.abs(b.p[2]) < gw / 2 && b.p[1] < gh;
-      const wasIn = Math.abs(ox) > L / 2 && Math.abs(oz) < gw / 2;
+      // déjà dans le but : seulement s'il y est entré sous la transversale (un tir au-dessus n'est pas ramené dans les filets)
+      const wasIn = Math.abs(ox) > L / 2 && Math.abs(oz) < gw / 2 && oy < gh;
       if (inside || (wasIn && Math.abs(b.p[0]) > L / 2)) {
         const back = L / 2 + 1.8;
         if (Math.abs(b.p[0]) > back) {
@@ -1181,6 +1148,56 @@ export class FootballMatch {
     }
     b.p[0] = clamp(b.p[0], -L / 2 - 6, L / 2 + 6);
     b.p[2] = clamp(b.p[2], -W / 2 - 5, W / 2 + 5);
+  }
+  private goalCols?: Collider[];
+
+  /** Colliders invisibles d'un joueur (voir `bodyColliders`) ; le gardien dans sa surface a ses mains. */
+  private collidersOf(p: Player): Collider[] {
+    const keeper = p.role === "gk" && this.inOwnBox(p, p.pos[0], p.pos[1]);
+    return bodyColliders({ pos: p.pos, vel: p.vel, yaw: p.yaw, lift: p.lift ?? 0, dive: p.dive, diveDir: p.diveDir ?? 1, reach: 0.72 * p.skill, keeper, down: p.down, handAim: p.dive > 0 ? undefined : p.handAim });
+  }
+
+  /**
+   * Le ballon a touché un joueur (rebond déjà calculé par la physique). Gardien : il capte si le choc est
+   * absorbable (vitesse relative sous son seuil, ballon sur les mains ou le corps), sinon c'est une parade — le
+   * ballon repart comme il a rebondi. Autre joueur : contre, le ballon est à qui le contrôle ensuite.
+   */
+  private bodyHit(i: number, part: Collider["part"], vn: number, rel: number) {
+    const p = this.players[i];
+    const b = this.ball;
+    const shotFlying = !!this.shot && this.time - this.shot.t < 2.5 && this.shot.team !== p.team;
+    const keeper = p.role === "gk" && this.inOwnBox(p, p.pos[0], p.pos[1]);
+    b.last = i;
+    b.lastTeam = p.team;
+    this.receiver = -1;
+    if (keeper && (part === "hand" || part === "body")) {
+      // captage : choc amorti par les deux mains (corps derrière) en deçà d'un seuil qui dépend du talent ; une
+      // main tendue au bout d'un plongeon capte moins bien qu'un ballon pris dans l'axe
+      const limit = (p.dive > 0 ? 15 : 22) + 6 * p.skill;
+      const caught = rel < limit;
+      if (caught) {
+        b.owner = i;
+        b.v = [0, 0, 0];
+        p.holding = 0.01;
+        const g = this.ownGoal(p.team);
+        if ((p.pos[0] - g[0]) * this.dir(p.team) < 0.5) p.pos[0] = g[0] + this.dir(p.team) * 0.5;
+        if (p.dive <= 0) {
+          p.yaw = Math.atan2(this.dir(p.team), 0);
+          this.setAction(p, "carry");
+        }
+      }
+      p.noTouch = caught ? 0 : 0.5;
+      if (shotFlying) {
+        this.emit("save", { player: p.id, team: p.team, caught, part, speed: Math.round(rel) });
+        this.emit("cine", { kind: "save", player: p.id, at: [p.pos[0], 1, p.pos[1]], dur: 1.1, slow: 0.35 });
+        this.shot = null;
+      }
+      return;
+    }
+    // contre d'un joueur de champ : rebond physique, bref temps mort avant qu'il ne puisse le reprendre
+    p.noTouch = 0.25;
+    if (vn > 8) this.emit("block", { player: p.id, team: p.team, part, speed: Math.round(vn) });
+    if (shotFlying && vn > 8) this.shot = null;
   }
 
   private post(b: Ball) {
@@ -1267,27 +1284,21 @@ export class FootballMatch {
     const gk = p.role === "gk" && this.inOwnBox(p, b.p[0], b.p[2]);
     const sp = hyp(b.v[0], b.v[1], b.v[2]);
     const shotFlying = this.shot && this.time - this.shot.t < 2.5 && this.shot.team !== p.team;
+    // gardien : un ballon rapide est réglé par la physique (mains et corps, voir bodyHit) ; ici il ramasse les ballons
+    // lents qui lui arrivent
+    if (gk && sp > 9) return;
     if (gk) {
-      const catchIt = sp < 17 + 6 * p.skill || this.rand() < 0.35;
-      if (catchIt) {
-        b.owner = bi;
-        p.holding = 0.01;
-        // le gardien qui capte le ballon reste devant sa ligne
-        const g = this.ownGoal(p.team);
-        if ((p.pos[0] - g[0]) * this.dir(p.team) < 0.5) p.pos[0] = g[0] + this.dir(p.team) * 0.5;
-        p.yaw = Math.atan2(this.dir(p.team), 0);
-        this.setAction(p, "carry");
-      } else {
-        // parade : le ballon repart vers le côté et vers l'avant
-        const d = this.dir(p.team);
-        b.v = [d * (3 + this.rand() * 5), 2 + this.rand() * 3, Math.sign(b.p[2] - p.pos[1] || 1) * (4 + this.rand() * 4)];
-        b.owner = -1;
-        p.noTouch = 0.6;
-      }
+      b.owner = bi;
+      p.holding = 0.01;
+      // le gardien qui capte le ballon reste devant sa ligne
+      const g = this.ownGoal(p.team);
+      if ((p.pos[0] - g[0]) * this.dir(p.team) < 0.5) p.pos[0] = g[0] + this.dir(p.team) * 0.5;
+      p.yaw = Math.atan2(this.dir(p.team), 0);
+      this.setAction(p, "carry");
       b.last = bi;
       b.lastTeam = p.team;
       if (shotFlying) {
-        this.emit("save", { player: p.id, team: p.team, caught: catchIt });
+        this.emit("save", { player: p.id, team: p.team, caught: true });
         this.emit("cine", { kind: "save", player: p.id, at: [p.pos[0], 1, p.pos[1]], dur: 1.1, slow: 0.35 });
         this.shot = null;
       }
@@ -1302,7 +1313,8 @@ export class FootballMatch {
       const tz = near ? (this.rand() - 0.5) * this.dim.gw * 0.9 : p.pos[1] + (this.rand() - 0.5) * 10;
       const tx = near ? g[0] : p.pos[0] + d * 15;
       const dx = tx - b.p[0], dz = tz - b.p[2], dl = hyp(dx, dz) || 1;
-      const s = near ? 13 : 11;
+      // la tête renvoie une part de l'élan reçu, plus la poussée du cou et du saut
+      const s = clamp(0.4 * sp + (near ? 8 : 7), 7, near ? 17 : 15);
       b.v = [(dx / dl) * s, near ? 1 : 4, (dz / dl) * s];
       b.last = bi;
       b.lastTeam = p.team;
@@ -1316,14 +1328,8 @@ export class FootballMatch {
       }
       return;
     }
-    // contrôle : un ballon trop rapide rebondit parfois sur le joueur
-    if (sp > 16 && this.rand() < 0.5) {
-      b.v = [b.v[0] * -0.25 + (this.rand() - 0.5) * 3, 0.6, b.v[2] * -0.25 + (this.rand() - 0.5) * 3];
-      b.last = bi;
-      b.lastTeam = p.team;
-      p.noTouch = 0.3;
-      return;
-    }
+    // contrôle : au-delà de ce que le joueur peut amortir, le ballon a déjà rebondi sur lui (physique des corps)
+    if (sp > 14 + 4 * p.skill) return;
     const prevTeam = b.lastTeam;
     this.gotAt = this.time;
     b.owner = bi;

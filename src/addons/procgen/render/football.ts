@@ -295,7 +295,7 @@ export class FootballDirector {
     for (const p of m.players) {
       const a = map.get(p.id);
       if (!a) continue;
-      a.puppet = { x: p.pos[0], z: p.pos[1], y: PITCH_TOP, yaw: p.yaw, speed: Math.hypot(p.vel[0], p.vel[1]), action: p.action, actionTime: p.actionTime };
+      a.puppet = { x: p.pos[0], z: p.pos[1], y: PITCH_TOP + (p.lift ?? 0), yaw: p.yaw, speed: Math.hypot(p.vel[0], p.vel[1]), action: p.action, actionTime: p.actionTime };
     }
     const b = m.ball;
     this.host.pinBall([b.p[0], b.p[1] + PITCH_TOP, b.p[2]], [b.v[0], b.v[1], b.v[2]], 1 / 60);
@@ -306,9 +306,9 @@ export class FootballDirector {
     if (this.match.phase !== "play" && this.match.phase !== "setpiece") return;
     this.recT += dt;
     const m = this.match;
-    const p = new Float32Array(m.players.length * 6);
+    const p = new Float32Array(m.players.length * 7);
     m.players.forEach((q, i) => {
-      p.set([q.pos[0], q.pos[1], q.yaw, Math.hypot(q.vel[0], q.vel[1]), ACTION_CODES.indexOf(q.action), q.actionTime], i * 6);
+      p.set([q.pos[0], q.pos[1], q.yaw, Math.hypot(q.vel[0], q.vel[1]), ACTION_CODES.indexOf(q.action), q.actionTime, q.lift ?? 0], i * 7);
     });
     this.rec.push({ t: this.recT, p, ball: [m.ball.p[0], m.ball.p[1], m.ball.p[2]] });
     while (this.rec.length && this.rec[0].t < this.recT - 7) this.rec.shift();
@@ -383,8 +383,8 @@ export class FootballDirector {
     this.match.players.forEach((q, k) => {
       const a = map.get(q.id);
       if (!a) return;
-      const o = k * 6;
-      a.puppet = { x: f.p[o], z: f.p[o + 1], y: PITCH_TOP, yaw: f.p[o + 2], speed: f.p[o + 3], action: ACTION_CODES[f.p[o + 4]] ?? "idle", actionTime: f.p[o + 5] };
+      const o = k * 7;
+      a.puppet = { x: f.p[o], z: f.p[o + 1], y: PITCH_TOP + f.p[o + 6], yaw: f.p[o + 2], speed: f.p[o + 3], action: ACTION_CODES[f.p[o + 4]] ?? "idle", actionTime: f.p[o + 5] };
     });
     this.host.pinBall([f.ball[0], f.ball[1] + PITCH_TOP, f.ball[2]], [0, 0, 0], dt);
     // caméra : derrière le but, suit le ballon, se rapproche à la fin

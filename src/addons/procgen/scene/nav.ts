@@ -168,8 +168,8 @@ export class NavGrid {
         out.push(this.center(anchor[0], anchor[1]));
       }
     }
-    // arrivée : le point demandé s'il est praticable, sinon le bord libre le plus proche (une destination tirée dans
-    // l'eau ou dans un mur menait le marcheur tout droit dedans)
+    // arrivée : la cible elle-même si elle est libre, sinon la case libre la plus proche (une cible dans une maison ou
+    // un objet ne fait plus traverser le mur ; sièges et points d'eau sont rejoints à l'arrivée par leur ancre)
     out.push(this.free(to[0], to[1]) ? to : this.center(g[0], g[1]));
     out[0] = from;
     return out;

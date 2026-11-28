@@ -74,6 +74,8 @@ export type ListenState = DeviceBaseState & {
   audioState: string | null;
   /** Whisper : blocs de son reçus du micro depuis le début de l'écoute (0 = le micro ne délivre rien). */
   audioBlocks: number;
+  /** Whisper, diagnostic : dernier texte brut rendu par le modèle (même écarté comme bruit), durée de la phrase et du calcul. */
+  raw: { text: string; kept: boolean; seconds: number; ms: number } | null;
 };
 
 /** Phrases en attente de transcription au plus (les plus anciennes sont abandonnées au-delà). */
@@ -190,6 +192,7 @@ export class SonicListen extends DeviceElement<ListenState> {
     voice: false,
     audioState: null,
     audioBlocks: 0,
+    raw: null,
   };
 
   private live: Partial<ListenSettings> = {};
@@ -734,9 +737,12 @@ export class SonicListen extends DeviceElement<ListenState> {
         const repo = reg.model(this.model).repo;
         const language = /\.en$/i.test(repo) ? "" : whisperLanguage(s.lang || (globalThis.navigator?.language ?? ""));
         const call: Record<string, unknown> = /\.en$/i.test(repo) ? {} : { task: "transcribe", ...(language ? { language } : {}) };
+        const t0 = performance.now();
         const out = await reg.run({ alias: this.model, inputs: [pcm], call, batch: false }, reg.resolvedConfig.defaults.timeoutMs);
         if (gen !== this.gen) break;
-        this.deliver(asrText(out[0]), s);
+        const text = asrText(out[0]);
+        this.patch({ raw: { text, kept: !isWhisperNoise(text), seconds: Math.round((pcm.length / 16000) * 10) / 10, ms: Math.round(performance.now() - t0) } });
+        this.deliver(text, s);
       }
     } catch (e) {
       if (gen === this.gen) this.modelFailed(e);

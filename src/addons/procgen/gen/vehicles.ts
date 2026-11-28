@@ -107,6 +107,12 @@ function build(kind: string, size: number, variant: number, paintName: string): 
       hull.mapPos((q) => [q[0] * 0.8, q[1], q[2] * 2.3 * (q[2] > 0 ? 1.08 : 0.95)]);
       hull.mapPos((q) => [q[0], q[1] + (q[2] / 1.6) ** 2 * 0.15, q[2]]).computeNormals();
       put(m, hull, [0, 0, 0]);
+      // plancher (caillebotis) au-dessus de la flottaison (y = 0,15) : le plan d'eau qui coupe la scène ne se voit plus
+      // au fond de la barque ; même déformation que la coque, un peu en retrait de ses flancs
+      const floor = lathe([[0.555, 0.215], [0.555, 0.235]], W, 12, true);
+      floor.mapPos((q) => [q[0] * 0.8, q[1], q[2] * 2.3 * (q[2] > 0 ? 1.08 : 0.95)]);
+      floor.mapPos((q) => [q[0], q[1] + (q[2] / 1.6) ** 2 * 0.15, q[2]]).computeNormals();
+      put(m, floor, [0, 0, 0]);
       for (let k = 1; k < 3; k++) {
         const r = mix(0.42, 0.66, k / 3);
         const strake = lathe([[r + 0.012, 0], [r + 0.012, 0.02]], W, 12, false);
@@ -127,6 +133,11 @@ function build(kind: string, size: number, variant: number, paintName: string): 
       hull.mapPos((q) => [q[0] * 0.9, q[1], q[2] * 2.8 * (q[2] > 0 ? 1.15 : 0.9)]);
       hull.mapPos((q) => [q[0], q[1] + Math.max(0, q[2] / 2.5) ** 2 * 0.25, q[2]]).computeNormals();
       put(m, hull, [0, 0, 0]);
+      // fond intérieur au-dessus de la flottaison (y = 0,15) : pas d'eau dans le cockpit
+      const sole = lathe([[0.765, 0.215], [0.765, 0.235]], W, 12, true);
+      sole.mapPos((q) => [q[0] * 0.9, q[1], q[2] * 2.8 * (q[2] > 0 ? 1.15 : 0.9)]);
+      sole.mapPos((q) => [q[0], q[1] + Math.max(0, q[2] / 2.5) ** 2 * 0.25, q[2]]).computeNormals();
+      put(m, sole, [0, 0, 0]);
       put(m, box(0.7, 0.025, 1.9, W), [0, 0.5, -0.2]);
       put(m, box(0.4, 0.18, 0.6, ROLE.paper), [0, 0.68, -0.2]);
       for (const sx of [-1, 1]) put(m, box(0.005, 0.06, 0.15, ROLE.glass), [sx * 0.405, 0.7, -0.2]);
