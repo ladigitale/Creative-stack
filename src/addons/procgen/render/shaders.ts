@@ -314,19 +314,73 @@ float shadowAt(vec4 sc, float ndl, float soft) {
 }
 
 /** Variation de valeur procédurale selon le rôle (veinage du bois, taches de pierre, macro-variation du sol). */
+float hash12(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+vec2 hash22(vec2 p) { vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.103, 0.0973)); q += dot(q, q.yzx + 33.33); return fract((q.xx + q.yz) * q.zy); }
+/**
+ * Poids d'une octave de bruit de fréquence freq (cycles/m) quand un pixel couvre fw mètres : 1 tant qu'elle
+ * fait plus de ~3 pixels, 0 sous ~1,5 pixel. Équivalent procédural du mipmap : pas de moiré ni de scintillement,
+ * la surface garde sa valeur moyenne au loin (et l'énergie perdue passe à une échelle plus grande, voir main).
+ */
+float octK(float freq, float fw) { return 1.0 - smoothstep(0.33, 0.66, freq * fw); }
+/** Caustiques : réseau cellulaire (Voronoï, F2 − F1) dont les germes dérivent ; jamais de quadrillage régulier. */
+float caustic(vec2 p, float t) {
+  vec2 c = floor(p), f = fract(p);
+  float d1 = 8.0, d2 = 8.0;
+  for (int j = -1; j <= 1; j++)
+    for (int i = -1; i <= 1; i++) {
+      vec2 o = vec2(float(i), float(j));
+      vec2 h = hash22(c + o);
+      vec2 r = o + 0.5 + 0.42 * sin(t * (0.6 + 0.5 * h) + 6.2831 * h) - f;
+      float d = dot(r, r);
+      if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;
+    }
+  return 1.0 - smoothstep(0.0, 0.32, sqrt(d2) - sqrt(d1));
+}
+
 float roleTexture(int role, vec3 p, vec3 n) {
   vec3 an = abs(n);
-  if (role == 8 || role == 9) { // bois, écorce : fibres étirées et serrées, nœuds plus rares
-    float f = fbm3(vec3(p.x * 16.0, p.y * 2.2, p.z * 16.0)) + fbm3(vec3(p.x * 2.2, p.y * 16.0, p.z * 2.2)) * an.y;
-    return (f - 0.5) * 0.26 + (vnoise(vec3(p.x * 46.0, p.y * 5.0, p.z * 46.0)) - 0.5) * 0.06;
+  float fw = length(fwidth(p));
+  if (role == 8) {
+    // bois : planches (largeur 13 cm, chacune sa teinte), joints sombres, veinage fin le long du fil (vertical sur
+    // une face verticale : portes, palissades, poteaux ; selon x sur une face horizontale : platelages, tables)
+    bool vert = an.y < 0.6;
+    vec2 hz = normalize(vec2(-n.z, n.x) + vec2(1e-4, 0.0));
+    float along = vert ? p.y : p.x;
+    float across = vert ? dot(p.xz, hz) : p.z;
+    float ac = across / 0.13, pl = floor(ac), fa = fract(ac);
+    float tone = (hash12(vec2(pl, 7.0)) - 0.5) * 0.2;
+    float seam = -0.3 * (1.0 - smoothstep(0.0, 0.05, min(fa, 1.0 - fa))) * octK(1.0 / 0.006, fw);
+    float warp = fbm3(vec3(along * 0.7, across * 2.5, pl * 3.1));
+    float veins = sin((across * 55.0 + warp * 7.0 + pl * 1.7)) * 0.5 * 0.1 * octK(9.0, fw);
+    float fiber = (vnoise(vec3(along * 2.5, across * 120.0, pl)) - 0.5) * 0.08 * octK(120.0, fw);
+    return tone * octK(4.0, fw) + seam + veins + fiber;
   }
-  if (role == 4 || role == 5 || role == 6) { // pierre, enduit : taches larges douces, grain fin
-    float f = fbm3(p * 3.2) * 0.55 + vnoise(p * 24.0) * 0.3 + vnoise(p * 60.0) * 0.15;
-    return (f - 0.5) * (role == 4 ? 0.3 : 0.14);
+  if (role == 9) { // écorce : fibres verticales serrées, crevasses
+    float f = fbm3(vec3(p.x * 18.0, p.y * 2.4, p.z * 18.0)) * octK(18.0, fw);
+    return (f - 0.5) * 0.3 + (vnoise(vec3(p.x * 50.0, p.y * 6.0, p.z * 50.0)) - 0.5) * 0.06 * octK(50.0, fw);
   }
-  if (role == 7) { // toitures : rangs de tuiles
-    float rows = abs(fract(p.y * 7.0 + vnoise(p * 2.0) * 0.4) - 0.5);
-    return (smoothstep(0.0, 0.18, rows) - 0.7) * 0.16 + (vnoise(p * 14.0) - 0.5) * 0.1;
+  if (role == 4 || role == 5 || role == 6) { // pierre, enduit : grain fin d'abord, taches larges discrètes
+    float f = (fbm3(p * 2.6) - 0.5) * 0.35 + (vnoise(p * 30.0) - 0.5) * 0.35 * octK(30.0, fw) + (vnoise(p * 85.0) - 0.5) * 0.3 * octK(85.0, fw);
+    return f * (role == 4 ? 0.34 : 0.16);
+  }
+  if (role == 7) {
+    // toiture en tuiles : rangs le long de la pente (16 cm exposés), tuiles de 21 cm posées en quinconce, chacune sa
+    // nuance ; ombre du rang du dessus sur le haut de chaque tuile, lèvre claire en bas, joints fins, galbe léger
+    vec2 hz = normalize(vec2(-n.z, n.x) + vec2(1e-4, 0.0));
+    float sl = sqrt(max(0.04, 1.0 - n.y * n.y));
+    float r = p.y / (0.16 * sl);
+    float row = floor(r), fr = fract(r);
+    float u = dot(p.xz, hz) / 0.21 + mod(row, 2.0) * 0.5;
+    float col = floor(u), fu = fract(u);
+    float kt = octK(1.0 / 0.16, fw);
+    float tone = (hash12(vec2(col, row)) - 0.5) * 0.24 + (hash12(vec2(col * 0.37, row * 0.41)) - 0.5) * 0.06;
+    float shade = -0.3 * smoothstep(0.78, 1.0, fr) + 0.07 * (1.0 - smoothstep(0.0, 0.1, fr));
+    float joint = -0.22 * (1.0 - smoothstep(0.0, 0.05, min(fu, 1.0 - fu))) * octK(1.0 / 0.012, fw);
+    float galbe = (sin(3.14159 * fu) - 0.64) * 0.1;
+    float grain = (vnoise(p * 70.0) - 0.5) * 0.05 * octK(70.0, fw);
+    // patine : coulures et lichens à grande échelle, discrets
+    float age = (fbm3(vec3(p.x * 0.7, p.y * 1.6, p.z * 0.7)) - 0.5) * 0.12;
+    return (tone + shade + joint + galbe) * kt + grain + age;
   }
   if (role <= 3) { // sol, herbe, chemin, chaussée : grandes plages + moucheture fine
     vec3 g = vec3(p.x, 0.0, p.z);
@@ -363,12 +417,13 @@ float roleTexture(int role, vec3 p, vec3 n) {
   if (role == 22) return (vnoise(vec3(p.x * 90.0, p.y * 9.0, p.z * 90.0)) - 0.5) * 0.09 + (fbm3(p * 10.0) - 0.5) * 0.04; // cheveux : mèches claires et sombres
   if (role == 14) return (vnoise(vec3(p.x * 160.0, p.y * 4.0, p.z * 160.0)) - 0.5) * 0.08 + (fbm3(p * 6.0) - 0.5) * 0.1; // métal : brossé, patine
   if (role >= 32 || role == 26) return (vnoise(p * 40.0) - 0.5) * 0.05 + (fbm3(p * 5.0) - 0.5) * 0.06; // plastique, peint : grain, usure douce
-  return (vnoise(p * 28.0) - 0.5) * 0.05;
+  return (vnoise(p * 28.0) - 0.5) * 0.05 * octK(28.0, fw) + (vnoise(p * 80.0) - 0.5) * 0.03 * octK(80.0, fw);
 }
 
 void main() {
   int role = int(vRole + 0.5);
   vec3 base = uRoles[role];
+  float texV = 0.0;
   #ifdef BLADE
   // dégradé du pied à la pointe ; fleurs : corolle colorée (la tige garde son dégradé), sinon variation de valeur
   vec3 tint = vTint.x > 0.5 ? uFlowers[int(vTint.x - 0.5)] : vec3(vTint.y);
@@ -399,7 +454,17 @@ void main() {
   base *= 1.0 + var * vk;
   base = mix(base, base * vec3(1.06, 1.0, 0.9), (vVar > 0.5 ? 1.0 : -0.6) * abs(var) * (role == 5 ? 0.9 : 0.1));
   // tissus, cuir, peau, cheveux : motif pris en repère local (il suit le corps animé au lieu de glisser dessus)
-  base *= 1.0 + roleTexture(role, (role >= 17 && role <= 22) || role == 14 || role == 26 || role >= 32 ? vPosL : vPosW, vNormalW) * uTexture;
+  vec3 tp = (role >= 17 && role <= 22) || role == 14 || role == 26 || role >= 32 ? vPosL : vPosW;
+  texV = roleTexture(role, tp, vNormalW);
+  // au loin, le grain fin s'efface (sous le pixel) : une variation de matière à grande échelle prend le relais pour
+  // que la surface ne devienne pas plate (décor seulement : ni personnages, ni eau, ni verre, ni lumières)
+  if (role <= 11 || role == 14 || role == 26 || role >= 32) {
+    float far = smoothstep(0.015, 0.08, length(fwidth(tp)));
+    texV += (fbm3(tp * 0.55 + 3.7) - 0.5) * 0.16 * far;
+  }
+  texV *= uTexture;
+  // à l'ombre, le relief de la matière est plus doux (la part éclairée par le soleil le renforce, voir « lit »)
+  base *= 1.0 + texV * 0.6;
   if (role == 1) {
     // herbe : plaques plus sèches (jaunies) et plus drues (vert sombre) : la teinte se lit mieux que la seule valeur
     float dry = smoothstep(0.4, 0.68, fbm3(vec3(vPosW.x, 0.0, vPosW.z) * 0.45));
@@ -417,7 +482,7 @@ void main() {
   vec3 N = normalize(vNormalW);
   if (!gl_FrontFacing) N = -N;
   // relief de détail procédural (pierre, enduit, toiture, bois, écorce, sol) : gradient d'un bruit, sans texture
-  float bumpK = (role == 4 ? 0.55 : role == 5 || role == 6 ? 0.18 : role == 7 ? 0.35 : role == 8 || role == 9 ? 0.3 : role <= 3 ? 0.16 : 0.0) * uTexture * uDetail;
+  float bumpK = (role == 4 ? 0.55 : role == 5 || role == 6 ? 0.18 : role == 7 ? 0.0 : role == 8 || role == 9 ? 0.3 : role <= 3 ? 0.16 : 0.0) * uTexture * uDetail;
   if (bumpK > 0.0) {
     float fs = role == 7 ? 7.0 : role <= 3 ? 4.5 : 5.0;
     vec3 q = vPosW * fs;
@@ -601,7 +666,8 @@ void main() {
   // contact au sol : assombrit le pied des objets
   float contact = 1.0 - (1.0 - smoothstep(0.0, 0.35, vPosW.y - uGroundY)) * 0.18 * uAOStrength * step(0.2, abs(N.y - 1.0));
   vec3 amb = mix(uAmbGround, uAmbSky, N.y * 0.5 + 0.5);
-  vec3 lit = base * (amb * (chr ? 0.7 : 0.62) * ao * contact + uSun * light * shadow * mix(0.85, 1.0, ao));
+  // texture : relief plus marqué au soleil qu'à l'ombre (0,6 de la variation dans la part ambiante, 1,3 au soleil)
+  vec3 lit = base * (amb * (chr ? 0.7 : 0.62) * ao * contact + uSun * light * shadow * mix(0.85, 1.0, ao) * (1.0 + texV * 0.7));
   vec3 Vv = normalize(cameraPosition - vPosW);
   if (role == 21) {
     // peau : diffusion sous la surface. La lumière déborde dans l'ombre (rougie : le rouge porte plus loin que le vert
@@ -748,9 +814,11 @@ void main() {
     float ripple = vnoise(vec3(vPosW.x * 1.3 + uTime * 0.3, uTime * 0.2, vPosW.z * 1.3)) + vnoise(vec3(vPosW.x * 3.1 - uTime * 0.4, 0.0, vPosW.z * 3.7));
     lit = mix(lit, uFogColor, fr * 0.6) + uSun * smoothstep(1.5, 1.75, ripple) * 0.07;
     // reflets mouvants au fond (caustiques) : réseau de lignes claires qui ondule
-    vec2 cp = vPosW.xz * 1.8 + vec2(vnoise(vec3(vPosW.xz * 0.9, uTime * 0.35)), vnoise(vec3(vPosW.xz * 0.9 + 7.0, uTime * 0.35))) * 1.6;
-    float cau = pow(1.0 - abs(sin(cp.x * 2.6 + uTime * 0.7) * sin(cp.y * 2.6 - uTime * 0.6)), 10.0);
-    lit += uSun * cau * 0.09 * (1.0 - fr);
+    // réseau cellulaire qui dérive (deux couches à des échelles différentes), légèrement déformé ; effacé au loin
+    vec2 cw = vPosW.xz + vec2(vnoise(vec3(vPosW.xz * 0.7, uTime * 0.25)), vnoise(vec3(vPosW.xz * 0.7 + 7.0, uTime * 0.25))) * 0.6;
+    float cau = caustic(cw * 1.6, uTime * 0.9) * 0.6 + caustic(cw * 2.9 + 11.0, uTime * 1.2) * 0.4;
+    cau *= octK(2.9, length(fwidth(vPosW)));
+    lit += uSun * cau * cau * 0.1 * (1.0 - fr);
     // nageurs : rides concentriques qui s'éloignent, écume autour du corps (plus forte quand on nage vite)
     for (int i = 0; i < 8; i++) {
       if (i >= uSwimN) break;
