@@ -872,7 +872,19 @@ void main() {
   float emiss = 0.0;
   if (role == 16 || role == 30) emiss = 0.55 + uNight * uLamps * 1.4;
   else if (role == 15) emiss = uNight * uLamps * step(0.45, hash13(floor(vPosW * 1.7) + vObj)) * 1.1;
-  if (role == 30) lit = base * (1.2 + 0.25 * sin(uTime * 13.0 + vPosW.x * 9.0));
+  if (role == 30) {
+    if (N.y > 0.55) {
+      // lave (nappe, coulée) : croûte sombre en plaques qui dérivent lentement, fissures incandescentes qui palpitent
+      vec2 lp = vPosW.xz * 0.9 + vec2(uTime * 0.05, uTime * 0.03);
+      float c1 = vnoise(vec3(lp, uTime * 0.04)), c2 = vnoise(vec3(lp * 2.6 + 4.0, uTime * 0.07));
+      float crust = smoothstep(0.42, 0.62, c1 * 0.65 + c2 * 0.35);
+      float crack = 1.0 - smoothstep(0.0, 0.07, abs(c1 - 0.52));
+      vec3 hot = base * vec3(1.6, 1.05, 0.6) * (1.25 + 0.2 * sin(uTime * 2.1 + c2 * 9.0));
+      vec3 cool = vec3(0.09, 0.06, 0.05) * (amb * 0.8 + uSun * 0.3 * max(ndl, 0.0));
+      lit = mix(hot, cool, crust * (1.0 - crack));
+      lit += hot * crack * crust * 0.6;
+    } else lit = base * (1.2 + 0.25 * sin(uTime * 13.0 + vPosW.x * 9.0));
+  }
   lit = mix(lit, base * (1.0 + emiss), clamp(emiss, 0.0, 1.0));
   // eau : surface transparente. Fond vu à travers (réfraction par la normale des vagues), lumière absorbée selon
   // l'épaisseur d'eau traversée (rouge d'abord : turquoise sur les hauts-fonds, bleu profond au large), caustiques
@@ -890,6 +902,8 @@ void main() {
     float fwW = length(fwidth(vPosW));
     rg *= octK(7.3, fwW) * rk * 4.0;
     if (Nw.y > 0.3) Nw = normalize(Nw - vec3(rg.x, 0.0, rg.y));
+    // lame d'eau verticale (chute, cascade) : filets d'écume qui défilent vers le bas
+    float fallK = 1.0 - smoothstep(0.35, 0.6, abs(N.y));
     // sans passe d'eau (monde infini, rendu de secours) : pas de scène à lire, eau opaque teintée par la profondeur
     bool see = uPass > 0.5;
     vec2 suv = gl_FragCoord.xy / uViewport;
@@ -930,6 +944,11 @@ void main() {
     float crest = smoothstep(0.8, 0.96, vWave) * smoothstep(0.42, 0.75, vnoise(vec3(vPosW.xz * 3.4, uTime * 0.6))) * (0.6 + 0.4 * vnoise(vec3(vPosW.xz * 11.0, uTime))) * uWaterKind;
     float foam = clamp(edge * (0.55 + 0.45 * vnoise(vec3(vPosW.xz * 6.0, uTime * 1.1))) * (uWaterKind > 0.5 ? 1.0 : 0.35 * (1.0 - murk)) + crest * 0.8, 0.0, 1.0);
     col = mix(col, (amb * 0.62 + uSun * mix(1.0, sh, uShadowStrength)) * 0.95, foam * 0.85);
+    if (fallK > 0.0) {
+      vec2 fp = vec2(vPosW.x * 3.0 + vPosW.z * 3.0, vPosW.y * 0.7 + uTime * 2.6);
+      float streak = smoothstep(0.55, 0.85, vnoise(vec3(fp.x, fp.y, 0.0)) * 0.6 + vnoise(vec3(fp.x * 2.3, fp.y * 1.7, 3.0)) * 0.4);
+      col = mix(col, (amb * 0.7 + uSun * 0.6) * 0.95, fallK * (0.25 + streak * 0.6));
+    }
     lit = col;
     // nageurs : rides concentriques qui s'éloignent, écume autour du corps (plus forte quand on nage vite)
     for (int i = 0; i < 8; i++) {

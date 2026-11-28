@@ -262,7 +262,7 @@ class TeeIssues extends Issues {
     this.to.add(i);
   }
 }
-const INSTANCEABLE = new Set(["textile", "tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water"]);
+const INSTANCEABLE = new Set(["textile", "tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water", "lava"]);
 /** Tailles fines (pas d'arrondi au quart de mètre). */
 const FINE = new Set(["ball", "seat", "structure", "water"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
