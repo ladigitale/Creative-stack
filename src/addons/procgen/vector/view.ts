@@ -20,7 +20,7 @@ import { keepFrame } from "../render/steady";
 import { type Inks, type VectorStyle, makeInks, resolveVectorStyle } from "./vstyle";
 import { Issues } from "../core/schema";
 import { type FxInput, SceneFx } from "../scene/fx";
-import { accelOf, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../../shared/sim/particles";
+import { accelOf, opacityAt, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../../shared/sim/particles";
 
 export type VectorViewState = { camera: VectorCamera; zoom: number; cx: number | null; cy: number | null; cz: number | null; lift: number | null; actor: string | null; follow: boolean };
 
@@ -135,6 +135,7 @@ export class VectorView {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     for (const fs of this.fx.systems) {
       const sys = fs.sys, s = sys.spec;
+      const pres = sys.presence(now);
       const acc = accelOf(s, this.fx.vent);
       const ramp = s.color.map(rgbOf);
       const add = s.blend === "add";
@@ -147,7 +148,7 @@ export class VectorView {
         const k = t / life;
         positionAt(sys, i, t, acc, p);
         if (s.floor && p[1] < this.fx.floorY) p[1] = this.fx.floorY;
-        const a = (s.opacity[0] + (s.opacity[1] - s.opacity[0]) * k) * (s.sprite === "volute" ? 0.55 : 1);
+        const a = opacityAt(s, k) * pres * (s.sprite === "volute" ? 0.55 : 1);
         if (a < 0.02) continue;
         const sc = this.worldToScreen(p);
         const r = Math.max(0.6, ((s.size[0] + (s.size[1] - s.size[0]) * k) * sys.scale[i] * ppm) / 2);

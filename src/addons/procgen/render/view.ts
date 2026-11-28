@@ -43,7 +43,7 @@ import { SNAP_MARGIN, gridOffset, marginTransform, snapApplicable } from "./pixe
 import type { OrthoFrame, SnapRequest } from "./camera";
 import { Issues } from "../core/schema";
 import { type FxInput, SceneFx } from "../scene/fx";
-import { createParticleMesh, disposeParticleMesh, particleQuad, uploadParticles, type ParticleMesh } from "../../../shared/sim/particles-gl";
+import { createParticleMesh, disposeParticleMesh, particleQuad, tickParticleMesh, uploadParticles, type ParticleMesh } from "../../../shared/sim/particles-gl";
 import { InfiniteGpu } from "./infinite-gpu";
 import type { TileWorld } from "../scene/infinite";
 import type { NavGrid } from "../scene/nav";
@@ -851,7 +851,7 @@ export class ProcgenView {
     this.fx.step(dt, this.fxCtx());
     for (const d of this.fxMeshes) {
       uploadParticles(d);
-      d.mat.uniforms.uNow.value = this.fx.now;
+      tickParticleMesh(d, this.fx.now);
     }
   }
 

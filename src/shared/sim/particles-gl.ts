@@ -28,6 +28,7 @@ uniform vec2 uSize;
 uniform vec3 uColors[4];
 uniform float uN;
 uniform vec2 uOpacity;
+uniform vec2 uFade;
 uniform float uStretch;
 uniform float uSpin;
 uniform float uFloor;
@@ -100,7 +101,11 @@ void main() {
     vec3 tint = vec3(floor(n / 65536.0), mod(floor(n / 256.0), 256.0), mod(n, 256.0)) / 255.0;
     col = mix(col, tint, 0.75);
   }
-  vCol = vec4(col, mix(uOpacity.x, uOpacity.y, k) * fade);
+  // fondus d'entrée et de sortie (fraction de la vie) : un grain de fumée ou de brume ne surgit pas plein
+  float env = 1.0;
+  if (uFade.x > 0.0) env *= smoothstep(0.0, uFade.x, k);
+  if (uFade.y > 0.0) env *= 1.0 - smoothstep(1.0 - uFade.y, 1.0, k);
+  vCol = vec4(col, mix(uOpacity.x, uOpacity.y, k) * fade * env);
 }
 `;
 
@@ -214,6 +219,7 @@ export function createParticleMesh(sys: ParticleSystem, quad: THREE.BufferGeomet
       uColors: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) },
       uN: { value: 1 },
       uOpacity: { value: new THREE.Vector2() },
+      uFade: { value: new THREE.Vector2() },
       uStretch: { value: 0 },
       uSpin: { value: 0 },
       uFloor: { value: 0 },
@@ -251,10 +257,17 @@ export function syncParticleUniforms(d: ParticleMesh, vent: V3) {
   (u.uColors.value as THREE.Vector3[]).forEach((c, i) => c.set(...rgbOf(s.color[Math.min(i, s.color.length - 1)])));
   u.uN.value = s.color.length;
   (u.uOpacity.value as THREE.Vector2).set(s.opacity[0], s.opacity[1]);
+  (u.uFade.value as THREE.Vector2).set(s.fade[0], s.fade[1]);
   u.uStretch.value = s.stretch;
   u.uSpin.value = s.spin;
   u.uFloor.value = s.floor ? 1 : 0;
   u.uSprite.value = PARTICLE_SPRITES[s.sprite];
+}
+
+/** Horloge du dessin : instant courant et montée du système (`appear`). */
+export function tickParticleMesh(d: ParticleMesh, now: number) {
+  d.mat.uniforms.uNow.value = now;
+  d.mat.uniforms.uOpacityK.value = d.sys.presence(now);
 }
 
 /** Envoie au GPU la plage du tampon circulaire écrite depuis le dernier envoi. */

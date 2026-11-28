@@ -25,7 +25,7 @@ import { loadRapier, RigidWorld, type ContactEvent, type RigidPose, type RigidSt
 import { syncInfiniSims } from "../../shared/sim/infini-shapes";
 import { GameProbe, type QueryResult } from "../../shared/sim/queries";
 import { biomeAt, TileManager, type Tile } from "../../shared/monde/infini";
-import { accelOf, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../shared/sim/particles";
+import { accelOf, opacityAt, positionAt, rampAt, rgbOf, unpackRgb, type V3 as PV3 } from "../../shared/sim/particles";
 import type { Emitter, Hit } from "../../shared/sim/emitter";
 import { m4Mul } from "../../shared/monde/math";
 
@@ -378,6 +378,7 @@ export class Monde2d {
       const acc = accelOf(s, this.particles.vent);
       const ramp = s.color.map(rgbOf);
       const now = this.particles.now;
+      const pres = sys.presence(now);
       let dsum = 0, dn = 0;
       for (let i = 0; i < s.max; i++) {
         const t = now - sys.born[i];
@@ -394,7 +395,7 @@ export class Monde2d {
           for (let c = 0; c < 3; c++) col[c] = col[c] * 0.25 + tint[c] * 0.75;
         }
         const color = ((col[0] * 255) << 16) | ((col[1] * 255) << 8) | (col[2] * 255);
-        const alpha = Math.max(0, Math.min(1, s.opacity[0] + (s.opacity[1] - s.opacity[0]) * k));
+        const alpha = Math.max(0, Math.min(1, opacityAt(s, k) * pres));
         if (alpha < 0.01) continue;
         if (s.sprite === "trait" || s.stretch > 0) {
           positionAt(sys, i, Math.max(0, t - 0.03 - s.stretch), acc, prev);

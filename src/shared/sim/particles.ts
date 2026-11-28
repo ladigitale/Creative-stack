@@ -9,14 +9,31 @@ import { hash32 } from "../rng";
 
 export type V3 = [number, number, number];
 export type Range = [number, number];
+export type ParticleMode = "salve" | "flux" | "nappe";
+
+const MODE_ALIAS: Record<string, ParticleMode> = {
+  salve: "salve", burst: "salve", explosion: "salve",
+  flux: "flux", stream: "flux", continu: "flux", continuous: "flux",
+  nappe: "nappe", ambient: "nappe", ambiant: "nappe", ambiance: "nappe", layer: "nappe",
+};
 
 export type ParticleSpec = {
   id: string;
   preset: string;
   max: number;
+  /**
+   * Usage : `salve` (explosion, éclat : tout naît d'un coup sur ordre), `flux` (fumée, vapeur : naissances continues
+   * à la source, chaque grain monte en opacité), `nappe` (brouillard au sol, météo : population déjà en place au
+   * démarrage, âges répartis, grains qui apparaissent et disparaissent en fondu, système qui s'installe en `appear` s).
+   */
+  mode: ParticleMode;
   /** Naissances par seconde en continu ; `burst` : grains d'une salve. */
   rate: number;
   burst: number;
+  /** Fondus d'entrée et de sortie de chaque grain, en fraction de sa vie (0 : aucun). */
+  fade: Range;
+  /** Montée de l'opacité du système entier à son démarrage (s ; 0 : aucune). */
+  appear: number;
   /** Source : instance nommée (suivie), sinon point. */
   from: string;
   at: V3;
@@ -64,28 +81,31 @@ export const PARTICLE_PRESETS: Record<string, Preset> = {
   feu: { rate: 40, life: [0.5, 1.1], speed: [0.3, 0.8], dir: UP, spread: 25, rise: 2.2, drag: 1, turbulence: 0.5, size: [0.35, 0.05], color: ["#fff3b0", "#ffb02e", "#ff5a1f", "#3a0d00"], opacity: [0.95, 0], blend: "add", extent: [0.15, 0.15, 0.15], shape: "sphere", max: 200 },
   etincelles: { burst: 40, life: [0.4, 0.9], speed: [3, 7], dir: UP, spread: 70, gravity: 6, drag: 0.5, size: [0.06, 0.02], color: ["#fffbe0", "#ffb347"], opacity: [1, 0.2], blend: "add", stretch: 0.05, sprite: "trait", max: 300 },
   braise: { rate: 8, life: [1, 2.5], speed: [0.2, 0.6], dir: UP, spread: 30, rise: 0.8, turbulence: 0.8, size: [0.05, 0.02], color: ["#ffcf6b", "#ff6a00"], opacity: [1, 0], blend: "add", max: 100 },
-  lueur: { rate: 6, life: [1, 2], speed: [0.05, 0.15], spread: 180, size: [0.6, 0.9], color: ["#ffd27a"], opacity: [0.35, 0], blend: "add", max: 40 },
+  lueur: { rate: 6, fade: [0.2, 0], life: [1, 2], speed: [0.05, 0.15], spread: 180, size: [0.6, 0.9], color: ["#ffd27a"], opacity: [0.35, 0], blend: "add", max: 40 },
   eclair: { burst: 30, life: [0.08, 0.2], speed: [6, 12], spread: 180, size: [0.08, 0.02], color: ["#ffffff", "#9ad7ff"], opacity: [1, 0], blend: "add", stretch: 0.08, sprite: "trait", max: 120 },
   magie: { rate: 30, life: [0.6, 1.4], speed: [0.5, 1.5], spread: 180, turbulence: 1, rise: 0.3, size: [0.12, 0], color: ["#e9d5ff", "#a855f7", "#22d3ee"], opacity: [1, 0], blend: "add", sprite: "flocon", max: 200 },
-  fumee: { rate: 12, life: [3, 5], speed: [0.2, 0.5], dir: UP, spread: 15, rise: 0.8, drag: 0.6, turbulence: 0.6, wind: 1, size: [0.3, 1.8], color: ["#5f5f5f", "#bdbdbd"], opacity: [0.5, 0], sprite: "volute", max: 200 },
-  vapeur: { rate: 14, life: [1.5, 3], speed: [0.3, 0.6], dir: UP, spread: 12, rise: 0.6, drag: 0.8, turbulence: 0.5, wind: 1, size: [0.15, 0.9], color: ["#ffffff"], opacity: [0.4, 0], sprite: "volute", max: 150 },
-  brume: { rate: 4, life: [6, 10], speed: [0.05, 0.15], spread: 180, shape: "box", extent: [6, 0.3, 6], wind: 1, size: [2, 4], color: ["#e6eef5"], opacity: [0.2, 0], sprite: "volute", max: 60 },
+  fumee: { rate: 12, fade: [0.12, 0], life: [3, 5], speed: [0.2, 0.5], dir: UP, spread: 15, rise: 0.8, drag: 0.6, turbulence: 0.6, wind: 1, size: [0.3, 1.8], color: ["#5f5f5f", "#bdbdbd"], opacity: [0.5, 0], sprite: "volute", max: 200 },
+  vapeur: { rate: 14, fade: [0.1, 0], life: [1.5, 3], speed: [0.3, 0.6], dir: UP, spread: 12, rise: 0.6, drag: 0.8, turbulence: 0.5, wind: 1, size: [0.15, 0.9], color: ["#ffffff"], opacity: [0.4, 0], sprite: "volute", max: 150 },
+  brume: { mode: "nappe", rate: 4, life: [6, 10], speed: [0.05, 0.15], spread: 180, shape: "box", extent: [6, 0.3, 6], wind: 1, size: [2, 4], color: ["#e6eef5"], opacity: [0.2, 0.2], fade: [0.3, 0.35], appear: 3, sprite: "volute", max: 60 },
   poussiere: { burst: 30, life: [0.8, 1.6], speed: [0.5, 1.5], dir: UP, spread: 80, gravity: 0.5, drag: 2, wind: 0.6, size: [0.15, 0.5], color: ["#c8b08a", "#e6d8bd"], opacity: [0.6, 0], sprite: "volute", floor: true, max: 150 },
   eclaboussure: { burst: 30, life: [0.4, 0.8], speed: [2, 4], dir: UP, spread: 50, gravity: 9.8, size: [0.07, 0.03], color: ["#9ad7ff", "#e0f4ff"], opacity: [0.9, 0.3], sprite: "goutte", floor: true, max: 150 },
   gouttes: { rate: 20, life: [0.5, 1], speed: [0.5, 1.5], dir: UP, spread: 25, gravity: 9.8, size: [0.05, 0.04], color: ["#9ad7ff"], opacity: [0.9, 0.6], sprite: "goutte", floor: true, max: 100 },
-  bulles: { rate: 10, life: [1.5, 3], speed: [0.1, 0.3], dir: UP, spread: 20, rise: 0.6, turbulence: 0.4, size: [0.04, 0.1], color: ["#e0f7ff"], opacity: [0.6, 0], sprite: "disque", max: 100 },
-  pluie: { rate: 300, life: [1, 1], speed: [9, 10], dir: [0, -1, 0], spread: 2, shape: "box", extent: [8, 0, 8], offset: [0, 8, 0], wind: 0.5, size: [0.025, 0.025], color: ["#a8c8e8"], opacity: [0.6, 0.6], stretch: 0.06, sprite: "trait", floor: true, max: 1200 },
-  neige: { rate: 80, life: [6, 8], speed: [0.5, 0.8], dir: [0, -1, 0], spread: 10, shape: "box", extent: [8, 0, 8], offset: [0, 7, 0], turbulence: 0.6, wind: 0.8, size: [0.06, 0.06], color: ["#ffffff"], opacity: [0.95, 0.95], sprite: "flocon", floor: true, max: 800 },
+  bulles: { rate: 10, fade: [0.1, 0], life: [1.5, 3], speed: [0.1, 0.3], dir: UP, spread: 20, rise: 0.6, turbulence: 0.4, size: [0.04, 0.1], color: ["#e0f7ff"], opacity: [0.6, 0], sprite: "disque", max: 100 },
+  pluie: { mode: "nappe", appear: 1.5, rate: 300, life: [1, 1], speed: [9, 10], dir: [0, -1, 0], spread: 2, shape: "box", extent: [8, 0, 8], offset: [0, 8, 0], wind: 0.5, size: [0.025, 0.025], color: ["#a8c8e8"], opacity: [0.6, 0.6], stretch: 0.06, sprite: "trait", floor: true, max: 1200 },
+  neige: { mode: "nappe", appear: 2, fade: [0.04, 0.04], rate: 80, life: [6, 8], speed: [0.5, 0.8], dir: [0, -1, 0], spread: 10, shape: "box", extent: [8, 0, 8], offset: [0, 7, 0], turbulence: 0.6, wind: 0.8, size: [0.06, 0.06], color: ["#ffffff"], opacity: [0.95, 0.95], sprite: "flocon", floor: true, max: 800 },
   confettis: { burst: 80, life: [1.5, 3], speed: [3, 6], dir: UP, spread: 40, gravity: 4, drag: 1.5, turbulence: 0.5, spin: 1.5, size: [0.08, 0.08], color: ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6"], opacity: [1, 1], sprite: "eclat", floor: true, max: 400 },
   debris: { burst: 20, life: [1, 1.8], speed: [2, 5], dir: UP, spread: 60, gravity: 9.8, spin: 1, size: [0.12, 0.1], color: ["#8a7a6a", "#5d5248"], opacity: [1, 1], sprite: "eclat", floor: true, max: 120 },
   eclats: { burst: 24, life: [0.6, 1.2], speed: [3, 6], dir: UP, spread: 75, gravity: 9.8, spin: 2, size: [0.06, 0.05], color: ["#d4d4d8", "#71717a"], opacity: [1, 1], sprite: "eclat", floor: true, max: 150 },
-  feuilles: { rate: 6, life: [4, 7], speed: [0.2, 0.5], dir: [0, -1, 0], spread: 40, shape: "box", extent: [5, 0, 5], offset: [0, 5, 0], gravity: 0.6, drag: 2, turbulence: 1, wind: 1, spin: 0.6, size: [0.1, 0.1], color: ["#65a30d", "#ca8a04", "#c2410c"], opacity: [1, 1], sprite: "eclat", floor: true, max: 150 },
+  feuilles: { mode: "nappe", appear: 2, fade: [0.06, 0.06], rate: 6, life: [4, 7], speed: [0.2, 0.5], dir: [0, -1, 0], spread: 40, shape: "box", extent: [5, 0, 5], offset: [0, 5, 0], gravity: 0.6, drag: 2, turbulence: 1, wind: 1, spin: 0.6, size: [0.1, 0.1], color: ["#65a30d", "#ca8a04", "#c2410c"], opacity: [1, 1], sprite: "eclat", floor: true, max: 150 },
 };
 
 const BASE: Omit<ParticleSpec, "id" | "preset" | "seed"> = {
   max: 200,
+  mode: "salve",
   rate: 0,
   burst: 20,
+  fade: [0, 0],
+  appear: 0,
   from: "",
   at: [0, 0, 0],
   offset: [0, 0, 0],
@@ -169,11 +189,25 @@ export function readParticles(src: unknown, u: number, issues: { path: string; m
       : d.light;
     const shape = (["point", "sphere", "box", "ring"] as const).includes(raw.shape as ParticleSpec["shape"]) ? (raw.shape as ParticleSpec["shape"]) : d.shape;
     const sprite = (["disque", "flocon", "goutte", "eclat", "trait", "volute"] as const).includes(raw.sprite as ParticleSpec["sprite"]) ? (raw.sprite as ParticleSpec["sprite"]) : d.sprite;
+    // usage : donné, sinon celui du préréglage, sinon déduit du débit (continu = flux)
+    const modeRaw = typeof raw.mode === "string" ? MODE_ALIAS[raw.mode] : undefined;
+    if (raw.mode !== undefined && !modeRaw) issues.push({ path: `${path}.mode`, message: "salve, flux ou nappe attendu" });
+    let rate = fin(raw.rate) ? clamp(raw.rate, 0, 2000) : d.rate;
+    const mode: ParticleMode = modeRaw ?? (pre?.mode ? d.mode : rate > 0 ? "flux" : "salve");
+    // une salve ne naît que sur ordre ; un flux ou une nappe sans débit : de quoi garder le tampon aux 4/5
+    if (mode === "salve" && !fin(raw.rate)) rate = 0;
+    if (mode !== "salve" && rate <= 0) rate = (max * 0.8) / Math.max(0.1, (d.life[0] + d.life[1]) / 2);
+    // fondus par défaut selon l'usage quand ni le préréglage ni la recette n'en donnent
+    const fadeD: Range = pre?.fade ?? (mode === "nappe" ? [0.25, 0.25] : mode === "flux" ? [0.08, 0] : [0, 0]);
+    const fade = raw.fade !== undefined ? range(raw.fade, fadeD) : fadeD;
     out.push({
       id,
       preset: pre ? preset : "",
       max,
-      rate: fin(raw.rate) ? clamp(raw.rate, 0, 2000) : d.rate,
+      mode,
+      fade: [clamp(fade[0], 0, 0.5), clamp(fade[1], 0, 0.5)],
+      appear: fin(raw.appear) ? clamp(raw.appear, 0, 30) : pre?.appear ?? (mode === "nappe" ? 2 : 0),
+      rate,
       burst: fin(raw.burst) ? clamp(Math.round(raw.burst), 0, max) : Math.min(d.burst, max),
       from: typeof raw.from === "string" ? raw.from.split("@")[0] : typeof raw.at === "string" ? raw.at.split("@")[0] : "",
       at: Array.isArray(raw.at) ? vec(raw.at, [0, 0, 0], u) : [0, 0, 0],
@@ -216,6 +250,16 @@ function rand32(s: number): number {
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
+
+/** Opacité d'un grain à la fraction `k` de sa vie : rampe `opacity` et fondus `fade` (même calcul que le shader). */
+export function opacityAt(s: Pick<ParticleSpec, "opacity" | "fade">, k: number): number {
+  let a = s.opacity[0] + (s.opacity[1] - s.opacity[0]) * k;
+  const [fi, fo] = s.fade;
+  if (fi > 0) a *= smooth(Math.min(1, k / fi));
+  if (fo > 0) a *= smooth(Math.min(1, (1 - k) / fo));
+  return a;
+}
+const smooth = (x: number) => (x <= 0 ? 0 : x * x * (3 - 2 * x));
 
 /** Ordre ponctuel `fx.<id>` : point, échelle, couleur, nombre de grains. */
 export type FxOrder = { at?: V3; scale?: number; color?: string; count?: number };
@@ -271,6 +315,37 @@ export class ParticleSystem {
   }
 
   private lastSpawn = -1e9;
+  /** Instant du premier pas (montée `appear`), et nappe déjà remplie. */
+  private started = Number.NaN;
+  filled = false;
+
+  /** Opacité du système entier à l'instant `now` (0 à 1) : montée de `appear` secondes depuis son premier usage. */
+  presence(now: number): number {
+    if (Number.isNaN(this.started)) this.started = now;
+    const a = this.spec.appear;
+    if (a <= 0) return 1;
+    const k = Math.min(1, Math.max(0, (now - this.started) / a));
+    return k * k * (3 - 2 * k);
+  }
+
+  /**
+   * Nappe : `count` grains d'âges répartis sur leur vie, comme si le système tournait depuis longtemps (aucune
+   * vague de naissances simultanées au démarrage). Une seule fois par système.
+   */
+  prefill(count: number, now: number, at: V3, yaw = 0) {
+    this.filled = true;
+    count = Math.min(Math.round(count), this.spec.max);
+    for (let c = 0; c < count; c++) {
+      const i = this.head;
+      this.spawn(1, now, at, yaw);
+      this.born[i] = now - this.r() * this.life[i];
+    }
+  }
+
+  /** Population d'un régime établi pour un débit donné (grains vivants en même temps). */
+  steady(rate = this.spec.rate): number {
+    return Math.min(this.spec.max, rate * ((this.spec.life[0] + this.spec.life[1]) / 2));
+  }
   private lastRate(now: number) {
     return now - this.lastSpawn < this.spec.life[1] + 0.1;
   }
@@ -341,7 +416,8 @@ export class ParticleSystem {
   /** Naissances continues de la période (`rate` × `dt`). */
   continuous(dt: number, now: number, at: V3, yaw = 0, rate = this.spec.rate) {
     if (rate <= 0) return;
-    this.rateAcc += dt * rate;
+    // une image très longue (onglet repris) ne lâche pas d'un coup tout ce qui aurait dû naître
+    this.rateAcc += Math.min(dt, 0.25) * rate;
     const k = Math.floor(this.rateAcc);
     if (k > 0) {
       this.rateAcc -= k;
