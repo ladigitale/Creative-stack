@@ -23,6 +23,7 @@ import { type M4, type V3, clamp, m4Compose, m4Point, mix, qAxis, qMul, smoothst
 import { FaceState, bindExpr, exprTexture } from "./expr";
 import { requestCharacterLod, requestCharacterOutfit } from "../scene/char-pool";
 import { characterAsset } from "../gen/character";
+import { PROP_ACTIONS, propsFor } from "./hand-props";
 import { inSwimwear, swimwear, type Look } from "../gen/character/look";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
@@ -90,6 +91,8 @@ type ActorRT = {
    * impossible (le personnage n'entre alors pas dans l'eau) ; point d'eau visé en attendant d'être changé.
    */
   attire?: { orig: ActorModel["asset"]; swim: boolean; pending: boolean; failed?: boolean; wetGoal?: [number, number, string | undefined] };
+  /** Objets tenus le temps d'une action (tasse, assiette, casserole, planche) : os porteur (-1 : repère de l'acteur). */
+  props?: { key: string; items: { bone: number; mesh: THREE.Mesh; flat?: V3 }[] };
   /** Plongée : sous la surface (apnée), bascule du corps (rad). */
   under?: boolean;
   diveTilt?: number;
@@ -1348,7 +1351,8 @@ export class ProcgenView {
       // en route vers une place (ou un ballon), l'acteur marche : il ne s'assied (ou ne tire) qu'à l'arrivée
       if (it.action && !(toSeat && it.action === "sit") && !atTarget && !(toBall && it.action === "kick") && (ACTIONS as readonly string[]).includes(it.action) && it.action !== "walk" && it.action !== "run") {
         if (a.action !== it.action) {
-          if (it.action !== "sit") this.standUp(a);
+          // boire, manger, parler… assis : on reste sur sa chaise (seul le haut du corps bouge)
+          if (it.action !== "sit" && !(SEATED_OK.has(it.action) && (a.seatY ?? 0) > 0)) this.standUp(a);
           a.action = it.action as Action;
           a.actionTime = 0;
         }
@@ -3509,7 +3513,7 @@ export class ProcgenView {
     // nager ou plonger hors de l'eau (en route vers le bassin) : il marche ; sous l'eau, l'apnée
     const inWater = wet(a.action) && this.waterAt(a.pos[0], a.pos[2]) !== null;
     const act: Action = wet(a.action) && !inWater ? "idle" : a.action === "dive" && !a.under ? "swim" : a.action;
-    const st: MotionState = { diveTilt: a.diveTilt, speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: act, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, ...(a.climbSt?.phase === "up" ? { climbQ: a.climbSt.q } : {}), fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
+    const st: MotionState = { diveTilt: a.diveTilt, speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: act, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" || (SEATED_OK.has(a.action) && (a.seatY ?? 0) > 0) ? a.seatY : 0, onSeat: SEATED_OK.has(a.action) && a.action !== "sit" && a.action !== "sleep" && (a.seatY ?? 0) > 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, ...(a.climbSt?.phase === "up" ? { climbQ: a.climbSt.q } : {}), fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
     // hors champ (avec une marge pour l'ombre portée) : position suivie, pose gardée (déjà posé au moins une fois)
     if (this.poseFrustumOn && a.mesh.userData.world) {
       const h = a.model.asset.height;
@@ -3546,7 +3550,49 @@ export class ProcgenView {
     if (a.ride) a.dispYaw = a.yaw;
     a.mesh.rotation.set(0, a.dispYaw, 0);
     a.mesh.updateMatrix();
+    this.syncProps(a, S);
   }
+
+  /** Objets tenus : créés au début de l'action (sauf objet déjà en main), suivis par l'os de la main, ôtés ensuite. */
+  private syncProps(a: ActorRT, S: M4[]) {
+    const look = (a.model.asset.extra as { look?: Look } | undefined)?.look;
+    const want = a.model.asset.generator === "character" && look && (look.item ?? "none") === "none" && PROP_ACTIONS.has(a.action) && !a.ride ? a.action : "";
+    if ((a.props?.key ?? "") !== want) {
+      for (const it of a.props?.items ?? []) {
+        this.scene.remove(it.mesh);
+        it.mesh.geometry.dispose();
+      }
+      a.props = undefined;
+      if (want) {
+        const sk = a.model.asset.skeleton!;
+        const mats = makeMaterials(this.shared, a.mats.uniforms.uRoles as { value: Float32Array }, false);
+        const items = propsFor(want, sk).map((hp) => {
+          const geo = toGeometry(hp.mesh);
+          geo.setAttribute("aObj", new THREE.Float32BufferAttribute(new Array(hp.mesh.vertexCount).fill(a.model.obj), 1));
+          const mesh = new THREE.Mesh(geo, mats.color);
+          mesh.userData.depth = mats.depth;
+          mesh.matrixAutoUpdate = false;
+          mesh.frustumCulled = false;
+          this.scene.add(mesh);
+          return { bone: hp.bone ? sk.index[hp.bone] ?? -1 : -1, mesh, flat: hp.flat };
+        });
+        a.props = { key: want, items };
+      }
+    }
+    if (!a.props) return;
+    for (const it of a.props.items) {
+      it.mesh.visible = a.mesh.visible && !a.hidden;
+      it.mesh.matrix.copy(a.mesh.matrix);
+      if (it.bone >= 0 && S[it.bone]) {
+        if (it.flat) {
+          // à plat : seulement la position du point de la main (l'assiette ne tourne pas avec le poignet)
+          const p = m4Point(S[it.bone], it.flat);
+          it.mesh.matrix.multiply(this.tmpM4.makeTranslation(p[0], p[1], p[2]));
+        } else it.mesh.matrix.multiply(this.tmpM4.fromArray(S[it.bone] as ArrayLike<number> as number[]));
+      }
+    }
+  }
+  private tmpM4 = new THREE.Matrix4();
 
   /* ---------------- boucle ---------------- */
 
@@ -4436,6 +4482,8 @@ export class ProcgenView {
 }
 
 const round = (x: number) => Math.round(x * 100) / 100;
+/** Gestes du haut du corps possibles assis (on ne se lève pas pour boire un café). */
+const SEATED_OK = new Set(["sit", "sleep", "drink", "eat", "talk", "think", "wave", "point", "comb", "cheer"]);
 /** Actions dans l'eau : nager, plonger. */
 const wet = (act: string) => act === "swim" || act === "dive";
 const smooth01 = (x: number) => {

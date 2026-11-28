@@ -41,6 +41,14 @@ export function handPose(action: string, t: number): Record<string, number> {
       return { "fist.r": 1, "point.l": 0.6 };
     case "dance":
       return { "open.l": 0.5 + 0.3 * Math.sin(t * 5.9), "open.r": 0.5 + 0.3 * Math.sin(t * 5.9 + 1) };
+    case "drink":
+      return { "fist.r": 0.75 };
+    case "eat":
+      return { "fist.r": 0.7, "open.l": 0.55 };
+    case "cook":
+      return { "fist.r": 0.85, "fist.l": 0.9 };
+    case "chop":
+      return { "fist.r": 1, "open.l": 0.5 };
     case "swim":
     case "dive":
       return { "open.l": 0.85, "open.r": 0.85 };
