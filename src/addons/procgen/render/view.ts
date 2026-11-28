@@ -24,6 +24,7 @@ import { FaceState, bindExpr, exprTexture } from "./expr";
 import { requestCharacterLod, requestCharacterOutfit } from "../scene/char-pool";
 import { characterAsset } from "../gen/character";
 import { PROP_ACTIONS, propsFor } from "./hand-props";
+import { hullOnWaves } from "./waves";
 import { inSwimwear, swimwear, type Look } from "../gen/character/look";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
@@ -173,6 +174,8 @@ type RideRT = { veh: string; seat: string; door: string | null; phase: "open" | 
 /** Véhicule ou monture conduit : état du modèle bicyclette, poignée de déplacement, occupants, itinéraire. */
 type VehRT = {
   id: string;
+  /** Bateau : acteur à débarquer une fois la rive atteinte. */
+  alightAfter?: string;
   spec: VehicleSpec;
   o: ObjectInfo | null;
   actor: ActorRT | null;
@@ -984,6 +987,12 @@ export class ProcgenView {
         }
       }
       sw[ns++].set(a.pos[0], a.pos[2], a.speed, a.model.seed * 3.1);
+    }
+    // bateaux en marche : rides et écume de sillage à la poupe
+    for (const v of this.vehicles.values()) {
+      if (ns >= 8 || v.spec.medium !== "water" || Math.abs(v.s.speed) < 0.25) continue;
+      const back = -Math.sign(v.s.speed) * v.spec.hz * 0.8;
+      sw[ns++].set(v.s.x + Math.sin(v.s.yaw) * back, v.s.z + Math.cos(v.s.yaw) * back, Math.min(2, Math.abs(v.s.speed) * 0.7), v.id.length * 1.7);
     }
     this.shared.uSwimN.value = ns;
   }
@@ -1856,9 +1865,75 @@ export class ProcgenView {
     for (const [k, w] of v.occ) if (w === a.model.id) v.occ.delete(k);
     v.occ.set(seat, a.model.id);
     const ap = this.approachOf(v, seat, [a.pos[0], a.pos[2]]);
+    if (v.spec.medium === "water") {
+      // bateau : on monte depuis la rive (ou le ponton) la plus proche ; trop loin, on y va en pataugeant si l'eau
+      // est peu profonde, sinon il est hors d'atteinte (à amarrer au bord ou à un ponton)
+      const reach = this.boatReach(v, ap);
+      if (!reach) {
+        v.occ.delete(seat);
+        return blocked("boat-unreachable");
+      }
+      this.goto(a, reach.shore[0], reach.shore[1], v.id);
+      if (a.goal && a.path && reach.wade) a.path.push([ap.x, ap.z]);
+      if (a.goal) a.goal.board = { veh: v.id, seat, door: ap.door };
+      else v.occ.delete(seat);
+      return;
+    }
     this.goto(a, ap.x, ap.z, v.id);
     if (a.goal) a.goal.board = { veh: v.id, seat, door: ap.door };
     else v.occ.delete(seat);
+  }
+
+  /**
+   * Où accoster : en anneaux autour du bateau (pas de 0,5 m, 40 m au plus), le premier point d'eau navigable (hors
+   * des autres bateaux et des ouvrages) d'où une rive praticable est à portée d'enjambée.
+   */
+  private nearestLanding(v: VehRT): [number, number] | null {
+    const nav = this.model?.nav as NavGrid | null | undefined;
+    if (!nav) return null;
+    const ok = this.routeCtx(v, [v.s.x, v.s.z], [v.s.x, v.s.z]).water;
+    if (!ok) return null;
+    const reach = 1.4 + v.spec.hx;
+    for (let r = 0.5; r <= 40; r += 0.5) {
+      const n = Math.max(8, Math.round((2 * Math.PI * r) / 0.5));
+      let best: [number, number] | null = null, bd = Infinity;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        const x = v.s.x + Math.cos(a) * r, z = v.s.z + Math.sin(a) * r;
+        if (!ok(x, z)) continue;
+        const c = nav.nearestFree(x, z);
+        if (!c) continue;
+        const [sx, sz] = nav.center(c[0], c[1]);
+        const d = Math.hypot(sx - x, sz - z);
+        if (d <= reach && d < bd) ((bd = d), (best = [x, z]));
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+
+  /** Profondeur d'eau au point (m), 0 hors de l'eau. */
+  private waterDepth(x: number, z: number): number {
+    const wl = this.waterAt(x, z);
+    return wl === null ? 0 : Math.max(0, wl - this.bed(x, z));
+  }
+
+  /**
+   * Bord d'où l'on atteint un bateau : point praticable le plus proche de la place, à portée d'enjambée (1,6 m), ou
+   * plus loin si l'eau entre les deux est peu profonde (on patauge, 0,8 m au plus, 8 m au plus). `null` : hors d'atteinte.
+   */
+  private boatReach(v: VehRT, ap: { x: number; z: number }): { shore: [number, number]; wade: boolean } | null {
+    const nav = this.model?.nav as NavGrid | null | undefined;
+    if (!nav) return { shore: [ap.x, ap.z], wade: false };
+    if (nav.free(ap.x, ap.z)) return { shore: [ap.x, ap.z], wade: false };
+    const c = nav.nearestFree(ap.x, ap.z);
+    if (!c) return null;
+    const [sx, sz] = nav.center(c[0], c[1]);
+    const gap = Math.hypot(sx - ap.x, sz - ap.z);
+    if (gap <= 1.6 + v.spec.hx * 0.3) return { shore: [sx, sz], wade: false };
+    if (gap > 8) return null;
+    for (let t = 0; t <= 1; t += 0.1) if (this.waterDepth(sx + (ap.x - sx) * t, sz + (ap.z - sz) * t) > 0.8) return null;
+    return { shore: [sx, sz], wade: true };
   }
 
   /** Arrivé à la portière : elle s'ouvre (l'acteur attend face au véhicule), sinon il monte tout de suite. */
@@ -1935,7 +2010,7 @@ export class ProcgenView {
   }
 
   /** `{action: "alight"}` : la portière s'ouvre, l'acteur descend devant elle (ou à côté de sa place), `alight`. */
-  private orderAlight(a: ActorRT) {
+  private orderAlight(a: ActorRT, ashore = false) {
     const rd = a.ride;
     if (!rd) {
       // en route vers une place : la réservation tombe
@@ -1954,6 +2029,15 @@ export class ProcgenView {
       return;
     }
     if (rd.phase === "exit") return;
+    // bateau au large : on regagne d'abord la rive la plus proche, puis on débarque (jamais de saut à terre depuis le large)
+    if (v.spec.medium === "water" && !ashore && rd.phase === "seated" && !this.boatReach(v, this.approachOf(v, rd.seat, [a.pos[0], a.pos[2]]))) {
+      const dock = this.nearestLanding(v);
+      if (dock) {
+        v.alightAfter = a.model.id;
+        this.driveTo(v, a.model.id, dock[0], dock[1], null, 1.2, Math.min(v.spec.maxSpeed, 2));
+        return;
+      }
+    }
     const ap = this.approachOf(v, rd.seat, [a.pos[0], a.pos[2]]);
     rd.door = ap.door;
     rd.phase = "exit";
@@ -1976,6 +2060,20 @@ export class ProcgenView {
       const c = nav.nearestFree(x, z);
       if (c) [x, z] = nav.center(c[0], c[1]);
     }
+    // jamais posé au fond de l'eau (bout de ponton, case libre en bordure) : point sec ou tablier le plus proche
+    const dry = (px: number, pz: number) => {
+      const wl = this.waterAt(px, pz);
+      return wl === null || groundHeight(m, px, pz, wl) >= wl - 0.1;
+    };
+    if (!dry(x, z) && nav)
+      search: for (let r = 0.3; r <= 3; r += 0.3)
+        for (let k = 0; k < 12; k++) {
+          const px = x + Math.cos((k / 12) * Math.PI * 2) * r, pz = z + Math.sin((k / 12) * Math.PI * 2) * r;
+          if (nav.free(px, pz) && dry(px, pz)) {
+            [x, z] = [px, pz];
+            break search;
+          }
+        }
     a.pos = [x, groundHeight(m, x, z, a.pos[1]), z];
     a.yaw = f.yaw + (local[0] < -0.05 ? -Math.PI / 2 : Math.PI / 2);
     a.seatY = 0;
@@ -2116,7 +2214,25 @@ export class ProcgenView {
     return {
       roads: roads.filter((p) => p.kind !== "river"),
       nav: m.nav as never,
-      water: wl === null && !this.waterObjs().length ? undefined : (x, z) => this.waterAt(x, z) !== null,
+      // eau navigable, hors des autres bateaux (à l'ancre ou amarrés) et des ouvrages (piles, ponton)
+      water: wl === null && !this.waterObjs().length ? undefined : (() => {
+        // bateaux : ceux qui naviguent (position courante) et ceux posés sur l'eau sans conducteur (emprise de l'objet)
+        const live = new Set([...this.vehicles.values()].map((o) => o.o?.id).filter(Boolean));
+        const boats = [
+          ...[...this.vehicles.values()].filter((o) => o !== v && o.spec.medium === "water").map((o) => [o.s.x, o.s.z, Math.hypot(o.spec.hx, o.spec.hz) * 0.85 + 0.3] as const),
+          ...(m.objects ?? []).filter((o) => o.generator === "vehicle" && o !== v.o && !live.has(o.id) && this.waterAt(o.pos[0], o.pos[2]) !== null).map((o) => [o.pos[0], o.pos[2], o.footprint.r * 0.85 + 0.3] as const),
+        ];
+        const structs = (m.objects ?? []).filter((o) => o.generator === "structure").map((o) => [o.pos[0], o.pos[2], o.yaw, o.footprint.hx + 0.3, o.footprint.hz + 0.3] as const);
+        return (x: number, z: number) => {
+          if (this.waterAt(x, z) === null) return false;
+          for (const [bx, bz, r] of boats) if ((x - bx) ** 2 + (z - bz) ** 2 < r * r) return false;
+          for (const [sx, sz, yaw, hx, hz] of structs) {
+            const c = Math.cos(yaw), sn = Math.sin(yaw), dx = x - sx, dz = z - sz;
+            if (Math.abs(dx * c - dz * sn) < hx && Math.abs(dx * sn + dz * c) < hz) return false;
+          }
+          return true;
+        };
+      })(),
       bounds: b,
       self: v.id,
     };
@@ -2179,16 +2295,20 @@ export class ProcgenView {
     let inp: DriveInput | null = direct;
     let arrived = false, stuck = false;
     if (!inp && v.route) {
-      const f = followRoute(v.spec, v.s, v.route, dt);
+      const wv0 = this.windVector();
+      const f = followRoute(v.spec, v.s, v.route, dt, [wv0[0], wv0[2]]);
       inp = f.input;
       arrived = f.done;
       stuck = f.stuck;
     }
     if (!inp && v.s.speed === 0) {
       if (v.rolling) this.stopRolling(v);
+      // bateau à l'arrêt : il suit quand même la houle
+      if (v.spec.medium === "water" && v.o) this.poseVehicle(v, dt);
       return;
     }
-    const r = stepDrive(v.spec, v.s, inp ?? { throttle: 0, steer: 0, brake: 0.4 }, dt, this.blockedFn(v));
+    const wv = this.windVector();
+    const r = stepDrive(v.spec, v.s, inp ?? { throttle: 0, steer: 0, brake: 0.4 }, dt, this.blockedFn(v), [wv[0], wv[2]]);
     if (v.rail) {
       const R = v.rail;
       const t = (v.s.x - R.x) * R.dx + (v.s.z - R.z) * R.dz;
@@ -2212,6 +2332,12 @@ export class ProcgenView {
       const g = v.route.goal;
       this.onEvent({ type: "arrive", payload: { actor: v.route.driver, vehicle: v.id, x: round(v.s.x), z: round(v.s.z), target: g.target } });
       v.route = null;
+      // arrivé à la rive pour débarquer
+      if (v.alightAfter) {
+        const who = this.actors.get(v.alightAfter);
+        v.alightAfter = undefined;
+        if (who?.ride) this.orderAlight(who);
+      }
     } else if (stuck && v.route) {
       const rt = v.route;
       // coincé : un nouvel itinéraire depuis là, une fois ; puis `blocked`
@@ -2221,6 +2347,12 @@ export class ProcgenView {
       } else {
         this.onEvent({ type: "blocked", payload: { actor: rt.driver, vehicle: v.id, reason: v.lastHit ? "wall" : "stuck", hit: v.lastHit } });
         v.route = null;
+        // échoué contre la rive en allant accoster : on débarque là
+        if (v.alightAfter) {
+          const who = this.actors.get(v.alightAfter);
+          v.alightAfter = undefined;
+          if (who?.ride && v.lastHit === "shore") this.orderAlight(who, true);
+        }
       }
     }
     if (!v.route && !direct && Math.abs(v.s.speed) < 1e-3 && v.rolling) this.stopRolling(v);
@@ -2234,9 +2366,16 @@ export class ProcgenView {
     let y = v.y, pitch = 0, roll = 0;
     if (sp.medium === "water") {
       const wl = this.waterAt(s.x, s.z) ?? (this.inf ? this.inf.world.waterLevel ?? 0 : m.terrain?.spec.water ?? v.y + 0.15);
-      y = wl - 0.15 + Math.sin(this.time * 1.7 + s.x) * 0.025;
-      pitch = Math.sin(this.time * 1.3 + s.z) * 0.015 + clamp(-s.lon * 0.02, -0.04, 0.04);
-      roll = Math.sin(this.time * 1.1 + 1) * 0.02 + clamp(-s.lat / 9.81, -1, 1) * sp.lean;
+      // flottaison sur la houle : la même fonction de vagues que le shader, en quatre points de la coque
+      const u = this.shared as unknown as Record<string, { value: unknown } | undefined>;
+      const sea = Number(u.uWaterKind?.value ?? 0) > 0.5;
+      const bed = this.bed(s.x, s.z);
+      // hauts-fonds : houle amortie comme dans le shader ; eau du terrain : agitation selon son étendue
+      const damp = sea ? smoothstep(0, 0.3, clamp((wl - bed) / 2.5, 0, 1)) * (m.terrain?.agitation ?? 1) : 1;
+      const hw = hullOnWaves(s.x, s.z, s.yaw, sp.hz, sp.hx, { amp: Number(u.uWaveAmp?.value ?? 0), len: Number(u.uWaveLen?.value ?? 1), time: this.time }, damp);
+      y = wl - 0.15 + hw.dy + Math.sin(this.time * 1.7 + s.x) * 0.012;
+      pitch = hw.pitch + Math.sin(this.time * 1.3 + s.z) * 0.008 + clamp(-s.lon * 0.02, -0.04, 0.04);
+      roll = hw.roll + Math.sin(this.time * 1.1 + 1) * 0.01 + clamp(-s.lat / 9.81, -1, 1) * sp.lean;
     } else if (sp.medium === "air") {
       const g = groundHeight(m, s.x, s.z, v.y);
       const want = v.route || Math.abs(s.speed) > 0.2 ? 7 : v.route === null && v.input === null ? Math.max(0, v.alt - 0.5) : v.alt;
@@ -3041,7 +3180,7 @@ export class ProcgenView {
       // à la nage, l'eau est praticable (elle bloque les marcheurs)
       // sur un sommet (ou en l'air), la grille du sol ne s'applique pas : on peut marcher jusqu'au bord et tomber
       const aloft = !!a.onObj || a.pos[1] > groundHeight(m, a.pos[0], a.pos[2], a.pos[1]) + 0.2;
-      const free = (x: number, z: number) => (aloft ? maxTopAt(m.objects, x, z) <= a.pos[1] + 0.32 * leg : !m.nav || (wet(a.action) && this.dressedForWater(a)) || m.nav.free(x, z));
+      const free = (x: number, z: number) => (aloft ? maxTopAt(m.objects, x, z) <= a.pos[1] + 0.32 * leg : !m.nav || (wet(a.action) && this.dressedForWater(a)) || (!!a.goal?.board && this.waterDepth(x, z) <= 0.8) || m.nav.free(x, z));
       // chemin ou pas, on ne traverse rien : un virage coupé (cap en retard sur le chemin) glisse le long du mur
       const w = walkStep(a.pos, nx, nz, free);
       if (w.blocked && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
@@ -3060,7 +3199,7 @@ export class ProcgenView {
     }
     // dans un obstacle (apparu là, poussé par la foule, objet déplacé sur lui) : on en sort vers la case libre la plus
     // proche, au lieu d'y circuler librement
-    if (!a.onObj && !wet(a.action) && !(a.seatY ?? 0)) unstick(a.pos, m.nav, dt);
+    if (!a.onObj && !wet(a.action) && !(a.seatY ?? 0) && !a.goal?.board) unstick(a.pos, m.nav, dt);
     this.settleOnSupport(a, dt);
     // nageur : à la surface de l'eau quand elle recouvre le sol ; plongeur : descend sous la surface (apnée), glisse,
     // remonte et reprend la nage au bout de `duration` (4 s par défaut)

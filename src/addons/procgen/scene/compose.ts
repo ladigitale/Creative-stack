@@ -994,7 +994,11 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
             const [px, pz] = nav.center(i, j);
             const dx = (px - w.x) / w.scale, dz = (pz - w.z) / w.scale;
             const lx = dx * c - dz * sn2, lz = dx * sn2 + dz * c;
-            if (Math.abs(lx) <= w.hw - 0.15 && lz >= Math.min(w.z0, w.z1) - 0.3 && lz <= Math.max(w.z0, w.z1) + 0.3) nav.blocked[j * nav.nx + i] = 0;
+            // tablier, et ses accès sur la terre ferme (30 cm au-delà des bouts) ; jamais de case praticable au-dessus de
+            // l'eau au bout d'un ponton
+            const onDeck = lz >= Math.min(w.z0, w.z1) && lz <= Math.max(w.z0, w.z1);
+            const access = !onDeck && lz >= Math.min(w.z0, w.z1) - 0.3 && lz <= Math.max(w.z0, w.z1) + 0.3 && (waterLevel === null || H(px, pz) >= waterLevel - 0.05);
+            if (Math.abs(lx) <= w.hw - 0.15 && (onDeck || access)) nav.blocked[j * nav.nx + i] = 0;
           }
       }
     for (const sn of structNav) for (const [bx, bz, bhx, bhz] of sn.blk) nav.blockBox(bx, bz, bhx, bhz, sn.yaw, 0.15);

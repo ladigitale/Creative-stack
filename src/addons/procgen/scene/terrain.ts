@@ -81,6 +81,8 @@ export function distToPath(path: PathSpec, x: number, z: number): { d: number; s
 
 export class Terrain {
   readonly spec: GroundSpec;
+  /** Agitation de son eau (0 … 1, mer = 1), calculée avec le maillage de l'eau. */
+  agitation = 1;
   readonly paths: PathSpec[];
   private pathH: number[][];
   readonly res: [number, number];
@@ -467,6 +469,7 @@ export class Terrain {
       for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) if (wl - this.height((i / n - 0.5) * w, (j / n - 0.5) * d) > 0) wet++;
       const area = (wet / ((n + 1) * (n + 1))) * w * d;
       const k = this.spec.world || this.spec.coast ? 1 : clamp(0.35 + 0.25 * Math.log10(Math.max(1, area) / 50), 0.2, 0.9);
+      this.agitation = k;
       setWaterAgitation(m, ROLE.water, k);
     }
     if (this.spec.world) return any ? m : null;

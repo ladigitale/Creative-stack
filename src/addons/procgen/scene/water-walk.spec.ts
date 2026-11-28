@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NavGrid } from "./nav";
-import { composeScene } from "./compose";
+import { composeScene, groundHeight } from "./compose";
 import { SCENES } from "./library";
 import { inSwimwear, swimwear } from "../gen/character/look";
 import type { Look } from "../gen/character/look";
@@ -29,7 +29,8 @@ describe("eau : jamais de marcheur habillé dedans", () => {
       const p = nav.path([-4, 3], to);
       if (!p) continue;
       const e = p[p.length - 1];
-      expect(m.terrain!.height(e[0], e[1])).toBeGreaterThan(wl - 0.15);
+      // sol ou tablier (ponton) : jamais au fond de l'eau
+      expect(groundHeight(m, e[0], e[1], wl)).toBeGreaterThan(wl - 0.15);
     }
   });
 });

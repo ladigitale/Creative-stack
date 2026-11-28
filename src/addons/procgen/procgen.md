@@ -209,6 +209,14 @@ Un acteur peut porter un état libre (`actors.<id>.states`) : ses effets le suiv
 
 Véhicules (`vehicle`) et montures (`animal` : `horse`, `deer`, `cow`, `bear`) se conduisent sans recomposer : la caisse, ses parties et ses occupants sont déplacés image par image (rendu 3D).
 
+**Bateaux** (`rowboat`, `sailboat`…) :
+- **Embarquer** : on monte depuis la rive ou le ponton la plus proche de la place, à portée d'enjambée (1,6 m). Plus loin, on y va en pataugeant si l'eau est peu profonde (0,8 m et 8 m au plus). Sinon `blocked {reason: "boat-unreachable"}` : amarrer le bateau au bord ou le long d'un `structure.pontoon` (la scène `bord-de-mer` en a un, avec deux barques amarrées).
+- **Débarquer** (`alight`) au large : le bateau regagne d'abord le point d'eau navigable le plus proche d'une rive ou d'un ponton, puis on descend sur le sol sec ou le tablier, jamais au fond de l'eau.
+- **Flottaison** : la houle de Gerstner du shader est recalculée sur le processeur en quatre points de la coque (pilonnement, tangage, roulis), amortie sur les hauts-fonds et selon l'agitation de l'eau ; un bateau à l'arrêt suit aussi la houle.
+- **Sillage** : rides et écume à la poupe d'un bateau en marche.
+- **Voilier** : vitesse selon l'angle au vent (diagramme polaire : presque rien à moins de 40° du vent, au plus vite au travers et au largue, un peu moins vent arrière, × force du vent). Pour une destination face au vent, il tire des bords à 50° du vent, en changeant de côté toutes les 9 s.
+- **Itinéraires sur l'eau** : ils contournent les autres bateaux (à l'ancre ou en route) et les ouvrages (ponton, piles) ; contre un obstacle, le bateau recule pour se dégager.
+
 ```json
 { "actors": { "heros": { "target": "voitures.0", "action": "board", "seat": "driver" } } }
 { "actors": { "heros": { "action": "drive", "to": "gare" } } }
