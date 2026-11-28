@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RACE_CARS, RaceSim, genTrack, gridOrder, parseRace, project, raceRecipe, stepCar, trackAt, trackClearance } from "./race";
+import { RACE_CARS, RaceSim, genTrack, trackFromPoints, gridOrder, parseRace, project, raceRecipe, stepCar, trackAt, trackClearance } from "./race";
 
 const NO = { throttle: 0, steer: 0, brake: 0 };
 
@@ -123,5 +123,23 @@ describe("course : déroulé", () => {
     p.s.x += 200;
     for (let i = 0; i < 120; i++) sim.step(1 / 60, NO);
     expect(Math.abs(p.lat)).toBeLessThan(1);
+  });
+});
+
+describe("course : tracé d'une recette", () => {
+  it("boucle lisse passant par les points, dans le repère du monde ; une course s'y déroule", () => {
+    const pts: [number, number][] = [[0, -40], [40, -30], [50, 10], [10, 40], [-40, 30], [-45, -20]];
+    const t = trackFromPoints(pts, 10)!;
+    expect(t.L).toBeGreaterThan(250);
+    expect(Math.hypot(t.pts[0][0], t.pts[0][1] + 40)).toBeLessThan(0.5);
+    expect(trackFromPoints([[0, 0], [1, 1]], 10)).toBeNull();
+    const spec = parseRace({ track: "piste", opponents: 2, human: false, laps: 1, countdown: false, level: 1 });
+    expect(spec).toMatchObject({ track: "piste", cars: "voitures" });
+    const sim = new RaceSim(spec, ["a", "b"], t);
+    for (let i = 0; i < 60 * 90 && sim.phase !== "done"; i++) {
+      sim.step(1 / 60, { throttle: 0, steer: 0, brake: 0 });
+      sim.events.length = 0;
+    }
+    expect(sim.cars.every((c) => c.finished !== null)).toBe(true);
   });
 });

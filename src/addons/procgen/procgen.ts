@@ -421,7 +421,7 @@ export class SonicProcgen extends HTMLElement {
     // combat : arène générée, ou deux acteurs de la recette (`fight.fighters[i].actor`)
     const fightIn = (!footSpec && !raceSpec && !plat && d.fight && typeof d.fight === "object" ? JSON.parse(JSON.stringify(d.fight)) : !footSpec && !raceSpec && !plat && d.fight === true ? {} : null) as Json | null;
     const fightSpec = fightIn ? parseFight({ ...fightIn, input: undefined }, !!(d.recipe && typeof d.recipe === "object")) : null;
-    const recipe = (footSpec ? footballRecipe(footSpec) : raceSpec ? raceRecipe(raceSpec) : plat ? plat.recipe : fightSpec?.arena ? fightRecipe(fightSpec) : d.recipe && typeof d.recipe === "object" ? d.recipe : null) as Recipe | null;
+    const recipe = (footSpec ? footballRecipe(footSpec) : raceSpec && !raceSpec.track ? raceRecipe(raceSpec) : plat ? plat.recipe : fightSpec?.arena ? fightRecipe(fightSpec) : d.recipe && typeof d.recipe === "object" ? d.recipe : null) as Recipe | null;
     const seed = d.seed ?? this.getAttribute("seed") ?? 1;
     const params = (d.params && typeof d.params === "object" ? d.params : {}) as Json;
     const edits = normEdits(d.edit);
@@ -674,6 +674,12 @@ export class SonicProcgen extends HTMLElement {
       this.view.setFootballInput(footIn?.input);
       this.view.setFootballSound(footIn?.sound !== false);
       this.view.setRace(raceSpec && this.model ? { spec: raceSpec, hud: raceIn!.hud !== false, keyboard: raceIn!.keyboard !== false, touch: raceIn!.touch !== false, restart: Number(raceIn!.restart) || 0 } : null);
+      this.issues = this.issues.filter((x) => !["race.track", "race.cars"].includes(String((x as { path?: string }).path)));
+      if (raceSpec?.track && this.model) {
+        const paths = this.model.terrain?.paths ?? [];
+        if (!paths.some((p) => p.id === raceSpec.track)) this.issues = [...this.issues, { path: "race.track", code: "unknown", message: `tracé « ${raceSpec.track} » introuvable dans recipe.paths`, didYouMean: suggest(raceSpec.track, paths.map((p) => p.id)) }];
+        if (!this.model.objects.some((o) => o.layer === raceSpec.cars && o.generator === "vehicle")) this.issues = [...this.issues, { path: "race.cars", code: "unknown", message: `aucune voiture dans le calque « ${raceSpec.cars} » (gen vehicle.moderncar…)` }];
+      }
       this.view.setRaceCamera(raceIn ? parseRace({ camera: raceIn.camera }).camera : null);
       this.view.setRaceInput(raceIn?.input);
       this.view.setRaceSound(raceIn?.sound !== false);
@@ -899,10 +905,14 @@ export class SonicProcgen extends HTMLElement {
       svg: this.svgOut,
       balls: this.view?.ballState() ?? {},
       ...(this.view instanceof ProcgenView ? { vehicles: this.view.vehicleState() } : {}),
-      ...(this.view instanceof ProcgenView && this.view.footballOut ? { football: this.view.footballOut } : {}),
-      ...(this.view instanceof ProcgenView && this.view.raceOut ? { race: this.view.raceOut } : {}),
-      ...(this.view instanceof ProcgenView && this.view.playerOut ? { player: this.view.playerOut } : {}),
-      ...(this.view instanceof ProcgenView && this.view.fightOut ? { fight: this.view.fightOut } : {}),
+      // mode de jeu retiré (alternance) : sa clé passe à null au lieu de garder la publication précédente
+      ...(this.view instanceof ProcgenView ? { football: this.view.footballOut ?? null } : {}),
+      // mode de jeu retiré (alternance) : sa clé passe à null au lieu de garder la publication précédente
+      ...(this.view instanceof ProcgenView ? { race: this.view.raceOut ?? null } : {}),
+      // mode de jeu retiré (alternance) : sa clé passe à null au lieu de garder la publication précédente
+      ...(this.view instanceof ProcgenView ? { player: this.view.playerOut ?? null } : {}),
+      // mode de jeu retiré (alternance) : sa clé passe à null au lieu de garder la publication précédente
+      ...(this.view instanceof ProcgenView ? { fight: this.view.fightOut ?? null } : {}),
       ...(this.view instanceof ProcgenView && this.model?.physics ? { physics: this.view.physOut, queries: this.view.queryOut } : {}),
       ...(this.view instanceof ProcgenView ? this.view.emitState() : {}),
       ids: this.idsList(),

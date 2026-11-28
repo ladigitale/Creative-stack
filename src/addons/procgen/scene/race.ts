@@ -63,6 +63,10 @@ export type RaceSpec = {
   drivers: DriverSpec[];
   countdown: boolean;
   seed: number;
+  /** Tracé de la recette sur lequel courir (id de `paths`) ; `null` : circuit généré. */
+  track: string | null;
+  /** Calque des voitures (recette fournie). */
+  cars: string;
 };
 
 const PAINTS = ["red", "blue", "yellow", "green", "orange", "purple", "white", "black"];
@@ -99,6 +103,8 @@ export function parseRace(v: unknown): RaceSpec {
     drivers: drivers.slice(0, Math.max(1, total)),
     countdown: o.countdown !== false,
     seed: Math.floor(n(o.seed, 3)),
+    track: typeof o.track === "string" && o.track ? o.track : null,
+    cars: typeof o.cars === "string" && o.cars ? o.cars : "voitures",
   };
 }
 
@@ -249,6 +255,17 @@ function startOnStraight(t: Track): Track {
   const cx = (t.bounds[0] + t.bounds[2]) / 2, cz = (t.bounds[1] + t.bounds[3]) / 2;
   const moved = pts.map(([x, z]) => [x - cx, z - cz] as Pt);
   return { ...t, pts: moved, head: rot(t.head), kappa: rot(t.kappa), bounds: [t.bounds[0] - cx, t.bounds[1] - cz, t.bounds[2] - cx, t.bounds[3] - cz] };
+}
+
+/**
+ * Circuit pris dans une recette : la boucle passe par les points du tracé (fermée d'elle-même si le dernier point ne
+ * rejoint pas le premier), rééchantillonnée tous les 2 m, dans le repère du monde ; le départ est au premier point.
+ */
+export function trackFromPoints(points: Pt[], width: number): Track | null {
+  const pts = points.filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map((p) => [Number(p[0]), Number(p[1])] as Pt);
+  if (pts.length > 2 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 0.5) pts.pop();
+  if (pts.length < 3) return null;
+  return finish(resample(catmull(pts, 12), 2), width);
 }
 
 /** Point de la ligne médiane à l'abscisse `s` (m, prise modulo la longueur) : position et cap. */
