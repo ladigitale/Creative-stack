@@ -115,6 +115,8 @@ export type Look = {
   moles: string;
   /** Bijoux : `none`, `earrings`, `necklace`, `nosering`, `all`. */
   jewelry: string;
+  /** Aux pieds, sur la neige : `none`, `skis`, `snowshoes` (raquettes). */
+  snow: string;
   blush: string;
   wrinkles: string;
   detail: string;
@@ -427,6 +429,7 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
     top, bottom, over, collar, belt, details, gloves, shoes, pattern, hair, hat, bag, item, mood: s("mood"),
     headShape, eyes, brows: brows2, nose, lips, ears, beard, mustache, glasses: glasses2, freckles: freckles2, moles: moles2, jewelry: jewelry2, blush, wrinkles: wrinkles2, detail: s("detail"),
     cape: ["short", "long"].includes(String(pp.cape)) ? String(pp.cape) : "none",
+    snow: ["skis", "snowshoes"].includes(String(pp.snow)) ? String(pp.snow) : "none",
     soft: ["cloth", "hair", "all"].includes(String(pp.soft)) ? String(pp.soft) : "none",
     ...prints(pp, rng, top),
   };

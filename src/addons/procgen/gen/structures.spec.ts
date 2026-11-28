@@ -141,9 +141,11 @@ describe("véhicules à pièces", () => {
       expect(finite(asset.mesh), kind).toBe(true);
       expect(asset.mesh.bounds().min[1], kind).toBeGreaterThan(-0.02);
       expect(asset.mesh.bounds().min[1], kind).toBeLessThan(0.02);
-      expect(asset.footprint.hz, kind).toBeGreaterThan(1.5);
-      expect(asset.height, kind).toBeGreaterThan(1.2);
-      expect(asset.height, kind).toBeLessThan(4.5);
+      // deux-roues, scooter des mers, motoneige, luge : petits gabarits
+      const small = ["motorbike", "scooter", "jetski", "snowmobile", "sled"].includes(kind);
+      expect(asset.footprint.hz, kind).toBeGreaterThan(small ? 0.5 : 1.5);
+      expect(asset.height, kind).toBeGreaterThan(small ? 0.25 : 1.2);
+      expect(asset.height, kind).toBeLessThan(small ? 1.5 : 4.5);
     }
     const w = make("vehicle", { kind: "wagon", onRails: true }).asset;
     expect(Math.abs(w.mesh.bounds().min[1] - RAIL_TOP)).toBeLessThan(0.02);
