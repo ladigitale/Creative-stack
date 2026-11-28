@@ -138,7 +138,8 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     const r = R(`foot.${s}`, 0);
     const pts = [madd(heel, [0, 1, 0], r * 0.35), lerp3(an, ball, 0.35), ball, madd(toe, [0, 1, 0], r * 0.05)];
     const fill = shoes === "barefoot" || shoes === "sandals" ? "skin" : "leather";
-    const pen = strokeVar(new Pen(), P2s(pts), [r * 0.72, r * 0.95, r * 0.9, r * 0.6]);
+    // pied effilé (talon étroit, cou-de-pied, avant-pied plat, orteils fins) : plus de « boudin » épais
+    const pen = strokeVar(new Pen(), P2s(pts), [r * 0.55, r * 0.72, r * 0.6, r * 0.38]);
     em.add(pen, fill, { tone: far ? -1 : 0 });
     if (shoes === "sandals") {
       const st = new Pen();
