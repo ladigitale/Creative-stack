@@ -27,6 +27,7 @@ import { PROP_ACTIONS, propsFor, readFoodRef } from "./hand-props";
 import { hullOnWaves } from "./waves";
 import { FishLayer, readFish } from "./fish";
 import { ScreenLayer } from "./screens";
+import { simplifyMesh } from "../geom/simplify";
 import { inSwimwear, swimwear, type Look } from "../gen/character/look";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
@@ -655,6 +656,7 @@ export class ProcgenView {
       this.scene.add(im);
       this.pickables.push(im);
       this.instanceObjs.set(im, g.objs);
+      if (!g.joint) this.addInstanceLod(g.mesh, geo, im, g.objs);
       // objets d'eau instanciés (mares, bassins…) : redessinés dans la passe d'eau (seule l'eau y est retenue)
       if (g.mesh.role.some((r) => r === 13)) this.waterItems.push({ mesh: im, kind: "pond", shared: true });
       if (g.joint) {
@@ -683,6 +685,74 @@ export class ProcgenView {
     this.dirty = this.shadowDirty = true;
     this.contentVersion++;
     this.touch();
+  }
+
+  /**
+   * Vue de loin des groupes instanciés détaillés : le groupe d'origine reste la référence (glisser, états, ballons,
+   * corps physiques, objets masqués y écrivent ; sélection par lancer de rayon) mais n'est plus dessiné ; deux copies le
+   * sont, l'une avec le maillage complet pour les objets assez grands à l'écran, l'autre avec une version simplifiée
+   * (sommets regroupés sur une grille) pour les autres. Le tri est refait quand la caméra ou les matrices changent.
+   */
+  private instLods: { master: THREE.InstancedMesh; near: THREE.InstancedMesh; far: THREE.InstancedMesh; objs: number[]; r: number; key: string; ver: number }[] = [];
+
+  private addInstanceLod(mesh: import("../geom/mesh").Mesh, geo: THREE.BufferGeometry, im: THREE.InstancedMesh, objs: number[]) {
+    if (mesh.triangleCount < 300 || objs.length < 2 || mesh.role.some((r) => r === 13)) return;
+    const b = mesh.bounds();
+    const ext = Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
+    const lod = simplifyMesh(mesh, ext / 9);
+    if (!lod.triangleCount || lod.triangleCount > mesh.triangleCount * 0.6) return;
+    const n = objs.length;
+    const mk = (g: THREE.BufferGeometry, name: string) => {
+      const m = new THREE.InstancedMesh(g, this.staticMats.color, n);
+      g.setAttribute("aInstObj", new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
+      m.userData.depth = this.staticMats.depth;
+      m.frustumCulled = false;
+      m.count = 0;
+      m.name = name;
+      this.scene.add(m);
+      return m;
+    };
+    // la géométrie complète est partagée avec la référence, sauf l'identifiant d'objet (réordonné par copie)
+    const ng = geo.clone();
+    const near = mk(ng, "procgen~lod.near");
+    const far = mk(toGeometry(lod), "procgen~lod.far");
+    im.visible = false;
+    this.instLods.push({ master: im, near, far, objs, r: Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2, key: "", ver: -1 });
+  }
+
+  /** Répartit les instances entre copie complète et copie de loin (objets de moins de ~100 px à l'écran). */
+  private updateInstanceLods(full: boolean) {
+    if (!this.instLods.length) return;
+    const cp = (this.camera as THREE.Camera).position;
+    const key = `${full ? 1 : 0}|${Math.round(this.lodPx)}|${cp.x.toFixed(1)},${cp.y.toFixed(1)},${cp.z.toFixed(1)}`;
+    for (const L of this.instLods) {
+      const ver = L.master.instanceMatrix.version;
+      if (L.key === key && L.ver === ver) continue;
+      L.key = key;
+      L.ver = ver;
+      const src = L.master.instanceMatrix.array as Float32Array;
+      const dn = L.near.instanceMatrix.array as Float32Array, df = L.far.instanceMatrix.array as Float32Array;
+      const on = L.near.geometry.getAttribute("aInstObj") as THREE.InstancedBufferAttribute, of = L.far.geometry.getAttribute("aInstObj") as THREE.InstancedBufferAttribute;
+      let a = 0, b = 0;
+      for (let i = 0; i < L.objs.length; i++) {
+        const o = i * 16;
+        const sc = Math.hypot(src[o], src[o + 1], src[o + 2]);
+        if (sc < 1e-6) continue;
+        const d = this.lodPersp ? Math.max(0.01, Math.hypot(src[o + 12] - cp.x, src[o + 13] - cp.y, src[o + 14] - cp.z)) : 1;
+        const isFar = !full && this.lodPx > 0 && (L.r * sc * this.lodPx) / d < 48;
+        if (isFar) {
+          df.set(src.subarray(o, o + 16), b * 16);
+          (of.array as Float32Array)[b++] = L.objs[i];
+        } else {
+          dn.set(src.subarray(o, o + 16), a * 16);
+          (on.array as Float32Array)[a++] = L.objs[i];
+        }
+      }
+      L.near.count = a;
+      L.far.count = b;
+      L.near.instanceMatrix.needsUpdate = L.far.instanceMatrix.needsUpdate = true;
+      on.needsUpdate = of.needsUpdate = true;
+    }
   }
 
   /** Tissus des objets (repère de l'objet) et des acteurs (portés par leurs os), posés dans leur drapé de repos. */
@@ -1008,6 +1078,7 @@ export class ProcgenView {
     }
     this.actors.clear();
     this.vehicles.clear();
+    this.instLods = [];
     this.floatersOf = null;
     this.tilts.clear();
     this.obstacleCache = null;
@@ -4790,6 +4861,7 @@ export class ProcgenView {
       this.lodPx = this.lodPersp ? h / (2 * Math.tan((pc.fov * Math.PI) / 360)) : (h * oc.zoom) / Math.max(1e-6, oc.top - oc.bottom);
       const full = !!this.snapReq || !!this.photo?.spec || jitter !== undefined;
       for (const a of this.actors.values()) if (a.lods) this.pickLod(a, full);
+      this.updateInstanceLods(full);
     }
     const pu0 = (this.post.material as THREE.ShaderMaterial).uniforms;
     const xf = this.snapReq ? marginTransform(this.snapReq.rw, this.snapReq.rh, this.snapReq.m, this.frame.rx, this.frame.ry) : [1, 1, 0, 0];
