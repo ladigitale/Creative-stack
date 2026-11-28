@@ -8,7 +8,7 @@
  * (au sol, devant la margelle) : `{target: "bassin.0.spot.1", action: "drink"}` y mène un chien ou un cheval.
  */
 import { type Q, type V3, clamp, m4Compose, mix } from "../core/math";
-import { Mesh } from "../geom/mesh";
+import { Mesh, setWaterAgitation } from "../geom/mesh";
 import { box } from "../geom/prims";
 import { ROLE } from "../style/roles";
 import type { Role } from "../style/roles";
@@ -284,6 +284,8 @@ export const water = defineGenerator({
     // limpidité de l'eau portée par l'AO de ses sommets (lue par le shader d'eau) : piscine claire, mare trouble
     const clear = m.kind === "pool" ? 1 : m.kind === "basin" ? 0.75 : 0.3;
     for (let v = 0; v < mesh.vertexCount; v++) if (mesh.role[v] === ROLE.water) mesh.ao[v] = clear;
+    // agitation propre : mare quelques rides, bassin et piscine presque lisses, vasque d'une cascade brassée par la chute
+    setWaterAgitation(mesh, ROLE.water, m.kind === "cascade" ? 0.6 : m.kind === "pond" ? 0.3 : m.kind === "pool" ? 0.18 : 0.12);
     for (const t of m.tanks ?? []) mesh.append(tankMesh(t));
     const holes = (m.tanks ?? []).filter((t) => t.hole).map((t) => [t.hole!.round ? (t.hole!.seed !== undefined ? 2 : 1) : 0, t.hole!.hx, t.hole!.hz, t.hole!.seed ?? 0]);
     const bb = partsBounds(m.parts);

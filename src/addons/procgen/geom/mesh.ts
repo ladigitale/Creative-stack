@@ -265,3 +265,13 @@ export function compactMesh(m: Mesh): Mesh {
   if (a.skin && !(a.skin instanceof Uint16Array)) a.skin = Uint16Array.from(a.skin);
   return m;
 }
+
+/**
+ * Agitation propre d'une surface d'eau (0 : flaque immobile … 1 : mer), rangée dans la souplesse des sommets d'eau
+ * (en négatif : l'eau ne plie pas au vent). Le shader la combine avec le vent : rides, vaguelettes, houle, éclats.
+ */
+export function setWaterAgitation(m: Mesh, roleWater: number, k: number): Mesh {
+  const v = -Math.max(0.001, Math.min(1, k));
+  for (let i = 0; i < m.vertexCount; i++) if (m.role[i] === roleWater) m.flex[i] = v;
+  return m;
+}

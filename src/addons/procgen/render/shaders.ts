@@ -69,6 +69,11 @@ out float vWave;
 flat out float vRole;
 flat out float vObj;
 out float vAO;
+/**
+ * Eau : agitation propre à la surface, rapportée à la valeur de référence de son genre (mer 1, eau posée 0,3) :
+ * flaque ≈ 0,1, bassin 0,4, mare 1, vasque de cascade 2 ; petit lac du terrain < 1. 1 sans réglage.
+ */
+out float vAgit;
 out vec3 vNormalW;
 out vec3 vPosW;
 out vec3 vPosL;
@@ -177,7 +182,7 @@ void main() {
       vec2 D = vec2(cos(ang), sin(ang));
       float L = uWaveLen * (1.0 - fi * 0.15) * (fi > 2.5 ? 0.45 : 1.0);
       float k = 6.2831 / L;
-      float A = uWaveAmp * damp * (1.0 - fi * 0.16) * (fi > 2.5 ? 0.35 : 1.0);
+      float A = uWaveAmp * damp * (aFlex < 0.0 ? clamp(-aFlex / (uWaterKind > 0.5 ? 1.0 : 0.3), 0.05, 2.2) : 1.0) * (1.0 - fi * 0.16) * (fi > 2.5 ? 0.35 : 1.0);
       float Q = 0.55 / (k * A * 5.0 + 1e-4);
       Q = min(Q, 1.0);
       float c = sqrt(9.81 / k);
@@ -211,6 +216,7 @@ void main() {
   vObj = aObj;
   #endif
   vAO = aAO;
+  vAgit = aFlex < 0.0 ? clamp(-aFlex / (uWaterKind > 0.5 ? 1.0 : 0.3), 0.05, 2.2) : 1.0;
   #ifdef BLADE
   vBlend = 0.0;
   #else
@@ -231,6 +237,7 @@ layout(location = 1) out vec4 outData;
 flat in float vRole;
 flat in float vObj;
 in float vAO;
+in float vAgit;
 in vec3 vNormalW;
 in vec3 vPosW;
 in vec3 vPosL;
@@ -874,7 +881,8 @@ void main() {
     vec3 Vd = normalize(vPosW - cameraPosition);
     vec3 Nw = N;
     // rides fines par-dessus la houle (deux couches qui dérivent), plus fortes sur la mer
-    float rk = uWaterKind > 0.5 ? 0.22 : 0.12;
+    // rides : plus fortes sur la mer, presque rien dans une flaque (agitation propre à la surface)
+    float rk = (uWaterKind > 0.5 ? 0.22 : 0.12) * vAgit;
     vec2 rp = vPosW.xz;
     float r0 = vnoise(vec3(rp * 3.1 + uTime * 0.35, uTime * 0.2)), r1 = vnoise(vec3(rp * 7.3 - uTime * 0.5, 3.0 + uTime * 0.3));
     vec2 rg = vec2(vnoise(vec3(rp * 3.1 + vec2(0.07, 0.0) + uTime * 0.35, uTime * 0.2)) - r0, vnoise(vec3(rp * 3.1 + vec2(0.0, 0.07) + uTime * 0.35, uTime * 0.2)) - r0) / 0.07 * 0.05
