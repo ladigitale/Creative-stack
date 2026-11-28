@@ -15,6 +15,7 @@ import type { V3 } from "../core/math";
 import { PITCH_TOP } from "../gen/sport";
 import { FootballMatch, type FootballInput, type FootballSpec, NO_INPUT } from "../scene/football";
 import { FootballAudio } from "./football-audio";
+import { holdButton, shieldUi } from "./game-ui";
 
 export type Puppet = { x: number; z: number; y: number; yaw: number; speed: number; action: string; actionTime: number; /** Vitesse verticale (pose de chute) et atterrissage (s restantes, flexion). */ vy?: number; land?: number };
 export type PuppetActor = { puppet?: Puppet | null };
@@ -505,6 +506,7 @@ export class FootballDirector {
     ui.append(...bars, score, banner, power);
     this.els = { top: bars[0], bottom: bars[1], score: sc, clock, banner, power, fill };
     if (touch && typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0)) this.buildTouch(ui, mk);
+    shieldUi(ui);
     parent.append(ui);
     this.ui = ui;
   }
@@ -541,19 +543,13 @@ export class FootballDirector {
     };
     zone.addEventListener("pointerup", end);
     zone.addEventListener("pointercancel", end);
+    zone.addEventListener("lostpointercapture", end);
     const btn = (label: string, key: "shoot" | "pass" | "lob", right: string, bottom: string, size: number, color: string) => {
       const b = mk("div", { position: "absolute", right, bottom, width: `${size}px`, height: `${size}px`, borderRadius: "50%", background: color, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "800", fontSize: "13px", pointerEvents: "auto", touchAction: "none", boxShadow: "0 2px 6px rgba(0,0,0,.35)", opacity: ".85" }, label);
-      b.addEventListener("pointerdown", (e) => {
-        b.setPointerCapture(e.pointerId);
-        this.touchIn[key] = true;
-        b.style.opacity = "1";
+      holdButton(b, (down) => {
+        this.touchIn[key] = down;
+        b.style.opacity = down ? "1" : ".85";
       });
-      const up = () => {
-        this.touchIn[key] = false;
-        b.style.opacity = ".85";
-      };
-      b.addEventListener("pointerup", up);
-      b.addEventListener("pointercancel", up);
       ui.append(b);
     };
     btn("TIR", "shoot", "18px", "26px", 74, "rgba(214,48,40,.85)");

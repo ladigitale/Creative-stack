@@ -9,6 +9,7 @@
  *   entrée `fight.input = {p1: {x, jump, guard, light, heavy}, p2: …}`.
  * - Habillage (désactivable) : barres de vie, manches gagnées, chrono, bandeaux (Manche, Combat !, K.O.), combo.
  */
+import { holdButton, shieldUi } from "./game-ui";
 import { type FightInput, FightSim, type FightSpec, NO_FIGHT_INPUT } from "../scene/fight";
 
 export interface FightHost {
@@ -42,6 +43,7 @@ export class FightDirector {
   private d: [number, number];
   private held = new Set<string>();
   private touchIn: FightInput & { left: boolean; right: boolean } = { ...NO_FIGHT_INPUT, left: false, right: false };
+  private touchTap: { light?: boolean; heavy?: boolean; jump?: boolean } = {};
   private ext: [Partial<FightInput>, Partial<FightInput>] = [{}, {}];
   private hud: boolean;
   private ui: HTMLElement | null = null;
@@ -133,10 +135,12 @@ export class FightDirector {
       if (slot === 0) {
         const t = this.touchIn;
         if (t.left || t.right) x = (t.right ? 1 : 0) - (t.left ? 1 : 0);
-        o.jump ||= t.jump;
+        const tap = this.touchTap;
+        o.jump ||= t.jump || !!tap.jump;
         o.guard ||= t.guard;
-        o.light ||= t.light;
-        o.heavy ||= t.heavy;
+        o.light ||= t.light || !!tap.light;
+        o.heavy ||= t.heavy || !!tap.heavy;
+        this.touchTap = {};
       }
       // gauche / droite de l'écran : la caméra regarde l'axe de côté, +x de l'axe est à droite
       o.x = x;
@@ -245,6 +249,7 @@ export class FightDirector {
     this.els.clock = clock;
     this.els.banner = banner;
     if (touch && typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0)) this.buildTouch(ui, mk);
+    shieldUi(ui);
     parent.append(ui);
     this.ui = ui;
   }
@@ -252,15 +257,13 @@ export class FightDirector {
   private buildTouch(ui: HTMLElement, mk: (tag: string, css: Partial<CSSStyleDeclaration>, text?: string) => HTMLElement) {
     const btn = (label: string, css: Partial<CSSStyleDeclaration>, key: "left" | "right" | "jump" | "guard" | "light" | "heavy") => {
       const b = mk("div", { position: "absolute", width: "70px", height: "70px", borderRadius: "50%", background: "rgba(0,0,0,.28)", border: "2px solid rgba(255,255,255,.55)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", pointerEvents: "auto", touchAction: "none", ...css }, label);
-      const on = (v: boolean) => (e: PointerEvent) => {
-        e.preventDefault();
+      const on = (v: boolean) => {
         this.touchIn[key] = v;
+        // appui bref (plus court qu'une image) : compté à l'image suivante
+        if (v && (key === "light" || key === "heavy" || key === "jump")) this.touchTap[key] = true;
         b.style.background = v ? "rgba(255,255,255,.35)" : "rgba(0,0,0,.28)";
       };
-      b.addEventListener("pointerdown", on(true));
-      b.addEventListener("pointerup", on(false));
-      b.addEventListener("pointercancel", on(false));
-      b.addEventListener("pointerleave", on(false));
+      holdButton(b, on);
       ui.append(b);
     };
     btn("◀", { left: "14px", bottom: "30px" }, "left");
