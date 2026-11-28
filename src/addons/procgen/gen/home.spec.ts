@@ -13,12 +13,14 @@ describe("objets du quotidien (intérieur)", () => {
         expect(mesh.pos.every(Number.isFinite), kind).toBe(true);
         const bb = partsBounds(m.parts);
         expect(bb.min[1], kind).toBeGreaterThan(-0.02);
-        expect(bb.max[1], kind).toBeLessThan(2.2);
-        expect(Math.max(bb.max[0] - bb.min[0], bb.max[2] - bb.min[2]), kind).toBeLessThan(2.4);
+        // toile de cinéma et écran publicitaire : grands formats
+        const big = kind === "cinema" || kind === "adscreen";
+        expect(bb.max[1], kind).toBeLessThan(big ? 4.6 : 2.2);
+        expect(Math.max(bb.max[0] - bb.min[0], bb.max[2] - bb.min[2]), kind).toBeLessThan(big ? 8 : 2.4);
       }
   });
   it("les objets à écran publient l'ancre screen et sa taille", () => {
-    for (const kind of ["tv", "crt", "laptop", "computer", "phone", "tablet", "microwave"]) {
+    for (const kind of ["tv", "crt", "laptop", "computer", "phone", "tablet", "microwave", "cinema", "adscreen"]) {
       const a = home.build({ kind } as never, {} as never);
       expect(a.anchors.screen, kind).toBeDefined();
       const s = (a.extra as { screen?: { w: number; h: number } }).screen!;

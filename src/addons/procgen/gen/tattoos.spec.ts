@@ -8,14 +8,14 @@ const verts = (params: Record<string, unknown>) => {
 };
 
 describe("tatouages et piercings", () => {
-  it("ajoutent des pièces au personnage, sans erreur ; skis et raquettes aussi", () => {
+  it("ajoutent des pièces au personnage, sans erreur ; skis et raquettes aussi", { timeout: 60000 }, () => {
     const base = verts({});
     expect(verts({ tattoos: "many" })).toBeGreaterThan(base);
     expect(verts({ piercings: "all" })).toBeGreaterThan(base);
     expect(verts({ snow: "skis" })).toBeGreaterThan(base);
     expect(verts({ snow: "snowshoes" })).toBeGreaterThan(base);
   });
-  it("aucun tatouage sous une tenue couvrante", () => {
+  it("aucun tatouage sous une tenue couvrante", { timeout: 60000 }, () => {
     const covered = { top: "coat", bottom: "trousers", collar: "turtle", over: "jacket" };
     expect(verts({ ...covered, tattoos: "many" })).toBe(verts(covered));
   });

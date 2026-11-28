@@ -111,6 +111,8 @@ export class SonicProcgen extends HTMLElement {
   private styleKey = "";
   private fxKey = "";
   private fxModel: unknown = null;
+  private screensKey = "";
+  private screensModel: unknown = null;
   /** États des objets lus (recette ⊕ `states`) : relus quand les clés ou le modèle changent. */
   private statesKey = "";
   private statesModel: unknown = null;
@@ -618,6 +620,17 @@ export class SonicProcgen extends HTMLElement {
       this.issues = [...this.issues.filter((i) => !fxPath.test(String((i as { path: string }).path))), ...this.view.fxIssues];
     }
     if (d.fx !== undefined) this.view.fxOrders(d.fx);
+    // écrans animés : `screens` de la recette, complété par la clé `screens` (sans recomposer)
+    if (this.view instanceof ProcgenView) {
+      const rs = (recipe ?? SCENES[sceneName]) as { screens?: unknown } | undefined;
+      const scIn = { ...(rs?.screens && typeof rs.screens === "object" ? (rs.screens as Json) : {}), ...(d.screens && typeof d.screens === "object" ? (d.screens as Json) : {}) };
+      const sck = JSON.stringify(scIn);
+      if (sck !== this.screensKey || this.screensModel !== this.model) {
+        this.screensKey = sck;
+        this.screensModel = this.model;
+        this.view.setScreens(scIn);
+      }
+    }
     // rendu soigné : clé `photo` (ou attribut) ; `render: "photo"` l'impose et fige l'animation à l'arrêt
     if (this.view instanceof ProcgenView) {
       const photoIn = d.photo ?? (this.hasAttribute("photo") ? (this.getAttribute("photo") === "false" ? false : true) : undefined);

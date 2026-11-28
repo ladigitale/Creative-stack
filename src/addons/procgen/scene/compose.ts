@@ -70,6 +70,8 @@ export type LayerSpec = {
    * comptoir, une étagère) ; sur le sol s'il n'y a rien. Aussi par point : `at: [{x, z, on: true}]`.
    */
   onTop?: boolean;
+  /** Contenu des écrans des objets de la couche (`screens` de la recette : même forme). */
+  screen?: Record<string, unknown>;
   /** Particules attachées à chaque objet du calque (lues par scene/fx.ts, pas par la composition). */
   fx?: unknown;
   /** Animaux, personnages : cible de l'action de départ (`"bassin.0"`, `"abreuvoir.0.spot"`, `"bancs.1.sit.0"`) : posé à la place, tourné vers elle. */
@@ -138,6 +140,8 @@ export type ObjectInfo = {
   obj: number;
   mode: "static" | "instance" | "actor";
   anchors: Record<string, V3>;
+  /** Écran porté (télévision, ordinateur, panneau, toile de cinéma) : centre et taille (repère du modèle), contenu de la couche. */
+  screen?: { c: V3; w: number; h: number; tilt?: number; content?: Record<string, unknown> };
   /** Ce que l'objet permet (s'asseoir, rouler, lancer…) et ses propriétés physiques, s'il les publie. */
   affords?: string[];
   physics?: Record<string, unknown>;
@@ -631,7 +635,8 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
       const f = qRot(a.rot, [0, 0, 1]);
       seatYaw[k] = yaw + Math.atan2(f[0], f[2]);
     }
-    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, ...(Object.keys(seatYaw).length ? { seatYaw } : {}), footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(STANDABLE_GEN.test(generator) && !isActor ? { top: topGridOf(asset.mesh, fp.hx, fp.hz) } : {}), ...(affords ? { affords } : {}), ...(physics ? { physics } : {}), ...(body && !isActor ? { body } : {}), ...(jointsA ? { joints: jointsA.map((j) => jointInfo(j)) } : {}) });
+    const scr = asset.extra?.screen as ObjectInfo["screen"] | undefined;
+    objects.push({ id, layer: layer?.id ?? "actors", generator, params: rawParams, pos: [x, y, z], yaw, scale, ...(scr ? { screen: { ...scr, ...(layer?.screen && typeof layer.screen === "object" ? { content: layer.screen } : {}) } } : {}), ...(Object.keys(seatYaw).length ? { seatYaw } : {}), footprint: { hx: fp.hx * scale, hz: fp.hz * scale, r: fp.r * scale }, height: asset.height * scale, obj, mode, anchors, ...(STANDABLE_GEN.test(generator) && !isActor ? { top: topGridOf(asset.mesh, fp.hx, fp.hz) } : {}), ...(affords ? { affords } : {}), ...(physics ? { physics } : {}), ...(body && !isActor ? { body } : {}), ...(jointsA ? { joints: jointsA.map((j) => jointInfo(j)) } : {}) });
     const segs = asset.extra?.segments as [number, number, number, number, number][] | undefined;
     if (segs) {
       // clôtures le long d'un tracé : chaque tronçon bloque sa bande, de petits disques jalonnent le tracé

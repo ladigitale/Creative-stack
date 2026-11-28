@@ -113,6 +113,23 @@ const KINDS: Record<string, { label: string; main: Role; trim: Role; build: (o: 
     for (const [y, r] of [[0.33, 0.08], [0.12, 0.045]] as const) P.push(lathe([0, y, 0.14], [[r, 0], [r * 0.4, 0.012], [0, 0.015]], o.trim));
     return { parts: P, label: "Enceinte", affords: ["listen"] };
   } },
+  cinema: { label: "Toile de cinéma", main: "black", trim: "white", build: (o) => {
+    const P: PartList = [];
+    // toile 16/9 de 6 m tendue dans un cadre noir, rideaux rouges de part et d'autre, estrade
+    P.push(box([0, 0.25, 0], [3.6, 0.25, 0.6], "wood"));
+    P.push(box([0, 2.3, -0.05], [3.25, 1.8, 0.04], o.main));
+    P.push(box([0, 2.3, -0.005], [3.0, 1.69, 0.004], o.trim, undefined, 0.002));
+    for (const sx of [-1, 1]) P.push(box([sx * 3.45, 2.2, 0.05], [0.25, 1.95, 0.08], "red", undefined, 0.06));
+    P.push(box([0, 4.25, 0.05], [3.7, 0.18, 0.1], "red", undefined, 0.04));
+    return { parts: P, label: "Toile de cinéma", screen: { c: [0, 2.3, 0.001], w: 6.0, h: 3.38 }, affords: ["watch"] };
+  } },
+  adscreen: { label: "Écran publicitaire", main: "black", trim: "metal", build: (o) => {
+    const P: PartList = [];
+    // écran à diodes de rue sur un mât, caisson épais
+    P.push(box([0, 1.2, -0.05], [0.08, 1.2, 0.08], o.trim, undefined, 0.03));
+    P.push(box([0, 3.1, -0.05], [1.05, 0.65, 0.12], o.main, undefined, 0.03));
+    return { parts: P, label: "Écran publicitaire", screen: { c: [0, 3.1, 0.072], w: 1.96, h: 1.18 }, affords: ["watch"] };
+  } },
   /* ---------- électroménager ---------- */
   vacuum: { label: "Aspirateur", main: "red", trim: "black", build: (o) => {
     const P: PartList = [];
