@@ -31,7 +31,8 @@ export function applyView(v: ViewState, aspect: number, extent: number, ortho: T
   if (frame) Object.assign(frame, { a: 0, b: 0, half: 0, rx: 0, ry: 0 });
   const far = extent * 12 + 100;
   if (v.camera === "perspective" || v.camera === "follow") {
-    const pitch = Math.max(2, Math.min(88, v.pitch)) * D;
+    // en dessous de 2° : caméra sous la cible (vue à la première personne qui regarde en l'air)
+    const pitch = Math.max(-85, Math.min(88, v.pitch)) * D;
     const yaw = v.yaw * D;
     const dist = (extent * 1.25) / v.zoom / Math.tan((v.fov * D) / 2) * 0.55;
     persp.fov = v.fov;

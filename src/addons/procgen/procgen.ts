@@ -15,6 +15,8 @@ import { getFont, iconsLoaded, loadTextAssets, textAssetsOf } from "./fonts/inde
 import { SCENES } from "./scene/library";
 import { footballRecipe, parseFootball } from "./scene/football";
 import { parseRace, raceRecipe } from "./scene/race";
+import { parseCtrl, parsePlatformer, platformerRecipe } from "./scene/controller";
+import { FIGHTER_IDS, fightRecipe, parseFight } from "./scene/fight";
 import { mergeEmitters, readProcgenEmitters } from "./scene/emitters";
 import { readTerrainEdits } from "./scene/terrain";
 import { resolveStyle } from "./style/style";
@@ -339,6 +341,8 @@ export class SonicProcgen extends HTMLElement {
     if (v instanceof ProcgenView) {
       v.onFootball = () => this.queueOut();
       v.onRace = () => this.queueOut();
+      v.onPlayer = () => this.queueOut();
+      v.onFight = () => this.queueOut();
     }
     v.onFrame = () => this.queueOut();
     if (v instanceof ProcgenView) {
@@ -411,7 +415,13 @@ export class SonicProcgen extends HTMLElement {
     // exclus de la clé : ils changent sans relancer la course)
     const raceIn = (!footSpec && d.race && typeof d.race === "object" ? JSON.parse(JSON.stringify(d.race)) : !footSpec && d.race === true ? {} : null) as Json | null;
     const raceSpec = raceIn ? parseRace({ ...raceIn, camera: undefined }) : null;
-    const recipe = (footSpec ? footballRecipe(footSpec) : raceSpec ? raceRecipe(raceSpec) : d.recipe && typeof d.recipe === "object" ? d.recipe : null) as Recipe | null;
+    // niveau de plateformes : recette générée et réglages du contrôleur qui vont avec (`player` les complète)
+    const platIn = (!footSpec && !raceSpec && d.platformer && typeof d.platformer === "object" ? JSON.parse(JSON.stringify(d.platformer)) : !footSpec && !raceSpec && d.platformer === true ? {} : null) as Json | null;
+    const plat = platIn ? platformerRecipe(parsePlatformer(platIn)) : null;
+    // combat : arène générée, ou deux acteurs de la recette (`fight.fighters[i].actor`)
+    const fightIn = (!footSpec && !raceSpec && !plat && d.fight && typeof d.fight === "object" ? JSON.parse(JSON.stringify(d.fight)) : !footSpec && !raceSpec && !plat && d.fight === true ? {} : null) as Json | null;
+    const fightSpec = fightIn ? parseFight({ ...fightIn, input: undefined }, !!(d.recipe && typeof d.recipe === "object")) : null;
+    const recipe = (footSpec ? footballRecipe(footSpec) : raceSpec ? raceRecipe(raceSpec) : plat ? plat.recipe : fightSpec?.arena ? fightRecipe(fightSpec) : d.recipe && typeof d.recipe === "object" ? d.recipe : null) as Recipe | null;
     const seed = d.seed ?? this.getAttribute("seed") ?? 1;
     const params = (d.params && typeof d.params === "object" ? d.params : {}) as Json;
     const edits = normEdits(d.edit);
@@ -667,6 +677,23 @@ export class SonicProcgen extends HTMLElement {
       this.view.setRaceCamera(raceIn ? parseRace({ camera: raceIn.camera }).camera : null);
       this.view.setRaceInput(raceIn?.input);
       this.view.setRaceSound(raceIn?.sound !== false);
+      // contrôleur de personnage : `player` (et ce que le niveau de plateformes y met)
+      const pIn = (plat || (d.player && typeof d.player === "object") ? { ...(plat?.player ?? {}), ...(d.player && typeof d.player === "object" ? JSON.parse(JSON.stringify(d.player)) : {}) } : null) as Json | null;
+      const pSpec = pIn ? parseCtrl({ ...pIn, input: undefined }) : null;
+      if (pIn && !pSpec && !this.issues.some((x) => (x as { path?: string }).path === "player.actor")) this.issues = [...this.issues, { path: "player.actor", code: "required", message: "player.actor : id d'un acteur de recipe.actors attendu" }];
+      else if (pSpec && this.model && !this.model.objects.some((o) => o.id === pSpec.actor && o.mode === "actor") && !this.issues.some((x) => (x as { path?: string }).path === "player.actor")) this.issues = [...this.issues, { path: "player.actor", code: "unknown", message: `acteur « ${pSpec.actor} » introuvable`, didYouMean: suggest(pSpec.actor, this.model.objects.filter((o) => o.mode === "actor").map((o) => o.id)) }];
+      const list = (x: unknown) => (Array.isArray(x) ? x : typeof x === "string" ? [x] : []).filter((v): v is string => typeof v === "string").slice(0, 32);
+      const num = (x: unknown, dflt: number) => (Number.isFinite(Number(x)) && x !== null && x !== "" ? Number(x) : dflt);
+      this.view.setPlayer(pSpec && this.model ? { spec: pSpec, extra: { hud: pIn!.hud !== false, keyboard: pIn!.keyboard !== false, touch: pIn!.touch !== false, enemies: list(pIn!.enemies), lives: Math.max(1, Math.min(99, Math.round(num(pIn!.lives, 3)))), patrol: Math.max(0, Math.min(50, num(pIn!.patrol, 3))) }, restart: num(pIn!.restart, 0) + num(platIn?.restart, 0) } : null);
+      this.view.setPlayerInput(pIn?.input);
+      const fIds = fightSpec ? (fightSpec.fighters.map((f, i) => (fightSpec.arena ? FIGHTER_IDS[i] : f.actor ?? FIGHTER_IDS[i])) as [string, string]) : null;
+      if (fightSpec && this.model && fIds) {
+        const missing = fIds.filter((id) => !this.model!.objects.some((o) => o.id === id && o.mode === "actor"));
+        this.issues = this.issues.filter((x) => (x as { path?: string }).path !== "fight.fighters");
+        if (missing.length) this.issues = [...this.issues, { path: "fight.fighters", code: "unknown", message: `combattant(s) introuvable(s) : ${missing.join(", ")} (fighters[i].actor : acteur de recipe.actors, ou arena pour une arène générée)` }];
+      }
+      this.view.setFight(fightSpec && this.model && fIds ? { spec: fightSpec, ids: fIds, hud: fightIn!.hud !== false, keyboard: fightIn!.keyboard !== false, touch: fightIn!.touch !== false, restart: Number(fightIn!.restart) || 0 } : null);
+      this.view.setFightInput(fightIn?.input);
     } else if (raceSpec && !this.issues.some((x) => (x as { path?: string }).path === "race")) {
       this.issues = [...this.issues, { path: "race", code: "info", message: "mode course en rendu 3D seulement" }];
     }
@@ -874,6 +901,8 @@ export class SonicProcgen extends HTMLElement {
       ...(this.view instanceof ProcgenView ? { vehicles: this.view.vehicleState() } : {}),
       ...(this.view instanceof ProcgenView && this.view.footballOut ? { football: this.view.footballOut } : {}),
       ...(this.view instanceof ProcgenView && this.view.raceOut ? { race: this.view.raceOut } : {}),
+      ...(this.view instanceof ProcgenView && this.view.playerOut ? { player: this.view.playerOut } : {}),
+      ...(this.view instanceof ProcgenView && this.view.fightOut ? { fight: this.view.fightOut } : {}),
       ...(this.view instanceof ProcgenView && this.model?.physics ? { physics: this.view.physOut, queries: this.view.queryOut } : {}),
       ...(this.view instanceof ProcgenView ? this.view.emitState() : {}),
       ids: this.idsList(),
