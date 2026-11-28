@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qFromTo, qMul, qRot, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header", "dive", "cook", "chop", "ski"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header", "dive", "cook", "chop", "ski", "hit", "block", "dodge", "knee", "elbow", "spinkick", "ginga", "staff"] as const;
 /** Poses à bord (posées par la conduite, pas des ordres d'acteur) : mains au volant, à califourchon, à la rame. */
 export const RIDE_ACTIONS = ["drive", "ride", "row"] as const;
 export type Action = (typeof ACTIONS)[number] | (typeof RIDE_ACTIONS)[number];
@@ -992,6 +992,136 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
         over.head = qEuler(-18 * k * DEG, 0, 0);
         over.neck = qEuler(-8 * k * DEG, 0, 0);
       }
+      break;
+    }
+    case "hit": {
+      // coup encaissé (0,7 s) : la tête part en arrière, le buste recule et tourne, la garde s'ouvre, un pas en arrière
+      // pour rattraper l'équilibre, puis retour en garde
+      const c = Math.min(1, at / 0.7);
+      const e = smoothstep(0, 0.12, c) * (1 - smoothstep(0.45, 1, c));
+      guardArm(over, "l", 1 - 0.7 * e);
+      guardArm(over, "r", 0.85 - 0.6 * e);
+      over.spine = qEuler(-12 * e * DEG, 10 * e * DEG, 4 * e * DEG);
+      over.chest = qEuler(-8 * e * DEG, 8 * e * DEG, 0);
+      over.neck = qEuler(-14 * e * DEG, 0, 0);
+      over.head = qEuler(-22 * e * DEG, 14 * e * DEG, 8 * e * DEG);
+      stance = { l: [0.06, 0, 0.18 - 0.06 * e], r: [-0.06, 0, -0.16 - 0.14 * e] };
+      stanceDrop = leg * (0.035 + 0.03 * e);
+      break;
+    }
+    case "block": {
+      // parade haute : avant-bras croisés devant le visage, coudes serrés, menton rentré, genoux fléchis ; l'impact
+      // fait reculer d'un rien les avant-bras toutes les 0,9 s
+      const imp = Math.max(0, Math.sin(at * TAU / 0.9)) ** 6;
+      aimArm(over, "l", 62 - 6 * imp, 14, 128, 18);
+      aimArm(over, "r", 58 - 6 * imp, 14, 132, -14);
+      over.spine = qEuler((8 + 4 * imp) * DEG, -8 * DEG, 0);
+      over.chest = qEuler(6 * DEG, 0, 0);
+      over.head = qEuler(16 * DEG, 8 * DEG, 0);
+      stance = { l: [0.06, 0, 0.2], r: [-0.06, 0, -0.16] };
+      stanceDrop = leg * 0.06;
+      break;
+    }
+    case "dodge": {
+      // esquives (1,2 s) : rotation du buste et flexion latérale à gauche puis à droite (slip), puis passage sous un
+      // crochet en U (bob and weave), garde gardée haute
+      const c = (at % 1.2) / 1.2;
+      const side = Math.sin(c * TAU);
+      const duck = Math.max(0, Math.sin(c * TAU * 2)) * smoothstep(0.4, 0.6, c);
+      guardArm(over, "l", 1);
+      guardArm(over, "r", 0.9);
+      over.spine = qEuler((10 + 18 * duck) * DEG, 14 * side * DEG, 16 * side * DEG);
+      over.chest = qEuler(8 * duck * DEG, 8 * side * DEG, 8 * side * DEG);
+      over.head = qEuler(6 * DEG, -10 * side * DEG, -6 * side * DEG);
+      stance = { l: [0.08, 0, 0.16], r: [-0.08, 0, -0.14] };
+      stanceDrop = leg * (0.05 + 0.1 * duck);
+      break;
+    }
+    case "knee": {
+      // coup de genou (boxe thaïe, 1 s) : les deux mains tirent la nuque de l'adversaire (clinch), le genou droit
+      // monte en ligne droite vers l'avant, hanches projetées, buste en arrière ; retour au sol
+      const c = at % 1;
+      const k = keyed(c, [[0, [0]], [0.3, [1]], [0.45, [1]], [0.75, [0]], [1, [0]]])[0];
+      const L = leg;
+      for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) reachArm(over, s2, [sg2 * face.ua * 0.12, info.hipY + face.ua * (1.05 - 0.3 * k), face.ua * 1.6]);
+      kickFoot = { p: [-info.hipX * 0.5, (0.04 + 0.5 * k) * L, (-0.12 + 0.12 * k) * L], pitch: 65 * k };
+      over.spine = qEuler(-14 * k * DEG, 0, 0);
+      over.chest = qEuler(6 * k * DEG, 0, 0);
+      over.head = qEuler(12 * k * DEG, 0, 0);
+      stance = { l: [0.04, 0, 0.1], r: [0, 0, 0] };
+      break;
+    }
+    case "elbow": {
+      // coup de coude horizontal (0,9 s) : avant-bras replié contre le biceps, le coude balaie à hauteur du visage,
+      // rotation des hanches et des épaules, l'autre main garde le menton
+      const c = (at % 0.9) / 0.9;
+      const k = keyed(c, [[0, [0]], [0.25, [-0.4]], [0.42, [1]], [0.6, [1]], [1, [0]]])[0];
+      guardArm(over, "l", 1);
+      aimDir(over, "r", [-0.35 + 0.75 * Math.max(0, k), 0.15, 0.6 + 0.25 * Math.max(0, k)], 150, 30, -30);
+      over.spine = qEuler(4 * DEG, (-30 * k) * DEG * 0.5, 0);
+      over.chest = qEuler(0, (-30 * k) * DEG * 0.6, 0);
+      over.head = qEuler(8 * DEG, 18 * k * DEG, 0);
+      stance = { l: [0.06, 0, 0.2], r: [-0.06, 0, -0.16] };
+      stanceDrop = leg * 0.05;
+      break;
+    }
+    case "spinkick": {
+      // coup de pied retourné (1,4 s) : pivot sur le pied gauche, le dos tourne vers l'adversaire, regard par-dessus
+      // l'épaule, la jambe droite repliée se détend vers l'arrière (talon en avant), puis fin de rotation en garde
+      gK = 1;
+      const c = (at % 1.4) / 1.4;
+      const spin = 360 * smoothstep(0.05, 0.85, c);
+      const ext = smoothstep(0.32, 0.45, c) * (1 - smoothstep(0.6, 0.75, c));
+      const chamber = smoothstep(0.15, 0.32, c) * (1 - smoothstep(0.7, 0.85, c));
+      gBody = qMul(qAxis([0, 1, 0], -spin * DEG), qAxis([1, 0, 0], 28 * ext * DEG));
+      gPel = [0, info.hipY - leg * 0.04, 0];
+      gLeg["thigh.r"] = qAxis([1, 0, 0], (35 * chamber + 55 * ext) * DEG);
+      gLeg["shin.r"] = hinge(sk, "shin.r", -(100 * chamber * (1 - ext) + 8 * ext));
+      gLeg["thigh.l"] = qAxis([1, 0, 0], -8 * ext * DEG);
+      gLeg["shin.l"] = hinge(sk, "shin.l", -14);
+      guardArm(over, "l", 1);
+      guardArm(over, "r", 0.85);
+      over.head = qEuler(0, 50 * ext * DEG, 0);
+      break;
+    }
+    case "ginga": {
+      // ginga (capoeira, 2 s) : balancement d'un pied à l'autre en triangle, pied arrière qui recule à tour de rôle,
+      // genoux fléchis, bras qui passent devant le visage du côté du pied arrière
+      const c = (at % 2) / 2;
+      const sw = Math.sin(c * TAU);
+      const back = (v2: number) => Math.max(0, v2);
+      stance = { l: [0.16, 0, 0.04 - 0.3 * back(-sw)], r: [-0.16, 0, 0.04 - 0.3 * back(sw)] };
+      stanceDrop = leg * (0.12 + 0.03 * Math.abs(sw));
+      aimArm(over, "l", 40 + 40 * back(-sw), 20, 95, 10);
+      aimArm(over, "r", 40 + 40 * back(sw), 20, 95, -10);
+      over.spine = qEuler(14 * DEG, 22 * sw * DEG, 0);
+      over.chest = qEuler(6 * DEG, 10 * sw * DEG, 0);
+      over.head = qEuler(4 * DEG, -24 * sw * DEG, 0);
+      break;
+    }
+    case "staff": {
+      // bâton à deux mains (bō, 1,2 s par coup ; `item: staff` ou `spear`) : frappe descendante, balayage bas,
+      // estoc ; mains écartées sur le bâton, la gauche guide, hanches qui tournent avec le coup
+      const n = Math.floor(at / 1.2) % 3, c = (at % 1.2) / 1.2;
+      const k = keyed(c, [[0, [0]], [0.28, [-0.4]], [0.36, [0]], [0.48, [1]], [0.66, [1]], [1, [0]]])[0];
+      const U = face.ua;
+      const hipY = info.hipY;
+      // main droite (arrière) et gauche (avant) dans le repère du bassin ; armé puis coup
+      const R0: V3 = [-U * 0.35, hipY + U * 0.55, U * 0.25], L0: V3 = [U * 0.3, hipY + U * 0.75, U * 0.85];
+      const R1: V3[] = [[-U * 0.15, hipY + U * 1.1, U * 0.45], [-U * 0.55, hipY + U * 0.35, U * 0.45], [-U * 0.15, hipY + U * 0.5, U * 0.8]];
+      const L1: V3[] = [[U * 0.1, hipY + U * 0.4, U * 1.2], [U * 0.5, hipY + U * 0.1, U * 0.95], [U * 0.05, hipY + U * 0.55, U * 1.5]];
+      const mixV = (a: V3, b: V3, t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+      const kk = Math.max(0, k);
+      const rh = mixV(R0, R1[n], kk), lh = mixV(L0, L1[n], kk);
+      reachArm(over, "r", k < 0 ? mixV(R0, [R0[0] - U * 0.2, R0[1] + U * 0.3, R0[2] - U * 0.2], -k) : rh);
+      reachArm(over, "l", lh);
+      aimItem(() => norm(sub(lh, rh)));
+      const yaw = (n === 1 ? 35 : 15) * k;
+      over.spine = qEuler((n === 0 ? 10 : 6) * kk * DEG, yaw * 0.45 * DEG, 0);
+      over.chest = qEuler(4 * kk * DEG, yaw * 0.55 * DEG, 0);
+      over.head = qEuler(8 * DEG, -yaw * 0.6 * DEG, 0);
+      stance = { l: [0.06, 0, 0.24], r: [-0.06, 0, -0.18] };
+      stanceDrop = leg * (0.05 + 0.04 * kk);
       break;
     }
     case "ski": {

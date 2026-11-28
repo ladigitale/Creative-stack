@@ -14,7 +14,7 @@ const clamp = (x: number, a: number, b: number) => (x < a ? a : x > b ? b : x);
 /** Un coup : geste affiché et début dans son cycle, fenêtre de touche, durée, portée, dégâts, effet. */
 export type Move = {
   id: string;
-  action: "punch" | "fightkick" | "sword";
+  action: "punch" | "fightkick" | "sword" | "knee" | "elbow" | "spinkick";
   /** Début du coup dans le cycle du geste (s). */
   at: number;
   /** Fenêtre active (s depuis le début du coup) et durée totale avant de pouvoir rejouer. */
@@ -42,6 +42,10 @@ export const MOVES: Record<string, Move> = {
   frontkick: { id: "frontkick", action: "fightkick", at: 0, on: 0.4, off: 0.62, total: 0.95, range: 1.35, damage: 10, push: 3, stun: 0.42, next: "roundkick", level: "mid" },
   roundkick: { id: "roundkick", action: "fightkick", at: 1.2, on: 0.4, off: 0.62, total: 1.0, range: 1.3, damage: 14, push: 3.2, stun: 0.5, down: true, level: "high" },
   sidekick: { id: "sidekick", action: "fightkick", at: 2.4, on: 0.42, off: 0.64, total: 1.0, range: 1.55, damage: 12, push: 5, stun: 0.45, level: "mid" },
+  // corps-à-corps (boxe thaïe) et coup de pied retourné en fin d'enchaînement
+  elbow: { id: "elbow", action: "elbow", at: 0, on: 0.3, off: 0.48, total: 0.72, range: 0.8, damage: 8, push: 1.2, stun: 0.4, level: "high" },
+  knee: { id: "knee", action: "knee", at: 0, on: 0.26, off: 0.46, total: 0.85, range: 0.85, damage: 11, push: 1.6, stun: 0.45, level: "mid" },
+  spinkick: { id: "spinkick", action: "spinkick", at: 0, on: 0.45, off: 0.66, total: 1.3, range: 1.5, damage: 16, push: 5.5, stun: 0.5, down: true, level: "high" },
   slash: { id: "slash", action: "sword", at: 0, on: 0.32, off: 0.5, total: 0.8, range: 1.6, damage: 12, push: 2, stun: 0.4, next: "cut", level: "high" },
   cut: { id: "cut", action: "sword", at: 1, on: 0.32, off: 0.5, total: 0.8, range: 1.6, damage: 13, push: 2.2, stun: 0.4, next: "sweep", level: "mid" },
   sweep: { id: "sweep", action: "sword", at: 2, on: 0.32, off: 0.5, total: 0.85, range: 1.7, damage: 14, push: 2.6, stun: 0.45, next: "thrust", level: "mid" },
@@ -281,7 +285,7 @@ export class FightSim {
       fi.t += dt;
       fi.actionTime = fi.move.at + fi.t;
       const name = light || heavy ? this.pick(fi, light ? "light" : "heavy", inp.x * dir) : null;
-      if (name && fi.move.next === name) fi.queued = name;
+      if (name && (fi.move.next === name || (fi.move.id === "roundkick" && name === "spinkick"))) fi.queued = name;
       if (fi.t >= fi.move.total) {
         const q = fi.queued && fi.landed ? fi.queued : null;
         fi.move = null;
@@ -309,18 +313,25 @@ export class FightSim {
       if (fi.y <= 0 && fi.vy < 0) fi.vy = 0;
     }
     if (!fi.move) {
-      fi.action = fi.hp <= 0 ? "fall" : fi.y > 0.02 ? "idle" : Math.abs(fi.vx) > 0.3 && !fi.guard ? "walk" : "guard";
+      // coup encaissé : tête et buste rejetés en arrière le temps de l'étourdissement ; coup paré : avant-bras croisés
+      fi.action = fi.hp <= 0 ? "fall" : fi.stun > 0 ? "hit" : fi.block > 0 ? "block" : fi.y > 0.02 ? "idle" : Math.abs(fi.vx) > 0.3 && !fi.guard ? "walk" : "guard";
       fi.actionTime += dt;
     }
   }
 
   /** Coup voulu : poings ou épée (léger), pieds (lourd) ; vers l'avant, le coup de pied latéral. */
   private pick(fi: Fighter, kind: "light" | "heavy", fwd: number): string | null {
+    const close = Math.abs(this.f[1 - fi.i].x - fi.x) < 0.85 && fi.spec.weapon !== "sword";
     if (kind === "light") {
       if (fi.move && fi.move.next && (fi.move.action === (fi.spec.weapon === "sword" ? "sword" : "punch"))) return fi.move.next;
+      // collé à l'adversaire : coude plutôt que direct
+      if (close && !fi.move) return "elbow";
       return fi.spec.weapon === "sword" ? "slash" : "jab";
     }
     if (fi.move?.id === "frontkick") return "roundkick";
+    // le circulaire enchaîne sur un retourné ; au corps-à-corps, genou
+    if (fi.move?.id === "roundkick") return "spinkick";
+    if (close) return "knee";
     return fwd > 0.3 ? "sidekick" : "frontkick";
   }
 
@@ -333,7 +344,7 @@ export class FightSim {
     fi.action = m.action;
     fi.actionTime = m.at;
     // on avance dans le coup : un enchaînement reste à portée malgré le recul de l'adversaire
-    fi.vx = this.facing(fi.i) * (m.action === "fightkick" ? 0.8 : 1.8);
+    fi.vx = this.facing(fi.i) * (m.action === "fightkick" || m.action === "spinkick" || m.action === "knee" ? 0.8 : 1.8);
     this.events.push({ type: "attack", payload: { fighter: fi.i, move: m.id } });
   }
 
@@ -358,6 +369,8 @@ export class FightSim {
     const blocked = d.guard && d.y <= 0.02 && !d.move;
     const dmg = Math.round(m.damage * a.spec.power / d.spec.defense * (blocked ? 0.12 : 1) * 10) / 10;
     d.hp = Math.max(0, d.hp - dmg);
+    // la réaction (encaisser, parer) commence au moment de la touche
+    d.actionTime = 0;
     if (blocked) {
       d.block = 0.22;
       d.vx = dir * m.push * 0.5;

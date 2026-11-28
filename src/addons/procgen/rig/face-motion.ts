@@ -35,7 +35,17 @@ export function handPose(action: string, t: number): Record<string, number> {
     case "hang":
     case "climb":
     case "ski":
+    case "block":
+    case "dodge":
+    case "hit":
+    case "elbow":
+    case "spinkick":
+    case "staff":
       return { "fist.l": 1, "fist.r": 1 };
+    case "knee":
+      return { "open.l": 0.4, "open.r": 0.4 };
+    case "ginga":
+      return { "open.l": 0.7, "open.r": 0.7 };
     case "sword":
       return { "fist.l": 0.6, "fist.r": 1 };
     case "archery":
