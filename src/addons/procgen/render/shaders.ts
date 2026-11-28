@@ -295,6 +295,23 @@ uniform float uPass;
 uniform float uWaterSplit;
 uniform float uWaterKind;
 uniform float uWaveAmp;
+uniform float uWaveLen;
+/** Hauteur relative de la houle (−1 creux … 1 crête) recalculée au pixel : les crêtes restent nettes et lisses quel que
+ * soit le maillage (la valeur interpolée entre sommets dessinait des triangles d'écume qui filaient avec la vague). */
+float waveCrest(vec2 p) {
+  float h = 0.0, tot = 0.0;
+  for (int i = 0; i < 5; i++) {
+    float fi = float(i);
+    float ang = 0.45 + fi * 1.37 + sin(fi * 2.1) * 0.4;
+    vec2 D = vec2(cos(ang), sin(ang));
+    float L = uWaveLen * (1.0 - fi * 0.15) * (fi > 2.5 ? 0.45 : 1.0);
+    float k = 6.2831 / L;
+    float A = (1.0 - fi * 0.16) * (fi > 2.5 ? 0.35 : 1.0);
+    h += A * sin(k * (dot(D, p) - sqrt(9.81 / k) * uTime) + fi * 1.7);
+    tot += A;
+  }
+  return h / tot;
+}
 uniform float uShadowKernel2;
 uniform float uShadowBiasW2;
 uniform float uShadowOn2;
@@ -383,13 +400,30 @@ float caustic(vec2 p, float t) {
       float d = dot(r, r);
       if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;
     }
-  return 1.0 - smoothstep(0.0, 0.32, sqrt(d2) - sqrt(d1));
+  // filets lumineux fins (et non des cellules à facettes)
+  float e = sqrt(d2) - sqrt(d1);
+  return exp(-e * e * 90.0);
 }
 
 // ouvertures du sol au-dessus des fonds d'eau : A = (x, z, hx, hz), B = (cos lacet, sin lacet, forme, graine)
 uniform vec4 uHoleA[16];
 uniform vec4 uHoleB[16];
 uniform int uHoleN;
+// coques à flot : A = (x, z, demi-largeur, demi-longueur), B = (cos cap, sin cap) ; l'eau n'est jamais dessinée dans
+// leur emprise (pas d'eau dans une barque, quelle que soit la vague)
+uniform vec4 uHullA[12];
+uniform vec4 uHullB[12];
+uniform int uHullN;
+bool inHull(vec2 p) {
+  for (int i = 0; i < 12; i++) {
+    if (i >= uHullN) break;
+    vec4 a = uHullA[i], b = uHullB[i];
+    vec2 d = p - a.xy;
+    vec2 l = vec2(d.x * b.x - d.y * b.y, d.x * b.y + d.y * b.x) / a.zw;
+    if (dot(l, l) < 1.0) return true;
+  }
+  return false;
+}
 bool inHole(vec2 p) {
   for (int i = 0; i < 16; i++) {
     if (i >= uHoleN) break;
@@ -491,6 +525,7 @@ void main() {
   if (uWaterSplit > 0.5 && (uPass > 0.5) != (role == 13)) discard;
   // sol (objet 0, hors mer) ouvert au-dessus d'une piscine, d'une mare : on voit leur fond
   if (uHoleN > 0 && vObj < 0.5 && role != 13 && inHole(vPosW.xz)) discard;
+  if (uHullN > 0 && role == 13 && inHull(vPosW.xz)) discard;
   vec3 base = uRoles[role];
   float texV = 0.0;
   #ifdef BLADE
@@ -895,15 +930,26 @@ void main() {
     // rides fines par-dessus la houle (deux couches qui dérivent), plus fortes sur la mer
     // rides : plus fortes sur la mer, presque rien dans une flaque (agitation propre à la surface)
     float rk = (uWaterKind > 0.5 ? 0.22 : 0.12) * vAgit;
+    // rides : six petites vagues de directions variées (pente analytique : ni grille ni facettes, pas de dérive dans une
+    // seule direction), vitesse de la dispersion en eau profonde, phase brouillée lentement pour casser la régularité
     vec2 rp = vPosW.xz;
-    float r0 = vnoise(vec3(rp * 3.1 + uTime * 0.35, uTime * 0.2)), r1 = vnoise(vec3(rp * 7.3 - uTime * 0.5, 3.0 + uTime * 0.3));
-    vec2 rg = vec2(vnoise(vec3(rp * 3.1 + vec2(0.07, 0.0) + uTime * 0.35, uTime * 0.2)) - r0, vnoise(vec3(rp * 3.1 + vec2(0.0, 0.07) + uTime * 0.35, uTime * 0.2)) - r0) / 0.07 * 0.05
-      + vec2(vnoise(vec3(rp * 7.3 + vec2(0.05, 0.0) - uTime * 0.5, 3.0 + uTime * 0.3)) - r1, vnoise(vec3(rp * 7.3 + vec2(0.0, 0.05) - uTime * 0.5, 3.0 + uTime * 0.3)) - r1) / 0.05 * 0.025;
     float fwW = length(fwidth(vPosW));
-    rg *= octK(7.3, fwW) * rk * 4.0;
+    float warp = vnoise(vec3(rp * 0.35, uTime * 0.05)) * 6.0;
+    vec2 rg = vec2(0.0);
+    for (int i = 0; i < 6; i++) {
+      float fi = float(i);
+      float ang = fi * 2.39996 + 0.3;
+      vec2 D = vec2(cos(ang), sin(ang));
+      float L = 0.45 + fi * 0.3;
+      float k = 6.2831 / L;
+      float ph = k * dot(D, rp) - sqrt(9.81 * k) * 0.3 * uTime + fi * 1.3 + warp * (0.6 + fi * 0.15);
+      rg += D * cos(ph) * 0.03 * octK(1.0 / L, fwW);
+    }
+    rg *= rk * 4.0;
     if (Nw.y > 0.3) Nw = normalize(Nw - vec3(rg.x, 0.0, rg.y));
-    // lame d'eau verticale (chute, cascade) : filets d'écume qui défilent vers le bas
-    float fallK = 1.0 - smoothstep(0.35, 0.6, abs(N.y));
+    // lame d'eau verticale (chute, cascade) : filets d'écume qui défilent vers le bas ; jamais sur la mer (sa tranche
+    // au bord du socle est verticale mais immobile)
+    float fallK = uWaterKind > 0.5 ? 0.0 : 1.0 - smoothstep(0.35, 0.6, abs(N.y));
     // sans passe d'eau (monde infini, rendu de secours) : pas de scène à lire, eau opaque teintée par la profondeur
     bool see = uPass > 0.5;
     vec2 suv = gl_FragCoord.xy / uViewport;
@@ -912,7 +958,8 @@ void main() {
     float th0 = max(0.0, dS0 - vViewZ);
     // réfraction : décalage écran selon la pente de la surface, borné par l'épaisseur ; refusé s'il tombe sur un objet
     // placé devant l'eau
-    vec2 ruv = suv + (mat3(viewMatrix) * Nw).xy * vec2(-1.0, 1.0) * 0.03 * clamp(th0, 0.0, 1.2);
+    // (rides seules, décalage de quelques pixels : la pente de la houle dédoublait les corps à moitié immergés)
+    vec2 ruv = suv + (mat3(viewMatrix) * vec3(rg.x, 0.0, rg.y)).xy * vec2(-1.0, 1.0) * 0.08 * clamp(th0, 0.0, 0.6);
     vec4 sd = see ? texture(tSceneData, ruv) : sd0;
     float dS = sd.z > 0.0 ? sd.z * uFar : 1e4;
     if (dS < vViewZ) { ruv = suv; sd = sd0; dS = dS0; }
@@ -924,10 +971,10 @@ void main() {
     // caustiques projetées sur le fond, plus nettes près de la surface, effacées en profondeur et au loin
     // (parois verticales : la hauteur entre dans les coordonnées, sinon le motif s'étire en traînées)
     vec2 cp = bp.xz + vec2(bp.y * 1.3, -bp.y * 0.9);
-    float cau = caustic(cp * 1.5, uTime * 0.9) * 0.6 + caustic(cp * 2.7 + 11.0, uTime * 1.2) * 0.4;
+    float cau = caustic(cp * 2.3, uTime * 0.7) * 0.6 + caustic(cp * 3.9 + 11.0, uTime * 0.9) * 0.4;
     // eau posée : trouble (mare) ou limpide (piscine) selon l'AO de ses sommets ; la mer garde l'AO pour sa profondeur
     float murk = uWaterKind > 0.5 ? 0.0 : clamp(1.0 - vAO, 0.0, 1.0);
-    bottom *= 1.0 + cau * cau * 0.9 * exp(-below * 0.7) * octK(2.7, fwW) * (sh * 0.7 + 0.3) * (1.0 - murk * 0.8);
+    bottom *= 1.0 + cau * 0.28 * exp(-below * 0.7) * octK(2.7, fwW) * (sh * 0.7 + 0.3) * (1.0 - murk * 0.8);
     // absorption (m⁻¹, par canal) : l'eau d'une piscine reste claire, la mer verdit puis bleuit, la mare brunit
     vec3 absorb = uWaterKind > 0.5 ? vec3(0.42, 0.13, 0.085) : mix(vec3(0.3, 0.07, 0.045), vec3(1.7, 1.05, 2.0), murk);
     vec3 T = exp(-absorb * thick);
@@ -940,9 +987,19 @@ void main() {
     vec3 col = mix(body, sky, F);
     col += uSun * pow(max(dot(R, uSunDir), 0.0), uWaterKind > 0.5 ? 220.0 : 500.0) * (uWaterKind > 0.5 ? 2.2 : 3.0) * mix(1.0, sh, uShadowStrength);
     // écume : liseré au contact du bord (épaisseur verticale faible), bouillonnant, et crêtes de la houle
-    float edge = 1.0 - smoothstep(0.0, 0.12 + 0.18 * vnoise(vec3(vPosW.xz * 2.0, uTime * 0.4)), below);
-    float crest = smoothstep(0.8, 0.96, vWave) * smoothstep(0.42, 0.75, vnoise(vec3(vPosW.xz * 3.4, uTime * 0.6))) * (0.6 + 0.4 * vnoise(vec3(vPosW.xz * 11.0, uTime))) * uWaterKind;
-    float foam = clamp(edge * (0.55 + 0.45 * vnoise(vec3(vPosW.xz * 6.0, uTime * 1.1))) * (uWaterKind > 0.5 ? 1.0 : 0.35 * (1.0 - murk)) + crest * 0.8, 0.0, 1.0);
+    // liseré fin là où l'eau n'a que quelques centimètres (la houle le fait aller et venir), dentelé, jamais en plaque
+    float edge = (1.0 - smoothstep(0.0, 0.05 + 0.06 * vnoise(vec3(vPosW.xz * 2.0, uTime * 0.3)), below)) * smoothstep(0.3, 0.6, vnoise(vec3(vPosW.xz * 5.0, uTime * 0.25)) * 0.7 + 0.3);
+    // crêtes : seulement sur la mer agitée (vent, grande étendue), écume qui naît au sommet et reste posée sur l'eau
+    // (motif fixe qui s'éteint lentement, il ne glisse pas avec la vague), en traînées fines plutôt qu'en taches
+    float crest = 0.0;
+    if (uWaterKind > 0.5 && uWaveAmp > 0.0) {
+      float hc = waveCrest(vPosW.xz);
+      float strong = smoothstep(0.25, 0.9, uWaveAmp * vAgit) * smoothstep(0.0, 0.3, vAO);
+      vec2 fp = vPosW.xz * vec2(1.7, 0.9);
+      float lace = vnoise(vec3(fp * 2.2, uTime * 0.05)) * 0.65 + vnoise(vec3(fp * 6.5, 7.0 + uTime * 0.08)) * 0.35;
+      crest = smoothstep(0.5, 0.85, hc) * smoothstep(0.5, 0.72, lace) * strong * octK(6.5, fwW);
+    }
+    float foam = clamp(edge * (0.55 + 0.45 * vnoise(vec3(vPosW.xz * 6.0, uTime * 1.1))) * (uWaterKind > 0.5 ? 0.6 : 0.35 * murk) + crest * 0.55, 0.0, 1.0);
     col = mix(col, (amb * 0.62 + uSun * mix(1.0, sh, uShadowStrength)) * 0.95, foam * 0.85);
     if (fallK > 0.0) {
       vec2 fp = vec2(vPosW.x * 3.0 + vPosW.z * 3.0, vPosW.y * 0.7 + uTime * 2.6);
@@ -955,14 +1012,8 @@ void main() {
       if (i >= uSwimN) break;
       vec4 sw = uSwim[i];
       if (sw.z < 0.0) {
-        // plongeur : silhouette sombre et floue sous la surface (plus pâle en profondeur), bulles qui remontent
+        // plongeur : son corps se voit déjà à travers l'eau (réfraction) ; seules les bulles remontent devant sa tête
         vec2 fw = vec2(sin(sw.w), cos(sw.w));
-        vec2 q = vPosW.xz - sw.xy - fw * 0.45;
-        float al = dot(q, fw), ac = dot(q, vec2(fw.y, -fw.x));
-        float dep = -sw.z;
-        float blur = 0.12 + dep * 0.35;
-        float body = 1.0 - smoothstep(0.0, blur, length(vec2(al / 0.85, ac / 0.22)) - 1.0 + 0.0);
-        lit = mix(lit, lit * vec3(0.32, 0.4, 0.46), body * mix(0.85, 0.45, clamp(dep / 1.5, 0.0, 1.0)));
         vec2 hb = vPosW.xz - (sw.xy + fw * 1.15);
         float bub = (1.0 - smoothstep(0.02, 0.07, length(hb + 0.12 * vec2(sin(uTime * 2.3), cos(uTime * 1.7)) * fract(uTime * 0.9))));
         bub += (1.0 - smoothstep(0.02, 0.05, length(hb - 0.1 * vec2(cos(uTime * 1.9), sin(uTime * 2.6)) * fract(uTime * 1.3 + 0.4))));

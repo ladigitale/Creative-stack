@@ -234,7 +234,7 @@ function build(kind: string, size: number, variant: number, textParam: unknown =
     case "billboard": {
       // panneau d'affichage sur deux pieds, affiche et cadre
       put(m, box(1.25, 0.85, 0.04, ROLE.paper), [0, 1.65, 0]);
-      put(m, box(1.15, 0.75, 0.01, [ROLE.accent, ROLE.water, ROLE.leaf2, ROLE.cloth1][variant % 4]), [0, 1.65, 0.045]);
+      put(m, box(1.15, 0.75, 0.01, [ROLE.accent, ROLE.blue, ROLE.leaf2, ROLE.cloth1][variant % 4]), [0, 1.65, 0.045]);
       {
         const poster = text();
         if (poster) letters(m, poster, { height: 0.3, maxWidth: 1.95, maxHeight: 1.1, role: variant % 4 === 0 ? ROLE.paper : ROLE.ink }, [0, 1.65, 0.055]);
@@ -250,7 +250,7 @@ function build(kind: string, size: number, variant: number, textParam: unknown =
       put(m, lathe([[0.62, 0], [0.62, 0.3], [0.55, 0.32], [0.55, 2.5], [0.66, 2.6], [0.66, 2.7], [0.5, 2.75], [0.35, 3.1], [0.14, 3.2], [0.14, 3.35], [0, 3.45]], M, 14), [0, 0, 0]);
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2 + variant;
-        put(m, box(0.28, 0.5, 0.01, [ROLE.paper, ROLE.accent, ROLE.cloth3, ROLE.water, ROLE.leaf2][(i + variant) % 5]), [Math.cos(a) * 0.56, 1.4 + (i % 2) * 0.35, Math.sin(a) * 0.56], [0, 90 - (a * 180) / Math.PI, 0]);
+        put(m, box(0.28, 0.5, 0.01, [ROLE.paper, ROLE.accent, ROLE.cloth3, ROLE.blue, ROLE.leaf2][(i + variant) % 5]), [Math.cos(a) * 0.56, 1.4 + (i % 2) * 0.35, Math.sin(a) * 0.56], [0, 90 - (a * 180) / Math.PI, 0]);
       }
       return asset(kind, m, 0.66, 0.66, 3.45);
     }
@@ -295,7 +295,7 @@ function build(kind: string, size: number, variant: number, textParam: unknown =
     /* ---------- marché ---------- */
     case "awningstall": {
       // étal couvert d'une toile rayée en bâtière, tréteaux, cageots, balance
-      const stripe = [ROLE.accent, ROLE.cloth1, ROLE.leaf2, ROLE.water][variant % 4];
+      const stripe = [ROLE.accent, ROLE.cloth1, ROLE.leaf2, ROLE.blue][variant % 4];
       put(m, box(1.3, 0.04, 0.6, W), [0, 0.85, 0]);
       for (const sx of [-1, 1]) {
         put(m, box(0.04, 0.42, 0.55, W), [sx * 1.1, 0.42, 0]);

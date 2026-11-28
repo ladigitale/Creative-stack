@@ -3,7 +3,7 @@
  * Instanciables et sobres (≈ 300–1 200 triangles). Avant = +z, base au sol (ou à la ligne de flottaison) en y = 0.
  * `paint` choisit le rôle de la caisse ; `auto` le tire de la variante (deux voitures voisines diffèrent).
  */
-import { type V3, DEG, m4Compose, mix, qEuler } from "../core/math";
+import { type V3, DEG, m4Compose, mix, qAxis, qEuler, qFromTo, qMul } from "../core/math";
 import { Mesh } from "../geom/mesh";
 import { box, cylinder, ellipsoid, extrude, lathe, tube } from "../geom/prims";
 import { ROLE } from "../style/roles";
@@ -28,8 +28,9 @@ function spokeWheel(r: number, spokes: number, role: number, tire = ROLE.ink): M
 
 function build(kind: string, size: number, variant: number, paintName: string): Asset {
   const m = new Mesh();
-  const autoPaint = [ROLE.accent, ROLE.leaf2, ROLE.water, ROLE.cloth2, ROLE.cloth1, ROLE.ink, ROLE.paper, ROLE.wood][variant % 8];
-  const P = paintName === "auto" ? autoPaint : ((ROLE as Record<string, number>)[paintName] ?? ROLE.accent);
+  // jamais le rôle water : il est dessiné comme de l'eau (transparent, découpé, réfléchissant) ; « water » = bleu franc
+  const autoPaint = [ROLE.accent, ROLE.leaf2, ROLE.blue, ROLE.cloth2, ROLE.cloth1, ROLE.ink, ROLE.paper, ROLE.wood][variant % 8];
+  const P = paintName === "auto" ? autoPaint : paintName === "water" ? ROLE.blue : ((ROLE as Record<string, number>)[paintName] ?? ROLE.accent);
   const W = ROLE.wood, M = ROLE.metal;
   // places (conduite) : `seat.driver` (bassin du conducteur), `seat.N` (passagers)
   const A = (pos: V3) => ({ pos, rot: [0, 0, 0, 1] as [number, number, number, number], scale: 1 });
@@ -61,7 +62,7 @@ function build(kind: string, size: number, variant: number, paintName: string): 
     }
     case "bicycle": {
       // bicyclette : deux roues, cadre en losange, guidon, selle, panier
-      const fr = [ROLE.accent, ROLE.leaf2, ROLE.ink, ROLE.water][variant % 4];
+      const fr = [ROLE.accent, ROLE.leaf2, ROLE.ink, ROLE.blue][variant % 4];
       for (const z of [-0.52, 0.52]) put(m, spokeWheel(0.34, 12, M), [0, 0.34, z]);
       const bb: V3 = [0, 0.32, -0.05], seat: V3 = [0, 0.82, -0.22], head: V3 = [0, 0.8, 0.38];
       for (const [a, b] of [[bb, seat], [bb, head], [seat, head], [bb, [0, 0.34, -0.52]], [seat, [0, 0.34, -0.52]], [head, [0, 0.34, 0.52]]] as [V3, V3][])
@@ -121,9 +122,19 @@ function build(kind: string, size: number, variant: number, paintName: string): 
       }
       put(m, box(0.5, 0.03, 0.11, W), [0, 0.36, 0.35]);
       put(m, box(0.47, 0.03, 0.11, W), [0, 0.36, -0.55]);
+      // avirons au repos dans leurs dames de nage : poignée, manche droit qui s'affine, pale longue et plate dans l'axe
       for (const sx of [-1, 1]) {
-        put(m, tube([[sx * 0.45, 0.48, 0.1], [sx * 1.1, 0.2, -0.3], [sx * 1.4, 0.05, -0.45]], [0.02, 0.02, 0.02], W, 4), [0, 0, 0]);
-        put(m, box(0.06, 0.012, 0.16, W), [sx * 1.45, 0.05, -0.48], [0, sx * 25, 0]);
+        const lock: V3 = [sx * 0.5, 0.52, -0.1], tip: V3 = [sx * 1.75, 0.1, -0.5], grip: V3 = [sx * 0.12, 0.62, 0.02];
+        const d = [tip[0] - grip[0], tip[1] - grip[1], tip[2] - grip[2]] as V3;
+        const L = Math.hypot(d[0], d[1], d[2]);
+        const u: V3 = [d[0] / L, d[1] / L, d[2] / L];
+        const q = qFromTo([0, 1, 0], u);
+        const at = (t: number): V3 => [grip[0] + d[0] * t, grip[1] + d[1] * t, grip[2] + d[2] * t];
+        m.append(cylinder(0.017, 0.017, 0.14, ROLE.leather, 6), m4Compose(grip, q));
+        m.append(cylinder(0.019, 0.014, L * 0.72, W, 6), m4Compose(at(0.08), q));
+        // pale : plate, en cuillère (ellipsoïde aplati), un peu plus large au bout
+        m.append(ellipsoid(0.075, 0.24, 0.012, W, 8, 5), m4Compose(at(0.82), qMul(q, qAxis([0, 1, 0], Math.PI / 2))));
+        put(m, cylinder(0.025, 0.025, 0.06, M, 6), [lock[0], lock[1] - 0.03, lock[2]]);
       }
       return asset(0.8, 1.7, 0.7, { "seat.driver": A([0, 0.39, -0.55]), "seat.0": A([0, 0.39, 0.35]) });
     }

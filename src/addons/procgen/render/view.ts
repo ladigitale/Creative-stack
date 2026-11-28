@@ -358,6 +358,8 @@ export class ProcgenView {
   /** Monde infini : tuiles chargées autour du point suivi (null : scène finie). */
   /** Conduite : véhicules et montures actifs, inclinaisons de caisse, véhicules détachés de leur tuile (monde infini). */
   private vehicles = new Map<string, VehRT>();
+  /** Modèle dont les bateaux posés ont été mis à flot (voir `stepVehicles`). */
+  private floatersOf: unknown = null;
   private tilts = new Map<string, [number, number]>();
   private detachedIms = new Map<string, THREE.InstancedMesh>();
   private detachedObjs = new Set<number>();
@@ -958,6 +960,7 @@ export class ProcgenView {
     }
     this.actors.clear();
     this.vehicles.clear();
+    this.floatersOf = null;
     this.tilts.clear();
     this.obstacleCache = null;
     this.detachedIms.clear();
@@ -2319,6 +2322,11 @@ export class ProcgenView {
   }
 
   private stepVehicles(dt: number) {
+    // bateaux posés dans la scène (amarrés, au mouillage) : ils flottent dès le départ, même si personne ne les conduit
+    if (this.model && this.floatersOf !== this.model) {
+      this.floatersOf = this.model;
+      for (const o of this.model.objects) if (o.generator === "vehicle" && o.mode !== "actor" && vehicleSpecOf(o)?.medium === "water") this.vehicle(o.id);
+    }
     if (!this.vehicles.size || !this.model) return;
     for (const v of this.vehicles.values()) {
       // portières qui se referment : rendues aux états demandés une fois fermées
@@ -2402,6 +2410,12 @@ export class ProcgenView {
     if (!v.route && !direct && Math.abs(v.s.speed) < 1e-3 && v.rolling) this.stopRolling(v);
   }
 
+  /** Houle (amplitude, longueur d'onde, m) : la mer selon le vent de la scène, les pièces d'eau à peine frémissantes. */
+  private waveParams(sea: boolean, wind = this.model?.wind ?? 0.3) {
+    const w = Math.min(1, wind);
+    return sea ? { amp: 0.05 + 0.15 * w, len: 8 + 6 * w } : { amp: 0.004 + 0.01 * w, len: 0.9 };
+  }
+
   /** Caisse posée : sur le relief (tangage, roulis, inclinaison dans les virages), sur l'eau, sur la voie, en l'air. */
   private poseVehicle(v: VehRT, dt: number) {
     const m = this.model!;
@@ -2409,15 +2423,17 @@ export class ProcgenView {
     const fx = Math.sin(s.yaw), fz = Math.cos(s.yaw), lx = Math.cos(s.yaw), lz = -Math.sin(s.yaw);
     let y = v.y, pitch = 0, roll = 0;
     if (sp.medium === "water") {
-      const wl = this.waterAt(s.x, s.z) ?? (this.inf ? this.inf.world.waterLevel ?? 0 : m.terrain?.spec.water ?? v.y + 0.15);
+      const wl = this.waterAt(s.x, s.z) ?? (this.inf ? this.inf.world.waterLevel ?? 0 : m.terrain?.spec.water ?? v.y + 0.1);
       // flottaison sur la houle : la même fonction de vagues que le shader, en quatre points de la coque
-      const u = this.shared as unknown as Record<string, { value: unknown } | undefined>;
-      const sea = Number(u.uWaterKind?.value ?? 0) > 0.5;
+      // (paramètres de la houle recalculés ici : les uniformes partagés gardent ceux de la dernière pièce d'eau dessinée)
+      const seaL = m.terrain?.spec.water;
+      const sea = !!m.water && typeof seaL === "number" && Math.abs(wl - seaL) < 0.02;
+      const wp = this.waveParams(sea);
       const bed = this.bed(s.x, s.z);
       // hauts-fonds : houle amortie comme dans le shader ; eau du terrain : agitation selon son étendue
       const damp = sea ? smoothstep(0, 0.3, clamp((wl - bed) / 2.5, 0, 1)) * (m.terrain?.agitation ?? 1) : 1;
-      const hw = hullOnWaves(s.x, s.z, s.yaw, sp.hz, sp.hx, { amp: Number(u.uWaveAmp?.value ?? 0), len: Number(u.uWaveLen?.value ?? 1), time: this.time }, damp);
-      y = wl - 0.15 + hw.dy + Math.sin(this.time * 1.7 + s.x) * 0.012;
+      const hw = hullOnWaves(s.x, s.z, s.yaw, sp.hz, sp.hx, { ...wp, time: this.time }, damp);
+      y = wl - 0.1 + hw.dy + Math.sin(this.time * 1.7 + s.x) * 0.012;
       pitch = hw.pitch + Math.sin(this.time * 1.3 + s.z) * 0.008 + clamp(-s.lon * 0.02, -0.04, 0.04);
       roll = hw.roll + Math.sin(this.time * 1.1 + 1) * 0.01 + clamp(-s.lat / 9.81, -1, 1) * sp.lean;
     } else if (sp.medium === "air") {
@@ -4408,8 +4424,9 @@ export class ProcgenView {
     const wind = this.model?.wind ?? 0.3;
     for (const w of items) {
       u.uWaterKind.value = w.kind === "sea" ? 1 : 0;
-      u.uWaveAmp.value = w.kind === "sea" ? 0.06 + 0.22 * Math.min(1, wind) : 0.004 + 0.01 * Math.min(1, wind);
-      u.uWaveLen.value = w.kind === "sea" ? 7 + 6 * Math.min(1, wind) : 0.9;
+      const wp = this.waveParams(w.kind === "sea", wind);
+      u.uWaveAmp.value = wp.amp;
+      u.uWaveLen.value = wp.len;
       this.renderer.render(w.mesh, this.camera);
     }
     u.uPass.value = 0;
@@ -4445,6 +4462,16 @@ export class ProcgenView {
     const w = this.canvas.clientWidth || 1, h = this.canvas.clientHeight || 1;
     this.shared.uTime.value = this.time;
     this.shared.uWind.value = this.model.wind;
+    // emprise des coques à flot : l'eau n'y est pas dessinée
+    let nh = 0;
+    for (const v of this.vehicles.values()) {
+      if (nh >= 12 || v.spec.medium !== "water" || (v.o && this.hiddenIds.has(v.id))) continue;
+      // section de la coque à la flottaison (l'emprise de la barque compte ses avirons)
+      const hull = v.spec.kind === "rowboat" ? [0.33, 0.95] : v.spec.kind === "sailboat" ? [0.54, 1.65] : [v.spec.hx * 0.75, v.spec.hz * 0.8];
+      (this.shared.uHullA.value as THREE.Vector4[])[nh].set(v.s.x, v.s.z, hull[0], hull[1]);
+      (this.shared.uHullB.value as THREE.Vector4[])[nh++].set(Math.cos(v.s.yaw), Math.sin(v.s.yaw), 0, 0);
+    }
+    this.shared.uHullN.value = nh;
     // balancement des feuillages dans la direction du vent ; 67° (défaut) : direction historique (1, 0,4) exacte
     const wd = this.model.windDir ?? (67 * Math.PI) / 180;
     const legacy = Math.abs(wd - (67 * Math.PI) / 180) < 1e-9;

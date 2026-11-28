@@ -1066,7 +1066,7 @@ function pickLook(st: Style, p: { walls: string; roofing: string; ornament: numb
   const orn = p.ornament >= 0 ? p.ornament : r.range(0, 1);
   // façades : enduits clairs variés (le shader varie déjà la teinte par objet)
   const enduit = r.weighted([[ROLE.wall, 5], [ROLE.paper, 2], [ROLE.cloth3, 2], [ROLE.trim, 1.5], [ROLE.path, 1]] as const);
-  const shutterColor = r.weighted([[ROLE.accent, 2], [ROLE.leaf2, 2], [ROLE.water, 2], [ROLE.wood, 2], [ROLE.cloth2, 1], [ROLE.metal, 1], [ROLE.paper, 0.7], [ROLE.cloth1, 1]] as const);
+  const shutterColor = r.weighted([[ROLE.accent, 2], [ROLE.leaf2, 2], [ROLE.blue, 2], [ROLE.wood, 2], [ROLE.cloth2, 1], [ROLE.metal, 1], [ROLE.paper, 0.7], [ROLE.cloth1, 1]] as const);
   const doorColor = r.weighted([[ROLE.wood, 4], [shutterColor, 3], [ROLE.cloth2, 1], [ROLE.accent, 1], [ROLE.leaf2, 1]] as const);
   const L: Look = {
     finish: "enduit",
@@ -1114,7 +1114,7 @@ function pickLook(st: Style, p: { walls: string; roofing: string; ornament: numb
       Object.assign(L, { finish: "bardage", wall: ROLE.wood, base: ROLE.stone, pitch: r.range(22, 28) * DEG, roofMat: r.chance(0.5) ? "lauze" : "ardoise", shutterKind: "pleins", win: "rect", quoins: false, bands: false, gutters: false, coyau: false, planters: r.range(0.4, 0.9), shutter: r.pick([ROLE.accent, ROLE.leaf2, ROLE.paper, ROLE.wood]) });
       break;
     case "mediterraneen":
-      Object.assign(L, { wall: r.pick([ROLE.paper, ROLE.wall, ROLE.cloth3, ROLE.path, ROLE.flower]), pitch: r.range(20, 26) * DEG, roofMat: "tuile", shutterKind: "persiennes", genoise: true, coyau: false, gutters: false, quoins: false, bands: false, win: r.pick(["rect", "arch", "rect"]), shutter: r.pick([ROLE.water, ROLE.leaf2, ROLE.accent, ROLE.wood, ROLE.paper]) });
+      Object.assign(L, { wall: r.pick([ROLE.paper, ROLE.wall, ROLE.cloth3, ROLE.path, ROLE.flower]), pitch: r.range(20, 26) * DEG, roofMat: "tuile", shutterKind: "persiennes", genoise: true, coyau: false, gutters: false, quoins: false, bands: false, win: r.pick(["rect", "arch", "rect"]), shutter: r.pick([ROLE.blue, ROLE.leaf2, ROLE.accent, ROLE.wood, ROLE.paper]) });
       break;
     case "japonais":
       Object.assign(L, { finish: "shoji", wall: ROLE.paper, base: ROLE.stone, trim: ROLE.bark, roofMat: "kawara", roof: ROLE.metal, shutterKind: "none", win: "shoji", door: ROLE.paper, quoins: false, bands: false, gutters: false, planters: 0, pitch: 30 * DEG, coyau: false });
@@ -1232,7 +1232,7 @@ function singular(st: Style, p: { floors: number; depth: number; ornament: numbe
     const hf: Face = { o: [kx * (R0 + hw / 2 - 0.2), 0, -0.3 + hd / 2], yaw: 0, w: hw, kind: "front", jet: 0 };
     mesh.append(box(0.45, 0.4, 0.02, ROLE.glass), m4Compose(at(hf, kx * 0.8, 1.6, 0.01)));
     mesh.append(box(0.55, 0.05, 0.1, ROLE.trim), m4Compose(at(hf, kx * 0.8, 1.15, 0.05)));
-    for (const sx of [-1, 1]) mesh.append(box(0.24, 0.42, 0.025, ROLE.water), m4Compose(at(hf, kx * 0.8 + sx * 0.72, 1.6, 0.03)));
+    for (const sx of [-1, 1]) mesh.append(box(0.24, 0.42, 0.025, ROLE.blue), m4Compose(at(hf, kx * 0.8 + sx * 0.72, 1.6, 0.03)));
     mesh.append(box(0.45, 1.0, 0.03, ROLE.wood), m4Compose([0, 1.15, R0 + 0.02]));
     mesh.append(box(0.55, 0.06, 0.1, ROLE.trim), m4Compose([0, 2.2, R0 + 0.05]));
     mesh.append(box(0.7, 0.1, 0.4, ROLE.stone), m4Compose([0, 0.1, R0 + 0.3]));
