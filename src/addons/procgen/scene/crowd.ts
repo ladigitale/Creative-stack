@@ -89,3 +89,50 @@ export function slideStep(pos: V3, nx: number, nz: number, free: (x: number, z: 
   else return false;
   return true;
 }
+
+/** Grille de praticabilité minimale (NavGrid, ou monde infini sans `nearestFree`). */
+export type FreeGrid = { free(x: number, z: number): boolean; nearestFree?(x: number, z: number): [number, number] | null; center?(i: number, j: number): [number, number] };
+
+/**
+ * Point de flânerie : une direction tirée de la graine et du temps, à 3–8 m, dans la scène ; on essaie jusqu'à
+ * 8 directions pour qu'il tombe sur un sol libre (jamais dans une maison, un objet, l'eau).
+ */
+export function wanderTarget(pos: V3, seed: number, time: number, size: [number, number], nav: FreeGrid | null | undefined): [number, number] {
+  const ang0 = (seed * 3.7 + time * 1.3) % (Math.PI * 2);
+  const r = 3 + ((seed + time) % 5);
+  const cl = (v: number, h: number) => Math.max(-h / 2 + 1, Math.min(h / 2 - 1, v));
+  const at = (k: number): [number, number] => [cl(pos[0] + Math.cos(ang0 + k * 2.4) * r, size[0]), cl(pos[2] + Math.sin(ang0 + k * 2.4) * r, size[1])];
+  let t = at(0);
+  for (let k = 1; k <= 8 && nav && !nav.free(t[0], t[1]); k++) t = at(k);
+  return t;
+}
+
+/**
+ * Un pas de marche, chemin ou pas : on ne traverse rien (un virage coupé glisse le long du mur). Renvoie la distance
+ * réellement parcourue ; `stuck` accumule le temps passé sans avancer, que l'appelant compare à `STUCK_REPLAN`.
+ */
+export function walkStep(pos: V3, nx: number, nz: number, free: (x: number, z: number) => boolean): { moved: number; blocked: boolean } {
+  const x0 = pos[0], z0 = pos[2];
+  const ok = slideStep(pos, nx, nz, free);
+  return { moved: Math.hypot(pos[0] - x0, pos[2] - z0), blocked: !ok };
+}
+
+/** Temps sans avancer sur un chemin au-delà duquel on le recalcule depuis là où l'on est (s). */
+export const STUCK_REPLAN = 0.7;
+
+/**
+ * Acteur dans un obstacle (apparu là, poussé par la foule, objet posé sur lui) : il en sort vers la case libre la
+ * plus proche à 2,5 m/s au lieu d'y circuler librement. Renvoie vrai s'il a été déplacé.
+ */
+export function unstick(pos: V3, nav: FreeGrid | null | undefined, dt: number): boolean {
+  if (!nav?.nearestFree || !nav.center || nav.free(pos[0], pos[2])) return false;
+  const c = nav.nearestFree(pos[0], pos[2]);
+  if (!c) return false;
+  const [fx, fz] = nav.center(c[0], c[1]);
+  const dx = fx - pos[0], dz = fz - pos[2], d = Math.hypot(dx, dz);
+  if (d < 1e-4) return false;
+  const k = Math.min(1, (2.5 * dt) / d);
+  pos[0] += dx * k;
+  pos[2] += dz * k;
+  return true;
+}
