@@ -126,7 +126,8 @@ describe("points d'eau (water)", () => {
           expect(ap[1], kind).toBe(0);
           expect(Math.hypot(ap[0], ap[2]), kind).toBeGreaterThan(Math.hypot(sp[0], sp[2]));
         }
-        expect((asset.extra!.affords as string[]), kind).toContain("drink");
+        // eau buvable, sauf le geyser (brûlant) et la mare gelée (glace)
+        if (kind !== "geyser" && kind !== "frozen") expect((asset.extra!.affords as string[]), kind).toContain("drink");
       }
     }
   });

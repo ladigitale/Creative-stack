@@ -16,6 +16,7 @@ import { streetModel } from "../../gen/street";
 import { petModel } from "../../gen/pet";
 import { structureModel } from "../../gen/structure";
 import { waterModel } from "../../gen/water";
+import { lavaModel } from "../../gen/lava";
 import { textileFrozenParts } from "../../gen/textile";
 import type { ObjectDrawer } from "./types";
 
@@ -231,6 +232,10 @@ export const drawStructure: ObjectDrawer = (kit, p, ctx) => {
 export const drawWater: ObjectDrawer = (kit, p) => {
   const m = waterModel(p);
   drawParts(kit, m.bank ? [m.bank, ...m.parts] : m.parts, { width: 0.5 });
+};
+
+export const drawLava: ObjectDrawer = (kit, p) => {
+  drawParts(kit, lavaModel(p).parts, { width: 0.5 });
 };
 
 /** Textiles : mât, poteaux, tringle et tissu figé dans son drapé de repos (pas de simulation en vectoriel). */

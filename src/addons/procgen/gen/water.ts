@@ -15,7 +15,7 @@ import type { Role } from "../style/roles";
 import { type Part, type PartList, hull2, partsBounds, partsToMesh, roleParam, transformParts } from "./parts";
 import { type Anchor, defineGenerator } from "./types";
 
-export const WATER_KINDS = ["pond", "basin", "pool", "cascade"] as const;
+export const WATER_KINDS = ["pond", "basin", "pool", "cascade", "waterfall", "hotspring", "geyser", "frozen"] as const;
 
 type O = { kind: string; shape: "round" | "rect"; L: number; W: number; level: number; rimH: number; rim: number; H: number; main: Role; trim: Role; water: Role; seed: number };
 /**
@@ -145,17 +145,94 @@ function cascade(o: O): Built {
   return { parts: P, spots: base.spots.filter((_, i) => i !== 2), center: [0, 0.06, 0], affords: ["drink", "bathe", "fish"], fall: [0, 0.08, -o.W * 0.32 + 0.12], fallTop: [0, lipY, lipZ - 0.05], tanks: base.tanks, bank: base.bank };
 }
 
+/**
+ * Chute d'eau : falaise de rochers (paroi derrière la lame, contreforts de part et d'autre), rivière qui arrive en
+ * haut, lame d'eau d'un seul tenant jusqu'à la vasque de plongée, écume et rochers éboulés au pied.
+ */
+function waterfall(o: O): Built {
+  const H = o.H;
+  const base = pond({ ...o, rimH: 0.1, level: 0.04 });
+  const P: PartList = [...base.parts];
+  const back = -o.W * 0.42 - 0.5;
+  const ww = Math.max(0.6, o.L * 0.22);
+  // paroi : blocs taillés en strates (boîtes inclinées au hasard, arêtes un peu arrondies), plus étroite en haut ;
+  // contreforts qui encadrent la chute ; jamais de bloc devant la lame
+  const n = Math.max(3, Math.round(H / 1.4));
+  for (let k = 0; k < n; k++) {
+    const y = ((k + 0.5) * H) / n, h = (H / n) * 0.62;
+    const w = o.L * mix(0.6, 0.42, k / Math.max(1, n - 1));
+    const tilt = (i: number) => [(hash(o.seed, k * 7 + i) - 0.5) * 14, (hash(o.seed, k * 11 + i) - 0.5) * 24, (hash(o.seed, k * 13 + i) - 0.5) * 10] as V3;
+    P.push(bx([(hash(o.seed, k) - 0.5) * 0.6, y, back - 1.1], [w * 0.95, h, 1.1], o.main, tilt(0)));
+    for (const sx of [-1, 1]) {
+      const cx = sx * (ww + w * 0.3 + 0.3);
+      P.push(bx([cx, y, back - 0.2 + hash(o.seed, k + 9) * 0.5], [w * 0.36, h * (0.85 + hash(o.seed, k + sx) * 0.3), 0.95], o.main, tilt(sx + 3)));
+      if (hash(o.seed, k + sx * 5) > 0.45) P.push(bx([cx + sx * w * 0.3, y + h * 0.4, back + 0.3], [w * 0.2, h * 0.5, 0.55], o.trim, tilt(sx + 6)));
+    }
+  }
+  // corniche au sommet, d'où l'eau bascule
+  for (const sx of [-1, 1]) P.push(bx([sx * ww * 1.05, H - 0.05, back - 0.1], [0.45, 0.22, 0.6], o.main, [0, sx * 12, 0]));
+  // rivière en haut : lit qui arrive de l'arrière
+  P.push(flat(H + 0.02, [[-ww * 1.1, back - 0.2], [ww * 1.1, back - 0.2], [ww * 1.3, back - 3.2], [-ww * 1.3, back - 3.2]], 0.02, o.water));
+  for (const sx of [-1, 1]) P.push(bx([sx * ww * 1.6, H - 0.15, back - 1.7], [ww * 0.5, 0.4, 1.7], o.main, [0, sx * 8, 0]));
+  // lame d'eau : un seul pan, légèrement en surplomb en haut, qui touche la vasque
+  const zs = back + 0.25;
+  P.push({ t: "plate", c: [0, 0, zs], pts: [[-ww, 0.04], [ww, 0.04], [ww * 0.95, H + 0.04], [-ww * 0.95, H + 0.04]], d: 0.03, rot: [-4, 0, 0], role: o.water });
+  // écume au pied et rochers éboulés
+  for (let i = -2; i <= 2; i++) P.push({ t: "blob", c: [i * ww * 0.42, 0.1, zs + 0.35 + hash(o.seed, i + 20) * 0.2], r: [ww * 0.34, 0.12, 0.32], role: "white" });
+  for (let i = 0; i < 6; i++) {
+    const a = hash(o.seed, i + 40) * Math.PI;
+    P.push(bx([Math.cos(a) * o.L * 0.45, 0.18, zs + 0.6 + Math.sin(a) * 0.5], [0.32 + hash(o.seed, i) * 0.2, 0.22, 0.3], o.main, [hash(o.seed, i + 3) * 20, hash(o.seed, i + 5) * 60, hash(o.seed, i + 7) * 15]));
+  }
+  return { parts: P, spots: base.spots.filter((_, i) => i !== 2), center: [0, 0.06, 0], affords: ["drink", "bathe", "swim", "fish"], fall: [0, 0.1, zs + 0.3], fallTop: [0, H, zs], tanks: base.tanks, bank: base.bank };
+}
+
+/** Source chaude : vasques de travertin en terrasses, eau turquoise, ancre `steam` (vapeur : `fx` steam). */
+function hotspring(o: O): Built {
+  const base = pond({ ...o, main: o.main, level: 0.05 });
+  const P: PartList = [...base.parts];
+  // terrasses calcaires en demi-lunes devant la vasque principale
+  for (let k = 1; k <= 2; k++) {
+    const rz = o.W * 0.5 + k * 0.45;
+    const y = Math.max(0.02, 0.08 - k * 0.03);
+    P.push(flat(y, ellipse(o.L * (0.42 - k * 0.08), 0.35, 16).map(([x, z]) => [x, z + rz] as [number, number]), 0.012, o.water));
+    P.push({ t: "blob", c: [0, y, rz + 0.36], r: [o.L * (0.42 - k * 0.08), 0.1, 0.12], role: o.trim });
+  }
+  return { ...base, parts: P, affords: ["bathe", "swim", "drink"] };
+}
+
+/** Geyser : cône de concrétions percé d'un évent, petite vasque autour ; ancre `vent` (jet : `fx` sur l'ancre). */
+function geyser(o: O): Built {
+  const base = pond({ ...o, L: o.L, W: o.W, level: 0.03 });
+  const P: PartList = [...base.parts];
+  const R = Math.min(o.L, o.W) * 0.28, h = Math.max(0.4, R * 0.8);
+  P.push({ t: "lathe", c: [0, 0, 0], profile: [[R, 0], [R * 0.75, h * 0.45], [R * 0.32, h * 0.92], [R * 0.2, h], [R * 0.12, h * 0.88]], role: o.trim });
+  P.push(flat(h * 0.9, ellipse(R * 0.14, R * 0.14, 10), 0.01, o.water));
+  return { ...base, parts: P, center: [0, h, 0], affords: ["look"], fallTop: [0, h, 0] };
+}
+
+/** Mare gelée : glace lisse au lieu de l'eau, neige poudrée sur la berge. */
+function frozen(o: O): Built {
+  const b = pond({ ...o, water: "glass" });
+  const P: PartList = [...b.parts];
+  const n = 7;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + hash(o.seed, i) * 0.4;
+    P.push({ t: "blob", c: [Math.cos(a) * o.L * 0.55, 0.05, Math.sin(a) * o.W * 0.55], r: [0.5, 0.07, 0.4], role: "white" });
+  }
+  return { ...b, parts: P, affords: ["slide", "walk"] };
+}
+
 export type WaterModel = Built & { label: string; kind: string; scale: number };
 
-const LABELS: Record<string, string> = { pond: "Mare", basin: "Bassin", pool: "Piscine", cascade: "Cascade" };
+const LABELS: Record<string, string> = { pond: "Mare", basin: "Bassin", pool: "Piscine", cascade: "Cascade", waterfall: "Chute d'eau", hotspring: "Source chaude", geyser: "Geyser", frozen: "Mare gelée" };
 
 export function waterModel(p: Record<string, unknown>): WaterModel {
   const kind = (WATER_KINDS as readonly string[]).includes(String(p.kind)) ? String(p.kind) : "pond";
   const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : d);
   const shapeIn = String(p.shape ?? "auto");
   const shape = shapeIn === "round" || shapeIn === "rect" ? shapeIn : kind === "pool" ? "rect" : "round";
-  const dL = kind === "pool" ? 8 : kind === "basin" ? 2.4 : kind === "cascade" ? 3 : 4;
-  const dW = kind === "pool" ? 4 : kind === "basin" ? (shape === "round" ? dL : 1.6) : kind === "cascade" ? 2.4 : 3;
+  const dL = kind === "pool" ? 8 : kind === "basin" ? 2.4 : kind === "cascade" ? 3 : kind === "waterfall" ? 7 : kind === "geyser" ? 3.5 : 4;
+  const dW = kind === "pool" ? 4 : kind === "basin" ? (shape === "round" ? dL : 1.6) : kind === "cascade" ? 2.4 : kind === "waterfall" ? 5 : 3;
   const rimH = kind === "basin" ? 0.45 : kind === "pool" ? 0.14 : 0.08;
   const L = clamp(num(p.length, dL), 0.6, 40);
   const o: O = {
@@ -166,13 +243,13 @@ export function waterModel(p: Record<string, unknown>): WaterModel {
     level: clamp(typeof p.level === "number" && p.level >= 0 ? p.level : kind === "basin" ? 0.12 : kind === "pool" ? 0.08 : 0.04, 0, 2),
     rimH: clamp(typeof p.rimHeight === "number" && p.rimHeight > 0 ? p.rimHeight : rimH, 0.05, 1.5),
     rim: clamp(typeof p.rim === "number" && p.rim > 0 ? p.rim : kind === "pool" ? 0.35 : 0.25, 0.08, 1.2),
-    H: clamp(num(p.height, 1.6), 0.4, 6),
+    H: kind === "waterfall" ? clamp(num(p.height === 1.6 ? undefined : p.height, 8), 2, 25) : clamp(num(p.height, 1.6), 0.4, 6),
     main: roleParam(p.color, kind === "pool" ? "paper" : "stone"),
-    trim: roleParam(p.color2, kind === "pool" ? "white" : "trim"),
+    trim: roleParam(p.color2, kind === "pool" ? "white" : kind === "hotspring" || kind === "geyser" ? "paper" : "trim"),
     water: roleParam(p.color3, "water"),
     seed: Number(p.variant ?? 0) * 1.7 + 0.3,
   };
-  const b = kind === "pond" ? pond(o) : kind === "basin" ? basin(o) : kind === "pool" ? pool(o) : cascade(o);
+  const b = kind === "pond" ? pond(o) : kind === "basin" ? basin(o) : kind === "pool" ? pool(o) : kind === "waterfall" ? waterfall(o) : kind === "hotspring" ? hotspring(o) : kind === "geyser" ? geyser(o) : kind === "frozen" ? frozen(o) : cascade(o);
   const s = clamp(Number(p.scale ?? 1) || 1, 0.2, 5);
   if (s === 1) return { ...b, label: LABELS[kind], kind, scale: 1 };
   const S = (v: V3): V3 => [v[0] * s, v[1] * s, v[2] * s];
@@ -259,9 +336,9 @@ export function tankMesh(t: Tank): Mesh {
 
 export const water = defineGenerator({
   id: "water",
-  label: "Point d'eau (mare, bassin, piscine, cascade)",
+  label: "Point d'eau (mare, bassin, piscine, cascade, chute d'eau, source chaude, geyser, mare gelée)",
   doc:
-    "Points d'eau sur la grammaire de pièces (même modèle en 3D et en vectoriel) : pond (mare naturelle, berge et pierres), basin (bassin maçonné à margelle, `shape` round ou rect), pool (piscine affleurante, margelle de dalles, frise, échelle), cascade (rochers en gradins, lames d'eau, écume, vasque au pied). `length` × `width` (m), `level` (eau sous le haut de la margelle, m), `rimHeight` (hauteur de la margelle), `rim` (largeur de la margelle), `height` (cascade). L'eau a un fond relié à ses bords (3D) : cuve de piscine sous le sol (ouvert au-dessus), cuvette de mare qui remonte jusqu'à la berge, dalle du bassin entre ses murs ; piscine limpide, mare trouble. Ancres `spot.0`…`spot.3` (bord de l'eau, à son niveau : avant, droite, arrière, gauche ; `spot` = `spot.0`) et `approach.N` (au sol devant) : `{target: \"<id>.spot.1\", action: \"drink\"}` y fait boire un animal ou un personnage ; `center` ; cascade : `fall` (pied de la chute, embruns) et `fall.top`. `extra.affords` : drink, bathe, swim, fish, dive.",
+    "Points d'eau sur la grammaire de pièces (même modèle en 3D et en vectoriel) : pond (mare naturelle, berge et pierres), basin (bassin maçonné à margelle, `shape` round ou rect), pool (piscine affleurante, margelle de dalles, frise, échelle), cascade (rochers en gradins, lames d'eau, écume, vasque au pied), waterfall (chute d'eau : falaise de rochers, rivière qui arrive en haut, lame d'un seul tenant qui défile, écume et éboulis au pied, vasque de plongée où l'on nage ; `height` 2 à 25 m), hotspring (source chaude : vasque turquoise, terrasses de travertin ; ancre `steam` pour la vapeur, `fx` steam), geyser (cône de concrétions percé d'un évent, petite vasque ; ancre `vent` pour le jet : `fx` gouttes ou vapeur, salves par la clé `fx`), frozen (mare gelée : glace lisse, neige sur la berge). `length` × `width` (m), `level` (eau sous le haut de la margelle, m), `rimHeight` (hauteur de la margelle), `rim` (largeur de la margelle), `height` (cascade). L'eau a un fond relié à ses bords (3D) : cuve de piscine sous le sol (ouvert au-dessus), cuvette de mare qui remonte jusqu'à la berge, dalle du bassin entre ses murs ; piscine limpide, mare trouble. Ancres `spot.0`…`spot.3` (bord de l'eau, à son niveau : avant, droite, arrière, gauche ; `spot` = `spot.0`) et `approach.N` (au sol devant) : `{target: \"<id>.spot.1\", action: \"drink\"}` y fait boire un animal ou un personnage ; `center` ; cascade : `fall` (pied de la chute, embruns) et `fall.top`. `extra.affords` : drink, bathe, swim, fish, dive.",
   tags: ["eau", "jardin", "parc", "ferme", "animal", "piscine", "fontaine", "nature"],
   schema: {
     kind: { type: "enum", default: "pond", options: WATER_KINDS, doc: "Point d'eau" },
@@ -271,7 +348,7 @@ export const water = defineGenerator({
     level: { type: "number", default: -1, min: -1, max: 2, unit: "m", doc: "Niveau de l'eau sous le haut de la margelle (−1 = défaut)" },
     rimHeight: { type: "number", default: 0, min: 0, max: 1.5, unit: "m", doc: "Hauteur de la margelle au-dessus du sol (0 = défaut : bassin 0,45, piscine 0,14)" },
     rim: { type: "number", default: 0, min: 0, max: 1.2, unit: "m", doc: "Largeur de la margelle (0 = défaut)" },
-    height: { type: "number", default: 1.6, min: 0.4, max: 6, unit: "m", doc: "Hauteur de la cascade" },
+    height: { type: "number", default: 1.6, min: 0.4, max: 25, unit: "m", doc: "Hauteur de la cascade (6 m au plus) ou de la chute d'eau (8 m par défaut, 2 à 25 m)" },
     variant: { type: "int", default: -1, min: -1, max: 7, doc: "Variante (contour de la mare, pierres)" },
     scale: { type: "number", default: 1, min: 0.2, max: 5, doc: "Échelle" },
     color: { type: "string", default: "auto", doc: "Rôle de la maçonnerie, des rochers" },
@@ -282,10 +359,10 @@ export const water = defineGenerator({
     const m = waterModel(p);
     const mesh = partsToMesh(m.parts, 0.85);
     // limpidité de l'eau portée par l'AO de ses sommets (lue par le shader d'eau) : piscine claire, mare trouble
-    const clear = m.kind === "pool" ? 1 : m.kind === "basin" ? 0.75 : 0.3;
+    const clear = m.kind === "pool" ? 1 : m.kind === "basin" || m.kind === "hotspring" ? 0.75 : 0.3;
     for (let v = 0; v < mesh.vertexCount; v++) if (mesh.role[v] === ROLE.water) mesh.ao[v] = clear;
     // agitation propre : mare quelques rides, bassin et piscine presque lisses, vasque d'une cascade brassée par la chute
-    setWaterAgitation(mesh, ROLE.water, m.kind === "cascade" ? 0.6 : m.kind === "pond" ? 0.3 : m.kind === "pool" ? 0.18 : 0.12);
+    setWaterAgitation(mesh, ROLE.water, m.kind === "waterfall" ? 0.8 : m.kind === "cascade" ? 0.6 : m.kind === "geyser" ? 0.4 : m.kind === "pond" ? 0.3 : m.kind === "pool" ? 0.18 : 0.12);
     for (const t of m.tanks ?? []) mesh.append(tankMesh(t));
     const holes = (m.tanks ?? []).filter((t) => t.hole).map((t) => [t.hole!.round ? (t.hole!.seed !== undefined ? 2 : 1) : 0, t.hole!.hx, t.hole!.hz, t.hole!.seed ?? 0]);
     const bb = partsBounds(m.parts);
@@ -299,6 +376,9 @@ export const water = defineGenerator({
     });
     if (m.fall) anchors.fall = { pos: m.fall, rot, scale: m.scale };
     if (m.fallTop) anchors["fall.top"] = { pos: m.fallTop, rot, scale: m.scale };
+    // geyser : évent au sommet du cône ; source chaude : vapeur au-dessus de la vasque
+    if (m.kind === "geyser" && m.fallTop) anchors.vent = { pos: m.fallTop, rot, scale: m.scale };
+    if (m.kind === "hotspring") anchors.steam = { pos: [m.center[0], m.center[1] + 0.1, m.center[2]], rot, scale: m.scale };
     if (m.spots.length) {
       anchors.spot = anchors["spot.0"];
       anchors.approach = anchors["approach.0"];
