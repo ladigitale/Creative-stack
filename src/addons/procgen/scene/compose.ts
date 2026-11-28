@@ -8,6 +8,7 @@
  * Statiques uniques (bâtiments) : fusionnés par tuile spatiale ; objets répétés (arbres, rochers, objets) : instanciés ;
  * personnages : acteurs animés.
  */
+import { ROLE } from "../style/roles";
 import { type TopGrid, topGridOf } from "./surfaces";
 import { type M4, type V3, DEG, clamp, m4Compose, m4Mul, m4Point, qAxis, qRot, sub } from "../core/math";
 import { type JointInfo, jointChain, jointInfo } from "../gen/joints";
@@ -180,6 +181,10 @@ export type SceneModel = {
   ground: Mesh | null;
   roads: Mesh | null;
   water: Mesh | null;
+  /** Eau des objets fusionnés (mares, bassins, piscines) : triangles sortis des tuiles, dessinés dans la passe d'eau. */
+  waterParts?: Mesh | null;
+  /** Ouvertures du sol au-dessus des fonds d'eau (piscine, mare) : `[x, z, hx, hz, yaw, forme, graine]` monde (forme : 0 rectangle, 1 ellipse, 2 contour ondulé de mare), 16 au plus. */
+  holes?: [number, number, number, number, number, number, number][];
   tiles: Mesh[];
   instances: InstanceGroup[];
   actors: ActorModel[];
@@ -434,6 +439,7 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
   const groups = new Map<string, InstanceGroup>();
   const assetCache = tile?.assetCache ?? new Map<string, Asset>();
   const placedCircles: { x: number; z: number; r: number }[] = [];
+  const holes: [number, number, number, number, number, number, number][] = [];
   const nav = new NavGrid(size[0], size[1], 0.5);
   const decks: Deck[] = [];
   const structNav: { yaw: number; blk: [number, number, number, number][]; walks: { x: number; z: number; yaw: number; scale: number; hw: number; z0: number; z1: number }[] }[] = [];
@@ -584,6 +590,8 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     const rest = Array.isArray(asset.extra?.rest) ? (asset.extra!.rest as [number, number][]) : null;
     let y = rest && rest.length ? Math.min(...rest.map(([lx, lz]) => H(x + (lx * c + lz * s) * scale, z + (-lx * s + lz * c) * scale))) - 0.02 : layer?.onWater && waterLevel !== null ? waterLevel - 0.15 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - 0.02;
     const obj = (tile?.objBase ?? 0) + objects.length + 1;
+    if (Array.isArray(asset.extra?.holes) && !tile)
+      for (const [rd, hx, hz, seed] of asset.extra!.holes as [number, number, number, number][]) if (holes.length < 16) holes.push([x, z, hx * scale, hz * scale, yaw, rd, seed ?? 0]);
     const body = bodyNext;
     bodyNext = undefined;
     // corps dynamique lâché d'en haut (`y` d'un point `at`)
@@ -1042,7 +1050,9 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
   const minY = terrain ? Math.min(...objects.map((o) => o.pos[1]), 0) - 1 : 0;
   const maxY = Math.max(2, ...objects.map((o) => o.pos[1] + o.height));
   // maillages gardés par la scène : tableaux typés à la taille exacte (mémoire divisée par trois environ)
-  for (const me of [ground, roads, water, ...tiles.values(), ...[...groups.values()].map((g) => g.mesh), ...actors.map((a) => a.asset.mesh)]) if (me) compactMesh(me);
+  const waterParts = new Mesh();
+  for (const t of tiles.values()) t.extractRole(ROLE.water, waterParts);
+  for (const me of [ground, roads, water, waterParts, ...tiles.values(), ...[...groups.values()].map((g) => g.mesh), ...actors.map((a) => a.asset.mesh)]) if (me) compactMesh(me);
   const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
   return {
     size,
@@ -1051,6 +1061,8 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     ground,
     roads,
     water,
+    waterParts: waterParts.vertexCount ? waterParts : null,
+    ...(holes.length ? { holes } : {}),
     tiles: [...tiles.values()],
     instances: [...groups.values()],
     actors,
