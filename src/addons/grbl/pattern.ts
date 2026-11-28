@@ -21,6 +21,8 @@ export type PatternState = DeviceBaseState & {
   /** Réglages par couleur propres au modèle (grille d'essais), sinon `null`. */
   ops: LaserOp[] | null;
   notes: string[];
+  /** Conseils de montage et de finition (ordre d'assemblage, où et comment coller, serrage, ponçage, sens du fil, matière). */
+  advice: string[];
   seq: number;
   /** Modèles disponibles, avec leur famille (`families` : libellés). */
   catalog: { id: string; label: string; description: string; family: string }[];
@@ -28,8 +30,9 @@ export type PatternState = DeviceBaseState & {
 };
 
 /**
- * Modèle paramétrique pour la découpe et la gravure laser : objets (boîte à encoches, engrenages, puzzle, tampon,
- * porte-clés, pendentif, dessous de verre, règle), motifs génératifs gravés au trait (arbre, corail, spirographe,
+ * Modèle paramétrique pour la découpe et la gravure laser : boîtes et assemblages (boîte à encoches, à charnière vivante,
+ * à couvercle coulissant ou emboîtant, à tiroir, polygonale, forme 3D à fentes croisées, polyèdre à connecteurs, abat-jour en
+ * modules), objets (engrenages, puzzle, tampon, porte-clés, pendentif, dessous de verre, règle, formes géométriques), motifs génératifs gravés au trait (arbre, corail, spirographe,
  * guilloché, rosace, Truchet, labyrinthe, champ de flux, harmonographe, ondes, motif répété), grille d'essais. Publie un SVG en millimètres réels
  * (noir = gravure, bleu = marquage, rouge = découpe) dans son état, lu par `sonic-gcode svg-from`.
  *
@@ -45,7 +48,7 @@ export class SonicLaserPattern extends DeviceElement<PatternState> {
   protected readonly defaultCommand = "build";
   protected state: PatternState = {
     status: "idle", error: null, supported: true, allowed: "unknown", active: false,
-    pattern: "", label: "", description: "", params: {}, specs: [], svg: "", widthMm: 0, heightMm: 0, ops: null, notes: [], seq: 0,
+    pattern: "", label: "", description: "", params: {}, specs: [], svg: "", widthMm: 0, heightMm: 0, ops: null, notes: [], advice: [], seq: 0,
     catalog: PATTERNS.map((p) => ({ id: p.id, label: p.label, description: p.description, family: p.family ?? "objets" })),
     families: FAMILIES,
   };
@@ -106,7 +109,7 @@ export class SonicLaserPattern extends DeviceElement<PatternState> {
       const out = def.build(params);
       this.patch({
         status: "ready", error: null, active: true, pattern: def.id, label: def.label, description: def.description, params, specs: def.params,
-        svg: out.svg, widthMm: Math.round(out.widthMm * 10) / 10, heightMm: Math.round(out.heightMm * 10) / 10, ops: out.ops ?? null, notes: out.notes, seq: this.state.seq + 1,
+        svg: out.svg, widthMm: Math.round(out.widthMm * 10) / 10, heightMm: Math.round(out.heightMm * 10) / 10, ops: out.ops ?? null, notes: out.notes, advice: out.advice, seq: this.state.seq + 1,
       });
       return true;
     } catch (e) {

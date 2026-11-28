@@ -4,8 +4,9 @@ Addon `@supersoniks/creative-stack/grbl` : du dessin à la machine, par DataProv
 
 | Composant | Rôle |
 |---|---|
+| `sonic-laser-import` | Ouverture des fichiers laser courants : SVG, DXF, PDF, AI, EPS, PLT / HPGL, LightBurn, G-code, images, TIFF |
 | `sonic-gcode` | Préparation : dessin (SVG ou image) → programme G-code, aperçu, durée, emprise |
-| `sonic-laser-pattern` | Modèles paramétriques : boîte à encoches, engrenages, puzzle, tampon, porte-clés, pendentif, dessous de verre, règle, grille d'essais |
+| `sonic-laser-pattern` | Modèles paramétriques avec conseils de montage : boîtes (à encoches, charnière vivante, couvercle coulissant ou emboîtant, tiroir, polygonale), formes 3D à fentes, polyèdres, abat-jour en modules, formes géométriques, engrenages, puzzle, tampon, porte-clés, pendentif, dessous de verre, règle, motifs génératifs, grille d'essais |
 | `sonic-gcode-view` | Contrôle : parcours réel à zoom libre, repère en mm (grille, règles, origine, plateau), tête, avancement, simulation, placement au doigt |
 | `sonic-grbl` | Pilote : machine GRBL derrière un `sonic-serial` (état, déplacements, cadrage, essai à vide, envoi, pause, arrêt, reprise) |
 
@@ -38,12 +39,42 @@ Si le navigateur plante ou si le câble est arraché, GRBL finit les quelques mo
 
 Déroulé conseillé pour l'interface : connecter (`laserState.connected`), placer la tête à la main ou par `jog`, `setOrigin` (le coin bas gauche du dessin sera là), `frame` (la tête fait le tour de l'emprise, faisceau éteint), puis `run`. `laserState.job.progress` suit l'avancement, `stop` arrête.
 
+## `sonic-laser-import` : ouvrir les fichiers laser
+
+Un seul sélecteur de fichier pour tous les formats courants de la découpe et de la gravure laser. Rien n'est exécuté ni inséré dans la page : chaque format est lu par un lecteur borné (nombre d'opérations, taille, profondeur), puis changé en SVG millimétré pour `sonic-gcode`.
+
+```json
+{ "tagName": "sonic-file-open", "attributes": { "accept": ".svg,.svgz,.dxf,.pdf,.ai,.eps,.ps,.plt,.hpgl,.hgl,.lbrn2,.lbrn,.gcode,.nc,.ngc,.tap,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff", "label": "Ouvrir un fichier", "ref-provider": "fichierBrut", "drop": true } }
+{ "tagName": "sonic-laser-import", "attributes": { "id": "ouvrir", "from": "fichierBrut", "drawing-provider": "dessinImporte", "image-provider": "photoImportee" } }
+{ "tagName": "sonic-gcode", "attributes": { "id": "prog", "svg-from": "dessinImporte", "auto": true, "mode": "skip" } }
+{ "tagName": "sonic-still", "attributes": { "id": "photo", "in-data-provider": "photoImportee" } }
+```
+
+| Format | Extensions | Lu | Ignoré |
+|---|---|---|---|
+| SVG | `.svg`, `.svgz` | tout ce que lit `sonic-gcode` | textes, images |
+| DXF (ASCII) | `.dxf` | LINE, LWPOLYLINE / POLYLINE (renflements = arcs), CIRCLE, ARC, ELLIPSE, SPLINE, HATCH (surfaces), SOLID, 3DFACE, INSERT (blocs, échelle, rotation, réseaux), calques (éteints et gelés ignorés), couleurs ACI et vraies couleurs, `$INSUNITS` | textes, cotes, images, DXF binaire |
+| PDF | `.pdf` | une page (`page`), contenus et formulaires imbriqués, flux d'objets, Flate / LZW / ASCII85, couleurs gris / RVB / CMJN / séparations | textes, images, dégradés ; PDF chiffrés refusés |
+| Illustrator | `.ai` | compatibilité PDF (défaut depuis Illustrator 9), sinon l'ancien format PostScript d'Illustrator | idem |
+| EPS / PostScript | `.eps`, `.ps` | interpréteur borné : procédures, boucles, matrices, arcs, couleurs ; en-tête binaire DOS | textes, images, fontes |
+| HPGL / PLT | `.plt`, `.hpgl`, `.hgl` | PU / PD / PA / PR, plumes (une couleur par plume), cercles, arcs, rectangles, IP / SC, polylignes encodées HP-GL/2 | textes |
+| LightBurn | `.lbrn2`, `.lbrn` | rectangles, ellipses, polygones, tracés (Bézier), groupes, textes par leur tracé enregistré ; calques de coupe → `ops` proposées (mode ligne / remplissage, puissance, vitesse en mm/min, passes, écart) | images |
+| G-code | `.gcode`, `.nc`, `.ngc`, `.tap`… | programme prêt, gardé tel quel | commandes `$` retirées |
+| Images | `.png`, `.jpg`, `.webp`, `.gif`, `.bmp`, `.avif` | passées à `image-provider` | — |
+| TIFF | `.tif`, `.tiff` | sans compression, PackBits, LZW, Deflate ; 1 à 16 bits, gris, RVB, palette, CMJN ; converti en PNG | JPEG dans TIFF |
+
+Le format est reconnu par sa signature avant son extension. CorelDraw (`.cdr`), DWG, xTool (`.xcs`), Ruida (`.rld`) sont refusés avec un conseil d'export (SVG, PDF, DXF ou PLT).
+
+Les couleurs du fichier sont gardées (couleur de calque pour un DXF, de plume pour un PLT, de calque LightBurn) : une opération par couleur dans `ops`, comme pour un SVG. Pour un projet LightBurn, `<id>State.ops` donne directement les réglages des calques.
+
+Commandes `control` : `{ import: n, clear: n, page }`. État : `{ status, error, ready, seq, name, format, formatLabel, kind (vector | image | program), widthMm, heightMm, colors, ops, layers, pages, page, lines, skipped, issues, formats, accept }`.
+
 ## `sonic-gcode`
 
 Entrées :
 
 - `source="#id"` d'un `sonic-sketch` : son SVG. Un dessin de `sonic-sketch` est fait de surfaces de couleur : elles sont **hachurées** (gravure). Pour en découper le contour, donner `mode: "line"` à leur couleur dans `ops`.
-- `svg-from` : DP du fichier SVG ouvert par `sonic-file-open` (`ref-provider`), ou du SVG en texte. Un trait (`stroke`) est suivi tel quel, une surface (`fill`) est hachurée.
+- `svg-from` : DP du fichier SVG ouvert par `sonic-file-open` (`ref-provider`), du SVG en texte, ou le `drawing-provider` de `sonic-laser-import` (tous les autres formats). Un trait (`stroke`) est suivi tel quel, une surface (`fill`) est hachurée. Un G-code importé (`{gcode}`) est gardé tel quel (`kind: "program"`) : réglages, taille et position ne s'y appliquent pas, `sonic-grbl` impose quand même M4 et refuse les commandes `$`.
 - `source="#id"` d'une source d'images (`sonic-still`, `sonic-paint`, `sonic-camera`…) : gravure par balayage. `input="image"` l'impose même si la source sait donner un SVG.
 
 | Attribut (ou clé de `control`) | Rôle |
@@ -180,12 +211,15 @@ Modèles paramétriques, sans JS : le SVG (millimètres réels, noir = gravure, 
 { "tagName": "sonic-gcode", "attributes": { "id": "prog", "svg-from": "modeleState", "auto": true, "ops": "…" } }
 ```
 
-`control` = `{ pattern: "boite", params: { largeur: 80, epaisseur: 3 } }` ; l'état publie `specs` (libellé, bornes, pas, unité de chaque paramètre ; `options` pour un paramètre à choix, valeur = index du libellé) pour construire le formulaire, `catalog` (les modèles et leur `family`) et `families` (`motifs`, `objets`, `essais`). La grille d'essais publie aussi `ops` : une opération par case (puissance × vitesse), à passer telle quelle à `sonic-gcode`.
+`control` = `{ pattern: "boite", params: { largeur: 80, epaisseur: 3 } }` ; l'état publie `specs` (libellé, bornes, pas, unité de chaque paramètre ; `options` pour un paramètre à choix, valeur = index du libellé) pour construire le formulaire, `catalog` (les modèles et leur `family`) et `families` (`motifs`, `objets`, `assemblages`, `essais`). La grille d'essais publie aussi `ops` : une opération par case (puissance × vitesse), à passer telle quelle à `sonic-gcode`.
+
+Chaque modèle publie `notes` (ce qui a été produit : nombre de pièces, cotes, largeur des fentes) et `advice` : conseils de montage et de finition à montrer à l'utilisateur (ordre d'assemblage, où et avec quelle colle coller — vinylique, cyanoacrylate, colle contact, ou aucune pour un emboîtement serré —, serrage, ponçage, sens du fil du bois, matière, sécurité des lampes).
 
 | Modèle | Paramètres |
 |---|---|
 | `grille` | `puissances`, `pmin`, `pmax`, `vitesses`, `vmin`, `vmax`, `case`, `decoupe` |
 | `boite` | `largeur`, `profondeur`, `hauteur`, `epaisseur`, `creneau`, `couvercle`, `motif` |
+| `formes` | `forme` (polygone, étoile, cercle), `cotes`, `taille`, `nombre` (couronnes emboîtées), `pas`, `torsion` (polygone), `creux`, `trou` |
 | `engrenages` | `dents1`, `dents2`, `module`, `axe`, `rayons` |
 | `puzzle` | `colonnes`, `lignes`, `piece`, `coins`, `graine`, `motif` |
 | `tampon` | `taille`, `forme` (étoile, cœur, fleur), `branches`, `anneau`, `miroir` |
@@ -195,6 +229,22 @@ Modèles paramétriques, sans JS : le SVG (millimètres réels, noir = gravure, 
 | `regle` | `longueur` (cm), `largeur` |
 
 `motif` : aucun, cœur, étoile, fleur, rosace (index 0 à 4).
+
+### Boîtes et assemblages (famille `assemblages`)
+
+Pièces rangées sans chevauchement, découpe en rouge. Les modèles à fentes ont `epaisseur`, `serrage` et `trait` (largeur de coupe) : une fente est dessinée à `epaisseur − serrage − trait` (0,3 mm au moins), les fentes croisées vont à mi-hauteur. Si la compensation du trait est déjà faite dans les calques (`kerf`), mettre `trait` à 0.
+
+| Modèle | Paramètres |
+|---|---|
+| `boite` | Boîte à encoches (voir plus haut) |
+| `boite-charniere` | `largeur`, `profondeur`, `hauteur`, `epaisseur`, `creneau`, `pas` (écart des fentes souples), `pont`, `motif` : boîte ouverte + couvercle d'une pièce à charnière vivante, patte collée au dos |
+| `boite-coulissante` | `largeur`, `profondeur`, `hauteur`, `epaisseur`, `creneau`, `motif` : façade basse, 2 rails, 2 rebords, couvercle à encoche pour le pouce |
+| `boite-couvercle` | `largeur`, `profondeur`, `hauteur`, `epaisseur`, `creneau`, `jeu`, `debord`, `bouton`, `motif` : couvercle = dessus + bouchon collé dessous |
+| `boite-tiroir` | `largeur`, `profondeur`, `hauteur`, `epaisseur`, `creneau`, `poignee` : caisson ouvert à l'avant, tiroir, façade |
+| `boite-polygone` | `cotes` (5 à 12), `cote`, `hauteur`, `epaisseur`, `serrage`, `trait`, `couvercle` (aucun, bouchon, fermée), `motif` : parois à tenons, fond à mortaises |
+| `croisillon` | `forme` (sapin, étoile, boule, cœur), `hauteur`, `epaisseur`, `serrage`, `trait`, `attache` : deux silhouettes à fentes croisées |
+| `polyedre` | `solide` (tétraèdre, cube, octaèdre, dodécaèdre, icosaèdre), `arete`, `epaisseur`, `serrage`, `trait`, `ajours` : faces à fentes et connecteurs en V à l'angle dièdre (un par arête) |
+| `abat-jour` | `modules` (6 à 24), `diametre`, `hauteur`, `depasse`, `epaisseur`, `serrage`, `trait`, `ajours` : modules identiques accrochés par fentes croisées en anneau (fentes élargies pour l'angle de croisement) |
 
 ### Motifs génératifs (famille `motifs`)
 

@@ -24,3 +24,8 @@ export { optimizeStrokes, strokeLength, type Polyline, type StrokeOptions } from
 export { subdivide, tree, coral, spirograph, guilloche, rosette, truchet, maze, flowField, harmonograph, waves, repeatTiles, fitLines, noise2, SUBDIV_MODES, LEAF_FILLS, TILE_SHAPES, REPEATS } from "./generative";
 export { LINE_STYLES, photoBurns, burnsToGcode, type LineStyle, type Burn, type PhotoTrace } from "./photo";
 export { colorsOf, type FoundColor } from "./toolpath";
+export { SonicLaserImport, type LaserImportState } from "./import";
+export {
+  IMPORT_FORMATS, IMPORT_ACCEPT, detectFormat, importBytes, unsupportedHint, readGcodeText, readDxf, aciColor, readHpgl, readPdf, readPostScript, readLightburn, LIGHTBURN_COLORS, readTiff, writeSvg,
+  type ImportFormat, type ImportKind, type ImportResult, type Pixels, type Shape,
+} from "./formats";
