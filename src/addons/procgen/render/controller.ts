@@ -10,6 +10,7 @@
  *   dessus, sinon ils blessent), vies, tir à la première personne (rayon au centre de l'écran).
  * - Habillage (désactivable) : vies, compteur de ramassage, viseur, bandeaux. Éléments DOM créés un par un.
  */
+import { holdButton, shieldUi } from "./game-ui";
 import { type CtrlInput, type CtrlSpec, type CtrlState, type CtrlWorld, ctrlPose, newCtrlState, stepCtrl } from "../scene/controller";
 
 export type Hit = { objectId: string | null; actor: string | null; x: number; y: number; z: number };
@@ -434,6 +435,7 @@ export class CtrlDirector {
     ui.append(lives, count, banner, cross, flash, hurt);
     this.els = { lives, count, banner, cross, flash, hurt };
     if (this.extra.touch && typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0)) this.buildTouch(ui, mk);
+    shieldUi(ui);
     parent.append(ui);
     this.ui = ui;
   }
@@ -469,19 +471,18 @@ export class CtrlDirector {
     };
     zone.addEventListener("pointerup", end);
     zone.addEventListener("pointercancel", end);
+    zone.addEventListener("lostpointercapture", end);
     ui.append(zone);
     const btn = (label: string, css: Partial<CSSStyleDeclaration>, key: "jump" | "fire") => {
       const b = mk("div", { position: "absolute", width: "78px", height: "78px", borderRadius: "50%", background: "rgba(0,0,0,.28)", border: "2px solid rgba(255,255,255,.55)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", fontWeight: "900", pointerEvents: "auto", touchAction: "none", ...css }, label);
-      const on = (v: boolean) => (e: PointerEvent) => {
-        e.preventDefault();
+      const on = (v: boolean) => {
+        // appui bref (plus court qu'une image) : compté quand même
         if (v && key === "jump" && !this.touchIn.jump) this.edge.add("jump");
+        if (v && key === "fire") this.edge.add("fire");
         this.touchIn[key] = v;
         b.style.background = v ? "rgba(255,255,255,.35)" : "rgba(0,0,0,.28)";
       };
-      b.addEventListener("pointerdown", on(true));
-      b.addEventListener("pointerup", on(false));
-      b.addEventListener("pointercancel", on(false));
-      b.addEventListener("pointerleave", on(false));
+      holdButton(b, on);
       ui.append(b);
     };
     btn("SAUT", { right: "18px", bottom: "28px", width: "90px", height: "90px" }, "jump");

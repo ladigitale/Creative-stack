@@ -12,6 +12,7 @@
  */
 import type { DriveState } from "../scene/drive";
 import { type CarInput, NO_CAR_INPUT, RaceSim, type RaceSpec, type Track } from "../scene/race";
+import { holdButton, shieldUi } from "./game-ui";
 import { RaceAudio } from "./race-audio";
 
 export interface RaceHost {
@@ -318,6 +319,7 @@ export class RaceDirector {
     this.els = { pos, lap, time, best, speedN, banner, count, board };
     if (this.hud) this.buildMap(ui);
     if (touch && typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0)) this.buildTouch(ui, mk);
+    shieldUi(ui);
     parent.append(ui);
     this.ui = ui;
   }
@@ -358,8 +360,7 @@ export class RaceDirector {
   private buildTouch(ui: HTMLElement, mk: (tag: string, css: Partial<CSSStyleDeclaration>, text?: string) => HTMLElement) {
     const btn = (label: string, css: Partial<CSSStyleDeclaration>, key: keyof RaceDirector["touchIn"] | "reset") => {
       const b = mk("div", { position: "absolute", width: "76px", height: "76px", borderRadius: "50%", background: "rgba(0,0,0,.28)", border: "2px solid rgba(255,255,255,.55)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "26px", fontWeight: "900", pointerEvents: "auto", touchAction: "none", ...css }, label);
-      const on = (v: boolean) => (e: PointerEvent) => {
-        e.preventDefault();
+      const on = (v: boolean) => {
         if (key === "reset") {
           if (v) this.resetPlayer();
           return;
@@ -367,10 +368,7 @@ export class RaceDirector {
         this.touchIn[key] = v;
         b.style.background = v ? "rgba(255,255,255,.35)" : "rgba(0,0,0,.28)";
       };
-      b.addEventListener("pointerdown", on(true));
-      b.addEventListener("pointerup", on(false));
-      b.addEventListener("pointercancel", on(false));
-      b.addEventListener("pointerleave", on(false));
+      holdButton(b, on);
       ui.append(b);
     };
     btn("◀", { left: "16px", bottom: "150px" }, "left");
