@@ -3,7 +3,7 @@
  * s'aplanit sous la chaussée avec une transition), eau à niveau fixe, usure du sol près des routes et des murs.
  */
 import { type V3, clamp, cross, mix, norm, smoothstep, sub } from "../core/math";
-import { Mesh } from "../geom/mesh";
+import { Mesh, setWaterAgitation } from "../geom/mesh";
 import { ridge2, warped2 } from "../geom/noise";
 import { ROLE } from "../style/roles";
 
@@ -460,6 +460,15 @@ export class Terrain {
         const a = j * (n + 1) + i;
         m.quad(a, a + n + 1, a + n + 2, a + 1);
       }
+    // agitation selon l'étendue d'eau libre : quelques mètres carrés presque calmes, un lac ondule, la mer (côte,
+    // monde infini) bouge franchement
+    {
+      let wet = 0;
+      for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) if (wl - this.height((i / n - 0.5) * w, (j / n - 0.5) * d) > 0) wet++;
+      const area = (wet / ((n + 1) * (n + 1))) * w * d;
+      const k = this.spec.world || this.spec.coast ? 1 : clamp(0.35 + 0.25 * Math.log10(Math.max(1, area) / 50), 0.2, 0.9);
+      setWaterAgitation(m, ROLE.water, k);
+    }
     if (this.spec.world) return any ? m : null;
     // flancs du diorama côté eau
     const bottom = Math.min(...this.heights) - Math.max(1.5, Math.max(w, d) * 0.03);

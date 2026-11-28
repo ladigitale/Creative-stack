@@ -2,7 +2,7 @@
  * Objets de décor (`prop.*`) et blasons (`emblem`). Petits, nombreux, instanciés : chacun reste sobre en triangles.
  */
 import { type V3, DEG, m4Compose, mix, qAxis, qEuler } from "../core/math";
-import { Mesh } from "../geom/mesh";
+import { Mesh, setWaterAgitation } from "../geom/mesh";
 import { box, cylinder, ellipsoid, extrude, lathe, ngon, tube } from "../geom/prims";
 import { ROLE } from "../style/roles";
 import { type Asset, defineGenerator } from "./types";
@@ -78,6 +78,7 @@ function build(kind: string, size: number, variant: number, textParam: unknown =
       for (const x of [-0.65, 0.65]) put(m, box(0.06, 0.9, 0.06, W, 0.01), [x, 1.6, 0]);
       for (const sz of [1, -1]) put(m, box(0.95, 0.03, 0.55, ROLE.roof, 0.01), [0, 2.65, sz * 0.38], [sz * 35, 0, 0]);
       put(m, cylinder(0.06, 0.06, 1.2, W, 8), [-0.6, 1.6, 0], [0, 0, -90]);
+      setWaterAgitation(m, ROLE.water, 0.05);
       return asset(kind, m, 0.8, 0.8, 2.9);
     case "campfire":
       for (let i = 0; i < 9; i++) {
@@ -194,6 +195,7 @@ function build(kind: string, size: number, variant: number, textParam: unknown =
         put(m, jet, [0, 0, 0]);
       }
       put(m, tube([[0, 2.15, 0], [0, 2.5, 0], [0.02, 2.2, 0.01]], [0.04, 0.05, 0.06], ROLE.water, 5), [0, 0, 0]);
+      setWaterAgitation(m, ROLE.water, 0.3);
       return asset(kind, m, R, R, 2.6);
     }
     case "kiosk": {
@@ -564,7 +566,8 @@ function build(kind: string, size: number, variant: number, textParam: unknown =
         const r = (0.75 + 0.14 * Math.sin(a * 2 + variant) + 0.07 * Math.cos(a * 3 + variant * 2)) * size;
         return [Math.cos(a) * r * 1.3, Math.sin(a) * r * 0.9] as [number, number];
       });
-      const e = extrude(pts, 0.01, ROLE.water);
+      // flaque : eau presque immobile, quel que soit le vent
+      const e = setWaterAgitation(extrude(pts, 0.01, ROLE.water), ROLE.water, 0.03);
       put(m, e, [0, 0.01, 0], [-90, 0, 0]);
       return asset(kind, m, 1.2 * size, 0.9 * size, 0.03);
     }

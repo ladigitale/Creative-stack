@@ -10,6 +10,8 @@ import { type Q, type V3, clamp, mix } from "../core/math";
 import type { Role } from "../style/roles";
 import { type Part, type PartList, hull2, partsBounds, partsToMesh, roleParam, transformParts } from "./parts";
 import { type Anchor, defineGenerator } from "./types";
+import { setWaterAgitation } from "../geom/mesh";
+import { ROLE } from "../style/roles";
 
 export const WATER_KINDS = ["pond", "basin", "pool", "cascade"] as const;
 
@@ -202,6 +204,8 @@ export const water = defineGenerator({
       anchors.spot = anchors["spot.0"];
       anchors.approach = anchors["approach.0"];
     }
+    // mare : quelques rides ; bassin, piscine : presque lisses ; vasque d'une cascade : brassée par la chute
+    setWaterAgitation(mesh, ROLE.water, m.kind === "cascade" ? 0.6 : m.kind === "pond" ? 0.3 : m.kind === "pool" ? 0.18 : 0.12);
     return { generator: "water", mesh, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: Math.max(0.05, bb.max[1]), extra: { affords: m.affords, label: m.label, kind: m.kind } };
   },
 });

@@ -63,6 +63,8 @@ uniform mat4 uShadowMatrix2;
 flat out float vRole;
 flat out float vObj;
 out float vAO;
+/** Eau : agitation propre à la surface (flaque 0 … mer 1) ; 0,5 pour l'eau sans réglage. */
+out float vAgit;
 out vec3 vNormalW;
 out vec3 vPosW;
 out vec3 vPosL;
@@ -152,6 +154,12 @@ void main() {
   vTint = aTint;
   #endif
   #ifndef BLADE
+  // eau : houle d'autant plus haute que la surface est grande et le vent fort (rien dans une flaque)
+  if (aFlex < 0.0 && aRole > 12.5 && aRole < 13.5) {
+    float agv = -aFlex * smoothstep(0.45, 1.0, -aFlex) * clamp(uWind / 1.4, 0.0, 1.6);
+    float ph = dot(wp.xz, uWindDir) * 0.55;
+    wp.y += (sin(ph - uTime * 1.6) * 0.6 + sin(dot(wp.xz, vec2(0.21, -0.37)) - uTime * 1.1) * 0.4) * agv * 0.09;
+  }
   if (aFlex > 0.0) {
     float ph = dot(wp.xz, vec2(0.35, 0.27)) + vVar * 6.28;
     float sw = sin(uTime * 1.7 + ph) * 0.6 + sin(uTime * 2.9 + ph * 1.7) * 0.25;
@@ -178,6 +186,7 @@ void main() {
   vObj = aObj;
   #endif
   vAO = aAO;
+  vAgit = aFlex < 0.0 ? -aFlex : 0.5;
   #ifdef BLADE
   vBlend = 0.0;
   #else
@@ -198,6 +207,7 @@ layout(location = 1) out vec4 outData;
 flat in float vRole;
 flat in float vObj;
 in float vAO;
+in float vAgit;
 in vec3 vNormalW;
 in vec3 vPosW;
 in vec3 vPosL;
@@ -220,6 +230,8 @@ uniform vec3 uRoles[${ROLES.length}];
 // fini par rôle : x = rugosité + 1 (0 : aucun fini, éclairage du style), y = métal, z = reflet de tissu, w = vernis
 uniform vec4 uRoleMat[${ROLES.length}];
 uniform vec3 uSunDir;
+uniform float uWind;
+uniform vec2 uWindDir;
 uniform vec3 uSun;
 uniform vec3 uAmbSky;
 uniform vec3 uAmbGround;
@@ -807,17 +819,28 @@ void main() {
   lit = mix(lit, base * (1.0 + emiss), clamp(emiss, 0.0, 1.0));
   // eau : Fresnel vers le ciel, reflets qui défilent
   if (role == 13) {
+    // agitation : propre à la surface (flaque, bassin, mare, rivière, mer) et au vent ; une flaque est presque lisse
+    float ag = clamp(vAgit, 0.0, 1.0) * (0.25 + 0.75 * clamp(uWind / 1.4, 0.0, 1.6));
+    float tq = uTime * mix(0.25, 1.3, ag);
     lit *= mix(1.3, 0.55, vAO);
-    float foam = 1.0 - smoothstep(0.0, 0.06 + 0.03 * sin(uTime * 1.3 + vPosW.x), vAO);
-    lit = mix(lit, uSun * 0.95, foam * 0.7);
-    float fr = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 4.0);
-    float ripple = vnoise(vec3(vPosW.x * 1.3 + uTime * 0.3, uTime * 0.2, vPosW.z * 1.3)) + vnoise(vec3(vPosW.x * 3.1 - uTime * 0.4, 0.0, vPosW.z * 3.7));
-    lit = mix(lit, uFogColor, fr * 0.6) + uSun * smoothstep(1.5, 1.75, ripple) * 0.07;
+    float foam = 1.0 - smoothstep(0.0, (0.03 + 0.05 * ag) + 0.03 * ag * sin(uTime * 1.3 + vPosW.x), vAO);
+    lit = mix(lit, uSun * 0.95, foam * mix(0.35, 0.8, ag));
+    // vaguelettes : normale perturbée par un bruit qui dérive avec le vent (amplitude et vitesse selon l'agitation)
+    vec2 wq = vPosW.xz * mix(1.6, 0.9, ag) - uWindDir * tq * 0.6;
+    vec2 wv = vec2(vnoise(vec3(wq, tq * 0.5)) - 0.5, vnoise(vec3(wq + 13.7, tq * 0.5)) - 0.5) + 0.5 * vec2(vnoise(vec3(wq * 2.7, tq)) - 0.5, vnoise(vec3(wq * 2.7 + 5.3, tq)) - 0.5);
+    vec3 Nw = normalize(N + vec3(wv.x, 0.0, wv.y) * mix(0.03, 0.9, ag));
+    float fr = pow(1.0 - clamp(dot(Nw, V), 0.0, 1.0), 4.0);
+    float ripple = vnoise(vec3(vPosW.x * 1.3 + tq * 0.3, tq * 0.2, vPosW.z * 1.3)) + vnoise(vec3(vPosW.x * 3.1 - tq * 0.4, 0.0, vPosW.z * 3.7));
+    lit = mix(lit, uFogColor, fr * 0.6) + uSun * smoothstep(1.5, 1.75, ripple) * mix(0.015, 0.09, ag);
+    // éclats de soleil sur les crêtes (mer agitée), presque rien sur une eau calme
+    lit += uSun * pow(max(dot(reflect(-uSunDir, Nw), V), 0.0), 80.0) * mix(0.05, 0.6, ag);
     // reflets mouvants au fond (caustiques) : réseau de lignes claires qui ondule
     // réseau cellulaire qui dérive (deux couches à des échelles différentes), légèrement déformé ; effacé au loin
-    vec2 cw = vPosW.xz + vec2(vnoise(vec3(vPosW.xz * 0.7, uTime * 0.25)), vnoise(vec3(vPosW.xz * 0.7 + 7.0, uTime * 0.25))) * 0.6;
-    float cau = caustic(cw * 1.6, uTime * 0.9) * 0.6 + caustic(cw * 2.9 + 11.0, uTime * 1.2) * 0.4;
+    vec2 cw = vPosW.xz + vec2(vnoise(vec3(vPosW.xz * 0.7, tq * 0.25)), vnoise(vec3(vPosW.xz * 0.7 + 7.0, tq * 0.25))) * mix(0.15, 0.7, ag);
+    float cau = caustic(cw * 1.6, tq * 0.9) * 0.6 + caustic(cw * 2.9 + 11.0, tq * 1.2) * 0.4;
     cau *= octK(2.9, length(fwidth(vPosW)));
+    // mer, grand lac : le réseau lumineux du fond ne se voit qu'en eau peu profonde
+    cau *= mix(1.0, 1.0 - smoothstep(0.15, 0.6, vAO), smoothstep(0.6, 0.9, vAgit));
     lit += uSun * cau * cau * 0.1 * (1.0 - fr);
     // nageurs : rides concentriques qui s'éloignent, écume autour du corps (plus forte quand on nage vite)
     for (int i = 0; i < 8; i++) {
