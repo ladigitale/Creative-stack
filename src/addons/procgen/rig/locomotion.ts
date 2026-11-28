@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qFromTo, qMul, qRot, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header", "dive"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header", "dive", "cook", "chop"] as const;
 /** Poses à bord (posées par la conduite, pas des ordres d'acteur) : mains au volant, à califourchon, à la rame. */
 export const RIDE_ACTIONS = ["drive", "ride", "row"] as const;
 export type Action = (typeof ACTIONS)[number] | (typeof RIDE_ACTIONS)[number];
@@ -59,6 +59,8 @@ export type MotionState = {
    * pieds. Absent : sol plat. Les pieds s'y posent (pente, marche), le bassin descend sur le plus bas.
    */
   ground?: (x: number, z: number) => number;
+  /** Assis sur une place (chaise, banc) pendant un geste du haut du corps (boire, manger, parler…) : jambes assises. */
+  onSeat?: boolean;
   /** Plongée sous l'eau (`dive`) : bascule du corps en plus de l'horizontale (rad, > 0 : tête vers le fond). */
   diveTilt?: number;
 };
@@ -991,6 +993,29 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       }
       break;
     }
+    case "cook": {
+      // cuisiner : la main gauche tient la casserole par le manche devant le ventre, la droite remue à la cuillère
+      // (cercles d'une seconde), regard dans la casserole, buste penché
+      const c = at * TAU * 0.9;
+      const pot: V3 = [0.03, info.hipY + face.ua * 0.22, face.ua * 0.95];
+      reachArm(over, "l", [pot[0] + face.ua * 0.42, pot[1] - face.ua * 0.02, pot[2] - face.ua * 0.12]);
+      reachArm(over, "r", [pot[0] + Math.cos(c) * face.ua * 0.12, pot[1] + face.ua * 0.28, pot[2] + Math.sin(c) * face.ua * 0.1]);
+      over.spine = qEuler(9 * DEG, 0, 0);
+      over.chest = qEuler(6 * DEG, 0, 0);
+      over.head = qEuler(24 * DEG, 0, 0);
+      break;
+    }
+    case "chop": {
+      // couper sur une planche : la gauche maintient l'aliment, la droite tient le couteau et tranche (2 coups/s)
+      const k = Math.abs(Math.sin(at * Math.PI * 2));
+      const board: V3 = [0, info.hipY + face.ua * 0.18, face.ua * 1.0];
+      reachArm(over, "l", [board[0] + face.ua * 0.28, board[1] + face.ua * 0.08, board[2]]);
+      reachArm(over, "r", [board[0] - face.ua * 0.12, board[1] + face.ua * (0.1 + 0.32 * k), board[2] + face.ua * 0.05]);
+      over.spine = qEuler(12 * DEG, 0, 0);
+      over.chest = qEuler(6 * DEG, 0, 0);
+      over.head = qEuler(26 * DEG, 0, 0);
+      break;
+    }
     case "eat": {
       // une bouchée toutes les 2 s : la main droite monte à la bouche, la gauche tient l'assiette, on mâche
       const c = (at % 2) / 2;
@@ -1091,7 +1116,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     }
   /* ---------- jambes : IK ---------- */
   const seated = st.action === "drive" || st.action === "ride" || st.action === "row";
-  const sit = st.action === "sit" || st.action === "sleep" || seated ? (seated ? 1 : w) : 0;
+  const sit = st.action === "sit" || st.action === "sleep" || seated || st.onSeat ? (seated || st.onSeat ? 1 : w) : 0;
   const jumpT = st.action === "jump" ? at % 1.1 : -1;
   let jumpY = 0;
   let jumpCrouch = 0;

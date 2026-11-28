@@ -169,7 +169,7 @@ const BIRD: J[] = [
  * corps. Les autres clips sont des pistes d'os ajoutées à la pose procédurale.
  */
 /** Actions du moteur procgen (copie de rig/locomotion ACTIONS, vérifiée par test). */
-export const GEN_ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header", "dive"] as const;
+export const GEN_ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header", "dive", "cook", "chop"] as const;
 
 /** Locomotion et action d'un clip : champs du clip, sinon ceux de son nom (GEN_MOTION). */
 export function genMotion(name: string, def?: { action: string; move: number | null } | null): { speed: number; action: string } {
