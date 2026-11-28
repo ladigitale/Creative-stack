@@ -26,6 +26,7 @@ import { characterAsset } from "../gen/character";
 import { PROP_ACTIONS, propsFor, readFoodRef } from "./hand-props";
 import { hullOnWaves } from "./waves";
 import { FishLayer, readFish } from "./fish";
+import { ScreenLayer } from "./screens";
 import { inSwimwear, swimwear, type Look } from "../gen/character/look";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
@@ -636,6 +637,7 @@ export class ProcgenView {
     const bw = new BallWorld(model, model.physics ? (o) => !!o.body && o.body.kind !== "static" : undefined);
     this.balls = bw.count ? bw : null;
     this.buildFish(model);
+    this.syncScreens();
     this.ballSlots.clear();
     this.ballAwake.clear();
     this.dynIms.clear();
@@ -930,6 +932,23 @@ export class ProcgenView {
 
   /** Poissons (clé `fish` de la recette) : bancs dans l'eau assez profonde ; pas dans les piscines ni la glace. */
   private fish: FishLayer | null = null;
+  /** Écrans animés (télévisions, panneaux, cinéma) : contenus par id d'objet, recette ⊕ clé `screens`. */
+  private screens = new ScreenLayer(this.shared.uFar as { value: number });
+  private screenSpecs: Record<string, unknown> = {};
+
+  /** Contenus des écrans (`screens` de la recette et du DataProvider) : appliqués sans recomposer. */
+  setScreens(specs: Record<string, unknown>) {
+    this.screenSpecs = specs;
+    this.syncScreens();
+  }
+
+  private syncScreens() {
+    if (!this.model) return;
+    if (this.screens.group.parent !== this.scene) this.scene.add(this.screens.group);
+    this.screens.sync(this.model.objects, this.screenSpecs);
+    this.screens.step(this.time);
+    this.dirty = true;
+  }
   private buildFish(model: SceneModel) {
     this.fish?.dispose();
     this.fish = null;
@@ -980,7 +999,7 @@ export class ProcgenView {
     }
     for (const o of [...this.scene.children]) {
       // particules : gardées d'un modèle à l'autre (relues par applyFx)
-      if (o === this.fxGroup) continue;
+      if (o === this.fxGroup || o === this.screens.group) continue;
       this.scene.remove(o);
       const m = o as THREE.Mesh;
       m.geometry?.dispose();
@@ -4340,6 +4359,7 @@ export class ProcgenView {
       this.separateActors();
       this.pushSwimmers();
       this.fish?.step(dt * this.speed, this.time);
+      if (this.screens.count) this.screens.step(this.time);
       // relief retouché par les acteurs : maillage réécrit au plus ~8 fois par seconde
       this.terrainWait -= dt;
       if (this.terrainDirty && this.terrainWait <= 0) {
@@ -4929,6 +4949,7 @@ export class ProcgenView {
   }
 
   dispose() {
+    this.screens.dispose();
     this.football?.dispose();
     this.football = null;
     this.ctrl?.dispose();

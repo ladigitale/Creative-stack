@@ -243,7 +243,8 @@ function build(kind: string, size: number, variant: number, textParam: unknown =
       put(m, box(1.3, 0.05, 0.08, M), [0, 2.52, 0]);
       put(m, box(1.3, 0.05, 0.08, M), [0, 0.78, 0]);
       for (const x of [-0.9, 0.9]) put(m, box(0.05, 0.85, 0.05, M), [x, 0.85, -0.06]);
-      return asset(kind, m, 1.3, 0.2, 2.6);
+      // affiche : sert d'écran publicitaire animé (clé `screens`)
+      return { ...asset(kind, m, 1.3, 0.2, 2.6), extra: { screen: { c: [0, 1.65, 0.058], w: 2.3, h: 1.5 } } };
     }
     case "pillar": {
       // colonne Morris : fût à affiches, corniche, dôme à lanterneau

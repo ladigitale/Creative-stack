@@ -22,6 +22,7 @@ const v: Record<string, unknown> = { ...(model.view ?? {}) };
 for (const k of ["camera", "yaw", "pitch", "zoom", "cx", "cy", "cz"]) if (q.get(k) !== null) v[k] = isNaN(Number(q.get(k))) ? q.get(k) : Number(q.get(k));
 view.setView(v);
 view.setAnim({ play: q.get("play") !== "0" });
+if (recipe?.screens) view.setScreens(recipe.screens);
 if (q.get("actors")) view.setActors(JSON.parse(q.get("actors")!));
 if (q.get("football") && q.get("match") !== "0") view.setFootball({ spec: parseFootball(JSON.parse(q.get("football")!)) });
 (window as any).__view = view;
