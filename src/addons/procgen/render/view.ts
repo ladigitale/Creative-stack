@@ -48,7 +48,7 @@ import { InfiniteGpu } from "./infinite-gpu";
 import type { TileWorld } from "../scene/infinite";
 import type { NavGrid } from "../scene/nav";
 import { type Terrain, type TerrainEdit, readTerrainEdits } from "../scene/terrain";
-import { actorRadius, separate, slideStep, steerAround } from "../scene/crowd";
+import { STUCK_REPLAN, actorRadius, separate, slideStep, steerAround, unstick, walkStep, wanderTarget } from "../scene/crowd";
 import { maxTopAt, nearestEdge, standable, supportAt, topAt, wallAhead } from "../scene/surfaces";
 import { type DriveInput, type DriveState, type Route, type SeatPose, type VehicleSpec, ObstacleSet, doorFor, obbOverlap, followRoute, newDriveState, newRoute, obstaclesOf, planRoute, readInput, seatFor, seatNames, sideApproach, stepDrive, steerPartValue, vehicleSpecOf, wheelPartValue } from "../scene/drive";
 import { worldRoads } from "../scene/world-roads";
@@ -109,6 +109,8 @@ type ActorRT = {
   climbSt?: { obj: ObjectInfo; top: number; phase: "up" | "hang" | "mantle"; t: number; lift: number; hangOnly: boolean; q: number; from?: [number, number]; to?: [number, number]; liftFrom?: number };
   /** Grimper sans paroi à portée : signalé une fois (`noClimb`), l'acteur reste au sol. */
   climbMiss?: boolean;
+  /** Temps passé sans avancer sur un chemin (s) : au-delà de 0,7 s, le chemin est recalculé. */
+  stuckT?: number;
   /** Élévation du corps imposée à la pose (escalade), vitesse verticale (chute), réception, glissade. */
   liftY?: number;
   vy?: number;
@@ -2863,10 +2865,8 @@ export class ProcgenView {
           const end = Math.hypot(a.pos[0] - p.points[0][0], a.pos[2] - p.points[0][1]) < 4 ? p.points[p.points.length - 1] : p.points[0];
           [tx, tz] = end;
         } else {
-          const ang = (a.model.seed * 3.7 + this.time * 1.3) % (Math.PI * 2);
-          const r = 3 + ((a.model.seed + this.time) % 5);
-          tx = clamp(a.pos[0] + Math.cos(ang) * r, -m.size[0] / 2 + 1, m.size[0] / 2 - 1);
-          tz = clamp(a.pos[2] + Math.sin(ang) * r, -m.size[1] / 2 + 1, m.size[1] / 2 - 1);
+          // une direction au hasard dont le point d'arrivée est libre (pas dans une maison, un objet, l'eau)
+          [tx, tz] = wanderTarget(a.pos, a.model.seed, this.time, m.size, m.nav);
         }
         a.wantSpeed = (1.1 + ((a.model.seed * 13) % 1) * 0.4) * leg / 0.85;
         this.goto(a, tx, tz);
@@ -2901,12 +2901,25 @@ export class ProcgenView {
       // sur un sommet (ou en l'air), la grille du sol ne s'applique pas : on peut marcher jusqu'au bord et tomber
       const aloft = !!a.onObj || a.pos[1] > groundHeight(m, a.pos[0], a.pos[2], a.pos[1]) + 0.2;
       const free = (x: number, z: number) => (aloft ? maxTopAt(m.objects, x, z) <= a.pos[1] + 0.32 * leg : !m.nav || a.action === "swim" || m.nav.free(x, z));
-      if (a.path) {
-        a.pos[0] = nx;
-        a.pos[2] = nz;
-      } else if (!slideStep(a.pos, nx, nz, free) && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
+      // chemin ou pas, on ne traverse rien : un virage coupé (cap en retard sur le chemin) glisse le long du mur
+      const w = walkStep(a.pos, nx, nz, free);
+      if (w.blocked && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
+      // coincé sur un chemin (coin, autre acteur) : on recalcule le chemin depuis là où l'on est
+      if (a.path && a.goal) {
+        a.stuckT = w.moved < step * 0.25 ? (a.stuckT ?? 0) + dt : 0;
+        if (a.stuckT > STUCK_REPLAN) {
+          a.stuckT = 0;
+          const g = a.goal;
+          const keep = { seat: g.seat, kick: g.kick, then: g.then };
+          this.goto(a, g.x, g.z, g.target);
+          if (a.goal) Object.assign(a.goal, Object.fromEntries(Object.entries(keep).filter(([, v]) => v !== undefined)));
+        }
+      }
       a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
+    // dans un obstacle (apparu là, poussé par la foule, objet déplacé sur lui) : on en sort vers la case libre la plus
+    // proche, au lieu d'y circuler librement
+    if (!a.onObj && a.action !== "swim" && !(a.seatY ?? 0)) unstick(a.pos, m.nav, dt);
     this.settleOnSupport(a, dt);
     // nageur : à la surface de l'eau quand elle recouvre le sol
     if (a.action === "swim") {

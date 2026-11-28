@@ -3,7 +3,7 @@
  * errance et patrouille, actions transitoires, humeur, clignement, zones, événements de jeu. Produit, à chaque pas,
  * la pose 3D (`humanoidPose`) de chaque acteur ; le dessinateur vectoriel la projette.
  */
-import { separate, slideStep, steerAround } from "../scene/crowd";
+import { STUCK_REPLAN, separate, steerAround, unstick, walkStep, wanderTarget } from "../scene/crowd";
 import { BallWorld } from "../scene/balls";
 import { type M4, type V3, clamp } from "../core/math";
 import { GENERATORS } from "../gen/index";
@@ -48,6 +48,8 @@ export type ActorRT = {
   drive: { vx: number; vz: number } | null;
   wantSpeed: number;
   wanderT: number;
+  /** Temps passé sans avancer sur un chemin (s) : au-delà de STUCK_REPLAN, le chemin est recalculé. */
+  stuckT?: number;
   blinkT: number;
   blink: number;
   /** Cible du regard (`look` : acteur, objet, "camera"). */
@@ -346,10 +348,8 @@ export class ActorSim {
           const end = Math.hypot(a.pos[0] - p.points[0][0], a.pos[2] - p.points[0][1]) < 4 ? p.points[p.points.length - 1] : p.points[0];
           [tx, tz] = end;
         } else {
-          const ang = (a.model.seed * 3.7 + this.time * 1.3) % (Math.PI * 2);
-          const r = 3 + ((a.model.seed + this.time) % 5);
-          tx = clamp(a.pos[0] + Math.cos(ang) * r, -m.size[0] / 2 + 1, m.size[0] / 2 - 1);
-          tz = clamp(a.pos[2] + Math.sin(ang) * r, -m.size[1] / 2 + 1, m.size[1] / 2 - 1);
+          // une direction au hasard dont le point d'arrivée est libre (pas dans une maison, un objet, l'eau)
+          [tx, tz] = wanderTarget(a.pos, a.model.seed, this.time, m.size, m.nav);
         }
         a.wantSpeed = ((1.1 + ((a.model.seed * 13) % 1) * 0.4) * leg) / 0.85;
         this.goto(a, tx, tz);
@@ -378,12 +378,22 @@ export class ActorSim {
       const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);
       const nx = a.pos[0] + fx * step, nz = a.pos[2] + fz * step;
       const free = (x: number, z: number) => !m.nav || m.nav.free(x, z);
-      if (a.path) {
-        a.pos[0] = nx;
-        a.pos[2] = nz;
-      } else if (!slideStep(a.pos, nx, nz, free) && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
+      // chemin ou pas, on ne traverse rien ; coincé sur un chemin : on le recalcule depuis là où l'on est
+      const w = walkStep(a.pos, nx, nz, free);
+      if (w.blocked && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
+      if (a.path && a.goal) {
+        a.stuckT = w.moved < step * 0.25 ? (a.stuckT ?? 0) + dt : 0;
+        if (a.stuckT > STUCK_REPLAN) {
+          a.stuckT = 0;
+          const g = a.goal;
+          const keep = { seat: g.seat, then: g.then };
+          this.goto(a, g.x, g.z, g.target);
+          if (a.goal) Object.assign(a.goal, Object.fromEntries(Object.entries(keep).filter(([, v]) => v !== undefined)));
+        }
+      }
       a.phase += step / (2 * a.mo.stepLength(Math.max(a.speed, 0.2)));
     }
+    if (a.action !== "swim" && !(a.seatY ?? 0)) unstick(a.pos, m.nav, dt);
     a.pos[1] = groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
     const transient = a.action === "wave" || a.action === "cheer" || a.action === "jump" || a.action === "bow" || a.action === "point" || a.action === "kick";
     a.actionTime += dt;
