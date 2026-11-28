@@ -53,6 +53,8 @@ export const characterSchema = {
   freckles: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Taches de rousseur" },
   moles: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Grains de beauté (light : un ou deux, strong : plusieurs)" },
   jewelry: { type: "enum", default: "auto", options: auto(JEWELRY), doc: "Bijoux en métal : boucles d'oreilles (anneaux ou clous), collier à pendentif, anneau de nez, ou tout" },
+  tattoos: { type: "enum", default: "none", options: ["none", "few", "many"], doc: "Tatouages sur la peau découverte (avant-bras, épaule, mollet, cou, torse) : étoile, cœur, ancre, rose, hirondelle, motif tribal" },
+  piercings: { type: "enum", default: "none", options: ["none", "ears", "face", "all"], doc: "Piercings en métal : clous le long de l'oreille, barre au sourcil et anneau à la lèvre" },
   snow: { type: "enum", default: "none", options: ["none", "skis", "snowshoes"], doc: "Aux pieds sur la neige : skis (avec l'action ski : glisse et bâtons) ou raquettes" },
   blush: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Joues rosées" },
   wrinkles: { type: "enum", default: "auto", options: auto(LEVELS), doc: "Rides (auto : selon l'âge)" },
