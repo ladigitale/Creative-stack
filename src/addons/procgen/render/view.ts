@@ -24,7 +24,7 @@ import { FaceState, bindExpr, exprTexture } from "./expr";
 import { requestCharacterLod } from "../scene/char-pool";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
-import { ACTIONS, type Action, type MotionState } from "../rig/locomotion";
+import { ACTIONS, CLIMB, climbLiftAt, type Action, type MotionState } from "../rig/locomotion";
 import { type Motion, PoseBlend, motionFor, turnToward } from "../rig/motion";
 import { dualQuat } from "../rig/skeleton";
 import { type StyleTokens, resolveColors } from "../style/style";
@@ -56,7 +56,7 @@ import { FootballDirector, type Puppet } from "./football";
 import type { FootballSpec } from "../scene/football";
 
 export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
-export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain" | "grab"; payload: Record<string, unknown> };
+export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain" | "grab" | "noClimb"; payload: Record<string, unknown> };
 /** État publié de la physique : chargement, erreur, ou corps (10 fois par seconde au plus tant que ça bouge). */
 export type PhysicsOut = ({ status: "loading" | "error"; error?: string } | ({ status: "ready" } & RigidState)) | null;
 
@@ -106,7 +106,9 @@ type ActorRT = {
   /** Durée demandée pour l'action en cours (s). */
   actionDur?: number;
   /** Escalade en cours : objet, hauteur du rebord, phase (montée, suspendu, rétablissement), élévation du corps. */
-  climbSt?: { obj: ObjectInfo; top: number; phase: "up" | "hang" | "mantle"; t: number; lift: number; hangOnly: boolean; from?: [number, number]; to?: [number, number]; liftFrom?: number };
+  climbSt?: { obj: ObjectInfo; top: number; phase: "up" | "hang" | "mantle"; t: number; lift: number; hangOnly: boolean; q: number; from?: [number, number]; to?: [number, number]; liftFrom?: number };
+  /** Grimper sans paroi à portée : signalé une fois (`noClimb`), l'acteur reste au sol. */
+  climbMiss?: boolean;
   /** Élévation du corps imposée à la pose (escalade), vitesse verticale (chute), réception, glissade. */
   liftY?: number;
   vy?: number;
@@ -1174,6 +1176,7 @@ export class ProcgenView {
       const sig = JSON.stringify(it);
       if (sig === a.lastIntent) continue;
       a.lastIntent = sig;
+      a.climbMiss = false;
       if (it.mood) a.mood = String(it.mood);
       if (it.look !== undefined) a.look = typeof it.look === "string" ? it.look : "";
       // conduite : monter, descendre, conduire (le reste de l'intention est ignoré)
@@ -2749,6 +2752,8 @@ export class ProcgenView {
       this.poseActor(a, dt);
       return void this.updateFace(a, dt);
     }
+    // grimper (ou se suspendre) sans paroi en cours : jamais dans le vide, on va à la paroi la plus proche
+    if ((a.action === "climb" || a.action === "hang") && !a.goal && !a.drive && !a.climbMiss && a.mo.kind === "humanoid") this.climbNearest(a);
     let vx = 0, vz = 0;
     let want = 0;
     if (a.drive) {
@@ -3072,6 +3077,41 @@ export class ProcgenView {
    * l'acteur tombe et se rattrape au rebord (il reste où il est, suspendu). Objet bas (moins d'une jambe) : on y
    * monte directement d'un rétablissement.
    */
+  /**
+   * `climb` / `hang` sans cible (ou donné à la création de la scène) : l'acteur marche jusqu'au pied de la paroi la plus
+   * proche (objet sur lequel on peut se tenir, plus haut qu'une demi-jambe, à 8 m au plus) et la grimpe ; sans paroi, il
+   * reste au sol (action `idle`) et l'événement `noClimb` le signale, une fois.
+   */
+  private climbNearest(a: ActorRT) {
+    const m = this.model!;
+    const leg = a.mo.legLength;
+    const hang = a.action === "hang";
+    const feet = a.onObj ? a.pos[1] : groundHeight(m, a.pos[0], a.pos[2], a.pos[1]);
+    let best: { o: ObjectInfo; e: ReturnType<typeof nearestEdge> } | null = null;
+    for (const o of m.objects) {
+      if (!standable(o) || o.id === a.onObj) continue;
+      if (Math.abs(o.pos[0] - a.pos[0]) > o.footprint.r + 8 || Math.abs(o.pos[2] - a.pos[2]) > o.footprint.r + 8) continue;
+      const e = nearestEdge(o, a.pos[0], a.pos[2]);
+      if (e.d > 8 || e.p[1] - feet < (hang ? 1.5 : 0.5) * leg) continue;
+      if (!best || e.d < best.e.d) best = { o, e };
+    }
+    if (!best) {
+      a.climbMiss = true;
+      const was = a.action;
+      a.action = "idle";
+      a.actionTime = 0;
+      this.onEvent({ type: "noClimb", payload: { actor: a.model.id, action: was, reason: "aucune paroi à moins de 8 m" } });
+      return;
+    }
+    const { o, e } = best;
+    if (e.d < 0.6) return void this.startClimb(a, o, hang, false);
+    const action = a.action;
+    a.action = "idle";
+    this.goto(a, e.p[0] + e.n[0] * 0.5, e.p[2] + e.n[1] * 0.5, o.id);
+    if (a.goal) a.goal.then = { action, spot: e.p };
+    else a.climbMiss = true;
+  }
+
   private startClimb(a: ActorRT, o: ObjectInfo, hangOnly: boolean, grab: boolean) {
     const m = this.model!;
     const leg = a.mo.legLength;
@@ -3099,7 +3139,8 @@ export class ProcgenView {
     a.pos[1] = grab ? groundHeight(m, a.pos[0], a.pos[2], a.pos[1]) : feet;
     const need = Math.max(0, top - a.pos[1] - 2.35 * leg);
     const low = top - a.pos[1] < leg * 1.1;
-    a.climbSt = { obj: o, top, phase: grab ? "hang" : low ? "mantle" : "up", t: 0, lift: grab ? need : 0, hangOnly };
+    a.climbSt = { obj: o, top, phase: grab ? "hang" : low ? "mantle" : "up", t: 0, lift: grab ? need : 0, hangOnly, q: 0 };
+    a.climbMiss = false;
     a.standAt = undefined;
     a.vy = 0;
     a.path = null;
@@ -3120,7 +3161,9 @@ export class ProcgenView {
     const need = Math.max(0, c.top - a.pos[1] - 2.35 * leg);
     if (c.phase === "up") {
       a.action = "climb";
-      c.lift = Math.min(need, c.lift + 0.6 * leg * dt);
+      // en croix : main, pied opposé, autre main, autre pied ; le corps monte quand il se redresse sur le pied posé
+      c.q += dt / CLIMB.cycle;
+      c.lift = Math.min(need, Math.max(c.lift, climbLiftAt(c.q, CLIMB.step * leg)));
       // collé à la paroi : on la cherche à hauteur de poitrine et l'on s'y tient à ~28 cm (une falaise recule)
       const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);
       const chest = a.pos[1] + c.lift + 1.15 * leg;
@@ -3279,7 +3322,7 @@ export class ProcgenView {
   private poseActor(a: ActorRT, _dt: number) {
     const sk = a.model.asset.skeleton!;
     const pivot = a.speed < 0.3 && !a.ride && a.action !== "sit" && a.action !== "sleep" ? Math.min(0.6, Math.abs(a.turnRate) * 0.18) : 0;
-    const st: MotionState = { speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
+    const st: MotionState = { speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, ...(a.climbSt?.phase === "up" ? { climbQ: a.climbSt.q } : {}), fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
     // hors champ (avec une marge pour l'ombre portée) : position suivie, pose gardée (déjà posé au moins une fois)
     if (this.poseFrustumOn && a.mesh.userData.world) {
       const h = a.model.asset.height;
