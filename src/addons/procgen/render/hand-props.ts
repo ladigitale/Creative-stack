@@ -9,6 +9,8 @@ import { Mesh } from "../geom/mesh";
 import { box, cylinder, ellipsoid, tube } from "../geom/prims";
 import { ROLE } from "../style/roles";
 import type { Skeleton } from "../rig/skeleton";
+import { foodModel } from "../gen/food";
+import { partsBounds, partsToMesh } from "../gen/parts";
 
 export type HandProp = {
   /** Os porteur (`hand.r`, `hand.l`) ou `null` : repère de l'acteur. */
@@ -26,7 +28,14 @@ export const PROP_ACTIONS = new Set(["drink", "eat", "cook", "chop"]);
 
 const at = (m: Mesh, part: Mesh, p: V3, axis?: V3, ang = 0) => m.append(part, m4Compose(p, axis ? qAxis(axis, ang) : [0, 0, 0, 1]));
 
-export function propsFor(action: string, sk: Skeleton): HandProp[] {
+/** `food` d'une intention : `"beer"`, `"pizza:4"` (sorte et variante du générateur `food`). */
+export function readFoodRef(v: unknown): { kind: string; variant: number } | null {
+  if (typeof v !== "string" || !v.trim()) return null;
+  const [kind, vr] = v.trim().split(":");
+  return { kind, variant: Number(vr) || 0 };
+}
+
+export function propsFor(action: string, sk: Skeleton, food?: { kind: string; variant: number } | null): HandProp[] {
   const hr = sk.bone("hand.r"), hl = sk.bone("hand.l"), ua = sk.bone("upperarm.r"), th = sk.bone("thigh.l");
   if (!hr || !hl || !ua || !th) return [];
   const u = len(sub(ua.tail, ua.head));
@@ -38,9 +47,19 @@ export function propsFor(action: string, sk: Skeleton): HandProp[] {
   const out: HandProp[] = [];
   switch (action) {
     case "drink": {
+      const c = palm(hr, -1);
+      if (food) {
+        // boisson du générateur food (bouteille, canette, verre, pinte…) : tenue au tiers de sa hauteur, debout dans la
+        // main (axe du poing)
+        const fm = foodModel(food);
+        const h = partsBounds(fm.parts).max[1];
+        const m = new Mesh();
+        at(m, partsToMesh(fm.parts, 1.2), add(c, [0, 0, -h * 0.35]), [1, 0, 0], Math.PI / 2);
+        out.push({ bone: "hand.r", mesh: m });
+        break;
+      }
       // tasse : axe dans le creux de la main fermée (vers l'avant au repos), anse côté pouce
       const m = new Mesh();
-      const c = palm(hr, -1);
       const r = 0.04 * k, h = 0.09 * k;
       at(m, cylinder(r, r * 1.08, h, ROLE.paper, 14), add(c, [0, 0, -h / 2]), [1, 0, 0], Math.PI / 2);
       at(m, cylinder(r * 0.9, r * 0.9, 0.004, ROLE.ink, 12), add(c, [0, 0, h / 2 - 0.012 * k]), [1, 0, 0], Math.PI / 2);
@@ -48,10 +67,13 @@ export function propsFor(action: string, sk: Skeleton): HandProp[] {
       break;
     }
     case "eat": {
-      // assiette posée sur la paume gauche, fourchette dans la main droite
+      // assiette posée sur la paume gauche (ou le plat du générateur food), fourchette dans la main droite
       const m = new Mesh();
-      at(m, cylinder(0.105 * k, 0.12 * k, 0.014 * k, ROLE.paper, 18), [0, 0.03 * k, 0]);
-      at(m, ellipsoid(0.045 * k, 0.014 * k, 0.04 * k, ROLE.orange, 8, 5), [0, 0.048 * k, 0]);
+      if (food) at(m, partsToMesh(foodModel(food).parts, 1.2), [0, 0.02 * k, 0]);
+      else {
+        at(m, cylinder(0.105 * k, 0.12 * k, 0.014 * k, ROLE.paper, 18), [0, 0.03 * k, 0]);
+        at(m, ellipsoid(0.045 * k, 0.014 * k, 0.04 * k, ROLE.orange, 8, 5), [0, 0.048 * k, 0]);
+      }
       out.push({ bone: "hand.l", mesh: m, flat: palm(hl, 1) });
       const f = new Mesh();
       const d = norm(sub(hr.tail, hr.head));

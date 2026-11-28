@@ -23,8 +23,9 @@ import { type M4, type V3, clamp, m4Compose, m4Point, mix, qAxis, qMul, smoothst
 import { FaceState, bindExpr, exprTexture } from "./expr";
 import { requestCharacterLod, requestCharacterOutfit } from "../scene/char-pool";
 import { characterAsset } from "../gen/character";
-import { PROP_ACTIONS, propsFor } from "./hand-props";
+import { PROP_ACTIONS, propsFor, readFoodRef } from "./hand-props";
 import { hullOnWaves } from "./waves";
+import { FishLayer, readFish } from "./fish";
 import { inSwimwear, swimwear, type Look } from "../gen/character/look";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
@@ -59,7 +60,7 @@ import { worldRoads } from "../scene/world-roads";
 import { FootballDirector, type Puppet } from "./football";
 import type { FootballSpec } from "../scene/football";
 
-export type ActorIntent = { x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
+export type ActorIntent = { /** Aliment, boisson tenu (`"pizza:4"`) pendant eat / drink. */ food?: string; x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
 export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain" | "grab" | "noClimb"; payload: Record<string, unknown> };
 /** État publié de la physique : chargement, erreur, ou corps (10 fois par seconde au plus tant que ça bouge). */
 export type PhysicsOut = ({ status: "loading" | "error"; error?: string } | ({ status: "ready" } & RigidState)) | null;
@@ -92,6 +93,8 @@ type ActorRT = {
    * impossible (le personnage n'entre alors pas dans l'eau) ; point d'eau visé en attendant d'être changé.
    */
   attire?: { orig: ActorModel["asset"]; swim: boolean; pending: boolean; failed?: boolean; wetGoal?: [number, number, string | undefined] };
+  /** Aliment ou boisson tenu pendant `eat` / `drink` (`"beer:1"`, générateur food), absent : tasse, assiette. */
+  food?: string;
   /** Objets tenus le temps d'une action (tasse, assiette, casserole, planche) : os porteur (-1 : repère de l'acteur). */
   props?: { key: string; items: { bone: number; mesh: THREE.Mesh; flat?: V3 }[] };
   /** Plongée : sous la surface (apnée), bascule du corps (rad). */
@@ -601,6 +604,7 @@ export class ProcgenView {
     // avec la physique, les ballons qui ont un corps passent par Rapier
     const bw = new BallWorld(model, model.physics ? (o) => !!o.body && o.body.kind !== "static" : undefined);
     this.balls = bw.count ? bw : null;
+    this.buildFish(model);
     this.ballSlots.clear();
     this.ballAwake.clear();
     this.dynIms.clear();
@@ -893,7 +897,46 @@ export class ProcgenView {
     (a.mats.uniforms.uExprRange.value as THREE.Vector2).set(L.range[want][0], L.range[want][1]);
   }
 
+  /** Poissons (clé `fish` de la recette) : bancs dans l'eau assez profonde ; pas dans les piscines ni la glace. */
+  private fish: FishLayer | null = null;
+  private buildFish(model: SceneModel) {
+    this.fish?.dispose();
+    this.fish = null;
+    const spec = readFish(model.fish);
+    if (!spec || this.inf) return;
+    const objAt = (x: number, z: number): ObjectInfo | null => {
+      for (const o of this.waterObjs()) {
+        const c = Math.cos(o.yaw), s = Math.sin(o.yaw), dx = x - o.pos[0], dz = z - o.pos[2];
+        if (Math.abs(dx * c - dz * s) < o.footprint.hx * 0.8 && Math.abs(dx * s + dz * c) < o.footprint.hz * 0.8) return o;
+      }
+      return null;
+    };
+    const bed = (x: number, z: number): number => {
+      const o = objAt(x, z);
+      if (!o) return this.bed(x, z);
+      const wl = this.waterAt(x, z) ?? o.pos[1];
+      const k = String(o.params.kind ?? "pond");
+      // piscine, glace, source chaude, geyser : pas de poissons ; bassin peu profond ; mare, chute d'eau : assez
+      if (k === "pool" || k === "frozen" || k === "hotspring" || k === "geyser") return wl;
+      if (k === "basin") return wl - 0.45;
+      // mare, chute d'eau : cuvette en bol (profondeur au centre selon sa taille, nulle au bord)
+      const c = Math.cos(o.yaw), sn = Math.sin(o.yaw), dx = x - o.pos[0], dz = z - o.pos[2];
+      const rx = o.footprint.hx * 0.85, rz = o.footprint.hz * 0.85;
+      const nr = Math.hypot((dx * c - dz * sn) / rx, (dx * sn + dz * c) / rz);
+      const D = Math.min(Math.max(Math.min(rx, rz) * 0.32, 0.25), 1.4) * o.scale;
+      return wl - Math.max(0, D * (1 - nr * nr));
+    };
+    const layer = new FishLayer((x, z) => this.waterAt(x, z), bed, (x, z) => !!objAt(x, z));
+    const [w, d] = model.size;
+    layer.build(spec, [-w / 2, -d / 2, w / 2, d / 2], this.staticMats, 7);
+    if (!layer.count) return;
+    this.fish = layer;
+    this.scene.add(layer.group);
+  }
+
   private clearScene() {
+    this.fish?.dispose();
+    this.fish = null;
     this.meadows.clear();
     this.drag = null;
     this.softs = null;
@@ -1327,6 +1370,7 @@ export class ProcgenView {
       a.lastIntent = sig;
       a.climbMiss = false;
       if (it.mood) a.mood = String(it.mood);
+      a.food = typeof it.food === "string" ? it.food : undefined;
       if (it.look !== undefined) a.look = typeof it.look === "string" ? it.look : "";
       // conduite : monter, descendre, conduire (le reste de l'intention est ignoré)
       if (it.action === "board") {
@@ -3695,7 +3739,7 @@ export class ProcgenView {
   /** Objets tenus : créés au début de l'action (sauf objet déjà en main), suivis par l'os de la main, ôtés ensuite. */
   private syncProps(a: ActorRT, S: M4[]) {
     const look = (a.model.asset.extra as { look?: Look } | undefined)?.look;
-    const want = a.model.asset.generator === "character" && look && (look.item ?? "none") === "none" && PROP_ACTIONS.has(a.action) && !a.ride ? a.action : "";
+    const want = a.model.asset.generator === "character" && look && (look.item ?? "none") === "none" && PROP_ACTIONS.has(a.action) && !a.ride ? `${a.action}|${(a.action === "drink" || a.action === "eat") && a.food ? a.food : ""}` : "";
     if ((a.props?.key ?? "") !== want) {
       for (const it of a.props?.items ?? []) {
         this.scene.remove(it.mesh);
@@ -3705,7 +3749,7 @@ export class ProcgenView {
       if (want) {
         const sk = a.model.asset.skeleton!;
         const mats = makeMaterials(this.shared, a.mats.uniforms.uRoles as { value: Float32Array }, false);
-        const items = propsFor(want, sk).map((hp) => {
+        const items = propsFor(a.action, sk, a.action === "drink" || a.action === "eat" ? readFoodRef(a.food) : null).map((hp) => {
           const geo = toGeometry(hp.mesh);
           geo.setAttribute("aObj", new THREE.Float32BufferAttribute(new Array(hp.mesh.vertexCount).fill(a.model.obj), 1));
           const mesh = new THREE.Mesh(geo, mats.color);
@@ -3792,7 +3836,7 @@ export class ProcgenView {
   /** La scène elle-même bouge-t-elle (acteurs, ballons, végétation au vent, eau) ? Le grain animé ne compte pas. */
   private get moving(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || this.vehRolling || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water;
+    return this.actors.size > 0 || !!this.fish || this.vehRolling || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water;
   }
 
   /** Réveil à la fin de l'attente (la boucle est arrêtée quand rien ne bouge). */
@@ -3875,7 +3919,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || this.vehRolling || this.fx.active || !!this.balls?.moving || this.emitters.active || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || !!this.fish || this.vehRolling || this.fx.active || !!this.balls?.moving || this.emitters.active || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -4015,6 +4059,7 @@ export class ProcgenView {
       for (const a of this.actors.values()) if (a !== this.drag?.actor && a !== this.settle?.d.actor) this.updateActor(a, dt * this.speed);
       this.separateActors();
       this.pushSwimmers();
+      this.fish?.step(dt * this.speed, this.time);
       // relief retouché par les acteurs : maillage réécrit au plus ~8 fois par seconde
       this.terrainWait -= dt;
       if (this.terrainDirty && this.terrainWait <= 0) {

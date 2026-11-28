@@ -9,7 +9,7 @@
  * personnages : acteurs animés.
  */
 import { ROLE } from "../style/roles";
-import { type TopGrid, topGridOf } from "./surfaces";
+import { type TopGrid, maxTopAt, topGridOf } from "./surfaces";
 import { type M4, type V3, DEG, clamp, m4Compose, m4Mul, m4Point, qAxis, qRot, sub } from "../core/math";
 import { type JointInfo, jointChain, jointInfo } from "../gen/joints";
 import { motionFor } from "../rig/motion";
@@ -31,7 +31,7 @@ import { readInfinite, worldRoads } from "./world-roads";
 
 export type Placement =
   /** Point `at` : `y` (m au-dessus du sol) et `physics` (corps de cet objet) servent à la physique. */
-  | { at: ([number, number] | { x: number; z: number; yaw?: number; y?: number; physics?: unknown })[] }
+  | { at: ([number, number] | { x: number; z: number; yaw?: number; y?: number; physics?: unknown; on?: boolean })[] }
   | { grid: [number, number]; spacing: [number, number]; origin?: [number, number] }
   | { poisson: true | [number, number, number, number]; minDist?: number }
   | { along: string; side?: "both" | "left" | "right" | "center"; spacing?: number; offset?: number; jitter?: number; start?: number; end?: number }
@@ -65,6 +65,11 @@ export type LayerSpec = {
   walkable?: boolean;
   /** Flotte : posé sur l'eau (bateaux), interdit à terre. */
   onWater?: boolean;
+  /**
+   * Posé sur le dessus de ce qui est déjà placé à cet endroit (assiette ou tasse sur une table, objet sur un
+   * comptoir, une étagère) ; sur le sol s'il n'y a rien. Aussi par point : `at: [{x, z, on: true}]`.
+   */
+  onTop?: boolean;
   /** Particules attachées à chaque objet du calque (lues par scene/fx.ts, pas par la composition). */
   fx?: unknown;
   /** Animaux, personnages : cible de l'action de départ (`"bassin.0"`, `"abreuvoir.0.spot"`, `"bancs.1.sit.0"`) : posé à la place, tourné vers elle. */
@@ -99,6 +104,8 @@ export type Recipe = {
   wind?: number;
   /** Direction vers laquelle souffle le vent (°, 0 = vers +z, 90 = vers +x). */
   windDir?: number;
+  /** Poissons dans l'eau : `true`, densité (nombre), ou `{density, colors}` ; absent : aucun. */
+  fish?: unknown;
   /** Prairies : herbes hautes, blé, roseaux, fleurs, gazon en brins instanciés (voir `meadows.ts`). */
   meadows?: unknown;
   /** Densité des prairies : 0, 1, 2 ou `auto` (0 sur mobile, 1 sinon). */
@@ -200,6 +207,8 @@ export type SceneModel = {
   wind: number;
   /** Direction du vent (radians, 0 = vers +z). */
   windDir: number;
+  /** Poissons (clé `fish` de la recette), lus par le rendu. */
+  fish?: unknown;
   /** Prairies semées (rendu 3D seulement). */
   meadows: Meadow[];
   /** Physique 3D demandée (null : aucune, le moteur n'est pas chargé). */
@@ -262,9 +271,9 @@ class TeeIssues extends Issues {
     this.to.add(i);
   }
 }
-const INSTANCEABLE = new Set(["textile", "tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water", "lava"]);
+const INSTANCEABLE = new Set(["textile", "tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water", "lava", "food"]);
 /** Tailles fines (pas d'arrondi au quart de mètre). */
-const FINE = new Set(["ball", "seat", "structure", "water"]);
+const FINE = new Set(["ball", "seat", "structure", "water", "food"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
 const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 }, tool: { name: "scale", ref: 1 }, container: { name: "scale", ref: 1 }, street: { name: "scale", ref: 1 }, pet: { name: "scale", ref: 1 }, textile: { name: "scale", ref: 1 } };
 /** Objets à tissus simulés au plus par scène (le rendu en anime encore moins à la fois, selon l'écran). */
@@ -386,6 +395,8 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
   /** Corps de l'objet en cours de placement (couche, point `at`), hauteur de départ au-dessus du sol. */
   let bodyNext: BodySpec | undefined;
   let liftNext = 0;
+  /** Objet suivant posé sur le dessus de ce qui est déjà là (`onTop`). */
+  let onTopNext = false;
   const tile = input.tile ?? null;
   const [ox, oz] = tile ? tile.origin : [0, 0];
   const sizeR = recipe.size ?? [40, 30];
@@ -588,7 +599,7 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     const corners = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => [x + (a * fp.hx * c + b * fp.hz * s) * scale, z + (-a * fp.hx * s + b * fp.hz * c) * scale]);
     // ouvrages : posés au plus bas de leurs appuis (les berges d'un pont), pas au fond du lit
     const rest = Array.isArray(asset.extra?.rest) ? (asset.extra!.rest as [number, number][]) : null;
-    let y = rest && rest.length ? Math.min(...rest.map(([lx, lz]) => H(x + (lx * c + lz * s) * scale, z + (-lx * s + lz * c) * scale))) - 0.02 : layer?.onWater && waterLevel !== null ? waterLevel - 0.15 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - 0.02;
+    let y = rest && rest.length ? Math.min(...rest.map(([lx, lz]) => H(x + (lx * c + lz * s) * scale, z + (-lx * s + lz * c) * scale))) - 0.02 : layer?.onWater && waterLevel !== null ? waterLevel - 0.15 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - Math.min(0.02, asset.height * 0.04);
     const obj = (tile?.objBase ?? 0) + objects.length + 1;
     if (Array.isArray(asset.extra?.holes) && !tile)
       for (const [rd, hx, hz, seed] of asset.extra!.holes as [number, number, number, number][]) if (holes.length < 16) holes.push([x, z, hx * scale, hz * scale, yaw, rd, seed ?? 0]);
@@ -597,6 +608,12 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     // corps dynamique lâché d'en haut (`y` d'un point `at`)
     if (body && body.kind === "dynamic" && liftNext > 0) y += liftNext;
     liftNext = 0;
+    // posé sur une table, un comptoir : dessus de l'objet déjà placé sous lui (le plus haut)
+    if (onTopNext) {
+      const top = maxTopAt(objects, x, z);
+      if (Number.isFinite(top) && top > y) y = top + 0.002;
+    }
+    onTopNext = false;
     const T = m4Compose([x, y, z], qAxis([0, 1, 0], yaw), scale);
     const anchors: Record<string, V3> = {};
     for (const [k, a] of Object.entries(asset.anchors)) anchors[k] = m4Point(T, a.pos);
@@ -864,6 +881,7 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
         if (mv.yaw !== undefined) yaw = mv.yaw * DEG;
       }
       if (layer.target && ACTOR_GENS.has(built.generator)) startAt = targetPlace(String(layer.target), built.asset, n, `${lp}.target`, layer.action);
+      onTopNext = !!layer.onTop || !!pos.on;
       if (physics && !ACTOR_GENS.has(built.generator)) {
         bodyNext = bodyOf(built.generator, built.asset, scale, pos.physics !== undefined ? pos.physics : layer.physics, `${lp}.physics`);
         if (bodyNext && bodyNext.kind !== "static") {
@@ -1080,6 +1098,7 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     style: recipe.style,
     wind: recipe.wind ?? 1,
     windDir: (typeof recipe.windDir === "number" && Number.isFinite(recipe.windDir) ? recipe.windDir : 67) * DEG,
+    ...(recipe.fish !== undefined && recipe.fish !== false ? { fish: recipe.fish } : {}),
     meadows,
     physics,
     ...(physics ? { physicsScene } : {}),
@@ -1101,7 +1120,7 @@ function facePath(x: number, z: number, paths: PathSpec[]): number {
   return best ? Math.atan2(best.px - x, best.pz - z) : 0;
 }
 
-type Pos = { x: number; z: number; yaw?: number; /** Largeur franchie (placement `across`). */ span?: number; /** Hauteur au-dessus du sol (m) et corps d'un point `at`. */ y?: number; physics?: unknown; /** Rang du point dans `at` (monde infini). */ idx?: number };
+type Pos = { /** Posé sur le dessus de ce qui est là (`on: true`). */ on?: boolean; x: number; z: number; yaw?: number; /** Largeur franchie (placement `across`). */ span?: number; /** Hauteur au-dessus du sol (m) et corps d'un point `at`. */ y?: number; physics?: unknown; /** Rang du point dans `at` (monde infini). */ idx?: number };
 
 /** Semis `scatter` dans le carré (x0, z0, côté) du monde, gardé dans `size` (scène finie) ; positions du monde. */
 function scatterPositions(sc: { cell?: number; density?: number | string; jitter?: number }, lid: string, seed: string, x0: number, z0: number, side: number, size: [number, number] | null, density: (v: number | string, x: number, z: number) => number): Pos[] {
@@ -1215,7 +1234,7 @@ function placements(place: Placement, count: number, rng: Rng, size: [number, nu
   if ("at" in place) {
     for (const a of place.at ?? []) {
       if (Array.isArray(a)) out.push({ x: Number(a[0]) || 0, z: Number(a[1]) || 0 });
-      else if (a && typeof a === "object") out.push({ x: Number(a.x) || 0, z: Number(a.z) || 0, yaw: a.yaw !== undefined ? Number(a.yaw) * DEG : undefined, ...(Number.isFinite(Number(a.y)) && a.y !== undefined ? { y: Number(a.y) } : {}), ...(a.physics !== undefined ? { physics: a.physics } : {}) });
+      else if (a && typeof a === "object") out.push({ x: Number(a.x) || 0, z: Number(a.z) || 0, yaw: a.yaw !== undefined ? Number(a.yaw) * DEG : undefined, ...(Number.isFinite(Number(a.y)) && a.y !== undefined ? { y: Number(a.y) } : {}), ...(a.physics !== undefined ? { physics: a.physics } : {}), ...(a.on === true ? { on: true } : {}) });
     }
     return out;
   }
