@@ -21,7 +21,9 @@ import type { Aabb } from "../../../shared/sim/grid";
 import type { Hit } from "../../../shared/sim/emitter";
 import { type M4, type V3, clamp, m4Compose, m4Point, mix, qAxis, qMul, smoothstep, sub } from "../core/math";
 import { FaceState, bindExpr, exprTexture } from "./expr";
-import { requestCharacterLod } from "../scene/char-pool";
+import { requestCharacterLod, requestCharacterOutfit } from "../scene/char-pool";
+import { characterAsset } from "../gen/character";
+import { inSwimwear, swimwear, type Look } from "../gen/character/look";
 import { StateLayer } from "./states";
 import { type ActorModel, type ObjectInfo, type PointLight, type SceneModel, type Zone, groundHeight, reachOf } from "../scene/compose";
 import { ACTIONS, CLIMB, climbLiftAt, type Action, type MotionState } from "../rig/locomotion";
@@ -83,6 +85,14 @@ type ActorRT = {
   mats: MaterialPair;
   /** Niveaux de détail : géométrie complète (0) et allégée (1, arrivée plus tard d'un worker), visage de chacune. */
   lods?: { geo: [THREE.BufferGeometry, THREE.BufferGeometry]; tex: [THREE.Texture, THREE.Texture]; range: [[number, number], [number, number]]; cur: 0 | 1 };
+  /**
+   * Tenue de bain : apparence d'origine (rendue en sortant de l'eau), maillot en place, construction en cours ou
+   * impossible (le personnage n'entre alors pas dans l'eau) ; point d'eau visé en attendant d'être changé.
+   */
+  attire?: { orig: ActorModel["asset"]; swim: boolean; pending: boolean; failed?: boolean; wetGoal?: [number, number, string | undefined] };
+  /** Plongée : sous la surface (apnée), bascule du corps (rad). */
+  under?: boolean;
+  diveTilt?: number;
   /** Animation (humanoïde ou animal) : pose, longueur de pas, longueur de jambe. */
   mo: Motion;
   pos: V3;
@@ -730,6 +740,84 @@ export class ProcgenView {
     this.actors.set(a.id, rt);
     this.poseActor(rt, 0);
     this.loadLod(rt);
+    if (wet(rt.action)) this.dressFor(rt);
+  }
+
+  /** Personnage prêt pour l'eau : animal, déjà en maillot, ou changé (jamais habillé dans l'eau). */
+  private dressedForWater(a: ActorRT): boolean {
+    if (a.model.asset.generator !== "character") return true;
+    if (a.attire) return a.attire.swim;
+    const look = (a.model.asset.extra as { look?: Look } | undefined)?.look;
+    return !look || inSwimwear(look);
+  }
+
+  /**
+   * Tenue selon l'action : maillot pour nager ou plonger (même corps, même visage, construit hors du fil principal
+   * quand des workers existent), vêtements d'origine une fois sorti de l'eau.
+   */
+  private dressFor(a: ActorRT) {
+    const asset = a.model.asset;
+    const base = a.attire?.orig ?? asset;
+    const ex = base.extra as { look?: Look; vkey?: string } | undefined;
+    if (base.generator !== "character" || !ex?.look || !ex.vkey) return;
+    if (wet(a.action)) {
+      if (a.attire?.swim || a.attire?.pending || a.attire?.failed || inSwimwear(ex.look)) return;
+      const look = swimwear(ex.look);
+      a.attire = { orig: base, swim: false, pending: true, wetGoal: a.attire?.wetGoal };
+      const model = this.model;
+      void requestCharacterOutfit(look, ex.vkey).then((b) => {
+        const at = a.attire;
+        if (!at || this.disposed || this.model !== model || this.actors.get(a.model.id) !== a) return;
+        at.pending = false;
+        if (!b) return void (at.failed = true);
+        if (!wet(a.action)) return void (a.attire = undefined);
+        if (!this.swapAsset(a, characterAsset(look, (base.colors ?? {}) as Record<string, string>, b, ex.vkey) as ActorModel["asset"])) return void (at.failed = true);
+        at.swim = true;
+        // changé : il repart vers l'eau qu'on lui avait désignée
+        const g = at.wetGoal;
+        at.wetGoal = undefined;
+        if (g) this.goto(a, g[0], g[1], g[2]);
+      });
+    } else if (a.attire && !a.attire.pending) {
+      if (!a.attire.swim) a.attire = undefined;
+      else if (this.waterAt(a.pos[0], a.pos[2]) === null && this.swapAsset(a, a.attire.orig)) a.attire = undefined;
+    }
+  }
+
+  /** Remplace le maillage d'un acteur par un autre du même squelette et du même visage (changement de tenue). */
+  private swapAsset(a: ActorRT, asset: ActorModel["asset"]): boolean {
+    const old = a.model.asset;
+    if (asset.skeleton?.count !== old.skeleton?.count) return false;
+    if (JSON.stringify(asset.expr?.channels ?? []) !== JSON.stringify(old.expr?.channels ?? [])) return false;
+    const geo = toGeometry(asset.mesh);
+    geo.setAttribute("aObj", new THREE.Float32BufferAttribute(new Array(asset.mesh.vertexCount).fill(a.model.obj), 1));
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, asset.height / 2, 0), asset.height * 0.9);
+    if (asset.expr) geo.userData.expr = asset.expr;
+    if (a.lods) {
+      for (const g of a.lods.geo) g.dispose();
+      a.lods = undefined;
+    } else a.mesh.geometry.dispose();
+    a.mesh.geometry = geo;
+    bindExpr(a.mats.uniforms, asset);
+    a.model = { ...a.model, asset };
+    // tissus et mèches portés : ceux de la nouvelle tenue
+    this.softs?.removeActor(a.model.id);
+    if (asset.soft?.length) {
+      if (!this.softs) {
+        this.softs = new SoftLayer(this.scene, (rt, bone, out) => this.softAttach(rt, bone, out), this.mobile ? SOFT_BUDGET.mobile : SOFT_BUDGET.desktop);
+        this.softs.setWind(this.windVector());
+      }
+      const mats = makeMaterials(this.shared, a.mats.uniforms.uRoles as { value: Float32Array }, false);
+      for (const p of asset.soft) {
+        const rt = this.softs.add(p, mats, { actor: a.model.id, obj: a.model.obj });
+        if (rt) this.softs.settle(rt, 60);
+      }
+    }
+    this.loadLod(a);
+    this.dirty = this.shadowDirty = true;
+    this.contentVersion++;
+    this.touch();
+    return true;
   }
 
   /** Version allégée d'un personnage détaillé, construite par le pool de workers puis gardée en réserve. */
@@ -855,6 +943,27 @@ export class ProcgenView {
       this.dirty = true;
       this.kick();
     }
+  }
+
+  /** Nageurs et plongeurs vers le shader de l'eau (rides, écume, silhouette sous la surface). */
+  pushSwimmers() {
+    // nageurs : position, vitesse et phase vers le shader de l'eau (rides, écume)
+    const sw = this.shared.uSwim.value as THREE.Vector4[];
+    let ns = 0;
+    for (const a of this.actors.values()) {
+      if (a.hidden || ns >= 8 || !wet(a.action)) continue;
+      // plongeur sous la surface : profondeur en négatif, cap à la place de la graine (silhouette sous l'eau)
+      if (a.under) {
+        const wl = this.waterAt(a.pos[0], a.pos[2]);
+        const d = wl === null ? 0 : wl - a.pos[1];
+        if (d > 0.15) {
+          sw[ns++].set(a.pos[0], a.pos[2], -d, a.dispYaw);
+          continue;
+        }
+      }
+      sw[ns++].set(a.pos[0], a.pos[2], a.speed, a.model.seed * 3.1);
+    }
+    this.shared.uSwimN.value = ns;
   }
 
   private stepFx(dt: number) {
@@ -1228,6 +1337,7 @@ export class ProcgenView {
         this.standUp(a);
         a.action = "idle";
       }
+      this.dressFor(a);
       const run = it.run || it.action === "run";
       a.wantSpeed = Number.isFinite(it.speed) ? Number(it.speed) : run ? 3.6 * a.mo.legLength / 0.85 : 1.35 * a.mo.legLength / 0.85;
       if (Number.isFinite(it.vx) || Number.isFinite(it.vz)) {
@@ -1396,6 +1506,14 @@ export class ProcgenView {
     }
     a.path = p.slice(1);
     a.goal = { x, z, target };
+    // nager ou plonger : le chemin s'arrête au bord, puis l'acteur entre dans l'eau, s'il est en maillot ; sinon il
+    // attend au bord d'être changé
+    if (wet(a.action) && this.waterAt(x, z) !== null) {
+      // déjà dans l'eau : droit vers la cible, sans repasser par le bord
+      if (this.dressedForWater(a) && this.waterAt(a.pos[0], a.pos[2]) !== null) a.path = [[x, z]];
+      else if (this.dressedForWater(a)) a.path.push([x, z]);
+      else if (a.attire) a.attire.wetGoal = [x, z, target];
+    }
   }
 
 
@@ -2828,7 +2946,7 @@ export class ProcgenView {
         vx = dx / d;
         vz = dz / d;
       }
-    } else if (a.action === "swim" && this.waterAt(a.pos[0], a.pos[2]) !== null) {
+    } else if (wet(a.action) && this.waterAt(a.pos[0], a.pos[2]) !== null) {
       // nageur : toujours en mouvement dans l'eau, longueurs de crawl puis pauses pour jouer (sur place, bras qui
       // brassent) ; la cible suivante est tirée dans l'eau (bord du bassin évité)
       a.wanderT -= dt;
@@ -2900,7 +3018,7 @@ export class ProcgenView {
       // à la nage, l'eau est praticable (elle bloque les marcheurs)
       // sur un sommet (ou en l'air), la grille du sol ne s'applique pas : on peut marcher jusqu'au bord et tomber
       const aloft = !!a.onObj || a.pos[1] > groundHeight(m, a.pos[0], a.pos[2], a.pos[1]) + 0.2;
-      const free = (x: number, z: number) => (aloft ? maxTopAt(m.objects, x, z) <= a.pos[1] + 0.32 * leg : !m.nav || a.action === "swim" || m.nav.free(x, z));
+      const free = (x: number, z: number) => (aloft ? maxTopAt(m.objects, x, z) <= a.pos[1] + 0.32 * leg : !m.nav || (wet(a.action) && this.dressedForWater(a)) || m.nav.free(x, z));
       // chemin ou pas, on ne traverse rien : un virage coupé (cap en retard sur le chemin) glisse le long du mur
       const w = walkStep(a.pos, nx, nz, free);
       if (w.blocked && a.drive) this.onEvent({ type: "blocked", payload: { actor: a.model.id, reason: "wall" } });
@@ -2919,12 +3037,39 @@ export class ProcgenView {
     }
     // dans un obstacle (apparu là, poussé par la foule, objet déplacé sur lui) : on en sort vers la case libre la plus
     // proche, au lieu d'y circuler librement
-    if (!a.onObj && a.action !== "swim" && !(a.seatY ?? 0)) unstick(a.pos, m.nav, dt);
+    if (!a.onObj && !wet(a.action) && !(a.seatY ?? 0)) unstick(a.pos, m.nav, dt);
     this.settleOnSupport(a, dt);
-    // nageur : à la surface de l'eau quand elle recouvre le sol
-    if (a.action === "swim") {
+    // nageur : à la surface de l'eau quand elle recouvre le sol ; plongeur : descend sous la surface (apnée), glisse,
+    // remonte et reprend la nage au bout de `duration` (4 s par défaut)
+    a.under = false;
+    a.diveTilt = 0;
+    // sorti de l'eau à pied : il remet ses vêtements
+    if (a.attire?.swim && !wet(a.action)) this.dressFor(a);
+    if (wet(a.action)) {
       const wl = this.waterAt(a.pos[0], a.pos[2]);
-      if (wl !== null && wl > a.pos[1]) a.pos[1] = wl;
+      if (wl !== null && wl > a.pos[1] - 0.05) {
+        a.pos[1] = wl;
+        if (a.action === "dive") {
+          const D = a.actionDur ?? 4, t = a.actionTime;
+          const H = a.model.asset.height;
+          // fond : relief sous l'eau du terrain ; bassin, piscine posés au sol : assez profonds pour passer dessous
+          const tw = this.inf ? this.inf.world.waterLevel : this.model?.terrain?.spec.water ?? null;
+          const bed = this.bed(a.pos[0], a.pos[2]);
+          const floor = tw !== null && bed < tw - 0.15 ? wl - bed - 0.3 : H;
+          const depth = Math.max(0, Math.min(H * 0.6, floor));
+          const k = Math.min(smooth01(t / 0.8), 1 - smooth01((t - (D - 0.9)) / 0.9));
+          a.pos[1] = wl - depth * k;
+          a.under = true;
+          // tête la première en descendant, relevée en remontant
+          a.diveTilt = 0.5 * (1 - smooth01((t - 0.15) / 0.6)) - 0.5 * smooth01((t - (D - 1.1)) / 0.4) * (1 - smooth01((t - (D - 0.4)) / 0.4));
+          if (t > D) {
+            this.onEvent({ type: "actionEnd", payload: { actor: a.model.id, action: "dive" } });
+            a.action = "swim";
+            a.actionTime = 0;
+            a.actionDur = undefined;
+          }
+        }
+      }
     }
     // actions
     const transient = a.action === "wave" || a.action === "cheer" || a.action === "jump" || a.action === "bow" || a.action === "point" || a.action === "kick";
@@ -3297,7 +3442,7 @@ export class ProcgenView {
 
   private updateFace(a: ActorRT, dt: number) {
     if (!a.face.active) return;
-    a.face.step(dt, a.mood, a.action === "idle" && a.speed > 2.5 ? "run" : a.action, this.lookAngles(a), a.model.seed);
+    a.face.step(dt, a.mood, a.action === "idle" && a.speed > 2.5 ? "run" : a.action === "dive" && !a.under ? "swim" : a.action, this.lookAngles(a), a.model.seed);
     a.face.write(a.mats.uniforms);
   }
 
@@ -3342,7 +3487,10 @@ export class ProcgenView {
   private poseActor(a: ActorRT, _dt: number) {
     const sk = a.model.asset.skeleton!;
     const pivot = a.speed < 0.3 && !a.ride && a.action !== "sit" && a.action !== "sleep" ? Math.min(0.6, Math.abs(a.turnRate) * 0.18) : 0;
-    const st: MotionState = { speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: a.action, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, ...(a.climbSt?.phase === "up" ? { climbQ: a.climbSt.q } : {}), fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
+    // nager ou plonger hors de l'eau (en route vers le bassin) : il marche ; sous l'eau, l'apnée
+    const inWater = wet(a.action) && this.waterAt(a.pos[0], a.pos[2]) !== null;
+    const act: Action = wet(a.action) && !inWater ? "idle" : a.action === "dive" && !a.under ? "swim" : a.action;
+    const st: MotionState = { diveTilt: a.diveTilt, speed: Math.max(a.speed, pivot), phase: a.phase, time: this.time + a.model.seed, action: act, actionTime: a.actionTime, actionWeight: a.actionWeight, mood: a.mood, turn: a.ride ? a.turn : a.turnRate, seed: a.model.seed, seatY: a.action === "sit" || a.action === "sleep" || a.action === "drive" || a.action === "ride" || a.action === "row" ? a.seatY : 0, ...(a.ride && a.seatFoot ? { seatFoot: a.seatFoot } : {}), reachY: a.action === "drink" || a.action === "eat" || a.action === "hang" || a.action === "climb" ? a.reachY : undefined, liftY: a.liftY, climbing: a.climbSt?.phase === "up" ? 1 : 0, ...(a.climbSt?.phase === "up" ? { climbQ: a.climbSt.q } : {}), fallV: a.vy, landK: (a.landT ?? 0) / 0.35, slideK: a.slideK };
     // hors champ (avec une marge pour l'ombre portée) : position suivie, pose gardée (déjà posé au moins une fois)
     if (this.poseFrustumOn && a.mesh.userData.world) {
       const h = a.model.asset.height;
@@ -3662,11 +3810,7 @@ export class ProcgenView {
       this.stepVehicles(dt * this.speed);
       for (const a of this.actors.values()) if (a !== this.drag?.actor && a !== this.settle?.d.actor) this.updateActor(a, dt * this.speed);
       this.separateActors();
-      // nageurs : position, vitesse et phase vers le shader de l'eau (rides, écume)
-      const sw = this.shared.uSwim.value as THREE.Vector4[];
-      let ns = 0;
-      for (const a of this.actors.values()) if (a.action === "swim" && !a.hidden && ns < 8) sw[ns++].set(a.pos[0], a.pos[2], a.speed, a.model.seed * 3.1);
-      this.shared.uSwimN.value = ns;
+      this.pushSwimmers();
       // relief retouché par les acteurs : maillage réécrit au plus ~8 fois par seconde
       this.terrainWait -= dt;
       if (this.terrainDirty && this.terrainWait <= 0) {
@@ -4214,5 +4358,11 @@ export class ProcgenView {
 }
 
 const round = (x: number) => Math.round(x * 100) / 100;
+/** Actions dans l'eau : nager, plonger. */
+const wet = (act: string) => act === "swim" || act === "dive";
+const smooth01 = (x: number) => {
+  const t = Math.min(1, Math.max(0, x));
+  return t * t * (3 - 2 * t);
+};
 const baseMoodOf = (a: ActorModel) => String((a.asset.extra?.look as { mood?: string } | undefined)?.mood ?? a.params.mood ?? "neutral");
 const round3 = (x: number) => Math.round(x * 1000) / 1000;

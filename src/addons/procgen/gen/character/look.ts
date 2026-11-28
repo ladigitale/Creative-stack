@@ -40,8 +40,8 @@ export const OUTFITS: Record<string, [string, string, string, string]> = {
   brick: ["#9b4f3f", "#3f4249", "#d9c9a8", "#3a2a20"],
 };
 
-export const TOPS = ["none", "tee", "long", "tank", "sweater", "shirt", "tunic", "coat", "robe", "dress"] as const;
-export const BOTTOMS = ["trousers", "shorts", "skirt", "longskirt", "overalls"] as const;
+export const TOPS = ["none", "tee", "long", "tank", "sweater", "shirt", "tunic", "coat", "robe", "dress", "swimsuit"] as const;
+export const BOTTOMS = ["trousers", "shorts", "skirt", "longskirt", "overalls", "swim"] as const;
 export const OVERS = ["none", "vest", "jacket", "apron", "armor"] as const;
 export const COLLARS = ["none", "round", "shirt", "turtle"] as const;
 export const BELTS = ["none", "belt", "sash"] as const;
@@ -293,7 +293,10 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
   let bottom = choose("bottom", (w) => {
     if (masc) (w.skirt = 0), (w.longskirt = 0);
   });
-  let over = choose("over");
+  // en maillot : rien par-dessus, pieds nus (sauf demande explicite)
+  const bathing = top === "swimsuit" || bottom === "swim";
+  const bath = (slot: string, none: string, pick: () => string) => (bathing && s(slot) === "auto" ? none : pick());
+  let over = bath("over", "none", () => choose("over"));
   let hat = choose("hat");
   let hair = choose("hair", (w) => {
     // coiffures volumineuses rares sous un chapeau
@@ -305,20 +308,20 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
     if (top === "shirt" || over === "vest" || over === "jacket") w.shirt = (w.shirt ?? 0) + 4;
     if (top === "sweater") w.turtle = (w.turtle ?? 0) + 1.5;
   });
-  const belt = choose("belt", (w) => {
+  const belt = bath("belt", "none", () => choose("belt", (w) => {
     if (top === "tunic" || top === "robe" || over === "armor") w.belt = (w.belt ?? 0) + 3;
     if (top === "dress") w.sash = (w.sash ?? 0) + 1;
-  });
-  const details = choose("details", (w) => {
+  }));
+  const details = bath("details", "none", () => choose("details", (w) => {
     if (top === "shirt" || top === "coat" || over === "vest" || over === "jacket") w.buttons = (w.buttons ?? 0) + 3;
-  });
-  const gloves = choose("gloves");
-  const shoes = choose("shoes");
+  }));
+  const gloves = bath("gloves", "none", () => choose("gloves"));
+  const shoes = bath("shoes", "barefoot", () => choose("shoes"));
   const pattern = choose("pattern", (w) => {
     if (top === "robe" || over === "armor") (w.checks = 0), (w.vstripes = 0), (w.stripes = 0);
   });
-  const bag = choose("bag");
-  const item = choose("item");
+  const bag = bath("bag", "none", () => choose("bag"));
+  const item = bath("item", "none", () => choose("item"));
   // réaliste : jamais de tête carrée (même demandée), la mâchoire humaine s'effile vers le menton
   const realistic = s("archetype") === "realistic";
   const headShape0 = choose("headShape", (w) => {
@@ -383,7 +386,8 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
   if (top === "robe" || top === "dress") bottom = bottom === "overalls" ? "trousers" : bottom;
   if ((top === "coat" || top === "robe") && (over === "jacket" || over === "vest")) over = "none";
   if (over === "armor" && collar === "shirt") collar = "none";
-  if (top === "none" || top === "tank" || top === "dress") collar = top === "dress" && collar === "round" ? collar : "none";
+  if (top === "none" || top === "tank" || top === "dress" || top === "swimsuit") collar = top === "dress" && collar === "round" ? collar : "none";
+  if (top === "swimsuit" && (over === "vest" || over === "jacket" || over === "armor")) over = "none";
   if (age === "child" && over === "armor") over = "none";
   if (top === "none" && (over === "vest" || over === "jacket")) top = "tee";
 
@@ -430,7 +434,7 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
 
 /** Textes imprimés sur le haut : `shirtText` (devant), `shirtName` (dos ; « auto » = nom généré), `shirtNumber`. */
 function prints(pp: LookInput, rng: Rng, top: string): Pick<Look, "printFront" | "printName" | "printNumber" | "printFont"> {
-  if (top === "none") return {};
+  if (top === "none" || top === "swimsuit") return {};
   const str = (k: string) => (pp[k] == null ? "" : String(pp[k]).trim());
   const font = pickFont(pp.shirtFont, str("shirtText") ? SHIRT_TEXT_FONTS : SHIRT_NUMBER_FONTS, (l) => rng.fork("auto/shirtFont").pick(l));
   // police à contours : casse et signes gardés (la mise en page écarte ce qu'elle ne sait pas tracer)
@@ -519,4 +523,36 @@ export function mixHex(a: string, b: string, k: number): string {
   const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
   const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
   return "#" + pa.map((x, i) => Math.round(x + (pb[i] - x) * k).toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Tenue de bain d'un personnage (même corps, même visage, même coiffure) : maillot (une pièce ou deux pièces selon la
+ * silhouette, torse nu pour une silhouette masculine), pieds nus, ni chapeau, ni objet, ni sac, ni surcouche.
+ */
+export function swimwear(look: Look): Look {
+  const fem = look.figure !== "masculine";
+  return {
+    ...look,
+    top: fem ? "swimsuit" : "none",
+    bottom: "swim",
+    over: "none",
+    collar: "none",
+    belt: "none",
+    details: "none",
+    gloves: "none",
+    shoes: "barefoot",
+    hat: "none",
+    bag: "none",
+    item: "none",
+    cape: "none",
+    printFront: undefined,
+    printName: undefined,
+    printNumber: undefined,
+    printFont: undefined,
+  };
+}
+
+/** Vrai si le personnage est en tenue de bain (ou torse nu en short de bain). */
+export function inSwimwear(look: Pick<Look, "top" | "bottom">): boolean {
+  return look.bottom === "swim" && (look.top === "swimsuit" || look.top === "none");
 }

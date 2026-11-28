@@ -16,7 +16,7 @@ import { type PackedBuilt, unpackBuilt } from "../gen/character/pack";
 import type { Built } from "../gen/character/build";
 import { PROCGEN_BUILD_VERSION } from "../gen/character/version";
 import { characterSkeleton } from "../gen/character/build";
-import { cachedCharacter, characterAsset, prepareCharacter, storeCharacter } from "../gen/character";
+import { buildCharacterFromKey, cachedCharacter, characterAsset, prepareCharacter, storeCharacter } from "../gen/character";
 import type { Asset } from "../gen/types";
 import { type ComposeInput, type Recipe, composeSceneAsync } from "./compose";
 import { resolveGeneratorId } from "../gen/index";
@@ -328,6 +328,47 @@ export function requestCharacterLod(look: Look, vkey: string): Promise<Built | n
       return built;
     })().finally(() => lodWait.delete(key));
     lodWait.set(key, p);
+  }
+  return p;
+}
+
+const outfitWait = new Map<string, Promise<Built | null>>();
+
+/**
+ * Le même personnage dans une autre tenue (`look` modifié : maillot de bain…), même graine de maillage : même corps,
+ * même visage, même squelette. Cache en mémoire, puis du navigateur, puis pool de workers ; sans workers, construit
+ * sur le fil principal au tour suivant (un personnage, moins d'une seconde).
+ */
+export function requestCharacterOutfit(look: Look, vkey: string): Promise<Built | null> {
+  const key = JSON.stringify({ look, seed: vkey.split("/").slice(-2)[0] });
+  const hit = cachedCharacter(key);
+  if (hit) return Promise.resolve(hit);
+  let p = outfitWait.get(key);
+  if (!p) {
+    p = (async () => {
+      let built: Built | null = null;
+      if (workerFactory) {
+        const found = await dbGet([key]);
+        let b = found.get(key) ?? null;
+        if (!b) {
+          if (!pool || pool.dead) pool = new CharacterPool(workerFactory!, poolSize || 2);
+          b = await pool.run({ key, look, vkey });
+          if (b) void dbPut([[key, b]]);
+        }
+        if (b) built = cachedCharacter(key) ?? unpackBuilt(b);
+      }
+      if (!built) {
+        await new Promise((r) => setTimeout(r, 0));
+        try {
+          built = buildCharacterFromKey(look, vkey);
+        } catch {
+          return null;
+        }
+      }
+      storeCharacter(key, built);
+      return built;
+    })().finally(() => outfitWait.delete(key));
+    outfitWait.set(key, p);
   }
   return p;
 }

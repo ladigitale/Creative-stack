@@ -13,7 +13,7 @@
 import { type Q, type V3, DEG, add, clamp, cross, dot, len, mix, norm, qAxis, qConj, qEuler, qId, qFromTo, qMul, qRot, qSlerp, scale, smoothstep, sub } from "../core/math";
 import { type Pose, Skeleton, qFromBasis } from "./skeleton";
 
-export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header"] as const;
+export const ACTIONS = ["idle", "walk", "run", "wave", "point", "cheer", "talk", "carry", "sit", "jump", "think", "bow", "hammer", "sweep", "dig", "kick", "drink", "eat", "sleep", "throw", "comb", "guard", "punch", "fightkick", "sword", "archery", "hang", "dance", "swim", "climb", "mantle", "tackle", "diveleft", "diveright", "fall", "header", "dive"] as const;
 /** Poses à bord (posées par la conduite, pas des ordres d'acteur) : mains au volant, à califourchon, à la rame. */
 export const RIDE_ACTIONS = ["drive", "ride", "row"] as const;
 export type Action = (typeof ACTIONS)[number] | (typeof RIDE_ACTIONS)[number];
@@ -59,6 +59,8 @@ export type MotionState = {
    * pieds. Absent : sol plat. Les pieds s'y posent (pente, marche), le bassin descend sur le plus bas.
    */
   ground?: (x: number, z: number) => number;
+  /** Plongée sous l'eau (`dive`) : bascule du corps en plus de l'horizontale (rad, > 0 : tête vers le fond). */
+  diveTilt?: number;
 };
 
 export type RigInfo = {
@@ -403,7 +405,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   let hangLift = 0, hangSwing = 0;
   // danse : pas marqués (décalage des pieds) ; nage : corps à l'horizontale ; escalade : élévation le long de la paroi
   let footOff: { l: V3; r: V3 } | null = null;
-  let swimK = 0, swimBob = 0, swimKick = 0;
+  let swimK = 0, swimBob = 0, swimKick = 0, diving = false;
   // poses au sol ou en vol (tacle glissé, plongeon du gardien, chute, tête) : bascule du corps entier `gBody`, bassin
   // posé en `gPel` (repère de l'acteur), jambes en rotations directes (pas d'appui au sol)
   let gK = 0;
@@ -747,6 +749,22 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
       over.head = qEuler(-15 * swimK * DEG, 55 * breath * swimK * DEG, 0);
       swimBob = Math.sin(TAU * c * 2) * leg * 0.015;
       swimKick = Math.sin(at * 3 * TAU);
+      break;
+    }
+    case "dive": {
+      // apnée sous l'eau : corps allongé, brasse coulée (les deux bras ensemble : traction vers l'extérieur, mains
+      // ramenées sous la poitrine, puis glisse bras tendus devant), ondulation des jambes jointes, tête dans l'axe
+      swimK = 1;
+      diving = true;
+      const u = (at / 1.9) % 1;
+      const F: V3 = [0.12, 1, 0.08], P: V3 = [0.85, 0.2, 0.35], R: V3 = [0.15, 0.25, 0.75];
+      const lerp3 = (a: V3, b: V3, t: number): V3 => [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)];
+      const [d, el] = u < 0.35 ? [lerp3(F, P, smoothstep(0, 0.35, u)), mix(5, 35, u / 0.35)] as const : u < 0.55 ? [lerp3(P, R, smoothstep(0.35, 0.55, u)), mix(35, 95, (u - 0.35) / 0.2)] as const : [lerp3(R, F, smoothstep(0.55, 0.75, u)), mix(95, 5, smoothstep(0.55, 0.75, u))] as const;
+      for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) aimDir(over, s2, [sg2 * d[0], d[1], d[2]], el, 0, 40);
+      over.neck = qEuler(-8 * DEG, 0, 0);
+      over.head = qEuler(-6 * DEG, 0, 0);
+      swimKick = Math.sin(at * 2.6 * TAU);
+      swimBob = 0;
       break;
     }
     case "climb": {
@@ -1376,7 +1394,7 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
   if (swimK > 0) {
     // nage : le corps bascule à l'horizontale autour du bassin, posé à la surface (l'appelant met l'acteur au niveau
     // de l'eau) ; jambes tendues qui battent, pointes allongées
-    const th = 82 * DEG * w * swimK;
+    const th = (82 * DEG + (diving ? st.diveTilt ?? 0 : 0)) * w * swimK;
     const sY = mix(-leg * 0.68, -leg * 0.06, swimK) + swimBob;
     pelvisOffset[0] = 0;
     pelvisOffset[1] = sY - info.hipY * Math.cos(th) + (1 - w) * info.hipY;
@@ -1384,7 +1402,9 @@ export function humanoidPose(sk: Skeleton, info: RigInfo, st: MotionState, rootP
     for (const [s2, sg2] of [["l", 1], ["r", -1]] as const) {
       // battements (crawl) ou pédalage (surplace : cuisses levées, genoux pliés qui tournent)
       const pd = Math.sin(st.time * 2.4 * TAU + (sg2 > 0 ? 0 : Math.PI));
-      const thK = mix(-(35 + 15 * pd), 12 * sg2 * swimKick - 4, swimK), shK = mix(-(55 + 25 * pd), -(12 + 8 * Math.max(0, sg2 * swimKick)), swimK);
+      // apnée : jambes jointes qui ondulent ensemble (battement de dauphin), pas de battements alternés
+      const kk = diving ? swimKick : sg2 * swimKick;
+      const thK = mix(-(35 + 15 * pd), (diving ? 9 : 12) * kk - 4, swimK), shK = mix(-(55 + 25 * pd), -(12 + (diving ? 14 : 8) * Math.max(0, kk)), swimK);
       rot[`thigh.${s2}`] = qSlerp(rot[`thigh.${s2}`] ?? qId(), qAxis([1, 0, 0], thK * DEG), w);
       rot[`shin.${s2}`] = qSlerp(rot[`shin.${s2}`] ?? qId(), hinge(sk, `shin.${s2}`, shK), w);
       rot[`foot.${s2}`] = qSlerp(rot[`foot.${s2}`] ?? qId(), qAxis([1, 0, 0], 50 * DEG), w);

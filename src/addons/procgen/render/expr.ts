@@ -92,7 +92,8 @@ export class FaceState {
     if (!this.active) return;
     this.time += dt;
     const k = 1 - Math.exp(-dt * 7);
-    const target = MOODS.includes(mood) ? mood : "neutral";
+    // sous l'eau : yeux plissés, bouche fermée (apnée)
+    const target = action === "dive" ? "sleepy" : MOODS.includes(mood) ? mood : "neutral";
     // bouche : parole (syllabes irrégulières), mâche, cri de joie
     const t = this.time + seed;
     const talk = mouthOpen(action, t);

@@ -42,6 +42,7 @@ export function handPose(action: string, t: number): Record<string, number> {
     case "dance":
       return { "open.l": 0.5 + 0.3 * Math.sin(t * 5.9), "open.r": 0.5 + 0.3 * Math.sin(t * 5.9 + 1) };
     case "swim":
+    case "dive":
       return { "open.l": 0.85, "open.r": 0.85 };
     case "throw":
       return { "fist.r": 0.7, "open.l": 0.6 };
