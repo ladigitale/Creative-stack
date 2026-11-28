@@ -130,7 +130,7 @@ export class SonicFileOpen extends LitElement {
     const mime = file.type || "";
     const kind = fileKind(mime, file.name);
     const url = URL.createObjectURL(file);
-    const ref: SonicMediaRef = { url, blob: file, mime };
+    const ref: SonicMediaRef = { url, blob: file, mime, name: file.name };
     if (kind === "image") {
       const dims = await imageSize(url);
       if (!dims) {
