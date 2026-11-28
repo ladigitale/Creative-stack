@@ -14,6 +14,8 @@ export type SonicMediaRef = {
   width?: number;
   height?: number;
   mime?: string;
+  /** Nom du fichier d'origine (`sonic-file-open`), pour reconnaître son format. */
+  name?: string;
   /** Sélecteur `#id` ou référence Element (upload live, pas d’URL). */
   element?: string | Element;
 };
