@@ -271,6 +271,11 @@ export class ProcgenView {
   private shadowStatic: [THREE.WebGLRenderTarget | null, THREE.WebGLRenderTarget | null] = [null, null];
   /** Cascade large : tout ce que voit la caméra (moitié de la définition de la fine). */
   private shadowRT2: THREE.WebGLRenderTarget;
+  /** Maillages d'eau (passe d'eau) : mer / rivière du relief, pièces d'eau ; `shared` : aussi dessiné en passe opaque. */
+  private waterItems: { mesh: THREE.Mesh; kind: "sea" | "pond"; shared?: boolean }[] = [];
+  /** Copie de la scène opaque (couleur, données) lue par la passe d'eau. */
+  private sceneCopy: THREE.WebGLRenderTarget | null = null;
+  private copyQuad: { scene: THREE.Scene; cam: THREE.OrthographicCamera; mat: THREE.ShaderMaterial } | null = null;
   /** Instances qui bougent à chaque image (ballons) : dessinées avec les acteurs, pas dans le décor. */
   private dynIms = new Set<THREE.Object3D>();
   private time = 0;
@@ -547,6 +552,13 @@ export class ProcgenView {
     this.extent = first ? this.fitExtent : keepFrame(this.extent, this.fitExtent);
     this.shared.uGroundY.value = 0;
     this.shared.uWaterY.value = model.terrain?.spec.water ?? -1000;
+    // sol ouvert au-dessus des fonds d'eau (piscines, mares)
+    const holes = model.holes ?? [];
+    holes.forEach(([x, z, hx, hz, yaw, shape, seed], i) => {
+      (this.shared.uHoleA.value as THREE.Vector4[])[i].set(x, z, hx, hz);
+      (this.shared.uHoleB.value as THREE.Vector4[])[i].set(Math.cos(yaw), Math.sin(yaw), shape, seed);
+    });
+    this.shared.uHoleN.value = holes.length;
     // nouveau modèle : l'ancien monde infini est démonté (le composant en remonte un avec `setInfinite`)
     this.dropInfinite();
     this.shared.uFar.value = this.extent * 6;
@@ -567,7 +579,12 @@ export class ProcgenView {
     this.groundObj = addStatic(model.ground) ?? null;
     this.actorEdits.clear();
     addStatic(model.roads);
-    addStatic(model.water);
+    // eau : dessinée dans sa propre passe, après la scène opaque (dont elle lit la couleur et la profondeur)
+    this.waterItems = [];
+    const sea = addStatic(model.water);
+    if (sea) this.waterItems.push({ mesh: sea, kind: "sea" });
+    const pond = addStatic(model.waterParts ?? null, false);
+    if (pond) this.waterItems.push({ mesh: pond, kind: "pond" });
     const tileMeshes = model.tiles.map((t) => addStatic(t));
     // parties mobiles des objets fusionnés (porte, volets d'un bâtiment) : sommets réécrits dans leur tuile
     for (const o of model.objects) {
@@ -595,6 +612,8 @@ export class ProcgenView {
       this.scene.add(im);
       this.pickables.push(im);
       this.instanceObjs.set(im, g.objs);
+      // objets d'eau instanciés (mares, bassins…) : redessinés dans la passe d'eau (seule l'eau y est retenue)
+      if (g.mesh.role.some((r) => r === 13)) this.waterItems.push({ mesh: im, kind: "pond", shared: true });
       if (g.joint) {
         this.states.add(im, g.joint, g.objs, this.objectsByObj);
         continue;
@@ -4109,6 +4128,63 @@ export class ProcgenView {
   }
 
   /** Copie exacte de la profondeur d'une carte vers une autre (même taille, même format). */
+  /**
+   * Scène opaque, puis eau par-dessus : la couleur et les données (normale, profondeur) de la scène opaque sont
+   * copiées, puis chaque maillage d'eau est dessiné dans la même cible (même tampon de profondeur), le shader lisant
+   * la copie pour la réfraction, l'absorption selon l'épaisseur et le bord. Sans eau : un seul passage.
+   */
+  private renderWithWater() {
+    const items = this.waterItems.filter((w) => w.mesh.parent === this.scene);
+    const u = this.shared;
+    const solo = items.filter((w) => !w.shared);
+    for (const w of solo) w.mesh.visible = false;
+    u.uPass.value = 0;
+    u.uWaterSplit.value = items.length ? 1 : 0;
+    this.renderer.render(this.scene, this.camera);
+    for (const w of solo) w.mesh.visible = true;
+    if (!items.length || !this.rt) return;
+    const rt = this.rt;
+    if (!this.sceneCopy || this.sceneCopy.width !== rt.width || this.sceneCopy.height !== rt.height) {
+      this.sceneCopy?.dispose();
+      this.sceneCopy = new THREE.WebGLRenderTarget(rt.width, rt.height, { count: 2, type: THREE.HalfFloatType, depthBuffer: false });
+      for (const t of this.sceneCopy.textures) {
+        t.minFilter = t.magFilter = THREE.LinearFilter;
+        t.generateMipmaps = false;
+      }
+    }
+    if (!this.copyQuad) {
+      const mat = new THREE.ShaderMaterial({
+        glslVersion: THREE.GLSL3,
+        uniforms: { tA: { value: null }, tB: { value: null } },
+        vertexShader: "out vec2 vUv; void main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+        fragmentShader: "precision highp float; in vec2 vUv; uniform sampler2D tA; uniform sampler2D tB; layout(location = 0) out vec4 oA; layout(location = 1) out vec4 oB; void main() { oA = texture(tA, vUv); oB = texture(tB, vUv); }",
+        depthTest: false,
+        depthWrite: false,
+      });
+      const scene = new THREE.Scene();
+      scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat));
+      this.copyQuad = { scene, cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), mat };
+    }
+    this.copyQuad.mat.uniforms.tA.value = rt.textures[0];
+    this.copyQuad.mat.uniforms.tB.value = rt.textures[1];
+    this.renderer.setRenderTarget(this.sceneCopy);
+    this.renderer.render(this.copyQuad.scene, this.copyQuad.cam);
+    this.renderer.setRenderTarget(rt);
+    u.tSceneColor.value = this.sceneCopy.textures[0];
+    u.tSceneData.value = this.sceneCopy.textures[1];
+    (u.uViewport.value as THREE.Vector2).set(rt.width, rt.height);
+    u.uPass.value = 1;
+    // houle : la mer selon le vent de la scène, les pièces d'eau à peine frémissantes
+    const wind = this.model?.wind ?? 0.3;
+    for (const w of items) {
+      u.uWaterKind.value = w.kind === "sea" ? 1 : 0;
+      u.uWaveAmp.value = w.kind === "sea" ? 0.06 + 0.22 * Math.min(1, wind) : 0.004 + 0.01 * Math.min(1, wind);
+      u.uWaveLen.value = w.kind === "sea" ? 7 + 6 * Math.min(1, wind) : 0.9;
+      this.renderer.render(w.mesh, this.camera);
+    }
+    u.uPass.value = 0;
+  }
+
   private copyDepth(src: THREE.WebGLRenderTarget, dst: THREE.WebGLRenderTarget) {
     const gl = this.renderer.getContext() as WebGL2RenderingContext;
     this.renderer.setRenderTarget(dst);
@@ -4249,7 +4325,7 @@ export class ProcgenView {
     this.renderer.setRenderTarget(this.rt);
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.clear(true, true, true);
-    this.renderer.render(this.scene, this.camera);
+    this.renderWithWater();
     this.lastInfo = { calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles };
     const pu1 = (this.post.material as THREE.ShaderMaterial).uniforms;
     if (sun0) {
@@ -4349,6 +4425,8 @@ export class ProcgenView {
     this.rt?.dispose();
     this.shadowRT.dispose();
     this.shadowRT2.dispose();
+    this.sceneCopy?.dispose();
+    this.copyQuad?.mat.dispose();
     for (const st of this.shadowStatic) st?.dispose();
     this.stack.dispose();
     this.photo?.dispose();
