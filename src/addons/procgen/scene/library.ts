@@ -289,6 +289,9 @@ export const SCENES: Record<string, Recipe & { label: string; tags: string[] }> 
       { id: "pins", gen: "tree", count: 12, place: { poisson: [-35, -25, 35, -12], minDist: 5 }, params: { species: "= pick('stonepine', 'cypress', 'olive', 'cypress')", height: "= rand(5, 10)" } },
       { id: "terrasse", gen: "prop", count: 8, place: { cluster: [-6, 4.5], radius: 3.5 }, params: { kind: "= pick('table', 'chair', 'chair', 'parasol')", variant: "= randint(0, 3)" } },
       { id: "barques", gen: "vehicle", count: 7, place: { poisson: [-30, 15, 20, 24], minDist: 5 }, onWater: true, yaw: "random", params: { kind: "= pick('rowboat', 'sailboat', 'rowboat')" } },
+      // ponton et barques amarrées : on y monte depuis les planches (les autres barques sont à l'ancre au large)
+      { id: "ponton", gen: "structure.pontoon", place: { at: [{ x: 4, z: 10.5, yaw: 0 }] }, params: { length: 9 } },
+      { id: "amarres", gen: "vehicle", onWater: true, place: { at: [{ x: 6.5, z: 13, yaw: 0 }, { x: 1.5, z: 12.5, yaw: 180 }] }, params: { kind: "= pick('rowboat', 'sailboat')" } },
       { id: "rochers", gen: "rock", count: 9, place: { poisson: [-34, 5, 34, 12], minDist: 4 }, params: { kind: "= pick('boulder', 'pebbles', 'cliff')", size: "= rand(1, 2.5)", moss: 0.1 } },
       { id: "lavandes", gen: "plant", count: 14, place: { edges: "buildings", offset: 0.7 }, walkable: true, params: { species: "= pick('lavender', 'lavender', 'cactus')", size: "= rand(0.7, 1)" } },
       { id: "pots", gen: "prop.planter", count: 5, place: { edges: "buildings", offset: 0.5 } },

@@ -179,8 +179,27 @@ export function readInput(v: unknown): DriveInput | null {
  * Un pas du modèle bicyclette : braquage et vitesse lissés, cap = vitesse × tan(braquage) / empattement.
  * `blocked(x, z, cap)` rend l'id de ce qui gêne la nouvelle pose (ou `null`) : le véhicule s'y arrête net.
  */
-export function stepDrive(sp: VehicleSpec, s: DriveState, inp: DriveInput, dt: number, blocked?: (x: number, z: number, yaw: number) => string | null): { hit: string | null; moved: boolean } {
+/**
+ * Voilier : part de la vitesse maximale selon l'angle entre le cap et le vent d'où il vient (diagramme polaire
+ * simplifié) — dans le lit du vent (moins de 40°) il n'avance presque pas, travers et largue au plus vite, vent
+ * arrière un peu moins ; × force du vent.
+ */
+export function sailFactor(yaw: number, wind: Pt): number {
+  const w = Math.hypot(wind[0], wind[1]);
+  if (w < 0.05) return 0.15;
+  // angle entre le cap et la direction d'où vient le vent (0 : face au vent)
+  const fromX = -wind[0] / w, fromZ = -wind[1] / w;
+  const a = (Math.acos(clamp(Math.sin(yaw) * fromX + Math.cos(yaw) * fromZ, -1, 1)) * 180) / Math.PI;
+  const P: [number, number][] = [[0, 0.08], [38, 0.12], [45, 0.5], [60, 0.85], [90, 1], [120, 1.05], [150, 0.9], [180, 0.75]];
+  let f = 0.08;
+  for (let i = 0; i < P.length - 1; i++) if (a >= P[i][0] && a <= P[i + 1][0]) f = P[i][1] + ((a - P[i][0]) / (P[i + 1][0] - P[i][0])) * (P[i + 1][1] - P[i][1]);
+  return f * clamp(w / 2.5, 0.35, 1.3);
+}
+
+export function stepDrive(sp: VehicleSpec, s: DriveState, inp: DriveInput, dt: number, blocked?: (x: number, z: number, yaw: number) => string | null, wind?: Pt): { hit: string | null; moved: boolean } {
   if (dt <= 0) return { hit: null, moved: false };
+  // voilier : la vitesse possible dépend du vent
+  if (sp.kind === "sailboat" && wind) sp = { ...sp, maxSpeed: sp.maxSpeed * sailFactor(s.yaw, wind) };
   // braquage : moins de débattement à haute vitesse, retour au centre en douceur
   const lim = sp.maxSteer * clamp(1 - (0.5 * Math.abs(s.speed)) / Math.max(1, sp.maxSpeed), 0.4, 1);
   const want = clamp(inp.steer, -1, 1) * lim;
@@ -479,6 +498,9 @@ export type Route = {
   /** Meilleure distance restante et temps sans progrès (s) : véhicule coincé. */
   best: number;
   stall: number;
+  /** Voilier qui remonte au vent : bord en cours (1 / -1) et temps passé dessus (s). */
+  tack?: number;
+  tackT?: number;
 };
 
 export const newRoute = (pts: Pt[], arriveR: number, cruise: number): Route => ({ pts, i: 0, arriveR, cruise, back: 0, best: Infinity, stall: 0 });
@@ -488,7 +510,7 @@ export const newRoute = (pts: Pt[], arriveR: number, cruise: number): Route => (
  * bornée par la courbure et par la distance d'arrêt (freinage doux). `done` à l'arrivée (presque arrêté),
  * `stuck` si rien n'avance depuis 6 s.
  */
-export function followRoute(sp: VehicleSpec, s: DriveState, r: Route, dt: number): { input: DriveInput; done: boolean; stuck: boolean; remaining: number } {
+export function followRoute(sp: VehicleSpec, s: DriveState, r: Route, dt: number, wind?: Pt): { input: DriveInput; done: boolean; stuck: boolean; remaining: number } {
   const P = r.pts;
   const pos: Pt = [s.x, s.z];
   // train : avance ou recule le long de la voie jusqu'au point visé (projeté sur son axe)
@@ -537,6 +559,21 @@ export function followRoute(sp: VehicleSpec, s: DriveState, r: Route, dt: number
     left -= d;
     cur = P[k];
   }
+  // voilier face au vent : il tire des bords (cap à 50° du vent, d'un côté puis de l'autre toutes les 9 s) au lieu de
+  // viser droit dans le lit du vent où il n'avance pas
+  if (sp.kind === "sailboat" && wind && Math.hypot(wind[0], wind[1]) > 0.05) {
+    const bx = target[0] - s.x, bz = target[1] - s.z;
+    const bearing = Math.atan2(bx, bz), from = Math.atan2(-wind[0], -wind[1]);
+    let off = bearing - from;
+    off = Math.atan2(Math.sin(off), Math.cos(off));
+    if (Math.abs(off) < (45 * Math.PI) / 180 && Math.hypot(bx, bz) > 3) {
+      r.tackT = (r.tackT ?? 0) + dt;
+      if (r.tackT > 9) ((r.tackT = 0), (r.tack = -(r.tack ?? 1)));
+      const h = from + (r.tack ?? (off >= 0 ? 1 : -1)) * ((50 * Math.PI) / 180);
+      const Lt = Math.max(4, Math.hypot(bx, bz));
+      target = [s.x + Math.sin(h) * Lt, s.z + Math.cos(h) * Lt];
+    }
+  }
   const dx = target[0] - s.x, dz = target[1] - s.z;
   const lateral = dx * Math.cos(s.yaw) - dz * Math.sin(s.yaw);
   const forward = dx * Math.sin(s.yaw) + dz * Math.cos(s.yaw);
@@ -553,7 +590,7 @@ export function followRoute(sp: VehicleSpec, s: DriveState, r: Route, dt: number
   if (r.stall > 6) return { input: { throttle: 0, steer: 0, brake: 1 }, done: false, stuck: true, remaining };
   // cible derrière et proche : on y va en marche arrière (poursuite inversée), jusqu'à l'avoir de nouveau devant
   const turnR = sp.wheelbase / Math.max(0.05, Math.tan(sp.maxSteer));
-  if (!sp.mount && sp.medium === "ground" && r.back <= 0 && Math.abs(alpha) > 1.9 && Ld < turnR * 2.5) r.back = 1;
+  if (!sp.mount && (sp.medium === "ground" || sp.medium === "water") && r.back <= 0 && Math.abs(alpha) > 1.9 && Ld < turnR * 2.5) r.back = 1;
   if (r.back > 0 && (Math.abs(alpha) < 1.2 || Ld > turnR * 3.5)) r.back = 0;
   if (r.back > 0) {
     const ar = Math.atan2(-lateral, -forward);
