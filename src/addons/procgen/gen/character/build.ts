@@ -2,7 +2,7 @@
  * Assemblage d'un personnage : corps (champ grossier), tête et mains (champs fins), gabarits du visage, pièces
  * rigides (boutons, boucle, poches), objet tenu ; poids de skinning, découpe des bords de couleur, ancres.
  */
-import { type V3, DEG, dot, len, m4Compose, madd, mix, norm, qAxis, qFromTo, qId, qRot, smoothstep, sub, qFromAxes } from "../../core/math";
+import { type V3, DEG, add, dot, len, m4Compose, madd, mix, norm, qAxis, qFromTo, qId, qMul, qRot, smoothstep, sub, qFromAxes } from "../../core/math";
 import type { Rng } from "../../core/rng";
 import { Field, polygonize, primDist } from "../../geom/implicit";
 import { Mesh } from "../../geom/mesh";
@@ -520,6 +520,55 @@ function buildDecal(dc: Decal, field: Field, H: number): { mesh: Mesh; anchor: V
     case "flap":
       m.append(box(s * 0.55, s * 0.15, H * 0.005, dc.role, H * 0.002), m4Compose(madd(p, n, H * 0.003), q));
       break;
+    case "tattoo": {
+      // encre à fleur de peau : pièces plates dans le plan tangent (x à droite, y vers `up`), à peine décollées
+      const t = H * 0.0005;
+      const base = madd(p, n, H * 0.0009);
+      const put = (mesh: Mesh, ox: number, oy: number, ang = 0) => m.append(mesh, m4Compose(add(base, qRot(q, [ox * s, oy * s, 0])), qMul(q, qAxis([0, 0, 1], ang))));
+      const bar = (w: number, h: number, ox: number, oy: number, ang = 0, role = dc.role) => put(box(w * s, h * s, t, role, t * 0.5), ox, oy, ang);
+      const spot = (r: number, ox: number, oy: number, role = dc.role, ry = r) => put(ellipsoid(r * s, ry * s, t, role, 10, 3), ox, oy);
+      switch ((dc.design ?? 0) % 6) {
+        case 0: // étoile à cinq branches
+          for (let i = 0; i < 5; i++) {
+            const a = (i / 5) * Math.PI * 2;
+            bar(0.07, 0.24, -Math.sin(a) * 0.2, Math.cos(a) * 0.2, a);
+          }
+          spot(0.12, 0, 0);
+          break;
+        case 1: // cœur
+          spot(0.2, -0.15, 0.08, ROLE.red);
+          spot(0.2, 0.15, 0.08, ROLE.red);
+          bar(0.28, 0.28, 0, -0.1, Math.PI / 4, ROLE.red);
+          break;
+        case 2: // ancre
+          bar(0.05, 0.42, 0, 0);
+          bar(0.26, 0.04, 0, 0.26);
+          spot(0.07, 0, 0.47);
+          bar(0.05, 0.22, -0.15, -0.36, -0.9);
+          bar(0.05, 0.22, 0.15, -0.36, 0.9);
+          break;
+        case 3: // rose : fleur rouge, deux feuilles, tige
+          spot(0.2, 0, 0.12, ROLE.red);
+          spot(0.09, 0, 0.14, ROLE.ink);
+          bar(0.04, 0.3, 0, -0.2);
+          spot(0.12, -0.13, -0.15, ROLE.green, 0.06);
+          spot(0.12, 0.13, -0.25, ROLE.green, 0.06);
+          break;
+        case 4: // hirondelle : corps, ailes en V, queue fourchue
+          spot(0.12, 0, 0, ROLE.blue, 0.07);
+          bar(0.07, 0.34, -0.2, 0.08, 1.1, ROLE.blue);
+          bar(0.07, 0.34, 0.2, 0.08, -1.1, ROLE.blue);
+          bar(0.04, 0.2, -0.05, -0.18, 0.35);
+          bar(0.04, 0.2, 0.05, -0.18, -0.35);
+          break;
+        default: // motif tribal : chevrons empilés
+          for (let i = 0; i < 3; i++) {
+            bar(0.06, 0.3, -0.1, 0.25 - i * 0.22, 0.8);
+            bar(0.06, 0.3, 0.1, 0.25 - i * 0.22, -0.8);
+          }
+      }
+      break;
+    }
   }
   return { mesh: m, anchor: p };
 }

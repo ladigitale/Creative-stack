@@ -304,9 +304,22 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       }
       if (over === "jacket") em.add(strokeVar(new Pen(), [pts[0], pts[1]], [a.hw[0] * 1.3, a.hw[1] * 1.32]), "cloth3", { tone });
       if (over === "armor") em.add(strokeVar(new Pen(), [pts[0], lerp2(pts[0], pts[1], 0.45)], [a.hw[0] * 1.55, a.hw[0] * 1.3]), "metal", { tone });
+      if (inked && sleeve === 0 && over !== "jacket" && over !== "armor" && p.tattoos === "many") tattoo2(lerp2(pts[0], pts[1], 0.4), a.hw[0] * 0.8, 2);
     };
+    // tatouage (motif à l'encre : étoile, ancre ou chevrons) sur la peau que la manche laisse voir
+    const tattoo2 = (c: P2, r: number, k: number) => {
+      const t = new Pen();
+      if (k % 3 === 0) for (let i = 0; i < 5; i++) {
+        const an = (i / 5) * Math.PI * 2;
+        t.M(c[0], c[1]).L(c[0] + Math.sin(an) * r, c[1] - Math.cos(an) * r);
+      } else if (k % 3 === 1) t.M(c[0], c[1] - r).L(c[0], c[1] + r).M(c[0] - r * 0.6, c[1] - r * 0.5).L(c[0] + r * 0.6, c[1] - r * 0.5).M(c[0] - r * 0.7, c[1] + r * 0.4).Q(c[0], c[1] + r * 1.3, c[0] + r * 0.7, c[1] + r * 0.4);
+      else for (let i = 0; i < 3; i++) t.M(c[0] - r * 0.6, c[1] - r + i * r * 0.7).L(c[0], c[1] - r * 0.6 + i * r * 0.7).L(c[0] + r * 0.6, c[1] - r + i * r * 0.7);
+      em.line(t, "ink", 0.9, { tone: 0, alpha: 0.85 });
+    };
+    const inked = p.tattoos === "few" || p.tattoos === "many";
     const fore = () => {
       em.add(strokeVar(new Pen(), [pts[1], pts[2]], [hw[1], hw[2]]), "skin", { tone });
+      if (inked && sleeve <= 1 && over !== "jacket" && over !== "armor" && (p.tattoos === "many" || a.side === "l")) tattoo2(lerp2(pts[1], pts[2], 0.5), a.hw[1] * 0.75, a.side === "l" ? 0 : 1);
       if (sleeve > 1) {
         const e = lerp2(pts[1], pts[2], sleeve - 1);
         const we = lerpN(a.hw[1], a.hw[2], sleeve - 1) * wide;
