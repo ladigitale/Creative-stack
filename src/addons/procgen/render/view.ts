@@ -60,6 +60,10 @@ import { worldRoads } from "../scene/world-roads";
 import { FootballDirector, type Puppet } from "./football";
 import type { FootballSpec } from "../scene/football";
 import { RaceDirector } from "./race";
+import { FightDirector } from "./fight";
+import type { FightSpec } from "../scene/fight";
+import { CtrlDirector, type CtrlExtra, type Hit as AimHit } from "./controller";
+import type { CtrlSpec } from "../scene/controller";
 import type { RaceSpec } from "../scene/race";
 
 export type ActorIntent = { /** Aliment, boisson tenu (`"pizza:4"`) pendant eat / drink. */ food?: string; x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
@@ -314,6 +318,20 @@ export class ProcgenView {
   private raceSound = true;
   private raceCamera: RaceSpec["camera"] | null = null;
   raceOut: Record<string, unknown> | null = null;
+  /** Contrôleur de personnage : réglages, directeur (créé sur le modèle composé), résumé publié, objets masqués par le jeu. */
+  private ctrlSpec: { spec: CtrlSpec; extra: CtrlExtra; restart?: number } | null = null;
+  private ctrl: CtrlDirector | null = null;
+  private ctrlModel: unknown = null;
+  playerOut: Record<string, unknown> | null = null;
+  onPlayer: () => void = () => {};
+  private userHidden: string[] = [];
+  /** Mode combat : réglages, directeur (créé sur le modèle composé), résumé publié. */
+  private fightSpec: { spec: FightSpec; ids: [string, string]; hud?: boolean; keyboard?: boolean; touch?: boolean; restart?: number } | null = null;
+  private fight: FightDirector | null = null;
+  private fightModel: unknown = null;
+  fightOut: Record<string, unknown> | null = null;
+  onFight: () => void = () => {};
+  private gameHidden: string[] = [];
   private frameTimes: number[] = [];
   private gov: Governor = newGovernor();
   /** Taille de rendu à appliquer au prochain rendu (jamais hors d'un rendu : `setSize` efface le canevas). */
@@ -1351,6 +1369,16 @@ export class ProcgenView {
   }
 
   setHidden(ids: string[]) {
+    this.userHidden = ids;
+    this.applyHidden();
+  }
+  /** Objets masqués par un mode de jeu (ramassés, ennemis écrasés), en plus de `hidden`. */
+  private setGameHidden(ids: string[]) {
+    this.gameHidden = ids;
+    this.applyHidden();
+  }
+  private applyHidden() {
+    const ids = [...this.userHidden, ...this.gameHidden];
     this.hiddenIds = new Set(ids);
     for (const [id, a] of this.actors) a.mesh.visible = !this.hiddenIds.has(id);
     if (this.balls) {
@@ -3391,6 +3419,8 @@ export class ProcgenView {
     a.turn = a.turnRate;
     if (p.action !== a.action) a.action = p.action as ActorRT["action"];
     a.actionTime = p.actionTime;
+    a.vy = p.vy ?? 0;
+    a.landT = p.land ?? 0;
     const target = a.action === "idle" ? 0 : 1;
     a.actionWeight += (target - a.actionWeight) * (1 - Math.exp(-dt * 10));
     a.blinkT -= dt;
@@ -3400,6 +3430,133 @@ export class ProcgenView {
     a.mats.uniforms.uBlink.value = blink;
     this.poseActor(a, dt);
     this.updateFace(a, dt);
+  }
+
+  /* ---------------- mode combat ---------------- */
+
+  /** Active (ou retire, `null`) le mode combat sur la scène composée. */
+  setFight(spec: { spec: FightSpec; ids: [string, string]; hud?: boolean; keyboard?: boolean; touch?: boolean; restart?: number } | null) {
+    if (JSON.stringify(spec) === JSON.stringify(this.fightSpec)) return;
+    this.fightSpec = spec;
+    this.fight?.dispose();
+    this.fight = null;
+    this.fightModel = null;
+    this.fightOut = null;
+    if (spec) this.touch();
+  }
+  setFightInput(v: unknown) {
+    this.fight?.setInput(v);
+  }
+
+  private ensureFight() {
+    if (!this.fightSpec || !this.model || this.fightModel === this.model) return;
+    this.fight?.dispose();
+    this.fight = null;
+    this.fightModel = this.model;
+    const fs = this.fightSpec;
+    if (!fs.ids.every((id) => this.actors.has(id))) return;
+    const m = this.model;
+    const host = {
+      canvas: this.canvas,
+      actorPose: (id: string) => {
+        const a = this.actors.get(id);
+        return a ? { x: a.pos[0], y: a.pos[1], z: a.pos[2], yaw: a.yaw } : null;
+      },
+      ground: (x: number, z: number) => supportAt(m.objects, groundHeight(m, x, z, 0), x, z, 100, 0).y,
+      puppet: (id: string, p: Puppet | null) => {
+        const a = this.actors.get(id);
+        if (!a) return;
+        a.puppet = p;
+        if (p) ((a.path = null), (a.goal = null), (a.drive = null));
+      },
+      setCamera: (c: { cx: number; cy: number; cz: number; yaw: number; pitch: number; dist: number; fov: number }) => this.gameCamera(c),
+      emit: (type: string, payload: Record<string, unknown>) => this.onEvent({ type: type as GameEvent["type"], payload }),
+    };
+    this.fight = new FightDirector(host, fs.spec, fs.ids, { hud: fs.hud, keyboard: fs.keyboard, touch: fs.touch });
+    this.fight.onSummary = (s) => {
+      this.fightOut = s;
+      this.onFight();
+    };
+  }
+
+  /* ---------------- contrôleur de personnage ---------------- */
+
+  /** Active (ou retire, `null`) le contrôleur de personnage sur la scène composée. */
+  setPlayer(spec: { spec: CtrlSpec; extra: CtrlExtra; restart?: number } | null) {
+    if (JSON.stringify(spec) === JSON.stringify(this.ctrlSpec)) return;
+    this.ctrlSpec = spec;
+    this.ctrl?.dispose();
+    this.ctrl = null;
+    this.ctrlModel = null;
+    this.playerOut = null;
+    if (this.gameHidden.length) this.setGameHidden([]);
+    if (spec) this.touch();
+  }
+  setPlayerInput(v: unknown) {
+    this.ctrl?.setInput(v);
+  }
+
+  private ensurePlayer() {
+    if (!this.ctrlSpec || !this.model || this.ctrlModel === this.model) return;
+    this.ctrl?.dispose();
+    this.ctrl = null;
+    this.ctrlModel = this.model;
+    if (this.gameHidden.length) this.setGameHidden([]);
+    const m = this.model;
+    const cs = this.ctrlSpec;
+    if (!this.actors.has(cs.spec.actor)) return;
+    const W = m.size[0] / 2, D = m.size[1] / 2;
+    const objs = () => m.objects.filter((o) => !this.hiddenIds.has(o.id));
+    const world = {
+      ground: (x: number, z: number, feet: number, stepUp: number) => {
+        const s = supportAt(objs(), groundHeight(m, x, z, feet), x, z, feet, stepUp);
+        return { y: s.y, on: s.obj?.id ?? null };
+      },
+      blocked: (x: number, z: number, feet: number, stepUp: number) => {
+        if (Math.abs(x) > W - 0.3 || Math.abs(z) > D - 0.3) return true;
+        const top = maxTopAt(objs(), x, z);
+        if (top > feet + stepUp) return true;
+        // au niveau du sol : bâtiments, arbres, objets non praticables (grille de navigation)
+        const gh = groundHeight(m, x, z, feet);
+        return feet < gh + 0.5 && !!m.nav && !m.nav.free(x, z) && !(top > -Infinity && top <= feet + stepUp) && this.waterAt(x, z) === null;
+      },
+    };
+    const host = {
+      canvas: this.canvas,
+      world,
+      actorPose: (id: string) => {
+        const a = this.actors.get(id);
+        return a ? { x: a.pos[0], y: a.pos[1], z: a.pos[2], yaw: a.yaw, height: a.model.asset.height } : null;
+      },
+      puppet: (id: string, p: Puppet | null) => {
+        const a = this.actors.get(id);
+        if (!a) return;
+        a.puppet = p;
+        if (p) {
+          a.path = null;
+          a.goal = null;
+          a.drive = null;
+        }
+      },
+      showActor: (id: string, on: boolean) => {
+        const a = this.actors.get(id);
+        if (a) a.mesh.visible = on && !this.hiddenIds.has(id);
+      },
+      objects: () => objs().map((o) => ({ id: o.id, layer: o.layer, generator: o.generator, x: o.pos[0], y: o.pos[1], z: o.pos[2], h: o.height })),
+      hide: (ids: string[]) => this.setGameHidden(ids),
+      aim: (): AimHit | null => {
+        const r = this.canvas.getBoundingClientRect();
+        const h = this.pick(r.left + r.width / 2, r.top + r.height / 2);
+        return h ? { objectId: h.objectId, actor: h.actor, x: h.x, y: h.y, z: h.z } : null;
+      },
+      setCamera: (c: { cx: number; cy: number; cz: number; yaw: number; pitch: number; dist: number; fov: number }) => this.gameCamera(c),
+      emit: (type: string, payload: Record<string, unknown>) => this.onEvent({ type: type as GameEvent["type"], payload }),
+    };
+    this.ctrl = new CtrlDirector(host, cs.spec, cs.extra);
+    this.ctrl.onSummary = (s) => {
+      this.playerOut = s;
+      this.onPlayer();
+    };
   }
 
   /* ---------------- mode course ---------------- */
@@ -3939,7 +4096,7 @@ export class ProcgenView {
   /** La scène elle-même bouge-t-elle (acteurs, ballons, végétation au vent, eau) ? Le grain animé ne compte pas. */
   private get moving(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || !!this.fish || this.vehRolling || !!this.race || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water;
+    return this.actors.size > 0 || !!this.fish || this.vehRolling || !!this.race || !!this.ctrl || !!this.fight || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water;
   }
 
   /** Réveil à la fin de l'attente (la boucle est arrêtée quand rien ne bouge). */
@@ -4022,7 +4179,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || !!this.fish || this.vehRolling || !!this.race || this.fx.active || !!this.balls?.moving || this.emitters.active || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || !!this.fish || this.vehRolling || !!this.race || !!this.ctrl || !!this.fight || this.fx.active || !!this.balls?.moving || this.emitters.active || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -4159,6 +4316,17 @@ export class ProcgenView {
     if (this.raceSpec && this.model) {
       this.ensureRace();
       this.race?.step(dt);
+    }
+    if (this.ctrlSpec && this.model) {
+      this.ensurePlayer();
+      this.ctrl?.step(dt);
+    }
+    if (this.fightSpec && this.model) {
+      this.ensureFight();
+      if (this.fight) {
+        this.fight.step(dt);
+        this.speed = this.fight.timeScale;
+      }
     }
     if (anim) {
       this.time += dt * this.speed;
@@ -4758,6 +4926,10 @@ export class ProcgenView {
   dispose() {
     this.football?.dispose();
     this.football = null;
+    this.ctrl?.dispose();
+    this.ctrl = null;
+    this.fight?.dispose();
+    this.fight = null;
     this.race?.dispose();
     this.race = null;
     this.finBank?.dispose();

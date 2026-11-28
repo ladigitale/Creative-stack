@@ -16,7 +16,7 @@ import { PITCH_TOP } from "../gen/sport";
 import { FootballMatch, type FootballInput, type FootballSpec, NO_INPUT } from "../scene/football";
 import { FootballAudio } from "./football-audio";
 
-export type Puppet = { x: number; z: number; y: number; yaw: number; speed: number; action: string; actionTime: number };
+export type Puppet = { x: number; z: number; y: number; yaw: number; speed: number; action: string; actionTime: number; /** Vitesse verticale (pose de chute) et atterrissage (s restantes, flexion). */ vy?: number; land?: number };
 export type PuppetActor = { puppet?: Puppet | null };
 
 export interface FootballHost {
