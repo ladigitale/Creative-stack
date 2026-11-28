@@ -119,7 +119,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     const sh = madd(lerp3(sh0, J("chest"), 0.0), lerp3(sh0, el, 0.12).map((v, i) => v - sh0[i]) as V3, 1);
     const hm = lerp3(wr, tip, 0.45);
     const k = (depth(el) + depth(wr)) / 2;
-    return { pts: [sh, el, wr, hm, tip], hw: [R(`upperarm.${s}`, 0) * 1.05, R(`upperarm.${s}`, 1), R(`forearm.${s}`, 1), R(`hand.${s}`, 0) * 1.2, R(`hand.${s}`, 1) * 0.95], key: k, far: k < depth(chestH) - shoulderHalf * 0.35, shade: limbShade(depth(chestH) - k, shoulderHalf), side: s };
+    return { pts: [sh, el, wr, hm, tip], hw: [R(`upperarm.${s}`, 0) * 1.05, R(`upperarm.${s}`, 1), R(`forearm.${s}`, 1), R(`hand.${s}`, 0) * 1.0, R(`hand.${s}`, 1) * 0.8], key: k, far: k < depth(chestH) - shoulderHalf * 0.35, shade: limbShade(depth(chestH) - k, shoulderHalf), side: s };
   });
   const legs: Limb[] = (["l", "r"] as const).map((s) => {
     const hp = J(`thigh.${s}`), kn = J(`shin.${s}`), an = J(`foot.${s}`);
@@ -135,12 +135,20 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     const an = J(`foot.${s}`), ball = J(`toe.${s}`), toe = T(`toe.${s}`);
     const fd = norm(sub(toe, an));
     const fl = Math.hypot(...sub(toe, an));
-    const heel = madd(an, fd, -fl * 0.22);
-    const r = R(`foot.${s}`, 0);
-    const pts = [madd(heel, [0, 1, 0], r * 0.35), lerp3(an, ball, 0.35), ball, madd(toe, [0, 1, 0], r * 0.05)];
+    const heel = madd(an, fd, -fl * 0.28);
+    const r = R(`foot.${s}`, 0) * 1.15;
+    const tipP = madd(toe, fd, fl * 0.08);
+    const pts = [madd(heel, [0, 1, 0], r * 0.35), lerp3(an, ball, 0.35), ball, madd(tipP, [0, 1, 0], r * 0.05)];
     const fill = shoes === "barefoot" || shoes === "sandals" ? "skin" : "leather";
-    const pen = strokeVar(new Pen(), P2s(pts), [r * 0.72, r * 0.95, r * 0.9, r * 0.6]);
+    const pen = strokeVar(new Pen(), P2s(pts), [r * 0.8, r * 1.0, r * 1.0, r * 0.7]);
     em.add(pen, fill, { tone: -shade });
+    // largeur de l'avant-pied (visible de face, où la longueur du pied disparaît en raccourci)
+    {
+      const lat = norm(cross([0, 1, 0], fd));
+      const c = lerp3(ball, tipP, 0.25);
+      const w = r * 1.05;
+      em.add(strokeVar(new Pen(), P2s([madd(c, lat, -w), madd(c, lat, w)]), [r * 0.62, r * 0.62]), fill, { tone: -shade });
+    }
     if (shoes === "sandals") {
       const st = new Pen();
       for (const t of [0.35, 0.7]) {
@@ -199,11 +207,15 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     const hw = a.hw.slice();
     const wr2 = pts[2], tip2 = pts[4];
     const hl = Math.hypot(tip2[0] - wr2[0], tip2[1] - wr2[1]);
+    // main au repos (libre) : paume, doigts détachés et pouce, au lieu d'une moufle
+    const relax = !hp && !holds;
     if (hp) {
       // poing (et paume des autres poses) : main raccourcie et arrondie
       pts[4] = lerp2(pts[3], pts[4], hp === "open" ? 0.25 : 0.3);
-      hw[3] *= hp === "fist" ? 1.12 : 1;
       hw[4] = hw[3] * 0.95;
+    } else if (relax) {
+      pts[4] = lerp2(pts[3], pts[4], 0.15);
+      hw[4] = hw[3] * 0.92;
     }
     const sleeve = top0 === "dress" ? 0.45 : top === "tee" ? 0.5 : top === "long" || top === "sweater" || top === "coat" ? 1.9 : top === "robe" ? 1.95 : 0;
     const wide = top === "robe" ? 1.9 : top === "coat" ? 1.35 : top0 === "shirt" ? 1.32 : 1.25;
@@ -250,7 +262,21 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       // objet tenu : derrière la main qui le serre, devant le reste du bras quand la main est devant
       if (holds) drawItem(a.far, a.shade);
       em.add(strokeVar(new Pen(), [pts[2], pts[3], pts[4]], [hw[2], hw[3], hw[4]]), "skin", { tone });
-      if (hp && hp !== "fist") {
+      if (hp === "fist" || (!hp && holds)) {
+        // poing : pouce replié sur l'index, articulations marquées
+        const u0: P2 = [(pts[4][0] - pts[2][0]), (pts[4][1] - pts[2][1])];
+        const l0 = Math.hypot(u0[0], u0[1]) || 1;
+        const n0: P2 = [-u0[1] / l0, u0[0] / l0];
+        const sd = a.side === "l" ? 1 : -1;
+        const c0 = pts[4], w0 = hw[4];
+        const kn = new Pen();
+        for (const t of [-0.45, 0, 0.45]) kn.M(c0[0] + n0[0] * w0 * t + (u0[0] / l0) * w0 * 0.55, c0[1] + n0[1] * w0 * t + (u0[1] / l0) * w0 * 0.55).L(c0[0] + n0[0] * w0 * t + (u0[0] / l0) * w0 * 0.2, c0[1] + n0[1] * w0 * t + (u0[1] / l0) * w0 * 0.2);
+        em.line(kn, gloves ? "leather" : "skin", 0.8, { tone: tone - 2 });
+        const th0: P2 = [c0[0] + n0[0] * sd * w0 * 0.75 - (u0[0] / l0) * w0 * 0.2, c0[1] + n0[1] * sd * w0 * 0.75 - (u0[1] / l0) * w0 * 0.2];
+        const th1: P2 = [c0[0] + n0[0] * sd * w0 * 0.05 + (u0[0] / l0) * w0 * 0.35, c0[1] + n0[1] * sd * w0 * 0.05 + (u0[1] / l0) * w0 * 0.35];
+        em.add(strokeVar(new Pen(), [th0, th1], [w0 * 0.34, w0 * 0.3]), gloves ? "leather" : "skin", { tone });
+      }
+      if ((hp && hp !== "fist") || relax) {
         // main vue en raccourci : doigts dans l'axe de l'avant-bras, longueur minimale
         const el2 = pts[1], fa = Math.hypot(wr2[0] - el2[0], wr2[1] - el2[1]) || 1;
         const short = hl < a.hw[3] * 1.6;
@@ -261,7 +287,15 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
         const finger = (from: P2, dir: P2, l: number, w = fw) => em.add(strokeVar(new Pen(), [from, [from[0] + dir[0] * l, from[1] + dir[1] * l]], [w, w * 0.85]), gloves ? "leather" : "skin", { tone });
         const base = pts[3];
         const side = a.side === "l" ? 1 : -1;
-        if (hp === "open") {
+        if (relax) {
+          // doigts serrés, légèrement fléchis (index et majeur les plus longs), pouce le long de la paume
+          const nn = rot(u, Math.PI / 2);
+          for (let f = 0; f < 4; f++) {
+            const off: P2 = [base[0] + nn[0] * (f - 1.5) * fw * 1.25 + u[0] * hl * 0.1, base[1] + nn[1] * (f - 1.5) * fw * 1.25 + u[1] * hl * 0.1];
+            finger(off, rot(u, ((f - 1.5) * 4 - side * 6) * DEG), hl2 * [0.42, 0.48, 0.45, 0.36][f], fw * 0.92);
+          }
+          finger(lerp2(wr2, base, 0.55), rot(u, side * 0.55), hl2 * 0.36, fw);
+        } else if (hp === "open") {
           for (let f = 0; f < 4; f++) {
             const ang = ((f - 1.5) * 16 * Math.PI) / 180;
             const off: P2 = [base[0] + rot(u, Math.PI / 2)[0] * (f - 1.5) * fw * 1.5, base[1] + rot(u, Math.PI / 2)[1] * (f - 1.5) * fw * 1.5];
