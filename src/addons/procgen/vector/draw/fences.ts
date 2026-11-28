@@ -214,7 +214,7 @@ function wheel(kit: Kit, m: Affine, x: number, r: number, spokes: number, rim: s
 export const drawVehicle: ObjectDrawer = (kit, p, ctx) => {
   const kind = String(p.kind ?? "car");
   const variant = Math.max(0, Number(p.variant ?? 0));
-  const autoPaint = ["accent", "leaf2", "water", "cloth2", "cloth1", "ink", "paper", "wood"][variant % 8];
+  const autoPaint = ["accent", "leaf2", "blue", "cloth2", "cloth1", "ink", "paper", "wood"][variant % 8];
   const P = String(p.paint ?? "auto") === "auto" ? autoPaint : String(p.paint);
   const em = kit.em;
   const o = ctx.obj;

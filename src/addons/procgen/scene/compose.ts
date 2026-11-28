@@ -271,9 +271,9 @@ class TeeIssues extends Issues {
     this.to.add(i);
   }
 }
-const INSTANCEABLE = new Set(["textile", "tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water", "lava", "food"]);
+const INSTANCEABLE = new Set(["textile", "tree", "bush", "grass", "flowers", "rock", "prop", "emblem", "plant", "vehicle", "ball", "seat", "tool", "container", "street", "pet", "structure", "water", "lava", "food", "home"]);
 /** Tailles fines (pas d'arrondi au quart de mètre). */
-const FINE = new Set(["ball", "seat", "structure", "water", "food"]);
+const FINE = new Set(["ball", "seat", "structure", "water", "food", "home"]);
 /** Paramètre de taille converti en échelle d'instance, et sa valeur de référence. */
 const SCALE_PARAM: Record<string, { name: string; ref: number }> = { tree: { name: "height", ref: 7 }, bush: { name: "size", ref: 1 }, grass: { name: "size", ref: 0.35 }, rock: { name: "size", ref: 1.5 }, flowers: { name: "size", ref: 1 }, emblem: { name: "size", ref: 1 }, plant: { name: "size", ref: 1 }, tool: { name: "scale", ref: 1 }, container: { name: "scale", ref: 1 }, street: { name: "scale", ref: 1 }, pet: { name: "scale", ref: 1 }, textile: { name: "scale", ref: 1 } };
 /** Objets à tissus simulés au plus par scène (le rendu en anime encore moins à la fois, selon l'écran). */
@@ -599,7 +599,7 @@ export function* composeSteps(input: ComposeInput): Generator<[number, number] |
     const corners = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => [x + (a * fp.hx * c + b * fp.hz * s) * scale, z + (-a * fp.hx * s + b * fp.hz * c) * scale]);
     // ouvrages : posés au plus bas de leurs appuis (les berges d'un pont), pas au fond du lit
     const rest = Array.isArray(asset.extra?.rest) ? (asset.extra!.rest as [number, number][]) : null;
-    let y = rest && rest.length ? Math.min(...rest.map(([lx, lz]) => H(x + (lx * c + lz * s) * scale, z + (-lx * s + lz * c) * scale))) - 0.02 : layer?.onWater && waterLevel !== null ? waterLevel - 0.15 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - Math.min(0.02, asset.height * 0.04);
+    let y = rest && rest.length ? Math.min(...rest.map(([lx, lz]) => H(x + (lx * c + lz * s) * scale, z + (-lx * s + lz * c) * scale))) - 0.02 : layer?.onWater && waterLevel !== null ? waterLevel - 0.1 : generator === "building" ? Math.min(H(x, z), ...corners.map(([cx, cz]) => H(cx, cz))) - 0.05 : H(x, z) - Math.min(0.02, asset.height * 0.04);
     const obj = (tile?.objBase ?? 0) + objects.length + 1;
     if (Array.isArray(asset.extra?.holes) && !tile)
       for (const [rd, hx, hz, seed] of asset.extra!.holes as [number, number, number, number][]) if (holes.length < 16) holes.push([x, z, hx * scale, hz * scale, yaw, rd, seed ?? 0]);

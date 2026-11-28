@@ -93,7 +93,7 @@ function basin(o: O): Built {
     P.push(bx([0, h / 2, s * (hz - t / 2)], [hx, h / 2, t / 2], o.main), bx([s * (hx - t / 2), h / 2, 0], [t / 2, h / 2, hz - t], o.main));
     P.push(bx([0, h + 0.03, s * (hz - t / 2)], [hx + 0.04, 0.03, t / 2 + 0.04], o.trim), bx([s * (hx - t / 2), h + 0.03, 0], [t / 2 + 0.04, 0.03, hz - t], o.trim));
   }
-  P.push(bx([0, wy - 0.02, 0], [hx - t, 0.02, hz - t], o.water));
+  P.push(bx([0, wy - 0.003, 0], [hx - t, 0.003, hz - t], o.water));
   return { parts: P, spots: ringSpots(hx - t, hz - t, wy, t + 0.45), center: [0, wy, 0], affords: ["drink", "bathe"], tanks: [{ shape: "rect", hx: hx - t, hz: hz - t, depth: -0.015, top: 0.02, wall: o.main, floor: o.main }] };
 }
 
@@ -106,9 +106,12 @@ function pool(o: O): Built {
   for (const s of [-1, 1]) {
     for (let i = 0; i < n; i++) P.push(bx([-hx + ((i + 0.5) * 2 * hx) / n, h / 2, s * (hz + t / 2)], [hx / n - 0.008, h / 2, t / 2], i % 2 ? o.main : o.trim));
     P.push(bx([s * (hx + t / 2), h / 2, 0], [t / 2, h / 2, hz + t], o.main));
-    P.push(bx([0, wy + 0.025, s * (hz - 0.01)], [hx, 0.03, 0.012], "blue"), bx([s * (hx - 0.01), wy + 0.025, 0], [0.012, 0.03, hz], "blue"));
+    // frise de carreaux : de sous la ligne d'eau jusqu'au ras de la margelle (pas de bande nue entre les deux)
+    const fy0 = wy - 0.04, fy1 = h - 0.004, fc = (fy0 + fy1) / 2, fh = Math.max(0.02, (fy1 - fy0) / 2);
+    P.push(bx([0, fc, s * (hz - 0.01)], [hx, fh, 0.012], "blue"), bx([s * (hx - 0.01), fc, 0], [0.012, fh, hz], "blue"));
   }
-  P.push(bx([0, wy - 0.02, 0], [hx, 0.02, hz], o.water));
+  // nappe mince : ses tranches (verticales) ne se voient pas contre la paroi
+  P.push(bx([0, wy - 0.003, 0], [hx, 0.003, hz], o.water));
   for (const dx of [-0.22, 0.22]) P.push({ t: "tube", pts: [[hx - 0.9 + dx, wy - 0.2, hz - 0.12], [hx - 0.9 + dx, h + 0.55, hz - 0.12], [hx - 0.9 + dx, h + 0.7, hz + 0.1], [hx - 0.9 + dx, h, hz + 0.28]], r: 0.02, role: "metal" });
   // cuve carrelée : parois jusqu'à la nappe, fond en pente douce (petit bain → grand bain), sol découpé dessus
   const depth = clamp(Math.min(hx, hz) * 0.7, 0.6, 2);

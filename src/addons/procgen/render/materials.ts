@@ -62,6 +62,9 @@ export function sharedUniforms(): Shared {
     uHoleA: { value: Array.from({ length: 16 }, () => new THREE.Vector4(0, 0, 1, 1)) },
     uHoleB: { value: Array.from({ length: 16 }, () => new THREE.Vector4(1, 0, 0, 0)) },
     uHoleN: { value: 0 },
+    uHullA: { value: Array.from({ length: 12 }, () => new THREE.Vector4(0, 0, 1, 1)) },
+    uHullB: { value: Array.from({ length: 12 }, () => new THREE.Vector4(1, 0, 0, 0)) },
+    uHullN: { value: 0 },
     uGroundY: { value: 0 },
     uWaterY: { value: -1000 },
     // nageurs (x, z, vitesse, phase) : rides et écume sur l'eau autour d'eux
