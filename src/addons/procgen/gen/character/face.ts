@@ -215,6 +215,39 @@ export function buildFace(k: Kit, hf: HeadField, crowd = false): FaceMeshes {
       ring(c, [0, 1, 0], norm([sx, 0, 0.6]), hh * 0.014, hh * 0.0032, Math.PI * 0.6, Math.PI * 2.4);
     }
   }
+  /* ---------- piercings ---------- */
+  const pc = look.piercings;
+  if (pc !== "none" && !crowd && !look.animalSpec) {
+    const MT = ROLE.orange;
+    const pv = v.fork("piercings");
+    const stud = (c: V3, r: number) => add_(ellipsoid(r, r, r, MT, sg(8), sg(5)).transform(m4Compose(c, [0, 0, 0, 1])));
+    if (pc === "ears" || pc === "all") {
+      const er = hh * 0.11 * ({ small: 0.82, round: 1, large: 1.22, pointed: 1 } as Record<string, number>)[look.ears];
+      hf.ears.forEach((e, i) => {
+        const sx = i === 0 ? 1 : -1;
+        // clous le long de l'hélix (bord de l'oreille), du haut vers le lobe
+        const n = pv.int(2, 3);
+        for (let k = 0; k < n; k++) stud(add(e, [sx * er * 0.5, er * (0.55 - k * 0.3), -er * 0.18]), hh * 0.008);
+      });
+    }
+    if (pc === "face" || pc === "all") {
+      const sx = pv.chance(0.5) ? 1 : -1;
+      // barre au sourcil : deux billes de part et d'autre du bout du sourcil
+      for (const dy of [1.1, 1.65]) {
+        const h = faceHit(k, hf, hf.skin, sx * (hf.eyeX + hf.eyeR * 0.95), hf.eyeY + hf.eyeR * dy);
+        stud(madd(h.p, h.n, hh * 0.006), hh * 0.0075);
+      }
+      // anneau à la lèvre inférieure, sur le côté
+      const lp = faceHit(k, hf, hf.faceSurf, -sx * hf.mouthW * 0.28, hf.mouthY - hf.mouthW * 0.12);
+      const R = hh * 0.016;
+      const pts: V3[] = [];
+      for (let i = 0; i <= 18; i++) {
+        const t = Math.PI * 0.55 + (i / 18) * Math.PI * 1.9;
+        pts.push(add(madd(lp.p, lp.n, R * 0.45), add(scale3([0, 1, 0], Math.cos(t) * R), scale3(lp.n, Math.sin(t) * R))));
+      }
+      add_(tube(pts, pts.map(() => hh * 0.0032), MT, 6, false, false));
+    }
+  }
   while (morph.length < face.vertexCount * 3) morph.push(0);
   morph.length = face.vertexCount * 3;
   return { mesh: face, morph, expr };

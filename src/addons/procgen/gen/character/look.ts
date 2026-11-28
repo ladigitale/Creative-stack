@@ -117,6 +117,10 @@ export type Look = {
   jewelry: string;
   /** Aux pieds, sur la neige : `none`, `skis`, `snowshoes` (raquettes). */
   snow: string;
+  /** Tatouages sur la peau découverte : `none`, `few` (un ou deux), `many`. */
+  tattoos: string;
+  /** Piercings : `none`, `ears` (clous le long de l'oreille), `face` (sourcil, lèvre), `all`. */
+  piercings: string;
   blush: string;
   wrinkles: string;
   detail: string;
@@ -430,6 +434,8 @@ export function resolveLook(pp: LookInput, rng: Rng, issues: Issues, path: strin
     headShape, eyes, brows: brows2, nose, lips, ears, beard, mustache, glasses: glasses2, freckles: freckles2, moles: moles2, jewelry: jewelry2, blush, wrinkles: wrinkles2, detail: s("detail"),
     cape: ["short", "long"].includes(String(pp.cape)) ? String(pp.cape) : "none",
     snow: ["skis", "snowshoes"].includes(String(pp.snow)) ? String(pp.snow) : "none",
+    tattoos: ["few", "many"].includes(String(pp.tattoos)) ? String(pp.tattoos) : "none",
+    piercings: ["ears", "face", "all"].includes(String(pp.piercings)) ? String(pp.piercings) : "none",
     soft: ["cloth", "hair", "all"].includes(String(pp.soft)) ? String(pp.soft) : "none",
     ...prints(pp, rng, top),
   };

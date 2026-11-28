@@ -15,7 +15,7 @@ import type { SoftPiece } from "../types";
 import { capePiece, scarfPiece, skirtPiece, softCloth } from "./soft";
 
 /** Pièce rigide posée sur la surface après polygonisation (bouton, boucle, poche). */
-export type Decal = { at: V3; dir: V3; kind: "button" | "buckle" | "pocket" | "flap"; role: number; size: number; up?: V3 };
+export type Decal = { at: V3; dir: V3; kind: "button" | "buckle" | "pocket" | "flap" | "tattoo"; role: number; size: number; up?: V3; design?: number };
 
 export type BodyField = {
   set: PrimSet;
@@ -584,6 +584,25 @@ export function buildBodyField(k: Kit): BodyField {
         if (set.prims[a].role !== set.prims[b].role || set.group[a] === "over" || set.group[b] === "over" || set.group[a] === "belt" || set.group[b] === "belt") continue;
         blends.push({ a, b, k: H * 0.01 });
       }
+  /* ---------- tatouages : seulement sur la peau que la tenue laisse voir ---------- */
+  if (look.tattoos !== "none") {
+    const tv = v.fork("tatouages");
+    const ov = look.over;
+    const openArms = ov === "none" || ov === "vest" || ov === "apron";
+    const sites: { at: V3; dir: V3; size: number; up?: V3 }[] = [];
+    for (const [s, sx] of [["l", 1], ["r", -1]] as const) {
+      if (["none", "tee", "tank", "swimsuit"].includes(top) && openArms) sites.push({ at: at(`forearm.${s}`, 0.5), dir: norm([sx * 0.8, 0, 0.6]), size: H * 0.065, up: norm(sub(B(`forearm.${s}`).head, B(`forearm.${s}`).tail)) });
+      if (["none", "tank", "swimsuit"].includes(top) && openArms) sites.push({ at: at(`upperarm.${s}`, 0.4), dir: norm([sx, 0, 0.15]), size: H * 0.075, up: norm(sub(B(`upperarm.${s}`).head, B(`upperarm.${s}`).tail)) });
+      if (["shorts", "skirt", "swim"].includes(look.bottom) && !["robe", "coat", "dress"].includes(top) && look.shoes !== "tallboots") sites.push({ at: at(`shin.${s}`, 0.45), dir: norm([sx * 0.5, 0, -1]), size: H * 0.065, up: [0, 1, 0] });
+    }
+    if (look.collar !== "turtle" && !["robe"].includes(top)) sites.push({ at: at("neck", 0.45), dir: norm([-0.85, 0, 0.3]), size: H * 0.04 });
+    if (top === "none") sites.push({ at: [chestR[0] * 0.45, chestC[1] + chestR[1] * 0.35, chestC[2]], dir: [0, 0, 1], size: H * 0.09 });
+    const n = Math.min(sites.length, look.tattoos === "many" ? 5 : tv.int(1, 2));
+    for (let i = 0; i < n; i++) {
+      const site = sites.splice(tv.int(0, sites.length - 1), 1)[0];
+      decals.push({ at: site.at, dir: site.dir, kind: "tattoo", role: ROLE.ink, size: site.size, up: site.up, design: tv.int(0, 5) });
+    }
+  }
   return { set, blends, decals, hipC, chestC, chestR, backZ, patterned: look.pattern !== "plain", soft };
 }
 
