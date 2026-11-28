@@ -178,19 +178,30 @@ export function buildBodyField(k: Kit): BodyField {
   }
   // cou : effilé vers le haut, son extrémité est recouverte par le maillage de la tête
   put("neck", { kind: "capsule", a: at("neck", -0.1), b: at("neck", 0.82), ra: rad("neck", 0) * 1.02, rb: rad("neck", 1) * 0.86, role: S, tag: 0 }, "neck");
+  const feet: Record<string, number[]> = {};
   for (const s of ["l", "r"]) {
     put("clavicle", clav(s, 0), `clavicle.${s}`);
     put("upperarm", cap(`upperarm.${s}`, 0, 1, 0, S, bw), `upperarm.${s}`);
     put("forearm", cap(`forearm.${s}`, 0, 1, 0, S, mix(0.95, 1.1, look.build)), `forearm.${s}`);
     put("thigh", cap(`thigh.${s}`, 0, 1, 0, S, bw), `thigh.${s}`);
     put("shin", cap(`shin.${s}`, 0, 1, 0, S, mix(0.95, 1.08, look.build)), `shin.${s}`);
+    // pied anatomique (et non un tube) : talon étroit, voûte qui descend de la cheville, avant-pied large et plat,
+    // gros orteil côté intérieur, rangée des petits orteils en retrait ; jamais sous le sol, même chaussé
     const fb = B(`foot.${s}`);
-    const fr = fb.radius[0];
-    // pied et orteils jamais sous le sol, même chaussés (gros pieds des styles chibi, cartoon)
-    const sole = thick * 0.9 + H * 0.002;
-    const above = (f: FieldPrim): FieldPrim => (f.kind === "capsule" ? { ...f, a: [f.a[0], Math.max(f.a[1], f.ra + sole), f.a[2]], b: [f.b[0], Math.max(f.b[1], f.rb + sole), f.b[2]] } : f);
-    put("foot", above({ kind: "capsule", a: add(fb.head, [0, -fr * 0.2, -fr * 0.6]), b: add(fb.tail, [0, fr * 0.05, 0]), ra: fr * 0.95, rb: fr * 0.9, role: S, tag: 0 }), `foot.${s}`);
-    put("toe", above(cap(`toe.${s}`, 0, 1, 0, S)), `toe.${s}`);
+    const sx = s === "l" ? 1 : -1;
+    // place de la semelle sous le pied chaussé ; pied nu : posé à plat
+    const sole = look.shoes === "barefoot" ? H * 0.0015 : thick * 0.9 + H * 0.002;
+    const L = P.footLen, W = L * (look.archetype === "chibi" || look.archetype === "cartoon" ? 0.42 : 0.38);
+    const [ax, , az] = fb.head;
+    const ell = (c: V3, r: V3): FieldPrim => ({ kind: "ellipsoid", c: [c[0], Math.max(c[1], r[1] + sole), c[2]], r, role: S, tag: 0 });
+    feet[s] = [
+      put("foot", ell([ax, 0, az - L * 0.05], [W * 0.31, L * 0.1, L * 0.12]), `foot.${s}`),
+      put("foot", { kind: "capsule", a: [ax, fb.head[1] - L * 0.02, az + L * 0.02], b: [ax - sx * W * 0.04, sole + L * 0.09, az + L * 0.5], ra: W * 0.3, rb: L * 0.065, role: S, tag: 0 }, `foot.${s}`),
+      put("foot", ell([ax, 0, az + L * 0.28], [W * 0.4, L * 0.085, L * 0.24]), `foot.${s}`),
+      put("foot", ell([ax - sx * W * 0.03, 0, az + L * 0.6], [W * 0.5, L * 0.07, L * 0.15]), `foot.${s}`),
+      put("toe", ell([ax - sx * W * 0.25, 0, az + L * 0.77], [W * 0.17, L * 0.062, L * 0.085]), `toe.${s}`),
+      put("toe", ell([ax + sx * W * 0.1, 0, az + L * 0.73], [W * 0.31, L * 0.052, L * 0.075]), `toe.${s}`),
+    ];
   }
   const torsoIdx = [...groups.chest, ...groups.spine];
   const pelvisIdx = groups.pelvis[0];
@@ -456,15 +467,23 @@ export function buildBodyField(k: Kit): BodyField {
   for (const s of ["l", "r"]) {
     if (look.shoes === "barefoot") continue;
     const ex = look.shoes === "sandals" ? thick * 0.25 : thick * 0.8;
-    const fi = groups.foot[s === "l" ? 0 : 1];
-    put("foot", inflate(set.prims[fi], ex, LE), `foot.${s}`, { covers: fi });
-    put("toe", inflate(set.prims[groups.toe[s === "l" ? 0 : 1]], ex, LE), `toe.${s}`, { covers: groups.toe[s === "l" ? 0 : 1] });
+    // chaussure : le pied gainé (les orteils se fondent en une pointe), et une semelle nette sous toute la longueur
+    for (const fi of feet[s]) put(set.bone[fi] === k.skel.index[`toe.${s}`] ? "toe" : "foot", inflate(set.prims[fi], ex, LE), k.skel.bones[set.bone[fi]].name, { covers: fi });
+    {
+      const fb = B(`foot.${s}`), L = P.footLen, W = L * (look.archetype === "chibi" || look.archetype === "cartoon" ? 0.42 : 0.38);
+      const sh = look.shoes === "sandals" ? H * 0.004 : H * 0.006 + thick * 0.4;
+      // en deux morceaux : l'avant suit les orteils quand ils se plient (pas de semelle qui perce au déroulé du pas)
+      const rd = Math.min(sh * 0.9, W * 0.3);
+      put("foot", { kind: "box", c: [fb.head[0], sh + H * 0.002, fb.head[2] + L * 0.23], h: [W * 0.42 + ex * 1.3, sh, L * 0.39 + ex], round: rd, role: ROLE.ink, tag: 0 }, `foot.${s}`);
+      put("toe", { kind: "box", c: [fb.head[0] - (s === "l" ? 1 : -1) * W * 0.04, sh + H * 0.002, fb.head[2] + L * 0.72], h: [W * 0.52 + ex * 1.3, sh, L * 0.13 + ex], round: rd, role: ROLE.ink, tag: 0 }, `toe.${s}`);
+    }
     if (look.shoes === "boots") put("shin", cap(`shin.${s}`, 0.5, 1, thick * 1.25, LE, 1.05), `shin.${s}`);
     if (look.shoes === "tallboots") {
       put("shin", cap(`shin.${s}`, 0.06, 1, thick * 1.3, LE, 1.05), `shin.${s}`);
       put("shin", cap(`shin.${s}`, 0.04, 0.15, thick * 1.85, LE, 1.08), `shin.${s}`);
     }
-    if (look.shoes === "shoes") put("shin", cap(`shin.${s}`, 0.9, 1, ex, LE), `shin.${s}`);
+    // chaussure basse : le col s'arrête sous la malléole (pas de chaussette montante)
+    if (look.shoes === "shoes") put("shin", cap(`shin.${s}`, 0.96, 1, ex * 0.8, LE), `shin.${s}`);
   }
 
   /* ---------- sacs ---------- */
