@@ -27,6 +27,7 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `photo` | Rendu soigné quand la scène est immobile : `true` ou `{moteur, echantillons, rebonds, attente, filtre, tramage, niveaux, touche, echelle}` (voir Rendu soigné) ; aussi attribut `photo` |
 | `exportSvg` | Compteur : chaque changement publie le SVG de la vue dans `state-out.svg` (mode vectoriel) |
 | `football` | Match de football jouable (rendu 3D, voir Football) : `true` ou `{players: 5\|7\|11, minutes, level, human: "home"\|"away"\|"none", teams: [{name, shirt, shorts, socks, keeper, pattern}], cinematics, hud, keyboard, touch, sound, seed, input}` ; prioritaire sur `recipe` et `scene` |
+| `race` | Course automobile jouable (rendu 3D, voir Course) : `true` ou `{laps, opponents 0…7, level 0…1, human, car, paint, drivers: [{name, paint}], length (m), width, scenery: campagne\|foret\|desert\|neige\|nuit, camera: chase\|far\|hood\|top\|free, countdown, hud, keyboard, touch, sound, seed, restart, input}` ; prioritaire sur `recipe` et `scene` (pas en même temps que `football`) |
 | `recipe` | Recette complète (prioritaire sur `scene`, voir plus bas) |
 | `seed` | Graine. Même graine = même monde ; chaque objet a sa sous-graine, donc modifier un objet ne bouge pas les autres |
 | `params` | Paramètres exposés par la recette (ex. `village` : `maisons`, `habitants`) |
@@ -138,6 +139,24 @@ Un match complet, jouable, dans un stade composé à partir des réglages (rendu
 - **Habillage** (`hud: false` pour le retirer) : tableau d'affichage, bandeaux (BUT !, QUEL ARRÊT !, PENALTY…), barres de cinéma, jauge de tir.
 - **Sorties** : `state-out.football` `{phase: intro|setpiece|play|goal|halftime|fulltime, half, minute, score, teams, possession, ctrl, set: {kind, team, ready}, cine}` ; événements `kickoff`, `kick`, `shot`, `save`, `header`, `tackle`, `foul`, `post`, `goal {team, player, own, score, minute}`, `throwin`, `corner`, `goalkick`, `freekick`, `penalty`, `miss`, `possession`, `halftime`, `fulltime {score, winner}`.
 - Gestes ajoutés aux personnages : `tackle` (tacle glissé), `diveleft`, `diveright` (plongeon du gardien), `fall` (chute, relevé sur un genou), `header` (tête en extension).
+
+## Course
+
+Une course complète, jouable, sur un circuit fermé généré par la graine (rendu 3D) :
+
+```json
+{ "race": { "laps": 3, "opponents": 5, "level": 0.6, "car": "moderncar", "paint": "red", "scenery": "campagne", "seed": 3 } }
+```
+
+- **Circuit** : boucle lisse de `length` m (300 … 1600, 650 par défaut) et `width` m de large (8 … 20, 12), tirée par la graine (même graine = même circuit), jamais de portions qui se frôlent ni d'épingle plus serrée que la piste ; départ au milieu de la plus longue ligne droite. Décor selon `scenery` : `campagne` (arbres, buissons), `foret` (dense), `desert` (sable, rochers), `neige`, `nuit` ; tribune garnie et drapeaux sur la ligne, cônes à l'extérieur des virages serrés, décor tenu à 12 m au moins du bord.
+- **Voitures** : `car` = `moderncar` (défaut), `van`, `truck`, `bus`, `tractor`, `car` (ancienne), chacune avec sa pointe, son accélération, son freinage et son adhérence ; une par pilote (`opponents` adversaires, plus le joueur si `human` n'est pas `false`), couleur `paint` (joueur) ou `drivers[i].paint` (red, blue, yellow, green, orange, purple, white, black), noms `drivers[i].name`. Le joueur part 4e (ou dernier s'il y a moins de voitures). Ids : `voitures.0`, `voitures.1`… (rang sur la grille).
+- **Pilotage** (arcade) : le volant braque moins à haute vitesse, l'accélération s'essouffle près de la pointe, l'adhérence est bornée (un virage pris trop vite élargit et ralentit), frein à main qui fait décrocher l'arrière, herbe et sable qui freinent et font glisser, chocs contre le décor (arrêt, rebond) et entre voitures (poussées, vitesses en partie échangées). Remise en piste automatique d'une voiture perdue (loin de la piste ou immobile 4 s), ou demandée.
+- **Adversaires** : ligne de course (corde des virages), vitesse bornée par la courbure des 90 m à venir et la distance de freinage, dépassements, un peu d'élastique (loin devant le joueur ils lèvent le pied) ; `level` (0 … 1) règle leur vitesse et leur adhérence.
+- **Caméras** (`camera`, modifiable en cours de course sans la relancer ; touche C pour passer de l'une à l'autre) : `chase` (poursuite, défaut), `far` (poursuite éloignée), `hood` (capot), `top` (vue de dessus), `free` (la vue reste à l'artefact) ; le champ de vision s'ouvre avec la vitesse ; envolée au-dessus de la grille pendant le compte à rebours (`countdown: false` pour partir tout de suite).
+- **Commandes** : clavier (flèches ou ZQSD/WASD, Espace frein à main, R remise en piste, C caméra ; frein tenu à l'arrêt : marche arrière), manette (gâchette droite ou A accélère, gâchette gauche ou B freine, stick braque, X frein à main, Y remise en piste), écran tactile (◀ ▶ à gauche, ▲ accélérer et ▼ freiner à droite, ↺ remise en piste). Entrée externe : `race.input = {throttle -1…1, steer -1…1 (positif = à droite), brake 0…1, handbrake, reset (compteur)}` ; `keyboard: false` / `touch: false` coupent les commandes intégrées. `restart` (compteur) relance la course sur le même circuit.
+- **Son** (généré en Web Audio ; `sound: false` pour le couper) : moteur de la voiture suivie (régime qui monte et retombe à chaque rapport), crissement des pneus quand l'adhérence lâche, roulement hors piste, bips du départ, chocs.
+- **Habillage** (`hud: false` pour le retirer) : position, tour, chrono et meilleur tour, vitesse, minicarte du circuit avec les voitures, compte à rebours, bandeaux (Partez !, Dernier tour !, Meilleur tour, Arrivée), classement final.
+- **Sorties** : `state-out.race` `{phase: countdown|race|finish|done, countdown, time, laps, lap, position, cars, speed (km/h), last, best, player, offTrack, length, standings: [{car, name, position, time, best, laps, human}]}` ; événements `countdown {n}`, `start {laps, cars}`, `lap {car, name, lap, time, best, human}`, `position {car, position, was}` (joueur), `finish {car, name, position, time, human}`, `raceEnd {results}`, `bump {car, hit, speed}`, `contact {a, b, speed}`, `respawn {car, reason}`.
 
 ## Édition au doigt
 

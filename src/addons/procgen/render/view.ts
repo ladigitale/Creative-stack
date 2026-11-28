@@ -59,6 +59,8 @@ import { type DriveInput, type DriveState, type Route, type SeatPose, type Vehic
 import { worldRoads } from "../scene/world-roads";
 import { FootballDirector, type Puppet } from "./football";
 import type { FootballSpec } from "../scene/football";
+import { RaceDirector } from "./race";
+import type { RaceSpec } from "../scene/race";
 
 export type ActorIntent = { /** Aliment, boisson tenu (`"pizza:4"`) pendant eat / drink. */ food?: string; x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
 export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain" | "grab" | "noClimb"; payload: Record<string, unknown> };
@@ -203,6 +205,8 @@ type VehRT = {
   alt: number;
   /** Portières qui se referment (rendues aux états demandés une fois fermées). */
   closing: string[];
+  /** Mode course : la voiture est menée par le moteur de course (la vue ne fait que la poser). */
+  race?: boolean;
 };
 
 export class ProcgenView {
@@ -303,6 +307,13 @@ export class ProcgenView {
   private turfModel: unknown = null;
   footballOut: Record<string, unknown> | null = null;
   onFootball: () => void = () => {};
+  /** Mode course : réglages demandés, directeur de course (créé sur le modèle composé), résumé publié. */
+  private raceSpec: { spec: RaceSpec; hud?: boolean; keyboard?: boolean; touch?: boolean; restart?: number } | null = null;
+  private race: RaceDirector | null = null;
+  private raceModel: unknown = null;
+  private raceSound = true;
+  private raceCamera: RaceSpec["camera"] | null = null;
+  raceOut: Record<string, unknown> | null = null;
   private frameTimes: number[] = [];
   private gov: Governor = newGovernor();
   /** Taille de rendu à appliquer au prochain rendu (jamais hors d'un rendu : `setSize` efface le canevas). */
@@ -1813,6 +1824,8 @@ export class ProcgenView {
       }
       for (const o of vehs) {
         if (o.id === v.id || this.hiddenIds.has(o.id)) continue;
+        // course : les voitures se heurtent dans le moteur de course (chocs amortis), pas ici
+        if (v.race && this.vehicles.get(o.id)?.race) continue;
         if (Math.hypot(o.pos[0] - x, o.pos[2] - z) > Math.hypot(sp.hx, sp.hz) + o.footprint.r + 0.2) continue;
         if (obbOverlap(b, { x: o.pos[0], z: o.pos[2], hx: o.footprint.hx * 0.95, hz: o.footprint.hz * 0.95, yaw: o.yaw })) return o.id;
       }
@@ -2343,6 +2356,11 @@ export class ProcgenView {
     if (v.actor?.hidden || (v.o && this.hiddenIds.has(v.id))) return;
     if (this.drag && ((v.o && this.drag.o === v.o) || (v.actor && this.drag.actor === v.actor))) return;
     if (this.settle && ((v.o && this.settle.d.o === v.o) || (v.actor && this.settle.d.actor === v.actor))) return;
+    if (v.race) {
+      if (!v.rolling) this.startRolling(v);
+      this.poseVehicle(v, dt);
+      return;
+    }
     const direct = v.input && (v.input.throttle || v.input.steer || v.input.brake) ? v.input : null;
     let inp: DriveInput | null = direct;
     let arrived = false, stuck = false;
@@ -2951,6 +2969,9 @@ export class ProcgenView {
       D.multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
       d.inst.im.setMatrixAt(d.inst.i, D.multiply(d.inst.m0));
       d.inst.im.instanceMatrix.needsUpdate = true;
+      // la sphère englobante reste celle de la pose d'origine : un objet déplacé loin (voiture qui roule) serait
+      // écarté du rendu dès que sa place de départ sort du champ
+      d.inst.im.frustumCulled = false;
     } else
       for (const t of d.tiles ?? []) {
         const pa = t.mesh.geometry.getAttribute("position") as THREE.BufferAttribute, na = t.mesh.geometry.getAttribute("normal") as THREE.BufferAttribute;
@@ -3381,6 +3402,83 @@ export class ProcgenView {
     this.updateFace(a, dt);
   }
 
+  /* ---------------- mode course ---------------- */
+
+  /** Active (ou retire, `null`) le mode course sur la scène composée. */
+  setRace(spec: { spec: RaceSpec; hud?: boolean; keyboard?: boolean; touch?: boolean; restart?: number } | null) {
+    if (JSON.stringify(spec) === JSON.stringify(this.raceSpec)) return;
+    this.raceSpec = spec;
+    this.race?.dispose();
+    this.race = null;
+    this.raceModel = null;
+    this.raceOut = null;
+    if (spec) this.touch();
+  }
+  /** Commandes venues du DataProvider (`race.input`). */
+  setRaceInput(v: unknown) {
+    this.race?.setInput(v);
+  }
+  setRaceSound(on: boolean) {
+    this.raceSound = on;
+    this.race?.setSound(on);
+  }
+  /** Caméra de course changée en cours de partie (sans relancer la course). */
+  setRaceCamera(c: RaceSpec["camera"] | null) {
+    this.raceCamera = c;
+    if (c) this.race?.setCameraMode(c);
+  }
+  onRace: () => void = () => {};
+
+  private ensureRace() {
+    if (!this.raceSpec || !this.model || this.raceModel === this.model) return;
+    this.race?.dispose();
+    this.race = null;
+    this.raceModel = this.model;
+    const ids = this.model.objects.filter((o) => o.layer === "voitures" && o.generator === "vehicle").map((o) => o.id);
+    if (!ids.length) return;
+    const host = {
+      canvas: this.canvas,
+      car: (id: string) => {
+        const v = this.vehicle(id);
+        if (!v) return null;
+        v.race = true;
+        v.input = null;
+        v.route = null;
+        return v.s;
+      },
+      release: () => {
+        for (const v of this.vehicles.values()) v.race = false;
+      },
+      blocked: (id: string, x: number, z: number, yaw: number) => {
+        const v = this.vehicles.get(id);
+        return v ? this.blockedFn(v)(x, z, yaw) : null;
+      },
+      setCamera: (c: { cx: number; cy: number; cz: number; yaw: number; pitch: number; dist: number; fov: number }) => this.gameCamera(c),
+      emit: (type: string, payload: Record<string, unknown>) => this.onEvent({ type: type as GameEvent["type"], payload }),
+    };
+    const rs = this.raceSpec;
+    const spec = this.raceCamera ? { ...rs.spec, camera: this.raceCamera } : rs.spec;
+    this.race = new RaceDirector(host, spec, ids, { hud: rs.hud, keyboard: rs.keyboard, touch: rs.touch, sound: this.raceSound });
+    this.race.onSummary = (s) => {
+      this.raceOut = s;
+      this.onRace();
+    };
+  }
+
+  /** Caméra pilotée par un mode de jeu : cible, cap, inclinaison (degrés), distance (m), champ (degrés). */
+  private gameCamera(c: { cx: number; cy: number; cz: number; yaw: number; pitch: number; dist: number; fov: number }) {
+    const v = this.view;
+    v.camera = "perspective";
+    v.cx = c.cx;
+    v.cy = c.cy;
+    v.cz = c.cz;
+    v.yaw = c.yaw;
+    v.pitch = c.pitch;
+    v.fov = c.fov;
+    v.zoom = Math.max(0.05, (this.extent * 1.25 * 0.55) / (Math.max(0.5, c.dist) * Math.tan(((c.fov * Math.PI) / 180) / 2)));
+    this.dirty = true;
+  }
+
   /* ---------------- mode football ---------------- */
 
   /** Active (ou retire, `null`) le mode football sur la scène composée. */
@@ -3436,18 +3534,7 @@ export class ProcgenView {
       pinBall: (pos: V3, vel: V3, dt: number) => {
         if (ball && this.balls?.pin(ball, pos, vel, dt)) this.ballsDirty = true;
       },
-      setCamera: (c: { cx: number; cy: number; cz: number; yaw: number; pitch: number; dist: number; fov: number }) => {
-        const v = this.view;
-        v.camera = "perspective";
-        v.cx = c.cx;
-        v.cy = c.cy;
-        v.cz = c.cz;
-        v.yaw = c.yaw;
-        v.pitch = c.pitch;
-        v.fov = c.fov;
-        v.zoom = Math.max(0.05, (this.extent * 1.25 * 0.55) / (Math.max(1, c.dist) * Math.tan(((c.fov * Math.PI) / 180) / 2)));
-        this.dirty = true;
-      },
+      setCamera: (c: { cx: number; cy: number; cz: number; yaw: number; pitch: number; dist: number; fov: number }) => this.gameCamera({ ...c, dist: Math.max(1, c.dist) }),
       emit: (type: string, payload: Record<string, unknown>) => this.onEvent({ type: type as GameEvent["type"], payload }),
     };
     const fs = this.footballSpec;
@@ -3852,7 +3939,7 @@ export class ProcgenView {
   /** La scène elle-même bouge-t-elle (acteurs, ballons, végétation au vent, eau) ? Le grain animé ne compte pas. */
   private get moving(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || !!this.fish || this.vehRolling || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water;
+    return this.actors.size > 0 || !!this.fish || this.vehRolling || !!this.race || this.fx.active || !!this.balls?.moving || !!this.rigid?.moving || this.model.instances.some((g) => g.flex) || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water;
   }
 
   /** Réveil à la fin de l'attente (la boucle est arrêtée quand rien ne bouge). */
@@ -3935,7 +4022,7 @@ export class ProcgenView {
 
   private get animated(): boolean {
     if (!this.model || !this.play) return false;
-    return this.actors.size > 0 || !!this.fish || this.vehRolling || this.fx.active || !!this.balls?.moving || this.emitters.active || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
+    return this.actors.size > 0 || !!this.fish || this.vehRolling || !!this.race || this.fx.active || !!this.balls?.moving || this.emitters.active || !!this.rigid?.moving || (!!this.drag && !!this.rigid) || this.model.instances.some((g) => g.flex) || !!this.inf?.gpu.flex || (this.meadows.active && this.model.wind > 0) || (!!this.softs && (this.model.wind > 0 || this.actors.size > 0)) || !!this.model.water || !!this.style?.grain || this.stack.animated;
   }
 
   private ballsDirty = false;
@@ -4068,6 +4155,10 @@ export class ProcgenView {
         this.football.step(dt);
         this.speed = this.football.timeScale;
       }
+    }
+    if (this.raceSpec && this.model) {
+      this.ensureRace();
+      this.race?.step(dt);
     }
     if (anim) {
       this.time += dt * this.speed;
@@ -4667,6 +4758,8 @@ export class ProcgenView {
   dispose() {
     this.football?.dispose();
     this.football = null;
+    this.race?.dispose();
+    this.race = null;
     this.finBank?.dispose();
     this.finTable?.dispose();
     this.disposed = true;
