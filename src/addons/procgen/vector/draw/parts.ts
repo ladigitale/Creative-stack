@@ -17,6 +17,7 @@ import { petModel } from "../../gen/pet";
 import { structureModel } from "../../gen/structure";
 import { waterModel } from "../../gen/water";
 import { lavaModel } from "../../gen/lava";
+import { foodModel } from "../../gen/food";
 import { textileFrozenParts } from "../../gen/textile";
 import type { ObjectDrawer } from "./types";
 
@@ -232,6 +233,10 @@ export const drawStructure: ObjectDrawer = (kit, p, ctx) => {
 export const drawWater: ObjectDrawer = (kit, p) => {
   const m = waterModel(p);
   drawParts(kit, m.bank ? [m.bank, ...m.parts] : m.parts, { width: 0.5 });
+};
+
+export const drawFood: ObjectDrawer = (kit, p) => {
+  drawParts(kit, foodModel(p).parts, { width: 0.4 });
 };
 
 export const drawLava: ObjectDrawer = (kit, p) => {
