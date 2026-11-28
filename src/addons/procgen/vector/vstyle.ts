@@ -160,6 +160,8 @@ export function makeInks(vs: VectorStyle): Inks {
     night,
     color(paint, tone = 0, depth = 0, obj) {
       if (!paint || paint === "none") return "none";
+      // teintes continues : arrondies au vingtième de cran (cache borné, écart invisible)
+      tone = Math.round(tone * 20) / 20;
       const key = `${paint}|${tone}|${Math.round(depth * 20)}|${obj ? obj[paint] ?? "" : ""}`;
       const hit = cache.get(key);
       if (hit) return hit;

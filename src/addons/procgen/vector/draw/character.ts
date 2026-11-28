@@ -111,26 +111,27 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
   const belly = Number(p.belly ?? 0.15);
 
   /* ---------------- membres ---------------- */
-  type Limb = { pts: V3[]; hw: number[]; key: number; far: boolean; side: "l" | "r" };
+  /** far : derrière le corps (ordre de dessin) ; shade : assombrissement continu 0…1 selon la profondeur réelle. */
+  type Limb = { pts: V3[]; hw: number[]; key: number; far: boolean; shade: number; side: "l" | "r" };
   const arms: Limb[] = (["l", "r"] as const).map((s) => {
     const sh0 = J(`upperarm.${s}`), el = J(`forearm.${s}`), wr = J(`hand.${s}`), tip = T(`hand.${s}`);
     // racine du bras légèrement rentrée dans le torse (deltoïde fondu dans l'épaule)
     const sh = madd(lerp3(sh0, J("chest"), 0.0), lerp3(sh0, el, 0.12).map((v, i) => v - sh0[i]) as V3, 1);
     const hm = lerp3(wr, tip, 0.45);
     const k = (depth(el) + depth(wr)) / 2;
-    return { pts: [sh, el, wr, hm, tip], hw: [R(`upperarm.${s}`, 0) * 1.05, R(`upperarm.${s}`, 1), R(`forearm.${s}`, 1), R(`hand.${s}`, 0) * 1.2, R(`hand.${s}`, 1) * 0.95], key: k, far: k < depth(chestH) - shoulderHalf * 0.35, side: s };
+    return { pts: [sh, el, wr, hm, tip], hw: [R(`upperarm.${s}`, 0) * 1.05, R(`upperarm.${s}`, 1), R(`forearm.${s}`, 1), R(`hand.${s}`, 0) * 1.2, R(`hand.${s}`, 1) * 0.95], key: k, far: k < depth(chestH) - shoulderHalf * 0.35, shade: limbShade(depth(chestH) - k, shoulderHalf), side: s };
   });
   const legs: Limb[] = (["l", "r"] as const).map((s) => {
     const hp = J(`thigh.${s}`), kn = J(`shin.${s}`), an = J(`foot.${s}`);
     const k = depth(kn);
-    return { pts: [hp, kn, an], hw: [R(`thigh.${s}`, 0) * 1.05, R(`thigh.${s}`, 1), R(`shin.${s}`, 1) * 1.05], key: k, far: k < depth(pelvisH) - hipHalf * 0.4, side: s };
+    return { pts: [hp, kn, an], hw: [R(`thigh.${s}`, 0) * 1.05, R(`thigh.${s}`, 1), R(`shin.${s}`, 1) * 1.05], key: k, far: k < depth(pelvisH) - hipHalf * 0.4, shade: limbShade(depth(pelvisH) - k, hipHalf), side: s };
   });
 
   const parts: { key: number; draw: () => void }[] = [];
   const P2s = (pts: V3[]) => pts.map(S);
 
   // pieds / chaussures
-  const foot = (s: "l" | "r", far: boolean) => {
+  const foot = (s: "l" | "r", shade: number) => {
     const an = J(`foot.${s}`), ball = J(`toe.${s}`), toe = T(`toe.${s}`);
     const fd = norm(sub(toe, an));
     const fl = Math.hypot(...sub(toe, an));
@@ -139,7 +140,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     const pts = [madd(heel, [0, 1, 0], r * 0.35), lerp3(an, ball, 0.35), ball, madd(toe, [0, 1, 0], r * 0.05)];
     const fill = shoes === "barefoot" || shoes === "sandals" ? "skin" : "leather";
     const pen = strokeVar(new Pen(), P2s(pts), [r * 0.72, r * 0.95, r * 0.9, r * 0.6]);
-    em.add(pen, fill, { tone: far ? -1 : 0 });
+    em.add(pen, fill, { tone: -shade });
     if (shoes === "sandals") {
       const st = new Pen();
       for (const t of [0.35, 0.7]) {
@@ -156,10 +157,10 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
 
   const legDraw = (l: Limb) => () => {
     const s = l.side;
-    const tone = l.far ? -1 : 0;
+    const tone = -l.shade;
     const pts = P2s(l.pts);
     const skinLeg = bottom !== "trousers" || shoes === "boots";
-    foot(s, l.far);
+    foot(s, l.shade);
     // la jambe : un seul trait
     em.add(strokeVar(new Pen(), pts, l.hw), bottom === "trousers" ? "cloth2" : "skin", { tone });
     if (bottom === "trousers") {
@@ -191,7 +192,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     return best;
   };
   const armDraw = (a: Limb, only?: Set<number>) => () => {
-    const tone = a.far ? -1 : 0;
+    const tone = -a.shade;
     const holds = a.side === "r" && item !== "none";
     const pts = P2s(a.pts);
     const hp = handPoseOf(a.side);
@@ -247,7 +248,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     };
     const hand = () => {
       // objet tenu : derrière la main qui le serre, devant le reste du bras quand la main est devant
-      if (holds) drawItem(a.far);
+      if (holds) drawItem(a.far, a.shade);
       em.add(strokeVar(new Pen(), [pts[2], pts[3], pts[4]], [hw[2], hw[3], hw[4]]), "skin", { tone });
       if (hp && hp !== "fist") {
         // main vue en raccourci : doigts dans l'axe de l'avant-bras, longueur minimale
@@ -1445,12 +1446,12 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     for (const [n, q] of faces) {
       if (dot(n, vdir) <= 0.01) continue;
       const pts = q.map(([i, j, k]) => S(corner(i, j, k)));
-      em.add(new Pen().smooth(pts, true), fill, { tone: n[1] > 0.5 ? 1 : dot(n, [-0.6, 0.7, 0.3]) > 0.2 ? 0 : -1, width: 0.7 });
+      em.add(new Pen().smooth(pts, true), fill, { tone: normalTone(n, 0.2), width: 0.7 });
     }
   };
 
   /* ---------------- objet tenu ---------------- */
-  function drawItem(far: boolean) {
+  function drawItem(far: boolean, shade = far ? 1 : 0) {
     const hd = J("hand.r"), tip = T("hand.r");
     const grip = lerp3(hd, tip, 0.45);
     const hu = D("hand.r", [0, 1, 0]);
@@ -1458,7 +1459,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
     const iu = item === "sword" || item === "bow" ? norm(D("hand.r", [0.555, 0.764, 0.33])) : item === "book" ? hu : norm(add(scale(hu, 0.35), [0, 0.65, 0]));
     const side = norm(cross(iu, vdir));
     const fwdI = D("hand.r", [0, 0, 1]);
-    const tone = far ? -1 : 0;
+    const tone = -shade;
     const g = S(grip);
     if (item.startsWith("tool.")) {
       // outil : mêmes pièces que le générateur `tool`, dans le repère de la prise (côté, manche, avant)
@@ -1471,7 +1472,7 @@ export function drawCharacter(pr: Projector, em: Emitter, c: CharacterInput, sha
       const [bx, by, bz] = heldToolBasis(D("hand.r", gt), D("hand.r", [0, 0, 1]), t.head);
       const W = (x: number, y: number, z: number): V3 => add(add(madd(grip, bx, x), scale(by, y)), scale(bz, z));
       const wn = (n: V3): V3 => norm(add(add(scale(bx, n[0]), scale(by, n[1])), scale(bz, n[2])));
-      drawPartsOn({ P: (x, y, z) => S(W(x, y, z)), vis: (n) => dot(wn(n), vdir), tone: (n) => (wn(n)[1] > 0.5 ? 1 : dot(wn(n), [-0.6, 0.7, 0.3]) > 0.1 ? 0 : -1), depth: (v) => dot(W(v[0], v[1], v[2]), vdir), k: 1, em, lightSide: -1, toneBias: tone }, t.parts, { width: 0.45 });
+      drawPartsOn({ P: (x, y, z) => S(W(x, y, z)), vis: (n) => dot(wn(n), vdir), tone: (n) => normalTone(wn(n), 0.1), depth: (v) => dot(W(v[0], v[1], v[2]), vdir), k: 1, em, lightSide: -1, toneBias: tone }, t.parts, { width: 0.45 });
       return;
     }
     switch (item) {
@@ -1758,4 +1759,21 @@ const dot2 = (a: P2, b: P2) => a[0] * b[0] + a[1] * b[1];
 function norm2(v: P2): P2 {
   const l = Math.hypot(v[0], v[1]) || 1;
   return [v[0] / l, v[1] / l];
+}
+
+/**
+ * Assombrissement d'un membre (0…1) selon de combien il est derrière le corps (`behind`, m, > 0 = plus loin que le
+ * tronc), rapporté à la demi-largeur des épaules ou des hanches : continu, deux membres presque à la même profondeur
+ * ont presque la même teinte (plus de bras clair à côté d'un bras d'un cran plus sombre).
+ */
+function limbShade(behind: number, half: number): number {
+  const t = Math.max(0, Math.min(1, (behind - half * 0.05) / (half * 0.8)));
+  return t * t * (3 - 2 * t);
+}
+
+/** Teinte d'une face selon sa normale, continue : +1 vers le ciel, 0 de face à la lumière, −1 à l'opposé. */
+function normalTone(n: V3, bias: number): number {
+  const up = Math.max(0, Math.min(1, (n[1] - 0.35) / 0.3));
+  const side = Math.max(-1, Math.min(0, (dot(n, [-0.6, 0.7, 0.3]) - bias) / 0.35));
+  return up * up * (3 - 2 * up) + (1 - up) * side;
 }
