@@ -2,11 +2,15 @@
  * Points d'eau (`water`, raccourci `water.<kind>`) : mare naturelle, bassin maçonné (rond ou rectangulaire), piscine,
  * cascade sur rochers avec sa vasque. Sur la grammaire de pièces : même modèle en 3D et en vectoriel.
  *
- * L'eau est une surface posée **au-dessus** du sol de la scène (le terrain n'est pas creusé) : une piscine affleure,
- * un bassin a une margelle haute. Ancres `spot.N` (bord de l'eau, à son niveau : là où l'on boit) et `approach.N`
+ * La nappe affleure au niveau de sa margelle et a toujours un fond relié à ses bords : cuve carrelée de la piscine
+ * (le sol de la scène est découpé dessus, `extra.hole`), cuvette de la mare qui remonte jusqu'à la berge, dalle du
+ * bassin maçonné entre ses murs. Le fond n'existe qu'en 3D (`tank`) : l'illustration vectorielle reste à plat. Ancres `spot.N` (bord de l'eau, à son niveau : là où l'on boit) et `approach.N`
  * (au sol, devant la margelle) : `{target: "bassin.0.spot.1", action: "drink"}` y mène un chien ou un cheval.
  */
-import { type Q, type V3, clamp, mix } from "../core/math";
+import { type Q, type V3, clamp, m4Compose, mix } from "../core/math";
+import { Mesh } from "../geom/mesh";
+import { box } from "../geom/prims";
+import { ROLE } from "../style/roles";
 import type { Role } from "../style/roles";
 import { type Part, type PartList, hull2, partsBounds, partsToMesh, roleParam, transformParts } from "./parts";
 import { type Anchor, defineGenerator } from "./types";
@@ -14,7 +18,13 @@ import { type Anchor, defineGenerator } from "./types";
 export const WATER_KINDS = ["pond", "basin", "pool", "cascade"] as const;
 
 type O = { kind: string; shape: "round" | "rect"; L: number; W: number; level: number; rimH: number; rim: number; H: number; main: Role; trim: Role; water: Role; seed: number };
-type Built = { parts: PartList; spots: { spot: V3; approach: V3 }[]; center: V3; affords: string[]; fall?: V3; fallTop?: V3 };
+/**
+ * Fond de l'eau (3D) : cuve droite (`rect`, `round`) ou cuvette en pente douce (`bowl`), bord à y = `top`, fond à
+ * −`depth` ; `hole` : emprise du sol de la scène à découper (ellipse ou rectangle, repère local), absente si le fond
+ * est au-dessus du sol (bassin maçonné).
+ */
+export type Tank = { shape: "rect" | "round" | "bowl"; hx: number; hz: number; depth: number; top: number; wall: Role; floor: Role; seed?: number; hole?: { round: boolean; hx: number; hz: number; seed?: number } };
+type Built = { parts: PartList; spots: { spot: V3; approach: V3 }[]; center: V3; affords: string[]; fall?: V3; fallTop?: V3; tanks?: Tank[]; /** Berge à plat (dessin vectoriel seulement : en 3D, c'est le bord de la cuvette). */ bank?: Part };
 
 const bx = (c: V3, h: V3, role: Role, rot?: V3): Part => ({ t: "box", c, h, role, rot });
 /** Plaque horizontale (nappe d'eau, dalle) : polygone convexe [x, z] à la hauteur y, épaisseur 2·d. */
@@ -42,8 +52,7 @@ function pond(o: O): Built {
   const wy = Math.max(0.03, o.rimH - o.level);
   const wob = (a: number) => 1 + 0.06 * Math.sin(a * 3 + o.seed) + 0.04 * Math.sin(a * 5 + o.seed * 2);
   const P: PartList = [];
-  // berge de terre, nappe, pierres et galets en couronne
-  P.push(flat(0.02, hull2(ellipse(rx + 0.35, rz + 0.35, 24, wob)), 0.01, "path"));
+  // nappe, pierres et galets en couronne ; la berge de terre est le bord de la cuvette (3D)
   P.push(flat(wy, hull2(ellipse(rx, rz, 28, wob)), 0.015, o.water));
   const n = Math.max(8, Math.round(((rx + rz) * Math.PI) / 0.7));
   for (let i = 0; i < n; i++) {
@@ -53,7 +62,11 @@ function pond(o: O): Built {
     const k = wob(a);
     P.push({ t: "blob", c: [Math.cos(a) * (rx * k + s * 0.3), s * 0.35, Math.sin(a) * (rz * k + s * 0.3)], r: [s, s * 0.6, s * 0.85], role: hash(o.seed, i + 7) < 0.3 ? "leaf2" : o.main });
   }
-  return { parts: P, spots: ringSpots(rx, rz, wy, 0.5), center: [0, wy, 0], affords: ["drink", "fish", "bathe"] };
+  // cuvette : remonte jusqu'à la berge, sous la nappe ; le sol est ouvert un peu en deçà du contour le plus rentré
+  const depth = clamp(Math.min(rx, rz) * 0.32, 0.25, 1.4);
+  const tanks: Tank[] = [{ shape: "bowl", hx: rx * 1.02, hz: rz * 1.02, depth, top: 0.015, wall: "path", floor: "ground", seed: o.seed, hole: { round: true, hx: rx * 1.02 + 0.06, hz: rz * 1.02 + 0.06, seed: o.seed } }];
+  const bank = flat(0.02, hull2(ellipse(rx + 0.35, rz + 0.35, 24, wob)), 0.01, "path");
+  return { parts: P, spots: ringSpots(rx, rz, wy, 0.5), center: [0, wy, 0], affords: ["drink", "fish", "bathe"], tanks, bank };
 }
 
 function basin(o: O): Built {
@@ -73,7 +86,7 @@ function basin(o: O): Built {
       P.push(bx([c * (R - t / 2 + 0.02), h - 0.03, sn * (R - t / 2 + 0.02)], [t / 2 + 0.05, 0.03, half + 0.012], o.trim, [0, yaw - 90, 0]));
     }
     P.push(flat(wy, ellipse(R - t + 0.02, R - t + 0.02, n), 0.02, o.water));
-    return { parts: P, spots: ringSpots(R - t, R - t, wy, t + 0.45), center: [0, wy, 0], affords: ["drink", "bathe"] };
+    return { parts: P, spots: ringSpots(R - t, R - t, wy, t + 0.45), center: [0, wy, 0], affords: ["drink", "bathe"], tanks: [{ shape: "round", hx: R - t + 0.03, hz: R - t + 0.03, depth: -0.015, top: 0.02, wall: o.main, floor: o.main }] };
   }
   const hx = o.L / 2, hz = o.W / 2;
   for (const s of [-1, 1]) {
@@ -81,7 +94,7 @@ function basin(o: O): Built {
     P.push(bx([0, h + 0.03, s * (hz - t / 2)], [hx + 0.04, 0.03, t / 2 + 0.04], o.trim), bx([s * (hx - t / 2), h + 0.03, 0], [t / 2 + 0.04, 0.03, hz - t], o.trim));
   }
   P.push(bx([0, wy - 0.02, 0], [hx - t, 0.02, hz - t], o.water));
-  return { parts: P, spots: ringSpots(hx - t, hz - t, wy, t + 0.45), center: [0, wy, 0], affords: ["drink", "bathe"] };
+  return { parts: P, spots: ringSpots(hx - t, hz - t, wy, t + 0.45), center: [0, wy, 0], affords: ["drink", "bathe"], tanks: [{ shape: "rect", hx: hx - t, hz: hz - t, depth: -0.015, top: 0.02, wall: o.main, floor: o.main }] };
 }
 
 function pool(o: O): Built {
@@ -97,7 +110,10 @@ function pool(o: O): Built {
   }
   P.push(bx([0, wy - 0.02, 0], [hx, 0.02, hz], o.water));
   for (const dx of [-0.22, 0.22]) P.push({ t: "tube", pts: [[hx - 0.9 + dx, wy - 0.2, hz - 0.12], [hx - 0.9 + dx, h + 0.55, hz - 0.12], [hx - 0.9 + dx, h + 0.7, hz + 0.1], [hx - 0.9 + dx, h, hz + 0.28]], r: 0.02, role: "metal" });
-  return { parts: P, spots: ringSpots(hx, hz, wy, t + 0.4), center: [0, wy, 0], affords: ["swim", "bathe", "dive", "drink"] };
+  // cuve carrelée : parois jusqu'à la nappe, fond en pente douce (petit bain → grand bain), sol découpé dessus
+  const depth = clamp(Math.min(hx, hz) * 0.7, 0.6, 2);
+  const tanks: Tank[] = [{ shape: "rect", hx, hz, depth, top: wy + 0.01, wall: o.water === "water" ? "blue" : o.water, floor: o.water === "water" ? "blue" : o.water, hole: { round: false, hx, hz } }];
+  return { parts: P, spots: ringSpots(hx, hz, wy, t + 0.4), center: [0, wy, 0], affords: ["swim", "bathe", "dive", "drink"], tanks };
 }
 
 function cascade(o: O): Built {
@@ -126,7 +142,7 @@ function cascade(o: O): Built {
     lipZ = z + 0.2;
   }
   // ancre `fall` : pied de la lame d'eau la plus basse, dans la vasque (embruns) ; `fall.top` : haut de la chute
-  return { parts: P, spots: base.spots.filter((_, i) => i !== 2), center: [0, 0.06, 0], affords: ["drink", "bathe", "fish"], fall: [0, 0.08, -o.W * 0.32 + 0.12], fallTop: [0, lipY, lipZ - 0.05] };
+  return { parts: P, spots: base.spots.filter((_, i) => i !== 2), center: [0, 0.06, 0], affords: ["drink", "bathe", "fish"], fall: [0, 0.08, -o.W * 0.32 + 0.12], fallTop: [0, lipY, lipZ - 0.05], tanks: base.tanks, bank: base.bank };
 }
 
 export type WaterModel = Built & { label: string; kind: string; scale: number };
@@ -160,14 +176,92 @@ export function waterModel(p: Record<string, unknown>): WaterModel {
   const s = clamp(Number(p.scale ?? 1) || 1, 0.2, 5);
   if (s === 1) return { ...b, label: LABELS[kind], kind, scale: 1 };
   const S = (v: V3): V3 => [v[0] * s, v[1] * s, v[2] * s];
-  return { parts: transformParts(b.parts, [0, 0, 0, 1], [0, 0, 0], s), spots: b.spots.map((q) => ({ spot: S(q.spot), approach: S(q.approach) })), center: S(b.center), affords: b.affords, ...(b.fall ? { fall: S(b.fall) } : {}), ...(b.fallTop ? { fallTop: S(b.fallTop) } : {}), label: LABELS[kind], kind, scale: s };
+  const tanks = b.tanks?.map((t) => ({ ...t, hx: t.hx * s, hz: t.hz * s, depth: t.depth * s, top: t.top * s, ...(t.hole ? { hole: { ...t.hole, hx: t.hole.hx * s, hz: t.hole.hz * s } } : {}) }));
+  return { parts: transformParts(b.parts, [0, 0, 0, 1], [0, 0, 0], s), spots: b.spots.map((q) => ({ spot: S(q.spot), approach: S(q.approach) })), center: S(b.center), affords: b.affords, ...(b.fall ? { fall: S(b.fall) } : {}), ...(b.fallTop ? { fallTop: S(b.fallTop) } : {}), ...(tanks ? { tanks } : {}), ...(b.bank ? { bank: transformParts([b.bank], [0, 0, 0, 1], [0, 0, 0], s)[0] } : {}), label: LABELS[kind], kind, scale: s };
+}
+
+/**
+ * Maillage d'un fond (faces tournées vers l'intérieur, vues d'en haut à travers l'eau). Cuve droite : parois minces
+ * de `top` à −`depth`, fond plat (piscine : en pente vers le grand bain, `+x`) ; cuvette : anneaux du bord au centre,
+ * profil arrondi, contour légèrement ondulé comme la berge, lèvre qui déborde sous la terre pour fermer le joint.
+ */
+export function tankMesh(t: Tank): Mesh {
+  const m = new Mesh();
+  const W = ROLE[t.wall] ?? ROLE.stone, F = ROLE[t.floor] ?? W;
+  const th = 0.05;
+  if (t.shape === "bowl") {
+    const nA = 40, nR = 7;
+    const wob = (a: number) => (t.seed === undefined ? 1 : 1 + 0.06 * Math.sin(a * 3 + t.seed) + 0.04 * Math.sin(a * 5 + t.seed * 2));
+    const ring = (k: number, y: number, ny: number) => {
+      const base = m.vertexCount;
+      for (let i = 0; i <= nA; i++) {
+        const a = (i / nA) * Math.PI * 2, w = wob(a);
+        const x = Math.cos(a) * t.hx * w * k, z = Math.sin(a) * t.hz * w * k;
+        // normale vers l'intérieur et vers le haut (pente de la cuvette)
+        const sl = Math.sqrt(Math.max(0, 1 - ny * ny));
+        m.vertex([x, y, z], [-Math.cos(a) * sl, ny, -Math.sin(a) * sl], k > 0.85 ? W : F);
+      }
+      return base;
+    };
+    const rows: number[] = [];
+    // lèvre sous la berge, puis profil : y = −depth·(1 − k²)^0,6
+    // berge : anneau de terre qui sort du sol autour de l'eau, puis plonge sous la nappe
+    // lèvre sous le sol au-delà de l'ouverture (le joint ne laisse jamais voir le vide)
+    rows.push(ring(1.0 + 0.2 / Math.max(t.hx, t.hz), -0.06, 0.97));
+    for (let j = 0; j <= nR; j++) {
+      const k = 1 - j / nR;
+      const y = -t.depth * Math.pow(1 - k * k, 0.6);
+      const slope = k > 0.999 ? 1 : (t.depth * 0.6 * Math.pow(1 - k * k, -0.4) * 2 * k) / Math.max(t.hx, t.hz);
+      rows.push(ring(Math.max(k, 0.0), j === 0 ? -0.03 : y, 1 / Math.sqrt(1 + slope * slope)));
+    }
+    for (let r = 0; r < rows.length - 1; r++)
+      for (let i = 0; i < nA; i++) {
+        const a = rows[r] + i, b = rows[r + 1] + i;
+        m.quad(a, a + 1, b + 1, b);
+      }
+    return m;
+  }
+  const y0 = -t.depth, h = (t.top - y0) / 2, yc = (t.top + y0) / 2;
+  if (t.shape === "round") {
+    const n = clamp(Math.round((Math.PI * 2 * t.hx) / 0.35), 16, 48);
+    for (let i = 0; i < n; i++) {
+      const a = ((i + 0.5) / n) * Math.PI * 2;
+      const half = (Math.PI * (t.hx + th)) / n + 0.005;
+      if (t.depth > 0) m.append(box(th, h, half, W), m4Compose([Math.cos(a) * (t.hx + th), yc, Math.sin(a) * (t.hx + th)], [0, Math.sin(-a / 2), 0, Math.cos(-a / 2)]));
+    }
+    const seg = n;
+    const c = m.vertex([0, y0, 0], [0, 1, 0], F);
+    const ring: number[] = [];
+    for (let i = 0; i <= seg; i++) {
+      const a = (i / seg) * Math.PI * 2;
+      ring.push(m.vertex([Math.cos(a) * (t.hx + th), y0, Math.sin(a) * (t.hx + th)], [0, 1, 0], F));
+    }
+    for (let i = 0; i < seg; i++) m.tri(c, ring[i + 1], ring[i]);
+    return m;
+  }
+  if (t.depth > 0)
+    for (const s of [-1, 1]) {
+      m.append(box(th, h, t.hz + th * 2, W), m4Compose([s * (t.hx + th), yc, 0]));
+      m.append(box(t.hx, h, th, W), m4Compose([0, yc, s * (t.hz + th)]));
+    }
+  // fond : petit bain (−x) à 55 % de la profondeur, grand bain (+x) ; plat pour un bassin posé au sol
+  const yA = t.depth > 0 ? y0 * 0.55 : y0, yB = y0;
+  const nx = 4;
+  const rows: number[][] = [];
+  for (let i = 0; i <= nx; i++) {
+    const u = i / nx;
+    const y = mix(yA, yB, clamp((u - 0.35) / 0.4, 0, 1));
+    rows.push([m.vertex([mix(-t.hx, t.hx, u), y, -t.hz], [0, 1, 0], F), m.vertex([mix(-t.hx, t.hx, u), y, t.hz], [0, 1, 0], F)]);
+  }
+  for (let i = 0; i < nx; i++) m.quad(rows[i][0], rows[i][1], rows[i + 1][1], rows[i + 1][0]);
+  return m;
 }
 
 export const water = defineGenerator({
   id: "water",
   label: "Point d'eau (mare, bassin, piscine, cascade)",
   doc:
-    "Points d'eau sur la grammaire de pièces (même modèle en 3D et en vectoriel) : pond (mare naturelle, berge et pierres), basin (bassin maçonné à margelle, `shape` round ou rect), pool (piscine affleurante, margelle de dalles, frise, échelle), cascade (rochers en gradins, lames d'eau, écume, vasque au pied). `length` × `width` (m), `level` (eau sous le haut de la margelle, m), `rimHeight` (hauteur de la margelle), `rim` (largeur de la margelle), `height` (cascade). L'eau est posée sur le sol (le terrain n'est pas creusé). Ancres `spot.0`…`spot.3` (bord de l'eau, à son niveau : avant, droite, arrière, gauche ; `spot` = `spot.0`) et `approach.N` (au sol devant) : `{target: \"<id>.spot.1\", action: \"drink\"}` y fait boire un animal ou un personnage ; `center` ; cascade : `fall` (pied de la chute, embruns) et `fall.top`. `extra.affords` : drink, bathe, swim, fish, dive.",
+    "Points d'eau sur la grammaire de pièces (même modèle en 3D et en vectoriel) : pond (mare naturelle, berge et pierres), basin (bassin maçonné à margelle, `shape` round ou rect), pool (piscine affleurante, margelle de dalles, frise, échelle), cascade (rochers en gradins, lames d'eau, écume, vasque au pied). `length` × `width` (m), `level` (eau sous le haut de la margelle, m), `rimHeight` (hauteur de la margelle), `rim` (largeur de la margelle), `height` (cascade). L'eau a un fond relié à ses bords (3D) : cuve de piscine sous le sol (ouvert au-dessus), cuvette de mare qui remonte jusqu'à la berge, dalle du bassin entre ses murs ; piscine limpide, mare trouble. Ancres `spot.0`…`spot.3` (bord de l'eau, à son niveau : avant, droite, arrière, gauche ; `spot` = `spot.0`) et `approach.N` (au sol devant) : `{target: \"<id>.spot.1\", action: \"drink\"}` y fait boire un animal ou un personnage ; `center` ; cascade : `fall` (pied de la chute, embruns) et `fall.top`. `extra.affords` : drink, bathe, swim, fish, dive.",
   tags: ["eau", "jardin", "parc", "ferme", "animal", "piscine", "fontaine", "nature"],
   schema: {
     kind: { type: "enum", default: "pond", options: WATER_KINDS, doc: "Point d'eau" },
@@ -187,6 +281,11 @@ export const water = defineGenerator({
   build(p) {
     const m = waterModel(p);
     const mesh = partsToMesh(m.parts, 0.85);
+    // limpidité de l'eau portée par l'AO de ses sommets (lue par le shader d'eau) : piscine claire, mare trouble
+    const clear = m.kind === "pool" ? 1 : m.kind === "basin" ? 0.75 : 0.3;
+    for (let v = 0; v < mesh.vertexCount; v++) if (mesh.role[v] === ROLE.water) mesh.ao[v] = clear;
+    for (const t of m.tanks ?? []) mesh.append(tankMesh(t));
+    const holes = (m.tanks ?? []).filter((t) => t.hole).map((t) => [t.hole!.round ? (t.hole!.seed !== undefined ? 2 : 1) : 0, t.hole!.hx, t.hole!.hz, t.hole!.seed ?? 0]);
     const bb = partsBounds(m.parts);
     const hx = Math.max(Math.abs(bb.min[0]), Math.abs(bb.max[0]), 0.1);
     const hz = Math.max(Math.abs(bb.min[2]), Math.abs(bb.max[2]), 0.1);
@@ -202,6 +301,6 @@ export const water = defineGenerator({
       anchors.spot = anchors["spot.0"];
       anchors.approach = anchors["approach.0"];
     }
-    return { generator: "water", mesh, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: Math.max(0.05, bb.max[1]), extra: { affords: m.affords, label: m.label, kind: m.kind } };
+    return { generator: "water", mesh, anchors, footprint: { hx, hz, r: Math.hypot(hx, hz) }, height: Math.max(0.05, bb.max[1]), extra: { affords: m.affords, label: m.label, kind: m.kind, ...(holes.length ? { holes } : {}) } };
   },
 });

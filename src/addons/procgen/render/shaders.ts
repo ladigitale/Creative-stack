@@ -60,6 +60,12 @@ uniform float uWind;
 uniform vec2 uWindDir;
 uniform mat4 uShadowMatrix;
 uniform mat4 uShadowMatrix2;
+/** Eau (passe d'eau) : hauteur de houle (m), longueur d'onde dominante (m), type (1 = mer, 0 = pièce d'eau). */
+uniform float uWaveAmp;
+uniform float uWaveLen;
+uniform float uWaterKind;
+uniform float uPass;
+out float vWave;
 flat out float vRole;
 flat out float vObj;
 out float vAO;
@@ -159,6 +165,33 @@ void main() {
     wp.y += sin(uTime * 2.3 + ph) * aFlex * uWind * 0.01;
   }
   #endif
+  vWave = 0.0;
+  // eau : houle de Gerstner (5 trains d'ondes, crêtes pointues, creux larges), amortie sur les hauts-fonds (la
+  // profondeur relative est dans aAO pour la mer) ; la normale suit la surface déformée
+  if (uPass > 0.5 && aRole > 12.5 && aRole < 13.5 && uWaveAmp > 0.0 && n.y > 0.5) {
+    float damp = uWaterKind > 0.5 ? smoothstep(0.0, 0.3, aAO) : 1.0;
+    vec3 d = vec3(0.0), nn = vec3(0.0, 1.0, 0.0);
+    for (int i = 0; i < 5; i++) {
+      float fi = float(i);
+      float ang = 0.45 + fi * 1.37 + sin(fi * 2.1) * 0.4;
+      vec2 D = vec2(cos(ang), sin(ang));
+      float L = uWaveLen * (1.0 - fi * 0.15) * (fi > 2.5 ? 0.45 : 1.0);
+      float k = 6.2831 / L;
+      float A = uWaveAmp * damp * (1.0 - fi * 0.16) * (fi > 2.5 ? 0.35 : 1.0);
+      float Q = 0.55 / (k * A * 5.0 + 1e-4);
+      Q = min(Q, 1.0);
+      float c = sqrt(9.81 / k);
+      float f = k * (dot(D, wp.xz) - c * uTime) + fi * 1.7;
+      float cf = cos(f), sf = sin(f);
+      d.xz += Q * A * D * cf;
+      d.y += A * sf;
+      nn.xz -= D * k * A * cf;
+      nn.y -= Q * k * A * sf;
+    }
+    wp.xyz += d;
+    n = normalize(nn);
+    vWave = clamp(d.y / max(uWaveAmp * 1.6, 1e-3) * 0.5 + 0.5, 0.0, 1.0);
+  }
   vPosW = wp.xyz;
   // repère des motifs des finis texturés : pose de repos (le motif suit le corps), décalé par instance
   vPosL = position;
@@ -205,6 +238,7 @@ in vec3 vNormL;
 in float vViewZ;
 in vec4 vShadow;
 in vec4 vShadow2;
+in float vWave;
 flat in float vVar;
 in float vBlend;
 #ifdef BLADE
@@ -246,6 +280,14 @@ uniform vec2 uShadowTexel;
 uniform float uShadowKernel;
 uniform float uShadowBiasW;
 uniform sampler2D uShadowMap2;
+/** Passe d'eau : couleur et données (normale, profondeur / far) de la scène opaque, taille de la cible. */
+uniform sampler2D tSceneColor;
+uniform sampler2D tSceneData;
+uniform vec2 uViewport;
+uniform float uPass;
+uniform float uWaterSplit;
+uniform float uWaterKind;
+uniform float uWaveAmp;
 uniform float uShadowKernel2;
 uniform float uShadowBiasW2;
 uniform float uShadowOn2;
@@ -337,6 +379,22 @@ float caustic(vec2 p, float t) {
   return 1.0 - smoothstep(0.0, 0.32, sqrt(d2) - sqrt(d1));
 }
 
+// ouvertures du sol au-dessus des fonds d'eau : A = (x, z, hx, hz), B = (cos lacet, sin lacet, forme, graine)
+uniform vec4 uHoleA[16];
+uniform vec4 uHoleB[16];
+uniform int uHoleN;
+bool inHole(vec2 p) {
+  for (int i = 0; i < 16; i++) {
+    if (i >= uHoleN) break;
+    vec4 a = uHoleA[i], b = uHoleB[i];
+    vec2 d = p - a.xy;
+    vec2 l = vec2(d.x * b.x - d.y * b.y, d.x * b.y + d.y * b.x) / a.zw;
+    // rond (1) ; ondulé comme la berge d'une mare (2, graine en w)
+    float w = b.z > 1.5 ? 1.0 + 0.06 * sin(atan(l.y, l.x) * 3.0 + b.w) + 0.04 * sin(atan(l.y, l.x) * 5.0 + b.w * 2.0) : 1.0;
+    if (b.z > 0.5 ? dot(l, l) < w * w : max(abs(l.x), abs(l.y)) < 1.0) return true;
+  }
+  return false;
+}
 float roleTexture(int role, vec3 p, vec3 n) {
   vec3 an = abs(n);
   float fw = length(fwidth(p));
@@ -422,6 +480,10 @@ float roleTexture(int role, vec3 p, vec3 n) {
 
 void main() {
   int role = int(vRole + 0.5);
+  // deux passes : l'eau est dessinée après la scène opaque, dont elle lit la couleur et la profondeur
+  if (uWaterSplit > 0.5 && (uPass > 0.5) != (role == 13)) discard;
+  // sol (objet 0, hors mer) ouvert au-dessus d'une piscine, d'une mare : on voit leur fond
+  if (uHoleN > 0 && vObj < 0.5 && role != 13 && inHole(vPosW.xz)) discard;
   vec3 base = uRoles[role];
   float texV = 0.0;
   #ifdef BLADE
@@ -805,20 +867,62 @@ void main() {
   else if (role == 15) emiss = uNight * uLamps * step(0.45, hash13(floor(vPosW * 1.7) + vObj)) * 1.1;
   if (role == 30) lit = base * (1.2 + 0.25 * sin(uTime * 13.0 + vPosW.x * 9.0));
   lit = mix(lit, base * (1.0 + emiss), clamp(emiss, 0.0, 1.0));
-  // eau : Fresnel vers le ciel, reflets qui défilent
+  // eau : surface transparente. Fond vu à travers (réfraction par la normale des vagues), lumière absorbée selon
+  // l'épaisseur d'eau traversée (rouge d'abord : turquoise sur les hauts-fonds, bleu profond au large), caustiques
+  // sur le fond, reflet du ciel selon l'angle (Fresnel), reflet du soleil, écume au bord et sur les crêtes
   if (role == 13) {
-    lit *= mix(1.3, 0.55, vAO);
-    float foam = 1.0 - smoothstep(0.0, 0.06 + 0.03 * sin(uTime * 1.3 + vPosW.x), vAO);
-    lit = mix(lit, uSun * 0.95, foam * 0.7);
-    float fr = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 4.0);
-    float ripple = vnoise(vec3(vPosW.x * 1.3 + uTime * 0.3, uTime * 0.2, vPosW.z * 1.3)) + vnoise(vec3(vPosW.x * 3.1 - uTime * 0.4, 0.0, vPosW.z * 3.7));
-    lit = mix(lit, uFogColor, fr * 0.6) + uSun * smoothstep(1.5, 1.75, ripple) * 0.07;
-    // reflets mouvants au fond (caustiques) : réseau de lignes claires qui ondule
-    // réseau cellulaire qui dérive (deux couches à des échelles différentes), légèrement déformé ; effacé au loin
-    vec2 cw = vPosW.xz + vec2(vnoise(vec3(vPosW.xz * 0.7, uTime * 0.25)), vnoise(vec3(vPosW.xz * 0.7 + 7.0, uTime * 0.25))) * 0.6;
-    float cau = caustic(cw * 1.6, uTime * 0.9) * 0.6 + caustic(cw * 2.9 + 11.0, uTime * 1.2) * 0.4;
-    cau *= octK(2.9, length(fwidth(vPosW)));
-    lit += uSun * cau * cau * 0.1 * (1.0 - fr);
+    vec3 Vd = normalize(vPosW - cameraPosition);
+    vec3 Nw = N;
+    // rides fines par-dessus la houle (deux couches qui dérivent), plus fortes sur la mer
+    float rk = uWaterKind > 0.5 ? 0.22 : 0.12;
+    vec2 rp = vPosW.xz;
+    float r0 = vnoise(vec3(rp * 3.1 + uTime * 0.35, uTime * 0.2)), r1 = vnoise(vec3(rp * 7.3 - uTime * 0.5, 3.0 + uTime * 0.3));
+    vec2 rg = vec2(vnoise(vec3(rp * 3.1 + vec2(0.07, 0.0) + uTime * 0.35, uTime * 0.2)) - r0, vnoise(vec3(rp * 3.1 + vec2(0.0, 0.07) + uTime * 0.35, uTime * 0.2)) - r0) / 0.07 * 0.05
+      + vec2(vnoise(vec3(rp * 7.3 + vec2(0.05, 0.0) - uTime * 0.5, 3.0 + uTime * 0.3)) - r1, vnoise(vec3(rp * 7.3 + vec2(0.0, 0.05) - uTime * 0.5, 3.0 + uTime * 0.3)) - r1) / 0.05 * 0.025;
+    float fwW = length(fwidth(vPosW));
+    rg *= octK(7.3, fwW) * rk * 4.0;
+    if (Nw.y > 0.3) Nw = normalize(Nw - vec3(rg.x, 0.0, rg.y));
+    // sans passe d'eau (monde infini, rendu de secours) : pas de scène à lire, eau opaque teintée par la profondeur
+    bool see = uPass > 0.5;
+    vec2 suv = gl_FragCoord.xy / uViewport;
+    vec4 sd0 = see ? texture(tSceneData, suv) : vec4(0.0, 0.0, (vViewZ + 2.0 + 6.0 * vAO) / uFar, 0.0);
+    float dS0 = sd0.z > 0.0 ? sd0.z * uFar : 1e4;
+    float th0 = max(0.0, dS0 - vViewZ);
+    // réfraction : décalage écran selon la pente de la surface, borné par l'épaisseur ; refusé s'il tombe sur un objet
+    // placé devant l'eau
+    vec2 ruv = suv + (mat3(viewMatrix) * Nw).xy * vec2(-1.0, 1.0) * 0.03 * clamp(th0, 0.0, 1.2);
+    vec4 sd = see ? texture(tSceneData, ruv) : sd0;
+    float dS = sd.z > 0.0 ? sd.z * uFar : 1e4;
+    if (dS < vViewZ) { ruv = suv; sd = sd0; dS = dS0; }
+    float thick = max(0.0, dS - vViewZ);
+    vec3 bottom = see ? texture(tSceneColor, ruv).rgb : base * amb * 0.5;
+    // point du fond vu, profondeur verticale sous la surface
+    vec3 bp = vPosW + Vd * min(thick, 60.0);
+    float below = max(0.0, vPosW.y - bp.y);
+    // caustiques projetées sur le fond, plus nettes près de la surface, effacées en profondeur et au loin
+    // (parois verticales : la hauteur entre dans les coordonnées, sinon le motif s'étire en traînées)
+    vec2 cp = bp.xz + vec2(bp.y * 1.3, -bp.y * 0.9);
+    float cau = caustic(cp * 1.5, uTime * 0.9) * 0.6 + caustic(cp * 2.7 + 11.0, uTime * 1.2) * 0.4;
+    // eau posée : trouble (mare) ou limpide (piscine) selon l'AO de ses sommets ; la mer garde l'AO pour sa profondeur
+    float murk = uWaterKind > 0.5 ? 0.0 : clamp(1.0 - vAO, 0.0, 1.0);
+    bottom *= 1.0 + cau * cau * 0.9 * exp(-below * 0.7) * octK(2.7, fwW) * (sh * 0.7 + 0.3) * (1.0 - murk * 0.8);
+    // absorption (m⁻¹, par canal) : l'eau d'une piscine reste claire, la mer verdit puis bleuit, la mare brunit
+    vec3 absorb = uWaterKind > 0.5 ? vec3(0.42, 0.13, 0.085) : mix(vec3(0.3, 0.07, 0.045), vec3(1.7, 1.05, 2.0), murk);
+    vec3 T = exp(-absorb * thick);
+    vec3 deep = mix(base, vec3(0.24, 0.3, 0.15), murk * 0.75) * (amb * 0.62 + uSun * 0.35 * max(ndl, 0.0)) * 0.9;
+    vec3 body = bottom * T + deep * (1.0 - T);
+    // reflet : ciel (horizon → zénith) ; reflet du soleil net, étalé par les rides
+    vec3 R = reflect(Vd, Nw);
+    vec3 sky = mix(uFogColor, uAmbSky * 1.15, smoothstep(-0.05, 0.6, R.y));
+    float F = 0.02 + 0.98 * pow(1.0 - clamp(dot(Nw, -Vd), 0.0, 1.0), 5.0);
+    vec3 col = mix(body, sky, F);
+    col += uSun * pow(max(dot(R, uSunDir), 0.0), uWaterKind > 0.5 ? 220.0 : 500.0) * (uWaterKind > 0.5 ? 2.2 : 3.0) * mix(1.0, sh, uShadowStrength);
+    // écume : liseré au contact du bord (épaisseur verticale faible), bouillonnant, et crêtes de la houle
+    float edge = 1.0 - smoothstep(0.0, 0.12 + 0.18 * vnoise(vec3(vPosW.xz * 2.0, uTime * 0.4)), below);
+    float crest = smoothstep(0.8, 0.96, vWave) * smoothstep(0.42, 0.75, vnoise(vec3(vPosW.xz * 3.4, uTime * 0.6))) * (0.6 + 0.4 * vnoise(vec3(vPosW.xz * 11.0, uTime))) * uWaterKind;
+    float foam = clamp(edge * (0.55 + 0.45 * vnoise(vec3(vPosW.xz * 6.0, uTime * 1.1))) * (uWaterKind > 0.5 ? 1.0 : 0.35 * (1.0 - murk)) + crest * 0.8, 0.0, 1.0);
+    col = mix(col, (amb * 0.62 + uSun * mix(1.0, sh, uShadowStrength)) * 0.95, foam * 0.85);
+    lit = col;
     // nageurs : rides concentriques qui s'éloignent, écume autour du corps (plus forte quand on nage vite)
     for (int i = 0; i < 8; i++) {
       if (i >= uSwimN) break;
@@ -865,8 +969,32 @@ void main() {
 
 export const DEPTH_FRAGMENT = /* glsl */ `
 precision highp float;
+flat in float vRole;
+flat in float vObj;
+in vec3 vPosW;
 layout(location = 0) out vec4 outColor;
-void main() { outColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0); }
+// ouvertures du sol au-dessus des fonds d'eau : A = (x, z, hx, hz), B = (cos lacet, sin lacet, forme, graine)
+uniform vec4 uHoleA[16];
+uniform vec4 uHoleB[16];
+uniform int uHoleN;
+bool inHole(vec2 p) {
+  for (int i = 0; i < 16; i++) {
+    if (i >= uHoleN) break;
+    vec4 a = uHoleA[i], b = uHoleB[i];
+    vec2 d = p - a.xy;
+    vec2 l = vec2(d.x * b.x - d.y * b.y, d.x * b.y + d.y * b.x) / a.zw;
+    // rond (1) ; ondulé comme la berge d'une mare (2, graine en w)
+    float w = b.z > 1.5 ? 1.0 + 0.06 * sin(atan(l.y, l.x) * 3.0 + b.w) + 0.04 * sin(atan(l.y, l.x) * 5.0 + b.w * 2.0) : 1.0;
+    if (b.z > 0.5 ? dot(l, l) < w * w : max(abs(l.x), abs(l.y)) < 1.0) return true;
+  }
+  return false;
+}
+// l'eau, transparente, ne porte pas d'ombre (son fond reste éclairé) ; le sol ouvert non plus
+void main() {
+  if (vRole > 12.5 && vRole < 13.5) discard;
+  if (uHoleN > 0 && vObj < 0.5 && inHole(vPosW.xz)) discard;
+  outColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+}
 `;
 
 export const POST_VERTEX = /* glsl */ `

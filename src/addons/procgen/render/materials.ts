@@ -49,6 +49,19 @@ export function sharedUniforms(): Shared {
     uShadowKernel2: { value: 1 / 2048 },
     uShadowBiasW2: { value: 0.0005 },
     uShadowOn2: { value: 0 },
+    /** Passe d'eau (1) ou opaque (0) ; scène opaque copiée (couleur, données) ; houle de l'eau en cours de dessin. */
+    uPass: { value: 0 },
+    tSceneColor: { value: null },
+    tSceneData: { value: null },
+    uViewport: { value: new THREE.Vector2(1, 1) },
+    uWaveAmp: { value: 0 },
+    uWaveLen: { value: 8 },
+    uWaterKind: { value: 0 },
+    /** 1 : la vue a une passe d'eau (l'eau est écartée de la passe opaque) ; 0 : eau opaque de secours. */
+    uWaterSplit: { value: 0 },
+    uHoleA: { value: Array.from({ length: 16 }, () => new THREE.Vector4(0, 0, 1, 1)) },
+    uHoleB: { value: Array.from({ length: 16 }, () => new THREE.Vector4(1, 0, 0, 0)) },
+    uHoleN: { value: 0 },
     uGroundY: { value: 0 },
     uWaterY: { value: -1000 },
     // nageurs (x, z, vitesse, phase) : rides et écume sur l'eau autour d'eux

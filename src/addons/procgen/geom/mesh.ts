@@ -47,6 +47,34 @@ export class Mesh {
     this.idx.push(a, b, c, a, c, d);
   }
 
+  /**
+   * Sort les triangles du rôle `role` dans `out` (sommets recopiés, objet compris) ; ils ne sont plus dessinés ici.
+   * Les sommets restent en place : les plages de sommets des parties mobiles ne bougent pas. Renvoie leur nombre.
+   */
+  extractRole(role: number, out: Mesh): number {
+    const keep: number[] = [];
+    const map = new Map<number, number>();
+    let n = 0;
+    const at = (v: number) => {
+      let k = map.get(v);
+      if (k === undefined) {
+        k = out.vertex(this.getPos(v), this.getNrm(v), role, this.ao[v], this.flex[v]);
+        out.obj[k] = this.obj[v];
+        map.set(v, k);
+      }
+      return k;
+    };
+    for (let t = 0; t < this.idx.length; t += 3) {
+      const a = this.idx[t], b = this.idx[t + 1], c = this.idx[t + 2];
+      if (this.role[a] === role && this.role[b] === role && this.role[c] === role) {
+        out.tri(at(a), at(b), at(c));
+        n++;
+      } else keep.push(a, b, c);
+    }
+    this.idx = keep;
+    return n;
+  }
+
   getPos(i: number): V3 {
     return [this.pos[i * 3], this.pos[i * 3 + 1], this.pos[i * 3 + 2]];
   }

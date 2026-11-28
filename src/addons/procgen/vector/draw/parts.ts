@@ -229,7 +229,8 @@ export const drawStructure: ObjectDrawer = (kit, p, ctx) => {
 };
 
 export const drawWater: ObjectDrawer = (kit, p) => {
-  drawParts(kit, waterModel(p).parts, { width: 0.5 });
+  const m = waterModel(p);
+  drawParts(kit, m.bank ? [m.bank, ...m.parts] : m.parts, { width: 0.5 });
 };
 
 /** Textiles : mât, poteaux, tringle et tissu figé dans son drapé de repos (pas de simulation en vectoriel). */
