@@ -28,6 +28,9 @@ Générateur procédural **3D** dont la 2D n'est qu'une manière de regarder : u
 | `exportSvg` | Compteur : chaque changement publie le SVG de la vue dans `state-out.svg` (mode vectoriel) |
 | `football` | Match de football jouable (rendu 3D, voir Football) : `true` ou `{players: 5\|7\|11, minutes, level, human: "home"\|"away"\|"none", teams: [{name, shirt, shorts, socks, keeper, pattern}], cinematics, hud, keyboard, touch, sound, seed, input}` ; prioritaire sur `recipe` et `scene` |
 | `race` | Course automobile jouable (rendu 3D, voir Course) : `true` ou `{laps, opponents 0…7, level 0…1, human, car, paint, drivers: [{name, paint}], length (m), width, scenery: campagne\|foret\|desert\|neige\|nuit, camera: chase\|far\|hood\|top\|free, countdown, hud, keyboard, touch, sound, seed, restart, input}` ; prioritaire sur `recipe` et `scene` (pas en même temps que `football`) |
+| `player` | Personnage jouable (rendu 3D, voir Personnage jouable) : `{actor, plane: free\|x\|z, lane, camera: side\|third\|first\|free, walk, run, jump, gravity, air, jumps, coyote, buffer, step, killY, lives, collect, goal, enemies, patrol, fire, rate, range, reach, hud, keyboard, touch, restart, input}` ; s'ajoute à n'importe quelle scène (recette, `scene`, `platformer`) |
+| `platformer` | Niveau de plateformes généré (voir Plateformes) : `true` ou `{seed, length, theme: prairie\|foret\|desert\|neige\|nuit, coins, enemies, lives, restart}` ; `player` en complète les réglages |
+| `fight` | Combat jouable (rendu 3D, voir Combat) : `true` ou `{arena: dojo\|rue\|plage\|ring\|foret\|nuit, fighters: [{actor, name, human, hp, power, speed, defense, weapon: none\|sword, params}], humans 0\|1\|2, rounds, time, level, camera: side\|free, hud, keyboard, touch, seed, restart, input}` ; sans `arena` et avec `recipe` : les deux acteurs `fighters[i].actor` de la recette |
 | `recipe` | Recette complète (prioritaire sur `scene`, voir plus bas) |
 | `seed` | Graine. Même graine = même monde ; chaque objet a sa sous-graine, donc modifier un objet ne bouge pas les autres |
 | `params` | Paramètres exposés par la recette (ex. `village` : `maisons`, `habitants`) |
@@ -157,6 +160,57 @@ Une course complète, jouable, sur un circuit fermé généré par la graine (re
 - **Son** (généré en Web Audio ; `sound: false` pour le couper) : moteur de la voiture suivie (régime qui monte et retombe à chaque rapport), crissement des pneus quand l'adhérence lâche, roulement hors piste, bips du départ, chocs.
 - **Habillage** (`hud: false` pour le retirer) : position, tour, chrono et meilleur tour, vitesse, minicarte du circuit avec les voitures, compte à rebours, bandeaux (Partez !, Dernier tour !, Meilleur tour, Arrivée), classement final.
 - **Sorties** : `state-out.race` `{phase: countdown|race|finish|done, countdown, time, laps, lap, position, cars, speed (km/h), last, best, player, offTrack, length, standings: [{car, name, position, time, best, laps, human}]}` ; événements `countdown {n}`, `start {laps, cars}`, `lap {car, name, lap, time, best, human}`, `position {car, position, was}` (joueur), `finish {car, name, position, time, human}`, `raceEnd {results}`, `bump {car, hit, speed}`, `contact {a, b, speed}`, `respawn {car, reason}`.
+
+## Personnage jouable
+
+`player` mène un acteur de la scène comme dans un jeu d'action, image par image (rendu 3D) :
+
+```json
+{ "recipe": { "…": "…", "actors": { "heros": { "at": [0, 4] } } },
+  "player": { "actor": "heros", "camera": "third", "collect": ["pieces"], "goal": "porte" } }
+```
+
+- **Mouvement** : course avec accélération et inertie (`run` m/s, `walk` en tenant Maj), saut à hauteur variable (`jump` m : on relâche, il retombe plus tôt), tolérance au bord (`coyote` s), saut mémorisé juste avant d'atterrir (`buffer` s), contrôle en l'air réduit (`air` 0 … 1), double ou triple saut (`jumps`), chute plus rapide que la montée (`gravity`), marches franchies sans sauter (`step` m), glissement le long des murs, atterrissage sur le dessus réel des objets (caisses, rochers, assemblages, ouvrages), pieds de 0,2 m (on ne tombe pas dans une fente). Sous `killY`, on revient au dernier point sûr et on perd une vie.
+- **Plan** : `free` (3D), `x` (2,5D : on avance le long de x, z bloqué sur `lane`), `z`.
+- **Caméras** : `side` (profil 2,5D qui suit avec un peu d'avance ; défaut des plans `x` et `z`), `third` (troisième personne orbitale : souris glissée, stick droit, doigt, touches J / L ; défaut en 3D), `first` (première personne : clic pour verrouiller la souris, stick droit, doigt ; le personnage est masqué, viseur), `free` (la vue reste à l'artefact). En `third` et `first`, le déplacement est relatif à la caméra.
+- **Jeu** : `collect` (ids, calques, générateurs, ou préfixes terminés par `*`) : ramassés à `reach` m (masqués, événement `collect`) ; `goal` (id ou calque) : arrivée ; `enemies` (ids d'acteurs) : ils patrouillent sur `patrol` m (demi-tour au bord d'un vide ou contre un mur), écrasés si l'on retombe dessus (`stomp`, rebond), sinon ils blessent (`hurt`, recul) ; `lives` (3) : à 0, `gameover`. Tir (`fire`, actif d'office en première personne ; `rate` coups par seconde, `range` m) : rayon au centre de l'écran, événement `shot {objectId, target, x, y, z, dist}` ; E (ou X manette) : `use {objectId, target}` sur ce qui est visé.
+- **Commandes** : clavier (flèches ou ZQSD / WASD, Espace saut, Maj marche, F ou clic tir, E utiliser), manette (stick gauche, A saut, stick droit regard, RT / RB tir, X utiliser), écran tactile (stick virtuel à gauche, SAUT, TIR). Entrée externe : `player.input = {x, z (-1…1, haut = z négatif), run, jump, fire, use, look: [dyaw, dpitch] (°/s)}` ; `keyboard: false` / `touch: false` coupent les commandes intégrées.
+- **Habillage** (`hud: false`) : vies, compteur de ramassage, viseur, bandeaux.
+- **Sorties** : `state-out.player` `{actor, x, y, z, vx, vy, vz, yaw, grounded, on, action, collected, lives, goal, over, look}` ; événements `jump {n}`, `land {speed, height, on}`, `fall`, `respawn`, `collect {objectId, layer, count}`, `goal`, `stomp {enemy}`, `hurt {reason, lives}`, `gameover`, `shot`, `use`.
+
+## Plateformes
+
+`platformer` génère un niveau de plateformes en 2,5D et le personnage qui va avec :
+
+```json
+{ "platformer": { "seed": 4, "length": 140, "theme": "prairie", "enemies": 4, "lives": 3 } }
+```
+
+Dalles au-dessus d'un vide (eau, ou sable du désert), trous à sauter, marches de caisses, plateformes flottantes en pierre, pièces sur les sauts (`coins: false` pour les retirer), animaux qui patrouillent (`enemies`), mât d'arrivée ; chaque saut demandé reste faisable avec les réglages par défaut. Le héros est l'acteur `heros`, les ennemis `ennemi0`, `ennemi1`…, les pièces `piece0`, `piece1`…, l'arrivée `arrivee`. Une clé `player` à côté en change les réglages (saut, double saut, caméra, vies…).
+
+## Combat
+
+Un jeu de baston en 2,5D, dans une arène générée ou entre deux acteurs de n'importe quelle recette :
+
+```json
+{ "fight": { "arena": "dojo", "rounds": 3, "time": 60, "level": 0.6,
+  "fighters": [{ "name": "Kenji" }, { "name": "Rosa", "weapon": "sword", "params": { "archetype": "cartoon" } }] } }
+```
+
+- **Coups** calés sur les gestes des personnages : poing (J / X) en enchaînement direct, direct arrière, crochet, uppercut qui met au sol (on rappuie pendant le coup) ; pied (K / C) : direct de face puis circulaire qui met au sol, latéral en avançant (longue portée, gros recul) ; avec `weapon: "sword"`, les poings deviennent des coups d'épée (taille, revers, balayage, estoc). Garde (L / V / bas, ou reculer face à une attaque) : dégâts réduits à 12 %. Saut (haut) : passe au-dessus des coups au milieu. Recul, sonnage, mise au sol puis relevé, combos comptés.
+- **Combattants** : `hp`, `power`, `speed`, `defense`, `weapon`, `name`, apparence `params` (arène) ; `humans` : 0 (machine contre machine), 1 (défaut), 2 (deux joueurs sur un clavier : joueur 1 WASD + F poing, G pied, H garde ; joueur 2 flèches + K poing, L pied, M garde ; une manette par joueur : X poing, Y/B pied, LB/LT garde, A saut). `level` (0 … 1) règle les réflexes et l'agressivité de la machine.
+- **Manches** : au meilleur de `rounds`, chrono `time` s (0 : sans), K.O. au ralenti, à la fin du temps la plus grande part de vie gagne.
+- **Arènes** (`arena`) : `dojo`, `rue`, `plage`, `ring` (cordes, tribune), `foret`, `nuit`. Sans `arena` mais avec `recipe`, le combat se joue entre `fighters[0].actor` et `fighters[1].actor`, sur l'axe qui les relie au départ.
+- **Commandes externes** : `fight.input = {p1: {x, jump, guard, light, heavy}, p2: …}` ; tactile : ◀ ▶ ▲, POING, PIED, GARDE.
+- **Sorties** : `state-out.fight` `{phase: intro|fight|ko|roundEnd|over, round, rounds, clock, winner, fighters: [{name, hp, max, wins, human, action, move, combo, down, x}]}` ; événements `round`, `fight`, `hit {attacker, defender, attackerId, defenderId, move, damage, hp, blocked, combo}`, `ko`, `timeout`, `matchEnd {winner, name, score}`.
+
+## Combiner les modes
+
+Les modes de jeu se composent dans un même artefact :
+
+- **En alternance** : le réducteur change de clé (`platformer` → `fight` → `race` → `recipe`…) ; la scène est recomposée et le mode suivant démarre (un compteur `restart` relance le même).
+- **Sur la même scène** : `player` s'ajoute à toute recette, scène de bibliothèque ou niveau généré ; `fight` sans `arena` fait se battre deux acteurs d'une recette (une rencontre au détour d'une exploration en `player`) ; la conduite `drive` reste disponible à côté.
+- Les sorties (`state-out.player`, `race`, `fight`, `football`) et les événements servent au réducteur pour enchaîner : score cumulé, déblocages, dialogues, changement de mode à l'arrivée (`goal`, `finish`, `matchEnd`).
 
 ## Édition au doigt
 
