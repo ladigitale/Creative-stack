@@ -64,7 +64,7 @@ import { FightDirector } from "./fight";
 import type { FightSpec } from "../scene/fight";
 import { CtrlDirector, type CtrlExtra, type Hit as AimHit } from "./controller";
 import type { CtrlSpec } from "../scene/controller";
-import type { RaceSpec } from "../scene/race";
+import { type RaceSpec, trackFromPoints } from "../scene/race";
 
 export type ActorIntent = { /** Aliment, boisson tenu (`"pizza:4"`) pendant eat / drink. */ food?: string; x?: number; z?: number; target?: string; vx?: number; vz?: number; action?: string; speed?: number; run?: boolean; facing?: number; look?: string; mood?: string; /** Coup de pied (cible ballon) : vitesse donnée (m/s) et part verticale. */ power?: number; loft?: number; /** Durée de l'action (s) : `actionEnd` puis repos. */ duration?: number; /** Retouche du relief faite pendant l'action (creuser, monter un tas, aplanir) : devant l'acteur (`dist` m) ou en `at`. */ shape?: { op?: string; r?: number; depth?: number; height?: number; dist?: number; at?: [number, number] }; /** Conduite : place visée (`board`), destination (`drive`). */ seat?: string | number; to?: unknown };
 export type GameEvent = { type: "pick" | "select" | "arrive" | "blocked" | "enter" | "leave" | "actionEnd" | "kick" | "hit" | "rest" | "place" | "dragstart" | "dragRefused" | "placeFree" | "contact" | "settle" | "splash" | "drop" | "impact" | "expire" | "exit" | "state" | "board" | "alight" | "bump" | "terrain" | "grab" | "noClimb"; payload: Record<string, unknown> };
@@ -3591,8 +3591,13 @@ export class ProcgenView {
     this.race?.dispose();
     this.race = null;
     this.raceModel = this.model;
-    const ids = this.model.objects.filter((o) => o.layer === "voitures" && o.generator === "vehicle").map((o) => o.id);
+    const rs0 = this.raceSpec.spec;
+    const ids = this.model.objects.filter((o) => o.layer === rs0.cars && o.generator === "vehicle").map((o) => o.id);
     if (!ids.length) return;
+    // tracé de la recette : la course suit ce chemin (sinon, le circuit généré avec la recette)
+    const path = rs0.track ? this.model.terrain?.paths.find((p) => p.id === rs0.track) : null;
+    const track = path ? trackFromPoints(path.points, path.width) : null;
+    if (rs0.track && !track) return;
     const host = {
       canvas: this.canvas,
       car: (id: string) => {
@@ -3615,7 +3620,7 @@ export class ProcgenView {
     };
     const rs = this.raceSpec;
     const spec = this.raceCamera ? { ...rs.spec, camera: this.raceCamera } : rs.spec;
-    this.race = new RaceDirector(host, spec, ids, { hud: rs.hud, keyboard: rs.keyboard, touch: rs.touch, sound: this.raceSound });
+    this.race = new RaceDirector(host, spec, ids, { hud: rs.hud, keyboard: rs.keyboard, touch: rs.touch, sound: this.raceSound }, track ?? undefined);
     this.race.onSummary = (s) => {
       this.raceOut = s;
       this.onRace();

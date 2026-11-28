@@ -11,7 +11,7 @@
  *   classement final. Éléments DOM créés un par un (aucun HTML injecté).
  */
 import type { DriveState } from "../scene/drive";
-import { type CarInput, NO_CAR_INPUT, RaceSim, type RaceSpec } from "../scene/race";
+import { type CarInput, NO_CAR_INPUT, RaceSim, type RaceSpec, type Track } from "../scene/race";
 import { RaceAudio } from "./race-audio";
 
 export interface RaceHost {
@@ -69,9 +69,9 @@ export class RaceDirector {
   private intro = 0;
   onSummary: (s: Record<string, unknown>) => void = () => {};
 
-  constructor(host: RaceHost, spec: RaceSpec, ids: string[], opts: { hud?: boolean; keyboard?: boolean; touch?: boolean; sound?: boolean } = {}) {
+  constructor(host: RaceHost, spec: RaceSpec, ids: string[], opts: { hud?: boolean; keyboard?: boolean; touch?: boolean; sound?: boolean } = {}, track?: Track) {
     this.host = host;
-    this.sim = new RaceSim(spec, ids);
+    this.sim = track ? new RaceSim(spec, ids, track) : new RaceSim(spec, ids);
     // l'état de conduite des voitures de la scène devient celui du moteur
     for (const c of this.sim.cars) {
       const s = host.car(c.id);
