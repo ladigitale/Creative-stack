@@ -999,7 +999,7 @@ void main() {
       float lace = vnoise(vec3(fp * 2.2, uTime * 0.05)) * 0.65 + vnoise(vec3(fp * 6.5, 7.0 + uTime * 0.08)) * 0.35;
       crest = smoothstep(0.5, 0.85, hc) * smoothstep(0.5, 0.72, lace) * strong * octK(6.5, fwW);
     }
-    float foam = clamp(edge * (0.55 + 0.45 * vnoise(vec3(vPosW.xz * 6.0, uTime * 1.1))) * (uWaterKind > 0.5 ? 0.6 : 0.35 * murk) + crest * 0.55, 0.0, 1.0);
+    float foam = clamp(edge * (0.55 + 0.45 * vnoise(vec3(vPosW.xz * 6.0, uTime * 1.1))) * (uWaterKind > 0.5 ? 0.6 * smoothstep(0.45, 1.0, vAgit) : 0.35 * murk) + crest * 0.55, 0.0, 1.0);
     col = mix(col, (amb * 0.62 + uSun * mix(1.0, sh, uShadowStrength)) * 0.95, foam * 0.85);
     if (fallK > 0.0) {
       vec2 fp = vec2(vPosW.x * 3.0 + vPosW.z * 3.0, vPosW.y * 0.7 + uTime * 2.6);
